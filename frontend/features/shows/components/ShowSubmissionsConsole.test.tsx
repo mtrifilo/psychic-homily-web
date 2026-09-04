@@ -151,14 +151,15 @@ describe('ShowSubmissionsConsole', () => {
     })
   })
 
-  // A slug-less act falls back to its Instagram column, which is the only
-  // place on this page that turns a stored social value into an href.
+  // An act with no page of its own falls back to its Instagram column, which
+  // is the only place on this page that turns a stored social value into an
+  // href. An entity slug can be the empty string, which is what the JSX tests.
   describe('the slug-less act fallback link', () => {
     function showWithSocials(instagram: string) {
       const show = makeShow(1, 'pending')
       return {
         ...show,
-        artists: [{ ...show.artists[0], slug: null, socials: { instagram } }],
+        artists: [{ ...show.artists[0], slug: '', socials: { instagram } }],
       } as ShowResponse
     }
 

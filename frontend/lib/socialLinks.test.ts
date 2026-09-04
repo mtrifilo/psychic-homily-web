@@ -56,6 +56,9 @@ describe('cross-language corpus (the write anchor and this gate are one rule)', 
   it('has entries on every side', () => {
     expect(Object.keys(corpus.platforms).length).toBeGreaterThan(0)
     expect(corpus.storable.length).toBeGreaterThan(0)
+    // Named explicitly: an empty array turns its `it.each` into zero tests, so
+    // the pinned divergence would stop being asserted with nothing failing.
+    expect(corpus.storableButUnrenderable.length).toBeGreaterThan(0)
     expect(corpus.refusedByWriter.length).toBeGreaterThan(0)
   })
 
@@ -152,6 +155,48 @@ describe('socialLinkHref', () => {
     expect(socialLinkHref('instagram', 'calexico')).toBe('https://instagram.com/calexico')
     expect(socialLinkHref('instagram', '@calexico')).toBe('https://instagram.com/calexico')
     expect(socialLinkHref('soundcloud', 'calexico')).toBe('https://soundcloud.com/calexico')
+  })
+
+  // `handleBase` is the half of the registry the shared corpus cannot pin: it
+  // is a render concern with no backend counterpart, and a typo in it still
+  // produces an ANCHORED url, so every corpus assertion would still pass while
+  // every legacy handle resolved to the wrong page. One exact case per field
+  // that has one.
+  it('pins where each platform resolves a handle', () => {
+    expect(socialLinkHref('instagram', 'calexico')).toBe('https://instagram.com/calexico')
+    expect(socialLinkHref('facebook', 'calexico')).toBe('https://facebook.com/calexico')
+    expect(socialLinkHref('twitter', 'calexico')).toBe('https://twitter.com/calexico')
+    expect(socialLinkHref('youtube', 'calexico')).toBe('https://youtube.com/calexico')
+    expect(socialLinkHref('spotify', 'artist/abc')).toBe(
+      'https://open.spotify.com/artist/abc'
+    )
+    expect(socialLinkHref('soundcloud', 'calexico')).toBe('https://soundcloud.com/calexico')
+  })
+
+  // The two fields with no handle base: their account URL is a subdomain or an
+  // arbitrary host, so there is nothing a handle could be appended to.
+  it('renders nothing for a bare handle on a field with no handle base', () => {
+    expect(socialLinkHref('bandcamp', 'calexico')).toBeNull()
+    expect(socialLinkHref('website', 'calexico')).toBeNull()
+  })
+
+  it('refuses a value that is neither a URL nor a handle', () => {
+    expect(socialLinkHref('website', '123')).toBeNull()
+    expect(socialLinkHref('website', 'not a url')).toBeNull()
+  })
+
+  it('takes the same branch for a value however it is cased', () => {
+    expect(socialLinkHref('instagram', 'evil.com')).toBeNull()
+    expect(socialLinkHref('instagram', 'EVIL.COM')).toBeNull()
+  })
+
+  it('refuses userinfo, which is text a browser discards', () => {
+    expect(
+      socialLinkHref('spotify', 'https://evil.test@open.spotify.com/artist/abc')
+    ).toBeNull()
+    expect(
+      socialLinkHref('spotify', 'https://open.spotify.com/artist/abc')
+    ).toBe('https://open.spotify.com/artist/abc')
   })
 
   it('never produces a non-http href from a hostile scheme', () => {

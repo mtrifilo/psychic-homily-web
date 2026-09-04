@@ -65,7 +65,9 @@ export const SOCIAL_LINK_PLATFORMS = {
     label: 'Spotify',
     // The anchor is the whole domain, matching the backend, while a handle
     // resolves under the web player: open.spotify.com is a subdomain of the
-    // anchor, so both agree about where a click lands.
+    // anchor, so both agree about where a click lands. RELEASE_LINK_PLATFORMS
+    // anchors spotify to open.spotify.com alone, because a release link names
+    // one album on the player; a profile column is wider on purpose.
     hosts: ['spotify.com'],
     handleBase: 'https://open.spotify.com/',
   },
@@ -109,15 +111,22 @@ const HAS_HTTP_SCHEME = /^https?:\/\//i
  * anchor below, so widening the tolerance can only ever produce a URL, never a
  * link off the platform.
  */
-function normalizeSocialValue(raw: string, handleBase: string | null): string {
+function normalizeSocialValue(
+  raw: string,
+  handleBase: string | null
+): string | null {
   if (HAS_HTTP_SCHEME.test(raw)) return raw
   if (handleBase && isHandleShaped(raw)) {
     return `${handleBase}${raw.startsWith('@') ? raw.slice(1) : raw}`
   }
-  // Everything else is treated as a scheme-less URL. `https://` rather than
-  // `//` so the result is absolute to the parser as well as to a browser, and
-  // so no branch here can ever produce a non-http scheme.
-  return `https://${raw}`
+  // A scheme-less value is repaired only when it is domain-shaped. `https://`
+  // rather than `//` so the result is absolute to the parser as well as to a
+  // browser, and so no branch here can produce a non-http scheme.
+  //
+  // The dot is what separates a domain from a value that is neither URL nor
+  // handle: without it a stored "123" repairs to `https://123`, which every
+  // browser resolves to the host 0.0.0.123.
+  return raw.includes('.') ? `https://${raw}` : null
 }
 
 /**
@@ -132,9 +141,13 @@ function normalizeSocialValue(raw: string, handleBase: string | null): string {
  */
 function isHandleShaped(raw: string): boolean {
   if (raw.includes(':')) return false
+  // Lowercased first: a host is case-insensitive, so "EVIL.COM" and "evil.com"
+  // must take the same branch rather than one being repaired into a URL and
+  // the other pasted onto the platform's base.
+  const value = raw.toLowerCase()
   return !(
-    raw.includes('.') &&
-    (raw.includes('/') || raw.includes('.com') || raw.includes('.org'))
+    value.includes('.') &&
+    (value.includes('/') || value.includes('.com') || value.includes('.org'))
   )
 }
 
@@ -143,10 +156,14 @@ function isHandleShaped(raw: string): boolean {
  *
  * This is the read half of the host anchor the write boundary applies
  * (utils.ValidateSocialHost). The backend refuses to store an off-platform host
- * in any of the anchored seven, so a row written from now on always produces a
- * link; a row written before that gate existed keeps its value, and this is
- * what stops it becoming an outbound link under a platform's name. Nothing
- * backfills, so the stored value is unchanged either way.
+ * in any of the anchored seven; a row written before that gate existed keeps
+ * its value, and this is what stops it becoming an outbound link under a
+ * platform's name. Nothing backfills, so the stored value is unchanged either
+ * way.
+ *
+ * The two sides are not identical, and the shared corpus is where the gap is
+ * written down: its `storableButUnrenderable` bucket is every shape the write
+ * boundary accepts and this refuses.
  *
  * The href returned is the exact string that was parsed, so the anchor is
  * checked against the same parse a browser performs on the attribute. Returning
@@ -157,15 +174,18 @@ function isHandleShaped(raw: string): boolean {
  * resolves to sits. A legacy handle or scheme-less domain that lands on the
  * platform therefore keeps its link, while the writer stores no more of them.
  *
- * Userinfo is deliberately NOT refused. The anchor reads `hostname`, which
- * excludes it in every parser, so a value carrying userinfo still resolves to
- * the anchored host; and no surface here prints the URL as text, so there is no
- * caption for a userinfo prefix to misread. Refusing it would make a value the
- * write boundary accepts render nothing.
+ * Userinfo is refused, as it is by the release-link gate. A browser discards
+ * it, so the click does land on the anchored host, but it is attacker-chosen
+ * text that is not part of the host in any parser: it reads as a domain in a
+ * status bar truncated from the right, and `sameAs` publishes it verbatim as
+ * part of an identity claim about the entity. The write boundary accepts it, so
+ * this is one of the shapes the corpus records as storable and not rendered.
  *
- * What the anchor buys is "on the platform", never "vouched for by it": a
- * misleading subdomain is where the click genuinely goes, and nothing here
- * closes that.
+ * What the anchor buys is "on the platform", never "vouched for by it". A
+ * misleading subdomain is where the click genuinely goes and nothing here
+ * closes that, and neither does an on-platform redirector: `l.facebook.com` and
+ * `youtube.com/redirect` are anchored hosts that forward off-platform. Closing
+ * those needs a path rule and a shim denylist this deliberately has not got.
  */
 export function socialLinkHref(
   platform: SocialLinkPlatform,
@@ -184,8 +204,10 @@ export function socialLinkHref(
   if (!raw) return null
 
   const candidate = normalizeSocialValue(raw, entry.handleBase)
+  if (candidate === null) return null
   const parsed = parseHttpUrl(candidate)
   if (parsed === null) return null
+  if (parsed.username !== '' || parsed.password !== '') return null
   if (entry.hosts === null) return candidate
   return hostIsAnchored(parsed, entry.hosts) ? candidate : null
 }
@@ -200,9 +222,11 @@ export interface RenderableSocialLink {
 /**
  * The stored columns that may become links, in render order.
  *
- * Every surface that turns a social column into an href or a `sameAs` entry
- * takes its list from here rather than testing the columns itself, so a new
- * surface inherits the gate instead of silently skipping it.
+ * Every surface that turns one of THESE columns into an href or a `sameAs`
+ * entry takes its list from here rather than testing the columns itself, so a
+ * new surface inherits the gate instead of silently skipping it. Radio stations
+ * carry a different, free-form JSONB `social` column with arbitrary keys, which
+ * this registry cannot answer for.
  */
 export function renderableSocialLinks(
   social: SocialLinkValues | null | undefined

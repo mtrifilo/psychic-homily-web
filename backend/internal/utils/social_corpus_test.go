@@ -40,6 +40,7 @@ func loadSocialLinkCorpus(t *testing.T) socialLinkCorpus {
 	require.NoError(t, json.Unmarshal(raw, &corpus))
 	require.NotEmpty(t, corpus.Platforms)
 	require.NotEmpty(t, corpus.Storable)
+	require.NotEmpty(t, corpus.StorableButUnrenderable)
 	require.NotEmpty(t, corpus.RefusedByWriter)
 	return corpus
 }
@@ -99,9 +100,10 @@ func TestSocialLinkCorpusPinsTheTable(t *testing.T) {
 		assert.False(t, anchored, "corpus calls %q unanchored but the Go table anchors it", field)
 	}
 
-	// Table membership alone is not enough. A field with no storable case has
-	// bases neither parser is ever run against, so its anchor is unpoliced and a
-	// later removal is silent in both languages.
+	// Table membership alone is not enough. The ElementsMatch above catches a
+	// field REMOVED from the table; this catches a field whose bases no parser
+	// is ever run against, which is how a host can be wrong in both languages
+	// while every assertion above still passes.
 	exercised := map[string]bool{}
 	for _, c := range corpus.Storable {
 		exercised[c.Field] = true

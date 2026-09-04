@@ -8,9 +8,8 @@
  * platforms are not a social column's hosts); only the parse and the anchor
  * converge here.
  *
- * Readers: lib/releaseLinks.ts and lib/socialLinks.ts. lib/bandcamp.ts keeps its
- * own stricter check, because it doubles as the SSRF guard for a server-side
- * fetch and so demands https alone.
+ * lib/bandcamp.ts deliberately does NOT read them: it doubles as the SSRF guard
+ * for a server-side fetch, so it demands https alone.
  */
 
 /**

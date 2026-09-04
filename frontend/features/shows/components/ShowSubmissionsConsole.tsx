@@ -188,11 +188,10 @@ function SubmissionShowCard({
               className="flex-1 text-lg font-semibold leading-tight tracking-tight"
             >
               {artists.map((artist, index) => {
-                // An act with no page of its own falls back to its Instagram.
-                // Through the shared gate, not a hand-built URL: the column
-                // holds a full URL on every path that writes it today, and
-                // appending one to a base produced a dead
-                // "instagram.com/https://instagram.com/..." link.
+                // An act with no page of its own falls back to its Instagram,
+                // through the shared gate rather than a hand-built URL. The
+                // column holds a full URL on every path that writes it today,
+                // so appending it to a base is wrong as well as ungated.
                 const instagramHref = socialLinkHref(
                   'instagram',
                   artist.socials?.instagram

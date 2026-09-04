@@ -19,10 +19,12 @@
     "             drifting.",
     "unanchored = the fields that make no platform claim and accept any host.",
     "storable   = the write boundary accepts it AND the reader must render it.",
-    "storableButUnrenderable = the write boundary accepts it and the browser's",
-    "             URL parser refuses it outright, so no href can be produced.",
-    "             Both are shapes no real profile URL has, and both fail closed",
-    "             (no link), so they are pinned here rather than closed.",
+    "storableButUnrenderable = the write boundary accepts it and the reader",
+    "             renders nothing, each row's `why` saying which reason: the",
+    "             browser's URL parser refuses the value outright, or the reader",
+    "             refuses it deliberately. Every one fails closed (no link), and",
+    "             pinning them here is what keeps the gap written down instead",
+    "             of merely true.",
     "A blank or whitespace-only value is in no bucket: it is the clear-the-field",
     "gesture, which both sides read as no value rather than as a link, and the",
     "unit tests on each side cover it.",
@@ -130,11 +132,6 @@
       "why": "the apex itself, which the backend base admits"
     },
     {
-      "field": "spotify",
-      "value": "https://evil.test@open.spotify.com/artist/6cM2X9pUxJqL4z1234567",
-      "why": "userinfo is not part of the host in either parser, so the click lands on the platform and both sides accept it"
-    },
-    {
       "field": "soundcloud",
       "value": "https://soundcloud.com/calexico",
       "why": "the apex"
@@ -160,6 +157,11 @@
       "field": "instagram",
       "value": "https://xn--a.instagram.com/",
       "why": "Go treats xn-- as four ordinary bytes; the WHATWG parser decodes the label and throws when it does not decode"
+    },
+    {
+      "field": "spotify",
+      "value": "https://your-account-is-suspended-verify-now.example.com@open.spotify.com/artist/6cM2X9pUxJqL4z1234567",
+      "why": "userinfo: the click does land on the platform, but it is attacker-chosen text that reads as a domain in a right-truncated status bar and that sameAs would publish inside an identity claim, so the reader refuses it as the release-link gate does"
     }
   ],
   "refusedByWriter": [
@@ -306,6 +308,18 @@
       "value": "calexico.example.com/tour",
       "why": "a legacy scheme-less value on the field that anchors no host",
       "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
+      "value": "EVIL.COM",
+      "why": "the domain shape test is case-insensitive, so this is repaired to a URL and refused rather than pasted onto the platform's base",
+      "rendersAnyway": false
+    },
+    {
+      "field": "website",
+      "value": "123",
+      "why": "neither a URL nor a handle: repairing it would produce https://123, which resolves to the host 0.0.0.123",
+      "rendersAnyway": false
     },
     {
       "field": "instagram",

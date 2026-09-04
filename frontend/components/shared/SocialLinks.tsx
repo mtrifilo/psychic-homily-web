@@ -80,9 +80,9 @@ const SOCIAL_ICONS: Record<
  * The href, the label and the order all come from `renderableSocialLinks`, so
  * this renders only what the host anchor accepts: a stored value whose host is
  * not the platform's produces no button at all, rather than an arbitrary
- * destination under a name the reader trusts. Six surfaces mount this component
- * with a raw contributor-writable column, so the gate lives here rather than at
- * the callers, where the next caller would silently skip it.
+ * destination under a name the reader trusts. Every mount site hands this
+ * component a raw contributor-writable column, so the gate lives here rather
+ * than at the callers, where the next caller would silently skip it.
  */
 export function SocialLinks({ social, className }: SocialLinksProps) {
   const links = renderableSocialLinks(social)

@@ -341,6 +341,41 @@ describe('FestivalDetail', () => {
     expect(screen.queryByTestId('festival-ticket-vendor')).toBeNull()
   })
 
+  // Non-empty and refused. The festival social wrapper is free-form JSONB, so
+  // this is also the case where a key that is not a platform reaches the gate.
+  it('renders no Links section when every social value is off-platform', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        website: null,
+        ticket_url: null,
+        social: {
+          instagram: 'https://instagram.com.evil.test/form',
+          spotify: 'https://spotify-account-verify.evil.test/',
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
+  })
+
+  it('renders the Links section for a conforming social value', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        website: null,
+        ticket_url: null,
+        social: { instagram: 'https://instagram.com/formarcosanti' },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.getByRole('heading', { name: 'Links' })).toBeTruthy()
+  })
+
   // The gate and the anchor read the same value: gating the section on the raw
   // column while rendering a trimmed one (or the reverse) yields either a
   // heading over nothing or an href="   " that reopens the current page.

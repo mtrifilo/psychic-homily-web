@@ -79,8 +79,10 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
 
   // ONE policy for every URL in this box: keep only absolute http(s), drop the
   // rest. These columns are operator-entered free text, and `social` is
-  // free-form JSONB whose values are sometimes bare handles (SocialLinks builds
-  // hrefs from baseUrl + handle). Dropping an unusable value is better than
+  // free-form JSONB with arbitrary keys, whose values are sometimes bare
+  // handles. The entity social gate (lib/socialLinks.ts) does not answer for
+  // this column: its registry is the eight typed columns on artists, venues and
+  // labels, and it is keyed on platform. Dropping an unusable value is better than
   // both alternatives: a broken/relative anchor, or a permanently greyed
   // bracket (BracketLink's `external` floor renders one) that looks like a
   // disabled feature rather than bad data.

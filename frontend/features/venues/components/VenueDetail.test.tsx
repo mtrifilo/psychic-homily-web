@@ -443,6 +443,9 @@ describe('VenueDetail', () => {
       })
       render(<VenueDetail venueId="1" />)
       expect(screen.queryByText('javascript:alert(1)')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: /therebelphx|javascript/i })
+      ).not.toBeInTheDocument()
     })
 
     it('renders social links when social data exists', () => {
