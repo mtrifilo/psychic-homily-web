@@ -39,7 +39,11 @@
     "             legacy shapes the reader deliberately keeps: handles and",
     "             scheme-less domains that still land on the platform. The rest",
     "             are the ones a click would carry off-platform, and the reader",
-    "             must refuse every one."
+    "             must refuse every one.",
+    "`goParserRefuses` marks a rendersAnyway row the reader keeps only because",
+    "             the two languages PARSE it differently, not because the legacy",
+    "             tolerance resolves it. The offline writers' gate is allowed to",
+    "             refuse those, and is asserted on every other rendersAnyway row."
   ],
   "platforms": {
     "instagram": ["instagram.com"],
@@ -162,6 +166,11 @@
     }
   ],
   "storableButUnrenderable": [
+    {
+      "field": "instagram",
+      "value": "\u00a0https://instagram.com/calexico",
+      "why": "a leading no-break space, which is what pasting a handle out of a rendered page produces: strings.TrimSpace strips it so the HTTP boundary stores it, while the URL parser keeps it and the value resolves to nothing. The offline writers' ValidateStoredSocialValue strips only what the parser strips, so it refuses this one"
+    },
     {
       "field": "instagram",
       "value": "https://x.instagram.com:99999/",
@@ -343,6 +352,13 @@
     },
     {
       "field": "website",
+      "value": "//calexico.example.com/tour",
+      "why": "protocol-relative: Go's parser reads no host at all and refuses, while the browser collapses the slashes and resolves the host, so the reader keeps it",
+      "rendersAnyway": true,
+      "goParserRefuses": true
+    },
+    {
+      "field": "website",
       "value": "123",
       "why": "neither a URL nor a handle: repairing it would produce https://123, which resolves to the host 0.0.0.123",
       "rendersAnyway": false
@@ -351,7 +367,8 @@
       "field": "instagram",
       "value": "https://instagram.com\\evil.test/x",
       "why": "Go's parser refuses a backslash in the authority; the browser folds it into the path, so the click still lands on instagram.com",
-      "rendersAnyway": true
+      "rendersAnyway": true,
+      "goParserRefuses": true
     }
   ]
 }

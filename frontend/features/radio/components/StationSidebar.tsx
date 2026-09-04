@@ -85,9 +85,14 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   // ONE gate for every URL in this box, and it is the gate the entity pages ask
   // (lib/socialLinks.ts). These columns are operator-entered free text and
   // `social` is free-form JSONB whose KEY is printed as the link's label, so a
-  // value under a platform's name is judged by that platform's host anchor and
-  // everything else by the parse alone. A key the registry does not know makes
-  // a claim nothing can check, so it renders nothing.
+  // value under a platform's name is judged by that platform's host anchor,
+  // while `donate` and the station website anchor no host and are judged by the
+  // parse. A key the registry does not know makes a claim nothing can check, so
+  // it renders nothing at all: a station carrying a `bluesky` or `mixcloud` key
+  // keeps the stored value and shows no bracket for it.
+  //
+  // This is the READ half only: nothing validates these columns on write, which
+  // is tracked in PSY-1953.
   //
   // Every entry below carries the href the gate RETURNED, never the raw column,
   // so the value the anchor was checked against is the value the browser

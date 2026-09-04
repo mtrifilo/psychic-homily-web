@@ -126,6 +126,13 @@ function normalizeSocialValue(
   // The dot is what separates a domain from a value that is neither URL nor
   // handle: without it a stored "123" repairs to `https://123`, which every
   // browser resolves to the host 0.0.0.123.
+  //
+  // The dot is a floor, not a proof of a domain. A dotted numeric value is
+  // still read as an IPv4 address: "0x7f.1" resolves to 127.0.0.1 and "1.5" to
+  // 1.0.0.5. On an ANCHORED field the host anchor below refuses every one of
+  // them; on an unanchored field the result is a link to an address on the
+  // reader's own network, which no gate here can distinguish from a deliberate
+  // one.
   return raw.includes('.') ? `https://${raw}` : null
 }
 
@@ -228,10 +235,11 @@ export function isSocialLinkPlatform(key: string): key is SocialLinkPlatform {
  * The href a stored value may become on a column that makes no platform claim.
  *
  * A station's `website` and `donation_url` are operator-entered free text on any
- * host, so the anchor has nothing to anchor to and this is the parse alone: an
- * absolute http(s) URL with no userinfo, or nothing. It is the `website` field's
- * rule under a name that says what the caller is asking, so the two cannot
- * drift.
+ * host, so there is no platform to anchor to and what is left is the tolerance
+ * plus the parse: a scheme-less domain is repaired, and what survives is an
+ * absolute http(s) URL with no userinfo, or nothing. It is the `website`
+ * field's rule under a name that says what the caller is asking, so the two
+ * cannot drift.
  *
  * A value that fails renders no link at all. That is better than the two
  * alternatives on these surfaces: a relative or unusable href, or a permanently

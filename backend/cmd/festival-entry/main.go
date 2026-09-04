@@ -219,20 +219,6 @@ func validateFestivalURLs(input *FestivalInput) error {
 }
 
 func createFestivalFromInput(database *gorm.DB, festivalService *catalog.FestivalService, input *FestivalInput, stats *importStats) uint {
-	// The URL rules the HTTP festival endpoints apply, run here because this CLI
-	// calls the service directly and so meets none of the handler's validation.
-	// Both columns become an outbound link on the festival page.
-	//
-	// BEFORE the exists probe and the dry-run gate, unlike the data import: a
-	// value typed at a prompt or written in a JSON file is new input every time,
-	// never a legacy row being moved, so there is nothing here to keep working
-	// and a dry run that reported a create it would refuse would be a lie.
-	if err := validateFestivalURLs(input); err != nil {
-		fmt.Printf("[ERROR] %v\n", err)
-		stats.errors++
-		return 0
-	}
-
 	// Check if festival already exists (by series_slug + edition_year)
 	existing := findExistingFestival(database, input.SeriesSlug, input.EditionYear)
 	if existing != nil {
@@ -240,6 +226,24 @@ func createFestivalFromInput(database *gorm.DB, festivalService *catalog.Festiva
 		fmt.Println("         Will add lineup entries to existing festival.")
 		fmt.Println()
 		return existing.ID
+	}
+
+	// The URL rules the HTTP festival endpoints apply, run here because this CLI
+	// calls the service directly and so meets none of the handler's validation.
+	// Both columns become an outbound link on the festival page.
+	//
+	// AFTER the exists probe, for the same reason importArtist checks after its
+	// duplicate probe: the EXISTS branch above writes neither column and returns
+	// the id so the lineup pass can run, so validating first would abort a whole
+	// re-run of a file over a value that branch never touches. Re-running the
+	// same JSON to add lineup entries is the documented workflow.
+	//
+	// BEFORE the dry-run gate, though: a dry run that reported a create the live
+	// run would refuse would be a lie.
+	if err := validateFestivalURLs(input); err != nil {
+		fmt.Printf("[ERROR] %v\n", err)
+		stats.errors++
+		return 0
 	}
 
 	if confirm && !dryRun {

@@ -1785,7 +1785,9 @@ function StationShowList({
  * shared gate accepts it, the plain stored text when it does not.
  *
  * This row is where an admin checks what was saved, so it prints the value
- * either way and only the linking differs.
+ * either way and only the linking differs. Nothing validates these columns on
+ * write (tracked in PSY-1953), so a value that will not link is exactly what an
+ * admin needs to see here.
  */
 function GatedExternalValue({ value }: { value: string }) {
   const href = unanchoredLinkHref(value)
@@ -1926,9 +1928,7 @@ function StationDetailPanel({
           {stationDetail.stream_url && (
             <div>
               <span className="text-muted-foreground">Stream:</span>{' '}
-              <a href={stationDetail.stream_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                {stationDetail.stream_url}
-              </a>
+              <GatedExternalValue value={stationDetail.stream_url} />
             </div>
           )}
         </div>

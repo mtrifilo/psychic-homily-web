@@ -2,27 +2,32 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// TestValidateApplyURLs is the pure half: the gate reads the built updates map,
-// so these are the shapes that map can hold on either apply path.
-func TestValidateApplyURLs(t *testing.T) {
+// TestValidateApproveURLs is the pure half: the gate reads the built updates
+// map, so these are the shapes that map can hold on the approve path. The
+// rollback path applies the same per-field rule through validateRollbackURLField
+// but drops what it refuses instead of refusing the edit, which the flyer_url
+// case below pins from both sides.
+func TestValidateApproveURLs(t *testing.T) {
 	t.Run("absent, nil and empty pass", func(t *testing.T) {
-		assert.NoError(t, validateApplyURLs(map[string]interface{}{}))
-		assert.NoError(t, validateApplyURLs(map[string]interface{}{"spotify": nil}))
-		assert.NoError(t, validateApplyURLs(map[string]interface{}{"spotify": ""}))
+		assert.NoError(t, validateApproveURLs(map[string]interface{}{}))
+		assert.NoError(t, validateApproveURLs(map[string]interface{}{"spotify": nil}))
+		assert.NoError(t, validateApproveURLs(map[string]interface{}{"spotify": ""}))
 	})
 
 	t.Run("an on-platform value passes", func(t *testing.T) {
-		assert.NoError(t, validateApplyURLs(map[string]interface{}{
+		assert.NoError(t, validateApproveURLs(map[string]interface{}{
 			"spotify":   "https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb",
 			"instagram": "https://www.instagram.com/realband/",
 			"website":   "https://realband.example.org/tour",
@@ -33,7 +38,7 @@ func TestValidateApplyURLs(t *testing.T) {
 		// Skipping would leave the row to 500 at the driver on every approve
 		// attempt and sit pending forever. A 422 is actionable.
 		for _, bad := range []any{42, true, map[string]any{"x": 1}, []any{"a"}} {
-			assert.Error(t, validateApplyURLs(map[string]interface{}{"spotify": bad}))
+			assert.Error(t, validateApproveURLs(map[string]interface{}{"spotify": bad}))
 		}
 	})
 
@@ -51,7 +56,7 @@ func TestValidateApplyURLs(t *testing.T) {
 			"bandcamp":   "https://169.254.169.254/",
 		}
 		for field, hostile := range cases {
-			assert.Error(t, validateApplyURLs(map[string]interface{}{field: hostile}),
+			assert.Error(t, validateApproveURLs(map[string]interface{}{field: hostile}),
 				"%s must not approve %q", field, hostile)
 		}
 	})
@@ -60,17 +65,35 @@ func TestValidateApplyURLs(t *testing.T) {
 		// website anchors no host by design, so the scheme rule is the whole
 		// guard, and it is still the difference between a link and a
 		// javascript: URL in a rendered attribute.
-		for _, field := range []string{"website", "ticket_url", "flyer_url", "cover_art_url"} {
-			assert.Error(t, validateApplyURLs(map[string]interface{}{field: "javascript:alert(1)"}), field)
-			assert.NoError(t, validateApplyURLs(map[string]interface{}{field: "https://example.org/x"}), field)
+		for _, field := range []string{"website", "ticket_url", "cover_art_url"} {
+			assert.Error(t, validateApproveURLs(map[string]interface{}{field: "javascript:alert(1)"}), field)
+			assert.NoError(t, validateApproveURLs(map[string]interface{}{field: "https://example.org/x"}), field)
 		}
+	})
+
+	// flyer_url is gated on BOTH apply paths, and this pins it from both sides.
+	// It is the only contributor-editable URL field with no submit-side rule
+	// (TestFlyerURLHasNoSubmitSideRule), so approve is the only thing standing
+	// between a filed value and an <img src> on the public festival page.
+	//
+	// The cost is real and accepted: a relative path is refused at approve
+	// rather than at submit, so the contributor learns late and resubmits.
+	t.Run("flyer_url is checked on both apply paths", func(t *testing.T) {
+		relative := map[string]interface{}{"flyer_url": "/uploads/flyer.jpg"}
+		assert.Error(t, validateApproveURLs(relative),
+			"nothing else checks this field, so approve must")
+		assert.Error(t, validateRollbackURLField(relative, "flyer_url"),
+			"rollback refuses it too, and since PSY-1998 drops only this field")
+
+		absolute := map[string]interface{}{"flyer_url": "https://cdn.example.org/f.jpg"}
+		assert.NoError(t, validateApproveURLs(absolute))
 	})
 
 	t.Run("a bare handle is refused, unlike the offline writers", func(t *testing.T) {
 		// This path is a contributor form's value, not a legacy row's, so the
 		// legacy tolerance (utils.ValidateStoredSocialValue) deliberately does
 		// not apply: the submit handler refuses a handle and so must approve.
-		assert.Error(t, validateApplyURLs(map[string]interface{}{"instagram": "calexico"}))
+		assert.Error(t, validateApproveURLs(map[string]interface{}{"instagram": "calexico"}))
 	})
 }
 
@@ -105,6 +128,13 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RefusesQ
 	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().Error(err, "approval must fail for %s", hostile)
 	s.Contains(err.Error(), "spotify.com", "the refusal must name the hosts an admin can act on")
+
+	// The CODE, not just an error: the AC asks for a 422, and
+	// shared.MapPendingEditError turns exactly this code into one. Asserting the
+	// message alone would survive a remap to a 500.
+	var editErr *apperrors.PendingEditError
+	s.Require().True(errors.As(err, &editErr))
+	s.Equal(apperrors.CodePendingEditInvalidRequest, editErr.Code)
 
 	var applied struct{ Spotify *string }
 	s.Require().NoError(s.db.Table("artists").
@@ -153,19 +183,30 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesO
 // TestApprovePendingEdit_ClearsSocialField pins the clear-the-field gesture: an
 // empty string is how a contributor removes a stale link, and the gate must not
 // turn that into an unapprovable row.
+//
+// It asserts what the column HOLDS afterwards only to record today's behaviour,
+// which is "" rather than NULL. That is the blank-but-not-null shape
+// BlankBandcampEmbedToNil exists to prevent on the shaped fields; the social
+// columns have no such normalizer and no `IS NULL` repair path reading them.
+// A change that normalizes them is free to update this line.
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ClearsSocialField() {
 	user := s.createTestUser()
 	reviewer := s.createTestUser()
 	artist := s.createTestArtist(fmt.Sprintf("Social Gate Artist %d", time.Now().UnixNano()))
+	const stored = "https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
 	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).
-		Update("spotify", "https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb").Error)
+		Update("spotify", stored).Error)
 
+	// OldValue must equal what the column currently holds: since PSY-1998 the
+	// submit path derives it and refuses a mismatch as stale (409), so a
+	// deliberately wrong claim here would never reach the approve gate under
+	// test.
 	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 		UserID:     user.ID,
 		Changes: []adminm.FieldChange{
-			{Field: "spotify", OldValue: nil, NewValue: ""},
+			{Field: "spotify", OldValue: stored, NewValue: ""},
 		},
 		Summary: "remove their stale spotify",
 	})

@@ -16,6 +16,7 @@ import {
   isLiveNow,
   isWindowLiveOrPending,
 } from '@/features/radio'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
 
@@ -138,6 +139,9 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     ? `${airedVerb} ${viewerAired}`
     : `${airedVerb} ${formatWeekday(episode.air_date)}${airTime ? ` ${airTime}` : ''}`
 
+  const archiveHref = unanchoredLinkHref(episode.archive_url)
+  const mixcloudHref = unanchoredLinkHref(episode.mixcloud_url)
+
   const metaParts = [
     `${episode.play_count} ${episode.play_count === 1 ? 'track' : 'tracks'}${isLive ? ' so far' : ''}`,
     duration,
@@ -169,25 +173,21 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
               )}
             </h1>
             <div className="flex items-center gap-2 shrink-0">
-              {episode.archive_url && (
+              {/* Both columns are written verbatim from a station's own feed,
+                  so they are third-party strings reaching an href. Read through
+                  the same gate the station columns use: a value a browser
+                  resolves to an absolute http(s) URL, or no button. */}
+              {archiveHref && (
                 <Button asChild size="sm">
-                  <a
-                    href={episode.archive_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={archiveHref} target="_blank" rel="noopener noreferrer">
                     <Play className="h-3.5 w-3.5 mr-1.5" />
                     Play archive
                   </a>
                 </Button>
               )}
-              {episode.mixcloud_url && (
+              {mixcloudHref && (
                 <Button asChild variant="outline" size="sm">
-                  <a
-                    href={episode.mixcloud_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={mixcloudHref} target="_blank" rel="noopener noreferrer">
                     Mixcloud
                     <ArrowUpRight className="h-3.5 w-3.5 ml-1" />
                   </a>

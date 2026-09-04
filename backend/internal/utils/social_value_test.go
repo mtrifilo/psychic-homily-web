@@ -3,7 +3,6 @@ package utils
 import (
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,6 +34,13 @@ func TestSocialHandleBasesMatchCorpus(t *testing.T) {
 		assert.NoError(t, ValidateSocialHost(field, field, base+"someone"),
 			"the handle base for %q resolves off its own anchored host", field)
 	}
+
+	// NormalizeInstagramHandle builds the same URL from its own literal, so a
+	// base changed here without changing it would have the show-submission
+	// writer and the read gate naming different pages for one handle.
+	normalized, err := NormalizeInstagramHandle("calexico")
+	assert.NoError(t, err)
+	assert.Equal(t, socialHandleBases["instagram"]+"calexico", normalized)
 }
 
 // TestValidateStoredSocialValueAgainstCorpus judges the offline writers' gate
@@ -46,12 +52,14 @@ func TestSocialHandleBasesMatchCorpus(t *testing.T) {
 //   - `refusedByWriter` with rendersAnyway false must fail: those are the values
 //     a click carries off-platform, and the tolerance must not open a door to
 //     one.
-//   - `refusedByWriter` with rendersAnyway true and NO scheme must pass: that is
-//     the tolerance's whole job, and it is why the dev seed still loads.
-//   - `storableButUnrenderable` is not asserted here. Those rows are places Go's
-//     URL parser and the browser's disagree, which this gate inherits from
-//     ValidateHTTPURL rather than decides; TestSocialLinkCorpus already pins
-//     them for every write path.
+//   - `refusedByWriter` with rendersAnyway true must pass UNLESS the row is
+//     marked goParserRefuses: that is the tolerance's whole job, and it is why
+//     the dev seed still loads. A goParserRefuses row is one the reader keeps
+//     only because the two languages parse it differently, which this gate
+//     inherits from ValidateHTTPURL rather than decides; those are skipped, and
+//     the skipped set is asserted non-empty so the class stays visible.
+//   - `storableButUnrenderable` is not asserted here for the same reason.
+//     TestSocialLinkCorpus already pins those for every write path.
 func TestValidateStoredSocialValueAgainstCorpus(t *testing.T) {
 	corpus := loadSocialLinkCorpus(t)
 
@@ -60,6 +68,7 @@ func TestValidateStoredSocialValueAgainstCorpus(t *testing.T) {
 			"corpus says storable (%s) but the offline gate refuses: %s %q", c.Why, c.Field, c.Value)
 	}
 
+	skipped := 0
 	for _, c := range corpus.RefusedByWriter {
 		if !c.RendersAnyway {
 			assert.Error(t, ValidateStoredSocialValue(c.Field, c.Field, c.Value),
@@ -67,17 +76,19 @@ func TestValidateStoredSocialValueAgainstCorpus(t *testing.T) {
 				c.Why, c.Field, c.Value)
 			continue
 		}
-		// A rendersAnyway row that already carries a scheme is a parser
-		// divergence, not a legacy shape the tolerance exists for: Go refuses
-		// "https://instagram.com\evil.test/x" in the authority while the browser
-		// folds the backslash into the path. Failing closed there is correct.
-		if hasHTTPSchemePrefix(strings.TrimSpace(c.Value)) {
+		if c.GoParserRefuses {
+			// Named in the corpus rather than inferred, so a new row of this
+			// class is a deliberate claim and not a silent exemption.
+			skipped++
+			assert.Error(t, ValidateStoredSocialValue(c.Field, c.Field, c.Value),
+				"corpus calls %s %q a Go-parser refusal but the offline gate accepts it", c.Field, c.Value)
 			continue
 		}
 		assert.NoError(t, ValidateStoredSocialValue(c.Field, c.Field, c.Value),
 			"corpus says the reader still renders it (%s) but the offline gate refuses: %s %q",
 			c.Why, c.Field, c.Value)
 	}
+	assert.NotZero(t, skipped, "the goParserRefuses class is asserted, not merely exempted")
 }
 
 // TestValidateStoredSocialValue covers the shapes the corpus deliberately
@@ -107,6 +118,17 @@ func TestValidateStoredSocialValue(t *testing.T) {
 		// host, but it must resolve to an absolute http URL.
 		assert.NoError(t, ValidateStoredSocialValue("mastodon", "Mastodon URL", "https://mas.to/@x"))
 		assert.Error(t, ValidateStoredSocialValue("mastodon", "Mastodon URL", "javascript:alert(1)"))
+	})
+
+	// strings.TrimSpace strips U+00A0 and the browser's URL parser does not, so
+	// trimming with it would certify a value that renders no link at all.
+	t.Run("only the whitespace a URL parser strips is stripped", func(t *testing.T) {
+		const onPlatform = "https://instagram.com/calexico"
+		assert.NoError(t, ValidateStoredSocialValue("instagram", "Instagram URL", "  "+onPlatform+"\t"))
+		for _, pad := range []string{"\u00a0", "\u2003", "\u0085"} {
+			assert.Error(t, ValidateStoredSocialValue("instagram", "Instagram URL", pad+onPlatform),
+				"a leading %q makes the value unparseable to a reader", pad)
+		}
 	})
 
 	t.Run("the value is judged, not rewritten", func(t *testing.T) {
@@ -159,4 +181,28 @@ func TestValidateStoredSocialColumns(t *testing.T) {
 		assert.NotEmpty(t, SocialFieldLabels[field], "field %q has no refusal label", field)
 	}
 	assert.NotEmpty(t, SocialFieldLabels["website"])
+}
+
+// TestDropUnrenderableSocialColumns pins the bulk writer's rule: clear the
+// column, keep the row, and NAME what was cleared.
+func TestDropUnrenderableSocialColumns(t *testing.T) {
+	hostile := "https://spotify-account-verify.evil.test/"
+	handle := "calexico"
+	website := "https://calexico.example.com/"
+	columns := SocialColumns{Spotify: &hostile, Instagram: &handle, Website: &website}
+
+	dropped := DropUnrenderableSocialColumns(&columns)
+	assert.Equal(t, []string{"spotify"}, dropped)
+	assert.Nil(t, columns.Spotify, "the refused column is cleared")
+	assert.Equal(t, &handle, columns.Instagram, "a legacy handle survives")
+	assert.Equal(t, &website, columns.Website, "a conforming column survives")
+
+	// Reported in field order, so one operator reading two rows sees one order.
+	bad := "javascript:alert(1)"
+	many := SocialColumns{Website: &bad, Instagram: &bad, Bandcamp: &bad}
+	assert.Equal(t, []string{"instagram", "bandcamp", "website"}, DropUnrenderableSocialColumns(&many))
+
+	clean := SocialColumns{Instagram: &handle}
+	assert.Empty(t, DropUnrenderableSocialColumns(&clean), "a clean row reports nothing")
+	assert.Equal(t, &handle, clean.Instagram)
 }

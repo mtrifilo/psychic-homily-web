@@ -156,15 +156,22 @@ describe('StationSidebar — STATION info box outbound links', () => {
   // browser resolves and what was judged are the same string. The station
   // columns inherit that with the gate.
   it.each([
-    ['givewfmu.org', 'https://givewfmu.org'],
-    ['//give.wfmu.org/x', 'https:////give.wfmu.org/x'],
-  ])('repairs a scheme-less donation url (%s) to an absolute href', (url, href) => {
-    render(<StationSidebar station={makeStation({ donation_url: url })} />)
+    ['givewfmu.org', 'https://givewfmu.org', 'givewfmu.org'],
+    ['//give.wfmu.org/x', 'https:////give.wfmu.org/x', 'give.wfmu.org'],
+  ])(
+    'repairs a scheme-less donation url (%s) to an absolute href',
+    (url, href, hostname) => {
+      render(<StationSidebar station={makeStation({ donation_url: url })} />)
 
-    const link = screen.getByRole('link', { name: /^Donate to WFMU\b/ })
-    expect(link).toHaveAttribute('href', href)
-    expect(new URL(link.getAttribute('href') ?? '').protocol).toBe('https:')
-  })
+      const link = screen.getByRole('link', { name: /^Donate to WFMU\b/ })
+      expect(link).toHaveAttribute('href', href)
+      // The HOST, not just the scheme: the repaired string is what the browser
+      // resolves, so what it resolves TO is the claim worth pinning.
+      const resolved = new URL(link.getAttribute('href') ?? '')
+      expect(resolved.protocol).toBe('https:')
+      expect(resolved.hostname).toBe(hostname)
+    }
+  )
 
   // The key is printed as the link's visible label, so a value under a
   // platform's name is held to that platform's host anchor: "spotify" pointing
