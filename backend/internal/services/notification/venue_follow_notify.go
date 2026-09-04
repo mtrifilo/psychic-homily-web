@@ -1090,13 +1090,9 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 
 	html := buildVenueShowAlertEmailHTML(batch, mailable, unsubscribeURL, manageURL)
 
-	// Bounded before interpolation so that an overlong scraped venue name is what
-	// gets cut rather than the show count in front of it. Header safety is not
-	// this line's job: EmailService.send applies headerSafeSubject to every
-	// subject.
 	subject := fmt.Sprintf("%s at %s",
 		venueAlertShowCountPhrase(len(mailable)),
-		truncateRunes(batch.venueName, maxEmailSubjectEntityRunes))
+		subjectEntityName(batch.venueName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
