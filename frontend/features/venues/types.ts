@@ -16,6 +16,12 @@ export interface Venue {
   address: string | null
   city: string
   state: string
+  /**
+   * Free text, absent for most rows and never canonicalized: the column is
+   * written from several sources ("US", "USA", "United States", "Germany").
+   * Absent is "unknown", not "United States".
+   */
+  country?: string | null
   /** IANA timezone resolved from the venue's location (PSY-985). Null until backfilled. */
   timezone?: string | null
   /**

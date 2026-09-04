@@ -24,8 +24,12 @@ import {
   type ShowUpdateResponse,
 } from '../hooks/useShowUpdate'
 import { combineDateTimeToUTC } from '@/lib/utils/timeUtils'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import {
+  isShowTimezoneResolved,
+  resolveShowTimezone,
+} from '@/lib/utils/formatters'
 import type { Venue } from '@/features/venues'
+import { formatLocation } from '@/lib/formatLocation'
 import { useDismissTimer } from '@/lib/hooks/common'
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
@@ -128,8 +132,11 @@ const showFormFields = {
  * event_date through `resolveShowTimezone(venue.state, selectedVenue.timezone)`,
  * which prefers the venue's resolved IANA zone and consults the state only when
  * there is none; a blank state then resolves FALLBACK_SHOW_TIMEZONE. So a blank
- * state is safe exactly when the venue it describes is the one the date and
- * time fields were already read against, which `stateLessVenueId` names.
+ * state is safe exactly when the zone that expression returns is a zone the
+ * form MEANT, which `stateLessVenueId` names the venue of: on an edit, the
+ * venue the date and time fields were already read against; on a create with a
+ * locked prefilled venue, a venue carrying a resolved zone of its own, which
+ * dominates the blank state.
  *
  * Both halves of the predicate are load-bearing. `stateLessVenueId !== undefined`
  * keeps a venue-less show, whose id is also undefined, from matching on
@@ -138,7 +145,8 @@ const showFormFields = {
  * re-anchor the show whenever the two venues resolve different zones.
  *
  * Everything else keeps the plain requirement: a state the user cleared, a
- * different venue picked mid-edit, and every create.
+ * different venue picked mid-edit, a venue typed in by name (where nothing but
+ * the state identifies a zone), and every other create.
  *
  * This is deliberately STRICTER than the backend. `associateVenues` resolves a
  * venue carrying an id by primary key and would accept any of those, since only
@@ -281,10 +289,23 @@ export function ShowForm({
     return mergeExtraction(defaultFormValues, initialExtraction)
   })()
 
-  // The venue this form OPENED on, when it has no state on file and so seeded
-  // the state field blank. That venue is the only one a save may name without
-  // a state, because it is the only one whose zone the date and time fields on
-  // screen were already read in.
+  // The one venue this save may name without a state, or undefined when there
+  // is none. Two paths reach it, for two different reasons:
+  //
+  // - An EDIT opened on a venue with no state on file, which seeded the state
+  //   field blank. That venue's zone is the one the date and time fields on
+  //   screen were already read in, so recomposing in it round-trips.
+  // - A CREATE on a locked prefilled venue whose zone is resolved. There is no
+  //   instant to round-trip yet; the exemption is safe because `timezone`
+  //   dominates the state in `resolveShowTimezone`, so the submit composes in
+  //   the venue's own zone whatever the state field holds. A prefilled venue
+  //   with no resolved zone keeps the requirement: there a blank state would
+  //   silently anchor the show to FALLBACK_SHOW_TIMEZONE.
+  //
+  //   A prefilled venue that HAS a state arms the exemption too, and it is
+  //   inert: `isVenueLocationEditable` is false for every prefilled venue, so
+  //   the field cannot be emptied and the plain `venue.state !== ''` branch
+  //   answers first.
   //
   // Captured once, in a state initializer, for the same reason TanStack Form
   // reads `defaultValues` once: it has to describe the values the form is
@@ -293,14 +314,25 @@ export function ShowForm({
   // disabled for a non-admin on a verified venue, so that error would land on
   // a control the user cannot act on.
   //
-  // Gated on `initialData` rather than on `isEditMode` alone so it decides on
-  // the same condition the submit branch below does; `mode="edit"` without
-  // initialData builds a CREATE payload, which the exemption must not cover.
-  const [stateLessVenueId] = useState(() =>
-    isEditMode && initialData && initialFormValues.venue.state === ''
-      ? initialFormValues.venue.id
-      : undefined
-  )
+  // The edit branch is gated on `initialData` rather than on `isEditMode` alone
+  // so it decides on the same condition the submit branch below does;
+  // `mode="edit"` without initialData builds a CREATE payload. That payload's
+  // venue is the prefilled one when there is one, which is why the create
+  // branch reads `prefilledVenue` rather than the mode.
+  const [stateLessVenueId] = useState(() => {
+    if (isEditMode && initialData) {
+      return initialFormValues.venue.state === ''
+        ? initialFormValues.venue.id
+        : undefined
+    }
+    if (
+      prefilledVenue &&
+      isShowTimezoneResolved(prefilledVenue.state, prefilledVenue.timezone)
+    ) {
+      return prefilledVenue.id
+    }
+    return undefined
+  })
 
   const formSchema = useMemo(
     () => makeShowFormSchema(stateLessVenueId),
@@ -670,7 +702,9 @@ export function ShowForm({
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <span className="font-medium">{prefilledVenue.name}</span>
               <span className="text-muted-foreground">
-                — {prefilledVenue.city}, {prefilledVenue.state}
+                {/* formatLocation, not a template: a venue with no state on
+                    file would otherwise render a trailing comma. */}
+                — {formatLocation({ city: prefilledVenue.city, state: prefilledVenue.state })}
               </span>
             </div>
           </div>

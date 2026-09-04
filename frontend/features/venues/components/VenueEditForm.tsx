@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import {
@@ -13,7 +13,11 @@ import { useVenueUpdate } from '../hooks/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useDismissTimer } from '@/lib/hooks/common'
 import type { VenueWithShowCount, Venue } from '../types'
-import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
+import {
+  detectVenueChanges,
+  venueMayOmitState,
+  type VenueEditFormValues,
+} from './venue-edit-utils'
 import {
   Dialog,
   DialogContent,
@@ -31,22 +35,35 @@ import { FieldInfo } from '@/components/forms/FormField'
 // How long the success flash shows before the dialog closes itself.
 const SUCCESS_CLOSE_DELAY_MS = 1500
 
-// Form validation schema
-const venueEditSchema = z.object({
-  name: z.string().min(1, 'Venue name is required'),
-  address: z.string(),
-  city: z.string().min(1, 'City is required'),
-  state: z.string().min(2, 'State is required'),
-  zipcode: z.string(),
-  instagram: z.string(),
-  facebook: z.string(),
-  twitter: z.string(),
-  youtube: z.string(),
-  spotify: z.string(),
-  soundcloud: z.string(),
-  bandcamp: z.string(),
-  website: z.string(),
-})
+/**
+ * The form's rules, with the state requirement supplied by the caller.
+ *
+ * A blank state is an exemption for the one venue the form opened on, decided
+ * by `venueMayOmitState`, which owns why. Every other venue keeps the plain
+ * requirement, and so does a state the user cleared.
+ *
+ * The two-character floor is a US postal-abbreviation check, not a length rule
+ * about states in general: it predates any non-US venue reaching this form and
+ * is kept for the venues it does describe.
+ */
+const makeVenueEditSchema = (stateIsOptional: boolean) =>
+  z.object({
+    name: z.string().min(1, 'Venue name is required'),
+    address: z.string(),
+    city: z.string().min(1, 'City is required'),
+    state: stateIsOptional
+      ? z.string()
+      : z.string().min(2, 'State is required'),
+    zipcode: z.string(),
+    instagram: z.string(),
+    facebook: z.string(),
+    twitter: z.string(),
+    youtube: z.string(),
+    spotify: z.string(),
+    soundcloud: z.string(),
+    bandcamp: z.string(),
+    website: z.string(),
+  })
 
 type FormValues = VenueEditFormValues
 
@@ -89,6 +106,15 @@ export function VenueEditForm({
   }, SUCCESS_CLOSE_DELAY_MS)
 
   const isAdmin = user?.is_admin ?? false
+
+  // Whether this venue's state field is optional. Read off the venue prop,
+  // which the `key` contract above pins for the life of the mounted form, so
+  // the rule cannot change under a user mid-edit.
+  const stateIsOptional = venueMayOmitState(venue)
+  const venueEditSchema = useMemo(
+    () => makeVenueEditSchema(stateIsOptional),
+    [stateIsOptional]
+  )
 
   // Initialize form with venue data
   const initialValues: FormValues = {
@@ -246,7 +272,9 @@ export function VenueEditForm({
               <form.Field name="state">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="state">State *</Label>
+                    <Label htmlFor="state">
+                    State{stateIsOptional ? '' : ' *'}
+                  </Label>
                     <Input
                       id="state"
                       value={field.state.value}

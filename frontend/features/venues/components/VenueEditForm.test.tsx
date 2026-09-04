@@ -303,6 +303,119 @@ describe('VenueEditForm', () => {
     })
   })
 
+  describe('a venue with no state on file (PSY-2001)', () => {
+    // The one form that can repair such a venue used to refuse to open a save
+    // on it: `state` had an unconditional two-character floor, so an admin
+    // could not fix the address without inventing a US state for a room that
+    // has none.
+    it('saves an address fix on a state-less venue with a resolved zone, without sending a state', async () => {
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      // The field is optional here, and says so.
+      expect(screen.queryByLabelText(/^State \*/i)).not.toBeInTheDocument()
+      const stateInput = screen.getByLabelText(/^State$/i)
+      expect(stateInput).toHaveValue('')
+
+      fireEvent.change(screen.getByLabelText(/Address/i), {
+        target: { value: 'Am Flutgraben 2' },
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+      })
+
+      expect(mockMutate).toHaveBeenCalledTimes(1)
+      const [vars] = mockMutate.mock.calls[0] as [
+        { venueId: number; data: Record<string, unknown> },
+      ]
+      expect(vars.venueId).toBe(venue.id)
+      expect(vars.data.address).toBe('Am Flutgraben 2')
+      // The state never changed, so the payload carries no state key at all:
+      // `PUT /venues/{id}` answers 422 to an explicit empty string.
+      expect('state' in vars.data).toBe(false)
+    })
+
+    it('saves a state-less venue whose only zone evidence is a non-US country', async () => {
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        country: 'Germany',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      fireEvent.change(screen.getByLabelText(/Address/i), {
+        target: { value: 'Am Flutgraben 2' },
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+      })
+
+      expect(mockMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('still requires a state on a state-less venue with no zone evidence', async () => {
+      const venue = makeVenue({ city: 'Springfield', state: '', timezone: null })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText(/^State \*/i)).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText(/Address/i), {
+        target: { value: '742 Evergreen Terrace' },
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+      })
+
+      expect(await screen.findByText(/State is required/i)).toBeInTheDocument()
+      expect(mockMutate).not.toHaveBeenCalled()
+    })
+
+    it('still blocks clearing a state that is on file, whatever the venue zone', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue({ timezone: 'America/Phoenix', country: 'Germany' })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      await user.clear(screen.getByLabelText(/^State \*/i))
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(await screen.findByText(/State is required/i)).toBeInTheDocument()
+      expect(mockMutate).not.toHaveBeenCalled()
+    })
+  })
+
   describe('timer cleanup (PSY-1664)', () => {
     // A successful save flashes the success alert, then closes the dialog on a
     // delay. That delay used to be a bare `setTimeout`, so it still fired after
