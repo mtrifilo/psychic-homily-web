@@ -1,5 +1,4 @@
-import { isBandcampReleaseUrl } from '@/lib/bandcamp'
-import { parseSpotifyEmbed } from '@/lib/spotify'
+import { playableMusicSources } from '@/lib/playableMusicSources'
 import { byBillPosition, splitBill } from '../utils'
 import type { ArtistResponse } from '../types'
 
@@ -47,24 +46,16 @@ export interface ListenCard {
  * would print the header's running order backwards a few hundred pixels below
  * the header.
  *
- * The source ladder MIRRORS `MusicEmbed`'s own `deriveEmbedState`, and that
- * duplication is a DEBT, not a design. It has to agree, because `MusicEmbed`
- * renders NOTHING when it can find no source.
+ * The source ladder is `playableMusicSources` (`lib/playableMusicSources`), the
+ * same one `MusicEmbed` walks, so a card and the player inside it cannot
+ * disagree about which of an artist's URLs is the one to use. It has to agree,
+ * because `MusicEmbed` renders NOTHING when it can find no source.
  *
- * Every OTHER surface that decides whether to open a music section asks
- * `hasRenderableMusic` (`lib/musicAvailability`). This one deliberately does
- * not, because it asks a stricter question: that predicate answers "will the
- * player render anything", while a "Buy" card promises ONE release, which is
- * `isBandcampReleaseUrl`. So `https://band.bandcamp.com/music` opens a music
- * block and produces no Buy card: correct, not drift.
- *
- * What remains owed is the ladder itself: an exported pure resolver beside
- * `deriveEmbedState` that this function calls instead of restating. Do not add
- * another copy of the ladder.
- *
- * `parseSpotifyEmbed` and `isBandcampReleaseUrl` are therefore load-bearing,
- * not decorative: they are the same validation the player and the resolver
- * route run, so the three agree on which URLs are real.
+ * This surface asks that ladder for the `'release'` scope, the stricter of the
+ * two: a card is a stack-mate of two other players and a `[Buy]` promises ONE
+ * record. So `https://band.bandcamp.com/music` gets no card here while
+ * `hasRenderableMusic` (`lib/musicAvailability`) still opens a music block for
+ * it elsewhere: correct, not drift.
  *
  * What no synchronous predicate can settle: a stored release URL that does not
  * resolve to a player id. `MusicEmbed` then falls through to the artist's
@@ -89,45 +80,34 @@ export function listenCardsForBill(artists: ArtistResponse[]): ListenCard[] {
 }
 
 function toListenCard(artist: ArtistResponse): ListenCard | null {
-  // Priority 1: a Bandcamp release page. The only unit that is both embeddable
-  // and buyable, so it is also the only one that earns a `[Buy]`.
+  // The top rung only. A card carries one player, so the alternatives below the
+  // winner are of no use to it.
   //
-  // The URL has to PROVE it is one, and the whole branch is gated on that
-  // rather than just the bracket. `bandcamp_embed_url` is contributor-writable
-  // and is not URL-checked on write: it sits in the artist edit allowlist with
-  // no entry in the backend's URL field specs, a trusted-tier edit
-  // self-approves, and the entity-request path validates it as any http(s) URL
-  // by its own admission. So the column can hold an arbitrary host.
-  //
-  // An ungated branch would put that host in three places at once: the word
-  // "Bandcamp" in the meta line, a `[Buy]` bracket announced as "on Bandcamp",
-  // and (once the resolve fails) `MusicEmbed`'s own outbound fallback link,
-  // which is the card's entire body. That is the phishing shape. Gating here
-  // instead of at each render site is what makes the claim and the href one
-  // decision, and it lets an artist with a junk Bandcamp value still get their
-  // working Spotify player below.
-  if (
-    artist.bandcamp_embed_url &&
-    isBandcampReleaseUrl(artist.bandcamp_embed_url)
-  ) {
-    return {
-      artist,
-      source: 'Bandcamp',
-      buyHref: artist.bandcamp_embed_url,
-    }
+  // `bandcamp_embed_url` is contributor-writable, so the `'release'` scope is
+  // what proves the value before any of it is shown. An unproven value would
+  // reach three places at once: the word "Bandcamp" in the meta line, a `[Buy]`
+  // bracket announced as "on Bandcamp", and (once the resolve fails)
+  // `MusicEmbed`'s own outbound fallback link, which is the card's entire body.
+  // Taking the claim and the href from the same proven rung is what keeps them
+  // one decision, and it lets an artist with a junk Bandcamp value still get
+  // their working Spotify player.
+  const [source] = playableMusicSources({
+    bandcampUrl: artist.bandcamp_embed_url,
+    spotifyUrl: artist.socials?.spotify,
+    bandcampScope: 'release',
+  })
+
+  // A bare Bandcamp PROFILE reaches no rung at this scope and so gets no card.
+  // `MusicEmbed` would render an outbound text link for it, not a player, and a
+  // link wearing the same border as the two players above it is a card that
+  // misrepresents itself. The artist page still carries the profile link.
+  if (!source) {
+    return null
   }
 
-  // Priority 2: a Spotify artist/album/track URL that survives host-anchored
-  // parsing. No `[Buy]` — Spotify does not sell the record, and pointing the
-  // word somewhere else would be inventing an affordance the mock did not ask
-  // for.
-  if (artist.socials?.spotify && parseSpotifyEmbed(artist.socials.spotify)) {
-    return { artist, source: 'Spotify', buyHref: null }
-  }
-
-  // A bare Bandcamp PROFILE deliberately gets nothing. `MusicEmbed` would
-  // render an outbound text link for it, not a player, and a link wearing the
-  // same border as the two players above it is a card that misrepresents
-  // itself. The artist page still carries the profile link.
-  return null
+  // No `[Buy]` on the Spotify rung: Spotify does not sell the record, and
+  // pointing the word somewhere else would invent an affordance.
+  return source.service === 'bandcamp'
+    ? { artist, source: 'Bandcamp', buyHref: source.url }
+    : { artist, source: 'Spotify', buyHref: null }
 }
