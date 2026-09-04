@@ -612,11 +612,7 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(
 	manageURL := fmt.Sprintf("%s/settings/notifications", s.frontendURL)
 
 	html := buildArtistShowAlertEmailHTML(lane.artistName, lane.scope, c, unsubscribeURL, manageURL)
-	// Bounded before interpolation so that an overlong scraped artist name is what
-	// gets cut rather than "announced a show". Header safety is not this line's
-	// job: EmailService.send applies headerSafeSubject to every subject.
-	subject := fmt.Sprintf("%s announced a show",
-		truncateRunes(lane.artistName, maxEmailSubjectEntityRunes))
+	subject := fmt.Sprintf("%s announced a show", subjectEntityName(lane.artistName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {

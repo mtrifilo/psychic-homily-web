@@ -86,45 +86,108 @@ func TestHeaderSafeSubjectCaps(t *testing.T) {
 	assert.True(t, strings.ContainsRune(multiByte, 'é'))
 }
 
+// TestSubjectEntityNameSanitizesBeforeBounding pins the ORDER of the two
+// transforms. A scraped name routinely arrives with leading whitespace or line
+// breaks, and bounding first spends the whole budget on runes that are then
+// discarded, so the name vanishes from a subject that still has room for it.
+func TestSubjectEntityNameSanitizesBeforeBounding(t *testing.T) {
+	padded := strings.Repeat("\r\n", 60) + "Valley Bar"
+	assert.Equal(t, "Valley Bar", subjectEntityName(padded),
+		"leading line breaks must not consume the entity budget")
+
+	spacePadded := strings.Repeat(" ", 40) + strings.Repeat("V", 100)
+	assert.Equal(t, strings.Repeat("V", 100), subjectEntityName(spacePadded),
+		"leading spaces must not consume the entity budget either")
+
+	// The bound itself still applies, to the sanitized value.
+	assert.Equal(t, maxEmailSubjectEntityRunes+1,
+		len([]rune(subjectEntityName(strings.Repeat("V", maxEmailSubjectEntityRunes+50)))))
+}
+
 // =============================================================================
 // The guard
 // =============================================================================
 
-// chokepoint is the one function allowed to build a Resend request or call the
-// Resend client.
-const chokepoint = "send"
+// chokepoint is the one method allowed to name resend.SendEmailRequest or reach
+// the Resend client, identified by receiver as well as by name so that a method
+// called send on some other type is not silently exempt.
+const (
+	chokepoint         = "send"
+	chokepointReceiver = "EmailService"
+)
 
-// rogueSendSites walks one parsed file and returns the positions where a
-// resend.SendEmailRequest is built, or the Resend client is called, outside
-// chokepoint. One walk, so the guard below and the meta-test that proves the
-// guard can fail are asserting on the same predicate.
-func rogueSendSites(fset *token.FileSet, file *ast.File) (builds, calls []token.Position) {
+// rogueSendSites walks one parsed file and returns the positions where
+// resend.SendEmailRequest is named, or the Resend client's Emails field is
+// touched, outside the chokepoint. One walk, so the guard below and the
+// meta-test that proves the guard can fail assert on the same predicate.
+//
+// It looks for the TYPE NAME rather than for a composite literal, so
+// `var p resend.SendEmailRequest` and `new(resend.SendEmailRequest)` are caught
+// too, and for the Emails FIELD rather than for a Send call, so hoisting the
+// service into a local (`c := s.client.Emails; c.Send(p)`) is caught as well.
+// The resend package's local name is read from the file's own imports, so an
+// aliased import does not slip past.
+func rogueSendSites(fset *token.FileSet, file *ast.File) (requests, clients []token.Position) {
+	pkg := resendLocalName(file)
+
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name == chokepoint {
+		if !ok || isChokepoint(fn) {
 			continue
 		}
 		ast.Inspect(fn, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.CompositeLit:
-				if isSelector(node.Type, "resend", "SendEmailRequest") {
-					builds = append(builds, fset.Position(node.Pos()))
-				}
-			case *ast.CallExpr:
-				if isEmailsSend(node.Fun) {
-					calls = append(calls, fset.Position(node.Pos()))
-				}
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch {
+			case pkg != "" && sel.Sel.Name == "SendEmailRequest" && isIdent(sel.X, pkg):
+				requests = append(requests, fset.Position(sel.Pos()))
+			case sel.Sel.Name == "Emails":
+				clients = append(clients, fset.Position(sel.Pos()))
 			}
 			return true
 		})
 	}
-	return builds, calls
+	return requests, clients
+}
+
+// isChokepoint reports whether fn is EmailService.send.
+func isChokepoint(fn *ast.FuncDecl) bool {
+	if fn.Name.Name != chokepoint || fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return false
+	}
+	recv := fn.Recv.List[0].Type
+	if star, ok := recv.(*ast.StarExpr); ok {
+		recv = star.X
+	}
+	return isIdent(recv, chokepointReceiver)
+}
+
+func isIdent(expr ast.Expr, name string) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == name
+}
+
+// resendLocalName returns the name the resend SDK is bound to in this file, or
+// "" if the file does not import it.
+func resendLocalName(file *ast.File) string {
+	for _, imp := range file.Imports {
+		if imp.Path == nil || !strings.Contains(imp.Path.Value, "resend-go") {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name
+		}
+		return "resend"
+	}
+	return ""
 }
 
 // TestResendRequestsAreBuiltOnlyBySend is the structural half of this defence.
 // headerSafeSubject cannot be forgotten by a new sender as long as the request
-// is built in exactly one function and the client is called from exactly one
-// function, so this test fails a second construction site or a second call
+// type is named in exactly one method and the client is reached from exactly
+// one method, so this test fails a second construction site or a second call
 // rather than trusting a convention.
 //
 // The check is syntactic on purpose. It runs against the package's own source,
@@ -147,62 +210,122 @@ func TestResendRequestsAreBuiltOnlyBySend(t *testing.T) {
 		file, parseErr := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
 		require.NoError(t, parseErr, "parsing %s", name)
 
-		builds, calls := rogueSendSites(fset, file)
-		for _, pos := range builds {
-			t.Errorf("%s: builds a resend.SendEmailRequest outside %s, "+
-				"which is how headerSafeSubject gets bypassed", pos, chokepoint)
+		requests, clients := rogueSendSites(fset, file)
+		for _, pos := range requests {
+			t.Errorf("%s: names resend.SendEmailRequest outside %s.%s, "+
+				"which is how headerSafeSubject gets bypassed", pos, chokepointReceiver, chokepoint)
 		}
-		for _, pos := range calls {
-			t.Errorf("%s: calls the Resend client outside %s", pos, chokepoint)
+		for _, pos := range clients {
+			t.Errorf("%s: reaches the Resend client outside %s.%s",
+				pos, chokepointReceiver, chokepoint)
 		}
 	}
 
 	require.Greater(t, checked, 5, "the guard scanned almost nothing; the walk is broken")
 }
 
-// isSelector reports whether expr is the qualified identifier pkg.name, with or
-// without a leading &.
-func isSelector(expr ast.Expr, pkg, name string) bool {
-	if unary, ok := expr.(*ast.UnaryExpr); ok {
-		expr = unary.X
-	}
-	sel, ok := expr.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != name {
-		return false
-	}
-	ident, ok := sel.X.(*ast.Ident)
-	return ok && ident.Name == pkg
-}
-
-// isEmailsSend reports whether expr selects a Send off an Emails field, which is
-// the resend-go client's send entry point (Emails.Send / Emails.SendWithContext).
-func isEmailsSend(expr ast.Expr) bool {
-	sel, ok := expr.(*ast.SelectorExpr)
-	if !ok || !strings.HasPrefix(sel.Sel.Name, "Send") {
-		return false
-	}
-	inner, ok := sel.X.(*ast.SelectorExpr)
-	return ok && inner.Sel.Name == "Emails"
-}
-
-// TestGuardRejectsASecondConstructionSite proves the guard is not vacuous by
-// running the same walk over a synthetic sender that bypasses the chokepoint.
+// TestGuardRejectsASecondConstructionSite proves the guard is not vacuous, and
+// proves it against the evasions a guard like this usually misses rather than
+// only against the copy-paste case.
 func TestGuardRejectsASecondConstructionSite(t *testing.T) {
-	const rogue = `package notification
+	tests := []struct {
+		name              string
+		src               string
+		requests, clients int
+	}{
+		{
+			name: "the copy-paste case",
+			src: `package notification
+
+import resend "github.com/resend/resend-go/v2"
 
 func sendRogue(s *EmailService) error {
-	params := &resend.SendEmailRequest{Subject: "raw\r\nBcc: x@y"}
+	params := &resend.SendEmailRequest{Subject: "raw"}
 	_, err := s.client.Emails.Send(params)
 	return err
 }
-`
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "rogue.go", rogue, 0)
-	require.NoError(t, err)
+`,
+			requests: 1, clients: 1,
+		},
+		{
+			name: "a var declaration instead of a composite literal",
+			src: `package notification
 
-	builds, calls := rogueSendSites(fset, file)
-	assert.Len(t, builds, 1, "the guard must see a request built outside %s", chokepoint)
-	assert.Len(t, calls, 1, "the guard must see the client called outside %s", chokepoint)
+import resend "github.com/resend/resend-go/v2"
+
+func sendRogue(s *EmailService) error {
+	var p resend.SendEmailRequest
+	p.Subject = "raw"
+	_, err := s.client.Emails.Send(&p)
+	return err
+}
+`,
+			requests: 1, clients: 1,
+		},
+		{
+			name: "an aliased import",
+			src: `package notification
+
+import r "github.com/resend/resend-go/v2"
+
+func sendRogue(s *EmailService) error {
+	_, err := s.client.Emails.Send(&r.SendEmailRequest{Subject: "raw"})
+	return err
+}
+`,
+			requests: 1, clients: 1,
+		},
+		{
+			name: "the client hoisted into a local",
+			src: `package notification
+
+func sendRogue(s *EmailService, p any) error {
+	c := s.client.Emails
+	_, err := c.Send(p)
+	return err
+}
+`,
+			requests: 0, clients: 1,
+		},
+		{
+			name: "a method named send on another type",
+			src: `package notification
+
+import resend "github.com/resend/resend-go/v2"
+
+func (s *NotificationFilterService) send(p *resend.SendEmailRequest) error {
+	return nil
+}
+`,
+			requests: 1, clients: 0,
+		},
+		{
+			name: "the chokepoint itself is exempt",
+			src: `package notification
+
+import resend "github.com/resend/resend-go/v2"
+
+func (s *EmailService) send(msg outboundEmail) error {
+	params := &resend.SendEmailRequest{Subject: headerSafeSubject(msg.subject)}
+	_, err := s.client.Emails.Send(params)
+	return err
+}
+`,
+			requests: 0, clients: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "rogue.go", tt.src, 0)
+			require.NoError(t, err)
+
+			requests, clients := rogueSendSites(fset, file)
+			assert.Len(t, requests, tt.requests, "request-type sites")
+			assert.Len(t, clients, tt.clients, "client sites")
+		})
+	}
 }
 
 // =============================================================================
@@ -213,9 +336,11 @@ func sendRogue(s *EmailService) error {
 // injection probe in each of its contributor-writable inputs and asserts on the
 // Subject the transport actually received.
 //
-// The senders with fixed copy are here too. They have no interpolation point
-// today, and the assertion is what says so: it fails the day one grows an
-// interpolated value that does not go through send.
+// The three senders with constant subjects are here too. They take the probe as
+// their token, which reaches only a URL in the body, so what their subtests
+// assert is narrow: the constant arrives at the transport as written, and a
+// subject that grew an interpolation of that token would fail here. A new field
+// on one of them is not covered until this table is extended.
 func TestEverySenderSubjectIsHeaderSafe(t *testing.T) {
 	const unsubURL = "http://api.test.local/unsubscribe?uid=1&sig=abc"
 

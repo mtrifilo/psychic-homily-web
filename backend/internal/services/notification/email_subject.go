@@ -13,15 +13,25 @@ import (
 // logged and swallowed, so the failure mode is a silently lost notification.
 //
 // 200 is well past what any client displays (inbox lists show roughly the first
-// 70 characters) and short enough that the encoded header stays inside the
-// 998-octet line limit even at UTF-8 base64's worst-case expansion.
+// 70 characters), and it is a bound on what a provider is asked to accept, not
+// on line length: RFC 2047 encoded-words are folded across continuation lines,
+// so no single line reaches the 998-octet limit whatever this value is.
 const maxEmailSubjectRunes = 200
 
-// maxEmailSubjectEntityRunes bounds one scraped entity name before it is
-// interpolated, so that an overlong name is what maxEmailSubjectRunes cuts
-// rather than the copy around it. The artist and venue alert subjects apply it;
-// the other senders rely on the whole-subject cap alone.
+// maxEmailSubjectEntityRunes bounds one scraped entity name, so that an
+// overlong name is what gets cut rather than the copy around it. The artist and
+// venue alert subjects apply it through subjectEntityName; the other senders
+// rely on the whole-subject cap alone.
 const maxEmailSubjectEntityRunes = 120
+
+// subjectEntityName prepares a scraped entity name for interpolation into a
+// Subject: header-safe first, bounded second, so that the bound is spent on
+// runes that will still be there. Bounding first would let a name arriving with
+// leading whitespace or control runes, which an HTML scrape routinely produces,
+// spend its whole budget on runes headerSafeSubject then discards.
+func subjectEntityName(name string) string {
+	return truncateRunes(headerSafeSubject(name), maxEmailSubjectEntityRunes)
+}
 
 // headerSafeSubject makes a string safe to hand to a Subject header: no rune
 // that can end a header line survives it, so an interpolated value cannot start
