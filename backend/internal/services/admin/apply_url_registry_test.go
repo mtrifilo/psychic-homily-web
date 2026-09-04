@@ -60,3 +60,26 @@ func TestApplyURLFieldsCoverEveryEditableURLField(t *testing.T) {
 		}
 	}
 }
+
+// TestSocialLabelsAgreeAcrossLayers turns a comment into a fact.
+//
+// The eight social columns are named for an operator in three packages: the HTTP
+// boundary's urlFieldSpecs, this package's applyURLFields, and
+// utils.SocialFieldLabels for the writers that sit outside both. utils is the
+// only one all three can import, so it holds the source and this asserts the
+// other two agree with it. Without this, a wording changed in one place leaves
+// one operator seeing two names for one column and nothing fails.
+func TestSocialLabelsAgreeAcrossLayers(t *testing.T) {
+	assert.Len(t, utils.SocialFieldLabels, 8, "the eight social columns")
+
+	for field, want := range utils.SocialFieldLabels {
+		assert.Equal(t, want, applyURLFields[field],
+			"the apply gate names %q differently from utils.SocialFieldLabels", field)
+
+		got, known := handlershared.URLFieldDisplayName(field)
+		if assert.True(t, known, "the handler registry does not know %q", field) {
+			assert.Equal(t, want, got,
+				"the HTTP boundary names %q differently from utils.SocialFieldLabels", field)
+		}
+	}
+}

@@ -187,17 +187,22 @@ func runFileImport(database *gorm.DB, festivalService *catalog.FestivalService, 
 }
 
 // validateFestivalURLs holds the two festival columns that become an href to the
-// same rule the HTTP boundary holds them to.
+// scheme rule, because this CLI calls the service directly and so meets none of
+// the handler's validation.
+//
+// COVERAGE, stated exactly: the festival endpoints apply this to `website` only
+// and leave `ticket_url` unchecked, so on that column this CLI is stricter than
+// they are. The pending-edit apply path is stricter there too (ticket_url is in
+// its registry), so the direct endpoint is the outlier, not this.
 //
 // The REQUEST-time spelling of the rule (no legacy-handle tolerance), because
 // every value here is typed at a prompt or written in a JSON file for this run:
 // there are no legacy rows passing through, so an operator who leaves the scheme
 // off should be told now rather than have it guessed at.
 //
-// Both fields anchor no host today, so this is the scheme rule in practice, and
-// that is still the difference between a link and a javascript: URL in a
-// rendered attribute. The host anchor is called anyway so a field that gains
-// one is guarded here on arrival.
+// Neither field anchors a host today, so ValidateSocialHost returns nil for both.
+// It is called anyway so a field that gains an anchor is guarded here on arrival
+// rather than on someone remembering this file.
 func validateFestivalURLs(input *FestivalInput) error {
 	for _, field := range []struct{ name, label, value string }{
 		{"website", "Website URL", input.Website},

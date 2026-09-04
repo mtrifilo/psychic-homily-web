@@ -931,16 +931,25 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 // bug an operator fixes at the source, and a half-seeded database is harder to
 // reason about than none.
 //
-// The STORED-value spelling of the rule, so the seed's bare handles
-// ("cursivetheband", and the dotted ones like "fashion.club.la") still load:
-// they are judged by where a reader resolves them, which is the platform's own
-// host. The request-time spelling the HTTP endpoints use refuses a handle
-// outright, correctly, because a contributor form has no legacy rows.
+// The STORED-value spelling of the rule, so the YAML's bare handles still load;
+// utils.ValidateStoredSocialValue carries why that spelling exists.
+//
+// Every writer in this binary that sets Social calls it: the two YAML loops and
+// each rich exemplar. An exemplar's values are Go literals rather than operator
+// input, so the gate is insurance there rather than validation, but a template
+// typo that put one of them off-platform would otherwise seed a row this
+// project's own read gate refuses to render.
 func mustHoldSocialColumns(entity, name string, social catalogm.Social) {
-	if err := utils.ValidateStoredSocialColumns(
-		social.Instagram, social.Facebook, social.Twitter, social.YouTube,
-		social.Spotify, social.SoundCloud, social.Bandcamp, social.Website,
-	); err != nil {
+	if err := utils.ValidateStoredSocialColumns(utils.SocialColumns{
+		Instagram:  social.Instagram,
+		Facebook:   social.Facebook,
+		Twitter:    social.Twitter,
+		YouTube:    social.YouTube,
+		Spotify:    social.Spotify,
+		SoundCloud: social.SoundCloud,
+		Bandcamp:   social.Bandcamp,
+		Website:    social.Website,
+	}); err != nil {
 		log.Fatalf("Seed data for %s %q has an unusable social value: %v", entity, name, err)
 	}
 }

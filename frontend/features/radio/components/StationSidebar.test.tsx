@@ -81,6 +81,19 @@ beforeEach(() => {
   mockUseNewReleaseRadar.mockReturnValue({ data: undefined })
 })
 
+/**
+ * Stored values the shared gate refuses, one per reason: a non-http scheme, a
+ * data URL, a value that is neither URL nor handle, and userinfo the browser
+ * discards. Shared by every column's wiring test so the two cannot drift into
+ * asserting different rules.
+ */
+const REFUSED_VALUES: [string][] = [
+  ['javascript:alert(1)'],
+  ['data:text/html,<script>alert(1)</script>'],
+  ['not a url'],
+  ['https://user@wfmu.org/'],
+]
+
 // These links go through the shared bracket primitive rather than a local
 // anchor, so they inherit its announcement and its http(s) floor. A private
 // copy of that markup would silently miss both.
@@ -126,12 +139,10 @@ describe('StationSidebar — STATION info box outbound links', () => {
   // the shared gate returns and DROPS the rest. Dropping beats the two
   // alternatives: a live javascript:/data: href, or a permanently greyed
   // bracket that reads as a disabled feature rather than as bad data.
-  it.each([
-    ['javascript:alert(1)'],
-    ['data:text/html,<script>alert(1)</script>'],
-    ['give'],
-    ['123'],
-  ])('drops a non-http donation url (%s) entirely', url => {
+  //
+  // The shapes themselves are settled by the gate's own unit tests
+  // (lib/socialLinks.test.ts); these assert the WIRING of each column.
+  it.each(REFUSED_VALUES)('drops a non-http donation url (%s) entirely', url => {
     render(<StationSidebar station={makeStation({ donation_url: url })} />)
 
     expect(screen.queryByRole('link', { name: /donate/i })).not.toBeInTheDocument()
@@ -244,12 +255,7 @@ describe('StationSidebar — STATION info box outbound links', () => {
     ).not.toBeInTheDocument()
   })
 
-  it.each([
-    ['javascript:alert(1)'],
-    ['data:text/html,x'],
-    ['not a url'],
-    ['https://user@wfmu.org/'],
-  ])('drops a website value the gate refuses (%s)', url => {
+  it.each(REFUSED_VALUES)('drops a website value the gate refuses (%s)', url => {
     render(<StationSidebar station={makeStation({ website: url })} />)
 
     expect(screen.queryByRole('link', { name: /website/i })).not.toBeInTheDocument()

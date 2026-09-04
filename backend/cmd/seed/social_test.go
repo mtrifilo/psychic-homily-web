@@ -24,14 +24,6 @@ func loadFixture[T any](t *testing.T, path string) map[string]T {
 	return rows
 }
 
-func loadVenueFixture(t *testing.T) map[string]VenueData {
-	return loadFixture[VenueData](t, "../../../data/venues.yaml")
-}
-
-func loadArtistFixture(t *testing.T) map[string]ArtistData {
-	return loadFixture[ArtistData](t, "../../../data/bands.yaml")
-}
-
 // TestSeedFixturesClearTheSocialGate reads the checked-in YAML the seed reads
 // and asserts every social value in it survives the gate main() now applies.
 //
@@ -43,36 +35,48 @@ func loadArtistFixture(t *testing.T) map[string]ArtistData {
 // It reads the fixture rather than a copy of it, so adding a row with a foreign
 // host to bands.yaml fails here instead of in somebody's terminal.
 func TestSeedFixturesClearTheSocialGate(t *testing.T) {
-	venues := loadVenueFixture(t)
-	require.NotEmpty(t, venues, "the fixture path is wrong if this is empty")
-	for _, venue := range venues {
+	// Only the two columns the YAML schema carries; VenueData and ArtistData
+	// have no field for the other six.
+	assertPair := func(t *testing.T, kind, name, instagram, website string) {
+		t.Helper()
 		assert.NoError(t,
-			utils.ValidateStoredSocialValue("instagram", "Instagram URL", venue.Social.Instagram),
-			"venue %q", venue.Name)
+			utils.ValidateStoredSocialValue("instagram", utils.SocialFieldLabels["instagram"], instagram),
+			"%s %q", kind, name)
 		assert.NoError(t,
-			utils.ValidateStoredSocialValue("website", "Website URL", venue.Social.Website),
-			"venue %q", venue.Name)
+			utils.ValidateStoredSocialValue("website", utils.SocialFieldLabels["website"], website),
+			"%s %q", kind, name)
 	}
 
-	artists := loadArtistFixture(t)
+	venues := loadFixture[VenueData](t, "../../../data/venues.yaml")
+	require.NotEmpty(t, venues, "the fixture path is wrong if this is empty")
+	for _, venue := range venues {
+		assertPair(t, "venue", venue.Name, venue.Social.Instagram, venue.Social.Website)
+	}
+
+	artists := loadFixture[ArtistData](t, "../../../data/bands.yaml")
 	require.NotEmpty(t, artists, "the fixture path is wrong if this is empty")
 	for _, artist := range artists {
-		assert.NoError(t,
-			utils.ValidateStoredSocialValue("instagram", "Instagram URL", artist.Social.Instagram),
-			"artist %q", artist.Name)
-		assert.NoError(t,
-			utils.ValidateStoredSocialValue("website", "Website URL", artist.Social.Website),
-			"artist %q", artist.Name)
+		assertPair(t, "artist", artist.Name, artist.Social.Instagram, artist.Social.Website)
 	}
 }
 
 // TestExemplarSocialClearsTheGate covers the Go-literal half of the seed: the
 // rich exemplars build every social column from one handle, so a typo in the
-// template would refuse to seed each of them.
+// template would stop each of them seeding.
+//
+// The template, not the rows: main() now calls mustHoldSocialColumns at every
+// exemplar create, so a row that overrides one column after fullSocial is
+// checked by the binary itself.
 func TestExemplarSocialClearsTheGate(t *testing.T) {
 	social := fullSocial("marissanadler")
-	assert.NoError(t, utils.ValidateStoredSocialColumns(
-		social.Instagram, social.Facebook, social.Twitter, social.YouTube,
-		social.Spotify, social.SoundCloud, social.Bandcamp, social.Website,
-	))
+	assert.NoError(t, utils.ValidateStoredSocialColumns(utils.SocialColumns{
+		Instagram:  social.Instagram,
+		Facebook:   social.Facebook,
+		Twitter:    social.Twitter,
+		YouTube:    social.YouTube,
+		Spotify:    social.Spotify,
+		SoundCloud: social.SoundCloud,
+		Bandcamp:   social.Bandcamp,
+		Website:    social.Website,
+	}))
 }
