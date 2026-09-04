@@ -118,25 +118,45 @@ func TestValidateStoredSocialValue(t *testing.T) {
 	})
 }
 
-// TestValidateStoredSocialColumns pins the positional contract the caller
-// shares with the HTTP boundary's ValidateSocialURLs: a value handed to the
-// wrong slot is judged against the wrong platform, and every argument is a
-// *string, so the compiler cannot catch a transposition.
+// TestValidateStoredSocialColumns pins that each field of the struct is judged
+// against its OWN platform, and that every anchored field is reachable through
+// it: a column dropped from the pairs table inside would be invisible to the
+// compiler and to any test that only passes valid values.
 func TestValidateStoredSocialColumns(t *testing.T) {
 	spotify := "https://open.spotify.com/artist/x"
-	assert.NoError(t, ValidateStoredSocialColumns(nil, nil, nil, nil, &spotify, nil, nil, nil))
-	assert.Error(t, ValidateStoredSocialColumns(&spotify, nil, nil, nil, nil, nil, nil, nil),
-		"a Spotify URL in the instagram slot must be refused")
+	assert.NoError(t, ValidateStoredSocialColumns(SocialColumns{Spotify: &spotify}))
+	assert.Error(t, ValidateStoredSocialColumns(SocialColumns{Instagram: &spotify}),
+		"a Spotify URL in the instagram column must be refused")
 
 	hostile := "https://spotify-account-verify.evil.test/"
-	assert.Error(t, ValidateStoredSocialColumns(nil, nil, nil, nil, &hostile, nil, nil, nil))
+	assert.Error(t, ValidateStoredSocialColumns(SocialColumns{Spotify: &hostile}))
 
-	// Every field the anchor table knows must be reachable through the eight
-	// slots, or a column could be dropped from the argument list unnoticed.
-	assert.ElementsMatch(t,
-		append(slices.Collect(maps.Keys(socialHostSuffixes)), "website"),
-		SocialColumnFields[:])
-	for _, field := range SocialColumnFields {
-		assert.NotEmpty(t, SocialColumnLabels[field], "field %q has no refusal label", field)
+	// Drive the struct one field at a time from a value that is on NO platform,
+	// so a field the loop forgot passes where it should fail.
+	offPlatform := "https://not-a-platform.evil.test/x"
+	perField := map[string]SocialColumns{
+		"instagram":  {Instagram: &offPlatform},
+		"facebook":   {Facebook: &offPlatform},
+		"twitter":    {Twitter: &offPlatform},
+		"youtube":    {YouTube: &offPlatform},
+		"spotify":    {Spotify: &offPlatform},
+		"soundcloud": {SoundCloud: &offPlatform},
+		"bandcamp":   {Bandcamp: &offPlatform},
 	}
+	assert.ElementsMatch(t, slices.Collect(maps.Keys(socialHostSuffixes)), slices.Collect(maps.Keys(perField)),
+		"the anchor table and this test cover different fields")
+	for field, columns := range perField {
+		assert.Error(t, ValidateStoredSocialColumns(columns), "%q must be judged against its own anchor", field)
+	}
+
+	// website is the escape hatch: any host, but it must still be a URL.
+	website := "https://anything.example.test/x"
+	assert.NoError(t, ValidateStoredSocialColumns(SocialColumns{Website: &website}))
+	junk := "javascript:alert(1)"
+	assert.Error(t, ValidateStoredSocialColumns(SocialColumns{Website: &junk}))
+
+	for field := range perField {
+		assert.NotEmpty(t, SocialFieldLabels[field], "field %q has no refusal label", field)
+	}
+	assert.NotEmpty(t, SocialFieldLabels["website"])
 }

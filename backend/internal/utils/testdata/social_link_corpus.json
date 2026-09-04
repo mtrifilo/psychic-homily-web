@@ -283,6 +283,18 @@
     },
     {
       "field": "instagram",
+      "value": "fashion.club.la",
+      "why": "a real dotted handle from the dev seed: a dot alone must not make a handle look like a domain, or the seed stops loading",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
+      "value": "jia._.pet",
+      "why": "a dotted handle whose dots sit next to punctuation, also from the dev seed",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
       "value": "instagram.com/calexico",
       "why": "a legacy scheme-less value already on the platform",
       "rendersAnyway": true

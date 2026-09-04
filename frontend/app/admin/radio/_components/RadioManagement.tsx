@@ -1782,13 +1782,10 @@ function StationShowList({
 
 /**
  * An operator-entered URL column shown on the admin detail row: a link when the
- * value would link on the public station surfaces, and the plain stored text
- * when it would not.
+ * shared gate accepts it, the plain stored text when it does not.
  *
- * Same gate as those surfaces, because this row is where an admin checks what
- * was saved: a value that renders nothing out there must not look live in here.
- * The stored text is always printed, so a refused value is visible and fixable
- * rather than silently absent.
+ * This row is where an admin checks what was saved, so it prints the value
+ * either way and only the linking differs.
  */
 function GatedExternalValue({ value }: { value: string }) {
   const href = unanchoredLinkHref(value)

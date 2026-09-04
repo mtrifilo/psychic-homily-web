@@ -82,37 +82,37 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   }
   items.push({ label: 'On the graph since', value: formatMonthYear(station.created_at) })
 
-  // ONE gate for every URL in this box, and it is the gate the entity pages
-  // ask (lib/socialLinks.ts). These columns are operator-entered free text and
+  // ONE gate for every URL in this box, and it is the gate the entity pages ask
+  // (lib/socialLinks.ts). These columns are operator-entered free text and
   // `social` is free-form JSONB whose KEY is printed as the link's label, so a
   // value under a platform's name is judged by that platform's host anchor and
   // everything else by the parse alone. A key the registry does not know makes
   // a claim nothing can check, so it renders nothing.
   //
-  // Dropping an unusable value is better than both alternatives: a
-  // broken/relative anchor, or a permanently greyed bracket (BracketLink's
-  // `external` floor renders one) that looks like a disabled feature rather
-  // than bad data.
+  // Every entry below carries the href the gate RETURNED, never the raw column,
+  // so the value the anchor was checked against is the value the browser
+  // resolves. A null href is the whole drop rule.
+  //
+  // Dropping an unusable value beats both alternatives: a broken/relative
+  // anchor, or a permanently greyed bracket (BracketLink's `external` floor
+  // renders one) that looks like a disabled feature rather than bad data.
   //
   // `ariaLabel` names the station on every entry: the labels here are hosts and
   // network keys ("wfmu.org", "instagram") that say nothing on their own, and
   // the ↗ is a VISUAL marker that should not be read aloud as "north east
-  // arrow".
+  // arrow". Named parameters, not positional, because `label` and `ariaLabel`
+  // are both strings and both plausible in either slot.
   const links: Array<{ label: string; href: string; ariaLabel: string }> = []
-  // Named parameters, not positional: `label` and `ariaLabel` are both strings
-  // and both plausible in either slot, so a transposition would typecheck and
-  // render a bracket whose visible text and spoken name are swapped.
-  //
-  // `href` is what the gate returned, never the raw column, so the value the
-  // anchor was checked against is the value the browser resolves.
-  const addLink = (link: {
+  const addLink = ({
+    label,
+    href,
+    ariaLabel,
+  }: {
     label: string
     href: string | null
     ariaLabel: string
   }) => {
-    if (link.href) {
-      links.push({ label: link.label, href: link.href, ariaLabel: link.ariaLabel })
-    }
+    if (href) links.push({ label, href, ariaLabel })
   }
 
   addLink({
@@ -121,20 +121,21 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
     ariaLabel: `Donate to ${station.name}`,
   })
   const websiteHref = unanchoredLinkHref(station.website)
+  // The host caption comes from the gated href, so the domain a reader sees is
+  // the host the click resolves to. Computing it needs the narrowed string,
+  // which is the only reason this one does not go through addLink.
   if (websiteHref) {
-    addLink({
-      // Derived from the gated href, not the raw column, so the domain a reader
-      // sees is the host the click resolves to.
+    links.push({
       label: `${hostLabel(websiteHref)} ↗`,
       href: websiteHref,
       ariaLabel: `${station.name} website`,
     })
   }
   for (const [key, url] of Object.entries(station.social ?? {})) {
+    // `social` has no server-side schema, so its values are string-typed only
+    // by assertion; the gate's own typeof check is what keeps a stored number
+    // away from a string method during render.
     if (!isSocialLinkPlatform(key)) continue
-    // `typeof` guard inside the gate, not here: `social` has no server-side
-    // schema, so its values are only string-typed by assertion and a stored
-    // number must not reach a string method during render.
     addLink({
       label: `${key} ↗`,
       href: socialLinkHref(key, url),

@@ -129,22 +129,15 @@ func hasHTTPSchemePrefix(raw string) bool {
 	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
-// SocialColumnFields is the field name of each social column, in the order the
-// eight positional arguments of the HTTP boundary's ValidateSocialURLs take
-// them.
+// SocialFieldLabels names each social column as a refusal reports it.
 //
-// Exported so a writer outside the handler layer can drive one loop over a
-// row's social values instead of restating the field names, which is how a
-// column added to the model reaches every gate at once.
-var SocialColumnFields = [8]string{
-	"instagram", "facebook", "twitter", "youtube",
-	"spotify", "soundcloud", "bandcamp", "website",
-}
-
-// SocialColumnLabels names each social column as a refusal reports it. The
-// labels match the HTTP boundary's urlFieldSpecs, so one operator sees one
-// wording whichever writer refused the value.
-var SocialColumnLabels = map[string]string{
+// It is the source the other two label tables are held to:
+// TestSocialLabelsAgreeAcrossLayers in internal/services/admin asserts that the
+// HTTP boundary's urlFieldSpecs and the apply gate's applyURLFields spell these
+// eight the same way, so an operator sees one wording whichever writer refused
+// the value. It lives here because utils is the only one of the three packages
+// the other two can both import.
+var SocialFieldLabels = map[string]string{
 	"instagram":  "Instagram URL",
 	"facebook":   "Facebook URL",
 	"twitter":    "Twitter URL",
@@ -155,17 +148,45 @@ var SocialColumnLabels = map[string]string{
 	"website":    "Website URL",
 }
 
-// ValidateStoredSocialColumns runs ValidateStoredSocialValue over the eight
-// social columns of one row, taking them in the same positional order as the
-// HTTP boundary's ValidateSocialURLs so the two cannot be read as different
-// field sets. A nil pointer is a column the caller does not write.
-func ValidateStoredSocialColumns(instagram, facebook, twitter, youtube, spotify, soundcloud, bandcamp, website *string) error {
-	values := [8]*string{instagram, facebook, twitter, youtube, spotify, soundcloud, bandcamp, website}
-	for i, field := range SocialColumnFields {
-		if values[i] == nil {
+// SocialColumns is the eight social values of one row. A nil field is a column
+// the caller does not write; an empty string is the clear-the-field gesture.
+//
+// Named fields rather than eight positional *string arguments: every one has
+// the same type, so a transposition would compile and judge a value against
+// another platform's anchor.
+type SocialColumns struct {
+	Instagram  *string
+	Facebook   *string
+	Twitter    *string
+	YouTube    *string
+	Spotify    *string
+	SoundCloud *string
+	Bandcamp   *string
+	Website    *string
+}
+
+// ValidateStoredSocialColumns runs ValidateStoredSocialValue over one row's
+// eight social columns and reports the first that would not render as the link
+// its column claims.
+func ValidateStoredSocialColumns(columns SocialColumns) error {
+	pairs := [...]struct {
+		field string
+		value *string
+	}{
+		{"instagram", columns.Instagram},
+		{"facebook", columns.Facebook},
+		{"twitter", columns.Twitter},
+		{"youtube", columns.YouTube},
+		{"spotify", columns.Spotify},
+		{"soundcloud", columns.SoundCloud},
+		{"bandcamp", columns.Bandcamp},
+		{"website", columns.Website},
+	}
+	for _, p := range pairs {
+		if p.value == nil {
 			continue
 		}
-		if err := ValidateStoredSocialValue(field, SocialColumnLabels[field], *values[i]); err != nil {
+		if err := ValidateStoredSocialValue(p.field, SocialFieldLabels[p.field], *p.value); err != nil {
 			return err
 		}
 	}
