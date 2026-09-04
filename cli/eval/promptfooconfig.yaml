@@ -47,6 +47,12 @@ tests:
       media_type: image/png
       expected_json: file://fixtures/lh-st-lincoln-hall-2026-09/expected.json
 
+  - description: "The Sinkhole listing with LABELLED times printed with no minutes (7 pm / 8 pm take :00)"
+    vars:
+      image: file://fixtures/sinkhole-2026-09/listing.png
+      media_type: image/png
+      expected_json: file://fixtures/sinkhole-2026-09/expected.json
+
   - description: "Empty Bottle listings whose single time is UNLABELLED (negative door-time case: neither field may be emitted)"
     vars:
       image: file://fixtures/empty-bottle-2026-09/listing.png

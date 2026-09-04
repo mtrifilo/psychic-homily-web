@@ -149,6 +149,19 @@ export type EventDateReading =
   | { kind: "local"; day: string; time: string }
   | { kind: "instant"; day: string };
 
+/**
+ * Before this hour, a music time on a DATE-ONLY listing is ambiguous about which
+ * day it belongs to (owner decision, 2026-09-04: 06:00 venue-local).
+ *
+ * A listing dated the 4th stating 12:30 AM almost certainly means the small
+ * hours of the 5th, but "almost certainly" is the day rollover this module will
+ * not infer. Anchoring `event_date` on it moves the show ~20 hours earlier than
+ * the date-only convention would put it, so the times are refused and the
+ * convention stands. A listing that states its OWN time of day is unaffected:
+ * the source named the day, so there is no re-anchor to refuse.
+ */
+const SMALL_HOURS_CUTOFF_HOUR = 6;
+
 const DATE_ONLY = /^(\d{4}-\d{2}-\d{2})$/;
 const DATE_AND_LOCAL_TIME = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 const DATE_AND_INSTANT =
@@ -203,7 +216,14 @@ export type ShowTimesRefusal =
   | { reason: "unreadable-music"; music: string }
   | { reason: "doors-without-music"; doors: string }
   | { reason: "unreadable-doors"; doors: string }
-  | { reason: "clock-does-not-exist"; clock: string; day: string }
+  | {
+      reason: "clock-does-not-exist";
+      clock: string;
+      day: string;
+      /** A readable clock this refusal takes down with it, when there is one. */
+      alsoDropped?: string;
+    }
+  | { reason: "small-hours-music"; music: string; cutoff: string }
   | { reason: "music-before-doors"; doors: string; music: string };
 
 export interface ShowTimesInput {
@@ -287,7 +307,13 @@ export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
   }
   const date = reading.day;
 
+  // Both clocks are read before either is judged: a refusal on the music clock
+  // takes any readable doors clock down with it, and the operator needs to be
+  // told which times were lost, not only which one was faulty.
   const music = parseClockTime(input.statedMusic);
+  const doors = parseClockTime(input.statedDoors);
+  const readableDoors = doors === null ? undefined : String(input.statedDoors);
+
   if (music === null) {
     refusals.push(
       musicStated
@@ -297,17 +323,38 @@ export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
     return { refusals };
   }
 
+  // Ordering on the stated clocks rather than on the instants they become: both
+  // anchor to the same day in the same zone, so minutes-of-day decides it, and
+  // asking here means a contradictory pair is diagnosed as one rather than as
+  // whichever other rule it also trips.
+  if (doors !== null && minutesOfDay(music) < minutesOfDay(doors)) {
+    refusals.push({
+      reason: "music-before-doors",
+      doors: String(input.statedDoors),
+      music: String(input.statedMusic),
+    });
+    return { refusals };
+  }
+
   if (!localClockExists(date, clock(music), zone)) {
     refusals.push({
       reason: "clock-does-not-exist",
       clock: String(input.statedMusic),
       day: date,
+      alsoDropped: readableDoors,
+    });
+    return { refusals };
+  }
+  if (reading.kind === "day" && music.hour < SMALL_HOURS_CUTOFF_HOUR) {
+    refusals.push({
+      reason: "small-hours-music",
+      music: String(input.statedMusic),
+      cutoff: `${String(SMALL_HOURS_CUTOFF_HOUR).padStart(2, "0")}:00`,
     });
     return { refusals };
   }
   const musicAt = localTimeToUTC(date, clock(music), zone);
 
-  const doors = parseClockTime(input.statedDoors);
   if (doors === null) {
     if (doorsStated) {
       refusals.push({ reason: "unreadable-doors", doors: String(input.statedDoors) });
@@ -324,16 +371,12 @@ export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
     return { musicAt, refusals };
   }
   const doorsAt = localTimeToUTC(date, clock(doors), zone);
-  if (Date.parse(musicAt) < Date.parse(doorsAt)) {
-    refusals.push({
-      reason: "music-before-doors",
-      doors: String(input.statedDoors),
-      music: String(input.statedMusic),
-    });
-    return { refusals };
-  }
-
   return { doorsAt, musicAt, refusals };
+}
+
+/** Minutes since midnight, for ordering two clocks on one day. */
+function minutesOfDay(time: ClockTime): number {
+  return time.hour * 60 + time.minute;
 }
 
 /** `HH:MM`, the shape localTimeToUTC reads. */

@@ -71,15 +71,18 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 6. **Show times, LABELLED ONLY.** A show's `doors_at` / `music_at` are the
    venue-local wall clocks the source prints, copied as shown ("7:00 PM",
    "19:00"): not dates, not converted, never derived from each other, never
-   rounded. Emit a field ONLY when the source says in words which time it is:
-   text reading "Doors" next to the clock → `doors_at`; text reading "Show",
-   "Start", "Music", or "Set" next to the clock → `music_at`. **A clock printed
-   with no such word gets NEITHER field, however obvious it looks.** A venue
-   calendar that prints one bare time per listing is the common case, and that
-   time is as often the door time as the first set; omit both fields and let the
-   date stand alone. Worked both ways:
-   - `Doors 7:30PM` / `Show 8:30PM` → `"doors_at": "7:30PM", "music_at": "8:30PM"`
-   - `FRI SEPTEMBER 11    10:00PM` → **no `doors_at`, no `music_at`**
+   rounded to a different hour. Emit a field ONLY when the source says in words
+   which time it is: text reading "Doors" next to the clock → `doors_at`; text
+   reading "Show", "Start", "Music", or "Set" next to the clock → `music_at`.
+   **A clock printed with no such word gets NEITHER field, however obvious it
+   looks.** A venue calendar that prints one bare time per listing is the common
+   case, and that time is as often the door time as the first set; omit both
+   fields and let the date stand alone. A labelled hour with no minutes takes
+   `:00` (`Show: 9 pm` → `"9:00 pm"`), which states nothing the source did not.
+   Worked three ways:
+   - `DOORS 6:00 PM · MUSIC 6:45 PM` → `"doors_at": "6:00 PM", "music_at": "6:45 PM"`
+   - `Doors: 5 pm // Show: 6 pm` → `"doors_at": "5:00 pm", "music_at": "6:00 pm"`
+   - `TUE FEB 17 · 11:15PM` → **no `doors_at`, no `music_at`**
 7. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
    year (e.g. "Riot Fest 2026" → `riot-fest`). `edition_year` carries the year.
 8. **Venue**: when a single primary venue/park is named, emit it as a `venue`

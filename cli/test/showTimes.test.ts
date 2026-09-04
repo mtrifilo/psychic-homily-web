@@ -372,9 +372,10 @@ describe("a value that is not a string", () => {
 });
 
 describe("known limitations, pinned so they stay decisions", () => {
-  test("an after-midnight music time reads as the small hours of the STATED day", () => {
-    // Reading "12:30 AM" on a listing dated the 4th as the 5th would infer a day
-    // rollover the source did not state. The pipeline reads it the same way.
+  test("a small-hours music time on a DATE-ONLY listing refuses rather than re-anchors", () => {
+    // Owner decision 2026-09-04: below 06:00 the listing does not say which day
+    // the clock belongs to, and anchoring event_date on it would move the show
+    // ~20 hours earlier than the date-only convention puts it.
     const times = resolveShowTimes({
       eventDate: "2026-09-04",
       state: "IL",
@@ -382,16 +383,32 @@ describe("known limitations, pinned so they stay decisions", () => {
       statedDoors: undefined,
       statedMusic: "12:30 AM",
     });
-    expect(times.musicAt).toBe("2026-09-04T05:30:00Z");
+    expect(times.musicAt).toBeUndefined();
+    expect(times.refusals).toEqual([
+      { reason: "small-hours-music", music: "12:30 AM", cutoff: "06:00" },
+    ]);
+  });
+
+  test("the same clock IS stored when the source states the day itself", () => {
+    // event_date names its own time of day, so there is no re-anchor to refuse
+    // and no ambiguity about which day the clock sits on.
+    const times = resolveShowTimes({
+      eventDate: "2026-09-05T00:30",
+      state: "IL",
+      timezone: "America/Chicago",
+      statedDoors: undefined,
+      statedMusic: "12:30 AM",
+    });
+    expect(times.musicAt).toBe("2026-09-05T05:30:00Z");
     expect(times.refusals).toEqual([]);
   });
 
-  test("a clock inside a spring-forward gap is refused rather than shifted", () => {
+  test("a clock inside a spring-forward gap is refused, and names the doors time it takes with it", () => {
     // 2:30 AM does not happen on 2026-03-08 in Chicago. localTimeToUTC still
     // returns Go's instant, which reads back as 1:30 AM; storing that would
     // publish a clock the source did not print.
     const times = resolveShowTimes({
-      eventDate: "2026-03-08",
+      eventDate: "2026-03-08T02:30",
       state: "IL",
       timezone: "America/Chicago",
       statedDoors: "1:30 AM",
@@ -400,18 +417,38 @@ describe("known limitations, pinned so they stay decisions", () => {
     expect(times.musicAt).toBeUndefined();
     expect(times.doorsAt).toBeUndefined();
     expect(times.refusals).toEqual([
-      { reason: "clock-does-not-exist", clock: "2:30 AM", day: "2026-03-08" },
+      {
+        reason: "clock-does-not-exist",
+        clock: "2:30 AM",
+        day: "2026-03-08",
+        alsoDropped: "1:30 AM",
+      },
     ]);
   });
 
   test("a clock inside a fall-back repeat is stored, because it did happen", () => {
     const times = resolveShowTimes({
-      eventDate: "2026-11-01",
+      eventDate: "2026-11-01T01:30",
       state: "IL",
       timezone: "America/Chicago",
       statedDoors: undefined,
       statedMusic: "1:30 AM",
     });
     expect(times.musicAt).toBe("2026-11-01T06:30:00Z");
+  });
+
+  test("a contradictory pair is diagnosed as one, not as whichever rule it also trips", () => {
+    // Both clocks are small-hours-adjacent and the pair is inverted; the
+    // inversion is the more specific fact and is what gets reported.
+    const times = resolveShowTimes({
+      eventDate: "2026-09-04",
+      state: "IL",
+      timezone: "America/Chicago",
+      statedDoors: "11:00 PM",
+      statedMusic: "12:00 AM",
+    });
+    expect(times.refusals).toEqual([
+      { reason: "music-before-doors", doors: "11:00 PM", music: "12:00 AM" },
+    ]);
   });
 });

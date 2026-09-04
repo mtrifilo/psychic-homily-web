@@ -7,6 +7,8 @@ import {
   planShowTimes,
   venueZone,
   describeShowTimeRefusal,
+  timesToBackfill,
+  backfillShowTimes,
   normalizeDate,
   showPriceLine,
   submitShows,
@@ -1466,6 +1468,31 @@ describe("venueZone", () => {
     expect(Date.parse(written)).toBeLessThanOrEqual(Date.parse(window.toDate));
   });
 
+  test("a zoned event_date puts the window on the VENUE's day, not the UTC one", () => {
+    // 2026-09-06T01:00:00Z is the evening of September 5 in Chicago, and it is
+    // the shape this CLI itself writes. A window sliced off the leading ten
+    // characters lands on the 6th and misses the row the writer stores.
+    const plan = planWithTimes({ music_at: "8:00 PM" });
+    plan.input.event_date = "2026-09-06T01:00:00Z";
+
+    const zone = venueZone(plan.venues, plan.input);
+    const written = buildShowPayload(plan).event_date as string;
+    const window = showDedupWindow(plan.input.event_date, zone.state, zone.timezone);
+
+    expect(Date.parse(window.fromDate)).toBeLessThanOrEqual(Date.parse(written));
+    expect(Date.parse(written)).toBeLessThanOrEqual(Date.parse(window.toDate));
+  });
+
+  test("an absent row state falls through to the show's, an empty one does not", () => {
+    // Mirrors `venue?.state ?? show.state` in showTimingInput: a stored empty
+    // string is the row's answer; only an absent field falls through.
+    const absent = [{ id: 7, name: "V", status: "existing" as const }];
+    expect(venueZone(absent, { state: "IL", venues: [{ name: "V" }] }).state).toBe("IL");
+
+    const empty = [{ id: 7, name: "V", matchedState: "", status: "existing" as const }];
+    expect(venueZone(empty, { state: "IL", venues: [{ name: "V" }] }).state).toBe("");
+  });
+
   test("event_date follows the venue row too, not only the clocks", () => {
     // The row is stateless and unzoned, so every clock on this show resolves
     // through the America/Phoenix default -- including the date-only anchor,
@@ -1525,5 +1552,93 @@ describe("describeShowTimeRefusal", () => {
     });
     expect(line.length).toBeLessThan(300);
     expect(line).toContain("...");
+  });
+});
+
+// -- backfilling an existing show -------------------------------------------
+
+describe("timesToBackfill", () => {
+  const times = { doorsAt: "2026-09-05T00:30:00Z", musicAt: "2026-09-05T01:30:00Z", refusals: [] };
+
+  test("fills both columns when the stored row has neither", () => {
+    expect(timesToBackfill({}, times)).toEqual({
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+    });
+  });
+
+  test("fills only the absent column", () => {
+    expect(timesToBackfill({ music_at: "2026-09-05T02:00:00Z" }, times)).toEqual({
+      doorsAt: "2026-09-05T00:30:00Z",
+    });
+  });
+
+  test("NEVER overwrites a stored time", () => {
+    const stored = { doors_at: "2026-09-05T00:00:00Z", music_at: "2026-09-05T02:00:00Z" };
+    expect(timesToBackfill(stored, times)).toBeNull();
+  });
+
+  test("treats null and empty string as absent, like the API serves them", () => {
+    expect(timesToBackfill({ doors_at: null, music_at: null }, times)).toEqual({
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+    });
+  });
+
+  test("writes nothing when the run states no times", () => {
+    expect(timesToBackfill({}, { refusals: [] })).toBeNull();
+  });
+
+  test("refuses a fill that would invert the stored pair", () => {
+    // Stored music 00:00, incoming doors 00:30: the row would end up with music
+    // before doors, which validateShowTimeOrder rejects. Do not send it.
+    const stored = { music_at: "2026-09-05T00:00:00Z" };
+    expect(timesToBackfill(stored, { doorsAt: "2026-09-05T00:30:00Z", refusals: [] })).toBeNull();
+  });
+});
+
+describe("backfillShowTimes", () => {
+  test("sends only the absent column and leaves the rest of the show alone", async () => {
+    let putPath = "";
+    let putBody: unknown = null;
+    const client = createMockClient({
+      get: async () => ({ id: 9, doors_at: null, music_at: "2026-09-05T02:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async (path: string, body: unknown) => {
+      putPath = path;
+      putBody = body;
+      return {};
+    };
+
+    const filled = await backfillShowTimes(client, 9, {
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+      refusals: [],
+    });
+
+    expect(filled).toEqual({ doorsAt: "2026-09-05T00:30:00Z" });
+    expect(putPath).toBe("/shows/9");
+    // Omitting music_at is what leaves the stored one alone: the field is
+    // tri-state on the API, and sending null would CLEAR it.
+    expect(putBody).toEqual({ doors_at: "2026-09-05T00:30:00Z" });
+  });
+
+  test("issues no request when there is nothing to fill", async () => {
+    let putCalls = 0;
+    const client = createMockClient({
+      get: async () => ({ id: 9, doors_at: "2026-09-05T00:00:00Z", music_at: "2026-09-05T02:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async () => {
+      putCalls++;
+      return {};
+    };
+
+    const filled = await backfillShowTimes(client, 9, {
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+      refusals: [],
+    });
+    expect(filled).toBeNull();
+    expect(putCalls).toBe(0);
   });
 });

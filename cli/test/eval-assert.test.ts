@@ -75,13 +75,20 @@ describe("eval assertion adapter", () => {
     expect(component?.reason).toContain("invented: none");
   });
 
-  test("a fixture with no golden shows still reports the component as 1", () => {
+  test("a fixture with no golden shows omits the component entirely", () => {
+    // A vacuous 1.0 reads as "perfect" and averages into the cross-fixture
+    // column alongside fixtures that actually measured something.
     const noShows: BatchItem[] = [
       { entity_type: "artist", name: "Tool" },
       { entity_type: "venue", name: "Douglas Park", city: "Chicago", state: "IL" },
     ];
     const result = grade(noShows, noShows);
-    expect(result.namedScores?.show_times_agreement).toBe(1);
+    expect("show_times_agreement" in (result.namedScores ?? {})).toBe(false);
+    expect(
+      result.componentResults?.some(
+        (c) => c.namedScores?.show_times_agreement !== undefined,
+      ),
+    ).toBe(false);
   });
 
   test("a misconfigured fixture is reported as a harness error, not a model failure", () => {

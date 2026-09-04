@@ -113,12 +113,7 @@ export default function assert(output: string, context: AssertContext): GradingR
         score.festivalFields.map((f) => [`festival_${f.field}`, f.correct ? 1 : 0]),
       ),
     },
-    {
-      pass: score.showTimes.recall >= 1 && score.showTimes.invented.length === 0,
-      score: score.showTimes.recall,
-      reason: `Show times ${score.showTimes.found}/${score.showTimes.expected} schedules matched (missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
-      namedScores: { show_times_agreement: score.showTimes.recall },
-    },
+
     {
       pass: score.billingTierAgreement.rate >= 0.8,
       score: score.billingTierAgreement.rate,
@@ -126,6 +121,18 @@ export default function assert(output: string, context: AssertContext): GradingR
       namedScores: { billing_tier_agreement: score.billingTierAgreement.rate },
     },
   ];
+
+  // A fixture whose golden states no shows has nothing to say about show times.
+  // Reporting 1.0 there reads as "perfect" and drags the cross-fixture average
+  // toward it, so the component and its named score are omitted entirely.
+  if (score.showTimes.expected > 0) {
+    componentResults.push({
+      pass: score.showTimes.recall >= 1 && score.showTimes.invented.length === 0,
+      score: score.showTimes.recall,
+      reason: `Show times ${score.showTimes.found}/${score.showTimes.expected} schedules matched (missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
+      namedScores: { show_times_agreement: score.showTimes.recall },
+    });
+  }
 
   // No hard pass/fail gate (per PSY-935 — thresholds are a later user decision).
   // We surface the score and always "pass" the run so the eval reports numbers
@@ -140,7 +147,9 @@ export default function assert(output: string, context: AssertContext): GradingR
       artist_recall: score.artists.recall,
       venue_recall: score.venues.recall,
       billing_tier_agreement: score.billingTierAgreement.rate,
-      show_times_agreement: score.showTimes.recall,
+      ...(score.showTimes.expected > 0
+        ? { show_times_agreement: score.showTimes.recall }
+        : {}),
       schema_valid: schemaValid ? 1 : 0,
     },
   };
