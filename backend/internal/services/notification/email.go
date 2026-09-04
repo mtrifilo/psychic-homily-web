@@ -54,6 +54,53 @@ func (s *EmailService) IsConfigured() bool {
 	return s.client != nil && s.fromEmail != ""
 }
 
+// outboundEmail is one message on its way to Resend, named so the five strings
+// a caller passes cannot be swapped for each other at the call site.
+type outboundEmail struct {
+	// kind identifies the message type. It is the Sentry email_type tag, and
+	// with its underscores as spaces it is the noun in the send-failure error.
+	kind string
+	// to is a single recipient. Every message this service sends is addressed
+	// to one person; a shared To across recipients would leak the list.
+	to string
+	// subject is the copy as the sender wrote it. send makes it header-safe,
+	// so a sender interpolates freely and never sanitizes.
+	subject string
+	// html is the rendered body.
+	html string
+	// unsubscribeURL is empty for a message with no list to leave: account
+	// verification, magic link, account recovery. Empty means the
+	// List-Unsubscribe headers are omitted rather than sent pointing at "<>".
+	unsubscribeURL string
+}
+
+// send is the one place this package builds a resend.SendEmailRequest and the
+// one place it calls the Resend client, which is what makes headerSafeSubject
+// unbypassable: a sender cannot reach the transport without passing through it.
+// TestResendRequestsAreBuiltOnlyBySend holds that shape.
+func (s *EmailService) send(msg outboundEmail) error {
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{msg.to},
+		Subject: headerSafeSubject(msg.subject),
+		Html:    msg.html,
+	}
+	if msg.unsubscribeURL != "" {
+		params.Headers = unsubscribeHeaders(msg.unsubscribeURL)
+	}
+
+	if _, err := s.client.Emails.Send(params); err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", msg.kind)
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send %s email: %w", strings.ReplaceAll(msg.kind, "_", " "), err)
+	}
+
+	return nil
+}
+
 // SendVerificationEmail sends an email verification link to the user
 func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
 	if !s.IsConfigured() {
@@ -62,24 +109,12 @@ func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
 
 	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", s.frontendURL, token)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: "Verify your email",
-		Html:    verificationEmailHTML(verifyURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "verification")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send verification email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:    "verification",
+		to:      toEmail,
+		subject: "Verify your email",
+		html:    verificationEmailHTML(verifyURL),
+	})
 }
 
 // verificationEmailHTML builds the body of the verification email.
@@ -150,24 +185,12 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 </html>
 `, magicLinkURL, magicLinkURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: "Sign in to Psychic Homily",
-		Html:    html,
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "magic_link")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send magic link email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:    "magic_link",
+		to:      toEmail,
+		subject: "Sign in to Psychic Homily",
+		html:    html,
+	})
 }
 
 // SendAccountRecoveryEmail sends an account recovery link to the user
@@ -208,24 +231,12 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 </html>
 `, daysRemaining, recoveryURL, recoveryURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: "Recover your Psychic Homily account",
-		Html:    html,
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "account_recovery")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send account recovery email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:    "account_recovery",
+		to:      toEmail,
+		subject: "Recover your Psychic Homily account",
+		html:    html,
+	})
 }
 
 // The two date registers of the show reminder. They differ only in the trailing
@@ -285,28 +296,13 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 </html>
 `, showTitle, formattedDate, venueText, showURL, unsubscribeURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: fmt.Sprintf("Reminder: %s is tomorrow", showTitle),
-		Html:    html,
-		Headers: map[string]string{
-			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
-			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-		},
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "show_reminder")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send show reminder email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "show_reminder",
+		to:             toEmail,
+		subject:        fmt.Sprintf("Reminder: %s is tomorrow", showTitle),
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendFilterNotificationEmail sends a notification email for a matched filter.
@@ -316,28 +312,13 @@ func (s *EmailService) SendFilterNotificationEmail(toEmail, subject, htmlBody, u
 		return fmt.Errorf("email service is not configured")
 	}
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: subject,
-		Html:    htmlBody,
-		Headers: map[string]string{
-			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
-			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-		},
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "filter_notification")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send filter notification email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "filter_notification",
+		to:             toEmail,
+		subject:        subject,
+		html:           htmlBody,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // TierDisplayName maps tier constants to human-readable display names.
@@ -443,25 +424,13 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
 </html>
 `, greeting, oldDisplayName, displayName, reason, permissionsHTML, nextTierHTML, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: fmt.Sprintf("You've been promoted to %s!", displayName),
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "tier_promotion")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send tier promotion email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "tier_promotion",
+		to:             toEmail,
+		subject:        fmt.Sprintf("You've been promoted to %s!", displayName),
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendTierDemotionEmail sends a notification when a user is demoted to a lower tier.
@@ -513,25 +482,13 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
 </html>
 `, greeting, oldDisplayName, newDisplayName, reason, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: "Your contributor tier has changed",
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "tier_demotion")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send tier demotion email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "tier_demotion",
+		to:             toEmail,
+		subject:        "Your contributor tier has changed",
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendTierDemotionWarningEmail sends a warning when a user's approval rate is approaching the demotion threshold.
@@ -581,25 +538,13 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 </html>
 `, greeting, currentRate*100, threshold*100, displayName, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: "Your contributor status is at risk",
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "tier_demotion_warning")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send tier demotion warning email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "tier_demotion_warning",
+		to:             toEmail,
+		subject:        "Your contributor status is at risk",
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendEditApprovedEmail sends a notification when a user's pending edit is approved.
@@ -648,25 +593,13 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 </html>
 `, greeting, entityType, entityName, entityURL, entityTypeTitle, unsubscribeCardHTML(unsubscribeURL, "edit-review emails"))
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: fmt.Sprintf("Your edit to %s was approved!", entityName),
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "edit_approved")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send edit approved email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "edit_approved",
+		to:             toEmail,
+		subject:        fmt.Sprintf("Your edit to %s was approved!", entityName),
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendCommentNotification sends a notification when a new comment is posted on an
@@ -725,28 +658,13 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 </html>
 `, entityName, commenterName, entityType, entityName, commentExcerpt, entityURL, entityTypeTitle, entityName, unsubscribeURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: subject,
-		Html:    html,
-		Headers: map[string]string{
-			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
-			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-		},
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "comment_notification")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send comment notification email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "comment_notification",
+		to:             toEmail,
+		subject:        subject,
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendMentionNotification sends a notification when the recipient is @-mentioned
@@ -795,28 +713,13 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 </html>
 `, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: subject,
-		Html:    html,
-		Headers: map[string]string{
-			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
-			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-		},
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "mention_notification")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send mention notification email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "mention_notification",
+		to:             toEmail,
+		subject:        subject,
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendCollectionDigestEmail sends a single batched email summarizing items
@@ -910,25 +813,13 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 </html>
 `, groupsHTML.String(), unsubscribeURL, s.frontendURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: subject,
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "collection_digest")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send collection digest email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "collection_digest",
+		to:             toEmail,
+		subject:        subject,
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // SendSceneDigestEmail sends a single batched email summarizing the next 7
@@ -1032,25 +923,13 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 </html>
 `, groupsHTML.String(), unsubscribeCardHTML(unsubscribeURL, "weekly scene digests"), s.frontendURL)
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: subject,
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "scene_digest")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send scene digest email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "scene_digest",
+		to:             toEmail,
+		subject:        subject,
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
 
 // unsubscribeCardHTML renders the prominent in-body opt-out block shared by
@@ -1151,23 +1030,11 @@ func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, enti
 </html>
 `, entityName, greeting, entityType, entityName, rejectionReason, unsubscribeCardHTML(unsubscribeURL, "edit-review emails"))
 
-	params := &resend.SendEmailRequest{
-		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
-		To:      []string{toEmail},
-		Subject: fmt.Sprintf("Update on your edit to %s", entityName),
-		Html:    html,
-		Headers: unsubscribeHeaders(unsubscribeURL),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "email")
-			scope.SetTag("email_type", "edit_rejected")
-			sentry.CaptureException(err)
-		})
-		return fmt.Errorf("failed to send edit rejected email: %w", err)
-	}
-
-	return nil
+	return s.send(outboundEmail{
+		kind:           "edit_rejected",
+		to:             toEmail,
+		subject:        fmt.Sprintf("Update on your edit to %s", entityName),
+		html:           html,
+		unsubscribeURL: unsubscribeURL,
+	})
 }
