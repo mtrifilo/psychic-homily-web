@@ -612,7 +612,7 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(
 	manageURL := fmt.Sprintf("%s/settings/notifications", s.frontendURL)
 
 	html := buildArtistShowAlertEmailHTML(lane.artistName, lane.scope, c, unsubscribeURL, manageURL)
-	subject := fmt.Sprintf("%s announced a show", subjectEntityName(lane.artistName))
+	subject := fmt.Sprintf("%s announced a show", entityNameForSubject(lane.artistName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {

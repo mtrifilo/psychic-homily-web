@@ -56,28 +56,35 @@ func (s *EmailService) IsConfigured() bool {
 // outboundEmail is one message on its way to Resend, named so the five strings
 // a caller passes cannot be swapped for each other at the call site.
 type outboundEmail struct {
-	// kind identifies the message type. It is the Sentry email_type tag, and
-	// with its underscores as spaces it is the noun in the send-failure error.
+	// kind is the Sentry email_type tag value, which makes it an external key:
+	// saved searches and alerts are built on it, so renaming one is a change
+	// outside this repo. With its underscores as spaces it is also the noun in
+	// the send-failure error.
 	kind string
 	// to is a single recipient. Every message this service sends is addressed
 	// to one person; a shared To across recipients would leak the list.
 	to string
-	// subject is the copy as the sender wrote it. send makes it header-safe,
-	// so a sender interpolates freely and never sanitizes.
+	// subject is the copy as the sender wrote it. No EmailService sender
+	// sanitizes it; send does.
 	subject string
 	// html is the rendered body.
 	html string
-	// unsubscribeURL is empty for a message with no list to leave: account
-	// verification, magic link, account recovery. Empty means the
-	// List-Unsubscribe headers are omitted rather than sent pointing at "<>".
+	// unsubscribeURL is empty when there is no list to leave, and empty means
+	// the List-Unsubscribe headers are omitted rather than sent pointing at
+	// "<>".
 	unsubscribeURL string
 }
 
-// send is the one place this package builds a resend.SendEmailRequest and the
-// one place it calls the Resend client, which is what makes headerSafeSubject
-// unbypassable: a sender cannot reach the transport without passing through it.
-// TestResendRequestsAreBuiltOnlyBySend holds that shape.
+// send is the one place this package names resend.SendEmailRequest and the one
+// place it reaches the Resend client. That is what makes headerSafeSubject
+// unbypassable: a sender cannot reach the transport without passing through
+// here. It is also where the not-configured precondition lives, so a sender
+// that forgets it gets an error rather than a nil client.
 func (s *EmailService) send(msg outboundEmail) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{msg.to},
@@ -102,10 +109,6 @@ func (s *EmailService) send(msg outboundEmail) error {
 
 // SendVerificationEmail sends an email verification link to the user
 func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", s.frontendURL, token)
 
 	return s.send(outboundEmail{
@@ -148,10 +151,6 @@ func verificationEmailHTML(verifyURL string) string {
 
 // SendMagicLinkEmail sends a magic link login email to the user
 func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	magicLinkURL := fmt.Sprintf("%s/auth/magic-link?token=%s", s.frontendURL, token)
 
 	html, err := renderEmailTemplate(magicLinkEmailTemplate, magicLinkEmailData{
@@ -171,10 +170,6 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 
 // SendAccountRecoveryEmail sends an account recovery link to the user
 func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	recoveryURL := fmt.Sprintf("%s/auth/recover?token=%s", s.frontendURL, token)
 
 	html, err := renderEmailTemplate(accountRecoveryEmailTemplate, accountRecoveryEmailData{
@@ -208,10 +203,6 @@ const (
 // off the Arizona fallback, which for a non-US room is wrong by hours. The date
 // carries the whole line on its own in that case.
 func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime contracts.LocalizedEventTime, venues []string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	dateLayout := showReminderDateOnlyLayout
 	if eventTime.ZoneResolved {
 		dateLayout = showReminderDateTimeLayout
@@ -232,7 +223,7 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 	return s.send(outboundEmail{
 		kind:           "show_reminder",
 		to:             toEmail,
-		subject:        fmt.Sprintf("Reminder: %s is tomorrow", showTitle),
+		subject:        fmt.Sprintf("Reminder: %s is tomorrow", entityNameForSubject(showTitle)),
 		html:           html,
 		unsubscribeURL: unsubscribeURL,
 	})
@@ -241,10 +232,6 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 // SendFilterNotificationEmail sends a notification email for a matched filter.
 // The caller builds the HTML body; this method just sends it with proper headers.
 func (s *EmailService) SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	return s.send(outboundEmail{
 		kind:           "filter_notification",
 		to:             toEmail,
@@ -297,10 +284,6 @@ func TierPermissions(tier string) []string {
 // SendTierPromotionEmail sends a congratulatory email when a user is promoted to a higher tier.
 // unsubscribeURL is the HMAC-signed tier-notifications opt-out link (RFC 8058).
 func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string, newPermissions []string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	displayName := TierDisplayName(newTier)
 	oldDisplayName := TierDisplayName(oldTier)
 
@@ -334,10 +317,6 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
 // SendTierDemotionEmail sends a notification when a user is demoted to a lower tier.
 // unsubscribeURL is the HMAC-signed tier-notifications opt-out link (RFC 8058).
 func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	oldDisplayName := TierDisplayName(oldTier)
 	newDisplayName := TierDisplayName(newTier)
 
@@ -369,10 +348,6 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
 // SendTierDemotionWarningEmail sends a warning when a user's approval rate is approaching the demotion threshold.
 // unsubscribeURL is the HMAC-signed tier-notifications opt-out link (RFC 8058).
 func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	displayName := TierDisplayName(currentTier)
 
 	greeting := "there"
@@ -403,10 +378,6 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 // SendEditApprovedEmail sends a notification when a user's pending edit is approved.
 // unsubscribeURL is the HMAC-signed edit-notifications opt-out link (RFC 8058).
 func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	greeting := "there"
 	if username != "" {
 		greeting = username
@@ -430,7 +401,7 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 	return s.send(outboundEmail{
 		kind:           "edit_approved",
 		to:             toEmail,
-		subject:        fmt.Sprintf("Your edit to %s was approved!", entityName),
+		subject:        fmt.Sprintf("Your edit to %s was approved!", entityNameForSubject(entityName)),
 		html:           html,
 		unsubscribeURL: unsubscribeURL,
 	})
@@ -440,10 +411,6 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 // entity the recipient is subscribed to. commenterName is the display name of the
 // author (falls back to username or "A contributor" upstream — this fn just renders).
 func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	if commenterName == "" {
 		commenterName = "A contributor"
 	}
@@ -456,7 +423,7 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 
 	// The subject is a header, not markup: it carries the entity name as
 	// written, while the body below gets it escaped for the context it lands in.
-	subject := fmt.Sprintf("New comment on %s", entityName)
+	subject := fmt.Sprintf("New comment on %s", entityNameForSubject(entityName))
 
 	html, err := renderEmailTemplate(commentNotificationEmailTemplate, commentNotificationEmailData{
 		EntityName:      entityName,
@@ -483,15 +450,12 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 // SendMentionNotification sends a notification when the recipient is @-mentioned
 // in a comment. commentURL anchors to the specific comment on the entity page.
 func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	if mentionerName == "" {
 		mentionerName = "Someone"
 	}
 
-	subject := fmt.Sprintf("%s mentioned you in a comment on %s", mentionerName, entityName)
+	subject := fmt.Sprintf("%s mentioned you in a comment on %s",
+		entityNameForSubject(mentionerName), entityNameForSubject(entityName))
 
 	html, err := renderEmailTemplate(mentionNotificationEmailTemplate, mentionNotificationEmailData{
 		MentionerName:  mentionerName,
@@ -532,9 +496,6 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 //     Mailbox providers and recipients should both have a single visible
 //     way out.
 func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
 	if len(groups) == 0 {
 		return fmt.Errorf("no digest groups provided")
 	}
@@ -550,7 +511,8 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 
 	subject := fmt.Sprintf("Your weekly collections digest: %d new %s", totalItems, pluralize("item", totalItems))
 	if len(groups) == 1 {
-		subject = fmt.Sprintf("New this week in %s: %d %s", groups[0].CollectionTitle, totalItems, pluralize("item", totalItems))
+		subject = fmt.Sprintf("New this week in %s: %d %s",
+			entityNameForSubject(groups[0].CollectionTitle), totalItems, pluralize("item", totalItems))
 	}
 
 	html, err := renderEmailTemplate(collectionDigestEmailTemplate, collectionDigestEmailData{
@@ -588,9 +550,6 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 // RFC 8058 / RFC 2369 List-Unsubscribe headers + the prominent in-body opt-out
 // card use the same HMAC-signed `unsubscribeURL` (GET page + one-click POST).
 func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.SceneDigestGroup, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
 	if len(groups) == 0 {
 		return fmt.Errorf("no scene digest groups provided")
 	}
@@ -606,7 +565,7 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 
 	subject := "The next 7 days in your scenes on Psychic Homily"
 	if len(groups) == 1 {
-		subject = fmt.Sprintf("The next 7 days in %s", groups[0].SceneName)
+		subject = fmt.Sprintf("The next 7 days in %s", entityNameForSubject(groups[0].SceneName))
 	}
 
 	html, err := renderEmailTemplate(sceneDigestEmailTemplate, sceneDigestEmailData{
@@ -649,10 +608,6 @@ func pluralize(word string, n int) string {
 // SendEditRejectedEmail sends a notification when a user's pending edit is rejected.
 // unsubscribeURL is the HMAC-signed edit-notifications opt-out link (RFC 8058).
 func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason, unsubscribeURL string) error {
-	if !s.IsConfigured() {
-		return fmt.Errorf("email service is not configured")
-	}
-
 	greeting := "there"
 	if username != "" {
 		greeting = username
@@ -672,7 +627,7 @@ func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, enti
 	return s.send(outboundEmail{
 		kind:           "edit_rejected",
 		to:             toEmail,
-		subject:        fmt.Sprintf("Update on your edit to %s", entityName),
+		subject:        fmt.Sprintf("Update on your edit to %s", entityNameForSubject(entityName)),
 		html:           html,
 		unsubscribeURL: unsubscribeURL,
 	})
