@@ -35,10 +35,16 @@ The two venue-listing fixtures are a matched positive/negative case for
 
 - **Positive** — Lincoln Hall labels both times, so both belong on the show.
 - **Negative** — Empty Bottle prints a bare `10:00PM` with no label. The golden
-  states NEITHER field: nothing on the page says whether that clock is doors or
-  the first set, and `ph batch` refuses a time the source did not name. A model
-  that files it as `music_at` scores zero on `show_times_agreement` and the
-  invented value is named in the assertion's reason.
+  states NEITHER field: nothing on the rendered page says whether that clock is
+  doors or the first set, and `ph batch` refuses a time the source did not name.
+  A model that files it as `music_at` scores zero on `show_times_agreement` and
+  the invented value is named in the assertion's reason.
+
+Empty Bottle appears in the registry's own per-source table as a `music_at`
+source, which is not a contradiction: there the transform reads the DOM, whose
+`.start-time` class names the role. This fixture is a CAPTURE of the rendered
+card, where that name is not on screen. The two paths see different sources and
+so answer differently.
 
 Both are live captures rather than posters because the `ph batch` path ingests
 venue calendars; the registry of those calendars is in

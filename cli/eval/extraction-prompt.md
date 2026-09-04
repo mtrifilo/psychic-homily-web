@@ -82,28 +82,28 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
    - `FRI SEPTEMBER 11    10:00PM` → **no `doors_at`, no `music_at`**
 7. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
    year (e.g. "Riot Fest 2026" → `riot-fest`). `edition_year` carries the year.
-7. **Venue**: when a single primary venue/park is named, emit it as a `venue`
+8. **Venue**: when a single primary venue/park is named, emit it as a `venue`
    entity (with `city`, `state`) AND reference it from the festival's `venues`
    array as `{"name": ..., "is_primary": true}`.
-8. **Multi-show posts / tours**: emit one `show` per date, each with its own
+9. **Multi-show posts / tours**: emit one `show` per date, each with its own
    venue, city, state, and the full artist lineup for that date.
-9. **Social links → full on-platform URLs** (the backend rejects bare handles).
-   An `@handle` becomes a profile URL on the platform shown: Instagram `@h` →
-   `https://instagram.com/h`, Twitter/X `@h` → `https://twitter.com/h`. For
-   Facebook, YouTube, Spotify, SoundCloud, and Bandcamp, capture the full URL as
-   linked. Put each on the field whose host matches: `instagram`
-   (`instagram.com`), `facebook` (`facebook.com`), `twitter` (`twitter.com`/
-   `x.com`), `youtube` (`youtube.com`/`youtu.be`), `spotify`
-   (`open.spotify.com`), `soundcloud` (`soundcloud.com`), `bandcamp`
-   (`*.bandcamp.com`); any other off-platform link → `website`. Applies to
-   artist, venue, and label. Include a link only when it clearly maps to the
-   entity; skip when ambiguous.
-10. **Tags**: add `genre` / `locale` tags only when confidently identifiable from
+10. **Social links → full on-platform URLs** (the backend rejects bare handles).
+    An `@handle` becomes a profile URL on the platform shown: Instagram `@h` →
+    `https://instagram.com/h`, Twitter/X `@h` → `https://twitter.com/h`. For
+    Facebook, YouTube, Spotify, SoundCloud, and Bandcamp, capture the full URL as
+    linked. Put each on the field whose host matches: `instagram`
+    (`instagram.com`), `facebook` (`facebook.com`), `twitter` (`twitter.com`/
+    `x.com`), `youtube` (`youtube.com`/`youtu.be`), `spotify`
+    (`open.spotify.com`), `soundcloud` (`soundcloud.com`), `bandcamp`
+    (`*.bandcamp.com`); any other off-platform link → `website`. Applies to
+    artist, venue, and label. Include a link only when it clearly maps to the
+    entity; skip when ambiguous.
+11. **Tags**: add `genre` / `locale` tags only when confidently identifiable from
     the source. String tags default to genre; locale/other use
     `{"name": ..., "category": ...}`. Do not guess.
-11. **Skip non-music entries**: DJ interludes, radio commercials, trivia nights,
+12. **Skip non-music entries**: DJ interludes, radio commercials, trivia nights,
     "tickets on sale", sponsor logos, and other non-entity text.
-12. **Other metadata — only when explicitly shown, never infer:** `country`
+13. **Other metadata — only when explicitly shown, never infer:** `country`
     (when a country is named, e.g. "Berlin, Germany"); venue `zipcode` (only from
     a full street address); label `founded_year` (e.g. "est. 1998" → `1998`);
     `description` (a short bio / about blurb ONLY if one is literally present —

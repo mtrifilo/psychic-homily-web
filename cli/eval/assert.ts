@@ -114,13 +114,10 @@ export default function assert(output: string, context: AssertContext): GradingR
       ),
     },
     {
-      pass: score.showTimes.rate >= 1,
-      score: score.showTimes.rate,
-      reason: `Show times ${score.showTimes.matched}/${score.showTimes.expected.length} schedules matched (${score.showTimes.invented.length} invented)`,
-      namedScores: {
-        show_times_agreement: score.showTimes.rate,
-        show_times_invented: score.showTimes.invented.length,
-      },
+      pass: score.showTimes.recall >= 1 && score.showTimes.invented.length === 0,
+      score: score.showTimes.recall,
+      reason: `Show times ${score.showTimes.found}/${score.showTimes.expected} schedules matched (missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
+      namedScores: { show_times_agreement: score.showTimes.recall },
     },
     {
       pass: score.billingTierAgreement.rate >= 0.8,
@@ -143,7 +140,7 @@ export default function assert(output: string, context: AssertContext): GradingR
       artist_recall: score.artists.recall,
       venue_recall: score.venues.recall,
       billing_tier_agreement: score.billingTierAgreement.rate,
-      show_times_agreement: score.showTimes.rate,
+      show_times_agreement: score.showTimes.recall,
       schema_valid: schemaValid ? 1 : 0,
     },
   };

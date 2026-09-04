@@ -271,7 +271,7 @@ describe("scoreShowTimes", () => {
   test("a labelled pair reproduced exactly scores 1", () => {
     const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
     const s = scoreShowTimes(g, [show({ doors_at: "7:30PM", music_at: "8:30PM" })]);
-    expect(s.rate).toBe(1);
+    expect(s.recall).toBe(1);
     expect(s.invented).toEqual([]);
     expect(s.missed).toEqual([]);
   });
@@ -279,35 +279,35 @@ describe("scoreShowTimes", () => {
   test("spacing is not an extraction error, because both reach the same instant", () => {
     const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
     const s = scoreShowTimes(g, [show({ doors_at: "7:30 pm", music_at: "8:30 PM" })]);
-    expect(s.rate).toBe(1);
+    expect(s.recall).toBe(1);
   });
 
   test("a dropped door time is a miss, not a match", () => {
     const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
     const s = scoreShowTimes(g, [show({ music_at: "8:30PM" })]);
-    expect(s.rate).toBe(0);
+    expect(s.recall).toBe(0);
     expect(s.missed).toEqual(["19:30|20:30"]);
   });
 
   test("a time invented for a listing that labelled none scores zero and is named", () => {
     const g = [show({}), show({})];
     const s = scoreShowTimes(g, [show({ music_at: "10:00PM" }), show({})]);
-    expect(s.matched).toBe(1);
-    expect(s.rate).toBe(0.5);
+    expect(s.found).toBe(1);
+    expect(s.recall).toBe(0.5);
     expect(s.invented).toEqual(["|22:00"]);
   });
 
   test("a stated but unreadable time stays distinct from an absent one", () => {
     const g = [show({ music_at: "doors at 7" })];
     const s = scoreShowTimes(g, [show({})]);
-    expect(s.rate).toBe(0);
+    expect(s.recall).toBe(0);
     expect(s.missed).toEqual(["|?doors at 7"]);
   });
 
   test("a fixture with no shows scores 1 and reports nothing", () => {
     const s = scoreShowTimes(golden, golden);
-    expect(s.expected).toEqual([]);
-    expect(s.rate).toBe(1);
+    expect(s.expected).toBe(0);
+    expect(s.recall).toBe(1);
   });
 });
 
@@ -331,7 +331,7 @@ describe("scoreExtraction with shows", () => {
     const clean = scoreExtraction(g, [...golden, show({})]);
     const invented = scoreExtraction(g, [...golden, show({ music_at: "10:00PM" })]);
     expect(clean.overall).toBeGreaterThan(invented.overall);
-    expect(invented.showTimes.rate).toBe(0);
+    expect(invented.showTimes.recall).toBe(0);
   });
 
   test("formatScore reports the schedule line only when the golden has shows", () => {

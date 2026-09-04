@@ -85,3 +85,42 @@ describe("localTimeToUTC", () => {
     expect(result).toBe("2026-04-15T07:00:00Z");
   });
 });
+
+describe("localTimeToUTC across DST transitions", () => {
+  // Every expectation is the instant Go's time.Date(y, m, d, h, min, 0, 0, loc)
+  // produces for the same wall clock and zone. The pipeline anchors its own
+  // doors/music instants that way, so a clock a venue prints on a transition
+  // night has to land on the same second through either ingest path.
+  const rows: Array<[string, string, string, string]> = [
+    // Spring forward, America/Chicago at 02:00 local.
+    ["2026-03-08", "02:30", "America/Chicago", "2026-03-08T07:30:00Z"],
+    ["2026-03-08", "03:00", "America/Chicago", "2026-03-08T08:00:00Z"],
+    ["2026-03-08", "07:30", "America/Chicago", "2026-03-08T12:30:00Z"],
+    // Fall back, America/Chicago at 02:00 local. 01:30 happens twice and
+    // resolves to the first, like Go.
+    ["2026-11-01", "00:30", "America/Chicago", "2026-11-01T05:30:00Z"],
+    ["2026-11-01", "01:30", "America/Chicago", "2026-11-01T06:30:00Z"],
+    ["2026-11-01", "02:30", "America/Chicago", "2026-11-01T08:30:00Z"],
+    // A European club listing that states doors and music either side of the
+    // 02:00 spring-forward. The two must stay an hour apart.
+    ["2026-03-29", "00:30", "Europe/Berlin", "2026-03-28T23:30:00Z"],
+    ["2026-03-29", "01:30", "Europe/Berlin", "2026-03-29T00:30:00Z"],
+    // 02:30 does not exist that night; it normalizes forward, like Go.
+    ["2026-03-29", "02:30", "Europe/Berlin", "2026-03-29T01:30:00Z"],
+    ["2026-03-29", "03:30", "Europe/Berlin", "2026-03-29T01:30:00Z"],
+    ["2026-10-25", "02:30", "Europe/Berlin", "2026-10-25T01:30:00Z"],
+    ["2026-03-08", "02:00", "America/New_York", "2026-03-08T06:00:00Z"],
+  ];
+
+  for (const [date, time, zone, expected] of rows) {
+    test(`${date} ${time} ${zone} -> ${expected}`, () => {
+      expect(localTimeToUTC(date, time, zone)).toBe(expected);
+    });
+  }
+
+  test("a stated doors/music pair stays an hour apart across the gap", () => {
+    const doors = localTimeToUTC("2026-03-29", "00:30", "Europe/Berlin");
+    const music = localTimeToUTC("2026-03-29", "01:30", "Europe/Berlin");
+    expect(Date.parse(music) - Date.parse(doors)).toBe(60 * 60 * 1000);
+  });
+});
