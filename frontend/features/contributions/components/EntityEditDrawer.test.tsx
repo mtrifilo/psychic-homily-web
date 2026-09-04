@@ -10,15 +10,22 @@ import { renderWithProviders } from '@/test/utils'
 const mockMutate = vi.fn()
 const mockReset = vi.fn()
 
+// Mutable so a test can put the mutation into a failure state; reset in
+// beforeEach so one test's error does not leak into the next.
+const suggestEditState = {
+  isError: false,
+  error: null as Error | null,
+}
+
 vi.mock('../hooks/useSuggestEdit', () => ({
   useSuggestEdit: () => ({
     mutate: mockMutate,
     reset: mockReset,
     isPending: false,
     isSuccess: false,
-    isError: false,
+    isError: suggestEditState.isError,
     data: undefined as unknown,
-    error: null as Error | null,
+    error: suggestEditState.error,
   }),
 }))
 
@@ -43,6 +50,8 @@ describe('EntityEditDrawer URL validation (PSY-599)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    suggestEditState.isError = false
+    suggestEditState.error = null
   })
 
   function fillSummary() {
@@ -194,6 +203,8 @@ describe('EntityEditDrawer venue age policy (PSY-1682)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    suggestEditState.isError = false
+    suggestEditState.error = null
   })
 
   function fillSummary(text = 'Confirmed the house age policy with the venue') {
@@ -274,6 +285,8 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    suggestEditState.isError = false
+    suggestEditState.error = null
   })
 
   function fillSummary(text = 'Confirmed the room capacity with the venue') {
@@ -458,6 +471,8 @@ describe('EntityEditDrawer applied-close timer cleanup (PSY-1664)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    suggestEditState.isError = false
+    suggestEditState.error = null
   })
 
   it('leaves no pending close timer behind on unmount', () => {
@@ -499,5 +514,57 @@ describe('EntityEditDrawer applied-close timer cleanup (PSY-1664)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// A 409 says the entity is not in the state this form described: the field
+// moved since the form loaded, or an edit is already queued on it. The
+// submitter has to be told what to do next, and "the fields now show the
+// current values" is the instruction, since useSuggestEdit refetches the entity
+// on 409 and the form reads its previous values from that entity.
+describe('EntityEditDrawer stale-value conflict (PSY-1998)', () => {
+  const conflictProps = {
+    open: true,
+    onOpenChange: vi.fn(),
+    entityType: 'artist' as const,
+    entityId: 42,
+    entityName: 'Amyl and the Sniffers',
+    entity: { name: 'Amyl and the Sniffers' } as Record<string, unknown>,
+    canEditDirectly: false,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    suggestEditState.isError = false
+    suggestEditState.error = null
+  })
+
+  it('shows the server message and says the form now holds the current values', () => {
+    suggestEditState.isError = true
+    suggestEditState.error = Object.assign(
+      new Error('This field has changed since you loaded the form: name.'),
+      { status: 409 }
+    )
+
+    renderWithProviders(<EntityEditDrawer {...conflictProps} />)
+
+    expect(
+      screen.getByText(/This field has changed since you loaded the form: name\./)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/The fields below now show the current values/)).toBeInTheDocument()
+  })
+
+  it('does not claim a reload happened on an ordinary failure', () => {
+    suggestEditState.isError = true
+    suggestEditState.error = Object.assign(new Error('Summary is required'), {
+      status: 422,
+    })
+
+    renderWithProviders(<EntityEditDrawer {...conflictProps} />)
+
+    expect(screen.getByText('Summary is required')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/The fields below now show the current values/)
+    ).not.toBeInTheDocument()
   })
 })

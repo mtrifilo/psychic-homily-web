@@ -20,6 +20,7 @@ import { useShowEdit } from '../hooks/useShowEdit'
 import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
 import { EDITABLE_FIELDS, fieldChangeValue, validateFieldValue } from '../types'
 import { useDismissTimer } from '@/lib/hooks/common'
+import { isConflictError } from '@/lib/api'
 
 // How long the in-drawer success flash shows before the drawer closes itself.
 const APPLIED_CLOSE_DELAY_MS = 1000
@@ -307,12 +308,21 @@ export function EntityEditDrawer({
           )
         )}
 
-        {/* Error state */}
+        {/* Error state. A conflict is not a failure of the submission but a
+            report that the entity is not in the state the form described, so it
+            says what moved and that the fields below now show the current
+            values — which they do, because useSuggestEdit refetches the entity
+            on 409 and the form reads its initial values from it. */}
         {editMutation.isError && (
           <div className="mx-4 rounded-md border border-red-800 bg-red-950/50 p-4">
             <p className="text-sm text-red-400">
               {(editMutation.error as Error)?.message || 'Failed to submit edit'}
             </p>
+            {isConflictError(editMutation.error) && (
+              <p className="mt-1 text-sm text-red-400">
+                The fields below now show the current values. Check your changes and submit again.
+              </p>
+            )}
           </div>
         )}
 

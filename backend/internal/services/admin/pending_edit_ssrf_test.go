@@ -215,19 +215,12 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_SSRFChec
 	reviewer := s.createTestUser()
 	artist := s.createTestArtist(fmt.Sprintf("SSRF Test Artist %d", time.Now().UnixNano()))
 
-	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
-		EntityType: "artist",
-		EntityID:   artist.ID,
-		UserID:     user.ID,
-		Changes: []adminm.FieldChange{
-			{Field: "image_url", NewValue: "https://169.254.169.254/x.jpg"},
-			{Field: "is_admin", NewValue: true},
-		},
-		Summary: "corrupted submission",
-	})
-	s.Require().NoError(err)
+	created := s.insertCorruptPendingEdit("artist", artist.ID, user.ID, []adminm.FieldChange{
+		{Field: "image_url", NewValue: "https://169.254.169.254/x.jpg"},
+		{Field: "is_admin", NewValue: true},
+	}, "corrupted submission")
 
-	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().Error(err)
 	s.Require().ErrorIs(err, adminm.ErrPendingEditDisallowedFields)
 

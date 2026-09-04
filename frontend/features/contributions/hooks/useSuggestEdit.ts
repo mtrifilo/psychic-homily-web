@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_BASE_URL } from '@/lib/api'
+import { apiRequest, API_BASE_URL, isConflictError } from '@/lib/api'
 import type { EditableEntityType, SuggestEditRequest, SuggestEditResponse } from '../types'
 
 /**
@@ -45,6 +45,16 @@ export const useSuggestEdit = () => {
       const pluralType = ENTITY_PLURAL[entityType]
       queryClient.invalidateQueries({ queryKey: [pluralType] })
       queryClient.invalidateQueries({ queryKey: ['my-pending-edits'] })
+    },
+    // A 409 means the server refused because the entity is not in the state the
+    // submission described: the field moved since the form was loaded, or this
+    // submitter already has an edit queued on it. Both are answered by showing
+    // the submitter the CURRENT entity, so the refetch belongs here rather than
+    // in each caller, which would otherwise leave the form asserting a previous
+    // value the server has already rejected.
+    onError: (error, { entityType }) => {
+      if (!isConflictError(error)) return
+      queryClient.invalidateQueries({ queryKey: [ENTITY_PLURAL[entityType]] })
     },
   })
 }

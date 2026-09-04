@@ -382,6 +382,27 @@ func (s *PendingEditServiceIntegrationTestSuite) createTestFestival(name string)
 	return festival
 }
 
+// insertCorruptPendingEdit writes a pending_entity_edits row directly, without
+// the service, for the rows the approve-side gates exist to catch: ones that
+// reached the table naming a column no submission path would accept. The
+// service refuses those at submit time now, so a test that needs one has to put
+// it there itself, which is also the only way such a row can exist.
+func (s *PendingEditServiceIntegrationTestSuite) insertCorruptPendingEdit(entityType string, entityID, userID uint, changes []adminm.FieldChange, summary string) *adminm.PendingEntityEdit {
+	raw, err := json.Marshal(changes)
+	s.Require().NoError(err)
+	msg := json.RawMessage(raw)
+	edit := &adminm.PendingEntityEdit{
+		EntityType:   entityType,
+		EntityID:     entityID,
+		SubmittedBy:  userID,
+		FieldChanges: &msg,
+		Summary:      summary,
+		Status:       adminm.PendingEditStatusPending,
+	}
+	s.Require().NoError(s.db.Create(edit).Error)
+	return edit
+}
+
 func makeChanges(field, oldVal, newVal string) []adminm.FieldChange {
 	return []adminm.FieldChange{{Field: field, OldValue: oldVal, NewValue: newVal}}
 }
@@ -702,7 +723,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAge
 
 	blank, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
-		Changes: []adminm.FieldChange{{Field: "age_policy", NewValue: "   "}},
+		Changes: []adminm.FieldChange{{Field: "age_policy", OldValue: "21+", NewValue: "   "}},
 		Summary: "venue dropped the rule",
 	})
 	s.Require().NoError(err)
@@ -747,7 +768,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCap
 
 	cleared, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
-		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: nil}},
+		Changes: []adminm.FieldChange{{Field: "capacity", OldValue: float64(550), NewValue: nil}},
 		Summary: "the number was wrong, we do not know it",
 	})
 	s.Require().NoError(err)
@@ -822,8 +843,8 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueLoc
 	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
 		Changes: []adminm.FieldChange{
-			{Field: "city", NewValue: "Denver"},
-			{Field: "state", NewValue: "CO"},
+			{Field: "city", OldValue: "Phoenix", NewValue: "Denver"},
+			{Field: "state", OldValue: "AZ", NewValue: "CO"},
 		},
 		Summary: "relocate to Denver",
 	})
@@ -1051,12 +1072,12 @@ func (s *PendingEditServiceIntegrationTestSuite) TestGetUserPendingEdits_OnlyOwn
 
 	_, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "artist", EntityID: artist.ID, UserID: alice.ID,
-		Changes: makeChanges("description", "old", "alice's note"), Summary: "alice edit",
+		Changes: makeChanges("description", "", "alice's note"), Summary: "alice edit",
 	})
 	s.Require().NoError(err)
 	_, err = s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "artist", EntityID: artist.ID, UserID: bob.ID,
-		Changes: makeChanges("city", "Old City", "Phoenix"), Summary: "bob edit",
+		Changes: makeChanges("city", "", "Phoenix"), Summary: "bob edit",
 	})
 	s.Require().NoError(err)
 
@@ -1332,24 +1353,16 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsD
 	reviewer := s.createTestUser()
 	artist := s.createTestArtist("Genuine")
 
-	// CreatePendingEdit doesn't validate field names server-side (the
-	// handler-level validator is what blocks contributors), so we can
-	// land a malformed row directly through the service.
-	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
-		EntityType: "artist",
-		EntityID:   artist.ID,
-		UserID:     user.ID,
-		Changes: []adminm.FieldChange{
-			{Field: "name", OldValue: "Genuine", NewValue: "Compromised"},
-			{Field: "is_admin", OldValue: false, NewValue: true},
-		},
-		Summary: "malicious edit smuggling is_admin",
-	})
-	s.Require().NoError(err)
-	s.Require().NotNil(created)
+	// The row is written directly: the service refuses a field that is not a
+	// column at submit time, so a corrupted row can only get here the way this
+	// one does, and that is the row this gate exists for.
+	created := s.insertCorruptPendingEdit("artist", artist.ID, user.ID, []adminm.FieldChange{
+		{Field: "name", OldValue: "Genuine", NewValue: "Compromised"},
+		{Field: "is_admin", OldValue: false, NewValue: true},
+	}, "malicious edit smuggling is_admin")
 
 	// Approve must fail with the disallowed-fields sentinel.
-	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().Error(err)
 	s.True(errors.Is(err, adminm.ErrPendingEditDisallowedFields),
 		"expected ErrPendingEditDisallowedFields, got %v", err)
@@ -1415,18 +1428,12 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsM
 	reviewer := s.createTestUser()
 	venue := s.createTestVenue("Genuine Venue")
 
-	created, _ := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
-		EntityType: "venue",
-		EntityID:   venue.ID,
-		UserID:     user.ID,
-		Changes: []adminm.FieldChange{
-			{Field: "name", NewValue: "Pwned"},
-			{Field: "is_admin", NewValue: true},
-			{Field: "password_hash", NewValue: "x"},
-			{Field: "trust_tier", NewValue: "admin"},
-		},
-		Summary: "many bad fields",
-	})
+	created := s.insertCorruptPendingEdit("venue", venue.ID, user.ID, []adminm.FieldChange{
+		{Field: "name", NewValue: "Pwned"},
+		{Field: "is_admin", NewValue: true},
+		{Field: "password_hash", NewValue: "x"},
+		{Field: "trust_tier", NewValue: "admin"},
+	}, "many bad fields")
 
 	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().Error(err)

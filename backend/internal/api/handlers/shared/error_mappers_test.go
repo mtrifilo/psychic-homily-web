@@ -525,6 +525,7 @@ func TestMapPendingEditError_CodeToStatus(t *testing.T) {
 		{"edit not found", apperrors.ErrPendingEditNotFound(), 404},
 		{"not pending", apperrors.ErrPendingEditNotPending("approved"), 409},
 		{"duplicate", apperrors.ErrPendingEditDuplicate(stderrors.New("unique constraint")), 409},
+		{"stale value", apperrors.ErrPendingEditStaleValue([]string{"name"}), 409},
 		{"not submitter", apperrors.ErrPendingEditNotSubmitter(), 403},
 		{"invalid entity type", apperrors.ErrPendingEditInvalidEntityType("show"), 422},
 		{"invalid request", apperrors.ErrPendingEditInvalidRequest("no changes provided"), 422},

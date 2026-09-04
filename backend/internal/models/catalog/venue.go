@@ -164,3 +164,30 @@ func (v *Venue) PublicZipcode() *string {
 	}
 	return v.Zipcode
 }
+
+// WithheldEditFields names the editable columns whose stored value this venue
+// does not publish, in the field-name spelling a pending edit uses.
+//
+// It answers one question for the pending-edit pipeline: may a submitter's
+// claim about this field's previous value be trusted as evidence? A field the
+// reader is never served cannot have been observed, so a claim about it says
+// nothing, and treating it as a stale-value conflict would refuse the edit
+// forever rather than once.
+//
+// It asks the accessors rather than repeating their rule, so a change to WHEN a
+// field is withheld lands here for free. Adding a THIRD gated field means adding
+// its line here in the same change, exactly as PublicAddress and PublicZipcode
+// must change together.
+func (v *Venue) WithheldEditFields() []string {
+	if v == nil {
+		return nil
+	}
+	var withheld []string
+	if v.Address != nil && v.PublicAddress() == nil {
+		withheld = append(withheld, "address")
+	}
+	if v.Zipcode != nil && v.PublicZipcode() == nil {
+		withheld = append(withheld, "zipcode")
+	}
+	return withheld
+}

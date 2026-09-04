@@ -2,6 +2,7 @@ package errors
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Pending-edit error codes.
@@ -43,6 +44,10 @@ const (
 	CodePendingEditInvalidRequest = "PENDING_EDIT_INVALID_REQUEST"
 	// CodePendingEditInternal indicates a database or infrastructure failure.
 	CodePendingEditInternal = "PENDING_EDIT_INTERNAL"
+	// CodePendingEditStaleValue indicates the submitter's claim about a
+	// field's current value disagrees with the entity, so the edit was
+	// composed against a value the entity no longer holds.
+	CodePendingEditStaleValue = "PENDING_EDIT_STALE_VALUE"
 )
 
 // PendingEditError represents a pending-edit error with additional context.
@@ -131,6 +136,26 @@ func ErrPendingEditInvalidRequest(message string) *PendingEditError {
 	return &PendingEditError{
 		Code:    CodePendingEditInvalidRequest,
 		Message: message,
+	}
+}
+
+// ErrPendingEditStaleValue creates a stale-value conflict error naming the
+// fields whose claimed previous value disagrees with the entity.
+//
+// The message is user-facing and says only that the field moved, never what it
+// moved to: the same submission may name a field this submitter is not served
+// (an unverified venue's address), so quoting the current value here would be a
+// disclosure channel that no read gate covers.
+func ErrPendingEditStaleValue(fields []string) *PendingEditError {
+	subject := "This field has"
+	if len(fields) > 1 {
+		subject = "These fields have"
+	}
+	return &PendingEditError{
+		Code: CodePendingEditStaleValue,
+		Message: fmt.Sprintf(
+			"%s changed since you loaded the form: %s. Reload to see the current values, then submit your edit again.",
+			subject, strings.Join(fields, ", ")),
 	}
 }
 
