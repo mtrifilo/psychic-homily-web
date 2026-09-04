@@ -305,6 +305,11 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	// stored, and history can hold values that predate a bound, so refusing them
 	// would break undo for precisely the rows most likely to need it.
 	//
+	// A column with its own CHECK constraint still refuses one. venues.capacity
+	// is bounded at 1..200000 by venues_capacity_range, so a rollback restoring
+	// a capacity outside that range fails at the write below with a constraint
+	// violation rather than landing the old value.
+	//
 	// A nil OldValue means the column was NULL before the edit, and it has to
 	// land as SQL NULL for the undo to be faithful. NarrowNumericUpdates turns a
 	// REGISTERED field's nil into a typed (*int)(nil) for exactly that reason;
