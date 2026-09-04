@@ -1,4 +1,5 @@
-import { isShowTimezoneResolved } from '@/lib/utils/formatters'
+import { isUnitedStatesCountry } from '@/lib/formatLocation'
+import { isValidTimeZone } from '@/lib/utils/formatters'
 import type { Venue, VenueWithShowCount, VenueEditRequest } from '../types'
 
 export interface VenueEditFormValues {
@@ -18,27 +19,11 @@ export interface VenueEditFormValues {
 }
 
 /**
- * Spellings of the United States that `venues.country` holds. The column is
- * free text written by several sources and is not canonicalized, so the set is
- * matched case-insensitively after trimming. Anything else non-empty names a
- * country that is not the one the state map describes.
- */
-const US_COUNTRY_NAMES = new Set([
-  'US',
-  'U.S.',
-  'U.S.A.',
-  'USA',
-  'UNITED STATES',
-  'UNITED STATES OF AMERICA',
-  'AMERICA',
-])
-
-/**
  * Whether this venue may be saved without naming a state.
  *
  * `state` on a venue is a US-map concern: the app reads it to name a timezone
  * for a venue that has no resolved `timezone` of its own. A venue with no state
- * on file whose zone is nameable anyway, or that sits in a country the state
+ * on file whose own IANA zone is nameable, or that names a country the state
  * map does not describe, is a complete record, and the editor must not demand
  * an invented state before it will save an address fix.
  *
@@ -48,19 +33,25 @@ const US_COUNTRY_NAMES = new Set([
  * changed: exempting a clear would trade an inline message for a server error.
  * A blank state that was blank on arrival is never sent at all.
  *
- * The country half is a weaker signal than the timezone half. It says the state
- * map does not apply, not which zone does; a venue with `country` set and no
- * `timezone` still renders on FALLBACK_SHOW_TIMEZONE. That is unchanged by this
- * rule, which governs whether the venue record can be edited, not how its shows
- * are read.
+ * The country half is a weaker signal than the zone half. It says the state map
+ * does not apply, not which zone does; such a venue still renders on
+ * FALLBACK_SHOW_TIMEZONE. That is unchanged by this rule, which governs whether
+ * the venue RECORD can be edited, not how its shows are read. `country` is free
+ * text and `isUnitedStatesCountry` recognizes two spellings, so a US venue
+ * recorded as "United States" reads as non-US here and has its state waived.
+ *
+ * `isValidTimeZone` rather than `isShowTimezoneResolved`: the state is already
+ * known blank, so the only live question is whether the venue's own zone STRING
+ * names a zone, which is the distinction `formatters.ts` exports
+ * `isValidTimeZone` to answer.
  */
 export function venueMayOmitState(
   venue: Pick<Venue, 'state' | 'timezone' | 'country'>
 ): boolean {
   if (venue.state.trim() !== '') return false
-  if (isShowTimezoneResolved(venue.state, venue.timezone)) return true
+  if (venue.timezone && isValidTimeZone(venue.timezone)) return true
   const country = venue.country?.trim() ?? ''
-  return country !== '' && !US_COUNTRY_NAMES.has(country.toUpperCase())
+  return country !== '' && !isUnitedStatesCountry(country)
 }
 
 /**

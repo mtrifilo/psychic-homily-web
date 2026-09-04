@@ -963,6 +963,26 @@ describe('ShowForm: a blank venue state is otherwise still rejected', () => {
     expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
   })
 
+  // A venue typed in by name is resolved by (name, city, state), so the state
+  // is the only thing that could identify its zone.
+  it('blocks a create on a brand new venue typed in by name', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Headliner Band'
+    )
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Some Brand New Room')
+    await user.type(screen.getByLabelText(/^City$/i), 'Berlin')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
   // Clearing the field is not the same as opening on a venue that has no
   // state. The show's date and time were read in America/New_York here, and a
   // blank state resolves FALLBACK_SHOW_TIMEZONE, so accepting this would move
@@ -1350,20 +1370,6 @@ describe('ShowForm: creating on a prefilled state-less venue', () => {
     )
 
     await fillBillAndDate(user, '2099-06-15')
-    await user.click(screen.getByRole('button', { name: /submit show/i }))
-
-    expect(await screen.findByText('State is required')).toBeInTheDocument()
-    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
-  })
-
-  it('keeps requiring a state on a create with no prefilled venue at all', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
-
-    await fillBillAndDate(user, '2099-06-15')
-    await user.type(screen.getByLabelText(/^Venue$/i), 'Some Brand New Room')
-    await user.type(screen.getByLabelText(/^City$/i), 'Berlin')
-
     await user.click(screen.getByRole('button', { name: /submit show/i }))
 
     expect(await screen.findByText('State is required')).toBeInTheDocument()

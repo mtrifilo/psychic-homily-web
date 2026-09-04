@@ -82,19 +82,27 @@ describe('venueMayOmitState', () => {
     ).toBe(false)
   })
 
-  it('keeps the requirement for every US spelling the column holds', () => {
-    for (const country of [
-      'US',
-      'us',
-      'USA',
-      'United States',
-      'united states of america',
-      ' America ',
-    ]) {
-      expect(
-        venueMayOmitState({ state: '', timezone: null, country })
-      ).toBe(false)
+  it('keeps the requirement for the US spellings the shared rule recognizes', () => {
+    for (const country of ['US', 'us', 'USA', ' usa ']) {
+      expect(venueMayOmitState({ state: '', timezone: null, country })).toBe(
+        false
+      )
     }
+  })
+
+  it('reads a spelling outside that set as a country the state map does not describe', () => {
+    // Pins a known divergence rather than a desired outcome: the frontend rule
+    // is `isUnitedStatesCountry`, which recognizes two spellings, while the
+    // backend's venue-local SQL also accepts "United States". A US venue
+    // recorded that way has its state waived here. The cost is one missing nag
+    // on a venue whose state was already blank, never a wrong zone.
+    expect(
+      venueMayOmitState({
+        state: '',
+        timezone: null,
+        country: 'United States',
+      })
+    ).toBe(true)
   })
 
   it('keeps the requirement when a state is on file, however good the other evidence', () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import {
@@ -65,6 +65,12 @@ const makeVenueEditSchema = (stateIsOptional: boolean) =>
     website: z.string(),
   })
 
+// Both variants, built once. The factory's whole input domain is one boolean,
+// and a zod schema is a stateless parser, so per-mount construction would only
+// re-allocate: VenueCard mounts one of these per row, above the admin guard.
+const VENUE_EDIT_SCHEMA_STATE_REQUIRED = makeVenueEditSchema(false)
+const VENUE_EDIT_SCHEMA_STATE_OPTIONAL = makeVenueEditSchema(true)
+
 type FormValues = VenueEditFormValues
 
 interface VenueEditFormProps {
@@ -111,10 +117,9 @@ export function VenueEditForm({
   // which the `key` contract above pins for the life of the mounted form, so
   // the rule cannot change under a user mid-edit.
   const stateIsOptional = venueMayOmitState(venue)
-  const venueEditSchema = useMemo(
-    () => makeVenueEditSchema(stateIsOptional),
-    [stateIsOptional]
-  )
+  const venueEditSchema = stateIsOptional
+    ? VENUE_EDIT_SCHEMA_STATE_OPTIONAL
+    : VENUE_EDIT_SCHEMA_STATE_REQUIRED
 
   // Initialize form with venue data
   const initialValues: FormValues = {
@@ -273,8 +278,8 @@ export function VenueEditForm({
                 {field => (
                   <div className="space-y-2">
                     <Label htmlFor="state">
-                    State{stateIsOptional ? '' : ' *'}
-                  </Label>
+                      State{stateIsOptional ? '' : ' *'}
+                    </Label>
                     <Input
                       id="state"
                       value={field.state.value}

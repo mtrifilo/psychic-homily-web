@@ -29,7 +29,7 @@ import {
   resolveShowTimezone,
 } from '@/lib/utils/formatters'
 import type { Venue } from '@/features/venues'
-import { formatLocation } from '@/lib/formatLocation'
+import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { useDismissTimer } from '@/lib/hooks/common'
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
@@ -258,6 +258,17 @@ export function ShowForm({
     }
   )
 
+  // The locked venue's location line. formatLocation, not a template, so a
+  // venue with no state on file does not render a trailing comma; the venue is
+  // passed structurally so a `country` added to PrefilledVenue flows through
+  // without another edit here. Its stand-alone placeholder is dropped rather
+  // than printed beside a venue name that already stated the place.
+  const prefilledLocationText = prefilledVenue
+    ? formatLocation(prefilledVenue)
+    : ''
+  const prefilledLocation =
+    prefilledLocationText === LOCATION_UNKNOWN ? '' : prefilledLocationText
+
   const isEditMode = mode === 'edit'
   const isAdmin = user?.is_admin ?? false
   const mutation = isEditMode ? updateMutation : submitMutation
@@ -290,22 +301,12 @@ export function ShowForm({
   })()
 
   // The one venue this save may name without a state, or undefined when there
-  // is none. Two paths reach it, for two different reasons:
-  //
-  // - An EDIT opened on a venue with no state on file, which seeded the state
-  //   field blank. That venue's zone is the one the date and time fields on
-  //   screen were already read in, so recomposing in it round-trips.
-  // - A CREATE on a locked prefilled venue whose zone is resolved. There is no
-  //   instant to round-trip yet; the exemption is safe because `timezone`
-  //   dominates the state in `resolveShowTimezone`, so the submit composes in
-  //   the venue's own zone whatever the state field holds. A prefilled venue
-  //   with no resolved zone keeps the requirement: there a blank state would
-  //   silently anchor the show to FALLBACK_SHOW_TIMEZONE.
-  //
-  //   A prefilled venue that HAS a state arms the exemption too, and it is
-  //   inert: `isVenueLocationEditable` is false for every prefilled venue, so
-  //   the field cannot be emptied and the plain `venue.state !== ''` branch
-  //   answers first.
+  // is none. Both branches name a venue whose blank state costs the submit
+  // nothing: an edit's opened-on venue is the one the date and time fields on
+  // screen were already read in, and a prefilled venue with a resolved zone
+  // composes in that zone, which `resolveShowTimezone` prefers over the state.
+  // A prefilled venue with no resolved zone keeps the requirement, since there
+  // a blank state would silently anchor the show to FALLBACK_SHOW_TIMEZONE.
   //
   // Captured once, in a state initializer, for the same reason TanStack Form
   // reads `defaultValues` once: it has to describe the values the form is
@@ -316,9 +317,8 @@ export function ShowForm({
   //
   // The edit branch is gated on `initialData` rather than on `isEditMode` alone
   // so it decides on the same condition the submit branch below does;
-  // `mode="edit"` without initialData builds a CREATE payload. That payload's
-  // venue is the prefilled one when there is one, which is why the create
-  // branch reads `prefilledVenue` rather than the mode.
+  // `mode="edit"` without initialData builds a CREATE payload, whose venue is
+  // the prefilled one when there is one.
   const [stateLessVenueId] = useState(() => {
     if (isEditMode && initialData) {
       return initialFormValues.venue.state === ''
@@ -327,6 +327,7 @@ export function ShowForm({
     }
     if (
       prefilledVenue &&
+      prefilledVenue.state === '' &&
       isShowTimezoneResolved(prefilledVenue.state, prefilledVenue.timezone)
     ) {
       return prefilledVenue.id
@@ -701,11 +702,11 @@ export function ShowForm({
             <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted border">
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <span className="font-medium">{prefilledVenue.name}</span>
-              <span className="text-muted-foreground">
-                {/* formatLocation, not a template: a venue with no state on
-                    file would otherwise render a trailing comma. */}
-                — {formatLocation({ city: prefilledVenue.city, state: prefilledVenue.state })}
-              </span>
+              {prefilledLocation && (
+                <span className="text-muted-foreground">
+                  — {prefilledLocation}
+                </span>
+              )}
             </div>
           </div>
         ) : (

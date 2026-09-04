@@ -303,11 +303,10 @@ export interface VenueCitiesResponse {
  * Get a formatted location string for a venue.
  *
  * Delegates to the shared `formatLocation` helper (PSY-780) so empty/missing
- * state no longer leaves a trailing ", " in the UI. The `Venue` model does
- * not currently carry a `country` field, so the PSY-558 country-suppression
- * rule is a no-op here today. `Venue` is passed directly (structural typing)
- * so when `country` is added to the model the field will flow through this
- * helper without further changes here.
+ * state no longer leaves a trailing ", " in the UI. `Venue` is passed directly
+ * (structural typing), so its `country` reaches the PSY-558 suppression rule:
+ * a US venue with a state renders "Phoenix, AZ" and a venue outside the US
+ * renders its country.
  */
 export const getVenueLocation = (venue: Venue): string => formatLocation(venue)
 
