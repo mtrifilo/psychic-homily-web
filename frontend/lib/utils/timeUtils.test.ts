@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, it, expect } from 'vitest'
 import {
   FALLBACK_SHOW_TIMEZONE,
   getTimezoneForState,
   combineDateTimeToUTC,
+  localClockExists,
   formatInTimezone,
   formatDateInTimezone,
   formatTimeInTimezone,
@@ -507,6 +511,124 @@ describe('toZonedDateOnly', () => {
     )
     expect(toZonedDateOnly('2026-03-15T06:59:00Z', 'America/Phoenix')).toBe(
       '2026-03-14'
+    )
+  })
+})
+
+// Read at RUNTIME, not imported.
+//
+// `import ... from '../../../backend/...json'` would pull a backend file into
+// the frontend TypeScript program, and `next build` typechecks that program, so
+// a Vercel project rooted at frontend/ without "include source files outside the
+// root directory" would fail the BUILD on a test fixture. readFileSync keeps the
+// single shared source of truth while staying invisible to tsc and to the
+// bundle. Same idiom as lib/socialLinks.test.ts.
+const dstCorpus = JSON.parse(
+  readFileSync(
+    resolve(
+      __dirname,
+      '../../../backend/internal/utils/testdata/dst_clock_corpus.json'
+    ),
+    'utf8'
+  )
+) as {
+  cases: {
+    date: string
+    clock: string
+    zone: string
+    utc: string
+    exists: boolean
+    ambiguous: boolean
+    why: string
+  }[]
+}
+
+describe('cross-language DST corpus (this resolver and the Go writers are one rule)', () => {
+  it('has rows on every side of both transitions', () => {
+    // Named explicitly: an empty array turns the it.each blocks below into zero
+    // tests, so the whole gate would stop asserting with nothing failing.
+    expect(dstCorpus.cases.length).toBeGreaterThan(0)
+    expect(dstCorpus.cases.filter(c => !c.exists).length).toBeGreaterThanOrEqual(
+      2
+    )
+    expect(
+      dstCorpus.cases.filter(c => c.ambiguous).length
+    ).toBeGreaterThanOrEqual(2)
+  })
+
+  it.each(
+    dstCorpus.cases.map(c => [`${c.date} ${c.clock} ${c.zone}`, c] as const)
+  )('%s resolves to the instant Go does', (_name, c) => {
+    expect(combineDateTimeToUTC(c.date, c.clock, c.zone)).toBe(c.utc)
+  })
+
+  it.each(
+    dstCorpus.cases.map(c => [`${c.date} ${c.clock} ${c.zone}`, c] as const)
+  )('%s agrees with the corpus about whether the clock exists', (_name, c) => {
+    expect(localClockExists(c.date, c.clock, c.zone)).toBe(c.exists)
+  })
+})
+
+describe('combineDateTimeToUTC across DST transitions', () => {
+  // The cases the corpus rows exist for, spelled out so a failure names the
+  // fact rather than a row index.
+
+  it('keeps a doors/music pair an hour apart across a spring-forward gap', () => {
+    // A single offset probe reads the wrong side of the transition and lands
+    // both of these on 2026-03-28T23:30Z: two stated clocks, one instant.
+    const doors = combineDateTimeToUTC('2026-03-29', '00:30', 'Europe/Berlin')
+    const music = combineDateTimeToUTC('2026-03-29', '01:30', 'Europe/Berlin')
+    expect(doors).toBe('2026-03-28T23:30:00Z')
+    expect(music).toBe('2026-03-29T00:30:00Z')
+    expect(Date.parse(music) - Date.parse(doors)).toBe(60 * 60 * 1000)
+  })
+
+  it('reports the skipped hour as nonexistent in a US zone', () => {
+    expect(localClockExists('2026-03-08', '01:30', 'America/Chicago')).toBe(true)
+    expect(localClockExists('2026-03-08', '02:30', 'America/Chicago')).toBe(
+      false
+    )
+    expect(localClockExists('2026-03-08', '03:00', 'America/Chicago')).toBe(true)
+  })
+
+  it('reports the skipped hour as nonexistent in a European zone', () => {
+    expect(localClockExists('2026-03-29', '01:30', 'Europe/Berlin')).toBe(true)
+    expect(localClockExists('2026-03-29', '02:30', 'Europe/Berlin')).toBe(false)
+    expect(localClockExists('2026-03-29', '03:30', 'Europe/Berlin')).toBe(true)
+  })
+
+  it('accepts a clock a fall-back makes happen twice, and picks one', () => {
+    // Ambiguity is not a refusal: the clock happened. Which of the two instants
+    // comes back varies by zone rather than following a rule, so both are
+    // pinned. Chicago lands on the earlier occurrence (still on daylight time)
+    // and Berlin on the later one (already on standard time).
+    expect(localClockExists('2026-11-01', '01:30', 'America/Chicago')).toBe(true)
+    expect(combineDateTimeToUTC('2026-11-01', '01:30', 'America/Chicago')).toBe(
+      '2026-11-01T06:30:00Z'
+    )
+    expect(localClockExists('2026-10-25', '02:30', 'Europe/Berlin')).toBe(true)
+    expect(combineDateTimeToUTC('2026-10-25', '02:30', 'Europe/Berlin')).toBe(
+      '2026-10-25T01:30:00Z'
+    )
+  })
+
+  it('leaves a normal night alone in a US zone and a European one', () => {
+    expect(combineDateTimeToUTC('2026-07-15', '20:00', 'America/Chicago')).toBe(
+      '2026-07-16T01:00:00Z'
+    )
+    expect(combineDateTimeToUTC('2026-06-15', '20:00', 'Europe/Berlin')).toBe(
+      '2026-06-15T18:00:00Z'
+    )
+    expect(localClockExists('2026-07-15', '20:00', 'America/Chicago')).toBe(true)
+    expect(localClockExists('2026-06-15', '20:00', 'Europe/Berlin')).toBe(true)
+  })
+
+  it('holds on a transition night in a zone whose step is 30 minutes', () => {
+    expect(localClockExists('2026-10-04', '02:15', 'Australia/Lord_Howe')).toBe(
+      false
+    )
+    expect(localClockExists('2026-10-04', '01:45', 'Australia/Lord_Howe')).toBe(
+      true
     )
   })
 })

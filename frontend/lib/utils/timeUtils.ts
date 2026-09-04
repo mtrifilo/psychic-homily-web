@@ -191,8 +191,104 @@ export function hasTimezoneForState(state?: string | null): boolean {
 }
 
 /**
+ * A wall clock resolved in a zone: the instant it names, and whether the zone
+ * has such a clock on that day at all.
+ */
+interface ResolvedWallClock {
+  /** Milliseconds since the epoch. */
+  instant: number
+  /**
+   * Whether {@link instant} reads back in the zone as the clock that was asked
+   * for. False only inside the window a spring-forward skips.
+   */
+  exists: boolean
+}
+
+/**
+ * Resolve a wall clock in an IANA zone to the instant it names.
+ *
+ * JS has no "this wall clock, in this zone" constructor, so the offset is
+ * probed. The probe runs TWICE, and that is the whole of what this function
+ * knows that a one-line offset lookup does not: the first offset is read at the
+ * wall clock interpreted as UTC, which is up to a day away from the answer and
+ * so lands on the wrong side of any transition in between. Re-reading the offset
+ * at the candidate instant and re-deriving from it is what makes a clock inside
+ * a transition window come out right, and a listing that states 12:30 AM and
+ * 1:30 AM on a spring-forward night is exactly such a clock: on one probe both
+ * resolve to the same instant.
+ *
+ * The instant returned is the one Go's `time.Date` returns for the same wall
+ * clock and zone, pinned row by row by
+ * `backend/internal/utils/testdata/dst_clock_corpus.json`, which the Go suite
+ * checks against `time.Date` itself. That agreement is the specification.
+ *
+ * A clock inside a fall-back overlap happens twice and both instants are
+ * defensible. Which one comes back depends on which side of the transition the
+ * probe lands on, and that varies by zone rather than following a rule: 01:30 on
+ * America/Chicago's fall-back night resolves to the earlier occurrence and 02:30
+ * on Europe/Berlin's resolves to the later one. Both are in the corpus.
+ *
+ * A clock inside a spring-forward gap never happened, so no instant is right.
+ * One is still returned, because every caller needs a value, and `exists` is
+ * false so a caller that must not store a clock nobody could have meant can
+ * refuse instead.
+ */
+function resolveWallClockInZone(
+  dateString: string,
+  timeString: string,
+  timezone: string
+): ResolvedWallClock {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const [hours, minutes] = timeString.split(':').map(Number)
+
+  // The requested wall clock, read as if it were UTC.
+  const wanted = Date.UTC(year, month - 1, day, hours, minutes, 0, 0)
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+
+  /** The wall clock this instant reads as in the zone, as a UTC-shaped number. */
+  const wallClockAt = (instant: number): number => {
+    const parts = formatter.formatToParts(new Date(instant))
+    const p = (type: string) => Number(parts.find(x => x.type === type)?.value ?? 0)
+    let hour = p('hour')
+    if (hour === 24) hour = 0 // Intl may return 24 for midnight
+    return Date.UTC(p('year'), p('month') - 1, p('day'), hour, p('minute'), 0, 0)
+  }
+
+  const offsetAt = (instant: number): number => wallClockAt(instant) - instant
+  const first = wanted - offsetAt(wanted)
+  const second = wanted - offsetAt(first)
+
+  // `second` is the answer whenever it reads back as the clock that was asked
+  // for; `first` covers the case where the re-probe overshot back across the
+  // same transition. When neither reads back, the clock does not exist and
+  // `second` is the post-transition instant.
+  const instant =
+    wallClockAt(second) === wanted
+      ? second
+      : wallClockAt(first) === wanted
+        ? first
+        : second
+
+  return { instant, exists: wallClockAt(instant) === wanted }
+}
+
+/**
  * Combines a date string and time string into a UTC ISO timestamp
  * Treats the input as local time in the specified timezone
+ *
+ * A clock inside a spring-forward gap has no correct answer and still gets one
+ * here, because every caller needs a value; a caller that must not store a time
+ * nobody could have entered asks {@link localClockExists} first.
  *
  * @param dateString - Date in YYYY-MM-DD format (from date input)
  * @param timeString - Time in HH:MM format (from time input)
@@ -204,50 +300,45 @@ export function combineDateTimeToUTC(
   timeString: string,
   timezone?: string
 ): string {
-  // Parse date and time parts manually to avoid JS Date timezone quirks
-  const [year, month, day] = dateString.split('-').map(Number)
-  const [hours, minutes] = timeString.split(':').map(Number)
-
   if (!timezone) {
-    // No timezone specified — use browser-local behavior (backward compatible)
+    // No timezone specified — use browser-local behavior (backward compatible).
+    // The engine resolves the transition nights on its own rule here, which is
+    // not necessarily the zoned branch's; nothing that composes an instant for
+    // STORAGE takes this branch.
+    const [year, month, day] = dateString.split('-').map(Number)
+    const [hours, minutes] = timeString.split(':').map(Number)
     const date = new Date(year, month - 1, day, hours, minutes, 0, 0)
     return date.toISOString().replace(/\.\d{3}Z$/, 'Z')
   }
 
-  // Timezone-aware: interpret the date/time as being in the target timezone.
-  // 1. Create a UTC date with the desired wall-clock values
-  const utcGuess = Date.UTC(year, month - 1, day, hours, minutes, 0, 0)
+  const { instant } = resolveWallClockInZone(dateString, timeString, timezone)
 
-  // 2. Probe the target timezone's UTC offset at that instant
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-  const parts = formatter.formatToParts(new Date(utcGuess))
-  const p = (type: string) => Number(parts.find(x => x.type === type)?.value ?? 0)
-  const tzYear = p('year')
-  const tzMonth = p('month')
-  const tzDay = p('day')
-  let tzHour = p('hour')
-  if (tzHour === 24) tzHour = 0 // Intl may return 24 for midnight
-  const tzMinute = p('minute')
+  // RFC3339 without milliseconds, which is what Go's time.Time parser expects.
+  return new Date(instant).toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
 
-  // 3. The offset (in ms) is how much the timezone's wall clock differs from our UTC guess
-  const localAsUtc = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, 0, 0)
-  const offsetMs = localAsUtc - utcGuess
-
-  // 4. Subtract the offset to get the correct UTC time
-  const corrected = new Date(utcGuess - offsetMs)
-
-  // Convert to UTC and return as RFC3339 format (without milliseconds)
-  // Go's time.Time parser expects this format
-  return corrected.toISOString().replace(/\.\d{3}Z$/, 'Z')
+/**
+ * Whether this wall clock exists on this day in this zone.
+ *
+ * False only inside the window a spring-forward skips, where
+ * {@link combineDateTimeToUTC} must still return something and returns the
+ * instant Go's `time.Date` does. 2:30 AM on a spring-forward night is not a time
+ * that happened, and storing it resolves to a clock nobody entered: on
+ * America/Chicago's 2026-03-08 it is the same instant 1:30 AM resolves to.
+ *
+ * A clock inside a fall-back overlap is TRUE here. It happened, twice, and the
+ * instant returned is one of the two; ambiguity is not a reason to refuse a time
+ * a person typed.
+ *
+ * The zone is required, unlike on {@link combineDateTimeToUTC}: without one
+ * there is no zone whose transitions this could be a claim about.
+ */
+export function localClockExists(
+  dateString: string,
+  timeString: string,
+  timezone: string
+): boolean {
+  return resolveWallClockInZone(dateString, timeString, timezone).exists
 }
 
 /**

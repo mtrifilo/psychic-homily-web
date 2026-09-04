@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import type { ShowResponse } from '../types'
 import { SET_TYPE_OPTIONS } from './show-form-utils'
+import { combineDateTimeToUTC } from '@/lib/utils/timeUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Shared mock state
@@ -1680,5 +1681,193 @@ describe('ShowForm: bill role selector', () => {
       updates: { price?: number | null }
     }
     expect(call.updates.price).toBe(0)
+  })
+})
+
+/**
+ * The zone's offset from UTC, in minutes, at an instant.
+ *
+ * Noon UTC is the only instant this is asked about, which is far enough from
+ * every transition that the lookup is unambiguous. Written out rather than
+ * taken from the module under test so the dates below are derived
+ * independently of the resolver they are exercising.
+ */
+function zoneOffsetMinutesAtUTCNoon(
+  year: number,
+  month: number,
+  day: number,
+  timeZone: string
+): number {
+  const instant = Date.UTC(year, month - 1, day, 12, 0, 0, 0)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(instant))
+  const p = (type: string) =>
+    Number(parts.find(x => x.type === type)?.value ?? 0)
+  let hour = p('hour')
+  if (hour === 24) hour = 0
+  return (
+    (Date.UTC(p('year'), p('month') - 1, p('day'), hour, p('minute'), 0, 0) -
+      instant) /
+    60000
+  )
+}
+
+/**
+ * The next date after today on which the zone's clocks move, in the given
+ * direction: 'forward' for the spring transition that skips an hour,
+ * 'back' for the autumn one that repeats it.
+ *
+ * Computed rather than written down for the same anti-rot reason as
+ * futureDate(): a hardcoded transition date stops being in the future the year
+ * after it passes, and the show form refuses a date in the past.
+ */
+function nextTransitionDate(
+  direction: 'forward' | 'back',
+  timeZone: string
+): string {
+  const cursor = new Date()
+  for (let i = 0; i < 800; i++) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+    const y = cursor.getUTCFullYear()
+    const m = cursor.getUTCMonth() + 1
+    const d = cursor.getUTCDate()
+    const previous = new Date(cursor)
+    previous.setUTCDate(previous.getUTCDate() - 1)
+    const before = zoneOffsetMinutesAtUTCNoon(
+      previous.getUTCFullYear(),
+      previous.getUTCMonth() + 1,
+      previous.getUTCDate(),
+      timeZone
+    )
+    const after = zoneOffsetMinutesAtUTCNoon(y, m, d, timeZone)
+    if (direction === 'forward' ? after > before : after < before) {
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    }
+  }
+  throw new Error(`no ${direction} transition found for ${timeZone}`)
+}
+
+/** A US venue in a zone that transitions, so the dates above apply to it. */
+function chicagoVenue() {
+  return {
+    id: 77,
+    slug: 'empty-bottle',
+    name: 'Empty Bottle',
+    address: '1035 N Western Ave',
+    city: 'Chicago',
+    state: 'IL',
+    timezone: 'America/Chicago',
+    verified: true,
+  }
+}
+
+// A wall clock inside the hour a spring-forward skips never happened, and every
+// instant that could stand for it is a clock the submitter did not type.
+describe('ShowForm: a local time the venue does not have', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+  })
+
+  it('refuses a save at a clock the spring-forward skips, and says why', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          city: 'Chicago',
+          state: 'IL',
+          venues: [chicagoVenue()],
+        })}
+      />
+    )
+
+    // 02:30 on a US spring-forward date: the clocks go straight from 02:00 to
+    // 03:00, so this half hour is not on them.
+    fireSet(
+      screen.getByLabelText(/^Date$/i) as HTMLInputElement,
+      nextTransitionDate('forward', 'America/Chicago')
+    )
+    fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '02:30')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(
+      await screen.findByText(/this time does not exist on this date/i)
+    ).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  it('accepts a clock the fall-back makes happen twice', async () => {
+    // Ambiguity is not a refusal: 01:30 happened, twice, and both instants are
+    // defensible. Refusing it would reject a time a venue really printed.
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          city: 'Chicago',
+          state: 'IL',
+          venues: [chicagoVenue()],
+        })}
+      />
+    )
+
+    fireSet(
+      screen.getByLabelText(/^Date$/i) as HTMLInputElement,
+      nextTransitionDate('back', 'America/Chicago')
+    )
+    fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '01:30')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+    expect(
+      screen.queryByText(/this time does not exist on this date/i)
+    ).not.toBeInTheDocument()
+  })
+
+  it('leaves a normal evening at the same venue alone', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          city: 'Chicago',
+          state: 'IL',
+          venues: [chicagoVenue()],
+        })}
+      />
+    )
+
+    const date = futureDate()
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, date)
+    fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '20:00')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { event_date?: string }
+    }
+    expect(call.updates.event_date).toBe(
+      combineDateTimeToUTC(date, '20:00', 'America/Chicago')
+    )
   })
 })
