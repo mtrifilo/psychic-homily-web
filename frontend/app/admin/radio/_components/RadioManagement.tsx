@@ -99,6 +99,7 @@ import {
   type UnmatchedPlayGroup,
   type SuggestedMatch,
 } from '@/lib/hooks/admin/useAdminRadio'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 // ============================================================================
 // Constants
@@ -1779,6 +1780,31 @@ function StationShowList({
   )
 }
 
+/**
+ * An operator-entered URL column shown on the admin detail row: a link when the
+ * value would link on the public station surfaces, and the plain stored text
+ * when it would not.
+ *
+ * Same gate as those surfaces, because this row is where an admin checks what
+ * was saved: a value that renders nothing out there must not look live in here.
+ * The stored text is always printed, so a refused value is visible and fixable
+ * rather than silently absent.
+ */
+function GatedExternalValue({ value }: { value: string }) {
+  const href = unanchoredLinkHref(value)
+  if (!href) return <span className="text-muted-foreground">{value}</span>
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary hover:underline"
+    >
+      {value}
+    </a>
+  )
+}
+
 function StationDetailPanel({
   station,
   onBack,
@@ -1897,9 +1923,7 @@ function StationDetailPanel({
           {stationDetail.website && (
             <div>
               <span className="text-muted-foreground">Website:</span>{' '}
-              <a href={stationDetail.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                {stationDetail.website}
-              </a>
+              <GatedExternalValue value={stationDetail.website} />
             </div>
           )}
           {stationDetail.stream_url && (

@@ -87,6 +87,7 @@ func main() {
 				Website:   &venue.Social.Website,
 			},
 		}
+		mustHoldSocialColumns("venue", venueModel.Name, venueModel.Social)
 		venueModels = append(venueModels, venueModel)
 	}
 
@@ -134,6 +135,7 @@ func main() {
 				Website:   &artist.Social.Website,
 			},
 		}
+		mustHoldSocialColumns("artist", artistModel.Name, artistModel.Social)
 		artistModels = append(artistModels, artistModel)
 	}
 
@@ -919,6 +921,28 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 	fmt.Printf("✅ Processed %d radio shows (%d created)\n", len(seeddata.RadioShows), radioShowsCreated)
 
 	return stationsCreated, radioShowsCreated
+}
+
+// mustHoldSocialColumns refuses to seed a row whose social columns would render
+// as a link off the platform they are labelled with, and stops the whole run
+// rather than skipping the row.
+//
+// Stopping is right for a seed: the YAML is checked in, so a refusal is a fixture
+// bug an operator fixes at the source, and a half-seeded database is harder to
+// reason about than none.
+//
+// The STORED-value spelling of the rule, so the seed's bare handles
+// ("cursivetheband", and the dotted ones like "fashion.club.la") still load:
+// they are judged by where a reader resolves them, which is the platform's own
+// host. The request-time spelling the HTTP endpoints use refuses a handle
+// outright, correctly, because a contributor form has no legacy rows.
+func mustHoldSocialColumns(entity, name string, social catalogm.Social) {
+	if err := utils.ValidateStoredSocialColumns(
+		social.Instagram, social.Facebook, social.Twitter, social.YouTube,
+		social.Spotify, social.SoundCloud, social.Bandcamp, social.Website,
+	); err != nil {
+		log.Fatalf("Seed data for %s %q has an unusable social value: %v", entity, name, err)
+	}
 }
 
 func connectToDatabase() *gorm.DB {

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -452,7 +454,7 @@ var shapedURLFields = map[string]struct {
 	},
 }
 
-// rollbackURLFields is every field a rollback may write whose value is a URL
+// rollbackURLFields is every field an apply path may write whose value is a URL
 // somebody will click, with the label a refusal names it by.
 //
 // It exists because Rollback is the one write path that takes its value from
@@ -481,7 +483,7 @@ var shapedURLFields = map[string]struct {
 // than on someone remembering this file.
 //
 // Only the platform fields carry a host anchor; the rest get the scheme rule,
-// which is still the difference between restoring a link and restoring
+// which is still the difference between writing a link and writing
 // "javascript:..." into a rendered attribute.
 //
 // image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
@@ -541,6 +543,67 @@ func validateRollbackURLField(updates map[string]interface{}, field string) erro
 		return err
 	}
 	return utils.ValidateSocialHost(field, displayName, value)
+}
+
+// approveURLFields is the subset of rollbackURLFields an APPROVE re-checks: the
+// fields whose value the submit handler already held to this rule.
+//
+// The two apply paths judge values with different histories, and that is why
+// they judge different field sets. Rollback writes a stored old_value, which on
+// any row predating deriveOldValues met no forward rule at all, so it checks
+// everything it can. Approve writes NewValue, which the submit handler checked,
+// so approve is a SECOND run of a rule that already ran once; running it on a
+// field submit does not check would refuse an edit the contributor was allowed
+// to file and could never fix.
+//
+// flyer_url is the field that difference exists for: it is deliberately absent
+// from the handler's urlFieldSpecs (length-only, matching the festival endpoint
+// that writes it directly), and the seed itself stores a relative
+// "/seed-placeholders/festival.svg" in it. Rollback still refuses that shape,
+// and since PSY-1998 it drops only that field rather than the revision.
+//
+// TestApproveURLFieldsMatchHandlerRegistry is the tripwire: it derives this set
+// from rollbackURLFields and the handler registry, so a field registered there
+// later is re-checked on approve without anyone remembering this file.
+var approveURLFields = map[string]string{
+	"instagram":       "Instagram URL",
+	"facebook":        "Facebook URL",
+	"twitter":         "Twitter URL",
+	"youtube":         "YouTube URL",
+	"spotify":         "Spotify URL",
+	"soundcloud":      "SoundCloud URL",
+	"bandcamp":        "Bandcamp URL",
+	"website":         "Website URL",
+	"ticket_url":      "Ticket URL",
+	"cover_art_url":   "Cover art URL",
+	"cover_image_url": "Cover image URL",
+	"image_url":       "Image URL",
+}
+
+// validateApproveURLs re-runs the forward paths' URL rules over the values an
+// APPROVAL is about to write, and reports the first that must not go live.
+//
+// WHOLE-MAP, unlike the rollback path, because the two buttons mean different
+// things. A rollback restores many fields at once and drops the ones it refuses
+// (PSY-1998), since one planted old_value must not block the undo of the honest
+// fields beside it. An approve applies ONE contributor's edit as filed: silently
+// applying part of it would approve something neither the contributor nor the
+// admin read, so the edit is refused whole and stays actionable (an admin can
+// reject it with a reason, the contributor can cancel and resubmit).
+//
+// It delegates per field to validateRollbackURLField, so the RULE is shared with
+// the rollback path and only the field set and the all-or-nothing disposition
+// differ.
+//
+// Fields are visited in sorted order, so a row breaking more than one rule names
+// the same field every run rather than whichever the map yielded first.
+func validateApproveURLs(updates map[string]interface{}) error {
+	for _, field := range slices.Sorted(maps.Keys(approveURLFields)) {
+		if err := validateRollbackURLField(updates, field); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
@@ -834,6 +897,33 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			"error", err.Error(),
 		)
 		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("cannot approve: %s", err))
+	}
+
+	// The scheme rule and the platform host anchor, run for the same reason the
+	// two gates above are: the queue outlives the gate, so a row filed before a
+	// rule existed carries a value no forward validator has seen, and approve is
+	// where it goes live.
+	//
+	// It applies the SAME per-field rule Rollback applies
+	// (validateRollbackURLField), so the forward and backward apply paths cannot
+	// judge one value differently.
+	//
+	// LAST of the three, so a value that breaks more than one rule reports the
+	// most specific reason: an image_url resolving to a private address, or a
+	// bandcamp_embed_url that is not a release page, says so rather than falling
+	// back to the scheme rule's wording.
+	if err := validateApproveURLs(updates); err != nil {
+		slog.Default().Warn("pending_edit_blocked_url_rule",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"error", err.Error(),
+		)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"cannot approve: %s. Reject this edit and ask the contributor to resubmit.", err,
+		))
 	}
 
 	normalizeBlankShapedURLs(updates)

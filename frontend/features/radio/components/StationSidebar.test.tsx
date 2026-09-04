@@ -109,7 +109,7 @@ describe('StationSidebar — STATION info box outbound links', () => {
       <StationSidebar
         station={makeStation({
           donation_url: 'https://give.wfmu.org',
-          social: { bluesky: 'https://bsky.app/profile/wfmu' },
+          social: { twitter: 'https://twitter.com/wfmu' },
         })}
       />
     )
@@ -118,24 +118,19 @@ describe('StationSidebar — STATION info box outbound links', () => {
       screen.getByRole('link', { name: /^Donate to WFMU\b/ })
     ).toHaveAttribute('target', '_blank')
     expect(
-      screen.getByRole('link', { name: /^WFMU on bluesky\b/ })
-    ).toHaveAttribute('href', 'https://bsky.app/profile/wfmu')
+      screen.getByRole('link', { name: /^WFMU on twitter\b/ })
+    ).toHaveAttribute('href', 'https://twitter.com/wfmu')
   })
 
-  // These columns are operator-entered free text, so the box keeps only
-  // absolute http(s) and DROPS the rest. Dropping beats the two alternatives:
-  // a live javascript:/data: href, or a permanently greyed bracket that reads
-  // as a disabled feature rather than as bad data.
-  //
-  // Scoped to THIS box on purpose — the same columns are rendered as raw
-  // anchors elsewhere on the station page (StationDetail's header buttons), so
-  // this asserts nothing about the field in general. Validating those columns
-  // on write, which is the real fix, is tracked in PSY-1953.
+  // These columns are operator-entered free text, so the box keeps only what
+  // the shared gate returns and DROPS the rest. Dropping beats the two
+  // alternatives: a live javascript:/data: href, or a permanently greyed
+  // bracket that reads as a disabled feature rather than as bad data.
   it.each([
     ['javascript:alert(1)'],
     ['data:text/html,<script>alert(1)</script>'],
-    ['//evil.example/give'],
-    ['givewfmu.org'],
+    ['give'],
+    ['123'],
   ])('drops a non-http donation url (%s) entirely', url => {
     render(<StationSidebar station={makeStation({ donation_url: url })} />)
 
@@ -143,6 +138,58 @@ describe('StationSidebar — STATION info box outbound links', () => {
     expect(
       screen.queryByRole('button', { name: /donate/i })
     ).not.toBeInTheDocument()
+  })
+
+  // The shared gate repairs a domain-shaped value rather than dropping it, and
+  // the href it returns is the one the anchor was checked against, so what the
+  // browser resolves and what was judged are the same string. The station
+  // columns inherit that with the gate.
+  it.each([
+    ['givewfmu.org', 'https://givewfmu.org'],
+    ['//give.wfmu.org/x', 'https:////give.wfmu.org/x'],
+  ])('repairs a scheme-less donation url (%s) to an absolute href', (url, href) => {
+    render(<StationSidebar station={makeStation({ donation_url: url })} />)
+
+    const link = screen.getByRole('link', { name: /^Donate to WFMU\b/ })
+    expect(link).toHaveAttribute('href', href)
+    expect(new URL(link.getAttribute('href') ?? '').protocol).toBe('https:')
+  })
+
+  // The key is printed as the link's visible label, so a value under a
+  // platform's name is held to that platform's host anchor: "spotify" pointing
+  // at another host is a stranger's page wearing a name the reader trusts.
+  it('drops a social value whose host is not the platform its key names', () => {
+    render(
+      <StationSidebar
+        station={makeStation({
+          social: {
+            spotify: 'https://spotify-account-verify.evil.test/',
+            instagram: 'https://instagram.com/wfmu',
+          },
+        })}
+      />
+    )
+
+    expect(screen.queryByRole('link', { name: /spotify/i })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /^WFMU on instagram\b/ })
+    ).toHaveAttribute('href', 'https://instagram.com/wfmu')
+  })
+
+  // A key the shared registry does not know makes a platform claim nothing can
+  // check, so it renders nothing. This is a deliberate narrowing: a station
+  // whose operator filed a `bluesky` or `mixcloud` key keeps the stored value
+  // and shows no bracket for it.
+  it('renders nothing for a social key the registry does not know', () => {
+    render(
+      <StationSidebar
+        station={makeStation({
+          social: { bluesky: 'https://bsky.app/profile/wfmu' },
+        })}
+      />
+    )
+
+    expect(screen.queryByRole('link', { name: /bluesky/i })).not.toBeInTheDocument()
   })
 
   // `social` is free-form JSONB with no server-side schema, so its values are
@@ -153,16 +200,69 @@ describe('StationSidebar — STATION info box outbound links', () => {
       <StationSidebar
         station={makeStation({
           website: 'https://wfmu.org',
-          social: { twitter: 123, bluesky: 'https://bsky.app/profile/wfmu' } as never,
+          social: {
+            twitter: 123,
+            instagram: 'https://instagram.com/wfmu',
+          } as never,
         })}
       />
     )
 
     expect(screen.getByRole('link', { name: /^WFMU website\b/ })).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /^WFMU on bluesky\b/ })
+      screen.getByRole('link', { name: /^WFMU on instagram\b/ })
     ).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /twitter/i })).not.toBeInTheDocument()
+  })
+
+  // The stored value is a legacy bare handle on a column the write path never
+  // gated, and the shared tolerance resolves it onto the platform, so the link
+  // survives here exactly as it does on an artist page.
+  it('resolves a bare handle onto the platform its key names', () => {
+    render(
+      <StationSidebar station={makeStation({ social: { instagram: 'wfmu' } })} />
+    )
+
+    expect(
+      screen.getByRole('link', { name: /^WFMU on instagram\b/ })
+    ).toHaveAttribute('href', 'https://instagram.com/wfmu')
+  })
+
+  // An inherited Object property is a key at runtime on free-form JSONB, and
+  // would otherwise resolve to a function rather than to a platform.
+  it('does not treat an inherited Object property as a platform', () => {
+    render(
+      <StationSidebar
+        station={makeStation({
+          social: { constructor: 'https://instagram.com/x' } as never,
+        })}
+      />
+    )
+
+    expect(
+      screen.queryByRole('link', { name: /constructor/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,x'],
+    ['not a url'],
+    ['https://user@wfmu.org/'],
+  ])('drops a website value the gate refuses (%s)', url => {
+    render(<StationSidebar station={makeStation({ website: url })} />)
+
+    expect(screen.queryByRole('link', { name: /website/i })).not.toBeInTheDocument()
+  })
+
+  // The host label is derived from the gated href rather than the raw column,
+  // so the domain a reader sees is the host the click resolves to.
+  it('labels the website bracket with the host the href resolves to', () => {
+    render(<StationSidebar station={makeStation({ website: 'www.wfmu.org' })} />)
+
+    const site = screen.getByRole('link', { name: /^WFMU website\b/ })
+    expect(site).toHaveAttribute('href', 'https://www.wfmu.org')
+    expect(site).toHaveTextContent('wfmu.org')
   })
 
   it('renders no link row when the station has no outbound urls', () => {

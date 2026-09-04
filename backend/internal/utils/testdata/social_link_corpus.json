@@ -18,6 +18,12 @@
     "             its own table equals this, which is what stops the two lists",
     "             drifting.",
     "unanchored = the fields that make no platform claim and accept any host.",
+    "handleBases = where a bare handle resolves on each field that takes one.",
+    "             A field absent from it takes no handle. Both sides assert",
+    "             their own table equals this, because a base is not covered",
+    "             by the anchor assertions: a typo in one still produces an",
+    "             ANCHORED url, and would send every legacy handle to the",
+    "             wrong page while every other assertion passed.",
     "storable   = the write boundary accepts it AND the reader must render it.",
     "storableButUnrenderable = the write boundary accepts it and the reader",
     "             renders nothing, each row's `why` saying which reason: the",
@@ -45,6 +51,14 @@
     "bandcamp": ["bandcamp.com"]
   },
   "unanchored": ["website"],
+  "handleBases": {
+    "instagram": "https://instagram.com/",
+    "facebook": "https://facebook.com/",
+    "twitter": "https://twitter.com/",
+    "youtube": "https://youtube.com/",
+    "spotify": "https://open.spotify.com/",
+    "soundcloud": "https://soundcloud.com/"
+  },
   "storable": [
     {
       "field": "website",

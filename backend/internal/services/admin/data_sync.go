@@ -450,6 +450,22 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		}
 	}
 
+	// The eight social columns get the same host anchor the artist endpoints
+	// apply, for the same reason and with the same ordering argument as the
+	// embed check above.
+	//
+	// The STORED-value spelling of the rule, not the request-struct one: this
+	// body is normally an export of a database whose rows predate the anchor,
+	// so it carries bare handles the anchor's request-time spelling refuses.
+	// Judging where a handle resolves keeps the export-to-import round trip
+	// working while still refusing a foreign host.
+	if err := utils.ValidateStoredSocialColumns(
+		artist.Instagram, artist.Facebook, artist.Twitter, artist.YouTube,
+		artist.Spotify, artist.SoundCloud, artist.Bandcamp, artist.Website,
+	); err != nil {
+		return fmt.Sprintf("ERROR: Artist '%s': %v", artist.Name, err), "error"
+	}
+
 	if dryRun {
 		return fmt.Sprintf("WOULD IMPORT: Artist '%s'", artist.Name), "imported"
 	}
@@ -506,6 +522,16 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 		return fmt.Sprintf("DUPLICATE: Venue '%s' in %s already exists (ID: %d)", venue.Name, venue.City, existing.ID), "duplicate"
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Sprintf("ERROR: Failed to check venue '%s': %v", venue.Name, err), "error"
+	}
+
+	// Same gate as importArtist, and after the duplicate probe for the same
+	// round-trip reason: an export of legacy rows must not fail on the branch
+	// that writes nothing.
+	if err := utils.ValidateStoredSocialColumns(
+		venue.Instagram, venue.Facebook, venue.Twitter, venue.YouTube,
+		venue.Spotify, venue.SoundCloud, venue.Bandcamp, venue.Website,
+	); err != nil {
+		return fmt.Sprintf("ERROR: Venue '%s': %v", venue.Name, err), "error"
 	}
 
 	if dryRun {

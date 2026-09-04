@@ -18,6 +18,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // --- CLI flags ---
@@ -185,7 +186,48 @@ func runFileImport(database *gorm.DB, festivalService *catalog.FestivalService, 
 	printSummary(stats)
 }
 
+// validateFestivalURLs holds the two festival columns that become an href to the
+// same rule the HTTP boundary holds them to.
+//
+// The REQUEST-time spelling of the rule (no legacy-handle tolerance), because
+// every value here is typed at a prompt or written in a JSON file for this run:
+// there are no legacy rows passing through, so an operator who leaves the scheme
+// off should be told now rather than have it guessed at.
+//
+// Both fields anchor no host today, so this is the scheme rule in practice, and
+// that is still the difference between a link and a javascript: URL in a
+// rendered attribute. The host anchor is called anyway so a field that gains
+// one is guarded here on arrival.
+func validateFestivalURLs(input *FestivalInput) error {
+	for _, field := range []struct{ name, label, value string }{
+		{"website", "Website URL", input.Website},
+		{"ticket_url", "Ticket URL", input.TicketURL},
+	} {
+		if err := utils.ValidateHTTPURL(field.value, field.label); err != nil {
+			return fmt.Errorf("festival %q: %w", input.Name, err)
+		}
+		if err := utils.ValidateSocialHost(field.name, field.label, field.value); err != nil {
+			return fmt.Errorf("festival %q: %w", input.Name, err)
+		}
+	}
+	return nil
+}
+
 func createFestivalFromInput(database *gorm.DB, festivalService *catalog.FestivalService, input *FestivalInput, stats *importStats) uint {
+	// The URL rules the HTTP festival endpoints apply, run here because this CLI
+	// calls the service directly and so meets none of the handler's validation.
+	// Both columns become an outbound link on the festival page.
+	//
+	// BEFORE the exists probe and the dry-run gate, unlike the data import: a
+	// value typed at a prompt or written in a JSON file is new input every time,
+	// never a legacy row being moved, so there is nothing here to keep working
+	// and a dry run that reported a create it would refuse would be a lie.
+	if err := validateFestivalURLs(input); err != nil {
+		fmt.Printf("[ERROR] %v\n", err)
+		stats.errors++
+		return 0
+	}
+
 	// Check if festival already exists (by series_slug + edition_year)
 	existing := findExistingFestival(database, input.SeriesSlug, input.EditionYear)
 	if existing != nil {

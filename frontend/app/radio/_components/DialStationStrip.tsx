@@ -19,6 +19,7 @@ import type {
   RadioSiblingStation,
   RadioNowPlaying,
 } from '@/features/radio'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 interface DialStationStripProps {
   station: RadioStationListItem
@@ -63,6 +64,7 @@ export function DialStationStrip({ station }: DialStationStripProps) {
   const playlistAction = nowPlaying
     ? playlistActionFor(station.slug, nowPlaying)
     : null
+  const stationWebsiteHref = unanchoredLinkHref(detail?.website)
 
   return (
     <article className="grid gap-3 border-b border-border/60 py-5 last:border-b-0 md:grid-cols-[200px_minmax(0,1fr)_auto] md:gap-6">
@@ -106,15 +108,12 @@ export function DialStationStrip({ station }: DialStationStripProps) {
 
       {/* Actions column */}
       <div className="flex items-center gap-4 md:flex-col md:items-end md:gap-2">
-        {/* NOT gated or announced, unlike the channel-row bracket below: this
-            is a Button, a different idiom that does not route through
-            BracketLink. It reads the same operator-entered `website` column,
-            so it is the second consumer of a value only one of them checks.
-            Validating that column on write, which fixes both consumers at the
-            source, is tracked in PSY-1953. */}
-        {detail?.website && (
+        {/* Reads the same operator-entered `website` column as the channel-row
+            bracket below, through the same gate, so the two consumers of one
+            value cannot disagree about whether it is a link. */}
+        {stationWebsiteHref && (
           <Button asChild size="sm">
-            <a href={detail.website} target="_blank" rel="noopener noreferrer">
+            <a href={stationWebsiteHref} target="_blank" rel="noopener noreferrer">
               <Play className="size-3.5 fill-current" aria-hidden />
               Listen
             </a>
@@ -316,6 +315,7 @@ function DialChannelRow({
     slug: networkSlug,
     is_flagship: false,
   })
+  const channelWebsiteHref = unanchoredLinkHref(channelDetail?.website)
 
   const showLabel = nowPlaying ? nowPlayingShowLabel(nowPlaying) : null
   const hostName = nowPlaying
@@ -363,16 +363,15 @@ function DialChannelRow({
             ` — ${nowPlaying.current_track.track_title}`}
         </span>
       )}
-      {/* Scheme-gated (on a trimmed copy, as BracketLink does) before it
-          becomes an href: the column is operator-entered free text. A non-http
-          value is dropped rather than rendered as BracketLink's greyed
-          disabled bracket, which would read as a disabled feature instead of
-          bad data. Matches the station sidebar's policy. */}
-      {channelDetail?.website?.trim() &&
-        /^https?:\/\//i.test(channelDetail.website.trim()) && (
+      {/* Gated before it becomes an href: the column is operator-entered free
+          text. A value that is not an absolute http(s) URL is dropped rather
+          than rendered as BracketLink's greyed disabled bracket, which would
+          read as a disabled feature instead of bad data. Same gate as the
+          station sidebar and the Listen button above. */}
+      {channelWebsiteHref && (
         <BracketLink
           label="listen"
-          href={channelDetail.website}
+          href={channelWebsiteHref}
           external
           className="font-mono text-xs text-primary hover:text-primary/80"
           // Names the channel: this row repeats per channel and again per

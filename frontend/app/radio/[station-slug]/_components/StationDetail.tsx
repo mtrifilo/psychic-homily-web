@@ -23,6 +23,7 @@ import {
 } from '@/features/radio'
 import { STATION_PLAYLISTS_ANCHOR } from '@/features/radio/components/StationGraph'
 import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 interface StationDetailProps {
   stationSlug: string
@@ -93,6 +94,15 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
       </div>
     )
   }
+
+  // Both columns are operator-entered free text that becomes an outbound href,
+  // so they are read through the same gate the sidebar and the entity pages
+  // ask: an absolute http(s) URL, or no button at all. `stream_url` above is
+  // deliberately not read through it — it addresses a media endpoint rather
+  // than a web page, and whether a non-http scheme belongs there is a separate
+  // question from what a link may point at.
+  const donationHref = unanchoredLinkHref(station.donation_url)
+  const websiteHref = unanchoredLinkHref(station.website)
 
   const location = [station.city, station.state].filter(Boolean).join(', ')
   // Mono identity sub-line: "91.1 FM · Jersey City, NJ · FM/AM + Internet"
@@ -168,25 +178,17 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
                   </a>
                 </Button>
               ) : null}
-              {station.donation_url && (
+              {donationHref && (
                 <Button asChild variant="outline" size="sm">
-                  <a
-                    href={station.donation_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={donationHref} target="_blank" rel="noopener noreferrer">
                     <Heart className="h-4 w-4 mr-2" />
                     Donate
                   </a>
                 </Button>
               )}
-              {station.website && (
+              {websiteHref && (
                 <Button asChild variant="ghost" size="sm">
-                  <a
-                    href={station.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={websiteHref} target="_blank" rel="noopener noreferrer">
                     <Globe className="h-4 w-4 mr-2" />
                     Website
                     <ExternalLink className="h-3 w-3 ml-1" />

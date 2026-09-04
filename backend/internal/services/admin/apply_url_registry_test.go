@@ -10,24 +10,23 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// TestRollbackURLFieldsCoverEveryEditableURLField is the tripwire
-// rollbackURLFields was missing (PSY-1966 round 3).
+// TestApplyURLFieldsCoverEveryEditableURLField is the tripwire applyURLFields
+// was missing (PSY-1966 round 3).
 //
 // The other two apply-side registries each have one
 // (TestFetchedURLFieldsMatchHandlerRegistry,
 // TestShapedURLFieldsMatchHandlerRegistry), but those compare against a handler
-// list. This one has to compare against something else, because
-// rollbackURLFields answers a different question: "every URL field a ROLLBACK
-// can write", and what a rollback can write is the union of the per-entity edit
-// allowlists.
+// list. This one has to compare against something else, because applyURLFields
+// answers a different question: "every URL field an APPLY can write", and what
+// the two apply paths can write is the union of the per-entity edit allowlists.
 //
 // Without this, adding one URL field to any *AllowedEditFields silently reopens
-// exactly the hole this round closed: a contributor-supplied OldValue reaching
-// the column with none of its forward rules, and nothing fails.
+// the hole on both paths at once: a contributor-supplied value reaching the
+// column with none of its forward rules, and nothing fails.
 //
 // A field counts as a URL field when the canonical handler registry says so, so
 // this cannot drift from what "is a URL field" means everywhere else.
-func TestRollbackURLFieldsCoverEveryEditableURLField(t *testing.T) {
+func TestApplyURLFieldsCoverEveryEditableURLField(t *testing.T) {
 	allowlists := map[string]map[string]bool{
 		"artist":   catalogm.ArtistAllowedEditFields,
 		"venue":    catalogm.VenueAllowedEditFields,
@@ -50,13 +49,13 @@ func TestRollbackURLFieldsCoverEveryEditableURLField(t *testing.T) {
 			// own tripwire against the handler registry.
 			if field == utils.BandcampEmbedURLField {
 				assert.Contains(t, shapedURLFields, field,
-					"%s.%s is a URL field with a shape rule and must be re-validated on rollback",
+					"%s.%s is a URL field with a shape rule and must be re-validated on both apply paths",
 					entity, field)
 				continue
 			}
-			assert.Contains(t, rollbackURLFields, field,
-				"%s.%s is an editable URL field, so a rollback can write it: add it to "+
-					"rollbackURLFields, or a contributor-supplied old_value reaches the column "+
+			assert.Contains(t, applyURLFields, field,
+				"%s.%s is an editable URL field, so an apply can write it: add it to "+
+					"applyURLFields, or a contributor-supplied value reaches the column "+
 					"with none of its forward rules", entity, field)
 		}
 	}
