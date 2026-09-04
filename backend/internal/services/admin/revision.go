@@ -414,9 +414,12 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 // column needs, so "checked" and "written" stay the same value. That narrowing
 // is not cosmetic — the driver takes a float64 for an integer column and
 // truncates rather than failing, so an ungated rollback restores a DIFFERENT
-// value than the one being undone. It narrows and does not range check: this
-// restores a value the system already stored, and history holds values that
-// predate a bound.
+// value than the one being undone.
+//
+// Narrowing does not range check, with one exception. An API-only bound is not
+// re-applied here: history holds values that predate one, and restoring them is
+// the point. A bound the COLUMN carries is different, and the difference is
+// columnBoundRollbackError.
 //
 // The URL rules are the reason a field can be refused at all. A rollback is a
 // WRITE of a stored value into a live column, and on any row whose old_value
@@ -432,6 +435,9 @@ func rollbackFieldError(ctx context.Context, updates map[string]interface{}, fie
 	if err := narrowNumericUpdate(updates, field, numericBounds); err != nil {
 		return err
 	}
+	if err := columnBoundRollbackError(updates, field, numericBounds); err != nil {
+		return err
+	}
 	if err := revalidateShapedURLField(updates, field); err != nil {
 		return err
 	}
@@ -439,6 +445,52 @@ func rollbackFieldError(ctx context.Context, updates map[string]interface{}, fie
 		return err
 	}
 	return revalidateFetchedURLField(ctx, updates, field)
+}
+
+// columnBoundedRollbackFields are the fields whose COLUMN carries a CHECK
+// constraint, so the database refuses an out-of-range value whichever path
+// writes it.
+//
+// Deliberately NOT the whole of contracts.NumericEditFieldBounds. The year
+// fields are bounded by the API alone, and a rollback restoring a year from
+// before that bound still succeeds, which is the exemption rollbackFieldError
+// describes. capacity is here because venues_capacity_range refuses it at the
+// column: an unchecked rollback of an out-of-range capacity does not restore an
+// old value, it fails the whole UPDATE and takes every honest field recorded
+// beside it down with it. Checking the field means it is SKIPPED and reported
+// like any other refused field, and its siblings still restore.
+//
+// The ranges themselves are not repeated here. They come from the same
+// contracts registry the column mirrors, so this map only says WHICH fields the
+// database also polices.
+var columnBoundedRollbackFields = map[string]struct{}{
+	"capacity": {}, // venues_capacity_range
+}
+
+// columnBoundRollbackError refuses a restored value that its own column would
+// refuse, for the fields a CHECK constraint covers.
+//
+// Runs AFTER narrowNumericUpdate, and reads the narrowed *int it produced: the
+// raw JSONB value is a float64, and comparing that against int bounds is the
+// conversion this exists to avoid. A nil pointer is the clear gesture, which
+// every one of these columns accepts as NULL.
+func columnBoundRollbackError(updates map[string]interface{}, field string, registry map[string]contracts.NumericEditBounds) error {
+	if _, columnBounded := columnBoundedRollbackFields[field]; !columnBounded {
+		return nil
+	}
+	bounds, registered := registry[field]
+	if !registered {
+		return nil
+	}
+	narrowed, isPtr := updates[field].(*int)
+	if !isPtr || narrowed == nil {
+		return nil
+	}
+	if *narrowed < bounds.Min || *narrowed > bounds.Max {
+		return apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"%s must be between %d and %d", field, bounds.Min, bounds.Max))
+	}
+	return nil
 }
 
 // refusalReason renders a gate's error as the sentence an admin reads beside the
