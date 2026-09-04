@@ -777,10 +777,13 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestBandcampEmbedRefused() 
 func (suite *DataQualityServiceIntegrationTestSuite) TestBandcampEmbedRefusedReasons() {
 	suite.createArtistWithEmbed("Off Platform", "https://evil.test/album/x")
 	suite.createArtistWithEmbed("On Platform", "https://band.bandcamp.com/merch")
+	// An album path that is refused for something other than the path. The
+	// on-platform sentence has to stay true of it.
+	suite.createArtistWithEmbed("On Platform Album Path", "https://band.bandcamp.com/album/x ")
 
 	items, _, err := suite.service.GetCategoryItems(categoryArtistsBandcampEmbedRefused, 50, 0)
 	suite.Require().NoError(err)
-	suite.Require().Len(items, 2)
+	suite.Require().Len(items, 3)
 
 	reasons := map[string]string{}
 	for _, item := range items {
@@ -789,7 +792,8 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestBandcampEmbedRefusedRea
 		suite.NotContains(item.Reason, "bandcamp.com/merch")
 	}
 	suite.Equal("Not an https URL on a Bandcamp host", reasons["Off Platform"])
-	suite.Equal("On Bandcamp, but not an album or track page", reasons["On Platform"])
+	suite.Equal("On a Bandcamp host, but not a valid release URL", reasons["On Platform"])
+	suite.Equal("On a Bandcamp host, but not a valid release URL", reasons["On Platform Album Path"])
 }
 
 // Admin-only, so /contribute reports it as unknown rather than confirming it

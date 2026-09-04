@@ -14,6 +14,8 @@ import (
 // judges the path as WRITTEN, refuses surrounding whitespace, and rejects dot
 // segments and backslashes in either spelling. A regular expression that agreed
 // with all of that would be the harder thing to keep in step, not the easier.
+//
+// Applies to the artists table aliased `a`.
 const bandcampEmbedRefusedCandidateSQL = `a.bandcamp_embed_url IS NOT NULL`
 
 // bandcampEmbedRefusedFindings returns every artist whose stored Bandcamp embed
@@ -78,15 +80,20 @@ func (s *DataQualityService) getBandcampEmbedRefused(limit, offset int) ([]*cont
 
 // bandcampEmbedRefusal names a refused value in the two shapes an admin acts on
 // differently: a foreign or non-https host is a link wearing a Bandcamp label
-// and pointing somewhere else, while an on-platform page that is not a release
-// is a legacy row that only needs a better URL.
+// and pointing somewhere else, while an on-platform value is a legacy row that
+// only needs a better URL.
 //
 // Both arms read existing named predicates rather than restating any part of
 // either rule. utils.IsResolvableBandcampURL is the looser host-only floor the
 // embed resolver applies, so it is exactly the line between the two sentences.
+//
+// Neither sentence says WHICH rule the value broke. The host is the only part
+// either predicate isolates, and guessing at the rest would name the wrong one:
+// a stored "https://x.bandcamp.com/album/y " clears the host floor with an
+// album path and is still refused, for the trailing space.
 func bandcampEmbedRefusal(rawURL string) string {
 	if utils.IsResolvableBandcampURL(rawURL) {
-		return "On Bandcamp, but not an album or track page"
+		return "On a Bandcamp host, but not a valid release URL"
 	}
 	return "Not an https URL on a Bandcamp host"
 }
