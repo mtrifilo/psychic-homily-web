@@ -510,10 +510,13 @@ const MaxVenueAgePolicyLength = 100
 // a *int where nil means "not supplied", so they cannot express a clear at all.
 // That asymmetry lives in the body contracts, not here.
 //
-// FOUR other copies of these numbers exist and only two are pinned by a test.
+// FIVE other copies of these numbers exist and only three are pinned by a test.
 // Changing either constant means changing all of them:
 //   - the huma minimum/maximum tags on both admin venue bodies
 //     (handlers/catalog/venue.go) -- pinned by TestVenueCapacitySchemaTagsMatchContract
+//   - the venues_capacity_range CHECK constraint and the venues.capacity column
+//     comment (db/migrations/20260904174500_venues_capacity_range_check.up.sql)
+//     -- pinned by TestVenuesCapacityRangeConstraint
 //   - VENUE_CAPACITY_BOUNDS in frontend/features/contributions/types.ts
 //     (pre-validates the edit drawer) -- NOT pinned
 //   - VENUE_CAPACITY_MIN/MAX in cli/src/commands/submit-venue.ts
@@ -521,6 +524,8 @@ const MaxVenueAgePolicyLength = 100
 //     -- NOT pinned
 //
 // Nothing enforces the two TypeScript copies across the language boundary.
+// Widening the range in Go without the migration is the one direction that fails
+// loudly at runtime rather than in CI: the column refuses what the API accepts.
 //
 // Superseding an earlier note: the age_policy migration
 // (20260801143000_add_venue_age_policy.up.sql) says capacity is "admin/ingest
@@ -1014,9 +1019,9 @@ type VenueShowResponse struct {
 	// split price: a reader scanning the venue archive saw $35 and opened a
 	// show costing $40 at the door (PSY-1962). Null on either means "not
 	// recorded"; zero means free.
-	Price          *float64         `json:"price"`
-	DoorPrice      *float64         `json:"door_price"`
-	AgeRequirement *string          `json:"age_requirement"`
+	Price          *float64 `json:"price"`
+	DoorPrice      *float64 `json:"door_price"`
+	AgeRequirement *string  `json:"age_requirement"`
 	// Status flags, so a venue listing can strike through a cancelled date and
 	// badge a sold-out one without a second fetch per row.
 	IsCancelled bool             `json:"is_cancelled"`
@@ -1318,9 +1323,9 @@ type ArtistShowResponse struct {
 	// The advance/door pair. Served together for the reason stated on
 	// VenueShowResponse: the advance half alone under-reports a split price
 	// (PSY-1962).
-	Price          *float64                 `json:"price"`
-	DoorPrice      *float64                 `json:"door_price"`
-	AgeRequirement *string                  `json:"age_requirement"`
+	Price          *float64 `json:"price"`
+	DoorPrice      *float64 `json:"door_price"`
+	AgeRequirement *string  `json:"age_requirement"`
 	// Status flags, so an artist listing can strike through a cancelled date and
 	// badge a sold-out one without a second fetch per row. Every producer of this
 	// type must populate them: a default-false flag on a cancelled show is not a
@@ -2071,17 +2076,17 @@ type SceneCollectionSummary struct {
 // SceneDetailResponse represents the full computed scene for a metro (or a
 // no-CBSA fallback city); City/State are the principal city/state.
 type SceneDetailResponse struct {
-	City        string     `json:"city"`
-	State       string     `json:"state"`
-	Slug        string     `json:"slug"`
-	Description *string    `json:"description"` // nil until scenes table exists
+	City        string  `json:"city"`
+	State       string  `json:"state"`
+	Slug        string  `json:"slug"`
+	Description *string `json:"description"` // nil until scenes table exists
 	// Tagline is the authored line the scene page renders under its H1, and the
 	// route's og:description when set (PSY-1848). nil is the ordinary state —
 	// the page renders NOTHING for it rather than falling back to Description,
 	// which is prose the page does not show.
 	Tagline *string    `json:"tagline"`
 	Stats   SceneStats `json:"stats"`
-	Pulse       ScenePulse `json:"pulse"`
+	Pulse   ScenePulse `json:"pulse"`
 	// Venues is the scene's tracked rooms, busiest first — the page's rooms
 	// leaderboard. The SAME set the day payload names (verified rooms in the
 	// scene's scope), so the two surfaces cannot claim to cover different rooms

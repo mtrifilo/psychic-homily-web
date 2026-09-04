@@ -191,9 +191,8 @@ type OAuthConfig struct {
 
 // Pool defaults. These are a share of a Postgres connection ceiling this
 // process does not own and cannot read, which is why every one of them is an
-// env var: a topology fact belongs in config, so a correction is a variable
-// change rather than a deploy (PSY-1608 is the canonical case of a constant
-// that was reasoned about instead of measured).
+// env var: a deployment-topology fact belongs in config, so a correction is a
+// variable change rather than a deploy.
 //
 // PostgreSQL's own default max_connections is 100. Sizing against that leaves
 // the API a fifth of it and 80 connections for everything else that shares the
@@ -564,37 +563,45 @@ func getEnvAsInt(key string, defaultValue int) int {
 
 // databaseConfigFromEnv reads the connection string and the pool bounds.
 //
-// Only two of the clamps change behaviour. A non-positive DB_MAX_OPEN_CONNS
-// means UNLIMITED to database/sql, which is the state applyPoolBounds exists to
-// leave, so it falls back to the default; and idle above open is reduced here
-// because database/sql reduces it silently, which would make the logged pool
-// shape a different one from the pool in effect.
+// Every clamp exists for the same reason: for all three of these settings, a
+// value database/sql treats as "no limit" is spelled with a number that looks
+// like a small one. Zero or less max-open is UNLIMITED, zero or less lifetime is
+// NEVER RETIRE, and a minutes value large enough to overflow the multiplication
+// into a Duration wraps negative and lands on that same never-retire. Each of
+// those is the state the setting exists to leave, so a value that would reach it
+// falls back to the default and says so, rather than silently disabling the
+// bound an operator was trying to tune.
 //
-// The lifetime ceiling is an overflow guard: minutes are multiplied into a
-// Duration, and a large enough value wraps NEGATIVE, which database/sql reads as
-// "never retire a connection" - the opposite of what a caller asking for a long
-// lifetime meant.
+// Idle is the exception and clamps rather than falls back: zero idle connections
+// is a legitimate ask, and idle above open is reduced because database/sql
+// reduces it silently, which would leave the logged pool shape describing a
+// different pool from the one in effect.
 func databaseConfigFromEnv() DatabaseConfig {
 	maxOpen := getEnvAsInt(EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
 	if maxOpen < 1 {
-		log.Printf("Environment variable %s must be at least 1 (0 or less means unlimited), using default %d",
+		log.Printf("Environment variable %s must be at least 1 (0 or less means an unlimited pool), using default %d",
 			EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
 		maxOpen = DefaultDBMaxOpenConns
 	}
 
 	maxIdle := getEnvAsInt(EnvDBMaxIdleConns, DefaultDBMaxIdleConns)
+	if maxIdle < 0 {
+		log.Printf("Environment variable %s cannot be negative, using 0 (retain no idle connections)",
+			EnvDBMaxIdleConns)
+		maxIdle = 0
+	}
 	if maxIdle > maxOpen {
+		log.Printf("Environment variable %s (%d) exceeds %s (%d); using %d, which is what database/sql would enforce anyway",
+			EnvDBMaxIdleConns, maxIdle, EnvDBMaxOpenConns, maxOpen, maxOpen)
 		maxIdle = maxOpen
 	}
 
 	lifetimeMinutes := getEnvAsInt(EnvDBConnMaxLifetimeMinutes, DefaultDBConnMaxLifetimeMinutes)
-	if lifetimeMinutes < 0 {
-		lifetimeMinutes = 0
-	}
-	if maxLifetimeMinutes := int(math.MaxInt64 / int64(time.Minute)); lifetimeMinutes > maxLifetimeMinutes {
-		log.Printf("Environment variable %s is too large to express as a duration, using %d",
-			EnvDBConnMaxLifetimeMinutes, maxLifetimeMinutes)
-		lifetimeMinutes = maxLifetimeMinutes
+	maxLifetimeMinutes := int(math.MaxInt64 / int64(time.Minute))
+	if lifetimeMinutes < 1 || lifetimeMinutes > maxLifetimeMinutes {
+		log.Printf("Environment variable %s must be between 1 and %d (outside that range means connections are never retired), using default %d",
+			EnvDBConnMaxLifetimeMinutes, maxLifetimeMinutes, DefaultDBConnMaxLifetimeMinutes)
+		lifetimeMinutes = DefaultDBConnMaxLifetimeMinutes
 	}
 
 	return DatabaseConfig{

@@ -1125,6 +1125,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // {{.NameTitle}}Handler handles {{.Name}}-related HTTP endpoints
@@ -1296,9 +1297,9 @@ func (h *{{.NameTitle}}Handler) Create{{.NameTitle}}Handler(ctx context.Context,
 	// served on the public contributions timeline, so what a new writer records
 	// is published under its actor's own username unless that map says otherwise.
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_{{.NameSnake}}", "{{.NameSnake}}", result.ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("{{.NameSnake}}_created",
@@ -1362,9 +1363,9 @@ func (h *{{.NameTitle}}Handler) Update{{.NameTitle}}Handler(ctx context.Context,
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "edit_{{.NameSnake}}", "{{.NameSnake}}", {{.NameCamel}}ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("{{.NameSnake}}_updated",
@@ -1411,9 +1412,9 @@ func (h *{{.NameTitle}}Handler) Delete{{.NameTitle}}Handler(ctx context.Context,
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_{{.NameSnake}}", "{{.NameSnake}}", {{.NameCamel}}ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("{{.NameSnake}}_deleted",

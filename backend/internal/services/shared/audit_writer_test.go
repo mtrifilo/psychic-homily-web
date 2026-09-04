@@ -145,6 +145,42 @@ func TestBoundedWriter_NilWorkIsRefused(t *testing.T) {
 	defer func() { _ = w.shutdown(context.Background()) }()
 
 	assert.False(t, w.submit("audit_log", nil))
+	assert.Equal(t, int64(1), w.dropped(), "every refusal is counted, including this one")
+}
+
+// The drop count is exact even though the LOGGING of drops is sampled: the count
+// is the only signal that says how much of the audit trail is missing.
+func TestBoundedWriter_EveryDropIsCountedNotJustTheLoggedOnes(t *testing.T) {
+	const attempts = auditWriteDropLogInterval * 2
+
+	w := newBoundedWriter("test_audit", 1, 1)
+	block := make(chan struct{})
+	require.True(t, w.submit("audit_log", func() { <-block }))
+
+	refused := 0
+	for i := 0; i < attempts; i++ {
+		if !w.submit("audit_log", func() {}) {
+			refused++
+		}
+	}
+
+	assert.Equal(t, int64(refused), w.dropped(),
+		"the counter must not be sampled the way the log line is")
+	assert.Greater(t, refused, auditWriteDropLogInterval,
+		"the burst must be big enough that sampling would show up")
+
+	close(block)
+	require.NoError(t, w.shutdown(context.Background()))
+}
+
+// A process that never wrote an audit row must not start the writer just to
+// close it.
+func TestShutdownAuditWritesIsFreeWhenNothingWasSubmitted(t *testing.T) {
+	if auditWriterStarted.Load() {
+		t.Skip("another test in this package already started the process-wide writer")
+	}
+	require.NoError(t, ShutdownAuditWrites(context.Background()))
+	assert.False(t, auditWriterStarted.Load(), "shutdown must not construct the writer")
 }
 
 // A drain that cannot finish reports what it abandoned instead of returning

@@ -38,7 +38,9 @@ import (
 // meaningful parent context.
 //
 // `name` labels the goroutine in logs and the Sentry `service` tag; use a
-// short, stable identifier (e.g. "audit_log", "discord_webhook").
+// short, stable identifier (e.g. "discord_webhook", "record_revision"). A name
+// containing "audit" is refused by TestNoAuditWriteBypassesTheBoundedWriter,
+// since those writes belong on SubmitAuditWrite.
 func GoSafe(ctx context.Context, name string, work func()) {
 	go func() {
 		defer func() {
