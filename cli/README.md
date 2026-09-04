@@ -258,7 +258,8 @@ bun run eval:view    # browse results in the promptfoo UI
 - **Source of truth:** `eval/extraction-prompt.md` (the extraction prompt, shared
   with `.claude/skills/ingest/SKILL.md`) + `eval/batch-schema.json` (output schema).
 - **Scoring:** per-entity accuracy — artists found/missed/hallucinated, venue
-  correctness, festival fields, billing-tier agreement, overall (in
+  correctness, festival fields, billing-tier agreement, show recall, show price
+  and bill-role agreement (both compared INCLUDING absence), overall (in
   `eval/scoring.ts`, unit-tested in `test/eval-scoring.test.ts`).
 - **Harness:** Promptfoo (its `anthropic:messages:` provider supports base64 image
   inputs). Not wired into CI — run it manually when extraction rules, the prompt,

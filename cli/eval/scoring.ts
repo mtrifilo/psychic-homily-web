@@ -3,11 +3,15 @@
  *
  * Compares a model's extracted batch JSON against a human-verified golden batch
  * JSON and produces per-entity accuracy metrics: artists found / missed /
- * hallucinated, venue correctness, festival field correctness, and billing-tier
- * agreement. Kept free of any promptfoo / I/O dependency so it is unit-testable
+ * hallucinated, venue correctness, festival field correctness, billing-tier
+ * agreement, show recall, and show price + bill-role agreement (which compare
+ * absence as well as value). Kept free of any promptfoo / I/O dependency so it
+ * is unit-testable
  * with `bun test` (cli/test/eval-scoring.test.ts) and reusable by a fallback
- * harness if promptfoo is ever dropped.
+ * harness if promptfoo is ever dropped. The one CLI import is pure: it is the
+ * product's definition of "this act states no slot", nothing more.
  */
+import { statesASlot } from "../src/lib/setType.ts";
 
 export interface BatchItem {
   entity_type: string;
@@ -19,7 +23,15 @@ export interface BatchItem {
   edition_year?: number;
   start_date?: string;
   end_date?: string;
-  artists?: Array<{ name: string; billing_tier?: string; is_headliner?: boolean }>;
+  artists?: Array<{
+    name: string;
+    billing_tier?: string;
+    is_headliner?: boolean;
+    set_type?: string;
+  }>;
+  venues?: Array<{ name?: string; city?: string; state?: string; is_primary?: boolean }>;
+  price?: number | string;
+  door_price?: number | string;
   [key: string]: unknown;
 }
 
@@ -43,13 +55,54 @@ export interface FestivalFieldScore {
   correct: boolean;
 }
 
+/** matched / comparable agreement on one family of fields, in [0, 1]. */
+export interface FieldAgreement {
+  matched: number;
+  comparable: number;
+  rate: number;
+  /** One line per disagreement, for the eval report. */
+  mismatches: string[];
+}
+
+export interface ShowFieldScore {
+  /**
+   * Golden shows the model produced at all (matched on date + venue), plus the
+   * shows it produced that no golden show claims. Carries a rate like every
+   * other metric, so no consumer re-derives the ratio.
+   *
+   * The price and bill-role rates below are computed only over MATCHED shows,
+   * so a missed show leaves them with nothing to compare and a vacuous 1. Any
+   * gate on those two must therefore also require `missed` to be empty, or a
+   * model that emits the wrong date passes rules it never obeyed.
+   */
+  shows: {
+    expected: number;
+    matched: number;
+    missed: string[];
+    hallucinated: string[];
+    rate: number;
+  };
+  /**
+   * `price` and `door_price` compared INCLUDING absence: a show the source
+   * states one price for must carry no `door_price` at all.
+   */
+  prices: FieldAgreement;
+  /**
+   * `set_type` compared INCLUDING absence, over the acts the model produced.
+   * A slot the source never stated must come back unstated.
+   */
+  billRoles: FieldAgreement;
+}
+
 export interface ExtractionScore {
   artists: EntityScore;
   venues: EntityScore;
   /** Per-festival field correctness (name, dates, slug, year). */
   festivalFields: FestivalFieldScore[];
   /** Fraction of golden lineup artists whose billing_tier matches in the model output. */
-  billingTierAgreement: { matched: number; comparable: number; rate: number };
+  billingTierAgreement: FieldAgreement;
+  /** Show price + bill-role agreement, both scored on absence as well as value. */
+  showFields: ShowFieldScore;
   /** Weighted overall score in [0, 1]. */
   overall: number;
 }
@@ -127,28 +180,200 @@ export function scoreFestivalFields(
   });
 }
 
-/** Fraction of golden lineup artists whose billing_tier matches the model's. */
-export function scoreBillingTiers(
-  expectedFestival: BatchItem | undefined,
-  actualFestival: BatchItem | undefined,
-): { matched: number; comparable: number; rate: number } {
-  const expArtists = expectedFestival?.artists ?? [];
-  const actArtists = actualFestival?.artists ?? [];
-  const actByName = new Map<string, string | undefined>();
-  for (const a of actArtists) {
-    if (a.name) actByName.set(normalizeName(a.name), a.billing_tier);
+function agreement(matched: number, comparable: number, mismatches: string[]): FieldAgreement {
+  return { matched, comparable, rate: comparable === 0 ? 1 : matched / comparable, mismatches };
+}
+
+/** One entry on a bill or a lineup, as far as the per-act metrics are concerned. */
+type Act = NonNullable<BatchItem["artists"]>[number];
+
+/**
+ * Agreement on one per-act field, over the acts the model actually produced.
+ *
+ * An act the model omitted entirely is skipped rather than counted wrong: that
+ * is a recall miss, and recall is the metric that owns it.
+ *
+ * `stated` reads the value to compare. `undefined` on a GOLDEN act means this
+ * metric cannot judge that act, which is how billing tiers skip an act the
+ * golden left untiered. Bill roles never return it, because absence is one of
+ * the values they compare.
+ */
+function scoreActField(
+  expectedActs: readonly Act[],
+  actualActs: readonly Act[],
+  stated: (act: Act) => string | null | undefined,
+  context: string,
+): FieldAgreement {
+  const actByName = new Map<string, Act>();
+  for (const a of actualActs) {
+    if (a.name) actByName.set(normalizeName(a.name), a);
   }
 
   let matched = 0;
   let comparable = 0;
-  for (const e of expArtists) {
-    if (!e.name || e.billing_tier === undefined) continue;
-    const key = normalizeName(e.name);
-    if (!actByName.has(key)) continue; // artist missing entirely — counted by recall, not here
+  const mismatches: string[] = [];
+  for (const e of expectedActs) {
+    if (!e.name) continue;
+    const expValue = stated(e);
+    if (expValue === undefined) continue;
+    const a = actByName.get(normalizeName(e.name));
+    if (!a) continue;
     comparable++;
-    if (actByName.get(key) === e.billing_tier) matched++;
+    const actValue = stated(a) ?? null;
+    if (expValue === actValue) matched++;
+    else mismatches.push(`${context}${e.name}: expected ${expValue}, got ${actValue}`);
   }
-  return { matched, comparable, rate: comparable === 0 ? 1 : matched / comparable };
+  return agreement(matched, comparable, mismatches);
+}
+
+/** Fraction of golden lineup artists whose billing_tier matches the model's. */
+export function scoreBillingTiers(
+  expectedFestival: BatchItem | undefined,
+  actualFestival: BatchItem | undefined,
+): FieldAgreement {
+  return scoreActField(
+    expectedFestival?.artists ?? [],
+    actualFestival?.artists ?? [],
+    act => act.billing_tier,
+    "",
+  );
+}
+
+/**
+ * A show's identity for matching a model's shows against the golden ones:
+ * the date it happens and the venue it happens at. A tour post emits one show
+ * per date, so the date alone is nearly always enough; the venue disambiguates
+ * two shows on the same night.
+ */
+function showKey(show: BatchItem): string {
+  const first = show.venues?.[0];
+  const venue = first?.name ? normalizeName(first.name) : "";
+  return `${String(show.event_date ?? "").trim()}|${venue}`;
+}
+
+/**
+ * The value a show states for a price field, or `null` when it states none.
+ *
+ * Absence is one of the compared values: the extraction rules forbid deriving
+ * `door_price` from `price`, so a show whose source names one price must carry
+ * no `door_price` key at all.
+ *
+ * Anything present that is not a readable amount yields `NaN`, which equals
+ * nothing, itself included. The empty test is applied AFTER stripping currency
+ * punctuation, because `Number("")` is 0: without it `"$"` and `"   "` would
+ * score as a stated free show. A non-string, non-number (an array, an object)
+ * is unreadable for the same reason.
+ */
+function statedPrice(show: BatchItem, field: "price" | "door_price"): number | null {
+  const raw = show[field];
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "number") return raw;
+  if (typeof raw !== "string") return NaN;
+  const stripped = raw.replace(/[$,\s]/g, "");
+  if (stripped === "") return raw.trim() === "" ? null : NaN;
+  const parsed = Number(stripped);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+/**
+ * The bill slot an act states, AS WRITTEN, or `null` when it states none.
+ *
+ * Named apart from setType.ts's `statedSlot` because it answers a deliberately
+ * different question. That one resolves the role the CLI would SEND, so it
+ * drops anything outside the vocabulary; this one compares what the model
+ * WROTE against what the golden wrote, so an out-of-vocabulary role is a
+ * disagreement rather than silence, and stray whitespace around a role is not.
+ *
+ * `statesASlot` is the product's definition of silence, so `performer`, blank
+ * and absent all read the same here as they do at the write paths.
+ *
+ * Reading `is_headliner` is what makes the metric catch the failure the rules
+ * exist to prevent: a model that designates the top of the poster reports a
+ * slot the source never stated.
+ */
+function statedSlotAsWritten(act: Act): string | null {
+  if (statesASlot(act.set_type)) return act.set_type.trim();
+  return act.is_headliner === true ? "headliner" : null;
+}
+
+/**
+ * Score the show fields the extraction rules govern by an "only when stated"
+ * rule: the split advance/door price, and the curated bill role.
+ *
+ * Scored over the golden shows the model actually produced. A golden show the
+ * model missed entirely is reported as missed and contributes nothing to the
+ * field rates, mirroring how billing-tier agreement leaves a missing artist to
+ * the recall metric.
+ */
+export function scoreShowFields(expected: BatchItem[], actual: BatchItem[]): ShowFieldScore {
+  const expectedShows = itemsOfType(expected, "show");
+  // Keyed by date + venue, but a key can legitimately repeat (an early and a
+  // late show in one room), so each side holds a QUEUE and a match consumes one
+  // entry. Matching against a shared entry would let one produced show satisfy
+  // two golden shows and be graded twice.
+  const actualByKey = new Map<string, BatchItem[]>();
+  for (const show of itemsOfType(actual, "show")) {
+    const key = showKey(show);
+    const bucket = actualByKey.get(key);
+    if (bucket) bucket.push(show);
+    else actualByKey.set(key, [show]);
+  }
+
+  const missed: string[] = [];
+  let matchedShows = 0;
+  let priceMatched = 0;
+  let priceComparable = 0;
+  const priceMismatches: string[] = [];
+  let roleMatched = 0;
+  let roleComparable = 0;
+  const roleMismatches: string[] = [];
+
+  for (const exp of expectedShows) {
+    const key = showKey(exp);
+    const act = actualByKey.get(key)?.shift();
+    if (!act) {
+      missed.push(key);
+      continue;
+    }
+    matchedShows++;
+
+    for (const field of ["price", "door_price"] as const) {
+      priceComparable++;
+      const e = statedPrice(exp, field);
+      const a = statedPrice(act, field);
+      if (e === a) priceMatched++;
+      else priceMismatches.push(`${key} ${field}: expected ${e}, got ${a}`);
+    }
+
+    const roles = scoreActField(
+      exp.artists ?? [],
+      act.artists ?? [],
+      statedSlotAsWritten,
+      `${key} `,
+    );
+    roleMatched += roles.matched;
+    roleComparable += roles.comparable;
+    roleMismatches.push(...roles.mismatches);
+  }
+
+  // Whatever is left unconsumed is a show no golden show claims. Recall alone
+  // would score a run that invented three tour dates as perfect.
+  const hallucinated: string[] = [];
+  for (const [key, bucket] of actualByKey) {
+    for (let i = 0; i < bucket.length; i++) hallucinated.push(key);
+  }
+
+  return {
+    shows: {
+      expected: expectedShows.length,
+      matched: matchedShows,
+      missed,
+      hallucinated,
+      rate: expectedShows.length === 0 ? 1 : matchedShows / expectedShows.length,
+    },
+    prices: agreement(priceMatched, priceComparable, priceMismatches),
+    billRoles: agreement(roleMatched, roleComparable, roleMismatches),
+  };
 }
 
 /**
@@ -182,13 +407,42 @@ export function scoreExtraction(expected: BatchItem[], actual: BatchItem[]): Ext
   const billingComponent = billingTierAgreement.rate;
 
   // Weights: artists dominate; venue/festival/billing are secondary signals.
+  //
+  // Show-field agreement is reported beside `overall` rather than folded into
+  // it: a fixture with no golden shows would otherwise gain a vacuous perfect
+  // component and drift upward, and every fixture's score would stop being
+  // comparable with the number it scored before. Pinned by the
+  // "do not move overall" test in cli/test/eval-scoring.test.ts.
   const overall =
     0.55 * artistComponent +
     0.1 * venueComponent +
     0.2 * festivalComponent +
     0.15 * billingComponent;
 
-  return { artists, venues, festivalFields, billingTierAgreement, overall };
+  return {
+    artists,
+    venues,
+    festivalFields,
+    billingTierAgreement,
+    showFields: scoreShowFields(expected, actual),
+    overall,
+  };
+}
+
+/** Mismatch lines past this are summarised as a count. */
+export const MAX_REPORTED_MISMATCHES = 10;
+
+/**
+ * A metric's mismatch lines, capped.
+ *
+ * A 102-artist lineup can disagree on every act, and both readers of these
+ * lines are one-screen surfaces: the eval summary and a promptfoo table cell.
+ * The count is what tells a reader the list was cut.
+ */
+export function listMismatches(a: FieldAgreement): string[] {
+  if (a.mismatches.length <= MAX_REPORTED_MISMATCHES) return a.mismatches;
+  const shown = a.mismatches.slice(0, MAX_REPORTED_MISMATCHES);
+  return [...shown, `and ${a.mismatches.length - MAX_REPORTED_MISMATCHES} more`];
 }
 
 /** Human-readable one-screen summary of an ExtractionScore. */
@@ -213,10 +467,27 @@ export function formatScore(score: ExtractionScore): string {
     lines.push(`  [${mark}] ${f.field}: expected ${JSON.stringify(f.expected)}, got ${JSON.stringify(f.actual)}`);
   }
 
-  const b = score.billingTierAgreement;
-  lines.push(
-    `Billing-tier agreement: ${b.matched}/${b.comparable} (${(b.rate * 100).toFixed(1)}%)`,
-  );
+  const pushAgreement = (label: string, a: FieldAgreement) => {
+    lines.push(`${label}: ${a.matched}/${a.comparable} (${(a.rate * 100).toFixed(1)}%)`);
+    for (const m of listMismatches(a)) lines.push(`  ${m}`);
+  };
+
+  pushAgreement("Billing-tier agreement", score.billingTierAgreement);
+
+  const s = score.showFields;
+  if (s.shows.expected > 0 || s.shows.hallucinated.length > 0) {
+    lines.push(
+      `Shows: ${s.shows.matched}/${s.shows.expected} matched, ` +
+        `${s.shows.hallucinated.length} hallucinated`,
+    );
+    if (s.shows.missed.length) lines.push(`  missed: ${s.shows.missed.join(", ")}`);
+    if (s.shows.hallucinated.length) {
+      lines.push(`  hallucinated: ${s.shows.hallucinated.join(", ")}`);
+    }
+    pushAgreement("Show prices (absence included)", s.prices);
+    pushAgreement("Bill roles (absence included)", s.billRoles);
+  }
+
   lines.push(`Overall score: ${(score.overall * 100).toFixed(1)}%`);
   return lines.join("\n");
 }

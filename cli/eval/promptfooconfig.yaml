@@ -37,3 +37,19 @@ tests:
       media_type: image/png
       # Golden human-verified expected batch (the 2026-05-31 Stage ingest).
       expected_json: file://fixtures/riot-fest-2026/expected.json
+
+  # The two show-flyer fixtures are a matched pair on the same two rules: emit
+  # door_price and set_type ONLY when the source states them. One flyer states
+  # both, the other states neither, so a model that under-emits fails the first
+  # and a model that infers from list order fails the second.
+  - description: "Show flyer stating a split adv/door price and every bill role"
+    vars:
+      image: file://fixtures/split-price-stated-roles/poster.png
+      media_type: image/png
+      expected_json: file://fixtures/split-price-stated-roles/expected.json
+
+  - description: "Show flyer stating one price and no bill roles (nothing to infer)"
+    vars:
+      image: file://fixtures/single-price-unstated-roles/poster.png
+      media_type: image/png
+      expected_json: file://fixtures/single-price-unstated-roles/expected.json

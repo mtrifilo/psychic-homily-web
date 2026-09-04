@@ -1247,6 +1247,231 @@ describe('ModerationQueue', () => {
     expect(screen.getByText('event_date:')).toBeInTheDocument()
   })
 
+  // ─── Compact bill line on the card (PSY-2010) ────────────────────────────
+  //
+  // The reject and scan paths never open the form, so the card carries one
+  // readable line of the bill. It is a reading, not a control: no JSON, no
+  // role nobody stated, and nothing at all when there is no readable bill.
+
+  it('reads the bill as one line, annotating only the roles the payload stated', () => {
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Sunn O)))' },
+          { name: 'Big Brave', set_type: 'direct_support' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    const line = screen.getByTestId('moderation-bill-line')
+    expect(line).toHaveTextContent(
+      'Boris (headliner) · Sunn O))) · Big Brave (direct support)'
+    )
+    // No count: the bill is short enough to print whole.
+    expect(within(line).queryByText(/^\+\d+/)).not.toBeInTheDocument()
+  })
+
+  it('leaves an act stored as performer unannotated', () => {
+    // 'performer' is one of the two spellings of "slot unknown", so printing it
+    // as a role would assert a slot the payload does not state.
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'performer' },
+          { name: 'Earth', set_type: 'nonsense' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByTestId('moderation-bill-line')).toHaveTextContent('Boris · Earth')
+  })
+
+  it('prints the first five acts and counts the rest', () => {
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'A1', set_type: 'headliner' },
+          { name: 'A2', set_type: 'opener' },
+          { name: 'A3' },
+          { name: 'A4' },
+          { name: 'A5' },
+          { name: 'A6' },
+          { name: 'A7' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    const line = screen.getByTestId('moderation-bill-line')
+    expect(line).toHaveTextContent('A1 (headliner) · A2 (opener) · A3 · A4 · A5')
+    expect(within(line).getByText(/^\+2\b/)).toBeInTheDocument()
+    expect(line).not.toHaveTextContent('A6')
+    expect(line).not.toHaveTextContent('A7')
+  })
+
+  it.each([
+    ['a bill-less payload', undefined],
+    ['an artists value that is not an array', { name: 'Boris' }],
+    ['a null artists value', null],
+    ['entries that are not objects', ['Boris', 42, null]],
+    ['entries with no usable name', [{ set_type: 'headliner' }, { name: '   ' }]],
+  ])('renders no bill line for %s, and the queue still renders', (_label, artists) => {
+    setDefaultMocks({ requests: [showRequestWithBill(artists)] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.queryByTestId('moderation-bill-line')).not.toBeInTheDocument()
+    // The card itself is intact: a payload this line cannot read costs the line
+    // and nothing else.
+    expect(screen.getByRole('button', { name: /^create$/i })).toBeInTheDocument()
+  })
+
+  it('reads no bill off a request type that carries none', () => {
+    // Only a show payload has a bill, exactly as the backend's
+    // ShowPayloadArtists answers nil for every other type. The payload here
+    // carries a well-formed artists array on purpose: without the entity-type
+    // gate this renders a bill line for an artist request.
+    setDefaultMocks({
+      requests: [
+        {
+          ...mockEntityRequest,
+          entity_type: 'artist',
+          payload: {
+            name: 'Queued Band',
+            artists: [{ name: 'Boris', set_type: 'headliner' }],
+          },
+        },
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.queryByTestId('moderation-bill-line')).not.toBeInTheDocument()
+  })
+
+  it('prints exactly five acts with no count', () => {
+    // The boundary: overflow is zero, so the count must not appear at all.
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill(
+          ['A1', 'A2', 'A3', 'A4', 'A5'].map(name => ({ name }))
+        ),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    const line = screen.getByTestId('moderation-bill-line')
+    expect(line).toHaveTextContent('A1 · A2 · A3 · A4 · A5')
+    expect(within(line).queryByText(/^\+\d+/)).not.toBeInTheDocument()
+  })
+
+  it('carries the whole read bill in the title, for a line too long to show', () => {
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Earth' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByTestId('moderation-bill-line')).toHaveAttribute(
+      'title',
+      'Boris (headliner) · Earth'
+    )
+  })
+
+  it('gives an act name no way to forge a stated role', () => {
+    // Names are contributor text. A role annotation is the system speaking, so
+    // it is its own element and a name that spells one is just a name.
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Sneaky Band (headliner)' }])],
+    })
+
+    const { unmount } = render(<ModerationQueue />)
+
+    const forged = screen.getByTestId('moderation-bill-line')
+    expect(forged).toHaveTextContent('Sneaky Band (headliner)')
+    // No element carries the annotation on its own, which is what the styling
+    // hangs off.
+    expect(within(forged).queryByText('(headliner)')).not.toBeInTheDocument()
+    unmount()
+
+    // The same reading, stated by the payload: now the annotation IS its own
+    // element. Without this half the assertion above would pass on a line that
+    // never annotates anything.
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Sneaky Band', set_type: 'headliner' }])],
+    })
+    render(<ModerationQueue />)
+    const stated = screen.getByTestId('moderation-bill-line')
+    expect(stated).toHaveTextContent('Sneaky Band (headliner)')
+    expect(within(stated).getByText('(headliner)')).toBeInTheDocument()
+  })
+
+  it('yields the line to the form while the form is open', () => {
+    // The line reads the payload live; the form snapshots it at open. Showing
+    // both would let a resubmission leave them describing different bills,
+    // with only the form's rows being the ones that submit.
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }])],
+    })
+
+    render(<ModerationQueue />)
+    expect(screen.getByTestId('moderation-bill-line')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.queryByTestId('moderation-bill-line')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    expect(screen.getByTestId('moderation-bill-line')).toBeInTheDocument()
+  })
+
+  it('reads the bill on the rescue card, which also decides without the form', () => {
+    setDefaultMocks({
+      rescue: [
+        {
+          ...showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }]),
+          decision_state: 'approved',
+          created_entity_id: undefined,
+        },
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByText('Needs attention'))
+
+    expect(screen.getByTestId('moderation-bill-line')).toHaveTextContent('Boris (headliner)')
+  })
+
+  it('reads the bill on the withdrawn card, which has no form at all', async () => {
+    setDefaultMocks({
+      withdrawn: [
+        {
+          ...showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }]),
+          decision_state: 'withdrawn',
+        },
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByText('Withdrawn'))
+
+    const card = await screen.findByTestId('moderation-withdrawn-card')
+    expect(within(card).getByTestId('moderation-bill-line')).toHaveTextContent(
+      'Boris (headliner)'
+    )
+  })
+
   it('submits the seeded bill with each act on the role the payload stated', () => {
     const mutate = vi.fn()
     mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })

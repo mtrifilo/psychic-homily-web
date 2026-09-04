@@ -405,9 +405,10 @@ function RevisedFromSource({ request }: { request: AdminEntityRequest }) {
 // not the already-headed entity name.
 const PREVIEW_HEADER_KEYS = ['name', 'title']
 
-// Shown by a control instead of the preview. `artists` is the show payload's
-// bill, which ShowCreateForm renders as editable rows; it is also the only
-// non-scalar payload field, so the preview could only stringify it.
+// Owned by PayloadBillLine, and by ShowCreateForm's editable rows once it is
+// open. `artists` is the show payload's bill, and it is the only non-scalar
+// payload field, so the preview could only stringify it. A bill neither of
+// those can read renders nowhere, which is the cost of not printing JSON.
 const PREVIEW_CONTROL_OWNED_KEYS = ['artists']
 
 const PREVIEW_OMIT_KEYS = new Set([...PREVIEW_HEADER_KEYS, ...PREVIEW_CONTROL_OWNED_KEYS])
@@ -588,6 +589,122 @@ function parsePayloadBill(payload: Record<string, unknown> | null): ShowArtistRo
   return rows
 }
 
+/**
+ * Whether a row states a slot on the bill.
+ *
+ * "Curated" is the BACKEND's test, not the form's. `performer` is one of the
+ * two spellings of "slot unknown" (headlineSlotUnknownValues), the other being
+ * the absent key that parsePayloadBill reads as UNSTATED_ROLE, so a bill whose
+ * acts are all explicitly "Performer (slot unknown)" is still uncurated and DOES
+ * get a headline slot from position 0. Testing `!== UNSTATED_ROLE` alone would
+ * read that bill as curated.
+ *
+ * One predicate for both readers of it: the card line, which annotates only a
+ * stated role, and the form's partial-curation warning, which must match
+ * headlineSlotSQL's notion of curated or it misfires.
+ */
+function curatesABillSlot(row: ShowArtistRow): row is ShowArtistRow & { set_type: SetType } {
+  return row.set_type !== UNSTATED_ROLE && row.set_type !== DEFAULT_SET_TYPE
+}
+
+/**
+ * How a stated bill role reads inside the compact card line.
+ *
+ * Lowercase, because this is a reading of the bill rather than a control: the
+ * form's sentence-case option labels are a separate register and stay in
+ * show-form-utils, which reserves annotation copy as its own decision.
+ *
+ * Typed as an exhaustive Record so a role added to the backend vocabulary stops
+ * this file building until somebody decides how it reads here.
+ */
+const BILL_LINE_ROLE_LABELS: Record<SetType, string | null> = {
+  headliner: 'headliner',
+  direct_support: 'direct support',
+  opener: 'opener',
+  special_guest: 'special guest',
+  dj: 'DJ',
+  // Unreachable: curatesABillSlot rejects the neutral default before the lookup.
+  performer: null,
+}
+
+/**
+ * Acts printed in full on the compact line before the rest become a count.
+ *
+ * A scan affordance, not a cap on the bill: the count says how many acts it
+ * stands for, and the whole bill is in the line's title attribute. Only the
+ * approve and fulfill cards can also open it as form rows; a withdrawn card has
+ * no form.
+ */
+const BILL_LINE_MAX_ACTS = 5
+
+/**
+ * The bill a show request carries, as one line an admin can read without
+ * opening the form.
+ *
+ * The reject and scan paths never open the form, so without this the bill is
+ * invisible on them. It is a READING, never an editing surface.
+ *
+ * Renders nothing for a payload with no readable bill, which covers a bill-less
+ * request and a malformed `artists` value alike: parsePayloadBill drops what it
+ * cannot read, so a malformed payload costs its own card this line and not the
+ * whole queue. It also drops individual unreadable entries, so the count stands
+ * for acts this line could read, not necessarily every entry the payload holds.
+ *
+ * Takes the whole request so the entity-type gate lives here rather than at
+ * each card: a bill is a show's field, exactly as the backend's
+ * ShowPayloadArtists answers nil for every other type.
+ *
+ * Each act and each role is its own element rather than one joined string. The
+ * names are contributor text, validated for length and little else, so an act
+ * literally named `Some Band (headliner)` would otherwise render
+ * indistinguishably from a role the payload stated: the role's own styling is
+ * what the name cannot reach.
+ */
+function PayloadBillLine({ request }: { request: AdminEntityRequest }) {
+  if (request.entity_type !== 'show') return null
+  const bill = parsePayloadBill(request.payload)
+  if (bill.length === 0) return null
+
+  const shown = bill.slice(0, BILL_LINE_MAX_ACTS)
+  const overflow = bill.length - shown.length
+  const acts = shown.map(row => ({
+    name: row.name,
+    // `?? null` rather than trusting the lookup: curatesABillSlot is a hand
+    // written predicate, and a widened set_type would otherwise print
+    // "(undefined)".
+    role: (curatesABillSlot(row) ? BILL_LINE_ROLE_LABELS[row.set_type] : null) ?? null,
+  }))
+
+  return (
+    <p
+      className="mt-1 flex items-baseline gap-1 text-sm text-muted-foreground"
+      data-testid="moderation-bill-line"
+      // The whole bill, for the case the line is too long for the card.
+      title={acts.map(a => (a.role ? `${a.name} (${a.role})` : a.name)).join(' · ')}
+    >
+      {/* Names alone read as an unlabelled list out of visual context. */}
+      <span className="sr-only">Bill: </span>
+      <span className="min-w-0 truncate">
+        {acts.map((act, i) => (
+          <span key={`${act.name}-${i}`}>
+            {/* Not aria-hidden: it is the only thing separating one act's name
+                from the next, in the reading as much as on screen. */}
+            {i > 0 && <span> · </span>}
+            {act.name}
+            {act.role && <span className="italic text-muted-foreground/70"> ({act.role})</span>}
+          </span>
+        ))}
+      </span>
+      {overflow > 0 && (
+        <span className="shrink-0">
+          +{overflow}
+          <span className="sr-only"> more acts</span>
+        </span>
+      )}
+    </p>
+  )
+}
+
 /** A payload string field, or '' when the payload does not carry one. */
 function payloadString(payload: Record<string, unknown> | null, key: string): string {
   const value = payload?.[key]
@@ -665,16 +782,11 @@ function ShowCreateForm({
   // a legitimate description of a real bill, and the display reconciliation
   // belongs to PSY-1943's one-rule scope, not to a gate here.
   //
-  // "Curated" is the BACKEND's test, not the form's. 'performer' is one of the
-  // two spellings of "slot unknown" (headlineSlotUnknownValues), so a bill whose
-  // acts are all explicitly "Performer (slot unknown)" is still uncurated and
-  // DOES get a headline slot from position 0. Testing `!== UNSTATED_ROLE` alone
-  // would warn about that bill wrongly.
+  // What counts as curated is curatesABillSlot's question, and the card's bill
+  // line asks it too, so the two cannot disagree about what a stated role is.
   //
   // Read off filledArtists because that is the bill that gets sent: a nameless
   // row is dropped (and separately blocks the submit above).
-  const curatesABillSlot = (row: ShowArtistRow) =>
-    row.set_type !== UNSTATED_ROLE && row.set_type !== DEFAULT_SET_TYPE
   const hasCuratedBillWithoutHeadliner =
     filledArtists.some(curatesABillSlot) &&
     !filledArtists.some(row => row.set_type === 'headliner')
@@ -987,6 +1099,13 @@ function RequestCard({
           </div>
         </div>
 
+        {/* The bill, readable without opening the form. Yielded to the form
+            while it is open: the line reads the payload live and the form
+            snapshots it at open, so a resubmission landing under an open form
+            would otherwise leave the two describing different bills, with only
+            the form's rows being the one that submits. */}
+        {!showFormOpen && <PayloadBillLine request={request} />}
+
         {/* Attribution + source context */}
         <div className="mt-2 text-sm text-muted-foreground">
           <span>
@@ -1142,6 +1261,9 @@ function WithdrawnRequestCard({ request }: { request: AdminEntityRequest }) {
           </div>
         </div>
 
+        {/* The bill: this card has no form at all, so it is the only reading */}
+        <PayloadBillLine request={request} />
+
         <div className="mt-2 text-sm text-muted-foreground">
           <span>
             by{' '}
@@ -1259,6 +1381,10 @@ function RescueCard({
         <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
           Approved but never created — fulfill it or void it.
         </p>
+
+        {/* The bill, readable without opening the form. Yielded to the form
+            while it is open, for the same reason as the pending card. */}
+        {!showFormOpen && <PayloadBillLine request={request} />}
 
         {/* Attribution */}
         <div className="mt-2 text-sm text-muted-foreground">
