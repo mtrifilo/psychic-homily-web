@@ -23,6 +23,7 @@ type socialCorpusCase struct {
 type socialLinkCorpus struct {
 	Platforms               map[string][]string `json:"platforms"`
 	Unanchored              []string            `json:"unanchored"`
+	HandleBases             map[string]string   `json:"handleBases"`
 	Storable                []socialCorpusCase  `json:"storable"`
 	StorableButUnrenderable []socialCorpusCase  `json:"storableButUnrenderable"`
 	RefusedByWriter         []struct {

@@ -429,17 +429,19 @@ var shapedURLFields = map[string]struct {
 	},
 }
 
-// rollbackURLFields is every field a rollback may write whose value is a URL
-// somebody will click, with the label a refusal names it by.
+// applyURLFields is every field either apply path may write whose value is a
+// URL somebody will click, with the label a refusal names it by.
 //
-// It exists because Rollback is the one write path that takes its value from
-// FieldChange.OldValue, and OldValue is contributor input that NOTHING
-// validates: the submit handler checks NewValue only, and approve copies the
-// pair verbatim into revisions.field_changes. So every forward gate (scheme,
-// social host anchor, release shape) is bypassed by going backwards, for every
-// field in the table, not just the one PSY-1966 set out to fix. A contributor
-// pairs a real Spotify NewValue with `https://spotify-verify.evil.test/` as the
-// OldValue, an admin later presses rollback, and SocialLinks renders that host
+// It exists because both apply paths take their value from a contributor-filed
+// FieldChange rather than from a request struct the forward validators guard.
+// Rollback writes OldValue, which NOTHING validates: the submit handler checks
+// NewValue only, and approve copies the pair verbatim into
+// revisions.field_changes. Approve writes NewValue, which the submit handler
+// does check, but the queue outlives the gate: a row filed before a rule
+// shipped, or through a path that never met the handler, carries a value no
+// forward validator has seen. A contributor pairs a real Spotify NewValue with
+// `https://spotify-verify.evil.test/` as the OldValue, or a queued row simply
+// holds that host in the spotify column, and the entity ends up wearing it
 // under the Spotify glyph.
 //
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
@@ -453,14 +455,14 @@ var shapedURLFields = map[string]struct {
 // than on someone remembering this file.
 //
 // Only the platform fields carry a host anchor; the rest get the scheme rule,
-// which is still the difference between restoring a link and restoring
+// which is still the difference between writing a link and writing
 // "javascript:..." into a rendered attribute.
 //
 // image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
 // guard needs a context.Context this function does not take. That residue is
-// stated on validateRollbackURLs and is the one part of the forward contract
-// this path still cannot reproduce.
-var rollbackURLFields = map[string]string{
+// stated on validateApplyURLs; the approve path resolves it separately in
+// revalidateFetchedURLs, the rollback path does not resolve it at all.
+var applyURLFields = map[string]string{
 	"instagram":       "Instagram URL",
 	"facebook":        "Facebook URL",
 	"twitter":         "Twitter URL",
@@ -476,33 +478,41 @@ var rollbackURLFields = map[string]string{
 	"image_url":       "Image URL",
 }
 
-// validateRollbackURLs re-runs the forward paths' URL rules over the values a
-// rollback is about to write, and reports one that must not go live.
+// validateApplyURLs re-runs the forward paths' URL rules over the values an
+// apply is about to write, and reports one that must not go live.
 //
-// WHY THIS IS NOT PARANOIA: see rollbackURLFields. OldValue is unvalidated
-// contributor input that reaches the column through an admin's undo button.
+// ONE function for BOTH apply paths, called by Rollback and by
+// ApprovePendingEdit. They are the two ways a contributor-filed value reaches a
+// live column, and a rule that holds on only one of them is the asymmetry this
+// exists to make impossible: the value is judged where it goes live, whichever
+// button an admin pressed.
 //
-// It refuses the WHOLE rollback rather than dropping the offending field, which
-// has a cost worth naming: a revision records every field of one contributor
-// edit, so a single planted OldValue makes that revision permanently
-// un-rollbackable, including the undo of unrelated fields recorded beside it. A
-// contributor can therefore deny undo on their own edit. That is accepted here
-// as the lesser harm: the alternative writes an attacker-chosen href under a
-// trusted platform label, and admins retain direct-edit paths, but a partial
-// rollback that skips only the refused field is the better long-term answer and
-// is left as its own change, because it alters what an admin sees "rollback" do.
+// WHY THIS IS NOT PARANOIA: see applyURLFields.
+//
+// It refuses the WHOLE apply rather than dropping the offending field, which
+// has a cost worth naming: one planted value makes that revision permanently
+// un-rollbackable and that pending edit permanently un-approvable, including
+// the unrelated fields recorded beside it, so a contributor can deny undo on
+// their own edit. That is accepted here as the lesser harm: the alternative
+// writes an attacker-chosen href under a trusted platform label, admins retain
+// direct-edit paths, and a refused pending edit stays actionable (an admin can
+// still reject it with a reason and the contributor can still cancel it). A
+// partial apply that skips only the refused field is the better long-term
+// answer and is left as its own change, because it alters what an admin sees
+// these buttons do.
 //
 // `website` is host-unrestricted by design (it is the any-host escape hatch), so
 // for that field this is the scheme check alone, as it is for the image and
 // flyer fields, which have no platform to anchor to.
 //
 // image_url gets its SCHEME rule here but not its host guard: that resolves DNS
-// and needs a context.Context Rollback does not take. So a rollback can still
-// restore an image_url pointing at an internal address, which is the one part of
-// the forward contract this path cannot yet reproduce. Threading a context
-// through Rollback is its own change.
-func validateRollbackURLs(updates map[string]interface{}) error {
-	for field, displayName := range rollbackURLFields {
+// and needs a context.Context this function does not take. The approve path
+// resolves it separately in revalidateFetchedURLs; a rollback can still restore
+// an image_url pointing at an internal address, which is the one part of the
+// forward contract that path cannot reproduce. Threading a context through
+// Rollback is its own change.
+func validateApplyURLs(updates map[string]interface{}) error {
+	for field, displayName := range applyURLFields {
 		value, present, err := updateStringValue(updates, field, displayName)
 		if err != nil {
 			return err
@@ -789,6 +799,32 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			"error", err.Error(),
 		)
 		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("cannot approve: %s", err))
+	}
+
+	// The scheme rule and the platform host anchor, run for the same reason the
+	// two gates above are: the queue outlives the gate, so a row filed before a
+	// rule existed carries a value no forward validator has seen, and approve is
+	// where it goes live.
+	//
+	// It is the SAME function Rollback calls, so the forward and backward apply
+	// paths cannot judge a value differently.
+	//
+	// LAST of the three, so a value that breaks more than one rule reports the
+	// most specific reason: an image_url resolving to a private address, or a
+	// bandcamp_embed_url that is not a release page, says so rather than falling
+	// back to the scheme rule's wording.
+	if err := validateApplyURLs(updates); err != nil {
+		slog.Default().Warn("pending_edit_blocked_url_rule",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"error", err.Error(),
+		)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"cannot approve: %s. Reject this edit and ask the contributor to resubmit.", err,
+		))
 	}
 
 	normalizeBlankShapedURLs(updates)

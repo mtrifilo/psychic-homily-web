@@ -212,6 +212,37 @@ export function socialLinkHref(
   return hostIsAnchored(parsed, entry.hosts) ? candidate : null
 }
 
+/**
+ * Whether a free-form key names one of the columns this registry answers for.
+ *
+ * `radio_stations.social` is JSONB with arbitrary operator-chosen keys, and the
+ * key is printed as the link's visible label, so a key the registry does not
+ * know is a claim nothing here can check. The caller renders nothing for one
+ * rather than guessing.
+ */
+export function isSocialLinkPlatform(key: string): key is SocialLinkPlatform {
+  return Object.prototype.hasOwnProperty.call(SOCIAL_LINK_PLATFORMS, key)
+}
+
+/**
+ * The href a stored value may become on a column that makes no platform claim.
+ *
+ * A station's `website` and `donation_url` are operator-entered free text on any
+ * host, so the anchor has nothing to anchor to and this is the parse alone: an
+ * absolute http(s) URL with no userinfo, or nothing. It is the `website` field's
+ * rule under a name that says what the caller is asking, so the two cannot
+ * drift.
+ *
+ * A value that fails renders no link at all. That is better than the two
+ * alternatives on these surfaces: a relative or unusable href, or a permanently
+ * greyed bracket that reads as a disabled feature rather than as bad data.
+ */
+export function unanchoredLinkHref(
+  value: string | null | undefined
+): string | null {
+  return socialLinkHref('website', value)
+}
+
 /** One stored column that survived the gate. */
 export interface RenderableSocialLink {
   platform: SocialLinkPlatform
@@ -224,9 +255,12 @@ export interface RenderableSocialLink {
  *
  * Every surface that turns one of THESE columns into an href or a `sameAs`
  * entry takes its list from here rather than testing the columns itself, so a
- * new surface inherits the gate instead of silently skipping it. Radio stations
- * carry a different, free-form JSONB `social` column with arbitrary keys, which
- * this registry cannot answer for.
+ * new surface inherits the gate instead of silently skipping it.
+ *
+ * A row is a fixed set of typed columns. `radio_stations.social` is free-form
+ * JSONB whose keys are chosen by an operator, so it is not a row this can walk:
+ * that caller asks `isSocialLinkPlatform` per key and `socialLinkHref` per
+ * value instead.
  */
 export function renderableSocialLinks(
   social: SocialLinkValues | null | undefined
