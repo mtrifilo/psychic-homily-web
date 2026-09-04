@@ -281,6 +281,21 @@ describe('generateMusicEventSchema', () => {
     expect(schema.performer![0].sameAs).toBeUndefined()
   })
 
+  it('omits a performer social whose host is not the platform it names', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      artists: [{
+        name: 'Test Band',
+        is_headliner: true,
+        socials: {
+          instagram: 'https://instagram.com/testband',
+          spotify: 'https://spotify-account-verify.evil.test/',
+        },
+      }],
+    })
+    expect(schema.performer![0].sameAs).toEqual(['https://instagram.com/testband'])
+  })
+
   it('omits performer when no artists', () => {
     const schema = generateMusicEventSchema({ date: '2026-03-15T20:00:00Z' })
     expect(schema.performer).toBeUndefined()
@@ -647,6 +662,8 @@ describe('generateMusicGroupSchema', () => {
     expect(schema.url).toBe('https://psychichomily.com/artists/test-band')
   })
 
+  // The order is the shared registry's, not the key order of the row, because
+  // the list comes from the same gate the on-page links do.
   it('filters null social links and includes valid ones as sameAs', () => {
     const schema = generateMusicGroupSchema({
       name: 'Test Band',
@@ -657,9 +674,38 @@ describe('generateMusicGroupSchema', () => {
       },
     })
     expect(schema.sameAs).toEqual([
-      'https://instagram.com/testband',
       'https://testband.com',
+      'https://instagram.com/testband',
     ])
+  })
+
+  it('omits a stored value whose host is not the platform it names', () => {
+    const schema = generateMusicGroupSchema({
+      name: 'Test Band',
+      social: {
+        instagram: 'https://instagram.com/testband',
+        spotify: 'https://spotify-account-verify.evil.test/',
+      },
+    })
+    expect(schema.sameAs).toEqual(['https://instagram.com/testband'])
+  })
+
+  it('omits sameAs entirely when every stored value is refused', () => {
+    const schema = generateMusicGroupSchema({
+      name: 'Test Band',
+      social: { spotify: 'https://spotify-account-verify.evil.test/' },
+    })
+    expect(schema.sameAs).toBeUndefined()
+  })
+
+  // sameAs is defined to hold URLs, so a legacy bare handle is published as the
+  // URL it resolves to rather than as the handle.
+  it('publishes a legacy handle as the URL it resolves to', () => {
+    const schema = generateMusicGroupSchema({
+      name: 'Test Band',
+      social: { instagram: 'testband' },
+    })
+    expect(schema.sameAs).toEqual(['https://instagram.com/testband'])
   })
 
   it('omits sameAs when all socials are null', () => {

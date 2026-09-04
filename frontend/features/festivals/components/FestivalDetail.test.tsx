@@ -238,6 +238,33 @@ describe('FestivalDetail', () => {
     expect(screen.getByTestId('festival-lineup')).toHaveTextContent('Lineup (1)')
   })
 
+  // The website column is read through the same gate SocialLinks applies to it,
+  // which is what makes a scheme-less value absolute instead of a relative href
+  // resolving under /festivals/.
+  it('resolves a scheme-less website to an absolute URL', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ website: 'formarcosanti.com', ticket_url: null }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(
+      screen.getByRole('link', { name: 'Official Website' })
+    ).toHaveAttribute('href', 'https://formarcosanti.com')
+  })
+
+  it('renders no website anchor for a value that is not a URL', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ website: 'javascript:alert(1)', ticket_url: null }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('link', { name: 'Official Website' })).toBeNull()
+  })
+
   it('renders the website link, and names the ticket vendor unlinked', () => {
     mockUseFestival.mockReturnValue({
       data: makeFestival({
@@ -312,6 +339,41 @@ describe('FestivalDetail', () => {
     expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
     expect(screen.queryByTestId('festival-ticket-vendor')).toBeNull()
+  })
+
+  // Non-empty and refused. The festival social wrapper is free-form JSONB, so
+  // this is also the case where a key that is not a platform reaches the gate.
+  it('renders no Links section when every social value is off-platform', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        website: null,
+        ticket_url: null,
+        social: {
+          instagram: 'https://instagram.com.evil.test/form',
+          spotify: 'https://spotify-account-verify.evil.test/',
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
+  })
+
+  it('renders the Links section for a conforming social value', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        website: null,
+        ticket_url: null,
+        social: { instagram: 'https://instagram.com/formarcosanti' },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.getByRole('heading', { name: 'Links' })).toBeTruthy()
   })
 
   // The gate and the anchor read the same value: gating the section on the raw

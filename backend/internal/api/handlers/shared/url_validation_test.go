@@ -2,6 +2,7 @@ package shared
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"os"
@@ -74,6 +75,82 @@ func TestValidateImageURL_RejectsDataScheme(t *testing.T) {
 // ============================================================================
 // ValidateSocialURLs
 // ============================================================================
+
+// socialCorpusFields is the shared corpus's view of which social columns exist
+// and which of them are anchored to a platform's hosts.
+//
+// It is read from internal/utils/testdata/social_link_corpus.json, the file the
+// Go host table and the frontend gate already assert against, because THIS is
+// the layer the corpus could not otherwise reach: the host table answers "what
+// hosts may a spotify value sit on", and ValidateSocialURLs answers the prior
+// question of "is the spotify column checked at all".
+type socialCorpusFields struct {
+	Platforms  map[string][]string `json:"platforms"`
+	Unanchored []string            `json:"unanchored"`
+}
+
+func loadSocialCorpusFields(t *testing.T) socialCorpusFields {
+	t.Helper()
+	raw, err := os.ReadFile("../../../utils/testdata/social_link_corpus.json")
+	if err != nil {
+		t.Fatalf("read shared corpus: %v", err)
+	}
+	var corpus socialCorpusFields
+	if err := json.Unmarshal(raw, &corpus); err != nil {
+		t.Fatalf("parse shared corpus: %v", err)
+	}
+	if len(corpus.Platforms) == 0 || len(corpus.Unanchored) == 0 {
+		t.Fatal("shared corpus names no fields")
+	}
+	return corpus
+}
+
+// socialURLsByField calls ValidateSocialURLs with value in exactly one slot.
+//
+// Positional arguments are why this exists: the eight parameters are all
+// *string, so a field dropped from the call's own pairs table is invisible to
+// the compiler and to every test that passes a valid value.
+func socialURLsByField(field, value string) error {
+	slot := func(name string) *string {
+		if name == field {
+			return &value
+		}
+		return nil
+	}
+	return ValidateSocialURLs(
+		slot("instagram"), slot("facebook"), slot("twitter"), slot("youtube"),
+		slot("spotify"), slot("soundcloud"), slot("bandcamp"), slot("website"),
+	)
+}
+
+// TestValidateSocialURLsCoversEveryCorpusField is the drift tripwire for the
+// FIELD SET, one level up from the host table.
+//
+// Without it, deleting a pair from ValidateSocialURLs's own table leaves that
+// column storable with any host, and every other suite stays green: the corpus
+// tests exercise utils.ValidateSocialHost directly and never learn that no
+// handler calls it for that field.
+func TestValidateSocialURLsCoversEveryCorpusField(t *testing.T) {
+	corpus := loadSocialCorpusFields(t)
+
+	for field := range corpus.Platforms {
+		if err := socialURLsByField(field, "https://not-the-platform.evil.test/x"); err == nil {
+			t.Errorf("ValidateSocialURLs does not host-anchor %q", field)
+		}
+		if err := socialURLsByField(field, "javascript:alert(1)"); err == nil {
+			t.Errorf("ValidateSocialURLs does not scheme-check %q", field)
+		}
+	}
+
+	for _, field := range corpus.Unanchored {
+		if err := socialURLsByField(field, "https://anything.example.test/x"); err != nil {
+			t.Errorf("ValidateSocialURLs anchors %q, which the corpus calls unanchored: %v", field, err)
+		}
+		if err := socialURLsByField(field, "javascript:alert(1)"); err == nil {
+			t.Errorf("ValidateSocialURLs does not scheme-check %q", field)
+		}
+	}
+}
 
 func TestValidateSocialURLs_AllNilPasses(t *testing.T) {
 	if err := ValidateSocialURLs(nil, nil, nil, nil, nil, nil, nil, nil); err != nil {

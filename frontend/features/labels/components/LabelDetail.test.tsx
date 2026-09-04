@@ -368,6 +368,32 @@ describe('LabelDetail', () => {
       expect(screen.queryByTestId('social-links')).not.toBeInTheDocument()
     })
 
+    // Non-empty and refused, which is the case the heading predicate exists
+    // for: SocialLinks renders nothing for it, so a heading here would stand
+    // over empty space.
+    it('omits the Links section when every social value is off-platform', () => {
+      mockUseLabel.mockReturnValue({
+        data: makeLabel({
+          social: {
+            instagram: 'https://instagram.com.evil.test/subpop',
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: 'https://spotify-account-verify.evil.test/',
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<LabelDetail idOrSlug="sub-pop" />)
+      expect(screen.queryByText('Links')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('social-links')).not.toBeInTheDocument()
+    })
+
     it('renders the roster section with artist links when artists exist', () => {
       mockUseLabelRoster.mockReturnValue({
         data: { artists: [{ id: 1, slug: 'mudhoney', name: 'Mudhoney' }] },

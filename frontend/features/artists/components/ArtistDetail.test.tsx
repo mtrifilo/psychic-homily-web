@@ -611,6 +611,32 @@ describe('ArtistDetail', () => {
       expect(screen.getByTestId('social-links')).toBeInTheDocument()
     })
 
+    // Non-empty and refused, which is the case the heading predicate exists
+    // for: SocialLinks renders nothing for it, so a heading here would stand
+    // over empty space.
+    it('renders no Links section when every social value is off-platform', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          social: {
+            instagram: 'https://instagram.com.evil.test/test',
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: 'https://spotify-account-verify.evil.test/',
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('social-links')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
+    })
+
     it('orders Links and As Heard On above the unbounded Similar artists list', () => {
       // Similar artists has no length cap, so short fixed-height blocks have
       // to sit above it or they scroll off-screen on well-connected artists.

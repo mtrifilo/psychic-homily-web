@@ -1,4 +1,5 @@
 import { isBandcampReleaseUrl } from './bandcamp'
+import { hostIsAnchored, parseHttpUrl, stripUrlWhitespace } from './urlAnchor'
 
 /**
  * The platforms a release's "Listen / Buy" link may name, the hosts each one's
@@ -182,28 +183,6 @@ export function releaseLinkPlatformLabel(platform: string): string {
 }
 
 /**
- * Whether a parsed URL's host is anchored to one of the platform's bases.
- *
- * The leading dot is load-bearing: it rejects "notbandcamp.com" and
- * "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
- */
-function hostIsAnchored(parsed: URL, bases: readonly string[]): boolean {
-  const host = parsed.hostname.toLowerCase()
-  return bases.some(base => host === base || host.endsWith(`.${base}`))
-}
-
-function parseHttpUrl(raw: string): URL | null {
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return null
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-  return parsed
-}
-
-/**
  * The refusal to show beside a URL field someone is filling in, or null.
  *
  * This mirrors the WRITE gate, utils.ValidateReleaseLink, not the render gate
@@ -283,22 +262,6 @@ export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
  * mirror readable next to the Go one.
  */
 const MAX_TCP_PORT = 65535
-
-/**
- * Surrounding characters the WHATWG URL parser itself strips: C0 controls and
- * space, and nothing else.
- *
- * `String.trim()` is the wrong tool for deciding whether a stored value will
- * resolve, because it also strips U+00A0 and U+FEFF, which the URL parser keeps.
- * LEADING, those make the whole value unparseable, so trimming with `trim()`
- * certified an href that resolves same-origin and 404s. Trailing, they survive
- * into the path and the link does reach the platform, so refusing the row is
- * conservative rather than necessary; one rule for both is worth more than the
- * one row it costs.
- */
-function stripUrlWhitespace(raw: string): string {
-  return raw.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
-}
 
 /**
  * The render gate: whether a stored row may become an `<a href>`.

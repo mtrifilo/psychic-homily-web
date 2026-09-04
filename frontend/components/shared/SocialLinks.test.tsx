@@ -289,4 +289,90 @@ describe('SocialLinks', () => {
       }
     })
   })
+
+  // The read gate. One case per column, each written so deleting the gate fails
+  // it: a conforming value keeps its link, and a legacy value on a host that is
+  // not the platform's renders no link at all.
+  describe('host-anchored read gate', () => {
+    const conforming: Array<[string, string, string, string]> = [
+      ['website', 'https://calexico.example.com/', 'Website', 'https://calexico.example.com/'],
+      ['instagram', 'https://instagram.com/calexico', 'Instagram', 'https://instagram.com/calexico'],
+      ['facebook', 'https://fb.com/calexico', 'Facebook', 'https://fb.com/calexico'],
+      ['twitter', 'https://x.com/calexico', 'Twitter/X', 'https://x.com/calexico'],
+      ['youtube', 'https://youtu.be/BLRUiVXeZKU', 'YouTube', 'https://youtu.be/BLRUiVXeZKU'],
+      [
+        'spotify',
+        'https://open.spotify.com/artist/6cM2X9pUxJqL4z1234567',
+        'Spotify',
+        'https://open.spotify.com/artist/6cM2X9pUxJqL4z1234567',
+      ],
+      ['bandcamp', 'https://calexico.bandcamp.com', 'Bandcamp', 'https://calexico.bandcamp.com'],
+      ['soundcloud', 'https://soundcloud.com/calexico', 'SoundCloud', 'https://soundcloud.com/calexico'],
+    ]
+
+    it.each(conforming)('renders %s on its own host', (key, value, label, href) => {
+      render(<SocialLinks social={{ [key]: value }} />)
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', href)
+    })
+
+    // The `website` column is deliberately absent here: it anchors no host, so
+    // there is no off-platform value for it to refuse. Its rule is the scheme,
+    // which the "never a javascript: href" case below covers.
+    const offPlatform: Array<[string, string, string]> = [
+      ['instagram', 'https://instagram.com.evil.test/calexico', 'Instagram'],
+      ['facebook', 'https://notfacebook.com/calexico', 'Facebook'],
+      ['twitter', 'https://evil.test/?x=twitter.com', 'Twitter/X'],
+      ['youtube', 'https://youtube.com.evil.test/calexico', 'YouTube'],
+      ['spotify', 'https://spotify-account-verify.evil.test/', 'Spotify'],
+      ['bandcamp', 'https://evilbandcamp.com/calexico', 'Bandcamp'],
+      ['soundcloud', 'https://soundcloud.com@evil.test/calexico', 'SoundCloud'],
+    ]
+
+    it.each(offPlatform)(
+      'renders no link for a legacy %s value on %s',
+      (key, value, label) => {
+        render(<SocialLinks social={{ [key]: value }} />)
+        expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument()
+      }
+    )
+
+    it('renders nothing at all when every stored value is refused', () => {
+      const { container } = render(
+        <SocialLinks
+          social={{
+            spotify: 'https://spotify-account-verify.evil.test/',
+            instagram: 'https://instagram.com.evil.test/x',
+          }}
+        />
+      )
+      expect(container.firstChild).toBeNull()
+    })
+
+    it('keeps the conforming links beside a refused one', () => {
+      render(
+        <SocialLinks
+          social={{
+            instagram: 'https://instagram.com/calexico',
+            spotify: 'https://spotify-account-verify.evil.test/',
+            bandcamp: 'https://calexico.bandcamp.com',
+          }}
+        />
+      )
+      expect(screen.getAllByRole('link')).toHaveLength(2)
+      expect(screen.queryByRole('link', { name: 'Spotify' })).not.toBeInTheDocument()
+    })
+
+    it('never renders a javascript: href on any column', () => {
+      render(
+        <SocialLinks
+          social={{
+            website: 'javascript:alert(1)',
+            instagram: 'javascript:alert(1)',
+            spotify: 'javascript:alert(1)',
+          }}
+        />
+      )
+      expect(screen.queryAllByRole('link')).toHaveLength(0)
+    })
+  })
 })

@@ -29,6 +29,7 @@ import { AttributionLine, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntit
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
+import { hasRenderableSocialLink } from '@/lib/socialLinks'
 import {
   getLabelStatusLabel,
   getLabelStatusVariant,
@@ -131,17 +132,10 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const location = formatLabelLocation(label)
   const roster = rosterData?.artists ?? []
   const catalog = catalogData?.releases ?? []
-  // PSY-481 polish: `label.social` can be a non-null object whose every
-  // value is empty/null (the API still returns the wrapper for labels with
-  // no real links). Compute whether at least one link is present so we can
-  // suppress the "Links" heading when SocialLinks would render nothing —
-  // otherwise the detail page shows an orphan section header underlined by
-  // empty space.
   const hasDescription = !!label.description && label.description.trim().length > 0
-  const hasSocialLinks = !!(
-    label.social &&
-    Object.values(label.social).some(value => typeof value === 'string' && value.trim() !== '')
-  )
+  // The same question SocialLinks asks, so the heading cannot outlive its
+  // buttons: the API returns the social wrapper even for a label with none.
+  const hasSocialLinks = hasRenderableSocialLink(label.social)
 
   const statsItems: StatsListItem[] = [
     { label: 'Roster', value: label.artist_count },
