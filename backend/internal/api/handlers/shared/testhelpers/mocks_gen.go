@@ -3153,7 +3153,7 @@ type MockRevisionService struct {
 	GetEntityHistoryFn func(string, uint, int, int, contracts.RevisionViewer) ([]adminm.Revision, int64, error)
 	GetRevisionFn      func(uint, contracts.RevisionViewer) (*adminm.Revision, error)
 	GetUserRevisionsFn func(uint, int, int, contracts.RevisionViewer) ([]adminm.Revision, int64, error)
-	RollbackFn         func(context.Context, uint, uint) error
+	RollbackFn         func(context.Context, uint, uint) (*contracts.RollbackResult, error)
 }
 
 func (m *MockRevisionService) RecordRevision(entityType string, entityID uint, userID uint, changes []adminm.FieldChange, summary string) error {
@@ -3180,11 +3180,11 @@ func (m *MockRevisionService) GetUserRevisions(userID uint, limit int, offset in
 	}
 	return nil, 0, nil
 }
-func (m *MockRevisionService) Rollback(ctx context.Context, revisionID uint, adminUserID uint) error {
+func (m *MockRevisionService) Rollback(ctx context.Context, revisionID uint, adminUserID uint) (*contracts.RollbackResult, error) {
 	if m.RollbackFn != nil {
 		return m.RollbackFn(ctx, revisionID, adminUserID)
 	}
-	return nil
+	return nil, nil
 }
 
 // ============================================================================

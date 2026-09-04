@@ -394,7 +394,67 @@ func TestValidate_RejectsUnsupportedType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected resolve error: %v", err)
 	}
-	if supportedType(ft) {
+	if SupportedType(ft) {
 		t.Fatal("expected []VenueResponse to be an unsupported diff type")
+	}
+}
+
+// EmitValue is the one spelling of "the previous value" that both a diff and
+// the pending-edit pipeline record through, so its pointer cases are the ones
+// that matter: a nil *string emits "" while every other nullable kind emits
+// nil, because Rollback writes the emitted value straight back into the column.
+func TestEmitValue(t *testing.T) {
+	str := "hello"
+	num := 42
+	f := 1.5
+	when := time.Date(2026, 6, 1, 20, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name  string
+		in    interface{}
+		want  interface{}
+		isNil bool
+	}{
+		{name: "string", in: "plain", want: "plain"},
+		{name: "int", in: 7, want: 7},
+		{name: "time", in: when, want: when.Format(time.RFC3339)},
+		{name: "set string pointer", in: &str, want: "hello"},
+		{name: "nil string pointer", in: (*string)(nil), want: ""},
+		{name: "set int pointer", in: &num, want: 42},
+		{name: "nil int pointer", in: (*int)(nil), isNil: true},
+		{name: "set float pointer", in: &f, want: 1.5},
+		{name: "nil float pointer", in: (*float64)(nil), isNil: true},
+		{name: "set time pointer", in: &when, want: when.Format(time.RFC3339)},
+		{name: "nil time pointer", in: (*time.Time)(nil), isNil: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := EmitValue(reflect.ValueOf(tc.in))
+			if err != nil {
+				t.Fatalf("EmitValue: %v", err)
+			}
+			if tc.isNil {
+				if got != nil {
+					t.Fatalf("got %#v, want nil", got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("got %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// An unsupported type is reported rather than silently emitted as something,
+// which is what lets a caller outside a validated field list (the pending-edit
+// pipeline reading a GORM model) tell a convertible column from one it must not
+// guess at.
+func TestEmitValue_RejectsUnsupportedType(t *testing.T) {
+	if _, err := EmitValue(reflect.ValueOf([]string{"a"})); err == nil {
+		t.Fatal("expected an error for a slice field")
+	}
+	if _, err := EmitValue(reflect.ValueOf(true)); err == nil {
+		t.Fatal("expected an error for a bool field")
 	}
 }

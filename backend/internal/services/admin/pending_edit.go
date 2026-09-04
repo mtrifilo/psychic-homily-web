@@ -117,17 +117,18 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("summary exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength))
 	}
 
-	// Verify the entity exists
-	tableName := req.EntityType + "s"
-	var count int64
-	if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
-		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to verify entity: %w", err))
-	}
-	if count == 0 {
-		return nil, apperrors.ErrPendingEditEntityNotFound(req.EntityType, req.EntityID)
+	// Read the entity and take its CURRENT value for every field this edit
+	// names, in place of whatever the submitter claimed the previous value was.
+	// See the OLD-VALUE CONTRACT in pending_edit_old_value.go: the stored
+	// old_value reaches a column verbatim through Rollback, so it may not be
+	// contributor input. This also stands in for the entity-exists check, since
+	// a missing entity is what the read reports.
+	changes, err := deriveOldValues(s.db, req.EntityType, req.EntityID, req.Changes)
+	if err != nil {
+		return nil, err
 	}
 
-	changesJSON, err := json.Marshal(req.Changes)
+	changesJSON, err := json.Marshal(changes)
 	if err != nil {
 		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to marshal changes: %w", err))
 	}
@@ -312,35 +313,57 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 // history: its registry entry and its numeric drawer control shipped together,
 // so a capacity string can only be a corrupt row, and it stays an error here.
 func NarrowNumericUpdates(updates map[string]interface{}) error {
-	for field, bounds := range contracts.NumericEditFieldBounds() {
-		raw, present := updates[field]
-		if !present {
-			continue
+	// One construction, not one per field: NumericEditFieldBounds builds a fresh
+	// map on every call.
+	registry := contracts.NumericEditFieldBounds()
+	for field := range registry {
+		if err := narrowNumericUpdate(updates, field, registry); err != nil {
+			return err
 		}
-		if raw == nil {
-			updates[field] = (*int)(nil)
-			continue
-		}
-		if legacy, isString := raw.(string); isString && bounds.LegacyTextEncoding {
-			// TrimSpace because Postgres accepts ' 1985'::int, so a padded string
-			// is a value this column really would have taken back when the field
-			// was unregistered. Atoi and nothing looser: it refuses "1985.0",
-			// "1e3" and "1985 approx" outright rather than reading a prefix.
-			n, err := strconv.Atoi(strings.TrimSpace(legacy))
-			if err != nil {
-				return apperrors.ErrPendingEditInvalidRequest(
-					fmt.Sprintf("%s must be a whole number", field))
-			}
-			updates[field] = &n
-			continue
-		}
-		n, ok := utils.WholeNumber(raw)
-		if !ok {
+	}
+	return nil
+}
+
+// narrowNumericUpdate applies NarrowNumericUpdates' rule to ONE field, so a
+// caller that must judge fields independently (Rollback, which skips a refused
+// field rather than refusing the whole revision) shares the rule rather than a
+// second copy of it. A field with no registry entry is left alone.
+//
+// registry is passed in rather than looked up, because NumericEditFieldBounds
+// builds a fresh map per call and a per-field caller would otherwise rebuild it
+// once per field.
+func narrowNumericUpdate(updates map[string]interface{}, field string, registry map[string]contracts.NumericEditBounds) error {
+	bounds, registered := registry[field]
+	if !registered {
+		return nil
+	}
+	raw, present := updates[field]
+	if !present {
+		return nil
+	}
+	if raw == nil {
+		updates[field] = (*int)(nil)
+		return nil
+	}
+	if legacy, isString := raw.(string); isString && bounds.LegacyTextEncoding {
+		// TrimSpace because Postgres accepts ' 1985'::int, so a padded string
+		// is a value this column really would have taken back when the field
+		// was unregistered. Atoi and nothing looser: it refuses "1985.0",
+		// "1e3" and "1985 approx" outright rather than reading a prefix.
+		n, err := strconv.Atoi(strings.TrimSpace(legacy))
+		if err != nil {
 			return apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("%s must be a whole number", field))
 		}
 		updates[field] = &n
+		return nil
 	}
+	n, ok := utils.WholeNumber(raw)
+	if !ok {
+		return apperrors.ErrPendingEditInvalidRequest(
+			fmt.Sprintf("%s must be a whole number", field))
+	}
+	updates[field] = &n
 	return nil
 }
 
@@ -433,14 +456,19 @@ var shapedURLFields = map[string]struct {
 // somebody will click, with the label a refusal names it by.
 //
 // It exists because Rollback is the one write path that takes its value from
-// FieldChange.OldValue, and OldValue is contributor input that NOTHING
-// validates: the submit handler checks NewValue only, and approve copies the
-// pair verbatim into revisions.field_changes. So every forward gate (scheme,
-// social host anchor, release shape) is bypassed by going backwards, for every
-// field in the table, not just the one PSY-1966 set out to fix. A contributor
-// pairs a real Spotify NewValue with `https://spotify-verify.evil.test/` as the
-// OldValue, an admin later presses rollback, and SocialLinks renders that host
-// under the Spotify glyph.
+// FieldChange.OldValue, and for every row written before deriveOldValues shipped
+// that value is contributor input nothing validated: the submit handler checked
+// NewValue only, and approve copies the pair verbatim into
+// revisions.field_changes. So every forward gate (scheme, social host anchor,
+// release shape) was bypassed by going backwards, for every field in the table.
+// A contributor pairs a real Spotify NewValue with
+// `https://spotify-verify.evil.test/` as the OldValue, an admin later presses
+// rollback, and SocialLinks renders that host under the Spotify glyph.
+//
+// Deriving old_value at submit time closes that path for NEW rows only. These
+// rules are what stands between a value already in the table and the column it
+// names, so they are defence in depth over the same value rather than a
+// duplicate of the derivation.
 //
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
 // alike: the allowlists share these names.
@@ -457,9 +485,9 @@ var shapedURLFields = map[string]struct {
 // "javascript:..." into a rendered attribute.
 //
 // image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
-// guard needs a context.Context this function does not take. That residue is
-// stated on validateRollbackURLs and is the one part of the forward contract
-// this path still cannot reproduce.
+// guard needs a context.Context the function reading this map does not take.
+// Rollback runs revalidateFetchedURLField for that half, so the two gates
+// together reproduce the forward contract and neither alone does.
 var rollbackURLFields = map[string]string{
 	"instagram":       "Instagram URL",
 	"facebook":        "Facebook URL",
@@ -476,48 +504,43 @@ var rollbackURLFields = map[string]string{
 	"image_url":       "Image URL",
 }
 
-// validateRollbackURLs re-runs the forward paths' URL rules over the values a
-// rollback is about to write, and reports one that must not go live.
+// validateRollbackURLField re-runs the forward paths' URL rules over ONE value a
+// rollback is about to write, and reports it if it must not go live. A field
+// with no registry entry carries no URL rule and passes.
 //
-// WHY THIS IS NOT PARANOIA: see rollbackURLFields. OldValue is unvalidated
-// contributor input that reaches the column through an admin's undo button.
+// WHY THIS IS NOT PARANOIA: see rollbackURLFields. On any row that predates the
+// submit-time derivation, OldValue is unvalidated contributor input that reaches
+// the column through an admin's undo button.
 //
-// It refuses the WHOLE rollback rather than dropping the offending field, which
-// has a cost worth naming: a revision records every field of one contributor
-// edit, so a single planted OldValue makes that revision permanently
-// un-rollbackable, including the undo of unrelated fields recorded beside it. A
-// contributor can therefore deny undo on their own edit. That is accepted here
-// as the lesser harm: the alternative writes an attacker-chosen href under a
-// trusted platform label, and admins retain direct-edit paths, but a partial
-// rollback that skips only the refused field is the better long-term answer and
-// is left as its own change, because it alters what an admin sees "rollback" do.
+// Per FIELD, because Rollback drops the fields it refuses rather than refusing
+// the revision: a revision records every field of one contributor edit, so
+// refusing it whole let one planted OldValue block the undo of every honest
+// field recorded beside it.
 //
 // `website` is host-unrestricted by design (it is the any-host escape hatch), so
 // for that field this is the scheme check alone, as it is for the image and
 // flyer fields, which have no platform to anchor to.
 //
 // image_url gets its SCHEME rule here but not its host guard: that resolves DNS
-// and needs a context.Context Rollback does not take. So a rollback can still
-// restore an image_url pointing at an internal address, which is the one part of
-// the forward contract this path cannot yet reproduce. Threading a context
-// through Rollback is its own change.
-func validateRollbackURLs(updates map[string]interface{}) error {
-	for field, displayName := range rollbackURLFields {
-		value, present, err := updateStringValue(updates, field, displayName)
-		if err != nil {
-			return err
-		}
-		if !present {
-			continue
-		}
-		if err := utils.ValidateHTTPURL(value, displayName); err != nil {
-			return err
-		}
-		if err := utils.ValidateSocialHost(field, displayName, value); err != nil {
-			return err
-		}
+// and needs a context.Context this function does not take. Rollback runs
+// revalidateFetchedURLField over the same field for that half, so the two
+// together reproduce the forward contract; neither alone does.
+func validateRollbackURLField(updates map[string]interface{}, field string) error {
+	displayName, guarded := rollbackURLFields[field]
+	if !guarded {
+		return nil
 	}
-	return nil
+	value, present, err := updateStringValue(updates, field, displayName)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	if err := utils.ValidateHTTPURL(value, displayName); err != nil {
+		return err
+	}
+	return utils.ValidateSocialHost(field, displayName, value)
 }
 
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
@@ -551,19 +574,30 @@ func validateRollbackURLs(updates map[string]interface{}) error {
 // every approve attempt and sit pending forever. A 422 is actionable. An empty
 // string still passes: that is the clear-the-field gesture.
 func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) error {
-	for field, displayName := range fetchedURLFields {
-		value, present, err := updateStringValue(updates, field, displayName)
-		if err != nil {
-			return err
-		}
-		if !present {
-			continue
-		}
-		if err := urlguard.Default.Validate(ctx, value, displayName); err != nil {
+	for field := range fetchedURLFields {
+		if err := revalidateFetchedURLField(ctx, updates, field); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// revalidateFetchedURLField applies revalidateFetchedURLs' rule to ONE field, so
+// the per-field caller shares the rule rather than a second copy of it. A field
+// with no registry entry is never fetched server-side and passes.
+func revalidateFetchedURLField(ctx context.Context, updates map[string]interface{}, field string) error {
+	displayName, guarded := fetchedURLFields[field]
+	if !guarded {
+		return nil
+	}
+	value, present, err := updateStringValue(updates, field, displayName)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	return urlguard.Default.Validate(ctx, value, displayName)
 }
 
 // updateStringValue reads one field out of the map an approval is about to
@@ -635,19 +669,30 @@ func normalizeBlankShapedURLs(updates map[string]interface{}) {
 // Reads the built `updates` map for the same reason the fetched-URL gate does:
 // the value checked is then literally the value the untyped Updates() writes.
 func revalidateShapedURLs(updates map[string]interface{}) error {
-	for field, rule := range shapedURLFields {
-		value, present, err := updateStringValue(updates, field, rule.displayName)
-		if err != nil {
-			return err
-		}
-		if !present {
-			continue
-		}
-		if err := rule.validate(value, rule.displayName); err != nil {
+	for field := range shapedURLFields {
+		if err := revalidateShapedURLField(updates, field); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// revalidateShapedURLField applies revalidateShapedURLs' rule to ONE field, so
+// the per-field caller shares the rule rather than a second copy of it. A field
+// with no registry entry carries no FORM rule and passes.
+func revalidateShapedURLField(updates map[string]interface{}, field string) error {
+	rule, shaped := shapedURLFields[field]
+	if !shaped {
+		return nil
+	}
+	value, present, err := updateStringValue(updates, field, rule.displayName)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	return rule.validate(value, rule.displayName)
 }
 
 // ApprovePendingEdit approves a pending edit, applying changes to the entity

@@ -50,10 +50,20 @@ const RedactedValue = "(hidden)"
 //
 // Adding a field to this list therefore withholds it from anonymous and
 // non-admin readers only; it is not a way to hide a value from an admin.
-var venuePrivateFields = map[string]struct{}{
-	"address": {},
-	"zipcode": {},
-}
+//
+// The NAMES come from catalog.VenuePrivateFields, beside the accessors that do
+// the withholding, so this file holds the read-time policy and not a second copy
+// of the list it applies. A third gated column is one entry there, and
+// validateVenuePrivateFields then refuses at startup if the name is not one a
+// venue revision can carry.
+var venuePrivateFields = func() map[string]struct{} {
+	names := catalogm.VenuePrivateFields()
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		out[name] = struct{}{}
+	}
+	return out
+}()
 
 // RedactVenueChanges masks the address-family values in a diff recorded against
 // an UNVERIFIED venue.

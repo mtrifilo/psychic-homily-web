@@ -378,10 +378,10 @@ func TestRevisionHandler_Rollback_Success(t *testing.T) {
 	var receivedAdminID uint
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) error {
+			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) (*contracts.RollbackResult, error) {
 				receivedRevisionID = revisionID
 				receivedAdminID = adminUserID
-				return nil
+				return &contracts.RollbackResult{AppliedFields: []string{"name"}}, nil
 			},
 		},
 		&testhelpers.MockAuditLogService{},
@@ -412,8 +412,8 @@ func TestRevisionHandler_Rollback_InvalidID(t *testing.T) {
 func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) error {
-				return fmt.Errorf("revision not found")
+			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) (*contracts.RollbackResult, error) {
+				return nil, fmt.Errorf("revision not found")
 			},
 		},
 		nil,
@@ -423,10 +423,49 @@ func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// A partial rollback must reach the caller as one: an admin who sees only
+// success believes an edit was undone that was only half undone.
+func TestRevisionHandler_Rollback_ReportsSkippedFields(t *testing.T) {
+	h := NewRevisionHandler(
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
+				return &contracts.RollbackResult{
+					AppliedFields: []string{"description"},
+					SkippedFields: []contracts.RollbackSkippedField{
+						{Field: "spotify", Reason: "Spotify URL must be on spotify.com"},
+					},
+				}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	resp, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "7"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := resp.Body.AppliedFields; len(got) != 1 || got[0] != "description" {
+		t.Errorf("applied_fields = %v, want [description]", got)
+	}
+	if len(resp.Body.SkippedFields) != 1 {
+		t.Fatalf("skipped_fields = %v, want one entry", resp.Body.SkippedFields)
+	}
+	if resp.Body.SkippedFields[0].Field != "spotify" {
+		t.Errorf("skipped field = %q, want spotify", resp.Body.SkippedFields[0].Field)
+	}
+	if resp.Body.SkippedFields[0].Reason == "" {
+		t.Error("a skipped field must carry the reason it was refused")
+	}
+}
+
 func TestRevisionHandler_Rollback_NilAuditLog(t *testing.T) {
 	// Ensure rollback works even when auditLogService is nil
 	h := NewRevisionHandler(
-		&testhelpers.MockRevisionService{},
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
+				return &contracts.RollbackResult{AppliedFields: []string{"name"}}, nil
+			},
+		},
 		nil,
 	)
 
@@ -1183,4 +1222,64 @@ func TestRevisionHandler_GetUserRevisions_HiddenAuthorByTier(t *testing.T) {
 			assertAuthorSuppressed(t, resp.Body.Revisions[0])
 		})
 	}
+}
+
+// The audit row is the durable record of what the admin's action did, so a row
+// naming only the revision would record a full undo that did not happen. The
+// write is fire-and-forget inside a goroutine, which is exactly why it needs an
+// assertion: a refactor that dropped the fields would be invisible.
+func TestRevisionHandler_Rollback_AuditRowNamesTheRefusedFields(t *testing.T) {
+	recorded := make(chan map[string]interface{}, 1)
+	h := NewRevisionHandler(
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
+				return &contracts.RollbackResult{
+					AppliedFields: []string{"name"},
+					SkippedFields: []contracts.RollbackSkippedField{
+						{Field: "spotify", Reason: "Spotify URL must be on spotify.com"},
+					},
+				}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{
+			LogActionFn: func(_ uint, action string, _ string, _ uint, metadata map[string]interface{}) {
+				if action == "revision_rollback" {
+					recorded <- metadata
+				}
+			},
+		},
+	)
+
+	if _, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "7"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var metadata map[string]interface{}
+	select {
+	case metadata = <-recorded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no revision_rollback audit row was written")
+	}
+
+	skipped, ok := metadata["skipped_fields"].([]contracts.RollbackSkippedField)
+	if !ok || len(skipped) != 1 || skipped[0].Field != "spotify" {
+		t.Fatalf("audit metadata skipped_fields = %#v, want the refused spotify field", metadata["skipped_fields"])
+	}
+	if skipped[0].Reason == "" {
+		t.Error("the audit row must carry the reason a field was refused")
+	}
+	applied, ok := metadata["applied_fields"].([]string)
+	if !ok || len(applied) != 1 || applied[0] != "name" {
+		t.Fatalf("audit metadata applied_fields = %#v, want [name]", metadata["applied_fields"])
+	}
+}
+
+// A nil result with no error is not something the service produces, but the
+// generated mock's zero value is exactly that, so the handler has to answer
+// rather than panic the request.
+func TestRevisionHandler_Rollback_NilResultIsAnError(t *testing.T) {
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
+
+	_, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "1"})
+	testhelpers.AssertHumaError(t, err, 422)
 }
