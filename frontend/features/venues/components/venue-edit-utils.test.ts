@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
+import {
+  detectVenueChanges,
+  venueMayOmitState,
+  type VenueEditFormValues,
+} from './venue-edit-utils'
 import type { Venue, VenueWithShowCount } from '../types'
 
 // --- Helpers ---
@@ -49,6 +53,84 @@ function makeFormValues(overrides?: Partial<VenueEditFormValues>): VenueEditForm
     ...overrides,
   }
 }
+
+describe('venueMayOmitState', () => {
+  it('exempts a state-less venue whose own IANA zone is set', () => {
+    expect(
+      venueMayOmitState({ state: '', timezone: 'Europe/Berlin', country: null })
+    ).toBe(true)
+  })
+
+  it('exempts a state-less venue in a country outside the state map', () => {
+    expect(
+      venueMayOmitState({ state: '', timezone: null, country: 'Germany' })
+    ).toBe(true)
+  })
+
+  it('keeps the requirement for a state-less venue with neither signal', () => {
+    expect(venueMayOmitState({ state: '', timezone: null, country: null })).toBe(
+      false
+    )
+    expect(venueMayOmitState({ state: '', timezone: '', country: '  ' })).toBe(
+      false
+    )
+  })
+
+  it('reads a malformed zone as no zone', () => {
+    expect(
+      venueMayOmitState({ state: '', timezone: 'Not/AZone', country: null })
+    ).toBe(false)
+  })
+
+  it('keeps the requirement for the US spellings the shared rule recognizes', () => {
+    for (const country of ['US', 'us', 'USA', ' usa ']) {
+      expect(venueMayOmitState({ state: '', timezone: null, country })).toBe(
+        false
+      )
+    }
+  })
+
+  it('reads a spelling outside that set as a country the state map does not describe', () => {
+    // Pins a known divergence rather than a desired outcome: the frontend rule
+    // is `isUnitedStatesCountry`, which recognizes two spellings, while the
+    // backend's venue-local SQL also accepts "United States". A US venue
+    // recorded that way has its state waived here. The cost is one missing nag
+    // on a venue whose state was already blank, never a wrong zone.
+    expect(
+      venueMayOmitState({
+        state: '',
+        timezone: null,
+        country: 'United States',
+      })
+    ).toBe(true)
+  })
+
+  it('keeps the requirement when a state is on file, however good the other evidence', () => {
+    // The rule is about a record GAP, not about which zone is better known.
+    // `PUT /venues/{id}` answers 422 to `state: ""`, so exempting a CLEAR would
+    // trade an inline message for a server error.
+    expect(
+      venueMayOmitState({
+        state: 'AZ',
+        timezone: 'America/Phoenix',
+        country: 'Germany',
+      })
+    ).toBe(false)
+  })
+
+  it('does not treat a whitespace-only state as blank', () => {
+    // A whitespace state is a value the form can leave alone, so it needs no
+    // exemption. Calling it blank would make clearing it legal at the form and
+    // rejected at the server, which is the trade this rule exists to avoid.
+    expect(
+      venueMayOmitState({
+        state: '   ',
+        timezone: 'Europe/Berlin',
+        country: null,
+      })
+    ).toBe(false)
+  })
+})
 
 describe('detectVenueChanges', () => {
   it('returns null when no changes detected', () => {

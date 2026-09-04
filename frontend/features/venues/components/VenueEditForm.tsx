@@ -13,7 +13,11 @@ import { useVenueUpdate } from '../hooks/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useDismissTimer } from '@/lib/hooks/common'
 import type { VenueWithShowCount, Venue } from '../types'
-import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
+import {
+  detectVenueChanges,
+  venueMayOmitState,
+  type VenueEditFormValues,
+} from './venue-edit-utils'
 import {
   Dialog,
   DialogContent,
@@ -31,22 +35,49 @@ import { FieldInfo } from '@/components/forms/FormField'
 // How long the success flash shows before the dialog closes itself.
 const SUCCESS_CLOSE_DELAY_MS = 1500
 
-// Form validation schema
-const venueEditSchema = z.object({
-  name: z.string().min(1, 'Venue name is required'),
-  address: z.string(),
-  city: z.string().min(1, 'City is required'),
-  state: z.string().min(2, 'State is required'),
-  zipcode: z.string(),
-  instagram: z.string(),
-  facebook: z.string(),
-  twitter: z.string(),
-  youtube: z.string(),
-  spotify: z.string(),
-  soundcloud: z.string(),
-  bandcamp: z.string(),
-  website: z.string(),
-})
+/**
+ * The form's rules, with the state requirement supplied by the caller.
+ *
+ * A blank state is an exemption for the one venue the form opened on, decided
+ * by `venueMayOmitState`, which owns why. Every other venue keeps the plain
+ * requirement, and so does a state the user cleared.
+ *
+ * The exempt variant relaxes the requirement to "blank, or a state", NOT to
+ * "anything". The two-character floor is a US postal-abbreviation check, and
+ * dropping it outright would accept a one-character state that the exemption
+ * then revokes itself over: `venueMayOmitState` answers false for any non-blank
+ * state, so the next save on that venue would fail the floor against a value
+ * this form had just written, and the server refuses to take it back
+ * (`PUT /venues/{id}` answers 422 to `state: ""`).
+ */
+const makeVenueEditSchema = (stateIsOptional: boolean) =>
+  z.object({
+    name: z.string().min(1, 'Venue name is required'),
+    address: z.string(),
+    city: z.string().min(1, 'City is required'),
+    state: stateIsOptional
+      ? z
+          .string()
+          .refine(value => value === '' || value.length >= 2, {
+            message: 'State is required',
+          })
+      : z.string().min(2, 'State is required'),
+    zipcode: z.string(),
+    instagram: z.string(),
+    facebook: z.string(),
+    twitter: z.string(),
+    youtube: z.string(),
+    spotify: z.string(),
+    soundcloud: z.string(),
+    bandcamp: z.string(),
+    website: z.string(),
+  })
+
+// Both variants, built once. The factory's whole input domain is one boolean,
+// and a zod schema is a stateless parser, so per-mount construction would only
+// re-allocate: VenueCard mounts one of these per row, above the admin guard.
+const VENUE_EDIT_SCHEMA_STATE_REQUIRED = makeVenueEditSchema(false)
+const VENUE_EDIT_SCHEMA_STATE_OPTIONAL = makeVenueEditSchema(true)
 
 type FormValues = VenueEditFormValues
 
@@ -89,6 +120,18 @@ export function VenueEditForm({
   }, SUCCESS_CLOSE_DELAY_MS)
 
   const isAdmin = user?.is_admin ?? false
+
+  // Whether this venue's state field is optional.
+  //
+  // Captured once, at mount, for the same reason TanStack Form reads
+  // `defaultValues` once: it has to describe the values the form is holding.
+  // `key={venue.id}` pins the venue's IDENTITY across renders, not its columns,
+  // and this prop rides a refetching query, so a recomputed rule could revoke
+  // the exemption mid-edit and fail a save the form had already called legal.
+  const [stateIsOptional] = useState(() => venueMayOmitState(venue))
+  const venueEditSchema = stateIsOptional
+    ? VENUE_EDIT_SCHEMA_STATE_OPTIONAL
+    : VENUE_EDIT_SCHEMA_STATE_REQUIRED
 
   // Initialize form with venue data
   const initialValues: FormValues = {
@@ -246,7 +289,9 @@ export function VenueEditForm({
               <form.Field name="state">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="state">State *</Label>
+                    <Label htmlFor="state">
+                      State{stateIsOptional ? '' : ' *'}
+                    </Label>
                     <Input
                       id="state"
                       value={field.state.value}

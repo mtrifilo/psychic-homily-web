@@ -27,6 +27,23 @@
  */
 export const LOCATION_UNKNOWN = 'Location Unknown'
 
+/**
+ * Whether a free-text country value names the United States.
+ *
+ * Country columns are written from several sources and are never
+ * canonicalized, so the comparison trims and folds case.
+ *
+ * THE SET IS THE ONE PSY-558's DISPLAY RULE RECOGNIZES, and it is narrower
+ * than the backend's: `show_venue_local_sql.go` accepts "United States" as a
+ * third spelling and `geo.go` carries a fuller alias map. A value outside this
+ * set is not a claim that the place is outside the US, only that this rule
+ * does not recognize it as inside.
+ */
+export function isUnitedStatesCountry(country?: string | null): boolean {
+  const value = country?.trim().toUpperCase()
+  return value === 'US' || value === 'USA'
+}
+
 export function formatLocation(loc: {
   city?: string | null
   state?: string | null
@@ -36,8 +53,7 @@ export function formatLocation(loc: {
   const state = nonEmpty(loc.state)
   const country = nonEmpty(loc.country)
   const parts = [city, state].filter(Boolean) as string[]
-  const countryIsUS =
-    country?.toUpperCase() === 'USA' || country?.toUpperCase() === 'US'
+  const countryIsUS = isUnitedStatesCountry(country)
   if (country && !(state && countryIsUS)) {
     parts.push(country)
   }

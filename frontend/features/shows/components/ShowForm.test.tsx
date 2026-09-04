@@ -926,8 +926,9 @@ describe('ShowForm: a blank venue state is otherwise still rejected', () => {
     resetMockState()
   })
 
-  // A create has no stored instant to round-trip against, so no venue is
-  // exempt here however it was named.
+  // A venue picked from the combobox is not a prefilled venue, so nothing
+  // exempts it: this one has no zone of its own either, and a blank state would
+  // put the show on FALLBACK_SHOW_TIMEZONE.
   it('blocks a submission whose venue state is blank even when a venue id is set', async () => {
     mockVenueSearch.venues = [
       {
@@ -955,6 +956,27 @@ describe('ShowForm: a blank venue state is otherwise still rejected', () => {
 
     // The picker filled the id and the venue's own blank state.
     expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
+  // A venue typed in by name carries no id, so the payload describes it by
+  // name, city and state, and `FindOrCreateVenue` requires the state. Nothing
+  // else about such a venue could identify a zone.
+  it('blocks a create on a brand new venue typed in by name', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Headliner Band'
+    )
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Some Brand New Room')
+    await user.type(screen.getByLabelText(/^City$/i), 'Berlin')
 
     await user.click(screen.getByRole('button', { name: /submit show/i }))
 
@@ -1271,6 +1293,121 @@ describe('ShowForm: edit mode venue resolution + event_date round trip', () => {
     // to prefer, so the instant round-trips.
     expect(call.updates.venues[0].state).toBe('NY')
     expect(call.updates.event_date).toBe('2099-01-16T01:00:00Z')
+  })
+})
+
+describe('ShowForm: creating on a prefilled state-less venue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+  })
+
+  /**
+   * A venue with no state on file that DOES carry a zone: the room the
+   * "Add show" button on a venue page hands the form. `resolveShowTimezone`
+   * prefers `timezone` over the state, so the blank state costs the submit
+   * nothing.
+   */
+  const zonedBerlinVenue = {
+    id: 310,
+    slug: 'kesselhaus-berlin',
+    name: 'Kesselhaus',
+    city: 'Berlin',
+    state: '',
+    address: null,
+    timezone: 'Europe/Berlin',
+    verified: true,
+  }
+
+  async function fillBillAndDate(user: ReturnType<typeof userEvent.setup>, date: string) {
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Headliner Band'
+    )
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, date)
+  }
+
+  it('submits, and anchors event_date in the venue zone rather than the fallback', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm
+        mode="create"
+        prefilledVenue={zonedBerlinVenue}
+        redirectOnCreate={false}
+      />
+    )
+
+    // The locked venue row seeded the state field blank.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await fillBillAndDate(user, '2099-06-15')
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    await waitFor(() => expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1))
+
+    const submission = mockShowSubmit.mutate.mock.calls[0][0] as {
+      event_date: string
+      state: string
+      venues: Array<{ id?: number; state: string }>
+    }
+    // 20:00 June 15 in Europe/Berlin (CEST, UTC+2). The Phoenix fallback the
+    // blank state resolves on its own would have written 2099-06-16T03:00:00Z,
+    // which is the next calendar day in Berlin.
+    expect(submission.event_date).toBe('2099-06-15T18:00:00Z')
+    // The venue rides by id, so the backend never reads the blank state.
+    expect(submission.venues[0].id).toBe(310)
+    expect(submission.venues[0].state).toBe('')
+    expect(submission.state).toBe('')
+  })
+
+  // A DEAD END, pinned as the honest refusal rather than as good UX: the State
+  // field is disabled for every prefilled venue, so the message names something
+  // the user cannot supply here. Accepting the submit instead would anchor the
+  // show to FALLBACK_SHOW_TIMEZONE, which for a venue outside the US state map
+  // is a wrong instant written silently. The repair is on the venue, which the
+  // venue editor now accepts.
+  it('blocks a prefilled state-less venue with no resolved zone', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm
+        mode="create"
+        prefilledVenue={{ ...zonedBerlinVenue, timezone: null }}
+        redirectOnCreate={false}
+      />
+    )
+
+    await fillBillAndDate(user, '2099-06-15')
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
+  it('renders no location segment when the venue has neither city nor state', () => {
+    renderWithProviders(
+      <ShowForm
+        mode="create"
+        prefilledVenue={{ ...zonedBerlinVenue, city: '' }}
+        redirectOnCreate={false}
+      />
+    )
+
+    // formatLocation's stand-alone placeholder, printed beside a venue name,
+    // would state something this line was not asked to state.
+    expect(screen.queryByText(/Location Unknown/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Kesselhaus')).toBeInTheDocument()
+  })
+
+  it('renders the locked venue line without a trailing comma when the state is blank', () => {
+    renderWithProviders(
+      <ShowForm
+        mode="create"
+        prefilledVenue={zonedBerlinVenue}
+        redirectOnCreate={false}
+      />
+    )
+
+    expect(screen.getByText(/—\s*Berlin$/)).toBeInTheDocument()
   })
 })
 
