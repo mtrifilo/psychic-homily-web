@@ -301,18 +301,18 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 	if len(v.Name) > 255 || len(v.City) > 255 || len(v.State) > 10 || len(v.Address) > 500 {
 		return nil, huma.Error422UnprocessableEntity("show_venue field too long (name/city ≤255, state ≤10, address ≤500)")
 	}
-	// Name is required even when an ID is supplied (enforced by ValidateShowBill
-	// above): the show service's duplicate-headliner pre-check matches on artist
-	// NAME, so an ID-only entry would silently bypass it (the DB unique index
-	// still backstops, but with a generic error instead of the readable conflict
-	// message).
+	// Name is required on every entry even when an ID is supplied, enforced by
+	// ValidateShowBill above. It is what a contributor-submitted entry is
+	// identified by, since those carry no ID at all. It is NOT what the show
+	// service's duplicate-headliner guard reads on an entry that has an ID: that
+	// guard resolves an ID to its artist row's own name and probes that, so the two
+	// disagree whenever a caller pairs an ID with a different name.
 	//
-	// KNOWN GAP, stated rather than left to be rediscovered: the duplicate check
-	// is name-based, so two entries pinning the same artist ID under different
-	// names still collide on PRIMARY KEY (show_id, artist_id) post-claim. Only
-	// the admin form sends IDs and it sends each artist once, so that half stays
-	// as exposed as it has always been; the contributor-reachable half, which is
-	// name-only by construction, is closed.
+	// KNOWN GAP, stated rather than left to be rediscovered: that guard compares
+	// this bill against EXISTING shows, never against itself, so two entries
+	// pinning the same artist ID under different names still collide on PRIMARY
+	// KEY (show_id, artist_id) post-claim. Only the admin form sends IDs and it
+	// sends each artist once.
 	out := &showAssociations{venue: v}
 	billIsCurated := false
 	for i, a := range artists {

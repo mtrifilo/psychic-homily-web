@@ -309,8 +309,10 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //   - On one (artist_id, venue_id, event_date) triple the index refuses
 //     regardless of set_type or position, and there this guard adds only the
 //     message.
-//   - Where the two resolve to DIFFERENT artist ids, only this guard fires: an
-//     artist name is matched case-insensitively against the whole table.
+//   - Where they resolve to the SAME artist they answer alike:
+//     artists_lower_name_uniq makes LOWER(name) a unique identity, so matching a
+//     name reaches exactly the row an id reaches. The guard's reach past the
+//     index is the bullet below, not a second row for one band.
 //   - Where the denorm columns are NULL, or the collision sits at a multi-venue
 //     show's non-lowest venue_id, this guard is the only refusal for the acts it
 //     probes.
@@ -350,9 +352,9 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //     is what the update handler calls and the only path that can replace the
 //     artists or venues, re-stamps whenever those may have moved. Both leave the
 //     index as the sole refusal, with the gap noted above.
-//   - The refusal message comes from findRequestDuplicate and reaches server logs
-//     and in-process callers. The HTTP surface replaces it with a fixed "Failed
-//     to create show", so this copy is not what an API client reads.
+//   - The refusal message comes from showDedupProbe.findDuplicate and reaches
+//     server logs and in-process callers. The HTTP surface replaces it with a
+//     fixed "Failed to create show", so this copy is not what an API client reads.
 //     PreviewShowImport is the exception: it renders that same sentence, under a
 //     "Warning: " prefix, in the admin UI, from this same predicate, so a preview
 //     verdict cannot disagree with the confirm outcome.
@@ -361,11 +363,10 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 // The write is refused either way, so the message is what carries the fix, and
 // it claims no role for the matched artist.
 func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contracts.CreateShowRequest) error {
-	// The dedup key is the FULL event_date timestamp (PSY-559): a matinee and
-	// an evening set at the same venue with the same headliner are distinct
-	// shows, not duplicates. Match on exact-timestamp equality, mirroring the
-	// shows_artist_venue_eventdate_uniq unique index.
-	eventDate := req.EventDate.UTC()
+	probe, err := newShowDedupProbe(tx, req)
+	if err != nil {
+		return err
+	}
 
 	// Acquire advisory lock keyed on (headliner, venue, exact timestamp) to
 	// serialize concurrent inserts of the SAME show. Keying on the full
@@ -375,15 +376,17 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	//
 	// The venue half of the key is the identity the CALLER expressed, so two
 	// callers naming one venue differently (one by id, one by name and city) do
-	// not serialize against each other and fall through to the unique index.
-	//
-	for _, lockKey := range showDedupLockKeys(req, eventDate) {
+	// not serialize against each other and fall through to the unique index. The
+	// artist half has no such split: the probe resolves an id to the name that id
+	// stores, so a bill sent by id and the same bill sent by name take the same
+	// key.
+	for _, lockKey := range probe.lockKeys() {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
 			return fmt.Errorf("failed to acquire advisory lock: %w", err)
 		}
 	}
 
-	message, err := findRequestDuplicate(tx, req)
+	message, err := probe.findDuplicate(tx)
 	if err != nil {
 		return err
 	}
@@ -393,17 +396,50 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	return nil
 }
 
-// showDedupLockKeys returns the advisory-lock keys a create must hold, SORTED
-// and deduplicated. The order is the point: a bill with more than one probed act
+// showDedupProbe is a create request reduced to the question the duplicate guard
+// asks: which artist names this write is about to make matchable, at which
+// venues, at which instant.
+//
+// It exists so the guard's two halves cannot disagree. The advisory locks and the
+// query that follows them are taken from ONE value, so a create can never lock
+// one set of names and then probe another.
+//
+// The instant is the FULL event_date timestamp (PSY-559): a matinee and an
+// evening set at the same venue with the same headliner are distinct shows, not
+// duplicates. Both halves match it exactly, mirroring
+// shows_artist_venue_eventdate_uniq.
+type showDedupProbe struct {
+	names     []string
+	venues    []venueDedupTarget
+	eventDate time.Time
+}
+
+// newShowDedupProbe resolves a request into its probe. The artist name lookup is
+// the only IO and is read-only; see probedHeadlinerNames for what it resolves and
+// why.
+func newShowDedupProbe(db *gorm.DB, req *contracts.CreateShowRequest) (showDedupProbe, error) {
+	names, err := probedHeadlinerNames(db, req.Artists)
+	if err != nil {
+		return showDedupProbe{}, err
+	}
+	return showDedupProbe{
+		names:     names,
+		venues:    venueDedupTargets(req.Venues),
+		eventDate: req.EventDate.UTC(),
+	}, nil
+}
+
+// lockKeys returns the advisory-lock keys a create must hold, SORTED and
+// deduplicated. The order is the point: a bill with more than one probed act
 // takes several locks, and two concurrent creates of the same bill listed in
 // opposite orders would otherwise take the same keys in opposite orders and
 // deadlock, which Postgres resolves by killing one create with a 40P01.
-func showDedupLockKeys(req *contracts.CreateShowRequest, eventDate time.Time) []int64 {
+func (p showDedupProbe) lockKeys() []int64 {
 	var keys []int64
-	for _, headlinerName := range probedHeadlinerNames(req.Artists) {
-		for _, target := range venueDedupTargets(req.Venues) {
+	for _, headlinerName := range p.names {
+		for _, target := range p.venues {
 			keys = append(keys,
-				fnvHash(strings.ToLower(headlinerName)+"|"+target.lockKey()+"|"+eventDate.Format(time.RFC3339Nano)))
+				fnvHash(strings.ToLower(headlinerName)+"|"+target.lockKey()+"|"+p.eventDate.Format(time.RFC3339Nano)))
 		}
 	}
 	slices.Sort(keys)
@@ -428,33 +464,102 @@ func showDedupLockKeys(req *contracts.CreateShowRequest, eventDate time.Time) []
 // puts that artist on that bill at that venue at that instant, which is the only
 // question a duplicate guard asks.
 //
-// The mirror holds only for acts that carry a NAME. An act given by id alone --
-// which the create schema accepts, and which the ph CLI sends for every act it
-// resolved to an existing artist -- contributes an empty name here, and the probe
-// matches nothing on it. Unlike the venue half, this is not resolved to an id;
-// closing it needs its own ticket.
+// An act is probed under the name it will STORE, which for an act given by id is
+// the canonical name of that artist row rather than anything the request spelled:
+// associateArtists resolves an id to that row and ignores any name beside it, so
+// the row this write makes matchable carries that name. The create schema accepts
+// an id with no name at all, and the ph CLI sends exactly that for every act it
+// resolved, so reading the request's name alone would probe an empty string and
+// check nothing.
+//
+// Resolving to a NAME rather than matching on artist_id keeps ONE probe shape:
+// the stored-row half compares LOWER(artists.name), the advisory lock is keyed on
+// that name, and the refusal message names an act rather than an id.
+// artists_lower_name_uniq makes the two identities equivalent, so this is the
+// shape of the check and not a claim about its reach.
+//
+// An id that addresses no artist contributes no probe name, and neither does an
+// act carrying neither id nor name. The create refuses both at associateArtists,
+// and an empty name would otherwise probe every artist row whose name is empty.
 //
 // Names are deduplicated case-insensitively, matching the LOWER() comparison the
 // probe runs, so one act cannot take two locks and two queries.
-func probedHeadlinerNames(artists []contracts.CreateShowArtist) []string {
-	if len(artists) == 0 {
-		return nil
+func probedHeadlinerNames(db *gorm.DB, artists []contracts.CreateShowArtist) ([]string, error) {
+	probed := probedActs(artists)
+	canonical, err := canonicalArtistNames(db, probed)
+	if err != nil {
+		return nil, err
 	}
 
-	names := []string{artists[0].Name}
-	seen := map[string]bool{strings.ToLower(artists[0].Name): true}
-	for _, artist := range artists {
-		if !claimsHeadlineSlot(artist) {
+	var names []string
+	seen := map[string]bool{}
+	for _, artist := range probed {
+		// The id wins over any name beside it, because associateArtists writes the
+		// row that id names.
+		name := artist.Name
+		if artist.ID != nil {
+			name = canonical[*artist.ID]
+		}
+		if name == "" {
 			continue
 		}
-		key := strings.ToLower(artist.Name)
+		key := strings.ToLower(name)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		names = append(names, artist.Name)
+		names = append(names, name)
 	}
-	return names
+	return names, nil
+}
+
+// probedActs is the SELECTION half of the probe, kept separate from resolving
+// names so the rule lives in one place and only the selected acts are read.
+// Duplicates are left in: two acts can resolve to one name, which is deduplicated
+// after resolution rather than before it.
+func probedActs(artists []contracts.CreateShowArtist) []contracts.CreateShowArtist {
+	if len(artists) == 0 {
+		return nil
+	}
+	probed := []contracts.CreateShowArtist{artists[0]}
+	for i, artist := range artists {
+		if i > 0 && claimsHeadlineSlot(artist) {
+			probed = append(probed, artist)
+		}
+	}
+	return probed
+}
+
+// canonicalArtistNames reads the names of the artist rows a bill addresses by id,
+// in one query, keyed by id because a bill may address one artist twice.
+//
+// Read-only, and it takes no lock: an id names a row that already exists, and a
+// rename racing this read moves the name the guard would have probed either way.
+func canonicalArtistNames(db *gorm.DB, artists []contracts.CreateShowArtist) (map[uint]string, error) {
+	ids := make([]uint, 0, len(artists))
+	for _, artist := range artists {
+		if artist.ID != nil {
+			ids = append(ids, *artist.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	type artistNameRow struct {
+		ID   uint   `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}
+	var rows []artistNameRow
+	if err := db.Table("artists").Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to resolve artist names for duplicate check: %w", err)
+	}
+
+	names := make(map[uint]string, len(rows))
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
 }
 
 // venueDedupTarget is one venue of a create request, identified by id when the
@@ -532,8 +637,8 @@ func (t venueDedupTarget) displayName() string {
 	return fmt.Sprintf("#%d", *t.id)
 }
 
-// findRequestDuplicate is THE create-path duplicate predicate, from a request to
-// a finished refusal message ("" when the request collides with nothing). The
+// findDuplicate is THE create-path duplicate predicate, from a probe to a
+// finished refusal message ("" when the request collides with nothing). The
 // create guard turns that message into an error and PreviewShowImport turns it
 // into a warning, so the two cannot disagree about whether a file DUPLICATES an
 // existing show. Every other way a confirm can fail is that surface's own
@@ -548,11 +653,11 @@ func (t venueDedupTarget) displayName() string {
 // measured to break. It reads ids rather than whole rows: the join is not
 // deduplicated, so a match can return one row per (show_artist, show_venue) pair
 // and only its existence is ever asked about.
-func findRequestDuplicate(db *gorm.DB, req *contracts.CreateShowRequest) (string, error) {
-	eventDate := req.EventDate.UTC()
+func (p showDedupProbe) findDuplicate(db *gorm.DB) (string, error) {
+	eventDate := p.eventDate
 
-	for _, artistName := range probedHeadlinerNames(req.Artists) {
-		for _, target := range venueDedupTargets(req.Venues) {
+	for _, artistName := range p.names {
+		for _, target := range p.venues {
 			query := db.Table("shows").
 				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 				Joins("JOIN artists ON show_artists.artist_id = artists.id").
@@ -3312,7 +3417,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 	// Duplicate check, run through the SAME predicate the confirm path runs, on a
 	// request built by the same function from the same frontmatter, so the two
 	// cannot disagree about whether this file duplicates an existing show. Only
-	// SubmitterIsAdmin differs, and nothing in findRequestDuplicate reads it.
+	// SubmitterIsAdmin differs, and nothing in the predicate reads it.
 	//
 	// This is not a general claim that CanImport implies a successful confirm.
 	// The checks above cover the venue fields FindOrCreateVenue requires; three
@@ -3333,7 +3438,11 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		return response, nil
 	}
 
-	message, err := findRequestDuplicate(s.db, importReq)
+	probe, err := newShowDedupProbe(s.db, importReq)
+	if err != nil {
+		return nil, err
+	}
+	message, err := probe.findDuplicate(s.db)
 	if err != nil {
 		return nil, err
 	}

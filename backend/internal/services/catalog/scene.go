@@ -882,7 +882,8 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 
 // GetSceneShowsInRange returns the scene's approved shows in the half-open
 // window [from, to), soonest first (id as the same-date tiebreak), capped at
-// limit. This is the shared engine behind both GetSceneUpcomingShows (a
+// limit. That order is this function's; sceneShowsInRange below serves the one
+// caller that needs another. This is the shared engine behind both GetSceneUpcomingShows (a
 // rolling window from now) and the weekly city page (a fixed calendar week),
 // so the digest email and the public page can never disagree about which shows
 // belong to a scene.
@@ -892,6 +893,26 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 // under the wrong day — and, at a week boundary, under the wrong week.
 // Callers that group by day MUST pass the scene's own location.
 func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Time, loc *time.Location, limit int) ([]contracts.SceneShowSummary, error) {
+	return s.sceneShowsInRange(city, state, from, to, loc, limit, nil)
+}
+
+// sceneShowsInRange is GetSceneShowsInRange plus the one ordering choice its
+// callers do not all share.
+//
+// A non-nil sinkStartedAt sorts every row whose start instant is at or before it
+// AFTER every row still to come, each half keeping clock order. Only the also
+// tonight rail passes one, and only on the live night: it is the caller whose cap
+// actually bites, and a cap applied to clock order drops the latest sets, which
+// on a live night are exactly the rows a reader can still get to. Ordering in SQL
+// rather than after the read is the whole point, since the rows the cap never
+// returned cannot be promoted afterwards.
+//
+// Every other caller passes nil and reads the night earliest-first, which is the
+// order a schedule is read in. The rail passes one only for the date its own
+// payload calls IsTonight, which is the gate the client applies too; any other
+// date is read earliest-first here whatever mix of started and upcoming rows it
+// holds.
+func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time, loc *time.Location, limit int, sinkStartedAt *time.Time) ([]contracts.SceneShowSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -929,8 +950,21 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		VenueTimezone  string    `gorm:"column:venue_timezone"`
 		VenueAgePolicy string    `gorm:"column:venue_age_policy"`
 	}
-	// Placeholder order: venue predicate, then status/window bounds.
-	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd, limit)
+	// Placeholder order: venue predicate, then status/window bounds, then the
+	// ordering instant where there is one, then the cap.
+	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd)
+	// Both branches are compile-time literals; only the instant is a bind arg.
+	// `<=` is the boundary the client's own hasShowStarted uses, so the two agree
+	// on a row starting exactly at the instant they are given. A row that starts
+	// between this answer and a client re-sort moves to the started half, which is
+	// what re-sorting is for.
+	const clockOrder = "picked.event_date ASC, picked.id ASC"
+	orderBy := "ORDER BY " + clockOrder
+	if sinkStartedAt != nil {
+		orderBy = "ORDER BY (picked.event_date <= ?) ASC, " + clockOrder
+		args = append(args, sinkStartedAt.UTC())
+	}
+	args = append(args, limit)
 	var rows []showRow
 	// Every venue column must come from ONE venue row: the weekly page publishes
 	// them as a postal address, and `MIN(v.name)` + GROUP BY would have paired a
@@ -974,7 +1008,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 			  AND s.event_date < ?
 			ORDER BY s.id, v.name ASC, v.id ASC -- DISTINCT ON needs s.id to lead
 		) picked
-		ORDER BY picked.event_date ASC, picked.id ASC
+		`+orderBy+`
 		LIMIT ?
 	`, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to get scene upcoming shows: %w", err)

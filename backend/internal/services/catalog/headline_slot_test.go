@@ -59,29 +59,22 @@ func TestHeadlineSlotSQLDerivesValuesFromTheVocabulary(t *testing.T) {
 // Two concurrent creates of ONE bill listed in opposite orders must take the
 // same advisory locks in the same order, or Postgres kills one with a 40P01.
 // Sorting is the whole guarantee, and it is invisible at the call site, so it is
-// pinned here.
+// pinned here. The probe names are passed literally: which acts a bill probes is
+// probedHeadlinerNames' question and is pinned against a database.
 func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 	eventDate := time.Date(2027, 6, 1, 20, 0, 0, 0, time.UTC)
 	venues := []contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}}
-	headliner := contracts.SetTypeHeadliner
 
-	forward := showDedupLockKeys(&contracts.CreateShowRequest{
-		EventDate: eventDate,
-		Venues:    venues,
-		Artists: []contracts.CreateShowArtist{
-			{Name: "Earth"},
-			{Name: "Boris", SetType: &headliner},
-		},
-	}, eventDate)
-
-	reversed := showDedupLockKeys(&contracts.CreateShowRequest{
-		EventDate: eventDate,
-		Venues:    venues,
-		Artists: []contracts.CreateShowArtist{
-			{Name: "Boris"},
-			{Name: "Earth", SetType: &headliner},
-		},
-	}, eventDate)
+	forward := showDedupProbe{
+		names:     []string{"Earth", "Boris"},
+		venues:    venueDedupTargets(venues),
+		eventDate: eventDate,
+	}.lockKeys()
+	reversed := showDedupProbe{
+		names:     []string{"Boris", "Earth"},
+		venues:    venueDedupTargets(venues),
+		eventDate: eventDate,
+	}.lockKeys()
 
 	if len(forward) != 2 {
 		t.Fatalf("both acts must be locked, got %d keys", len(forward))
@@ -94,17 +87,18 @@ func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 	}
 }
 
-// One act cannot take two locks: the probe compares names case-insensitively, so
-// the keys must be deduplicated the same way.
+// One name cannot take two locks. probedHeadlinerNames already deduplicates
+// case-insensitively, so this pins the second half of that guarantee against a
+// hand-built value: the keys themselves fold the same way, and a probe assembled
+// by some future caller cannot lock one name twice.
 func TestShowDedupLockKeysDeduplicateOneAct(t *testing.T) {
 	eventDate := time.Date(2027, 6, 2, 20, 0, 0, 0, time.UTC)
-	headliner := contracts.SetTypeHeadliner
 
-	keys := showDedupLockKeys(&contracts.CreateShowRequest{
-		EventDate: eventDate,
-		Venues:    []contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}},
-		Artists:   []contracts.CreateShowArtist{{Name: "earth", SetType: &headliner}},
-	}, eventDate)
+	keys := showDedupProbe{
+		names:     []string{"earth", "Earth"},
+		venues:    venueDedupTargets([]contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}}),
+		eventDate: eventDate,
+	}.lockKeys()
 
 	if len(keys) != 1 {
 		t.Errorf("one act at one venue is one lock, got %d: %v", len(keys), keys)

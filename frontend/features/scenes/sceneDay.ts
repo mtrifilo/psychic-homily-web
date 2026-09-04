@@ -191,18 +191,21 @@ export function formatShowStartTimeCompact(
  * `hasShowStarted` counts an unreadable instant as started, so a row whose date
  * cannot be parsed sinks with them rather than heading the list.
  *
- * TWO LIMITS, both real, neither fixable from here:
+ * This orders what it was GIVEN, so where a cap can bite the SAME rule has to
+ * run before it. The also-tonight rail's payload is capped at twenty and is
+ * ordered by this rule in SQL first (`sceneShowsInRange`, backend), so its rows
+ * arrive promoted and this pass only re-reads them against the client's own
+ * clock; sorting an already-sorted night is a no-op. The scene day payload is
+ * capped far above any real night and is ordered here alone.
  *
- *  - This orders what it was GIVEN. Both producers cap their night
- *    earliest-first, so on a metro night longer than the cap the late sets are
- *    dropped upstream and cannot be promoted here — exactly the rows this rule
- *    exists to surface. Raising the promotion above the cap is a backend
- *    ordering question, not a client one.
- *  - The WEEK and window views cannot apply it: `SceneWeekDay` carries no
- *    `is_tonight`, and re-deriving the night on this side is the one thing
- *    every surface here refuses to do. So a night reads one way on the scene
- *    root and the day page and another in the week view, by omission of a
- *    field rather than by choice.
+ * That is the whole of the rule's two homes, and they must move together: this
+ * function and the ORDER BY the rail's query builds.
+ *
+ * The WEEK and window views cannot apply it: `SceneWeekDay` carries no
+ * `is_tonight`, and re-deriving the night on this side is the one thing every
+ * surface here refuses to do. So a night reads one way on the scene root and
+ * the day page and another in the week view, by omission of a field rather
+ * than by choice.
  */
 export function orderNightShows<T extends SceneDayShow>(
   shows: T[],

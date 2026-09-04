@@ -102,11 +102,7 @@ func (suite *SceneServiceIntegrationTestSuite) showIDs(idOrSlug string) []uint {
 	rail, err := suite.sceneService.GetShowAlsoTonight(idOrSlug)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(rail)
-	ids := make([]uint, 0, len(rail.Shows))
-	for _, show := range rail.Shows {
-		ids = append(ids, show.ID)
-	}
-	return ids
+	return idsOf(rail.Shows)
 }
 
 // The two acceptance properties that define the rail: it never lists the show
@@ -389,6 +385,104 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ReportsWhe
 	suite.Require().NoError(err)
 	suite.Len(overflowing.Shows, showAlsoTonightCap)
 	suite.True(overflowing.HasMore, "the night held more than the rail can carry")
+}
+
+// The cap is applied by the QUERY, so the ordering has to be too: a night longer
+// than the rail, ordered by the clock, drops exactly the late sets a reader can
+// still get to. Twenty-five shows, five of them already started, and the rail
+// holds twenty rows.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneShowsInRange_StartedRowsSinkBeforeTheCap() {
+	loc := suite.alsoTonightLoc()
+	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
+	evanston := suite.createAlsoTonightVenue("Space", "Evanston", "IL")
+
+	day := time.Date(2026, time.September, 18, 0, 0, 0, 0, loc)
+	sinkStartedAt := day.Add(20 * time.Hour)
+
+	var started, upcoming []uint
+	for i := 0; i < 5; i++ {
+		show := suite.createAlsoTonightShow(fmt.Sprintf("started-%d", i), chicago.ID,
+			day.Add(18*time.Hour+time.Duration(i)*time.Minute), catalogm.ShowStatusApproved)
+		started = append(started, show.ID)
+	}
+	for i := 0; i < 20; i++ {
+		show := suite.createAlsoTonightShow(fmt.Sprintf("upcoming-%d", i), evanston.ID,
+			day.Add(21*time.Hour+time.Duration(i)*time.Minute), catalogm.ShowStatusApproved)
+		upcoming = append(upcoming, show.ID)
+	}
+
+	from, to := day.UTC(), day.AddDate(0, 0, 1).UTC()
+
+	sunk, err := suite.sceneService.sceneShowsInRange(
+		"Chicago", "IL", from, to, loc, showAlsoTonightCap, &sinkStartedAt)
+	suite.Require().NoError(err)
+	suite.Equal(upcoming, idsOf(sunk),
+		"every show still to come must survive a cap that would otherwise spend rows on started ones")
+
+	// Two rows more than there are upcoming shows: the started rows appear, in
+	// their own clock order, after every upcoming one.
+	withStarted, err := suite.sceneService.sceneShowsInRange(
+		"Chicago", "IL", from, to, loc, len(upcoming)+2, &sinkStartedAt)
+	suite.Require().NoError(err)
+	suite.Equal(append(append([]uint{}, upcoming...), started[0], started[1]), idsOf(withStarted),
+		"started rows keep clock order among themselves, below the upcoming ones")
+
+	// No instant, no promotion: an archive or future night is read in the order it
+	// happens, and the cap keeps the earliest rows.
+	clockOrder, err := suite.sceneService.sceneShowsInRange(
+		"Chicago", "IL", from, to, loc, showAlsoTonightCap, nil)
+	suite.Require().NoError(err)
+	suite.Equal(append(append([]uint{}, started...), upcoming[:15]...), idsOf(clockOrder),
+		"without an instant the night stays earliest-first")
+}
+
+// The same rule through the rail itself, on a night that is live RIGHT NOW: the
+// subject is a show that has already started, twenty-five others share its night,
+// and every one of the twenty still to come has to be on the rail.
+//
+// The fixture's rooms are placed on a zone chosen from the wall clock rather than
+// from geography, because the rail reads a show's night on the ROOM's own
+// timezone column. Seeding both halves of a live night on one calendar date is
+// otherwise only possible during part of the day, and the test would quietly stop
+// asserting anything for the rest of it.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_LiveNightPromotesEveryUpcomingShowOverTheCap() {
+	loc, nowLocal := suite.liveNightZone()
+
+	chicago := suite.seedVenue(alsoTonightVenue{
+		name: "Empty Bottle", city: "Chicago", state: "IL", tz: loc.String(),
+	})
+	evanston := suite.seedVenue(alsoTonightVenue{
+		name: "Space", city: "Evanston", state: "IL", tz: loc.String(),
+	})
+
+	// The subject is the LATEST of the started shows, so on a night this dense it
+	// falls outside the rows the query returns. That is deliberate: it is what
+	// separates asking the scene whether it lists this show from reading the
+	// answer off rows the cap has already shortened.
+	subject := suite.createAlsoTonightShow("live-subject", chicago.ID,
+		nowLocal.Add(-1*time.Minute), catalogm.ShowStatusApproved)
+	for i := 2; i <= 6; i++ {
+		suite.createAlsoTonightShow(fmt.Sprintf("live-started-%d", i), chicago.ID,
+			nowLocal.Add(-time.Duration(i)*time.Minute), catalogm.ShowStatusApproved)
+	}
+	// Ten minutes of headroom on the earliest upcoming row: the fixture writes
+	// twenty-six shows before the rail reads its own clock, and a row that starts
+	// during the seeding would sink and take a started row's place.
+	var upcoming []uint
+	for i := 0; i < showAlsoTonightCap; i++ {
+		show := suite.createAlsoTonightShow(fmt.Sprintf("live-upcoming-%d", i), evanston.ID,
+			nowLocal.Add(time.Duration(10+i)*time.Minute), catalogm.ShowStatusApproved)
+		upcoming = append(upcoming, show.ID)
+	}
+
+	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
+	suite.True(rail.IsTonight, "the fixture is seeded on the scene's own live night")
+	suite.Equal(upcoming, idsOf(rail.Shows),
+		"the cap must not spend a row on a set that has already started while one still to come is dropped")
+	suite.True(rail.HasMore, "the night held more than the rail can carry")
+	suite.Equal("chicago-il", rail.SceneSlug,
+		"the link asks whether the scene lists this show, not whether the capped rows happened to include it")
 }
 
 // "Tonight" is not "Date == today": until 06:00 local a night is still named by
@@ -979,4 +1073,38 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_CarriesEve
 	suite.Equal("all ages", rail.Shows[1].AgeRequirement)
 	suite.Equal("21+", rail.Shows[1].VenueAgePolicy,
 		"the house default travels alongside the override rather than being replaced by it")
+}
+
+// idsOf reads the ids off a run of rail rows, so an ordering assertion reads as
+// the sequence it is about.
+func idsOf(shows []contracts.SceneShowSummary) []uint {
+	ids := make([]uint, 0, len(shows))
+	for _, show := range shows {
+		ids = append(ids, show.ID)
+	}
+	return ids
+}
+
+// liveNightZone is a real IANA zone in which the current instant sits well
+// inside one calendar date, with that instant. A live-night fixture needs both
+// started and still-to-come shows on ONE date, past the 06:00 night boundary;
+// picking the zone from the clock rather than the clock from the zone is what
+// makes such a test mean the same thing at every hour the suite might run.
+//
+// Four zones roughly six hours apart cover the 08:00-21:59 window from any UTC
+// instant, since the window is wider than the widest gap between them.
+func (suite *SceneServiceIntegrationTestSuite) liveNightZone() (*time.Location, time.Time) {
+	now := time.Now()
+	for _, name := range []string{"America/Chicago", "UTC", "Asia/Shanghai", "Pacific/Auckland"} {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			continue
+		}
+		nowLocal := now.In(loc)
+		if hour := nowLocal.Hour(); hour >= 8 && hour < 22 {
+			return loc, nowLocal
+		}
+	}
+	suite.Require().FailNow("no zone in the table is inside its own day right now")
+	return nil, time.Time{}
 }

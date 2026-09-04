@@ -4243,6 +4243,268 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_VenueIdentifiedByID
 	suite.Require().NoError(err, "a different room, also given by id, is not a collision")
 }
 
+// An act given by ID alone carries no name, and the guard probes names. The ph
+// CLI sends exactly that shape for every act it resolved, so a bill it submits
+// twice has to be refused by the resolved name of the artist row the id
+// addresses.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ArtistIdentifiedByIDIsDuplicateChecked() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	seeded, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Artist By ID Original",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Artist By ID Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Artist By ID Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(seeded.Artists, 1)
+	suite.Require().Len(seeded.Venues, 1)
+	artistID := seeded.Artists[0].ID
+	venueID := seeded.Venues[0].ID
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Artist By ID Rebill",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists:           []contracts.CreateShowArtist{{ID: &artistID, SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Artist By ID Act' is already performing",
+		"an id-only act must be probed under the name that artist row stores")
+	suite.NotContains(strings.ToLower(err.Error()), "duplicate key",
+		"the guard refuses this, so the index never has to")
+
+	// A DIFFERENT act, also given by id, at the same room and instant. This is the
+	// half that catches an over-broad resolver: one that probed every id-addressed
+	// bill under one name would refuse this too.
+	other, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Artist By ID Other Band",
+		EventDate:         suite.uniqueEventDate(),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Artist By ID Other Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(other.Artists, 1)
+	otherArtistID := other.Artists[0].ID
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Artist By ID Different Band Same Night",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists:           []contracts.CreateShowArtist{{ID: &otherArtistID, SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err, "a different act, also given by id, is not a collision")
+}
+
+// An id beside a name is the id's artist: associateArtists resolves the id and
+// never reads the name next to it, so the probe has to read the same row. Both
+// directions are asserted, because the two disagree on exactly the bills where
+// the request's spelling is not what the write stores.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_IdBesideANameProbesTheStoredArtist() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	seeded, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Id Beside Name Original",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Id Beside Name Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Id Beside Name Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(seeded.Artists, 1)
+	suite.Require().Len(seeded.Venues, 1)
+	artistID := seeded.Artists[0].ID
+	venueID := seeded.Venues[0].ID
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Id Beside Name Rebill",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists: []contracts.CreateShowArtist{
+			{ID: &artistID, Name: "A Spelling Nothing Is Filed Under", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Id Beside Name Act' is already performing",
+		"the id decides which artist this writes, so the id decides what is probed")
+
+	// The other direction: a name that matches the seeded show beside an id that
+	// does not. The write stores the id's artist, so this collides with nothing.
+	fresh, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Id Beside Name Fresh Band",
+		EventDate:         suite.uniqueEventDate(),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Id Beside Name Fresh Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(fresh.Artists, 1)
+	freshArtistID := fresh.Artists[0].ID
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Id Beside Name Decoy",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists: []contracts.CreateShowArtist{
+			{ID: &freshArtistID, Name: "Id Beside Name Act", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err,
+		"a name the write does not store must not refuse a save the write would not collide with")
+}
+
+// An id addressing no artist contributes no probe name at all. The create still
+// fails, at the resolver rather than the guard, and the guard must not have
+// probed an empty name on the way there.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_UnknownArtistIDIsNotProbed() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	missingID := uint(2147483000)
+	req := &contracts.CreateShowRequest{
+		Title:             "Unknown Artist Id",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Unknown Artist Id Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{ID: &missingID}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	// The probe itself, because the error below is the resolver's either way: a
+	// probe that kept the empty name would query LOWER(artists.name) = '' and take
+	// a lock on it without changing what the caller sees.
+	probe, err := newShowDedupProbe(suite.db, req)
+	suite.Require().NoError(err)
+	suite.Empty(probe.names, "an id that addresses no artist contributes no probe name")
+	suite.Empty(probe.lockKeys(), "and no lock is taken on the empty name")
+
+	nameless, err := newShowDedupProbe(suite.db, &contracts.CreateShowRequest{
+		EventDate: eventDate,
+		Venues:    req.Venues,
+		Artists:   []contracts.CreateShowArtist{{}},
+	})
+	suite.Require().NoError(err)
+	suite.Empty(nameless.names, "an act with neither id nor name contributes none either")
+
+	_, err = suite.showService.CreateShow(req)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), fmt.Sprintf("artist with ID %d not found", missingID),
+		"an unresolvable id fails at the resolver, not as a duplicate")
+}
+
+// Two entries for ONE artist -- an id and, further down the bill, that artist's
+// own name -- collapse to a single probe. This is the live path the probe's
+// resolve-then-deduplicate order exists for: dedup on the request's spelling
+// would leave two entries that resolve to one name taking two locks and running
+// the same query twice.
+func (suite *ShowServiceIntegrationTestSuite) TestShowDedupProbe_TwoEntriesForOneArtistProbeOnce() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	seeded, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "One Artist Twice Seed",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "One Artist Twice Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "One Artist Twice Act"}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(seeded.Artists, 1)
+	suite.Require().Len(seeded.Venues, 1)
+	artistID := seeded.Artists[0].ID
+	venueID := seeded.Venues[0].ID
+
+	probe, err := newShowDedupProbe(suite.db, &contracts.CreateShowRequest{
+		EventDate: suite.uniqueEventDate(),
+		Venues:    []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists: []contracts.CreateShowArtist{
+			{ID: &artistID},
+			{Name: "one artist twice act", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Equal([]string{"One Artist Twice Act"}, probe.names,
+		"an id and that artist's own name are one act, probed once, under the stored spelling")
+	suite.Len(probe.lockKeys(), 1, "and one act at one venue is one lock")
+}
+
+// The predicate PreviewShowImport runs is the one the create guard runs, and it
+// has to answer the same on an id-only bill. Called directly, because the import
+// surface builds its bills from frontmatter names and cannot express an id.
+func (suite *ShowServiceIntegrationTestSuite) TestShowDedupProbe_ProbesAnIdOnlyBill() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	seeded, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Predicate Id Only Original",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Predicate Id Only Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Predicate Id Only Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(seeded.Artists, 1)
+	suite.Require().Len(seeded.Venues, 1)
+	artistID := seeded.Artists[0].ID
+	venueID := seeded.Venues[0].ID
+
+	req := &contracts.CreateShowRequest{
+		Title:     "Predicate Id Only Rebill",
+		EventDate: eventDate,
+		Venues:    []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists:   []contracts.CreateShowArtist{{ID: &artistID}},
+	}
+	probe, err := newShowDedupProbe(suite.db, req)
+	suite.Require().NoError(err)
+	suite.Equal([]string{"Predicate Id Only Act"}, probe.names,
+		"the probe set is the names the bill will store")
+
+	message, err := probe.findDuplicate(suite.db)
+	suite.Require().NoError(err)
+	suite.Contains(message, "'Predicate Id Only Act' is already performing",
+		"preview must refuse what confirm refuses")
+}
+
 // The same city scoping at the guard itself, without the import surface: the
 // venue join is scoped to (name, city), the pair venues are unique on and the
 // pair associateVenues resolves.

@@ -128,7 +128,8 @@ import (
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate. The act each one
 //     PROBES is resolved separately from the slug: catalog's by
-//     probedHeadlinerNames off the request, discovery's by its own
+//     probedHeadlinerNames off the request, reading an act addressed by id under
+//     the name that artist row stores; discovery's by its own
 //     resolveHeadlinerName off the scraped payload, which takes the FIRST act in
 //     list order that states 'headliner' and otherwise the lowest 1-based
 //     billing_order, where 0 means absent. ResolveHeadlinerName takes the
