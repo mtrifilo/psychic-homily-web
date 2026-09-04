@@ -159,11 +159,14 @@ type MostAnticipatedShows struct {
 }
 
 // PopularArtist represents an artist ranked by followers and upcoming shows.
+//
+// Carries no image: an artist photo lives in artists.image_url with the
+// provenance columns that must be rendered beside it (image_source,
+// image_license, image_author), and none of them are projected here.
 type PopularArtist struct {
 	ArtistID          uint   `json:"artist_id"`
 	Name              string `json:"name"`
 	Slug              string `json:"slug"`
-	ImageURL          string `json:"image_url"`
 	FollowCount       int    `json:"follow_count"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	Score             int    `json:"score"`

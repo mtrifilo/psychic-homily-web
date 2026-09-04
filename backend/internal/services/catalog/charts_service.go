@@ -1275,7 +1275,6 @@ func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist,
 		ArtistID          uint   `gorm:"column:artist_id"`
 		Name              string `gorm:"column:name"`
 		Slug              string `gorm:"column:slug"`
-		ImageURL          string `gorm:"column:image_url"`
 		FollowCount       int    `gorm:"column:follow_count"`
 		UpcomingShowCount int    `gorm:"column:upcoming_show_count"`
 		Score             int    `gorm:"column:score"`
@@ -1287,7 +1286,6 @@ func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist,
 			a.id AS artist_id,
 			a.name,
 			COALESCE(a.slug, '') AS slug,
-			COALESCE(a.bandcamp_embed_url, '') AS image_url,
 			COALESCE(follow_counts.cnt, 0) AS follow_count,
 			COALESCE(show_counts.cnt, 0) AS upcoming_show_count,
 			(COALESCE(follow_counts.cnt, 0) * 2 + COALESCE(show_counts.cnt, 0)) AS score
@@ -1320,7 +1318,6 @@ func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist,
 			ArtistID:          r.ArtistID,
 			Name:              r.Name,
 			Slug:              r.Slug,
-			ImageURL:          r.ImageURL,
 			FollowCount:       r.FollowCount,
 			UpcomingShowCount: r.UpcomingShowCount,
 			Score:             r.Score,
