@@ -13,16 +13,11 @@
  *   UNREACHABLE   | warm        | all                | 200, previous document
  *
  * Counts are written as "all" rather than a number on purpose: the shard count
- * is a property of app/sitemap-shards.ts and has already changed three times
- * (10 with PSY-1622's families, 14 once PSY-1763 split releases into slug
- * ranges, 39 once PSY-2018 split shows into event months), while the BEHAVIOUR
- * each row describes did not. Rows 1 and 3 were measured at 14 shards on
- * PSY-1763 — `14 of 14 shards have a fallback document` against a healthy
- * backend, and `13 of 14 shards have no fallback document` with the backend
- * down, naming each releases sub-shard. Rows 1 and 3 were measured again at 39
- * on PSY-2018 — `39 of 39 shards have a fallback document` against a healthy
- * backend, and `38 of 39 shards have no fallback document` with the backend
- * unreachable, exit 1.
+ * is a property of app/sitemap-shards.ts and changes with every sharding
+ * decision, while the BEHAVIOUR each row describes does not. Rows 1 and 3 are
+ * measured again at each count; at the current 32: `32 of 32 shards have a
+ * fallback document` against a healthy backend, and `31 of 32 shards have no
+ * fallback document` with the backend unreachable, exit 1.
  *
  * The stale-serving fallback the sitemap needs is the PRERENDERED BODY that
  * `next build` writes to disk. It ships inside the deployment, so it survives a
@@ -222,10 +217,10 @@ export function formatShardFailures(
  * everything else, including a backend that is simply down, which is the case
  * this gate exists to refuse.
  *
- * The probe asks about a SHARD id, not a family, and that keeps working
- * unchanged for the releases sub-shards (PSY-1763) because a sub-shard id is
- * itself the wire value of the `family` query — which is precisely why the
- * sub-shard rides in that parameter rather than a second one.
+ * The probe asks about a SHARD id, not a family, and that works unchanged for
+ * a sub-shard because a sub-shard id is itself the wire value of the `family`
+ * query, which is precisely why the sub-shard rides in that parameter rather
+ * than a second one.
  */
 export type FamilyVerdict = 'served' | 'unknown' | 'unreachable'
 
@@ -271,19 +266,20 @@ export interface PartitionedFailures {
  *
  *   - A new FAMILY (PSY-1756's `venue_years`): true. The backend has no URLs
  *     for that family yet, so nothing is lost by announcing none.
- *   - A new SUB-SHARD of an existing family (PSY-1763's releases ranges):
+ *   - A new SUB-SHARD of an existing family (a bucket of `releases`):
  *     FALSE. The backend holds every one of those rows and simply does not
- *     recognise the id, and because a rollout adds all the ranges at once the
+ *     recognise the id, and because a rollout adds all the buckets at once the
  *     whole family drops out of the index until the backend ships. Recovery is
  *     on the next RENDER, and fully on the next build — an excused shard is
  *     Dynamic, so it has no ISR timer to wait on. See describePendingCost.
  *
  * The gate cannot tell the two apart and must not try: during a legitimate
  * sub-shard rollout the old backend serves `releases` and rejects
- * `releases-a-e`, which is indistinguishable from a genuinely drifted id. So
- * the excuse stays, and the compensating control is elsewhere — `compareFamilies`
- * in lib/sitemap-monitor/evaluate.ts flags a family as `vanished` when the API
- * has rows and the sitemap serves none, at any tolerance.
+ * `releases-b0`, which is indistinguishable from a genuinely drifted id. So
+ * the excuse stays, and the compensating control is elsewhere, in
+ * lib/sitemap-monitor/evaluate.ts: `compareShards` flags a sub-shard whose API
+ * count is non-zero while the served document is empty, and `compareFamilies`
+ * does the same for a whole family. Both fail at any tolerance.
  */
 export async function partitionShardFailures(
   failures: readonly ShardPrerenderFailure[],
@@ -377,8 +373,8 @@ export function formatPendingShards(
     ...describePendingCost(pending),
     '',
     'If this is still printing after the backend has deployed, an id has drifted',
-    'between the two sides. Start at SITEMAP_FAMILIES, SHOW_SHARD_IDS and',
-    'RELEASE_SHARD_IDS in app/sitemap-shards.ts, and at sitemapFamilies /',
-    'sitemapShards in backend/internal/services/catalog/sitemap.go.',
+    'between the two sides. Start at SITEMAP_FAMILIES and the shard id lists in',
+    'app/sitemap-shards.ts, and at sitemapFamilies / sitemapShardsPerFamily in',
+    'backend/internal/services/catalog/sitemap.go.',
   ].join('\n')
 }

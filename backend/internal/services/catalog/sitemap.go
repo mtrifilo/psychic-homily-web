@@ -37,277 +37,164 @@ var sitemapFamilies = []string{
 	"labels", "releases", "festivals", "tags",
 }
 
-// sitemapShard is one slice of an entity family, addressable on the wire as if
-// it were a family of its own.
+// sitemapShard is one bucket of an entity family, addressable on the wire as if
+// it were a family of its own. A row belongs to bucket `id % buckets` of its
+// family.
 //
 // WHY FAMILIES GET SUB-SHARDED. Sharding the sitemap per family (PSY-1622)
-// exists to keep each Next Data Cache entry under the per-item cap of 2 MiB —
+// keeps each Next Data Cache entry under the per-item cap of 2 MiB, i.e.
 // 2,097,152 bytes, MEBIbytes, which is the unit the frontend's
 // lib/data-cache-budget/budget.ts insists on for this route family precisely
 // because decimal MB put the label and the arithmetic in disagreement. The
-// entry holds the response BASE64-encoded, so the raw body that fits is
+// entry holds the response base64-encoded, so the raw body that fits is
 // 1,572,864 bytes, and the frontend's gate fails the build at 80% of the cap.
-// Two families have outgrown a single entry:
+// Three families do not fit one entry each. Measured against production on
+// 2026-09-03: releases 2,041,734 raw bytes over 28,720 rows (129.8% of the
+// cap), shows 1,267,618 over 13,096 (80.6%), artists 918,744 over 13,493
+// (58.4%). No other family is above 8%.
 //
-//   - releases (PSY-1763): 1,530,206 raw bytes over 21,525 rows on 2026-08-09,
-//     97.3% of the cap once encoded. Served in SLUG ranges.
-//   - shows (PSY-2018): 1,267,618 raw bytes over 13,096 rows on 2026-09-03,
-//     81% of the cap once encoded, which is what blocked the production
-//     frontend build. Served in UTC EVENT-MONTH ranges.
+// WHAT THE PRIMARY KEY BUYS AS A PARTITION KEY:
 //
-// WHAT A PARTITION KEY HAS TO BE. Stable first: a row that changes shard churns
-// what crawlers refetch, for no new information. Then balanced, and balanced as
-// the corpus grows rather than only on the day it was cut.
+//   - TOTALITY AND DISJOINTNESS ARE STRUCTURAL. A family enumerates every
+//     residue in [0, buckets), so a gap needs a missing residue rather than a
+//     mis-typed bound. Primary keys here are `uint` columns fed by a serial
+//     sequence and Postgres keeps the dividend's sign in `%`, so the partition
+//     covers exactly the non-negative ids the tables hold.
+//   - A ROW NEVER CHANGES BUCKET, because a primary key never changes. The only
+//     thing that moves a URL between documents is a change of `buckets`.
+//   - BUCKETS STAY BALANCED WITHOUT RE-CUTTING, because membership is
+//     independent of what a row contains. Measured spread inside a family is
+//     under one percentage point of the cache-item cap; see SHOW_SHARD_IDS in
+//     frontend/app/sitemap-shards.ts for the per-bucket byte table.
 //
-//   - A page number (OFFSET/LIMIT over the row order) is perfectly balanced and
-//     maximally unstable — one insert near the front shifts every row after it
-//     across every page boundary, on every import.
-//   - A slug range is stable when the slug is regenerated only by a rename that
-//     changes the URL anyway, which is the releases case (see
-//     ReleaseService.UpdateRelease), and it stays balanced because the letter
-//     mix of titles is a property of how records get named. Measured on
-//     releaseShards.
-//   - A calendar range over the event date is stable for shows in the sense
-//     that matters most — every PAST bucket is frozen once its month ends, and
-//     past shows are the bulk of the corpus — but it is NOT as stable as a slug
-//     range, and the difference is worth knowing before re-cutting it. A show's
-//     slug is generated once, by CreateShow; UpdateShow changes event_date
-//     without regenerating it. So rescheduling an upcoming show moves it between
-//     shards while leaving the URL a crawler already has unchanged, which is
-//     exactly what the releases key rules out. Accepted rather than solved:
-//     reschedules are a small, bounded share of an upcoming month, and the cost
-//     is that two documents change instead of one.
-//     It is also NOT self-balancing — the live buckets grow and the old ones do
-//     not — so the grain is chosen small enough that a fully ingested bucket
-//     still fits, rather than re-cut as the mix moves. Measured on showShards.
+// WHAT IT COSTS. A bucket has no locality, so an insert dirties one bucket at
+// random rather than the newest range, and doubling `buckets` moves half of a
+// family's URLs between documents. That is the whole re-tuning cost, paid once
+// per doubling, and sitemapShardsPerFamily states the headroom each family is
+// given so a doubling stays rare.
 //
-// HOW IT GROWS. Add a cut point and split ONE range. Every other range keeps
-// both its id and its exact contents, so re-tuning churns only the range being
-// split — the property page-numbering cannot offer at any shard count. When the
-// largest range approaches the warn band in the frontend's
-// lib/data-cache-budget/budget.ts, split that one.
+// A BUCKET APPEARS IN NO URL. Entries are announced at /shows/{slug} whichever
+// bucket serves them, so which document carries a URL is a transport detail.
 //
 // Each id doubles as the `family` query value the backend accepts for that
-// range. Deliberately: a backend that predates a new id answers 422, which the
+// bucket. Deliberately: a backend that predates a new id answers 422, which the
 // generator degrades to an empty shard for one deploy window
 // (UNKNOWN_FAMILY_STATUSES in frontend/app/sitemap.ts) and the prerender gate
 // excuses. A separate query parameter would be silently IGNORED by that same
 // old backend, which would answer every sub-shard with the whole over-cap
 // family instead.
 type sitemapShard struct {
-	// family is the entity family this shard serves a slice of, and the key of
+	// family is the entity family this shard serves a bucket of, and the key of
 	// the response it populates.
 	family string
-	// id is the value a caller passes as `family` to request this slice, and
-	// the frontend's route segment for it. It is a legible label for the span,
-	// NOT the predicate.
+	// id is the value a caller passes as `family` to request this bucket, and
+	// the frontend's route segment for it.
 	id string
-	// column is the projected column the half-open range is taken on. A
-	// package-owned literal, never caller input, and it must exist on the one
-	// table its family's scope resolves to (see entriesFor).
-	column string
-	// from is the inclusive lower bound. nil is unbounded below, which is what
-	// keeps a partition total no matter how its values order.
-	from any
-	// before is the exclusive upper bound. nil is unbounded above.
-	before any
+	// buckets is how many buckets the family is cut into. Equal across every
+	// shard of a family, and equal to how many shards that family has.
+	buckets int
+	// bucket is this shard's residue, in [0, buckets).
+	bucket int
 }
 
-// releaseShards partitions the releases family by slug. Half-open ranges, open
-// at both outer ends, so every slug lands in exactly one — asserted by
-// TestSitemapShardsPartitionTheirFamilies rather than left to inspection.
+// sitemapShardsPerFamily is the definition: which families are sub-sharded, and
+// into how many buckets each.
 //
-// Cut points chosen to minimise the largest range's byte share over the
-// measured production catalogue. Serving them from a database holding the real
-// production rows, the four shards answered 422,209 / 421,070 / 366,874 /
-// 320,964 bytes — 27.6% / 27.5% / 24.0% / 21.0% of the family, and 26.9% /
-// 26.8% / 23.4% / 20.4% of the cache item cap once the frontend had written
-// them, against 97.3% for the family as a single document.
+// HOW N IS CHOSEN. The bar is that a family's largest bucket stays under 50% of
+// the cache-item cap with room for the corpus to double, i.e. under 25% today.
+// Dividing the 2026-09-03 family shares on sitemapShard above by 8 gives 16.2%
+// for releases, 10.1% for shows and 7.3% for artists; the division understates
+// by about a point and a half, because each document carries its own envelope,
+// so the numbers that clear the bar are the MEASURED maxima: releases 17.6%,
+// shows 11.2%, artists 8.1% (the table on SHOW_SHARD_IDS in
+// frontend/app/sitemap-shards.ts).
 //
-// That split is a property of how records get titled, not of this particular
-// import, and two further readings of the same production data say so. The same
-// cut points split the ARTISTS corpus — a disjoint set of 9,405 names, run
-// through the same predicates in the same database — 28.0 / 31.1 / 23.1 / 17.7.
-// And splitting the releases themselves into an older and a newer half by
-// updated_at moves no bucket by more than 1.9 points (27.4 / 27.1 / 23.5 / 21.9
-// against 27.7 / 27.9 / 24.4 / 20.0), so the mix is not drifting as the
-// catalogue grows.
+// So the table holds one number three times rather than three tuned numbers.
+// It stays per family because the families grow at different rates and the next
+// doubling will not be wanted by all three at once.
 //
-// THE BOUNDS ARE EVALUATED BY THE DATABASE'S COLLATION, NOT AS PREFIXES — read
-// this before re-cutting the ranges. Production and the test containers run
-// en_US.utf8 (libc), which gives punctuation a lower weight than letters at the
-// primary level, so a slug does NOT necessarily land in the range its first
-// character suggests. Measured, against both:
+// The count is also what the build and the monitor pay per family: 24 sub-shard
+// documents plus the seven single-shard families plus the pages shard is 32
+// documents, against the 39 this scheme replaces.
 //
-//	'1999-remastered' < 'f'          → true   (digits sort below every letter)
-//	'-quiet-start'   >= 'n'          → true   (collates as "quietstart")
-//	'Eclair'          < 'f'          → true   (case-insensitive at this level)
+// WHEN TO DOUBLE ONE. The frontend's data-cache budget gate fails the build at
+// 80% of the cap and does not warn first, so the signal to act on is the
+// measured share in a build log rather than the gate itself. Doubling a family
+// re-buckets every row in it: half its URLs change document and every crawler
+// refetches both documents once.
 //
-// So `-quiet-start` is served by releases-n-s, not by the first range. That is
-// harmless — totality and disjointness come from the ranges being contiguous
-// and open at both outer ends, which holds under ANY total order — but it means
-// new cut points must be measured with these same predicates, NOT read off a
-// `SELECT left(slug, 1)` histogram, or the shares will not come out as planned.
+// DOUBLING IS FOUR CODE EDITS, each with the gate that catches skipping it, and
+// then the prose. Doing only the first leaves the new ids rejected with 422,
+// which the generator degrades to empty documents, and every test in this
+// package passes for ANY bucket count:
 //
-// It also bounds the stability claim above: "stable by construction" holds for
-// a FIXED collation. A glibc upgrade or base-image bump can reorder strcoll
-// (the hazard Postgres tracks as pg_collation.collversion), which would move
-// some rows between ranges with no slug and no URL change. The integration test
-// pins the placements of the awkward cases so that surfaces as a red build
-// rather than as silent crawler churn.
-var releaseShards = []sitemapShard{
-	{family: "releases", id: "releases-a-e", column: "slug", before: "f"},
-	{family: "releases", id: "releases-f-m", column: "slug", from: "f", before: "n"},
-	{family: "releases", id: "releases-n-s", column: "slug", from: "n", before: "t"},
-	{family: "releases", id: "releases-t-z", column: "slug", from: "t"},
-}
-
-// showShardColumn is the column the shows partition is cut on.
-//
-// UTC, and that is the whole rule: Show.EventDate is a UTC instant and the
-// bounds are UTC month starts, so a show belongs to the bucket its UTC event
-// month names. Deliberately NOT the venue-local bucketing venueYearEntries
-// uses. That family puts its bucket IN the URL, so it has to agree with the
-// page it points at; this one appears in no URL, and a partition key only has
-// to be total, disjoint and stable. Venue-local bucketing here would buy
-// nothing and cost a join entriesFor cannot take.
-const showShardColumn = "event_date"
-
-// showShardYears are the calendar years the shows family is enumerated by month
-// for. Ascending and contiguous, asserted by TestShowShardYearsAreContiguous.
-//
-// EXTENDING THIS IS ROUTINE, ROUGHLY ANNUAL MAINTENANCE, AND NOTHING WARNS
-// FIRST. Everything dated at or after the year following the last one here
-// lands in the single open tail shard, which then grows without bound. The only
-// automated signal is the frontend's data-cache budget gate, and it does not
-// warn — assertFetchFitsDataCache returns quietly below 80% of the cap and
-// FAILS at it. So the first notice that the tail has outgrown its entry is a
-// blocked production deploy, which is the incident this scheme was built to end.
-// Append the next year while the tail is still small rather than waiting to be
-// told.
-//
-// APPENDING A YEAR IS FOUR EDITS, and this is the only place anyone will be
-// standing when they make the first one. Doing only the first leaves the new
-// ids rejected with 422, which the generator degrades to empty documents — a
-// green `go build` and a green `go test ./internal/services/catalog/...`, since
-// every structural test here passes for ANY span. The failures land in other
-// packages, so do all four:
-//
-//  1. this list;
+//  1. this map;
 //  2. the `enum` tag on GetSitemapEntriesRequest.Family in
 //     internal/api/handlers/catalog/sitemap.go. It is a struct-tag literal huma
 //     reads directly, so it cannot call SitemapFamilyValuesCSV() — print the
 //     value to paste with `go test ./internal/api/handlers/catalog/ -run
 //     TestSitemapFamilyEnumMatchesTheService`, whose diff is the new tag;
-//  3. `bun run api:types` in frontend/, which regenerates the wire enum;
-//  4. SHOW_SHARD_IDS in frontend/app/sitemap-shards.ts, which tsc then checks
-//     against that enum in both directions.
+//  3. `bun run api:types` in frontend/, which regenerates the wire enum and is
+//     enforced by the drift job in .github/workflows/ci.yml;
+//  4. the id list for that family in frontend/app/sitemap-shards.ts, which tsc
+//     then checks against that enum in both directions: `satisfies readonly
+//     WireFamily[]` catches an id renamed or removed, AssertEveryWireValueServed
+//     catches one added.
 //
-// The tail shard's id moves with the span (shows-from-2028 becomes
-// shows-from-2029) and the document at the old path stops existing. That is the
-// one id this scheme does churn — it is the range being split, and the shards
-// on either side of it keep their ids and their contents.
-var showShardYears = []int{2026, 2027}
+// Then the counts written into prose: the shard and request totals in
+// frontend/app/sitemap.ts, frontend/lib/sitemap-prerender/check.ts,
+// frontend/lib/sitemap-monitor/fetch.ts and the timeout derivation in
+// .github/workflows/sitemap-freshness.yml. Nothing fails when those go stale.
+var sitemapShardsPerFamily = map[string]int{
+	"shows":    8,
+	"artists":  8,
+	"releases": 8,
+}
 
-// showShards partitions the shows family by UTC event month, plus one open
-// shard below the enumerated span and one above it.
-//
-// WHY MONTHS, and not the years a first reading of the catalogue suggests.
-// Measured against production on 2026-09-03, all 13,096 slugged approved shows
-// are dated 2026 or 2027, and 2026 alone is 1,244,629 raw bytes — 79% of the
-// 1,572,864-byte raw budget. A year shard would be born inside the warn band
-// that blocked the build in the first place. A half-year is no better: 2026-07
-// to 2026-12 is 1,221,226 bytes on its own. There is no decade of thin years to
-// spread over, there is one dense year that keeps getting denser, because
-// discovery ingests a rolling horizon of upcoming shows and past shows never
-// age out.
-//
-// A month is the coarsest grain that fits with room to grow. Serving these
-// bounds from a database holding the production show catalogue, the two fully
-// ingested months answered 380,528 and 377,804 raw bytes — 24.2% and 24.1% of
-// the cache item cap once the frontend had written them, against the releases
-// sub-shards' 20-27%. So a fully ingested month has 3.3x of headroom below the
-// 80% gate and 4.1x below the cap, on a corpus growing at roughly 3,800 shows a
-// month. The month grain is also what keeps this family under the sitemap
-// protocol's 50,000-URL-per-document limit, which a year shard would reach on
-// the same growth curve as the byte cap.
-//
-// TOTALITY. The head shard is open below and the tail shard is open above, so
-// every event_date lands in exactly one range whatever the enumerated span is —
-// the argument releaseShards rests on, applied to instants. Show.EventDate is
-// NOT NULL, so there is no undated bucket to provide.
-//
-// AN ID NAMES ITS UTC MONTH, NOT THE SLUG DATES INSIDE IT, and for this
-// catalogue those differ by a day. utils.GenerateShowSlug dates a slug in the
-// VENUE's zone, and a US evening show is stored at 02:00-05:00 UTC the
-// following day, so shows-2026-09 holds slugs dated roughly 2026-08-31 to
-// 2026-09-29. Harmless — the bucket appears in no URL and the partition is
-// total and disjoint either way — but do not read a shard id as a filter over
-// slug dates when chasing a specific show.
-//
-// MOST OF THESE SHARDS SERVE AN EMPTY DOCUMENT TODAY, since the catalogue
-// occupies four months of the enumerated span. That is deliberate: the ids are
-// a fixed table on both sides, so the index can list every shard and the
-// monitor can name one that goes missing. An index that omitted empties would
-// trade that named error for silence, and it would have to be computed from the
-// data rather than the table.
-func showShards() []sitemapShard {
-	first := showShardYears[0]
-	last := showShardYears[len(showShardYears)-1]
-
-	shards := make([]sitemapShard, 0, len(showShardYears)*12+2)
-	shards = append(shards, sitemapShard{
-		family: "shows",
-		id:     fmt.Sprintf("shows-before-%d", first),
-		column: showShardColumn,
-		before: monthStartUTC(first, time.January),
-	})
-	for _, year := range showShardYears {
-		for month := time.January; month <= time.December; month++ {
-			shards = append(shards, sitemapShard{
-				family: "shows",
-				id:     fmt.Sprintf("shows-%d-%02d", year, int(month)),
-				column: showShardColumn,
-				from:   monthStartUTC(year, month),
-				before: monthStartUTC(year, month+1),
-			})
-		}
+// bucketShards enumerates a family's buckets in residue order.
+func bucketShards(family string, buckets int) []sitemapShard {
+	shards := make([]sitemapShard, 0, buckets)
+	for bucket := 0; bucket < buckets; bucket++ {
+		shards = append(shards, sitemapShard{
+			family:  family,
+			id:      sitemapShardID(family, bucket),
+			buckets: buckets,
+			bucket:  bucket,
+		})
 	}
-	shards = append(shards, sitemapShard{
-		family: "shows",
-		id:     fmt.Sprintf("shows-from-%d", last+1),
-		column: showShardColumn,
-		from:   monthStartUTC(last+1, time.January),
-	})
 	return shards
 }
 
-// monthStartUTC is the first instant of a UTC calendar month. time.Date
-// normalises an out-of-range month, so December + 1 is the following January.
-func monthStartUTC(year int, month time.Month) time.Time {
-	return time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+// sitemapShardID is the wire value and route segment for one bucket. The `b`
+// separates the residue from the family name so no id can collide with a family
+// name or with another family's id.
+func sitemapShardID(family string, bucket int) string {
+	return fmt.Sprintf("%s-b%d", family, bucket)
 }
 
-// sitemapShardsByFamily is the definition: which families are sub-sharded, and
-// into what. Grouped rather than flat because a shard's family is what decides
-// which scope its bounds may narrow, and a map key cannot disagree with the
-// group it keys.
+// sitemapShardsByFamily is every sub-sharded family's buckets, keyed by family.
 //
-// Keep the ids in sync with SHOW_SHARD_IDS and RELEASE_SHARD_IDS in
-// frontend/app/sitemap-shards.ts and with the `family` enum on
-// GetSitemapEntriesRequest, the same way sitemapFamilies above is. The enum
-// half is test-enforced (TestSitemapFamilyEnumMatchesTheService); the frontend
-// half is enforced by `bun run api:types` regenerating the wire enum those
-// lists are declared against, so a renamed id fails tsc there.
-var sitemapShardsByFamily = map[string][]sitemapShard{
-	"shows":    showShards(),
-	"releases": releaseShards,
+// Keep the ids in sync with SHOW_SHARD_IDS, ARTIST_SHARD_IDS and
+// RELEASE_SHARD_IDS in frontend/app/sitemap-shards.ts and with the `family`
+// enum on GetSitemapEntriesRequest, the same way sitemapFamilies above is. The
+// enum half is test-enforced (TestSitemapFamilyEnumMatchesTheService); the
+// frontend half is enforced by `bun run api:types` regenerating the wire enum
+// those lists are declared against, which fails tsc on a renamed id through
+// `satisfies` and on an ADDED id through AssertEveryWireValueServed.
+var sitemapShardsByFamily = buildSitemapShards()
+
+func buildSitemapShards() map[string][]sitemapShard {
+	byFamily := make(map[string][]sitemapShard, len(sitemapShardsPerFamily))
+	for family, buckets := range sitemapShardsPerFamily {
+		byFamily[family] = bucketShards(family, buckets)
+	}
+	return byFamily
 }
 
-// sitemapShards is every sub-shard, flattened in sitemapFamilies order — the
-// order the frontend's FAMILY_BY_SHARD_ID walks, so the two tables enumerate
-// identically. Ranging a map directly would put the enum in a different order
-// on every run.
+// sitemapShards is every sub-shard, flattened in sitemapFamilies order, which
+// is the order the frontend's FAMILY_BY_SHARD_ID walks, so the two tables
+// enumerate identically. Ranging a map directly would put the enum in a
+// different order on every run.
 var sitemapShards = flattenSitemapShards()
 
 func flattenSitemapShards() []sitemapShard {
@@ -319,8 +206,8 @@ func flattenSitemapShards() []sitemapShard {
 }
 
 // SitemapFamilyValues is every accepted value of the `family` query parameter,
-// in enum order: the entity families, then the sub-shard ids that address a
-// slice of one.
+// in enum order: the entity families, then the sub-shard ids that address one
+// bucket of one.
 //
 // Paired with SitemapFamilyValuesCSV below, mirroring
 // contracts.SetTypeVocabulary / SetTypeVocabularyCSV — the same problem
@@ -343,7 +230,7 @@ func SitemapFamilyValuesCSV() string {
 	return strings.Join(SitemapFamilyValues(), ",")
 }
 
-// sitemapShardByID returns the slice a sub-shard id names, or nil.
+// sitemapShardByID returns the bucket a sub-shard id names, or nil.
 func sitemapShardByID(id string) *sitemapShard {
 	for i := range sitemapShards {
 		if sitemapShards[i].id == id {
@@ -353,19 +240,36 @@ func sitemapShardByID(id string) *sitemapShard {
 	return nil
 }
 
-// narrow applies the shard's bounds to its family's scope. A nil shard is the
+// narrow restricts a family's scope to this shard's bucket. A nil shard is the
 // whole family, which is what an unsharded `?family=releases` still asks for.
+//
+// The predicate is taken on the primary key, so it needs no per-family
+// spelling, and it is applied to whichever scope its own family's branch in
+// Entries passes in. The failure it cannot catch is a family added to
+// sitemapShardsPerFamily whose branch never calls narrow: every bucket then
+// serves the whole family. TestSitemapSubShardsBucketEveryFamilyExactly is what
+// catches that, by asserting no shard serves the whole row set.
+//
+// The bucket count and residue are package-owned integers from
+// sitemapShardsPerFamily, never caller input: a caller supplies only an id,
+// which sitemapShardByID either resolves to one of these shards or rejects.
+//
+// THE PREDICATE IS NOT SARGABLE, and that is measured rather than assumed. On
+// the production catalogue mirrored into a local database (28,725 release,
+// 13,163 show and 13,499 artist ROWS, which is the dev seed on top of the
+// production slug sets counted on sitemapShard above) the
+// planner takes a sequential scan plus a quicksort per bucket: releases 4.9 ms
+// and 345 shared buffers against 5.6 ms and 1,123 for the whole family through
+// idx_releases_slug, shows 1.5 ms, artists 1.0 ms. So serving a family in eight
+// buckets costs about 2.5x the buffer traffic of serving it whole, for roughly
+// 40 ms of work per family per regeneration, all from shared buffers. An
+// expression index on ((id % N)) would remove the scans and would have to be
+// rebuilt on every change of N; the numbers say it buys nothing worth that.
 func (shard *sitemapShard) narrow(scope *gorm.DB) *gorm.DB {
 	if shard == nil {
 		return scope
 	}
-	if shard.from != nil {
-		scope = scope.Where(shard.column+" >= ?", shard.from)
-	}
-	if shard.before != nil {
-		scope = scope.Where(shard.column+" < ?", shard.before)
-	}
-	return scope
+	return scope.Where("id % ? = ?", shard.buckets, shard.bucket)
 }
 
 // SitemapService answers the sitemap generator's one question: which slugs are
@@ -398,10 +302,10 @@ func NewSitemapService(database *gorm.DB) *SitemapService {
 // budgets) stay independent. An unknown family is an error.
 //
 // family also accepts a SUB-SHARD id, which populates one family's field with
-// one slice of it: a slug range of releases (PSY-1763) or a UTC event month of
-// shows (PSY-2018). See sitemapShard for why those two families outgrew a
-// single cache entry, and releaseShards / showShards for why each is keyed the
-// way it is. It is carried in this same parameter rather than a second one on
+// one bucket of it: `shows-b3` is the approved shows whose primary key is 3
+// modulo 8. See sitemapShard for which families are bucketed and why, and
+// sitemapShardsPerFamily for how many buckets each gets. It is carried in this
+// same parameter rather than a second one on
 // purpose: an old backend rejects an unrecognised `family` with 422, which the
 // generator already degrades to an empty shard for one deploy window
 // (UNKNOWN_FAMILY_STATUSES in frontend/app/sitemap.ts). A separate parameter
@@ -429,16 +333,16 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		Tags:       []contracts.SitemapEntry{},
 	}
 
-	// A sub-shard id resolves to the family it slices plus the range to slice
-	// it by, so everything downstream reasons in families only.
+	// A sub-shard id resolves to the family it buckets plus the residue to
+	// select, so everything downstream reasons in families only.
 	//
-	// THIS IS ALSO WHAT KEEPS A SHARD'S BOUNDS OFF ANOTHER FAMILY'S SCOPE. A
-	// shard carries the COLUMN its range is taken on, and each family's scope
-	// resolves to a different table. Because family becomes the shard's own
-	// family here, the only want() branch a non-nil shard can reach is that
-	// family's, so each `shard.narrow` below is narrowing a scope the column
-	// exists on. Nothing re-checks it downstream: a wrong column is a query
-	// error, not a quietly wrong answer.
+	// THIS IS ALSO WHAT KEEPS ONE FAMILY'S BUCKET OFF ANOTHER FAMILY'S SCOPE.
+	// Because family becomes the shard's own family here, the only want()
+	// branch a non-nil shard can reach is that family's. The predicate is taken
+	// on the primary key, which every family's table has, so a shard filed
+	// under the wrong family would narrow silently rather than error: the guard
+	// is the shard table being generated per family and asserted against its
+	// ids, not a column that fails to resolve.
 	shard := sitemapShardByID(family)
 	if shard != nil {
 		family = shard.family
@@ -458,8 +362,8 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// dead URLs. Grep ShowStatusApproved rather than trusting any single
 		// site — the reachability rule is enforced in many places and can drift.
 		//
-		// A nil shard is the whole family; the event-month range predicate lives
-		// on the shard so the scope here stays the plain single-table projection
+		// A nil shard is the whole family; the bucket predicate lives on the
+		// shard so the scope here stays the plain single-table projection
 		// entriesFor requires.
 		shows, err := s.entriesFor(
 			ctx,
@@ -474,7 +378,10 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("artists") {
-		artists, err := s.entriesFor(ctx, s.db.Model(&catalogm.Artist{}))
+		// A nil shard is the whole family; the bucket predicate lives on the
+		// shard so the scope here stays the plain single-table projection
+		// entriesFor requires.
+		artists, err := s.entriesFor(ctx, shard.narrow(s.db.Model(&catalogm.Artist{})))
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect artist sitemap entries: %w", err)
 		}
@@ -522,7 +429,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("releases") {
-		// A nil shard is the whole family; the range predicate lives on the
+		// A nil shard is the whole family; the bucket predicate lives on the
 		// shard so the scope here stays the plain single-table projection
 		// entriesFor requires.
 		releases, err := s.entriesFor(ctx, shard.narrow(s.db.Model(&catalogm.Release{})))

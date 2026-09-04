@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
+import { shardIdsFor, SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
 import { resolveConfig, type MonitorConfig } from './config'
 import {
   allowedDrift,
@@ -26,6 +26,9 @@ function input(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
     observedPages: 12,
     observedOther: 0,
     expectedByFamily: counts(),
+    observedByShard: new Map(),
+    expectedByShard: new Map(),
+    unservedShards: [],
     futureShowCount: 500,
     samples: [],
     errors: [],
@@ -213,6 +216,132 @@ describe('evaluate', () => {
     const observed = { observedByFamily: counts({ shows: 1457 }), expectedByFamily: counts({ shows: 1458 }) }
     expect(evaluate(input(observed), config).ok).toBe(true)
     expect(evaluate(input(observed), strict).ok).toBe(false)
+  })
+})
+
+/**
+ * The per-document half of the verdict, and the reason it exists: a family
+ * comparison cannot see one document of a sub-sharded family going dark,
+ * because a bucket is a fraction of its family and that fraction sits inside
+ * the drift tolerance.
+ */
+describe('evaluate, per shard', () => {
+  const SHOWS_BUCKETS = shardIdsFor('shows')
+
+  /** Every shows bucket healthy at `each` rows, with `overrides` applied. */
+  function showBuckets(each: number, overrides: Record<string, number> = {}) {
+    const observed = new Map<string, number>()
+    const expected = new Map<string, number>()
+    for (const shard of SHOWS_BUCKETS) {
+      expected.set(shard, each)
+      observed.set(shard, overrides[shard] ?? each)
+    }
+    const total = SHOWS_BUCKETS.length * each
+    const served = [...observed.values()].reduce((sum, n) => sum + n, 0)
+    return input({
+      observedByShard: observed,
+      expectedByShard: expected,
+      observedByFamily: counts({ shows: served }),
+      expectedByFamily: counts({ shows: total }),
+    })
+  }
+
+  it('passes when every document matches the feed', () => {
+    const report = evaluate(showBuckets(1600), config)
+
+    expect(report.ok).toBe(true)
+    expect(report.shards.filter(s => s.family === 'shows')).toHaveLength(SHOWS_BUCKETS.length)
+  })
+
+  /**
+   * The whole reason for the per-document check. One bucket of eight is 12.5%
+   * of its family, which clears the default 20% family tolerance, so the family
+   * comparison passes and without this the loss would be reported nowhere.
+   */
+  it('names a document that serves nothing while its family passes', () => {
+    const dark = SHOWS_BUCKETS[2]
+    const report = evaluate(showBuckets(1600, { [dark]: 0 }), config)
+
+    expect(report.families.find(f => f.family === 'shows')?.ok).toBe(true)
+    expect(report.ok).toBe(false)
+    expect(report.failures).toContainEqual(
+      `vanished — shard ${dark}: the API has 1600 entries and the document serves NONE`
+    )
+    expect(report.shards.find(s => s.shard === dark)?.vanished).toBe(true)
+  })
+
+  it('reports a document that drifted past its own tolerance', () => {
+    const drifted = SHOWS_BUCKETS[1]
+    const report = evaluate(showBuckets(1600, { [drifted]: 1000 }), config)
+
+    expect(report.failures).toContainEqual(
+      `drift — shard ${drifted}: sitemap 1000 vs API 1600 (600 missing, tolerance ±320)`
+    )
+  })
+
+  // A document that never answered is already reported as a fetch error. Scoring
+  // it as zero observed would blame the sitemap for a transport failure.
+  it('stays silent about a document that was never fetched', () => {
+    const missing = SHOWS_BUCKETS[3]
+    const base = showBuckets(1600)
+    const observed = new Map(base.observedByShard)
+    observed.delete(missing)
+    const report = evaluate({ ...base, observedByShard: observed }, config)
+
+    expect(report.failures).toEqual([])
+    expect(report.shards.map(s => s.shard)).not.toContain(missing)
+  })
+
+  // A document with no expected count is not scored: inventing a zero would
+  // print a failure whose own numbers say nothing failed. The reason it has no
+  // count is reported by its own class, below.
+  it('does not score a document the feed reported no count for', () => {
+    const unexpected = SHOWS_BUCKETS[4]
+    const base = showBuckets(1600)
+    const expected = new Map(base.expectedByShard)
+    expected.delete(unexpected)
+    const report = evaluate({ ...base, expectedByShard: expected }, config)
+
+    expect(report.shards.map(s => s.shard)).not.toContain(unexpected)
+  })
+
+  /**
+   * The deploy window this whole scheme is built to tolerate: the frontend
+   * lists an id the deployed backend does not recognise yet. It has to be a
+   * red report naming the ids, not a crash alert, because the sitemap really is
+   * short and "the monitor could not run" says the opposite.
+   */
+  it('fails, naming the ids, when the API does not serve a shard', () => {
+    const unserved = SHOWS_BUCKETS[5]
+    const report = evaluate({ ...showBuckets(1600), unservedShards: [unserved] }, config)
+
+    expect(report.ok).toBe(false)
+    expect(report.failures).toContainEqual(
+      `unserved — shard ${unserved}: the API does not serve this id, so its URLs are announced by nobody`
+    )
+  })
+
+  /**
+   * Ordering, not wording: the Discord field truncates, so the one-line classes
+   * have to precede the class that arrives eight or twenty-four lines at a time.
+   */
+  it('reports a vanished document before proportional drift', () => {
+    const dark = SHOWS_BUCKETS[0]
+    const drifted = SHOWS_BUCKETS[1]
+    const report = evaluate(showBuckets(1600, { [dark]: 0, [drifted]: 800 }), config)
+    const vanishedAt = report.failures.findIndex(f => f.startsWith('vanished — shard'))
+    const driftAt = report.failures.findIndex(f => f.startsWith('drift — shard'))
+
+    expect(vanishedAt).toBeGreaterThanOrEqual(0)
+    expect(driftAt).toBeGreaterThan(vanishedAt)
+  })
+
+  // A single-document family is already covered by its FamilyComparison, and
+  // comparing it twice would print one problem as two failures.
+  it('does not compare a family served by one document', () => {
+    const report = evaluate(showBuckets(1600), config)
+
+    expect(report.shards.map(s => s.shard)).not.toContain('venues')
   })
 })
 

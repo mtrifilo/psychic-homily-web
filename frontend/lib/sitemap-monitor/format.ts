@@ -6,7 +6,7 @@
  * as no alert — which is the state this monitor exists to leave behind.
  */
 
-import type { Report } from './evaluate'
+import type { Comparison, Report } from './evaluate'
 
 /** Matches the backend's Discord embed palette in services/notification/discord.go. */
 const COLOR_RED = 0xff0000
@@ -53,15 +53,37 @@ function sampleTally(report: Report): string {
   return `${report.samples.filter(s => s.ok).length}/${report.samples.length}`
 }
 
-/** `shows  1458 / 1458  (+0, ±292)` — one aligned line per family. */
-function familyLines(report: Report): string[] {
-  const width = Math.max(...report.families.map(c => c.family.length))
-  return report.families.map(c => {
-    const mark = c.ok ? 'ok  ' : 'FAIL'
-    const sign = c.delta > 0 ? '+' : ''
-    const note = c.vanished ? ' VANISHED' : ''
-    return `${mark} ${c.family.padEnd(width)}  sitemap ${c.observed} / api ${c.expected}  (${sign}${c.delta}, tol ±${c.allowed})${note}`
+/**
+ * `ok   shows  sitemap 1458 / api 1458  (+0, tol ±292)` — one aligned line per
+ * labelled comparison, so the family table and the per-document table below it
+ * cannot word the same numbers differently.
+ */
+function comparisonLines(rows: ReadonlyArray<{ label: string } & Comparison>): string[] {
+  if (rows.length === 0) return []
+  const width = Math.max(...rows.map(row => row.label.length))
+  return rows.map(row => {
+    const mark = row.ok ? 'ok  ' : 'FAIL'
+    const sign = row.delta > 0 ? '+' : ''
+    const note = row.vanished ? ' VANISHED' : ''
+    return `${mark} ${row.label.padEnd(width)}  sitemap ${row.observed} / api ${row.expected}  (${sign}${row.delta}, tol ±${row.allowed})${note}`
   })
+}
+
+/** One line per family. */
+function familyLines(report: Report): string[] {
+  return comparisonLines(report.families.map(c => ({ ...c, label: c.family })))
+}
+
+/**
+ * One line per sub-shard document.
+ *
+ * Written to the Actions log only. The Discord embed carries the family table
+ * plus the failure list: a per-document table is one line per bucket of every
+ * sub-sharded family, which is noise in a phone notification, and the failing
+ * documents are named in the failure list anyway.
+ */
+function shardLines(report: Report): string[] {
+  return comparisonLines(report.shards.map(c => ({ ...c, label: c.shard })))
 }
 
 /** The full human-readable report written to the Actions log. */
@@ -78,6 +100,8 @@ export function formatConsoleReport(report: Report): string {
     '',
     ...familyLines(report),
     '',
+    ...shardLines(report),
+    ...(report.shards.length > 0 ? [''] : []),
     `${report.futureShows.ok ? 'ok  ' : 'FAIL'} upcoming shows  ${report.futureShows.observed} (need ≥ ${report.futureShows.required})`,
     `${report.samples.every(s => s.ok) ? 'ok  ' : 'FAIL'} sampled URLs    ${sampleTally(report)} reachable`,
   ]

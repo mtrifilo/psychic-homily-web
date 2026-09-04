@@ -37,7 +37,7 @@ export type ArtistListItem = components['schemas']['ArtistListingEntry']
  * WHAT IT COSTS. 100 of ~6,200 is a real truncation and nothing reports the
  * shortfall — the same defect PSY-1764 tracks on `/venues` at 100 of 198, an
  * order of magnitude larger. It does NOT cost discoverability: every slugged
- * artist is in the `/sitemap/artists.xml` shard, a superset of this
+ * artist is in the `/sitemap/artists-b0.xml` shard, a superset of this
  * activity-gated set. That is not an advantage over `/venues`, which has its own
  * shard on the same footing; sitemap coverage is why the truncation is
  * survivable on both, not why it is cheaper here. What is lost is `ItemList`

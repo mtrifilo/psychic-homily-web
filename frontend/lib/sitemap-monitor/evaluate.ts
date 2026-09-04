@@ -7,23 +7,40 @@
  * isolation if it does no I/O. fetch.ts gathers, this file judges.
  */
 
-import { SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
+import { shardIdsFor, SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
 import type { MonitorConfig } from './config'
 import type { SitemapShape } from './parse'
 
-export interface FamilyComparison {
-  family: Family
-  /** `<loc>` count for this family in the served sitemap. */
+/** One served count against the count the API reports for the same thing. */
+export interface Comparison {
+  /** `<loc>` count in the served sitemap. */
   observed: number
-  /** Entry count the API reports for this family. */
+  /** Entry count the API reports. */
   expected: number
   /** observed - expected. Negative means the sitemap is missing URLs. */
   delta: number
-  /** The largest |delta| tolerated for this family under the current config. */
+  /** The largest |delta| tolerated under the current config. */
   allowed: number
   ok: boolean
   /** The API has entries but the sitemap serves none — a failure at any tolerance. */
   vanished: boolean
+}
+
+export interface FamilyComparison extends Comparison {
+  family: Family
+}
+
+/**
+ * One sub-shard's served count against what the API says it should hold.
+ *
+ * Only sub-shards are compared here. A family served by a single document is
+ * already covered by its FamilyComparison, and comparing it twice would print
+ * the same drift as two failures. A document that was never fetched is absent
+ * from this list, because the walk already reported why.
+ */
+export interface ShardComparison extends Comparison {
+  shard: string
+  family: Family
 }
 
 export interface SampleResult {
@@ -43,6 +60,12 @@ export interface EvaluationInput {
   /** `<loc>`s matching no known family — informational, never a failure. */
   observedOther: number
   expectedByFamily: Record<Family, number>
+  /** `<loc>` count per shard document actually fetched from the sitemap. */
+  observedByShard: ReadonlyMap<string, number>
+  /** Entry count the API reports for each entity shard document. */
+  expectedByShard: ReadonlyMap<string, number>
+  /** Shard ids the API says it does not serve. */
+  unservedShards: readonly string[]
   /** Shows dated today or later, by slug date. */
   futureShowCount: number
   samples: SampleResult[]
@@ -56,6 +79,8 @@ export interface Report {
   shape: SitemapShape
   shardCount: number
   families: FamilyComparison[]
+  /** Per-document comparisons, for the sub-sharded families only. */
+  shards: ShardComparison[]
   observedPages: number
   observedOther: number
   observedTotal: number
@@ -84,50 +109,107 @@ export function allowedDrift(expected: number, config: MonitorConfig): number {
   return Math.max(config.driftFloor, Math.ceil(expected * config.driftRatio))
 }
 
+/**
+ * Score one served count against one expected count.
+ *
+ * `vanished` is separate from the tolerance because the absolute floor exists
+ * to keep SMALL sets quiet and that also makes them unmonitorable: `festivals`
+ * has 10 entries and the default floor is 10, so the whole family disappearing
+ * would sit exactly inside budget and report green. Total disappearance is the
+ * defect class this monitor exists to catch, so it fails at any tolerance.
+ */
+function compare(observed: number, expected: number, config: MonitorConfig): Comparison {
+  const delta = observed - expected
+  const allowed = allowedDrift(expected, config)
+  const vanished = expected > 0 && observed === 0
+  return {
+    observed,
+    expected,
+    delta,
+    allowed,
+    ok: !vanished && Math.abs(delta) <= allowed,
+    vanished,
+  }
+}
+
 function compareFamilies(
   input: EvaluationInput,
   config: MonitorConfig
 ): FamilyComparison[] {
-  return SITEMAP_FAMILIES.map(family => {
-    const observed = input.observedByFamily[family] ?? 0
-    const expected = input.expectedByFamily[family] ?? 0
-    const delta = observed - expected
-    const allowed = allowedDrift(expected, config)
-    // The absolute floor exists to keep SMALL families quiet, but it also makes
-    // them unmonitorable: `festivals` has 10 entries and the default floor is
-    // 10, so the whole family disappearing would sit exactly inside budget and
-    // report green. Total disappearance is the defect class this monitor exists
-    // to catch, so it fails regardless of tolerance.
-    const vanished = expected > 0 && observed === 0
-    return {
-      family,
-      observed,
-      expected,
-      delta,
-      allowed,
-      ok: !vanished && Math.abs(delta) <= allowed,
-      vanished,
-    }
-  })
+  return SITEMAP_FAMILIES.map(family => ({
+    family,
+    ...compare(input.observedByFamily[family] ?? 0, input.expectedByFamily[family] ?? 0, config),
+  }))
 }
 
-function describeDrift(c: FamilyComparison): string {
+/**
+ * Compare every sub-shard document against the count the API reports for it.
+ *
+ * This is what covers the loss a family comparison cannot see: one document of
+ * a sub-sharded family going dark costs a fraction of its family, and whether
+ * that fraction clears `driftRatio` is an accident of the bucket count rather
+ * than something a check should depend on. Per document, an empty answer where
+ * the API has rows is a failure at any tolerance and names which document.
+ *
+ * Single-document families are deliberately skipped: their FamilyComparison is
+ * the same comparison, and running both would report one problem twice.
+ *
+ * A document missing from either side is skipped rather than scored: the walk
+ * reports why it was not fetched, and an absent expected count is reported by
+ * `unservedShards` or by fetchExpectedCounts throwing. Inventing a number for
+ * either would produce a failure line whose own figures say nothing failed.
+ */
+function compareShards(
+  input: EvaluationInput,
+  config: MonitorConfig
+): ShardComparison[] {
+  const comparisons: ShardComparison[] = []
+  for (const family of SITEMAP_FAMILIES) {
+    const ids = shardIdsFor(family)
+    if (ids.length < 2) continue
+    for (const shard of ids) {
+      const observed = input.observedByShard.get(shard)
+      if (observed === undefined) continue
+      const expected = input.expectedByShard.get(shard)
+      if (expected === undefined) continue
+      comparisons.push({ shard, family, ...compare(observed, expected, config) })
+    }
+  }
+  return comparisons
+}
+
+/** `shows: sitemap 1458 vs API 1462 (4 missing, tolerance ±292)`. */
+function describeDrift(label: string, c: Comparison): string {
   const direction = c.delta < 0 ? 'missing' : 'extra'
-  return `${c.family}: sitemap ${c.observed} vs API ${c.expected} (${Math.abs(c.delta)} ${direction}, tolerance ±${c.allowed})`
+  return `${label}: sitemap ${c.observed} vs API ${c.expected} (${Math.abs(c.delta)} ${direction}, tolerance ±${c.allowed})`
 }
 
 export function evaluate(input: EvaluationInput, config: MonitorConfig): Report {
   const families = compareFamilies(input, config)
+  const shards = compareShards(input, config)
   const futureShows = {
     observed: input.futureShowCount,
     required: config.minFutureShows,
     ok: input.futureShowCount >= config.minFutureShows,
   }
 
+  // ORDERED BY CLASS, WORST FIRST, because this list is rendered into a Discord
+  // field that truncates at MAX_FIELD_VALUE characters (characters, not bytes:
+  // these lines carry em dashes and ± signs). Proportional drift
+  // trips a family and every one of its documents at once (buckets hold equal
+  // shares), so the drift classes are the repetitive ones and go last; a
+  // vanished document is one line and names thousands of missing URLs, so it
+  // must not be the line that gets cut.
   const failures: string[] = []
 
   for (const error of input.errors) {
     failures.push(`fetch: ${error}`)
+  }
+
+  for (const shard of input.unservedShards) {
+    failures.push(
+      `unserved — shard ${shard}: the API does not serve this id, so its URLs are announced by nobody`
+    )
   }
 
   for (const comparison of families) {
@@ -135,8 +217,14 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
       failures.push(
         `vanished — ${comparison.family}: the API has ${comparison.expected} entries and the sitemap serves NONE`
       )
-    } else if (!comparison.ok) {
-      failures.push(`drift — ${describeDrift(comparison)}`)
+    }
+  }
+
+  for (const comparison of shards) {
+    if (comparison.vanished) {
+      failures.push(
+        `vanished — shard ${comparison.shard}: the API has ${comparison.expected} entries and the document serves NONE`
+      )
     }
   }
 
@@ -147,9 +235,21 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     )
   }
 
+  for (const comparison of families) {
+    if (!comparison.vanished && !comparison.ok) {
+      failures.push(`drift — ${describeDrift(comparison.family, comparison)}`)
+    }
+  }
+
   const badSamples = input.samples.filter(sample => !sample.ok)
   for (const sample of badSamples) {
     failures.push(`unreachable — ${sample.url} → ${sample.error ?? sample.status}`)
+  }
+
+  for (const comparison of shards) {
+    if (!comparison.vanished && !comparison.ok) {
+      failures.push(`drift — ${describeDrift(`shard ${comparison.shard}`, comparison)}`)
+    }
   }
 
   return {
@@ -158,6 +258,7 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     shape: input.shape,
     shardCount: input.shardCount,
     families,
+    shards,
     observedPages: input.observedPages,
     observedOther: input.observedOther,
     observedTotal:
@@ -175,10 +276,11 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
  * Draw at least one URL from EVERY bucket, `size` in total where possible.
  *
  * Sampling uniformly from all URLs pooled together would make the reachability
- * probe a releases-only check: releases is ~20k of the ~33k URLs, so a 10-URL
- * sample expects 0.44 shows and would probe the highest-churn families — shows,
- * and the newest routes, scene weeks — essentially never. A broken
- * `/scenes/{city}/{iso-week}` route could ship and stay green for weeks.
+ * probe a releases-only check: measured on 2026-09-03, releases is 28,720 emitted slugs of
+ * the ~57k entity URLs, and the small families are hundreds each, so a 10-URL
+ * sample expects 0.05 scene weeks and would probe the newest routes
+ * essentially never. A broken `/scenes/{city}/{iso-week}` route could ship and
+ * stay green for weeks.
  *
  * Guarantees one probe per non-empty bucket, so the per-bucket quota rises
  * above one only when `size` exceeds the bucket count.

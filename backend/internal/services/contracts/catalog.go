@@ -1254,7 +1254,7 @@ type ArtistWithShowCountResponse struct {
 // Truncating the RENDERED BLOCK was accepted for a different problem — page
 // weight, since the entries were serialised into the HTML and again into the
 // RSC flight payload — and is affordable because every artist URL is in the
-// /sitemap/artists.xml shard either way. So this endpoint still returns the
+// /sitemap/artists-b0.xml shard either way. So this endpoint still returns the
 // whole set, deliberately: the projection is what keeps it cacheable, and the
 // page decides how much of it to advertise. What that bound should be — and
 // whether this endpoint should take a `limit` of its own now that its sibling

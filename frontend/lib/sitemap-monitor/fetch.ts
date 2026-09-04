@@ -9,8 +9,8 @@ import {
   ALL_SHARD_IDS,
   ENTITY_SHARD_IDS,
   shardFamily,
+  shardIdsFor,
   SITEMAP_FAMILIES,
-  subShardsCanBeEmpty,
   PAGES_SHARD_ID,
   type Family,
 } from '@/app/sitemap-shards'
@@ -41,13 +41,18 @@ export interface SitemapObservation {
    * host would send that secret to it. Storing them target-anchored makes the
    * off-origin case unrepresentable rather than merely unlikely.
    *
-   * Grouped rather than flat so the reachability sample can be STRATIFIED.
-   * Drawing uniformly from the concatenation would make the probe a
-   * releases-only check: releases is ~20k of the ~33k URLs, so a 10-URL sample
-   * expects 0.44 shows and would probe the highest-churn families essentially
-   * never.
+   * Grouped rather than flat so the reachability sample can be STRATIFIED. The
+   * reasoning and the measured shares are on pickStratifiedSample in
+   * evaluate.ts, which owns that sampling design.
    */
   locsByBucket: Map<LocBucket, string[]>
+  /**
+   * `<loc>` count per shard document, for the shards that were fetched and
+   * parsed. A shard that errored is absent rather than zero: its failure is
+   * already an error above, and reporting it as an empty document would blame
+   * the sitemap for a transport problem.
+   */
+  observedByShard: Map<string, number>
   /** Slug dates of every show URL that carries one. */
   showDates: string[]
   errors: string[]
@@ -152,14 +157,22 @@ async function requestFollowing(
  * a muted alert is the end state this whole monitor exists to avoid.
  *
  * 4xx is NOT retried: a 404 on the entries feed is a real, stable answer, and
- * retrying it just doubles the time to the same verdict.
+ * retrying it just doubles the time to the same verdict. 429 is the exception,
+ * because it is the one 4xx that says "ask again": the API can rate-limit
+ * anonymous callers per IP (APIRequestsPerMinute, 100, when
+ * ENABLE_PUBLIC_READ_RATE_LIMITS is set) and this job asks for one document
+ * plus one count per shard, so a burst that clips the limiter must cost a retry
+ * rather than the whole run. The retry waits retryDelayMs, which is shorter
+ * than the limiter's window, so a sustained clip still fails the run rather
+ * than waiting it out.
  */
 async function withRetry<T>(attempt: () => Promise<T>, retryDelayMs: number): Promise<T> {
   try {
     return await attempt()
   } catch (error) {
+    if (error instanceof UnservedShardError) throw error
     const message = (error as Error).message
-    const isClientError = /returned 4\d\d/.test(message)
+    const isClientError = /returned 4\d\d/.test(message) && !/returned 429/.test(message)
     if (isClientError) throw error
     await new Promise(resolve => setTimeout(resolve, retryDelayMs))
     return attempt()
@@ -229,7 +242,7 @@ async function fetchDocument(url: string, config: MonitorConfig): Promise<string
  *
  * NOT cosmetic. app/sitemap-index/route.ts hardcodes the production base URL in
  * every `<loc>`, so the index served by stage — or by a preview deployment —
- * lists `https://psychichomily.com/sitemap/artists.xml`. Following those links
+ * lists `https://psychichomily.com/sitemap/artists-b0.xml`. Following those links
  * verbatim would silently measure PRODUCTION while reporting the stage target,
  * which is worse than not checking at all. Verified against stage on
  * 2026-07-30.
@@ -255,11 +268,17 @@ export function rebaseOnTarget(loc: string, target: string): string {
 /**
  * How many shard documents are fetched at once.
  *
- * Six, not the shard count: the documents come from ONE origin that rate-limits
- * anonymous callers per IP, and this job also probes sampled URLs against the
- * same host. Six keeps a 40-document walk inside a couple of minutes of wall
- * clock while staying an order of magnitude under any per-minute limit, and it
- * does not have to move when the shard count does.
+ * Six, not the shard count: the documents come from ONE origin, this job also
+ * probes sampled URLs, and the count phase asks the API once per entity shard.
+ * Six keeps a walk of a few dozen documents inside a couple of minutes of wall
+ * clock, and it does not have to move when the shard count does.
+ *
+ * It bounds CONCURRENCY, not rate. The rate is what has to clear the API's
+ * anonymous per-IP limiter (APIRequestsPerMinute, 100, when
+ * ENABLE_PUBLIC_READ_RATE_LIMITS is set): the count phase asks once per entity
+ * shard plus once per sub-sharded family. Doubling a family's bucket count adds
+ * to both that number and the document walk, which is the term to check before
+ * doubling more than one family.
  */
 export const SHARD_FETCH_CONCURRENCY = 6
 
@@ -349,6 +368,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
     observedPages: 0,
     observedOther: 0,
     locsByBucket: new Map(),
+    observedByShard: new Map(),
     showDates: [],
     errors: [],
   }
@@ -373,21 +393,20 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
 
   const known = new Set<string>(ALL_SHARD_IDS)
   const listed = new Set<string>()
-  const locsPerShard = new Map<string, number>()
 
   // Fetched with bounded concurrency, folded in index order.
   //
-  // The walk used to be serial, and its worst case is a function of the shard
-  // count: one fetch timeout plus a retry delay plus one more fetch is 65s per
-  // document from the config defaults, so 39 shards is 44 minutes — past the
+  // Serially, the worst case is a function of the shard count: one fetch
+  // timeout plus a retry delay plus one more fetch is 65s per document from the
+  // config defaults, so a few dozen documents is most of an hour, past the
   // GitHub job ceiling, at which point the runner kills the process, main()'s
   // crash handler never runs, and NO alert is posted. Raising the ceiling
-  // instead would have made time-to-alarm 44 minutes on the one run that
-  // matters, and re-raised it on every future family split.
+  // instead would make time-to-alarm that long on the one run that matters, and
+  // re-raise it on every future family split.
   //
   // BOUNDED rather than `Promise.all` over all of them: these hit one origin,
-  // which rate-limits anonymous callers per IP, and a burst of 39 would be
-  // measuring the limiter rather than the sitemap.
+  // which rate-limits anonymous callers per IP, and a burst of every document
+  // at once would be measuring the limiter rather than the sitemap.
   //
   // Folding is a SEPARATE, ordered pass over the results rather than done in
   // the workers, because `observation.errors`, `showDates` and `locsByBucket`
@@ -406,6 +425,14 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   })
 
   for (const outcome of outcomes) {
+    // A document listed twice is counted twice into its family while the
+    // per-document table keeps the last write, so the inflation shows up
+    // nowhere else. One bucket of eight is 12.5% of its family, inside the
+    // default tolerance.
+    if (listed.has(outcome.id)) {
+      observation.errors.push(`sitemap index lists the "${outcome.id}" shard more than once`)
+      continue
+    }
     listed.add(outcome.id)
     if (outcome.error !== undefined) {
       observation.errors.push(outcome.error)
@@ -428,7 +455,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
         continue
       }
       // The shard id is NOT the family once a family is sub-sharded: counting
-      // `releases-a-e` as its own bucket would leave `releases` observed at
+      // `releases-b0` as its own bucket would leave `releases` observed at
       // zero, which the evaluator reports as a vanished family — a false alarm
       // that looks exactly like the real incident. Resolved through the shared
       // table so a new sub-shard cannot reintroduce the confusion.
@@ -454,7 +481,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
       for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
       if (bucket === 'shows') collectShowDates(locs, observation.showDates)
       countInto(observation, bucket, locs.length)
-      locsPerShard.set(id, locs.length)
+      observation.observedByShard.set(id, locs.length)
     } catch (error) {
       observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
@@ -476,115 +503,184 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
     }
   }
 
-  // A shard that is LISTED but serves an empty document is the same loss wearing
-  // a healthy face, and the check above cannot see it. A generator fetch that
-  // 400/422s degrades to an empty-but-valid <urlset> (UNKNOWN_FAMILY_STATUSES in
-  // app/sitemap.ts), so one range of a family can go dark while its siblings are
-  // fine.
-  //
-  // Scope, stated honestly: the ROLLOUT case (frontend ahead of backend) darkens
-  // every range at once, which leaves no lit sibling and is `vanished`'s job, not
-  // this one. And a backend serving a proper subset of its own shard table is
-  // now hard to merge — TestSitemapFamilyEnumMatchesTheService pins the enum to
-  // `releaseShards`. What is left is the partial case this cannot rule out: one
-  // range failing where the others succeed (a per-range backend fault, a cut
-  // point retired on one side, a shard whose build-time fetch alone degraded).
-  // Cheap, precise, and it names the document — worth having even though the
-  // loudest scenario is covered elsewhere.
-  //
-  // The family-level `vanished` rule in evaluate.ts does not cover it either —
-  // that needs the WHOLE family at zero. All that is left is drift, and one
-  // range is a fraction of its family: `releases-t-z` is ~20% of releases
-  // against a default 0.2 tolerance, i.e. detected by a couple of percent, and
-  // only by where the cut points happen to fall. That is the coincidence the
-  // per-shard check above exists to avoid depending on.
-  //
-  // Compared against SIBLINGS rather than against the API's expected counts,
-  // which walkSitemap does not have: a range serving nothing while another range
-  // of the same family serves rows cannot be a legitimately empty catalogue.
-  // A family that is entirely empty stays silent here and is `vanished`'s job.
-  //
-  // EXCEPT where emptiness carries no information. The inference above holds for
-  // a slug range and fails for a CALENDAR range, where an unbooked month is an
-  // ordinary fact rather than a fault: the shows span runs to the end of the
-  // year after next and most of it is empty on any given day, so this would fire
-  // on nearly every run and get the whole monitor muted.
-  //
-  // WHAT THAT COSTS, stated rather than glossed, because it is a real hole and
-  // it WIDENS. The exemption is family-granular while the property is
-  // per-shard, so a shows month serving an empty document is unreported
-  // whatever its size. What is left covering it is the family drift check, at a
-  // 20% default tolerance — and a month's share of the family only falls as the
-  // span fills. The hottest month is ~28% of the shows URLs today, because the
-  // catalogue is concentrated into four months; past shows never age out, so at
-  // six or more populated months every month is under tolerance and a dark one
-  // has NO signal at all. The per-shard membership check above is not the
-  // backstop either: it fires on a shard missing from the index, and the index
-  // is generated from a static table, so a shard that renders empty is always
-  // listed.
-  //
-  // The fix is per-SHARD expected counts from the API, which retires this
-  // heuristic and its exemption together; fetchExpectedCounts below is
-  // per-family today.
-  for (const [shardId, count] of locsPerShard) {
-    if (count > 0 || shardId === PAGES_SHARD_ID) continue
-    const family = shardFamily(shardId)
-    if (!family || subShardsCanBeEmpty(family)) continue
-    const siblingsWithRows = [...locsPerShard].some(
-      ([otherId, otherCount]) =>
-        otherId !== shardId && otherCount > 0 && shardFamily(otherId) === family
-    )
-    if (siblingsWithRows) {
-      observation.errors.push(
-        `shard "${shardId}" served an empty document while other shards of the ` +
-          `"${family}" family served URLs — that range is not being announced`
-      )
-    }
-  }
-
   return observation
 }
 
-/** Slug counts per family, straight from the projection feed. */
-export async function fetchExpectedCounts(
+/** What the projection feed says each document and each family should hold. */
+export interface ExpectedCounts {
+  /** Emitted-slug count per entity shard id. */
+  byShard: Map<string, number>
+  /**
+   * Emitted-slug count per family, from the UNBUCKETED query for a sub-sharded
+   * family. Not the sum of its buckets: see fetchExpectedCounts.
+   */
+  byFamily: Record<Family, number>
+  /**
+   * Shard ids the API answered "I do not serve that" for.
+   *
+   * A definite answer, not a failure, and the same one app/sitemap.ts degrades
+   * on: it is what a backend that predates a shard id says. Carried rather than
+   * thrown so the run still produces a verdict, because this is precisely the
+   * deploy window every other component is built to tolerate, and a crash alert
+   * there says "the monitor is broken" about a sitemap that is genuinely short.
+   */
+  unservedShards: string[]
+}
+
+/**
+ * The statuses that mean "this backend does not serve that shard id", matching
+ * UNKNOWN_FAMILY_STATUSES in app/sitemap.ts. 422 is huma rejecting the value
+ * against its enum, 400 is the service's own unknown-family guard.
+ */
+const UNSERVED_SHARD_STATUSES = new Set([400, 422])
+
+/**
+ * What the projection feed says each document, and each family, should hold.
+ *
+ * PER SHARD, because a per-family count cannot see one document of a
+ * sub-sharded family going dark: eight buckets carry an eighth of their family
+ * each, which sits inside the default 20% drift tolerance, so the family
+ * comparison would pass while thousands of URLs were missing. Asking the API
+ * what each document should hold turns that into a named, exact failure.
+ *
+ * AND PER FAMILY, asked SEPARATELY rather than summed from the buckets. Summing
+ * them would make the family expectation a product of the same bucketed queries
+ * the sitemap is built from, so a fault in the bucket predicate would answer
+ * every bucket empty, expect zero, and report green with a whole family absent
+ * from the index. The unbucketed query is a different predicate over the same
+ * table, which is what makes it an oracle rather than an echo.
+ *
+ * One request per entity shard plus one per sub-sharded family, so 34 today,
+ * against an API that rate-limits anonymous callers per IP. That is why they go
+ * through the same bounded pool the document walk uses, and why
+ * .github/workflows/sitemap-freshness.yml counts these waves in its timeout
+ * derivation.
+ *
+ * Failures are collected rather than thrown from inside the pool: a rejection
+ * there would abandon in-flight requests and report whichever one lost the race,
+ * so the throw happens once, after the fold, naming how many requests failed.
+ */
+export async function fetchExpectedCounts(config: MonitorConfig): Promise<ExpectedCounts> {
+  // A family whose shard id IS its name is asked for exactly once: its shard
+  // count is its family count, and asking twice would be the same query.
+  const subShardedFamilies = SITEMAP_FAMILIES.filter(family => shardIdsFor(family).length > 1)
+  const queries: Array<{ value: string; family: Family; isFamily: boolean }> = [
+    ...ENTITY_SHARD_IDS.map(shardId => ({
+      value: shardId,
+      family: shardFamily(shardId),
+      isFamily: false,
+    })),
+    ...subShardedFamilies.map(family => ({ value: family, family, isFamily: true })),
+  ].filter((query): query is { value: string; family: Family; isFamily: boolean } =>
+    query.family !== undefined
+  )
+
+  const outcomes = await mapWithConcurrency(
+    queries,
+    SHARD_FETCH_CONCURRENCY,
+    async (
+      query
+    ): Promise<{ value: string; count?: number; unserved?: boolean; error?: string }> => {
+      try {
+        return { value: query.value, count: await fetchShardCount(query.value, query.family, config) }
+      } catch (error) {
+        if (error instanceof UnservedShardError) return { value: query.value, unserved: true }
+        return { value: query.value, error: (error as Error).message }
+      }
+    }
+  )
+
+  const byShard = new Map<string, number>()
+  const byFamily = emptyCounts()
+  const unservedShards: string[] = []
+  const errors: string[] = []
+  // A shard id that maps to no family is a table inconsistency, not a request
+  // to make: it is dropped above and reported here so the count is not silently
+  // short.
+  for (const shardId of ENTITY_SHARD_IDS) {
+    if (!shardFamily(shardId)) {
+      errors.push(`shard "${shardId}" maps to no family — the shard table is inconsistent`)
+    }
+  }
+  for (const [index, outcome] of outcomes.entries()) {
+    const query = queries[index]
+    if (outcome.unserved) {
+      unservedShards.push(outcome.value)
+      continue
+    }
+    if (outcome.count === undefined) {
+      errors.push(outcome.error ?? `"${outcome.value}" returned no count`)
+      continue
+    }
+    if (query.isFamily) {
+      byFamily[query.family] = outcome.count
+      continue
+    }
+    byShard.set(outcome.value, outcome.count)
+    // A single-document family: its one shard's count is the family's, and no
+    // separate family query was made for it.
+    if (outcome.value === query.family) byFamily[query.family] = outcome.count
+  }
+
+  // Fail the whole run rather than compare against a partial expectation. A
+  // missing shard count would otherwise read as an expectation of zero, which
+  // makes a served document look like over-coverage instead of an API problem.
+  if (errors.length > 0) {
+    throw new Error(
+      `could not read expected counts for ${errors.length} of ${queries.length} queries: ${errors.join('; ')}`
+    )
+  }
+  return { byShard, byFamily, unservedShards }
+}
+
+/** The API answered that it does not serve this shard id. Not a failure. */
+class UnservedShardError extends Error {}
+
+/** Emitted-slug count for one shard, from the family field it populates. */
+async function fetchShardCount(
+  shardId: string,
+  family: Family,
   config: MonitorConfig
-): Promise<Record<Family, number>> {
-  const url = `${config.apiBase}/sitemap/entries`
+): Promise<number> {
+  const url = `${config.apiBase}/sitemap/entries?family=${encodeURIComponent(shardId)}`
   // No bypass header: the API is a separate origin and never SSO-gated.
   const body: unknown = await withRetry(async () => {
     const response = await fetch(url, {
       headers: { 'user-agent': USER_AGENT },
       signal: AbortSignal.timeout(config.fetchTimeoutMs),
     })
+    if (UNSERVED_SHARD_STATUSES.has(response.status)) {
+      await response.body?.cancel()
+      throw new UnservedShardError(`GET ${url} returned ${response.status}`)
+    }
     if (!response.ok) {
+      await response.body?.cancel()
       throw new Error(`GET ${url} returned ${response.status}`)
     }
-    return response.json()
+    // Read through the same cap the document walk uses: this path pulls a
+    // shard's whole payload to count its rows, six at a time, and an unbounded
+    // read here kills the process without an alert.
+    return JSON.parse(await readCapped(response, url))
   }, config.retryDelayMs)
   if (typeof body !== 'object' || body === null) {
     throw new Error(`GET ${url} did not return a JSON object`)
   }
 
-  const record = body as Record<string, unknown>
-  const counts = emptyCounts()
-  for (const family of SITEMAP_FAMILIES) {
-    const rows = record[family]
-    if (!Array.isArray(rows)) {
-      // Coercing a missing family to 0 would report it as 100% drift and blame
-      // the sitemap for an API-side problem. Fail on the real cause instead.
-      throw new Error(`GET ${url} is missing the "${family}" family`)
-    }
-    // Count only rows the sitemap would actually emit: app/sitemap.ts drops
-    // entries with an empty slug, so counting them here would manufacture
-    // drift that does not exist.
-    let emitted = 0
-    for (const row of rows) {
-      const slug = (row as { slug?: unknown } | null)?.slug
-      if (typeof slug === 'string' && slug !== '') emitted++
-    }
-    counts[family] = emitted
+  const rows = (body as Record<string, unknown>)[family]
+  if (!Array.isArray(rows)) {
+    // Coercing a missing family to 0 would report the shard as 100% drift and
+    // blame the sitemap for an API-side problem. Fail on the real cause instead.
+    throw new Error(`GET ${url} is missing the "${family}" family`)
   }
-  return counts
+  // Count only rows the sitemap would actually emit: app/sitemap.ts drops
+  // entries with an empty slug, so counting them here would manufacture drift
+  // that does not exist.
+  let emitted = 0
+  for (const row of rows) {
+    const slug = (row as { slug?: unknown } | null)?.slug
+    if (typeof slug === 'string' && slug !== '') emitted++
+  }
+  return emitted
 }
 
 /**

@@ -23,9 +23,9 @@ export const PAGES_SHARD_ID = 'pages'
 /**
  * The entity families the sitemap covers.
  *
- * FAMILIES, not shard ids — the two are not the same thing, because `shows` and
- * `releases` are each served by several documents (SHOW_SHARD_IDS and
- * RELEASE_SHARD_IDS). Anything counting or
+ * FAMILIES, not shard ids. The two are not the same thing, because `shows`,
+ * `artists` and `releases` are each served by eight documents (SHOW_SHARD_IDS,
+ * ARTIST_SHARD_IDS and RELEASE_SHARD_IDS). Anything counting or
  * classifying URLs wants this list; anything enumerating DOCUMENTS wants
  * ENTITY_SHARD_IDS below. Keep in sync with the Huma `family` enum on
  * GET /sitemap/entries and with `sitemapFamilies` in
@@ -61,108 +61,74 @@ const _assertNoMissingFamily: AssertNoMissingFamily = true
 void _assertNoMissingFamily
 
 /**
- * The UTC event months the `shows` family is served in (PSY-2018).
+ * The buckets each over-cap family is served in.
  *
- * WHY MONTHS, why the span runs to the end of the year after next, and what
- * extending it costs: all of that lives with the predicate that enforces it, in
- * `showShards` in backend/internal/services/catalog/sitemap.go. That is the
- * normative statement; this note carries only what is frontend-specific and
- * points there for the rest, the way RELEASE_SHARD_IDS below does.
+ * WHY BUCKETS, what the modulus is chosen against, and what re-tuning one
+ * costs: all of that lives with the predicate that enforces it, in
+ * `sitemapShard` and `sitemapShardsPerFamily` in
+ * backend/internal/services/catalog/sitemap.go. That is the normative
+ * statement; these notes carry only what is frontend-specific and point there
+ * for the rest, so re-tuning is one edit rather than three.
  *
- * What a build actually wrote, read out of `.next/cache/fetch-cache` against
- * the production show catalogue — these are the entry sizes Next's own cap is
- * applied to, not the raw body scaled by the base64 ratio:
+ * A bucket holds the rows whose primary key is its number modulo eight, so the
+ * lists are contiguous from `b0` and their length IS the modulus. That is
+ * asserted against the backend in two directions: `satisfies readonly
+ * WireFamily[]` rejects an id the backend does not accept, and
+ * AssertEveryWireValueServed below rejects an id the backend accepts that no
+ * list here fetches.
  *
- *   shows-2026-09  508,268  24.2% of the cap
- *   shows-2026-10  504,636  24.1%
- *   shows-2026-11  300,744  14.3%
- *   shows-2026-08  278,752  13.3%
+ * What a build actually wrote, read out of `.next/cache/fetch-cache` against a
+ * database holding the production catalogue. These are the entry sizes Next's
+ * own cap is applied to, not the raw body scaled by the base64 ratio:
  *
- * against 80.6% for the family as one document, which is what failed the
- * production build. Every other shows shard is under 4%. `artists`, at 918,744
- * raw bytes and so 58.4% of the cap, is now the largest sitemap entry — the
- * shard family to watch next, and a whole family rather than a range.
+ *   releases-b0 .. b7   358,467 to 369,887   17.1% to 17.6% of the cap
+ *   shows-b0 .. b7      216,704 to 234,652   10.3% to 11.2%
+ *   artists-b0 .. b7    162,454 to 169,714    7.8% to  8.1%
  *
- * SHARDS HERE ARE LEGITIMATELY EMPTY, which slug ranges never are. See
- * subShardsCanBeEmpty below.
+ * against 129.8% of the cap for `releases` as one document, 80.6% for `shows`
+ * and 58.4% for `artists`. The spread inside a family is under one point, which
+ * is the balance the key buys: bucket membership is independent of what a row
+ * contains, so the shares hold as the catalogue grows.
+ *
+ * Sub-shards here are never legitimately empty while their family holds rows:
+ * residues of a serial key are equidistributed, so an empty bucket beside
+ * populated siblings is a lost document. The monitor asserts that per shard
+ * against the API's own per-shard counts rather than inferring it from the
+ * siblings.
  */
 export const SHOW_SHARD_IDS = [
-  'shows-before-2026',
-  'shows-2026-01',
-  'shows-2026-02',
-  'shows-2026-03',
-  'shows-2026-04',
-  'shows-2026-05',
-  'shows-2026-06',
-  'shows-2026-07',
-  'shows-2026-08',
-  'shows-2026-09',
-  'shows-2026-10',
-  'shows-2026-11',
-  'shows-2026-12',
-  'shows-2027-01',
-  'shows-2027-02',
-  'shows-2027-03',
-  'shows-2027-04',
-  'shows-2027-05',
-  'shows-2027-06',
-  'shows-2027-07',
-  'shows-2027-08',
-  'shows-2027-09',
-  'shows-2027-10',
-  'shows-2027-11',
-  'shows-2027-12',
-  'shows-from-2028',
+  'shows-b0',
+  'shows-b1',
+  'shows-b2',
+  'shows-b3',
+  'shows-b4',
+  'shows-b5',
+  'shows-b6',
+  'shows-b7',
 ] as const satisfies readonly WireFamily[]
 
-/**
- * The slug ranges the `releases` family is served in (PSY-1763).
- *
- * WHY. Sharding per family (PSY-1622) exists to keep each fetch under Next's
- * Data Cache item cap of 2 MiB (2,097,152 bytes — MEBIbytes, per the unit note
- * on formatMiB in lib/data-cache-budget/budget.ts). Measured against production
- * on 2026-08-09, the releases family answered 1,530,206 raw bytes over 21,525
- * rows — 2,040,275 bytes once base64-encoded into a cache entry, i.e. 1.95 MiB
- * of the 2.00 MiB cap, 97.3%, with the next sizeable import crossing it. One
- * family no longer fits one entry.
- *
- * WHY A SLUG RANGE — and not a page number or a date range, what the balance
- * measures, and how to choose new cut points: all of that lives with the
- * predicate that enforces it, in `releaseShards` in
- * backend/internal/services/catalog/sitemap.go. That is the normative
- * statement; this note carries only what is frontend-specific and points there
- * for the rest, so re-tuning a cut point is one edit rather than three.
- *
- * What a build actually wrote, read out of `.next/cache/fetch-cache` against
- * the production release catalogue — these are the entry sizes Next's own cap
- * is applied to, not the raw body scaled by the base64 ratio:
- *
- *   releases-a-e  563,747  26.9% of the cap
- *   releases-f-m  562,227  26.8%
- *   releases-n-s  489,967  23.4%
- *   releases-t-z  428,751  20.4%
- *
- * against 97.3% for the family as one document. The family to watch next is
- * named on SHOW_SHARD_IDS above, alongside the measurement that ranks it.
- *
- * HOW IT GROWS. Add a cut point and split ONE range. Every other range keeps
- * both its id and its exact contents, so re-tuning churns only the range being
- * split — the property page-numbering cannot offer at any shard count. When the
- * largest range approaches the warn band in
- * lib/data-cache-budget/budget.ts, split that one.
- *
- * Each id doubles as the `family` query value the backend accepts for that
- * range. Deliberately: a backend that predates a new id answers 422, which the
- * generator degrades to an empty shard for one deploy window
- * (UNKNOWN_FAMILY_STATUSES in app/sitemap.ts) and the prerender gate excuses. A
- * separate query parameter would be silently IGNORED by that same old backend,
- * which answers every sub-shard with the whole over-cap family instead.
- */
+/** The buckets the `artists` family is served in. See SHOW_SHARD_IDS. */
+export const ARTIST_SHARD_IDS = [
+  'artists-b0',
+  'artists-b1',
+  'artists-b2',
+  'artists-b3',
+  'artists-b4',
+  'artists-b5',
+  'artists-b6',
+  'artists-b7',
+] as const satisfies readonly WireFamily[]
+
+/** The buckets the `releases` family is served in. See SHOW_SHARD_IDS. */
 export const RELEASE_SHARD_IDS = [
-  'releases-a-e',
-  'releases-f-m',
-  'releases-n-s',
-  'releases-t-z',
+  'releases-b0',
+  'releases-b1',
+  'releases-b2',
+  'releases-b3',
+  'releases-b4',
+  'releases-b5',
+  'releases-b6',
+  'releases-b7',
 ] as const satisfies readonly WireFamily[]
 
 /**
@@ -173,24 +139,24 @@ export const RELEASE_SHARD_IDS = [
  * first is a trap. `satisfies` is element-wise: it catches an id RENAMED or
  * REMOVED on the backend, because the stale literal stops being assignable.
  * It cannot catch an id ADDED, because a shorter list is still a list of valid
- * values — which is exactly the documented growth path (split one range, add
- * one id). Without this second half, a backend range the frontend never learned
- * is simply never fetched: the build is green, `tsc` is green, the Go enum test
- * is green, and those releases leave the sitemap with the loss sitting inside
- * the monitor's per-family drift tolerance.
+ * values, which is exactly what doubling a family's bucket count produces.
+ * Without this second half, a backend bucket the frontend never learned is
+ * simply never fetched: the build is green, `tsc` is green, the Go enum test is
+ * green, and those rows leave the sitemap with the loss sitting inside the
+ * monitor's per-family drift tolerance.
  *
- * `SITEMAP_FAMILIES` has carried the same pair since PSY-1622 (`MissingFamily`
- * above is its addition-guard); this is the sub-shard's.
+ * `SITEMAP_FAMILIES` carries the same pair: `MissingFamily` above is its
+ * addition-guard, and this is the sub-shard's.
  *
- * Written over the whole wire vocabulary rather than just `releases-*` so it
- * keeps working when a second family is sub-sharded: add the new list to the
- * Exclude and the guard covers it.
+ * Written over the whole wire vocabulary rather than one family's prefix, so a
+ * newly bucketed family is covered by adding its list to the Exclude.
  */
 type UnservedWireFamily = Exclude<
   WireFamily,
   | (typeof SITEMAP_FAMILIES)[number]
-  | (typeof RELEASE_SHARD_IDS)[number]
   | (typeof SHOW_SHARD_IDS)[number]
+  | (typeof ARTIST_SHARD_IDS)[number]
+  | (typeof RELEASE_SHARD_IDS)[number]
 >
 type AssertEveryWireValueServed = [UnservedWireFamily] extends [never]
   ? true
@@ -202,32 +168,22 @@ void _assertEveryWireValueServed
  * Families served by more than one document, and the ids those documents use.
  *
  * A family absent from this table is served by a single shard whose id IS the
- * family name, which is the case for eight of the ten.
+ * family name, which is the case for seven of the ten.
  *
- * `ids` is `readonly WireFamily[]`, not `readonly string[]`: an id written here
+ * Typed `readonly WireFamily[]`, not `readonly string[]`: an id written here
  * that the backend does not accept would be fetched, 422'd, and degraded to an
- * empty document — a shard silently serving nothing. Typing it against the
- * generated enum makes that a compile error instead.
- *
- * `partitionKey` is REQUIRED so that declaring a family sub-sharded forces
- * saying how, in the same edit. It is what the monitor's empty-shard rule turns
- * on, and defaulting it would default a new calendar-keyed family into alarming
- * on nearly every run — see subShardsCanBeEmpty and its call site in
- * lib/sitemap-monitor/fetch.ts, which carry the reasoning and the residual gap.
+ * empty document, which is a shard silently serving nothing. Typing it against
+ * the generated enum makes that a compile error instead.
  */
-interface SubShards {
-  ids: readonly WireFamily[]
-  /** What the ranges are cut on. See subShardsCanBeEmpty. */
-  partitionKey: 'slug' | 'calendar'
-}
-const SUB_SHARDS: Partial<Record<Family, SubShards>> = {
-  shows: { ids: SHOW_SHARD_IDS, partitionKey: 'calendar' },
-  releases: { ids: RELEASE_SHARD_IDS, partitionKey: 'slug' },
+const SUB_SHARDS: Partial<Record<Family, readonly WireFamily[]>> = {
+  shows: SHOW_SHARD_IDS,
+  artists: ARTIST_SHARD_IDS,
+  releases: RELEASE_SHARD_IDS,
 }
 
-/** Whether a family's sub-shards can be empty without anything being wrong. */
-export function subShardsCanBeEmpty(family: Family): boolean {
-  return SUB_SHARDS[family]?.partitionKey === 'calendar'
+/** The documents a family is served by, which is its own id when unsharded. */
+export function shardIdsFor(family: Family): readonly string[] {
+  return SUB_SHARDS[family] ?? [family]
 }
 
 /**
@@ -241,7 +197,7 @@ export function subShardsCanBeEmpty(family: Family): boolean {
  */
 const FAMILY_BY_SHARD_ID = new Map<string, Family>()
 for (const family of SITEMAP_FAMILIES) {
-  for (const id of SUB_SHARDS[family]?.ids ?? [family]) {
+  for (const id of shardIdsFor(family)) {
     // THROW rather than overwrite. `Map.set` would silently keep the last
     // writer, so two families claiming one id would yield a table that looks
     // consistent, an ENTITY_SHARD_IDS one entry short, and a family whose URLs

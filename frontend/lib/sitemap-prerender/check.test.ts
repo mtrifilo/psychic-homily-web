@@ -18,6 +18,13 @@ import {
   type PrerenderManifestLike,
 } from './check'
 
+/**
+ * One entity shard to drive the single-shard cases, taken from the shared list
+ * rather than named: every family is now served by ids the table owns, so a
+ * literal here would go stale the next time a bucket count changes.
+ */
+const [SAMPLE_SHARD] = ENTITY_SHARD_IDS
+
 /** A manifest in which every listed shard prerendered as STATIC. */
 function manifestWith(ids: readonly string[]): PrerenderManifestLike {
   return {
@@ -39,7 +46,7 @@ describe('findShardsWithoutFallback', () => {
   it('reports every entity shard when only the pages shard prerendered', () => {
     // The measured degraded build: backend unreachable, clean build cache. The
     // pages shard makes no network call, so it survives while every shard that
-    // fetches a family — or a slug range of one — falls to Dynamic.
+    // fetches a family, or one bucket of one, falls to Dynamic.
     const failures = findShardsWithoutFallback(
       manifestWith([PAGES_SHARD_ID]),
       allBodiesPresent
@@ -53,13 +60,13 @@ describe('findShardsWithoutFallback', () => {
     // A manifest key alone is not a fallback: a non-STATIC mode is still
     // rendered per request, so it 500s during the same outage.
     const manifest = manifestWith(ALL_SHARD_IDS)
-    manifest.routes![shardRoutePath('artists')] = { renderingMode: 'PARTIALLY_STATIC' }
+    manifest.routes![shardRoutePath(SAMPLE_SHARD)] = { renderingMode: 'PARTIALLY_STATIC' }
 
     const failures = findShardsWithoutFallback(manifest, allBodiesPresent)
 
     expect(failures).toEqual([
       {
-        route: shardRoutePath('artists'),
+        route: shardRoutePath(SAMPLE_SHARD),
         reason: 'renderingMode is "PARTIALLY_STATIC", expected "STATIC"',
       },
     ])
@@ -68,12 +75,12 @@ describe('findShardsWithoutFallback', () => {
   it('rejects a shard whose manifest entry has no rendered body on disk', () => {
     const failures = findShardsWithoutFallback(
       manifestWith(ALL_SHARD_IDS),
-      bodyPath => bodyPath !== shardBodyPath('artists')
+      bodyPath => bodyPath !== shardBodyPath(SAMPLE_SHARD)
     )
 
     expect(failures).toHaveLength(1)
-    expect(failures[0].route).toBe(shardRoutePath('artists'))
-    expect(failures[0].reason).toContain(shardBodyPath('artists'))
+    expect(failures[0].route).toBe(shardRoutePath(SAMPLE_SHARD))
+    expect(failures[0].reason).toContain(shardBodyPath(SAMPLE_SHARD))
   })
 
   it('treats an empty file as no body — a zero-byte document is not a fallback', () => {
@@ -127,8 +134,8 @@ describe('ALL_SHARD_IDS', () => {
   // which owns that table. What this gate owns is the mapping from an id to the
   // two build artifacts it looks up, so that is what is pinned here.
   it('maps ids onto the served route paths and build artifacts', () => {
-    expect(shardRoutePath('artists')).toBe('/sitemap/artists.xml')
-    expect(shardBodyPath('artists')).toBe('server/app/sitemap/artists.xml.body')
+    expect(shardRoutePath(SAMPLE_SHARD)).toBe(`/sitemap/${SAMPLE_SHARD}.xml`)
+    expect(shardBodyPath(SAMPLE_SHARD)).toBe(`server/app/sitemap/${SAMPLE_SHARD}.xml.body`)
   })
 })
 
@@ -144,7 +151,7 @@ describe('formatShardFailures', () => {
       manifest
     )
 
-    expect(message).toContain(shardRoutePath('artists'))
+    expect(message).toContain(shardRoutePath(SAMPLE_SHARD))
     expect(message).toContain('GET /sitemap/entries')
     expect(message).toContain('node_modules/.bin/next build')
   })
@@ -305,7 +312,7 @@ describe('formatPendingShards', () => {
     expect(message).not.toContain('ALREADY serves rows')
   })
 
-  it('names the live family whose URLs are unannounced when a slug range is pending', () => {
+  it('names the live family whose URLs are unannounced when a bucket is pending', () => {
     const message = formatPendingShards(
       RELEASE_SHARD_IDS.map(id => ({ route: shardRoutePath(id), reason: 'whatever' }))
     )

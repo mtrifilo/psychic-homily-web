@@ -147,7 +147,7 @@ export function formatBudgetFailures(failures: BudgetFailure[]): string {
     '  - bound it with a limit — but only where dropping rows is acceptable.',
     '    For a JSON-LD ItemList that depends on whether the dropped URLs are',
     '    reachable another way: /artists bounds its block at 100 because every',
-    '    artist is in the /sitemap/artists.xml shard regardless (PSY-1773), and',
+    '    artist is in the /sitemap/artists-b0.xml shard regardless (PSY-1773), and',
     '    what a bound costs there is enrichment, not discoverability. Where no',
     '    sitemap shard covers the family, a bound DOES drop URLs — check before',
     '    reaching for one.',
