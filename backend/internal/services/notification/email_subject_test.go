@@ -86,11 +86,11 @@ func TestHeaderSafeSubjectCaps(t *testing.T) {
 	assert.True(t, strings.ContainsRune(multiByte, 'é'))
 }
 
-// TestSubjectEntityNameSanitizesBeforeBounding pins the ORDER of the two
+// TestEntityNameForSubjectSanitizesBeforeBounding pins the ORDER of the two
 // transforms. A scraped name routinely arrives with leading whitespace or line
 // breaks, and bounding first spends the whole budget on runes that are then
 // discarded, so the name vanishes from a subject that still has room for it.
-func TestSubjectEntityNameSanitizesBeforeBounding(t *testing.T) {
+func TestEntityNameForSubjectSanitizesBeforeBounding(t *testing.T) {
 	padded := strings.Repeat("\r\n", 60) + "Valley Bar"
 	assert.Equal(t, "Valley Bar", entityNameForSubject(padded),
 		"leading line breaks must not consume the entity budget")
