@@ -1,6 +1,7 @@
 import type { APIClient } from "./api";
 import type { EntityType } from "./types";
 import { resolveVenueTimezone, localTimeToUTC } from "./timezone";
+import * as display from "./display";
 import { readEventDate } from "./showTimes";
 
 export type MatchResult = "exact" | "fuzzy" | "none";
@@ -773,12 +774,18 @@ interface ShowResponseForDedup {
 }
 
 /**
- * How many shows on one venue-local day this check will read before giving up.
+ * How many shows this check will read before giving up.
  *
- * A bound, not a product limit: the query is one calendar day at one venue's
- * zone, and the largest real day observed across the ingested calendars is well
- * under a hundred. The cap exists so a misresolved zone or a seeded database
- * cannot turn one duplicate check into an unbounded page walk.
+ * SITE-WIDE, not per venue. The request carries only the date window, so it
+ * returns every visible show on that span across every venue and the venue
+ * match happens in JS below. The cap is therefore a ceiling on how many shows
+ * the whole site has on one calendar day, not on how many one venue has.
+ *
+ * It is a bound against an unbounded page walk (a misresolved zone, a seeded
+ * database), not a product limit. Exceeding it is reported by
+ * `checkShowDuplicate` rather than swallowed, because a silent stop here reads
+ * as "not a duplicate" and the run then tries a create that the backend's
+ * unique key rejects.
  */
 const DEDUP_SCAN_CAP = 600;
 
@@ -872,6 +879,7 @@ export async function checkShowDuplicate(
     // Paging matters as much as the shape: a busy venue-local day easily
     // exceeds one page, and the duplicate is as likely to be on page two.
     const shows: ShowResponseForDedup[] = [];
+    let scanTruncated = false;
     const pageSize = 200;
     for (let offset = 0; offset < DEDUP_SCAN_CAP; offset += pageSize) {
       const result = await client.get<
@@ -886,6 +894,16 @@ export async function checkShowDuplicate(
       const page = Array.isArray(result) ? result : (result?.shows ?? []);
       shows.push(...page);
       if (page.length < pageSize) break;
+      scanTruncated = offset + pageSize >= DEDUP_SCAN_CAP;
+    }
+
+    if (scanTruncated) {
+      // Say it rather than return a quiet "no duplicate": the caller would
+      // create a show the backend then refuses on its unique key, and the
+      // operator would have no way to tell that from a genuinely new show.
+      display.warn(
+        `Duplicate check read the first ${DEDUP_SCAN_CAP} shows in this date window and stopped; a duplicate beyond that was not seen.`,
+      );
     }
 
     for (const show of shows) {

@@ -65,7 +65,7 @@ Write `/tmp/ph-ingest.json`:
 
 **artist**: `name` (required), `city`, `state`, `country`, social fields, `website`, `description`, `tags`, `label` (name → linked after create)  
 **venue**: `name`, `city`, `state` (required), `address`, `zipcode`, `country`, social fields, `website`, `description`, `tags`  
-**show**: `event_date`, `city`, `state`, `title`, `price`, `door_price`, `doors_at`, `music_at`, `ticket_url`, `artists`, `venues` — see [show prices](#show-prices) and [bill roles](#bill-roles); `doors_at`/`music_at` are venue-local wall clocks, and on THIS path only when the image LABELS which time it is  
+**show**: `event_date`, `city`, `state`, `title`, `price`, `door_price`, `doors_at`, `music_at`, `ticket_url`, `artists`, `venues` — see [show prices](#show-prices) and [bill roles](#bill-roles). `doors_at`/`music_at` are venue-local wall clocks, and on THIS path only when the image LABELS which time it is. The venue-calendar transform path is looser, because a named source field states the role a rendered card does not: see the door/music rule in [venue-events.md](venue-events.md).  
 **release**: `title`, `release_type`, `release_year`, `artists`, `external_links`, `tags`  
 **label**: `name`, location fields, social fields, `founded_year`, `description`, `tags`, `artists` (inline roster — see [label-roster.md](label-roster.md))  
 **festival**: `name`, `series_slug`, `edition_year`, `start_date`, `end_date`, `city`, `state`, `artists`, `tags`

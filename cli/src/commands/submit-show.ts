@@ -407,6 +407,7 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
 
 /** Only the two columns this path fills, as the API serves them. */
 interface StoredShowTimes {
+  event_date?: string | null;
   doors_at?: string | null;
   music_at?: string | null;
 }
@@ -457,7 +458,7 @@ export async function backfillShowTimes(
   client: APIClient,
   showId: number,
   times: ShowTimes,
-): Promise<TimeBackfill | null> {
+): Promise<{ fill: TimeBackfill; startsDisagree: boolean } | null> {
   const stored = await client.get<StoredShowTimes>(`/shows/${showId}`);
   const fill = timesToBackfill(stored ?? {}, times);
   if (fill === null) return null;
@@ -466,7 +467,21 @@ export async function backfillShowTimes(
   if (fill.doorsAt !== undefined) body.doors_at = fill.doorsAt;
   if (fill.musicAt !== undefined) body.music_at = fill.musicAt;
   await client.put(`/shows/${showId}`, body);
-  return fill;
+
+  // A backfill fills columns; it does NOT move `event_date`, because that would
+  // change the instant an existing row is identified by. On the create path a
+  // stated music time anchors `event_date` precisely so the show page does not
+  // print two different start clocks (see `showStartInstant`). Here it can, and
+  // the caller has to say so: the page reads its start from `event_date` and
+  // MUSIC from `music_at`, and after this write those can disagree.
+  const storedStart = stored?.event_date ? Date.parse(stored.event_date) : NaN;
+  const filledMusic = fill.musicAt ? Date.parse(fill.musicAt) : NaN;
+  const startsDisagree =
+    Number.isFinite(storedStart) &&
+    Number.isFinite(filledMusic) &&
+    storedStart !== filledMusic;
+
+  return { fill, startsDisagree };
 }
 
 /** Main entry point: validate, resolve, preview, and optionally submit shows. */
@@ -563,22 +578,32 @@ export async function submitShows(
 
       const times = planShowTimes(plan);
       const states = times.doorsAt !== undefined || times.musicAt !== undefined;
-      if (!states) continue;
+      if (!states) {
+        if (times.refusals.length > 0) {
+          display.info(`  no times to backfill onto show ${id}; see the refusal above`);
+        }
+        continue;
+      }
 
       if (!confirm) {
         display.info(`  times stated; --confirm fills only the columns show ${id} leaves empty`);
         continue;
       }
       try {
-        const filled = await backfillShowTimes(client, id, times);
-        if (filled === null) {
+        const result = await backfillShowTimes(client, id, times);
+        if (result === null) {
           display.info(`  EXISTING: times not backfilled (show ${id} already has them)`);
         } else {
           const parts = [
-            filled.doorsAt ? `doors_at ${filled.doorsAt}` : null,
-            filled.musicAt ? `music_at ${filled.musicAt}` : null,
+            result.fill.doorsAt ? `doors_at ${result.fill.doorsAt}` : null,
+            result.fill.musicAt ? `music_at ${result.fill.musicAt}` : null,
           ].filter(Boolean);
           display.success(`  Backfilled ${parts.join(", ")} on show ${id}`);
+          if (result.startsDisagree) {
+            display.warn(
+              `  show ${id} keeps its stored event_date, which is not the music time just written; the show page prints its start from event_date and MUSIC from music_at, so it will show two clocks until event_date is reconciled`,
+            );
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -820,10 +845,8 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
         `${quoteSourceValue(String(plan.input.music_at))} ${gray(`-> ${times.musicAt}`)} ${zoneNote}`,
       );
     }
-    if (!plan.duplicate?.isDuplicate) {
-      for (const refusal of times.refusals) {
-        display.warn(describeShowTimeRefusal(refusal));
-      }
+    for (const refusal of times.refusals) {
+      display.warn(describeShowTimeRefusal(refusal));
     }
     // event_date only yields to music_at when it states no time of its own, so
     // an input that states both can put two different clocks on one show.

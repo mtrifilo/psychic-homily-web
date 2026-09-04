@@ -1656,11 +1656,40 @@ describe("backfillShowTimes", () => {
       refusals: [],
     });
 
-    expect(filled).toEqual({ doorsAt: "2026-09-05T00:30:00Z" });
+    expect(filled?.fill).toEqual({ doorsAt: "2026-09-05T00:30:00Z" });
     expect(putPath).toBe("/shows/9");
     // Omitting music_at is what leaves the stored one alone: the field is
     // tri-state on the API, and sending null would CLEAR it.
     expect(putBody).toEqual({ doors_at: "2026-09-05T00:30:00Z" });
+  });
+
+  test("reports when the stored event_date disagrees with the music time written", async () => {
+    // The backfill fills columns but never moves event_date, so the show page
+    // can print its start from one and MUSIC from the other. The run has to say
+    // so; the create path prevents this case by anchoring event_date.
+    const client = createMockClient({
+      get: async () => ({ id: 9, event_date: "2026-09-05T01:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async () => ({});
+
+    const result = await backfillShowTimes(client, 9, {
+      musicAt: "2026-09-05T02:00:00Z",
+      refusals: [],
+    });
+    expect(result?.startsDisagree).toBe(true);
+  });
+
+  test("stays quiet when the stored event_date already IS the music time", async () => {
+    const client = createMockClient({
+      get: async () => ({ id: 9, event_date: "2026-09-05T02:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async () => ({});
+
+    const result = await backfillShowTimes(client, 9, {
+      musicAt: "2026-09-05T02:00:00Z",
+      refusals: [],
+    });
+    expect(result?.startsDisagree).toBe(false);
   });
 
   test("issues no request when there is nothing to fill", async () => {
