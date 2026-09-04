@@ -94,16 +94,16 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 9. **Multi-show posts / tours**: emit one `show` per date, each with its own
    venue, city, state, and the full artist lineup for that date.
 10. **Social links → full on-platform URLs** (the backend rejects bare handles).
-   An `@handle` becomes a profile URL on the platform shown: Instagram `@h` →
-   `https://instagram.com/h`, Twitter/X `@h` → `https://twitter.com/h`. For
-   Facebook, YouTube, Spotify, SoundCloud, and Bandcamp, capture the full URL as
-   linked. Put each on the field whose host matches: `instagram`
-   (`instagram.com`), `facebook` (`facebook.com`), `twitter` (`twitter.com`/
-   `x.com`), `youtube` (`youtube.com`/`youtu.be`), `spotify`
-   (`open.spotify.com`), `soundcloud` (`soundcloud.com`), `bandcamp`
-   (`*.bandcamp.com`); any other off-platform link → `website`. Applies to
-   artist, venue, and label. Include a link only when it clearly maps to the
-   entity; skip when ambiguous.
+    An `@handle` becomes a profile URL on the platform shown: Instagram `@h` →
+    `https://instagram.com/h`, Twitter/X `@h` → `https://twitter.com/h`. For
+    Facebook, YouTube, Spotify, SoundCloud, and Bandcamp, capture the full URL as
+    linked. Put each on the field whose host matches: `instagram`
+    (`instagram.com`), `facebook` (`facebook.com`), `twitter` (`twitter.com`/
+    `x.com`), `youtube` (`youtube.com`/`youtu.be`), `spotify`
+    (`open.spotify.com`), `soundcloud` (`soundcloud.com`), `bandcamp`
+    (`*.bandcamp.com`); any other off-platform link → `website`. Applies to
+    artist, venue, and label. Include a link only when it clearly maps to the
+    entity; skip when ambiguous.
 11. **Tags**: add `genre` / `locale` tags only when confidently identifiable from
     the source. String tags default to genre; locale/other use
     `{"name": ..., "category": ...}`. Do not guess.

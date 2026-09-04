@@ -9,13 +9,8 @@ import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
 import { isValidSetType, statedSlot } from "../lib/setType";
-import { resolveShowTimes } from "../lib/showTimes";
-import type { ShowTimes } from "../lib/showTimes";
-
-/** Whether a date string states a calendar day and no time of day. */
-function isDateOnly(date: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date);
-}
+import { isDateOnly, resolveShowTimes } from "../lib/showTimes";
+import type { ShowTimes, ShowTimesRefusal } from "../lib/showTimes";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -123,6 +118,13 @@ interface ResolvedVenue {
    * in the payload: it is a property of the venue row, not of the show.
    */
   timezone?: string;
+  /**
+   * The matched venue ROW's state, as opposed to `state` above, which is the
+   * one the batch stated and is only used to create a venue. Present only for
+   * an "existing" match, and empty-string when the row carries no state, which
+   * is the value the read surfaces judge the show's zone on.
+   */
+  matchedState?: string;
   status: "existing" | "new";
   confidence?: number;
 }
@@ -239,6 +241,8 @@ export async function resolveVenues(
           address: venue.address,
           timezone:
             typeof best.timezone === "string" ? best.timezone : undefined,
+          matchedState:
+            typeof best.state === "string" ? best.state : undefined,
           status: "existing",
           confidence: best.score,
         });
@@ -266,53 +270,70 @@ export async function resolveVenues(
 }
 
 /**
- * The door and music instants this plan will store, plus any note explaining a
+ * The zone inputs every clock on this show is read in.
+ *
+ * When the venue already exists, its OWN row decides, because that row is what
+ * the read surfaces render from: `showTimingInput` in
+ * frontend/features/shows/utils.ts passes `venue.state ?? show.state` and the
+ * venue's `timezone` to the same resolution this writer uses. A stored empty
+ * state is an answer, not a gap, and falling through it to the state the batch
+ * happened to claim is how a venue gets written in a zone its page will not
+ * print. Only a venue this run is about to CREATE has no row to read, and then
+ * the stated location is all there is.
+ */
+function planVenueZone(plan: ShowPlan): { state?: string; timezone?: string } {
+  const matched = plan.venues[0];
+  if (matched?.id !== undefined) {
+    return { state: matched.matchedState, timezone: matched.timezone };
+  }
+  return { state: plan.input.venues[0]?.state || plan.input.state };
+}
+
+/**
+ * The door and music instants this plan will store, plus a refusal for every
  * stated time that is not being stored.
  *
  * Exported so the dry run reports exactly what the payload will carry rather
  * than a second derivation of it.
  */
 export function planShowTimes(plan: ShowPlan): ShowTimes {
+  const zone = planVenueZone(plan);
   return resolveShowTimes({
     eventDate: plan.input.event_date,
     doorsAt: plan.input.doors_at,
     musicAt: plan.input.music_at,
-    state: planVenueState(plan),
-    timezone: plan.venues[0]?.timezone,
+    state: zone.state,
+    timezone: zone.timezone,
   });
 }
 
 /**
- * The state whose zone anchors this show's wall clocks: the matched venue's,
- * else the one stated on the venue input, else the show's own.
+ * The instant `event_date` stores.
+ *
+ * A stated music time IS the show's start, so it anchors the date rather than
+ * sitting beside a different one: the status stripe prints the start time from
+ * `event_date` and MUSIC from `music_at`
+ * (`startTimeFactSegment` / `doorsMusicFactSegment` in
+ * frontend/features/shows/components/showStatusStripeCopy.ts), and two clocks
+ * for one fact is a contradiction on the page. The 20:00 normalizeDate applies
+ * to a date-only input is the convention for "no time known", so a known one
+ * replaces it. An `event_date` that states its own time is left alone: the
+ * caller stated both.
  */
-function planVenueState(plan: ShowPlan): string | undefined {
-  return plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state;
+function showStartInstant(plan: ShowPlan, times: ShowTimes): string {
+  if (times.musicAt !== undefined && isDateOnly(plan.input.event_date)) {
+    return times.musicAt;
+  }
+  const zone = planVenueZone(plan);
+  return normalizeDate(plan.input.event_date, zone.state, zone.timezone);
 }
 
 /** Build the API request body for creating a show. */
 export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
-  // Determine the zone the show's wall-clock time is expressed in.
-  // The matched venue's own IANA zone is the authority; the state (first
-  // venue's, else show-level) is the fallback for a venue we are about to
-  // create. See resolveVenueTimezone (PSY-1873).
-  const venueState = planVenueState(plan);
-  const venueTimezone = plan.venues[0]?.timezone;
-
   const times = planShowTimes(plan);
 
   const payload: Record<string, unknown> = {
-    // A stated music time IS the show's start, so it anchors event_date rather
-    // than sitting beside a different one: the status stripe prints the start
-    // time from event_date and MUSIC from music_at, and two clocks for one fact
-    // is a contradiction on the page. The 20:00 default normalizeDate applies to
-    // a date-only input is the convention for "no time known", so a known one
-    // replaces it. An event_date that states its own time is left alone; the
-    // caller stated both.
-    event_date:
-      times.musicAt !== undefined && isDateOnly(plan.input.event_date)
-        ? times.musicAt
-        : normalizeDate(plan.input.event_date, venueState, venueTimezone),
+    event_date: showStartInstant(plan, times),
     city: plan.input.city,
     state: plan.input.state,
     artists: plan.artists.map((a) => {
@@ -566,6 +587,29 @@ export function billRoleTag(artist: { is_headliner?: boolean; set_type?: string 
   return role ? dim(` [${role}]`) : "";
 }
 
+/**
+ * One line saying which stated time is not being stored, and why.
+ *
+ * The wording lives here rather than in `resolveShowTimes` because it is dry-run
+ * copy: the rule is the library's, the sentence is this command's.
+ */
+export function describeShowTimeRefusal(refusal: ShowTimesRefusal): string {
+  switch (refusal.reason) {
+    case "no-timezone":
+      return "doors/music times not stored: no timezone is known for this venue, so the clock would be anchored on the America/Phoenix default";
+    case "no-calendar-day":
+      return `doors/music times not stored: "${refusal.eventDate}" does not name a calendar day to anchor them to`;
+    case "unreadable-music":
+      return `music time not stored: "${refusal.music}" is not a readable time, so no doors time is stored either`;
+    case "doors-without-music":
+      return `doors time not stored: the source states no music time, and doors alone is half a schedule`;
+    case "unreadable-doors":
+      return `doors time not stored: "${refusal.doors}" is not a readable time`;
+    case "music-before-doors":
+      return `doors/music times not stored: music at "${refusal.music}" is before doors at "${refusal.doors}", which states a day this listing did not`;
+  }
+}
+
 function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void {
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
@@ -589,15 +633,14 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     // wrong one is only visible here as a UTC timestamp on the wrong day
     // (PSY-1873). "(from state)" flags that no venue zone was available, which
     // is the case worth a second look for a venue outside the US.
-    const previewZone = resolveVenueTimezone(
-      plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state,
-      plan.venues[0]?.timezone
-    );
-    const zoneSource = plan.venues[0]?.timezone ? "venue" : "from state";
+    const zone = planVenueZone(plan);
+    const previewZone = resolveVenueTimezone(zone.state, zone.timezone);
+    const zoneSource = zone.timezone ? "venue" : "from state";
+    const payload = buildShowPayload(plan);
     display.kv("Date", plan.input.event_date);
     display.kv(
       "Anchored",
-      `${buildShowPayload(plan).event_date} ${gray(`(${previewZone}, ${zoneSource})`)}`
+      `${payload.event_date} ${gray(`(${previewZone}, ${zoneSource})`)}`
     );
     display.kv("Location", `${plan.input.city}, ${plan.input.state}`);
 
@@ -613,8 +656,15 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     if (times.musicAt !== undefined) {
       display.kv("Music", `${plan.input.music_at} ${gray(`-> ${times.musicAt}`)}`);
     }
-    for (const note of times.notes) {
-      display.warn(note);
+    for (const refusal of times.refusals) {
+      display.warn(describeShowTimeRefusal(refusal));
+    }
+    // event_date only yields to music_at when it states no time of its own, so
+    // an input that states both can put two different clocks on one show.
+    if (times.musicAt !== undefined && payload.event_date !== times.musicAt) {
+      display.warn(
+        `event_date states its own time, so the show starts at ${payload.event_date} while music_at says ${times.musicAt}; the page will print both`,
+      );
     }
 
     const priceLine = showPriceLine(plan.input);

@@ -3,12 +3,18 @@
  * venue calendar states, and turning a stated pair into the UTC instants
  * `shows.doors_at` / `shows.music_at` hold.
  *
- * The rules are the ones the discovery pipeline writes under
- * (`backend/internal/services/pipeline/discovery.go`, `parseClockTime` and
- * `resolveShowTimes`): explicit only, anchored in the venue's zone, nothing
- * written without a readable show time, and a contradictory pair written not at
- * all. Two ingest paths reach the same columns, so they answer the same
- * questions the same way or one of them publishes a time the other refuses to.
+ * The parser and its refusals mirror `parseClockTime` in
+ * `backend/internal/services/pipeline/discovery.go`, which writes the same two
+ * columns from the discovery side. Two DELIBERATE divergences from that file's
+ * `resolveShowTimes`, both stricter here:
+ *
+ * 1. Nothing is written when no zone is known for the venue (see
+ *    `resolveShowTimes` below). The pipeline has no such gate: its
+ *    `venueLocalInstant` goes through `utils.EventLocation`, which falls back to
+ *    the state map and writes anyway.
+ * 2. A refused pair also leaves `event_date` on the date-only convention. The
+ *    pipeline's `parseEventDate` still anchors `event_date` on a stated show
+ *    time that `resolveShowTimes` refused, so the two can disagree there.
  */
 
 import {
@@ -33,6 +39,17 @@ const CLOCK_WITH_MERIDIEM = /^(\d{1,2}):(\d{2})([ap])\.?m\.?$/;
 const CLOCK_24_HOUR = /^(\d{1,2}):(\d{2})$/;
 
 /**
+ * Exactly the codepoints Go's `unicode.IsSpace` matches.
+ *
+ * Spelled out rather than written `\s`, which differs from it in both
+ * directions: `\s` does not match U+0085 and does match U+FEFF. Either
+ * difference is a scraped listing one of the two parsers reads and the other
+ * refuses.
+ */
+const UNICODE_SPACE =
+  /[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g;
+
+/**
  * Read a wall-clock time out of the free text a venue calendar states, or
  * report that the string is not one.
  *
@@ -48,7 +65,7 @@ const CLOCK_24_HOUR = /^(\d{1,2}):(\d{2})$/;
  */
 export function parseClockTime(raw: unknown): ClockTime | null {
   if (typeof raw !== "string") return null;
-  const normalized = raw.replace(/\s+/gu, "").toLowerCase();
+  const normalized = raw.replace(UNICODE_SPACE, "").toLowerCase();
 
   const meridiem = CLOCK_WITH_MERIDIEM.exec(normalized);
   if (meridiem) {
@@ -74,12 +91,52 @@ export function parseClockTime(raw: unknown): ClockTime | null {
   return null;
 }
 
+/**
+ * Whether `YYYY-MM-DD` names a day that exists.
+ *
+ * The shape alone is not enough: `Date.UTC` overflow-normalizes, so month 13
+ * becomes January of the next year and 2026-02-31 becomes March 4. Go's
+ * `time.Parse("2006-01-02")` rejects both, and a show created on a date nobody
+ * stated is the outcome this module exists to refuse, so the round trip decides.
+ */
+function isRealCalendarDay(day: string): boolean {
+  const [year, month, date] = day.split("-").map(Number);
+  const at = new Date(Date.UTC(year, month - 1, date));
+  return (
+    at.getUTCFullYear() === year &&
+    at.getUTCMonth() === month - 1 &&
+    at.getUTCDate() === date
+  );
+}
+
+/** Whether a date string states one real calendar day and no time of day. */
+export function isDateOnly(date: unknown): boolean {
+  return (
+    typeof date === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+    isRealCalendarDay(date)
+  );
+}
+
 /** The calendar day a show's `event_date` names, as `YYYY-MM-DD`, or null. */
 export function calendarDateOf(eventDate: unknown): string | null {
   if (typeof eventDate !== "string") return null;
   const match = /^(\d{4}-\d{2}-\d{2})(?:[T ]|$)/.exec(eventDate.trim());
-  return match ? match[1] : null;
+  if (match === null) return null;
+  return isRealCalendarDay(match[1]) ? match[1] : null;
 }
+
+/**
+ * Why a stated time is not being stored. The caller words these; this module
+ * decides them, so a rewording cannot change what the tests are asserting.
+ */
+export type ShowTimesRefusal =
+  | { reason: "no-timezone" }
+  | { reason: "no-calendar-day"; eventDate: string }
+  | { reason: "unreadable-music"; music: string }
+  | { reason: "doors-without-music"; doors: string }
+  | { reason: "unreadable-doors"; doors: string }
+  | { reason: "music-before-doors"; doors: string; music: string };
 
 export interface ShowTimesInput {
   /** The show's `event_date` as stated, date-only or a full timestamp. */
@@ -100,20 +157,28 @@ export interface ShowTimes {
   /** RFC3339 UTC instant for `shows.music_at`, when one is written. */
   musicAt?: string;
   /**
-   * One line per stated value that is NOT being written, naming the reason.
-   * Empty when the source stated nothing: silence needs no explanation.
+   * One entry per stated value that is NOT being written. Empty when the source
+   * stated nothing: silence needs no explanation.
    */
-  notes: string[];
+  refusals: ShowTimesRefusal[];
 }
 
-/** Whether a value was stated at all, for the purpose of explaining a refusal. */
+/**
+ * Whether the source put anything in this field.
+ *
+ * Deliberately not "is a non-empty string": a batch item stating
+ * `"music_at": 1930` stated something, and reporting it as unreadable is what
+ * gets it in front of the person running the dry run. Only absence and the
+ * empty string are silence.
+ */
 function isStated(value: unknown): boolean {
-  return typeof value === "string" && value.trim().length > 0;
+  if (value === undefined || value === null) return false;
+  return typeof value === "string" ? value.trim().length > 0 : true;
 }
 
 /**
  * Map a show's stated door and music times onto the instants
- * `shows.doors_at` / `shows.music_at` hold, or explain why neither is written.
+ * `shows.doors_at` / `shows.music_at` hold, or report why neither is written.
  *
  * A readable MUSIC time is required before either column is written: the two are
  * a pair describing one evening's schedule, and with no show time to order it
@@ -126,39 +191,37 @@ function isStated(value: unknown): boolean {
  * rollover the source never stated, so neither time is written.
  *
  * A venue whose zone resolves only to the state map's default is not anchored at
- * all. The default is America/Phoenix for a venue in Berlin as readily as for
- * one in Tucson, and every read surface refuses to print a clock on it
- * (`isShowTimezoneResolved` in `frontend/lib/utils/formatters.ts`), so writing
- * one here would store an instant nothing will ever render.
+ * all. `resolveVenueTimezone` hands back America/Phoenix for a venue in Berlin
+ * as readily as for one in Tucson, and the read surfaces named in
+ * `isShowTimezoneResolved`'s doc comment refuse to print a clock on it, so a
+ * time written here would be an instant nothing renders.
  */
 export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
-  const notes: string[] = [];
+  const refusals: ShowTimesRefusal[] = [];
   const doorsStated = isStated(input.doorsAt);
   const musicStated = isStated(input.musicAt);
-  if (!doorsStated && !musicStated) return { notes };
+  if (!doorsStated && !musicStated) return { refusals };
 
   if (!isShowTimezoneResolved(input.state, input.timezone)) {
-    notes.push(
-      "doors/music times not stored: no timezone is known for this venue, so the clock would be anchored on the America/Phoenix default",
-    );
-    return { notes };
+    refusals.push({ reason: "no-timezone" });
+    return { refusals };
   }
   const zone = resolveVenueTimezone(input.state, input.timezone);
 
   const date = calendarDateOf(input.eventDate);
   if (date === null) {
-    notes.push("doors/music times not stored: event_date does not state a calendar day to anchor them to");
-    return { notes };
+    refusals.push({ reason: "no-calendar-day", eventDate: String(input.eventDate) });
+    return { refusals };
   }
 
   const music = parseClockTime(input.musicAt);
   if (music === null) {
-    notes.push(
+    refusals.push(
       musicStated
-        ? `doors/music times not stored: "${String(input.musicAt)}" is not a readable music time`
-        : "doors time not stored: the source states no music time, and doors alone is half a schedule",
+        ? { reason: "unreadable-music", music: String(input.musicAt) }
+        : { reason: "doors-without-music", doors: String(input.doorsAt) },
     );
-    return { notes };
+    return { refusals };
   }
 
   const musicAt = localTimeToUTC(date, clock(music), zone);
@@ -166,20 +229,22 @@ export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
   const doors = parseClockTime(input.doorsAt);
   if (doors === null) {
     if (doorsStated) {
-      notes.push(`doors time not stored: "${String(input.doorsAt)}" is not a readable door time`);
+      refusals.push({ reason: "unreadable-doors", doors: String(input.doorsAt) });
     }
-    return { musicAt, notes };
+    return { musicAt, refusals };
   }
 
   const doorsAt = localTimeToUTC(date, clock(doors), zone);
   if (Date.parse(musicAt) < Date.parse(doorsAt)) {
-    notes.push(
-      `doors/music times not stored: music at "${String(input.musicAt)}" is before doors at "${String(input.doorsAt)}", which states a day this listing did not`,
-    );
-    return { notes };
+    refusals.push({
+      reason: "music-before-doors",
+      doors: String(input.doorsAt),
+      music: String(input.musicAt),
+    });
+    return { refusals };
   }
 
-  return { doorsAt, musicAt, notes };
+  return { doorsAt, musicAt, refusals };
 }
 
 /** `HH:MM`, the shape localTimeToUTC reads. */

@@ -196,12 +196,10 @@ export default function assert(output: string, context: AssertContext): GradingR
     // credit, and one invented clock is the whole failure the door-time
     // fixtures exist to see.
     {
-      pass: score.showTimes.rate >= 1 && score.showTimes.invented.length === 0,
-      score: score.showTimes.rate,
-      reason:
-        `Show times ${score.showTimes.matched}/${score.showTimes.expected.length} schedules matched ` +
-        `(missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
-      namedScores: { show_times_agreement: score.showTimes.rate },
+      pass: score.showTimes.recall >= 1 && score.showTimes.invented.length === 0,
+      score: score.showTimes.recall,
+      reason: `Show times ${score.showTimes.found}/${score.showTimes.expected} schedules matched (missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
+      namedScores: { show_times_agreement: score.showTimes.recall },
     },
   ];
 
@@ -221,7 +219,7 @@ export default function assert(output: string, context: AssertContext): GradingR
       show_recall: score.showFields.shows.rate,
       show_price_agreement: score.showFields.prices.rate,
       bill_role_agreement: score.showFields.billRoles.rate,
-      show_times_agreement: score.showTimes.rate,
+      show_times_agreement: score.showTimes.recall,
       schema_valid: schemaValid ? 1 : 0,
     },
   };

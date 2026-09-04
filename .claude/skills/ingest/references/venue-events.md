@@ -52,6 +52,8 @@ const isJunk = s => !s || /\bpresents$|^free monday\s*w\/?$|two day pass$/i.test
 
 ## Venue registry
 
+Each org has a row here AND a row in "Door / music times per source" below. A refresh that re-inspects a source updates both.
+
 | Venue org | Events URL | Render | Pagination | Room → city/state | Notes |
 | --- | --- | --- | --- | --- | --- |
 | **First Avenue** (MN) | `https://first-avenue.com/shows/` | JS (WordPress) — browser MCP | GET `?post_type=event&start_date=YYYYMM01` (same-origin `fetch` loop) | First Avenue / 7th St Entry / Fine Line / The Cedar Cultural Center / Orpheum Theatre / Surly Brewing Festival Field / Armory / State Theatre / icehouse MPLS → **Minneapolis, MN**; Turf Club / Palace Theatre / The Fitzgerald Theater / Amsterdam Bar & Hall / Grand Casino Arena → **St. Paul, MN** | Card `.show_list_item`; headliner `.show_name h4`, tour title `.show_name h6`, supports `.show_name h5` (names are the text-nodes between `<em>` connectors), venue `.venue_name`, date `.date .month`+`.day`. **Note the abbreviated name "7th St Entry" dedups to the existing "7th Street Entry".** List view has no per-show price/age. |

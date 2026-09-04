@@ -97,15 +97,16 @@ export interface ShowFieldScore {
 }
 
 export interface ShowTimesScore {
-  /** One entry per golden show: the schedule it states. */
-  expected: string[];
-  /** Golden schedules the model did not produce. */
+  /** count of golden shows, each of which states one schedule */
+  expected: number;
+  /** count of golden schedules the model reproduced */
+  found: number;
+  /** golden schedules the model did not produce */
   missed: string[];
-  /** Schedules the model produced that no golden show states. */
+  /** schedules the model produced that no golden show states */
   invented: string[];
-  matched: number;
-  /** matched / expected.length, in [0, 1]; 1.0 when there are no golden shows. */
-  rate: number;
+  /** found / expected, in [0, 1]; 1.0 when there are no golden shows */
+  recall: number;
 }
 
 export interface ExtractionScore {
@@ -430,6 +431,11 @@ function scheduleKey(show: BatchItem): string {
  * A golden show whose listing states no time contributes the empty schedule, so
  * a model that invents one for it scores zero here and the invented value is
  * named in `invented`.
+ *
+ * The denominator is every golden show, which folds one MISSING show into this
+ * metric as a missing schedule. That is the price of not keying on the show, and
+ * it is bounded: `artists` already reports what was dropped, and `invented`
+ * separates "made a time up" from "did not produce the show at all".
  */
 export function scoreShowTimes(expected: BatchItem[], actual: BatchItem[]): ShowTimesScore {
   const expectedKeys = itemsOfType(expected, "show").map(scheduleKey);
@@ -437,12 +443,12 @@ export function scoreShowTimes(expected: BatchItem[], actual: BatchItem[]): Show
   for (const key of expectedKeys) remaining.set(key, (remaining.get(key) ?? 0) + 1);
 
   const invented: string[] = [];
-  let matched = 0;
+  let found = 0;
   for (const key of itemsOfType(actual, "show").map(scheduleKey)) {
     const left = remaining.get(key) ?? 0;
     if (left > 0) {
       remaining.set(key, left - 1);
-      matched++;
+      found++;
     } else {
       invented.push(key);
     }
@@ -454,11 +460,11 @@ export function scoreShowTimes(expected: BatchItem[], actual: BatchItem[]): Show
   }
 
   return {
-    expected: expectedKeys,
+    expected: expectedKeys.length,
+    found,
     missed,
     invented,
-    matched,
-    rate: expectedKeys.length === 0 ? 1 : matched / expectedKeys.length,
+    recall: expectedKeys.length === 0 ? 1 : found / expectedKeys.length,
   };
 }
 
@@ -550,9 +556,9 @@ export function formatScore(score: ExtractionScore): string {
   if (v.hallucinated.length) lines.push(`  hallucinated: ${v.hallucinated.join(", ")}`);
 
   const t = score.showTimes;
-  if (t.expected.length > 0) {
+  if (t.expected > 0) {
     lines.push(
-      `Show times: ${t.matched}/${t.expected.length} schedules matched (${(t.rate * 100).toFixed(1)}%)`,
+      `Show times: ${t.found}/${t.expected} schedules matched (${(t.recall * 100).toFixed(1)}%)`,
     );
     if (t.missed.length) lines.push(`  missed: ${t.missed.join(", ")}`);
     if (t.invented.length) lines.push(`  invented: ${t.invented.join(", ")}`);

@@ -513,17 +513,48 @@ describe("buildShowPayload", () => {
     expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
   });
 
+  test("an existing venue is judged on its own row, not on the state the batch claims", () => {
+    // The row is what every read surface renders from. A stored empty state with
+    // no geocoded zone means the page refuses to print a clock, so writing one
+    // here would store an instant nothing shows.
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "";
+
+    const payload = buildShowPayload(plan);
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+    expect(planShowTimes(plan).refusals).toEqual([{ reason: "no-timezone" }]);
+  });
+
+  test("an existing venue's own state anchors the clock when the batch disagrees", () => {
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "AZ";
+    plan.input.state = "IL";
+
+    // 8:30 PM Phoenix (UTC-7 year round), not 8:30 PM Chicago.
+    expect(buildShowPayload(plan).music_at).toBe("2026-09-05T03:30:00Z");
+  });
+
+  test("a venue this run will create falls back to the stated location", () => {
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.venues[0] = { name: "Lincoln Hall", state: "IL", status: "new" };
+
+    expect(buildShowPayload(plan).music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
   test("a venue with no resolvable zone writes neither column and says why", () => {
     const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
     plan.input.state = "England";
     plan.input.venues[0].state = "England";
-    plan.venues[0].state = "England";
+    plan.venues[0].matchedState = "England";
     plan.venues[0].timezone = undefined;
 
     const payload = buildShowPayload(plan);
     expect("doors_at" in payload).toBe(false);
     expect("music_at" in payload).toBe(false);
-    expect(planShowTimes(plan).notes[0]).toContain("no timezone is known");
+    expect(planShowTimes(plan).refusals).toEqual([{ reason: "no-timezone" }]);
   });
 });
 
