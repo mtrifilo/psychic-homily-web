@@ -7,9 +7,10 @@ import {
   classifyMatch,
   showDedupWindow,
   checkDuplicate,
+  checkShowDuplicate,
   getFieldsForType,
 } from "../src/lib/duplicates";
-import type { APIClient } from "../src/lib/api";
+import { APIClient } from "../src/lib/api";
 import type { EntityType } from "../src/lib/types";
 
 describe("showDedupWindow", () => {
@@ -841,4 +842,84 @@ describe("checkDuplicate — fully-populated re-ingest is a pure skip (field-lis
       expect(result.fields.filter((f) => f.status === "new_info")).toEqual([]);
     });
   }
+});
+
+// -- checkShowDuplicate reads what the API actually returns -------------------
+
+describe("checkShowDuplicate response shape", () => {
+  function client(handler: (params?: Record<string, string>) => unknown): APIClient {
+    const c = Object.create(APIClient.prototype) as APIClient;
+    (c as unknown as Record<string, unknown>).get = async (
+      _path: string,
+      params?: Record<string, string>,
+    ) => handler(params);
+    return c;
+  }
+
+  const existing = {
+    id: 500,
+    slug: "existing-show",
+    event_date: "2026-09-05T01:30:00Z",
+    venues: [{ id: 10, name: "Lincoln Hall" }],
+    artists: [{ id: 42, name: "Wolves of Glendale" }],
+  };
+
+  test("finds the duplicate in the ENVELOPE the endpoint answers with", async () => {
+    // `/shows` returns { shows, total, limit, offset }. Reading it as a bare
+    // array yielded [] on every call, so this check reported "not a duplicate"
+    // for every show ever put through it.
+    const result = await checkShowDuplicate(
+      client(() => ({ shows: [existing], total: 1, limit: 200, offset: 0 })),
+      "2026-09-04",
+      [10],
+      [42],
+      ["Wolves of Glendale"],
+      "IL",
+      "America/Chicago",
+    );
+    expect(result.isDuplicate).toBe(true);
+    expect(result.existingShowId).toBe(500);
+  });
+
+  test("still reads a bare array, which is what the code always claimed", async () => {
+    const result = await checkShowDuplicate(
+      client(() => [existing]),
+      "2026-09-04",
+      [10],
+      [42],
+      ["Wolves of Glendale"],
+      "IL",
+      "America/Chicago",
+    );
+    expect(result.isDuplicate).toBe(true);
+  });
+
+  test("pages past a full first page to find a duplicate on the second", async () => {
+    const filler = Array.from({ length: 200 }, (_, i) => ({
+      id: 1000 + i,
+      slug: `filler-${i}`,
+      event_date: "2026-09-05T01:30:00Z",
+      venues: [{ id: 99, name: "Somewhere Else" }],
+      artists: [{ id: 900 + i, name: `Filler ${i}` }],
+    }));
+
+    const seen: string[] = [];
+    const result = await checkShowDuplicate(
+      client((params) => {
+        seen.push(params?.offset ?? "none");
+        return params?.offset === "0"
+          ? { shows: filler }
+          : { shows: [existing] };
+      }),
+      "2026-09-04",
+      [10],
+      [42],
+      ["Wolves of Glendale"],
+      "IL",
+      "America/Chicago",
+    );
+
+    expect(result.isDuplicate).toBe(true);
+    expect(seen.length).toBeGreaterThan(1);
+  });
 });

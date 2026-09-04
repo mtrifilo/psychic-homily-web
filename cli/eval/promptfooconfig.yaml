@@ -37,3 +37,24 @@ tests:
       media_type: image/png
       # Golden human-verified expected batch (the 2026-05-31 Stage ingest).
       expected_json: file://fixtures/riot-fest-2026/expected.json
+
+  # The door-time pair. Both are captures of live REGISTERED venue events pages
+  # (see the registry in .claude/skills/ingest/references/venue-events.md), which
+  # is where the `ph batch` path gets its shows.
+  - description: "Lincoln Hall listing with LABELLED door and show times (positive door-time case)"
+    vars:
+      image: file://fixtures/lh-st-lincoln-hall-2026-09/listing.png
+      media_type: image/png
+      expected_json: file://fixtures/lh-st-lincoln-hall-2026-09/expected.json
+
+  - description: "The Sinkhole listing with LABELLED times printed with no minutes (7 pm / 8 pm take :00)"
+    vars:
+      image: file://fixtures/sinkhole-2026-09/listing.png
+      media_type: image/png
+      expected_json: file://fixtures/sinkhole-2026-09/expected.json
+
+  - description: "Empty Bottle listings whose single time is UNLABELLED (negative door-time case: neither field may be emitted)"
+    vars:
+      image: file://fixtures/empty-bottle-2026-09/listing.png
+      media_type: image/png
+      expected_json: file://fixtures/empty-bottle-2026-09/expected.json

@@ -4,14 +4,20 @@ import {
   resolveArtists,
   resolveVenues,
   buildShowPayload,
+  planShowTimes,
+  venueZone,
+  describeShowTimeRefusal,
+  timesToBackfill,
+  backfillShowTimes,
   normalizeDate,
   showPriceLine,
   submitShows,
   type ShowPlan,
 } from "../src/commands/submit-show";
 import { APIClient } from "../src/lib/api";
-import { checkShowDuplicate } from "../src/lib/duplicates";
+import { checkShowDuplicate, showDedupWindow } from "../src/lib/duplicates";
 import { validateShow } from "../src/lib/schemas";
+import type { ShowTimesRefusal } from "../src/lib/showTimes";
 
 // -- Mock helpers ------------------------------------------------------------
 
@@ -34,6 +40,32 @@ function createMockClient(overrides: {
   }
 
   return client;
+}
+
+/** A Chicago show at a venue whose own zone is known, plus whatever times. */
+function planWithTimes(times: { doors_at?: string; music_at?: string }): ShowPlan {
+  return {
+    input: {
+      event_date: "2026-09-04",
+      city: "Chicago",
+      state: "IL",
+      ...times,
+      artists: [{ name: "Wolves of Glendale" }],
+      venues: [{ name: "Lincoln Hall", city: "Chicago", state: "IL" }],
+    },
+    artists: [{ id: 1, name: "Wolves of Glendale", status: "existing" }],
+    venues: [
+      {
+        id: 2,
+        name: "Lincoln Hall",
+        state: "IL",
+        timezone: "America/Chicago",
+        status: "existing",
+      },
+    ],
+    valid: true,
+    errors: [],
+  };
 }
 
 // -- parseShowInput ----------------------------------------------------------
@@ -428,6 +460,106 @@ describe("buildShowPayload", () => {
   test("carries a free show's zero rather than dropping it", () => {
     const payload = buildShowPayload(planWithPrices({ price: 0 }));
     expect(payload.price).toBe(0);
+  });
+
+  // -- doors_at / music_at ---------------------------------------------------
+
+
+  test("converts a stated pair to venue-local instants", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" }),
+    );
+    // 2026-09-04 is CDT, UTC-5.
+    expect(payload.doors_at).toBe("2026-09-05T00:30:00Z");
+    expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("a stated music time anchors event_date, so the two agree", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" }),
+    );
+    expect(payload.event_date).toBe(payload.music_at);
+  });
+
+  test("a date-only show with no stated music time keeps the 20:00 convention", () => {
+    const payload = buildShowPayload(planWithTimes({}));
+    expect(payload.event_date).toBe("2026-09-05T01:00:00Z");
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+  });
+
+  test("an event_date that states its own time is not moved by music_at", () => {
+    const plan = planWithTimes({ music_at: "8:30PM" });
+    plan.input.event_date = "2026-09-04T21:00";
+    const payload = buildShowPayload(plan);
+    expect(payload.event_date).toBe("2026-09-05T02:00:00Z");
+    expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("a doors-only listing writes neither column", () => {
+    const payload = buildShowPayload(planWithTimes({ doors_at: "7:30PM" }));
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+  });
+
+  test("a contradictory pair writes neither column", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "11:00 PM", music_at: "12:00 AM" }),
+    );
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+  });
+
+  test("an unreadable door time leaves the readable music time standing", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "doors at 7", music_at: "8:30PM" }),
+    );
+    expect("doors_at" in payload).toBe(false);
+    expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("an existing venue is judged on its own row, not on the state the batch claims", () => {
+    // The row is what every read surface renders from. A stored empty state with
+    // no geocoded zone means the page refuses to print a clock, so writing one
+    // here would store an instant nothing shows.
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "";
+
+    const payload = buildShowPayload(plan);
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+    expect(planShowTimes(plan).refusals).toEqual([{ reason: "no-timezone" }]);
+  });
+
+  test("an existing venue's own state anchors the clock when the batch disagrees", () => {
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "AZ";
+    plan.input.state = "IL";
+
+    // 8:30 PM Phoenix (UTC-7 year round), not 8:30 PM Chicago.
+    expect(buildShowPayload(plan).music_at).toBe("2026-09-05T03:30:00Z");
+  });
+
+  test("a venue this run will create falls back to the stated location", () => {
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.venues[0] = { name: "Lincoln Hall", state: "IL", status: "new" };
+
+    expect(buildShowPayload(plan).music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("a venue with no resolvable zone writes neither column and says why", () => {
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.input.state = "England";
+    plan.input.venues[0].state = "England";
+    plan.venues[0].matchedState = "England";
+    plan.venues[0].timezone = undefined;
+
+    const payload = buildShowPayload(plan);
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+    expect(planShowTimes(plan).refusals).toEqual([{ reason: "no-timezone" }]);
   });
 });
 
@@ -1266,5 +1398,276 @@ describe("normalizeDate", () => {
 
   test("an empty venue timezone falls back to the state map", () => {
     expect(normalizeDate("2026-04-15", "NY", "")).toBe("2026-04-16T00:00:00Z");
+  });
+});
+
+// -- venue zone -------------------------------------------------------------
+
+describe("venueZone", () => {
+  test("carries the matched venue ROW's state and zone, not the batch's claim", async () => {
+    // The wiring under test is resolveVenues copying `state` off the search hit.
+    // Without it every existing venue reads as stateless and the times refuse.
+    const client = createMockClient({
+      get: async () => ({
+        venues: [
+          { id: 7, name: "Lincoln Hall", slug: "lincoln-hall", city: "Chicago", state: "IL", timezone: "America/Chicago" },
+        ],
+      }),
+    });
+
+    const resolved = await resolveVenues(client, [
+      { name: "Lincoln Hall", city: "Chicago", state: "NY" },
+    ]);
+    expect(resolved[0].matchedState).toBe("IL");
+    expect(resolved[0].timezone).toBe("America/Chicago");
+
+    expect(venueZone(resolved, { state: "NY", venues: [{ name: "Lincoln Hall", state: "NY" }] })).toEqual({
+      state: "IL",
+      timezone: "America/Chicago",
+    });
+  });
+
+  test("a stored empty state is an answer, and it is carried as one", async () => {
+    const client = createMockClient({
+      get: async () => ({
+        venues: [{ id: 7, name: "Lincoln Hall", slug: "lincoln-hall", city: "Chicago", state: "" }],
+      }),
+    });
+
+    const resolved = await resolveVenues(client, [
+      { name: "Lincoln Hall", city: "Chicago", state: "IL" },
+    ]);
+    expect(resolved[0].matchedState).toBe("");
+    expect(venueZone(resolved, { state: "IL", venues: [{ name: "Lincoln Hall", state: "IL" }] })).toEqual({
+      state: "",
+      timezone: undefined,
+    });
+  });
+
+  test("a venue this run will create has no row, so the stated location stands", () => {
+    const resolved = [{ name: "Boom Leeds", state: "England", status: "new" as const }];
+    expect(venueZone(resolved, { state: "England", venues: [{ name: "Boom Leeds", state: "England" }] })).toEqual({
+      state: "England",
+    });
+  });
+
+  test("the dedup window and the written instant read one zone", () => {
+    // These two used to be resolved separately, so a batch claiming a state the
+    // matched row disagrees with searched one calendar day and wrote another.
+    const plan = planWithTimes({ music_at: "9:00PM" });
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "AZ";
+    plan.input.state = "IL";
+    plan.input.venues[0].state = "IL";
+
+    const zone = venueZone(plan.venues, plan.input);
+    const written = buildShowPayload(plan).event_date as string;
+    const window = showDedupWindow(plan.input.event_date, zone.state, zone.timezone);
+
+    expect(Date.parse(window.fromDate)).toBeLessThanOrEqual(Date.parse(written));
+    expect(Date.parse(written)).toBeLessThanOrEqual(Date.parse(window.toDate));
+  });
+
+  test("a zoned event_date puts the window on the VENUE's day, not the UTC one", () => {
+    // 2026-09-06T01:00:00Z is the evening of September 5 in Chicago, and it is
+    // the shape this CLI itself writes. A window sliced off the leading ten
+    // characters lands on the 6th and misses the row the writer stores.
+    const plan = planWithTimes({ music_at: "8:00 PM" });
+    plan.input.event_date = "2026-09-06T01:00:00Z";
+
+    const zone = venueZone(plan.venues, plan.input);
+    const written = buildShowPayload(plan).event_date as string;
+    const window = showDedupWindow(plan.input.event_date, zone.state, zone.timezone);
+
+    expect(Date.parse(window.fromDate)).toBeLessThanOrEqual(Date.parse(written));
+    expect(Date.parse(written)).toBeLessThanOrEqual(Date.parse(window.toDate));
+  });
+
+  test("an absent row state falls through to the show's, an empty one does not", () => {
+    // Mirrors `venue?.state ?? show.state` in showTimingInput: a stored empty
+    // string is the row's answer; only an absent field falls through.
+    const absent = [{ id: 7, name: "V", status: "existing" as const }];
+    expect(venueZone(absent, { state: "IL", venues: [{ name: "V" }] }).state).toBe("IL");
+
+    const empty = [{ id: 7, name: "V", matchedState: "", status: "existing" as const }];
+    expect(venueZone(empty, { state: "IL", venues: [{ name: "V" }] }).state).toBe("");
+  });
+
+  test("event_date follows the venue row too, not only the clocks", () => {
+    // The row is stateless and unzoned, so every clock on this show resolves
+    // through the America/Phoenix default -- including the date-only anchor,
+    // which is the zone the page will bucket the day in.
+    const plan = planWithTimes({});
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "";
+    plan.input.state = "IL";
+    plan.input.venues[0].state = "IL";
+
+    expect(buildShowPayload(plan).event_date).toBe("2026-09-05T03:00:00Z");
+  });
+});
+
+// -- refusal copy -----------------------------------------------------------
+
+describe("describeShowTimeRefusal", () => {
+  const cases: Array<[ShowTimesRefusal, string]> = [
+    [{ reason: "no-timezone" }, "no timezone is known"],
+    [{ reason: "no-calendar-day", eventDate: "next Friday" }, "next Friday"],
+    [{ reason: "unreadable-music", music: "TBD" }, "TBD"],
+    [{ reason: "doors-without-music", doors: "7:30PM" }, "no music time"],
+    [{ reason: "unreadable-doors", doors: "doors at 7" }, "doors at 7"],
+    [
+      { reason: "music-before-doors", doors: "11:00 PM", music: "12:00 AM" },
+      "is before doors at",
+    ],
+    [
+      { reason: "clock-does-not-exist", clock: "2:30 AM", day: "2026-03-08" },
+      "does not exist on 2026-03-08",
+    ],
+  ];
+
+  for (const [refusal, fragment] of cases) {
+    test(`${refusal.reason} names the reason`, () => {
+      const line = describeShowTimeRefusal(refusal);
+      expect(line).toContain(fragment);
+      expect(line.length).toBeGreaterThan(20);
+    });
+  }
+
+  test("strips control characters out of a source-supplied value", () => {
+    // A cursor-movement escape in a scraped value would rewrite lines already
+    // printed for an earlier show in the same preview.
+    const line = describeShowTimeRefusal({
+      reason: "unreadable-music",
+      music: "TBD\u001b[2K\u001b[8A rewritten",
+    });
+    expect(line).not.toContain("\u001b");
+    expect(line).toContain("TBD[2K[8A rewritten");
+  });
+
+  test("caps a value long enough to scroll the batch out of the terminal", () => {
+    const line = describeShowTimeRefusal({
+      reason: "unreadable-doors",
+      doors: "x".repeat(5000),
+    });
+    expect(line.length).toBeLessThan(300);
+    expect(line).toContain("...");
+  });
+});
+
+// -- backfilling an existing show -------------------------------------------
+
+describe("timesToBackfill", () => {
+  const times = { doorsAt: "2026-09-05T00:30:00Z", musicAt: "2026-09-05T01:30:00Z", refusals: [] };
+
+  test("fills both columns when the stored row has neither", () => {
+    expect(timesToBackfill({}, times)).toEqual({
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+    });
+  });
+
+  test("fills only the absent column", () => {
+    expect(timesToBackfill({ music_at: "2026-09-05T02:00:00Z" }, times)).toEqual({
+      doorsAt: "2026-09-05T00:30:00Z",
+    });
+  });
+
+  test("NEVER overwrites a stored time", () => {
+    const stored = { doors_at: "2026-09-05T00:00:00Z", music_at: "2026-09-05T02:00:00Z" };
+    expect(timesToBackfill(stored, times)).toBeNull();
+  });
+
+  test("treats null and empty string as absent, like the API serves them", () => {
+    expect(timesToBackfill({ doors_at: null, music_at: null }, times)).toEqual({
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+    });
+  });
+
+  test("writes nothing when the run states no times", () => {
+    expect(timesToBackfill({}, { refusals: [] })).toBeNull();
+  });
+
+  test("refuses a fill that would invert the stored pair", () => {
+    // Stored music 00:00, incoming doors 00:30: the row would end up with music
+    // before doors, which validateShowTimeOrder rejects. Do not send it.
+    const stored = { music_at: "2026-09-05T00:00:00Z" };
+    expect(timesToBackfill(stored, { doorsAt: "2026-09-05T00:30:00Z", refusals: [] })).toBeNull();
+  });
+});
+
+describe("backfillShowTimes", () => {
+  test("sends only the absent column and leaves the rest of the show alone", async () => {
+    let putPath = "";
+    let putBody: unknown = null;
+    const client = createMockClient({
+      get: async () => ({ id: 9, doors_at: null, music_at: "2026-09-05T02:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async (path: string, body: unknown) => {
+      putPath = path;
+      putBody = body;
+      return {};
+    };
+
+    const filled = await backfillShowTimes(client, 9, {
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+      refusals: [],
+    });
+
+    expect(filled?.fill).toEqual({ doorsAt: "2026-09-05T00:30:00Z" });
+    expect(putPath).toBe("/shows/9");
+    // Omitting music_at is what leaves the stored one alone: the field is
+    // tri-state on the API, and sending null would CLEAR it.
+    expect(putBody).toEqual({ doors_at: "2026-09-05T00:30:00Z" });
+  });
+
+  test("reports when the stored event_date disagrees with the music time written", async () => {
+    // The backfill fills columns but never moves event_date, so the show page
+    // can print its start from one and MUSIC from the other. The run has to say
+    // so; the create path prevents this case by anchoring event_date.
+    const client = createMockClient({
+      get: async () => ({ id: 9, event_date: "2026-09-05T01:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async () => ({});
+
+    const result = await backfillShowTimes(client, 9, {
+      musicAt: "2026-09-05T02:00:00Z",
+      refusals: [],
+    });
+    expect(result?.startsDisagree).toBe(true);
+  });
+
+  test("stays quiet when the stored event_date already IS the music time", async () => {
+    const client = createMockClient({
+      get: async () => ({ id: 9, event_date: "2026-09-05T02:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async () => ({});
+
+    const result = await backfillShowTimes(client, 9, {
+      musicAt: "2026-09-05T02:00:00Z",
+      refusals: [],
+    });
+    expect(result?.startsDisagree).toBe(false);
+  });
+
+  test("issues no request when there is nothing to fill", async () => {
+    let putCalls = 0;
+    const client = createMockClient({
+      get: async () => ({ id: 9, doors_at: "2026-09-05T00:00:00Z", music_at: "2026-09-05T02:00:00Z" }),
+    });
+    (client as unknown as Record<string, unknown>).put = async () => {
+      putCalls++;
+      return {};
+    };
+
+    const filled = await backfillShowTimes(client, 9, {
+      doorsAt: "2026-09-05T00:30:00Z",
+      musicAt: "2026-09-05T01:30:00Z",
+      refusals: [],
+    });
+    expect(filled).toBeNull();
+    expect(putCalls).toBe(0);
   });
 });
