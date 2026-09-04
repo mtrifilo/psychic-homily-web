@@ -1125,7 +1125,7 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AuditEntityID() {
 	_, err := s.handler.SetFeaturedHandler(ctx, req)
 	s.Require().NoError(err)
 
-	// The audit write is fire-and-forget (GoSafe), so poll for THIS
+	// The audit write is queued on the bounded writer, so poll for THIS
 	// collection's row. Matching only on action can succeed on a sibling
 	// suite's earlier set_collection_featured row (entity_id off-by-one flake).
 	var log adminm.AuditLog

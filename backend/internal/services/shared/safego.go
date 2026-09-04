@@ -8,8 +8,13 @@ import (
 
 // GoSafe runs `work` in a new goroutine guarded by a panic recover, then
 // returns immediately. It is the canonical wrapper for fire-and-forget
-// goroutines launched from request handlers and service methods (audit-log
-// writes, Discord webhooks, notification fan-out, async DB touch-ups, etc.).
+// goroutines launched from request handlers and service methods (Discord
+// webhooks, notification fan-out, async DB touch-ups, etc.).
+//
+// One goroutine PER CALL, so a caller that fans out fans out goroutines with
+// it. Audit-log writes go through SubmitAuditWrite instead, which queues onto a
+// fixed worker pool; see audit_writer.go for which of the two a new call site
+// wants.
 //
 // Why this exists: Go treats a panic that escapes a goroutine as fatal — it
 // crashes the entire process. An HTTP handler's Sentry middleware only wraps
@@ -33,7 +38,9 @@ import (
 // meaningful parent context.
 //
 // `name` labels the goroutine in logs and the Sentry `service` tag; use a
-// short, stable identifier (e.g. "audit_log", "discord_webhook").
+// short, stable identifier (e.g. "discord_webhook", "record_revision"). A name
+// containing "audit" is refused by TestNoAuditWriteBypassesTheBoundedWriter,
+// since those writes belong on SubmitAuditWrite.
 func GoSafe(ctx context.Context, name string, work func()) {
 	go func() {
 		defer func() {

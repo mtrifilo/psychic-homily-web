@@ -84,7 +84,7 @@ func (h *CommentAdminHandler) AdminHideCommentHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "hide_comment", "comment", uint(commentID), map[string]interface{}{
 				"reason": reason,
 			})
@@ -127,7 +127,7 @@ func (h *CommentAdminHandler) AdminRestoreCommentHandler(ctx context.Context, re
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "restore_comment", "comment", uint(commentID), nil)
 		})
 	}
@@ -215,7 +215,7 @@ func (h *CommentAdminHandler) AdminApproveCommentHandler(ctx context.Context, re
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "approve_comment", "comment", uint(commentID), nil)
 		})
 	}
@@ -264,7 +264,7 @@ func (h *CommentAdminHandler) AdminRejectCommentHandler(ctx context.Context, req
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "reject_comment", "comment", uint(commentID), map[string]interface{}{
 				"reason": reason,
 			})

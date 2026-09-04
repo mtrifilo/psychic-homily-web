@@ -14,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -305,6 +306,11 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	// stored, and history can hold values that predate a bound, so refusing them
 	// would break undo for precisely the rows most likely to need it.
 	//
+	// A column with its own CHECK constraint still refuses one. venues.capacity
+	// is bounded at 1..200000 by venues_capacity_range, so a rollback restoring
+	// a capacity outside that range fails at the write below with a constraint
+	// violation rather than landing the old value.
+	//
 	// A nil OldValue means the column was NULL before the edit, and it has to
 	// land as SQL NULL for the undo to be faithful. NarrowNumericUpdates turns a
 	// REGISTERED field's nil into a typed (*int)(nil) for exactly that reason;
@@ -386,6 +392,26 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 
 	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if result.Error != nil {
+		// A column CHECK is the one refusal this path can provoke and cannot
+		// pre-empt, since it writes an OldValue no forward gate ever saw. The
+		// driver message names the constraint and says nothing an admin can act
+		// on, so it is replaced rather than passed through: the handler answers
+		// 422 with whatever comes back from here.
+		//
+		// Replaced, not discarded. The constraint name is what an operator needs
+		// to find the column, so it goes to the log while the caller gets the
+		// reason.
+		if shared.IsCheckConstraintViolation(result.Error) {
+			logger.FromContext(ctx).Error("revision_rollback_check_constraint",
+				"entity_type", revision.EntityType,
+				"entity_id", revision.EntityID,
+				"revision_id", revision.ID,
+				"error", result.Error.Error(),
+			)
+			return fmt.Errorf(
+				"cannot roll back: this revision restores a value the %s column no longer accepts",
+				revision.EntityType)
+		}
 		return fmt.Errorf("failed to apply rollback: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {

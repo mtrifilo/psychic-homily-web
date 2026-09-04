@@ -609,7 +609,7 @@ func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_tag", "tag", tag.ID, map[string]interface{}{
 				"name":     tag.Name,
 				"category": tag.Category,
@@ -665,7 +665,7 @@ func (h *TagHandler) UpdateTagHandler(ctx context.Context, req *UpdateTagRequest
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "update_tag", "tag", uint(id), nil)
 		})
 	}
@@ -701,7 +701,7 @@ func (h *TagHandler) DeleteTagHandler(ctx context.Context, req *DeleteTagRequest
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_tag", "tag", uint(id), nil)
 		})
 	}
@@ -786,7 +786,7 @@ func (h *TagHandler) CreateAliasHandler(ctx context.Context, req *CreateAliasReq
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_tag_alias", "tag", uint(id), map[string]interface{}{
 				"alias": req.Body.Alias,
 			})
@@ -826,7 +826,7 @@ func (h *TagHandler) DeleteAliasHandler(ctx context.Context, req *DeleteAliasReq
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
 		tagID, _ := strconv.ParseUint(req.TagID, 10, 32)
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_tag_alias", "tag", uint(tagID), map[string]interface{}{
 				"alias_id": uint(aliasID),
 			})
@@ -979,7 +979,7 @@ func (h *TagHandler) BulkImportAliasesHandler(ctx context.Context, req *BulkImpo
 	if h.auditLog != nil {
 		imported := result.Imported
 		skipped := len(result.Skipped)
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "bulk_import_tag_aliases", "tag", 0, map[string]interface{}{
 				"imported": imported,
 				"skipped":  skipped,
@@ -1033,7 +1033,7 @@ func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest
 	}
 
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "snooze_low_quality_tag", "tag", uint(id), nil)
 		})
 	}
@@ -1085,7 +1085,7 @@ func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLow
 		affected := result.Affected
 		notFound := result.NotFound
 		idsCopy := append([]uint(nil), req.Body.TagIDs...)
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "bulk_low_quality_tags", "tag", 0, map[string]interface{}{
 				"action":    actionCopy,
 				"requested": requested,
