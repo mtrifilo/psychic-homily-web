@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -27,9 +29,37 @@ func TestVenuesCapacityRangeConstraint(t *testing.T) {
 	}
 
 	// The bounds the constraint mirrors, read from the contract rather than
-	// retyped: a change to one that misses the migration fails here.
+	// retyped.
 	floor := contracts.MinVenueCapacity
 	ceiling := contracts.MaxVenueCapacity
+
+	// Read the constraint's own definition back and compare both numbers.
+	//
+	// The accept/reject cases below cannot do this on their own: raising the
+	// FLOOR in Go without the migration leaves every one of them green, because
+	// the rejected values are still below the old floor and the accepted floor
+	// value is still inside the old range. Comparing the definition catches a
+	// drift in either bound in either direction.
+	t.Run("definition matches the contract", func(t *testing.T) {
+		var definition string
+		err := db.Raw(
+			"SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = ?",
+			"venues_capacity_range",
+		).Scan(&definition).Error
+		if err != nil {
+			t.Fatalf("reading the constraint definition: %v", err)
+		}
+		if definition == "" {
+			t.Fatal("venues_capacity_range does not exist; the migration did not run")
+		}
+		for _, want := range []string{strconv.Itoa(floor), strconv.Itoa(ceiling)} {
+			if !strings.Contains(definition, want) {
+				t.Errorf("constraint %q does not carry the contract bound %s; "+
+					"the SQL literals and contracts.Min/MaxVenueCapacity have drifted",
+					definition, want)
+			}
+		}
+	})
 
 	t.Run("rejects out of range", func(t *testing.T) {
 		cases := []struct {

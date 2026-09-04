@@ -690,7 +690,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_OutOfRangeHistoricalC
 
 	err := s.svc.Rollback(context.Background(), recorded.ID, user.ID)
 	s.Require().Error(err, "the column refuses a capacity the forward paths would also refuse")
-	s.Contains(err.Error(), "outside the range its column accepts",
+	s.Contains(err.Error(), "no longer accepts",
 		"the admin gets the reason, not the driver's constraint name")
 
 	var restored catalogm.Venue

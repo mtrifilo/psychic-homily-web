@@ -9,23 +9,35 @@ import (
 	"sync/atomic"
 )
 
-// auditWriteWorkers is how many audit-log writes may be in the database at
+// AuditWriteWorkers is how many audit-log writes may be in the database at
 // once. Each one is a single-row INSERT, so the useful number is small: it
 // exists to keep a burst from claiming the whole connection pool, not to make
 // audit writing fast.
 //
-// It must stay well under config.DefaultDBMaxOpenConns, since every worker in
-// flight holds one of those connections and the requests that produced the
-// writes need the rest.
-const auditWriteWorkers = 4
+// Every worker in flight holds one connection from the pool, and the requests
+// that produced the writes need the rest, so this has to stay well below the
+// pool's own ceiling. It is exported so the composition root can compare the two
+// at boot and say so when they cross, since the pool ceiling is an env var and
+// nothing here can see its value.
+const AuditWriteWorkers = 4
 
 // auditWriteQueueDepth is how many writes may be waiting. It absorbs the INSTANT
-// of a burst, not its sustained rate: a batch is capped at 200 items
+// of a burst rather than a sustained rate: a batch is capped at 200 items
 // (maxEntityRequestSubmissions), each filing one row, and this holds five of
-// those arriving together. Four workers doing single-row inserts clear far more
-// than the per-user batch limiter (EntityRequestBatchBurstPerMinute) delivers,
-// so reaching this depth means the database is not draining.
+// those arriving together.
+//
+// It is a per-process depth against a PER-USER rate limit
+// (EntityRequestBatchBurstPerMinute), so enough concurrent batching users can
+// reach it with a perfectly healthy database. Reaching it means writes are
+// arriving faster than AuditWriteWorkers clear them, which is a slow database or
+// a lot of users, and the drop policy below is what happens either way.
 const auditWriteQueueDepth = 1024
+
+// auditWriteDropLogInterval is how many drops pass between log lines after the
+// first. The drop path is reached exactly when the process is already saturated,
+// so a line per dropped write is a log flood at the worst moment; the count is
+// exact regardless, and DroppedAuditWrites reads it.
+const auditWriteDropLogInterval = 100
 
 // backgroundWrite is one queued unit of work and the label it reports under.
 type backgroundWrite struct {
@@ -40,19 +52,24 @@ type backgroundWrite struct {
 // of minting a goroutine, so N callers arriving at once produce at most
 // `workers` concurrent database writes rather than N.
 //
-// LOSS POLICY, in the two places a write can be lost:
+// LOSS POLICY, in the three places a write can be lost:
 //
-//   - A full queue drops the submission and logs it at Error with the queue
-//     depth. Dropping rather than blocking is deliberate: the caller is a
-//     request handler that has already done the durable work, and a full queue
-//     means the database is far enough behind that blocking would convert an
-//     audit backlog into a site-wide stall.
+//   - A full queue drops the submission. Dropping rather than blocking is
+//     deliberate: the caller is a request handler that has already done the
+//     durable work, and a full queue means the writes are arriving faster than
+//     the workers clear them, where blocking would convert an audit backlog into
+//     a site-wide stall.
 //   - shutdown drains what is queued within the caller's context deadline.
 //     Whatever is still queued when that deadline passes is abandoned, and
 //     shutdown reports how many. Submissions after shutdown are refused.
+//   - A worker is occupied for as long as its write runs. Work submitted here
+//     must therefore bound its own duration; an unbounded write parks a worker,
+//     and enough of them park the pool. AuditLogService gives its inserts a
+//     deadline for that reason.
 //
-// Both are why a write that must not be lost belongs in the request's own
-// transaction, not here.
+// All three are why a write that must not be lost belongs in the request's own
+// transaction, not here. Every drop is counted (see dropped) whether or not it
+// is logged.
 type boundedWriter struct {
 	name         string
 	queue        chan backgroundWrite
@@ -92,23 +109,38 @@ func newBoundedWriter(name string, workers, queueDepth int) *boundedWriter {
 }
 
 // submit queues work and returns whether it was accepted. It never blocks.
+//
+// Nothing slow runs under the lock, logging included. The lock is global to the
+// process and the drop path is reached exactly when the writer is already
+// saturated, so a log write inside it would turn every audit-submitting request
+// into a queue behind one blocking stdout write: the stall the bound exists to
+// prevent, arriving through the bound itself.
 func (w *boundedWriter) submit(name string, work func()) bool {
 	if work == nil {
+		w.recordDrop(name, "no work supplied")
 		return false
 	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
+	accepted, reason := w.offer(name, work)
+	w.mu.Unlock()
+
+	if !accepted {
+		w.recordDrop(name, reason)
+	}
+	return accepted
+}
+
+// offer is the whole of submit's critical section. Caller holds w.mu.
+func (w *boundedWriter) offer(name string, work func()) (bool, string) {
 	if w.closed {
-		w.drop(name, "writer is shut down")
-		return false
+		return false, "writer is shut down"
 	}
 	select {
 	case w.queue <- backgroundWrite{name: name, work: work}:
-		return true
+		return true, ""
 	default:
-		w.drop(name, "queue is full")
-		return false
+		return false, "queue is full"
 	}
 }
 
@@ -137,19 +169,27 @@ func (w *boundedWriter) shutdown(ctx context.Context) error {
 	}
 }
 
-// dropped is the running count of submissions this writer refused.
+// dropped is the running count of submissions this writer refused. It is exact:
+// only the LOGGING of a drop is sampled.
 func (w *boundedWriter) dropped() int64 {
 	return w.droppedCount.Load()
 }
 
-func (w *boundedWriter) drop(name, reason string) {
-	w.droppedCount.Add(1)
+// recordDrop counts a refused submission and logs the first, then every
+// auditWriteDropLogInterval-th. Never called with w.mu held: it writes to the
+// process log, and a saturated writer would otherwise serialize every submitting
+// request behind that write.
+func (w *boundedWriter) recordDrop(name, reason string) {
+	total := w.droppedCount.Add(1)
+	if total != 1 && total%auditWriteDropLogInterval != 0 {
+		return
+	}
 	slog.Default().Error("background write dropped",
 		"writer", w.name,
 		"write", name,
 		"reason", reason,
 		"queue_depth", cap(w.queue),
-		"dropped_total", w.droppedCount.Load(),
+		"dropped_total", total,
 	)
 }
 
@@ -181,10 +221,15 @@ func (w *boundedWriter) run(job backgroundWrite) {
 // reason the panic handler is.
 //
 // Built on first use, so a binary that links this package for other reasons and
-// never writes an audit row parks no idle workers.
-var auditWriter = sync.OnceValue(func() *boundedWriter {
-	return newBoundedWriter("audit_log", auditWriteWorkers, auditWriteQueueDepth)
-})
+// never writes an audit row parks no idle workers. auditWriterStarted records
+// whether that happened, so shutting down is free for those binaries too.
+var (
+	auditWriterStarted atomic.Bool
+	auditWriter        = sync.OnceValue(func() *boundedWriter {
+		auditWriterStarted.Store(true)
+		return newBoundedWriter("audit_log", AuditWriteWorkers, auditWriteQueueDepth)
+	})
+)
 
 // SubmitAuditWrite queues an audit-log write on the bounded writer.
 //
@@ -201,7 +246,17 @@ func SubmitAuditWrite(name string, work func()) {
 // ShutdownAuditWrites drains the queued audit writes. Call it once the HTTP
 // server has stopped, so no new writes are arriving; a write submitted
 // concurrently with this is refused rather than queued.
+//
+// ctx bounds the drain, so give it a budget of its own rather than one already
+// spent elsewhere: the case with a backlog to drain is the same case that made
+// the earlier work slow.
+//
+// A process that never submitted an audit write has nothing to drain and does
+// not start the writer just to close it.
 func ShutdownAuditWrites(ctx context.Context) error {
+	if !auditWriterStarted.Load() {
+		return nil
+	}
 	return auditWriter().shutdown(ctx)
 }
 

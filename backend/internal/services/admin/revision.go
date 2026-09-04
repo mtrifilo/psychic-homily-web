@@ -397,8 +397,20 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 		// driver message names the constraint and says nothing an admin can act
 		// on, so it is replaced rather than passed through: the handler answers
 		// 422 with whatever comes back from here.
+		//
+		// Replaced, not discarded. The constraint name is what an operator needs
+		// to find the column, so it goes to the log while the caller gets the
+		// reason.
 		if shared.IsCheckConstraintViolation(result.Error) {
-			return fmt.Errorf("cannot roll back: a value in this revision is outside the range its column accepts")
+			logger.FromContext(ctx).Error("revision_rollback_check_constraint",
+				"entity_type", revision.EntityType,
+				"entity_id", revision.EntityID,
+				"revision_id", revision.ID,
+				"error", result.Error.Error(),
+			)
+			return fmt.Errorf(
+				"cannot roll back: this revision restores a value the %s column no longer accepts",
+				revision.EntityType)
 		}
 		return fmt.Errorf("failed to apply rollback: %w", result.Error)
 	}

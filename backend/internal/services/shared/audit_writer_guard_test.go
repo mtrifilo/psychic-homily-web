@@ -10,20 +10,32 @@ import (
 	"testing"
 )
 
-// GoSafe and SubmitAuditWrite read almost identically at a call site, and the
-// unbounded one is the older spelling that every existing audit write used, so
-// a new handler copying its neighbour is how the bound gets lost. The failure
-// would be invisible: the write still lands, the tests still pass, and the
-// fan-out is only visible as connection pressure under a burst.
+// The two ways an audit write gets back onto its own goroutine.
 //
-// So the rule is checked rather than documented: no GoSafe call may name an
-// audit write.
+// The first is the label spelling: GoSafe and SubmitAuditWrite read almost
+// identically at a call site, and GoSafe is the older one that every audit write
+// used before the bound existed, so a new handler copying its neighbour is how
+// the bound gets lost. The second is a bare `go func()`, which is what the
+// handler scaffold emitted and what a hand-written handler reaches for first.
+//
+// Either failure is invisible: the write still lands, the tests still pass, and
+// the fan-out shows up only as connection pressure under a burst.
+//
+// WHAT THIS DOES NOT CATCH, so nobody reads a pass as more than it is: a GoSafe
+// label that does not contain "audit" (say "log_action"), a label built from a
+// variable, and a goroutine that reaches LogAction through more than a few lines
+// of intervening code. It catches the two copy-paste shapes that actually occur.
+var unboundedAuditWritePatterns = []*regexp.Regexp{
+	// GoSafe(<ctx>, "...audit...", - case-insensitive on the label.
+	regexp.MustCompile(`GoSafe\([^,]+,\s*"(?i:[a-z0-9_]*audit[a-z0-9_]*)"`),
+	// go func() { ... LogAction( / LogEntityEdit( ... } - the scaffold's shape.
+	// (?s) so the body may span lines; the length bound keeps it to a goroutine
+	// whose whole point is the audit write.
+	regexp.MustCompile(`(?s)go func\(\)\s*\{.{0,400}?\.Log(Action|EntityEdit)\(`),
+}
+
 func TestNoAuditWriteBypassesTheBoundedWriter(t *testing.T) {
 	root := backendRoot(t)
-
-	// The second argument of GoSafe is the goroutine's label. Any label naming
-	// an audit write belongs on SubmitAuditWrite instead.
-	unbounded := regexp.MustCompile(`GoSafe\([^,]+,\s*"[A-Za-z0-9_]*audit[A-Za-z0-9_]*"`)
 
 	var offenders []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -39,20 +51,24 @@ func TestNoAuditWriteBypassesTheBoundedWriter(t *testing.T) {
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
+		// This file states the patterns, so it necessarily contains them.
+		if filepath.Base(path) == "audit_writer_guard_test.go" {
+			return nil
+		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}
-		// One pass over the bytes before paying for the split: the normal case is
-		// no match in any of a thousand files.
-		if !unbounded.Match(content) {
-			return nil
-		}
-		for i, line := range strings.Split(string(content), "\n") {
-			if unbounded.MatchString(line) {
-				rel, _ := filepath.Rel(root, path)
-				offenders = append(offenders, rel+":"+strconv.Itoa(i+1))
+		for _, pattern := range unboundedAuditWritePatterns {
+			// One pass over the bytes before locating anything: the normal case
+			// is no match in any of a thousand files.
+			loc := pattern.FindIndex(content)
+			if loc == nil {
+				continue
 			}
+			rel, _ := filepath.Rel(root, path)
+			line := strings.Count(string(content[:loc[0]]), "\n") + 1
+			offenders = append(offenders, rel+":"+strconv.Itoa(line))
 		}
 		return nil
 	})
@@ -61,8 +77,8 @@ func TestNoAuditWriteBypassesTheBoundedWriter(t *testing.T) {
 	}
 
 	if len(offenders) > 0 {
-		t.Errorf("audit writes must go through shared.SubmitAuditWrite, not GoSafe, "+
-			"so a burst queues instead of opening a connection per write:\n  %s",
+		t.Errorf("audit writes must go through shared.SubmitAuditWrite so a burst queues "+
+			"instead of opening a connection per write:\n  %s",
 			strings.Join(offenders, "\n  "))
 	}
 }
