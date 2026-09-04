@@ -1,11 +1,12 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
 	"sort"
-	"time"
+	"sync"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -13,6 +14,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 // OLD-VALUE CONTRACT
@@ -49,6 +51,12 @@ var entityModels = map[string]func() interface{}{
 	adminm.PendingEditEntityLabel:    func() interface{} { return &catalogm.Label{} },
 }
 
+// modelSchemaCache is the per-process store gorm's schema parser memoizes into,
+// so a model is walked once for the life of the process rather than once per
+// submission. Separate from the connection's own store only because that one is
+// unexported; the parse is pure, so two caches cannot disagree.
+var modelSchemaCache sync.Map
+
 // withheldEditFieldsReporter is implemented by an entity model that withholds
 // one of its own stored columns from the payload readers get.
 //
@@ -74,7 +82,11 @@ type withheldEditFieldsReporter interface {
 // drawer sends null, the inline editors send ""), and the columns behind these
 // fields have no reader that can tell NULL from "".
 func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) ([]adminm.FieldChange, error) {
-	current, withheld, err := currentEntityValues(db, entityType, entityID)
+	allowed, ok := adminm.AllowedEditFields(entityType)
+	if !ok {
+		return nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
+	}
+	columns, withheld, err := currentEntityColumns(db, entityType, entityID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +97,25 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 	var stale []string
 	for i := range out {
 		field := out[i].Field
-		value, known := current[field]
+		// Fail closed, twice, because the alternative to knowing what a field
+		// IS is storing the submitter's unverified claim about it. The
+		// suggest-edit handler rejects a non-allowlisted field before this
+		// runs; this function does not depend on that, because the value it
+		// derives is the one Rollback later writes.
+		if !allowed[field] {
+			return nil, apperrors.ErrPendingEditInvalidRequest(
+				fmt.Sprintf("field '%s' is not editable on %s entities", field, entityType))
+		}
+		column, known := columns[field]
 		if !known {
-			// Fail closed. The suggest-edit handler rejects a non-allowlisted
-			// field before this runs, so reaching here means a caller outside
-			// that handler named a column the entity does not have, and the
-			// alternative is storing its unverified claim.
 			return nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not a column on %s entities", field, entityType))
+		}
+		value, err := revisiondiff.EmitValue(column)
+		if err != nil {
+			// Unreachable for an allowlisted field: TestAllowedEditFieldsAreDerivable
+			// pins every one of them against this rule.
+			return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
 		}
 		if !withheld[field] && !sameFieldValue(out[i].OldValue, value) {
 			stale = append(stale, field)
@@ -106,13 +129,15 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 	return out, nil
 }
 
-// currentEntityValues loads one entity and returns its column values in the
-// shape a field change stores, plus the columns whose value the entity withholds
-// from readers.
+// currentEntityColumns loads one entity and returns each of its columns paired
+// with the struct field holding it, plus the columns whose value the entity
+// withholds from readers.
 //
-// Every column of the model is returned, not only the ones a caller asked
-// about, so the caller can tell an unknown field from a NULL one.
-func currentEntityValues(db *gorm.DB, entityType string, entityID uint) (values map[string]interface{}, withheld map[string]bool, err error) {
+// Every column is returned, not only the ones a caller asked about, so the
+// caller can tell an unknown field from a NULL one. Values are left as
+// reflect.Values and converted per field by the caller, since a submission names
+// a handful of the thirty-odd columns a model carries.
+func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (columns map[string]reflect.Value, withheld map[string]bool, err error) {
 	newModel, ok := entityModels[entityType]
 	if !ok {
 		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
@@ -125,20 +150,9 @@ func currentEntityValues(db *gorm.DB, entityType string, entityID uint) (values 
 		return nil, nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to read %s %d: %w", entityType, entityID, err))
 	}
 
-	columns := map[string]reflect.Value{}
-	collectColumns(reflect.ValueOf(model).Elem(), db.NamingStrategy, columns)
-
-	values = make(map[string]interface{}, len(columns))
-	for column, field := range columns {
-		v, convErr := emitValue(field)
-		if convErr != nil {
-			// Not reachable for any allowlisted column
-			// (TestAllowedEditFieldsAreDerivable pins that), so this is the
-			// unreachable-branch report rather than a user-facing condition.
-			return nil, nil, apperrors.ErrPendingEditInternal(
-				fmt.Errorf("%s.%s: %w", entityType, column, convErr))
-		}
-		values[column] = v
+	columns, err = modelColumns(db, model)
+	if err != nil {
+		return nil, nil, apperrors.ErrPendingEditInternal(err)
 	}
 
 	withheld = map[string]bool{}
@@ -147,129 +161,40 @@ func currentEntityValues(db *gorm.DB, entityType string, entityID uint) (values 
 			withheld[f] = true
 		}
 	}
-	return values, withheld, nil
+	return columns, withheld, nil
 }
 
-// collectColumns maps every SCALAR column name the model declares to the struct
-// field holding it, descending into GORM-embedded structs so the social columns
-// (which live in catalogm.Social) are addressed by their own names.
+// modelColumns maps each of the model's SCALAR column names to the struct field
+// holding it, asking gorm's own schema parser rather than re-deriving the
+// answer.
 //
-// The column name comes from an explicit `column:` tag where there is one and
-// from the connection's naming strategy otherwise, which is exactly how GORM
-// resolves it when it writes the same row.
+// That matters because this map decides which COLUMN a submitted field NAME
+// refers to, on the same connection gorm uses to write that row: a second set of
+// tag and naming rules beside gorm's own is a drift the compiler cannot see, and
+// the parser already resolves embedded structs (the social columns live in
+// catalogm.Social), explicit `column:` tags, the connection's naming strategy,
+// and the fields that are not columns at all.
 //
-// A field whose type emitValue cannot convert is not a column here at all, which
-// is what keeps the model's relations (the show and label slices, the preloaded
-// user structs) out of a map whose keys a pending edit may name. The consequence
-// worth knowing: a real column of an unsupported type would go missing just as
-// quietly, and what makes that loud is TestAllowedEditFieldsAreDerivable, which
-// reports any allowlisted field this map does not hold.
-func collectColumns(v reflect.Value, namer schema.Namer, out map[string]reflect.Value) {
-	t := v.Type()
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
-		if !sf.IsExported() {
+// A field whose type EmitValue cannot convert is dropped, which is what keeps
+// the relations and the JSONB columns out of a map whose keys a pending edit may
+// name. The consequence worth knowing: a real column of an unsupported type goes
+// missing just as quietly, and what makes that loud is
+// TestAllowedEditFieldsAreDerivable, which reports any allowlisted field this
+// map does not hold.
+func modelColumns(db *gorm.DB, model interface{}) (map[string]reflect.Value, error) {
+	parsed, err := schema.Parse(model, &modelSchemaCache, db.NamingStrategy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse model schema: %w", err)
+	}
+	rv := reflect.ValueOf(model)
+	columns := make(map[string]reflect.Value, len(parsed.FieldsByDBName))
+	for name, field := range parsed.FieldsByDBName {
+		if !revisiondiff.SupportedType(field.FieldType) {
 			continue
 		}
-		tag := sf.Tag.Get("gorm")
-		if tag == "-" {
-			continue
-		}
-		settings := schema.ParseTagSetting(tag, ";")
-		if _, embedded := settings["EMBEDDED"]; embedded {
-			collectColumns(v.Field(i), namer, out)
-			continue
-		}
-		if !convertibleFieldType(sf.Type) {
-			continue
-		}
-		column := settings["COLUMN"]
-		if column == "" {
-			column = namer.ColumnName("", sf.Name)
-		}
-		out[column] = v.Field(i)
+		columns[name] = field.ReflectValueOf(context.Background(), rv)
 	}
-}
-
-// convertibleFieldType reports whether emitValue can convert a field of this
-// type. It is the type list emitValue switches on, asked ahead of time.
-func convertibleFieldType(t reflect.Type) bool {
-	if t == timeType {
-		return true
-	}
-	switch t.Kind() {
-	case reflect.String, reflect.Int:
-		return true
-	case reflect.Ptr:
-		if t.Elem() == timeType {
-			return true
-		}
-		switch t.Elem().Kind() {
-		case reflect.String, reflect.Int, reflect.Float64:
-			return true
-		}
-	}
-	return false
-}
-
-var timeType = reflect.TypeOf(time.Time{})
-
-// emitValue converts a model field to the JSON shape a field change stores.
-//
-// The rules are revisiondiff's, deliberately and not by coincidence: an admin's
-// typed edit records its old value through revisiondiff.Compare, a contributor's
-// edit records it through here, and Rollback feeds either one back into the same
-// untyped update map. Two spellings of "the previous value" that disagreed on
-// how to write an unset column would make an undo depend on which surface made
-// the edit.
-//
-// So a nil *string emits "" while every other nullable kind emits nil: the text
-// columns take the empty string and have no reader that can tell it from NULL,
-// while a zero written to a nullable number or timestamp is a value nobody
-// entered. revisiondiff.diffPtr carries the full argument.
-func emitValue(v reflect.Value) (interface{}, error) {
-	t := v.Type()
-	if t == timeType {
-		return v.Interface().(time.Time).Format(time.RFC3339), nil
-	}
-	switch t.Kind() {
-	case reflect.String:
-		return v.String(), nil
-	case reflect.Int:
-		return int(v.Int()), nil
-	case reflect.Ptr:
-		return emitPtrValue(v, t.Elem())
-	default:
-		return nil, fmt.Errorf("unsupported field kind %s", t.Kind())
-	}
-}
-
-func emitPtrValue(v reflect.Value, elem reflect.Type) (interface{}, error) {
-	if elem == timeType {
-		if v.IsNil() {
-			return nil, nil
-		}
-		return v.Elem().Interface().(time.Time).Format(time.RFC3339), nil
-	}
-	switch elem.Kind() {
-	case reflect.String:
-		if v.IsNil() {
-			return "", nil
-		}
-		return v.Elem().String(), nil
-	case reflect.Int:
-		if v.IsNil() {
-			return nil, nil
-		}
-		return int(v.Elem().Int()), nil
-	case reflect.Float64:
-		if v.IsNil() {
-			return nil, nil
-		}
-		return v.Elem().Float(), nil
-	default:
-		return nil, fmt.Errorf("unsupported pointer element kind %s", elem.Kind())
-	}
+	return columns, nil
 }
 
 // sameFieldValue reports whether a submitter's claim about a field describes the
@@ -290,15 +215,9 @@ func sameFieldValue(claim, current interface{}) bool {
 		vn, ok := numericValue(current)
 		return ok && cn == vn
 	}
-	if cs, ok := claim.(string); ok {
-		vs, ok := current.(string)
-		return ok && cs == vs
-	}
-	if cb, ok := claim.(bool); ok {
-		vb, ok := current.(bool)
-		return ok && cb == vb
-	}
-	return false
+	cs, claimIsString := claim.(string)
+	vs, currentIsString := current.(string)
+	return claimIsString && currentIsString && cs == vs
 }
 
 func isBlankValue(v interface{}) bool {
@@ -309,15 +228,14 @@ func isBlankValue(v interface{}) bool {
 	return ok && s == ""
 }
 
+// numericValue covers the two encodings a number reaches this comparison in: a
+// claim decoded from JSON is a float64, and a value emitted from a column is an
+// int.
 func numericValue(v interface{}) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
 		return n, true
-	case float32:
-		return float64(n), true
 	case int:
-		return float64(n), true
-	case int64:
 		return float64(n), true
 	default:
 		return 0, false

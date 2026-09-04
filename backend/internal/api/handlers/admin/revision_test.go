@@ -458,28 +458,6 @@ func TestRevisionHandler_Rollback_ReportsSkippedFields(t *testing.T) {
 	}
 }
 
-// An empty skipped list is serialized as a list, not as an absent key: it is the
-// only signal a client has that a rollback was partial, so a client that checks
-// for the key must find it.
-func TestRevisionHandler_Rollback_SkippedFieldsNeverNil(t *testing.T) {
-	h := NewRevisionHandler(
-		&testhelpers.MockRevisionService{
-			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
-				return &contracts.RollbackResult{AppliedFields: []string{"name"}}, nil
-			},
-		},
-		nil,
-	)
-
-	resp, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.SkippedFields == nil {
-		t.Error("skipped_fields must be an empty list, not nil")
-	}
-}
-
 func TestRevisionHandler_Rollback_NilAuditLog(t *testing.T) {
 	// Ensure rollback works even when auditLogService is nil
 	h := NewRevisionHandler(

@@ -455,7 +455,7 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 		"revision_id", revisionID,
 		"admin_id", user.ID,
 		"applied_fields", result.AppliedFields,
-		"skipped_fields", rollbackSkippedFieldNames(result.SkippedFields),
+		"skipped_fields", result.SkippedFieldNames(),
 	)
 
 	// Fire-and-forget audit log. The refused fields belong in the audit row for
@@ -475,22 +475,6 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 	resp := &RollbackRevisionResponse{}
 	resp.Body.Success = true
 	resp.Body.AppliedFields = result.AppliedFields
-	// Never nil: an absent key and an empty list read the same to a renderer
-	// that checks length, but not to one that checks presence, and this list is
-	// the only signal that a rollback was partial.
 	resp.Body.SkippedFields = result.SkippedFields
-	if resp.Body.SkippedFields == nil {
-		resp.Body.SkippedFields = []contracts.RollbackSkippedField{}
-	}
 	return resp, nil
-}
-
-// rollbackSkippedFieldNames lists the refused field names for the structured
-// log, which records what happened rather than what to show an admin.
-func rollbackSkippedFieldNames(skipped []contracts.RollbackSkippedField) []string {
-	names := make([]string, 0, len(skipped))
-	for _, s := range skipped {
-		names = append(names, s.Field)
-	}
-	return names
 }

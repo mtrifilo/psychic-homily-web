@@ -494,6 +494,17 @@ type RollbackResult struct {
 	SkippedFields []RollbackSkippedField `json:"skipped_fields" doc:"Fields left unchanged, with the reason for each"`
 }
 
+// SkippedFieldNames lists just the refused field names, for the places that name
+// the fields without room for a reason each: the structured log and the summary
+// of the revision a partial rollback records.
+func (r RollbackResult) SkippedFieldNames() []string {
+	names := make([]string, 0, len(r.SkippedFields))
+	for _, s := range r.SkippedFields {
+		names = append(names, s.Field)
+	}
+	return names
+}
+
 // BandcampProfileFillerInterface is the narrow contract the pending-edit approval
 // flow uses to resolve a newly-set artist Bandcamp PROFILE root → an embed
 // (PSY-1190 fill-when-empty), without coupling the admin service to the full

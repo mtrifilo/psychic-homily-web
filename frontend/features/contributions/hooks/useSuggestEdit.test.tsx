@@ -94,7 +94,7 @@ describe('useSuggestEdit', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['artists'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['artists', 'detail'] })
   })
 
   // Every other failure leaves the cached entity alone: a 422 or a 500 says

@@ -309,10 +309,12 @@ export function EntityEditDrawer({
         )}
 
         {/* Error state. A conflict is not a failure of the submission but a
-            report that the entity is not in the state the form described, so it
-            says what moved and that the fields below now show the current
-            values — which they do, because useSuggestEdit refetches the entity
-            on 409 and the form reads its initial values from it. */}
+            report that the entity is not in the state the form described, so the
+            server's message says what moved and the line below states what
+            already happened: useSuggestEdit refetches the entity on 409 and this
+            form reads its previous values from it. Stating the refresh and not
+            inviting a resubmit, because a 409 is also how a duplicate queued
+            edit is reported, and resubmitting that one fails again. */}
         {editMutation.isError && (
           <div className="mx-4 rounded-md border border-red-800 bg-red-950/50 p-4">
             <p className="text-sm text-red-400">
@@ -320,7 +322,7 @@ export function EntityEditDrawer({
             </p>
             {isConflictError(editMutation.error) && (
               <p className="mt-1 text-sm text-red-400">
-                The fields below now show the current values. Check your changes and submit again.
+                This form has been refreshed with the current values.
               </p>
             )}
           </div>

@@ -52,9 +52,19 @@ export const useSuggestEdit = () => {
     // the submitter the CURRENT entity, so the refetch belongs here rather than
     // in each caller, which would otherwise leave the form asserting a previous
     // value the server has already rejected.
+    //
+    // The DETAIL prefix, not the whole entity namespace onSuccess invalidates:
+    // the form reads its previous values from the one entity, and the more
+    // common 409 is a duplicate pending edit, on which nothing about the entity
+    // changed at all.
+    //
+    // The prefix and not the exact key, because a detail query is keyed by
+    // whatever the page routed on — a slug on every entity page, the numeric id
+    // elsewhere — and this hook holds only the id. Matching on the id alone
+    // would refresh nothing on exactly the surface the drawer opens from.
     onError: (error, { entityType }) => {
       if (!isConflictError(error)) return
-      queryClient.invalidateQueries({ queryKey: [ENTITY_PLURAL[entityType]] })
+      queryClient.invalidateQueries({ queryKey: [ENTITY_PLURAL[entityType], 'detail'] })
     },
   })
 }

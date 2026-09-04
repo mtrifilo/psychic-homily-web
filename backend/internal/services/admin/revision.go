@@ -299,74 +299,51 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 		return nil, fmt.Errorf("failed to parse field changes: %w", err)
 	}
 
-	// Build update map from old values (reversing the change)
-	updates := make(map[string]interface{})
+	// One entry per field, the last occurrence winning, which is what an update
+	// map built from the slice would hold anyway. Collapsing here rather than
+	// letting the map do it keeps the value WRITTEN and the change RECORDED as
+	// the same entry: a row carrying a field twice would otherwise be gated and
+	// recorded from one occurrence while the column took the other.
+	fieldOrder := make([]string, 0, len(changes))
+	byField := make(map[string]adminm.FieldChange, len(changes))
 	for _, c := range changes {
-		updates[c.Field] = c.OldValue
+		if _, seen := byField[c.Field]; !seen {
+			fieldOrder = append(fieldOrder, c.Field)
+		}
+		byField[c.Field] = c
+	}
+	if len(fieldOrder) == 0 {
+		return nil, fmt.Errorf("revision %d records no field changes", revisionID)
+	}
+
+	// Build update map from old values (reversing the change)
+	updates := make(map[string]interface{}, len(fieldOrder))
+	for _, field := range fieldOrder {
+		updates[field] = byField[field].OldValue
 	}
 
 	// Judge each field on its own, then drop the refused ones from the write.
-	// Every rule the approve path runs over a whole map runs here over one field,
-	// sharing the rule rather than holding a second copy of it.
-	//
-	// Old values come back out of revisions.field_changes as JSONB, so a number
-	// is a float64 here just as it is on the approve path. Writing that to an
-	// integer column succeeds and truncates rather than failing, so a rollback
-	// would quietly restore a DIFFERENT value than the one being undone.
-	//
-	// Narrowing only: no range check. This restores a value the system already
-	// stored, and history can hold values that predate a bound, so refusing them
-	// would break undo for precisely the rows most likely to need it.
-	//
-	// A nil OldValue means the column was NULL before the edit, and it has to
-	// land as SQL NULL for the undo to be faithful. narrowNumericUpdate turns a
-	// REGISTERED field's nil into a typed (*int)(nil) for exactly that reason;
-	// the unregistered nullable columns here (both prices, both timestamps) pass
-	// through as an untyped nil, which GORM already writes as NULL.
-	//
-	// revisiondiff emits that nil for every nullable numeric kind as of PSY-1960.
-	// Rows written before that fix hold a 0 where the column was NULL and are
-	// deliberately NOT backfilled; the reasoning is on the revisiondiff package
-	// doc. Rolling one of those back therefore still writes 0, and what makes
-	// that recoverable is that the show edit form can clear a price back to NULL.
-	//
-	// The URL rules are the reason a field can be refused at all. A rollback is a
-	// WRITE of a stored value into a live column, and for any row whose old_value
-	// predates the submit-time derivation that value never met a forward gate.
-	// Deriving old_value at submit time closes the path for NEW rows only; these
-	// checks are what stands between a planted value already in the table and the
-	// column it names.
-	//
-	// SCOPE: a rollback can write ANY field in the entity's edit allowlist, so
-	// all three checks are needed to reproduce what the forward paths enforce:
-	// the shape rule for bandcamp_embed_url, the scheme + platform-host rules for
-	// the other URL fields (SocialLinks and the ticket link render each as an
-	// href under a trusted label), and the SSRF host guard for image_url.
-	//
-	// image_url is the one that needs a context, and it is the one that most
-	// needs the check: urlguard's package doc explains that the fetch-time layer
-	// re-checks IP LITERALS only, so a HOSTNAME resolving to 169.254.169.254 is
-	// invisible to it and this write boundary is the only layer with a resolver.
+	// What the gates are and why each one runs is on rollbackFieldError.
 	var applied []string
-	var skipped []contracts.RollbackSkippedField
-	seen := make(map[string]bool, len(changes))
-	rollbackChanges := make([]adminm.FieldChange, 0, len(changes))
-	for _, c := range changes {
-		if seen[c.Field] {
-			continue
-		}
-		seen[c.Field] = true
-		if err := rollbackFieldError(ctx, updates, c.Field); err != nil {
-			delete(updates, c.Field)
+	// Never nil: an absent key and an empty list read the same to a renderer
+	// that checks length, but not to one that checks presence, and this list is
+	// the only signal that a rollback was partial.
+	skipped := []contracts.RollbackSkippedField{}
+	rollbackChanges := make([]adminm.FieldChange, 0, len(fieldOrder))
+	numericBounds := contracts.NumericEditFieldBounds()
+	for _, field := range fieldOrder {
+		if err := rollbackFieldError(ctx, updates, field, numericBounds); err != nil {
+			delete(updates, field)
 			skipped = append(skipped, contracts.RollbackSkippedField{
-				Field:  c.Field,
+				Field:  field,
 				Reason: refusalReason(err),
 			})
 			continue
 		}
-		applied = append(applied, c.Field)
+		c := byField[field]
+		applied = append(applied, field)
 		rollbackChanges = append(rollbackChanges, adminm.FieldChange{
-			Field:    c.Field,
+			Field:    field,
 			OldValue: c.NewValue,
 			NewValue: c.OldValue,
 		})
@@ -398,25 +375,26 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	tableName := revision.EntityType + "s" // artist -> artists, show -> shows, etc.
 	updates["updated_at"] = time.Now()
 
-	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to apply rollback: %w", result.Error)
+	write := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
+	if write.Error != nil {
+		return nil, fmt.Errorf("failed to apply rollback: %w", write.Error)
 	}
-	if result.RowsAffected == 0 {
+	if write.RowsAffected == 0 {
 		return nil, fmt.Errorf("entity not found: %s %d", revision.EntityType, revision.EntityID)
 	}
 
 	// Record the rollback as a new revision. The summary names the skipped fields
 	// because the row it heads carries only the restored ones, and a reader of
 	// history has no other way to learn the undo was partial.
+	result := &contracts.RollbackResult{AppliedFields: applied, SkippedFields: skipped}
 	summary := fmt.Sprintf("Rollback of revision #%d", revisionID)
 	if len(skipped) > 0 {
-		summary = fmt.Sprintf("%s (skipped: %s)", summary, strings.Join(skippedFieldNames(skipped), ", "))
+		summary = fmt.Sprintf("%s (skipped: %s)", summary, strings.Join(result.SkippedFieldNames(), ", "))
 	}
 	if err := s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary); err != nil {
 		return nil, err
 	}
-	return &contracts.RollbackResult{AppliedFields: applied, SkippedFields: skipped}, nil
+	return result, nil
 }
 
 // rollbackFieldError reports why one restored value must not be written, or nil
@@ -424,9 +402,25 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 //
 // It mutates updates for the field it accepts, exactly as the whole-map gates
 // do: narrowNumericUpdate rewrites a JSONB float64 into the typed pointer the
-// column needs, so "checked" and "written" stay the same value.
-func rollbackFieldError(ctx context.Context, updates map[string]interface{}, field string) error {
-	if err := narrowNumericUpdate(updates, field); err != nil {
+// column needs, so "checked" and "written" stay the same value. That narrowing
+// is not cosmetic — the driver takes a float64 for an integer column and
+// truncates rather than failing, so an ungated rollback restores a DIFFERENT
+// value than the one being undone. It narrows and does not range check: this
+// restores a value the system already stored, and history holds values that
+// predate a bound.
+//
+// The URL rules are the reason a field can be refused at all. A rollback is a
+// WRITE of a stored value into a live column, and on any row whose old_value
+// predates the submit-time derivation that value never met a forward gate. All
+// three are needed to reproduce what the forward paths enforce: the shape rule
+// for bandcamp_embed_url, the scheme and platform-host rules for the other URL
+// fields (SocialLinks and the ticket link render each as an href under a trusted
+// label), and the SSRF host guard for image_url. That last one is the only gate
+// with a resolver, and urlguard's package doc explains why it has to be: the
+// fetch-time layer re-checks IP LITERALS only, so a HOSTNAME resolving to
+// 169.254.169.254 is invisible to it.
+func rollbackFieldError(ctx context.Context, updates map[string]interface{}, field string, numericBounds map[string]contracts.NumericEditBounds) error {
+	if err := narrowNumericUpdate(updates, field, numericBounds); err != nil {
 		return err
 	}
 	if err := revalidateShapedURLField(updates, field); err != nil {
@@ -446,16 +440,6 @@ func refusalReason(err error) string {
 		return editErr.Message
 	}
 	return err.Error()
-}
-
-// skippedFieldNames lists just the field names of a refusal set, for the places
-// that name the fields without room for a reason each.
-func skippedFieldNames(skipped []contracts.RollbackSkippedField) []string {
-	names := make([]string, 0, len(skipped))
-	for _, s := range skipped {
-		names = append(names, s.Field)
-	}
-	return names
 }
 
 // describeSkipped renders field and reason together for a fully-refused

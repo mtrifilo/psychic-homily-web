@@ -120,6 +120,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_ReportsNoSkipsWhenEve
 	s.Require().NoError(err)
 	s.Equal([]string{"description", "website"}, result.AppliedFields)
 	s.Empty(result.SkippedFields)
+	s.NotNil(result.SkippedFields, "an empty refusal set is a list, not the absence of one")
 
 	var stored map[string]interface{}
 	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Take(&stored).Error)

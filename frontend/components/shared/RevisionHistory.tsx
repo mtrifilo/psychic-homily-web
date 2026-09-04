@@ -51,6 +51,25 @@ function FieldChangeDiff({ change }: { change: FieldChange }) {
   )
 }
 
+/** No rollback has touched this row, shared so a render allocates nothing. */
+const NO_SKIPPED_FIELDS: RollbackSkippedField[] = []
+
+/**
+ * One row's view of the single rollback mutation every row shares.
+ *
+ * All three values are row-scoped together, because the mutation carries only
+ * the LAST rollback: without the scoping, one row's skipped list renders under
+ * every row, and every row's button spins while any one of them is rolling back.
+ */
+interface RowRollbackState {
+  /** Fields the last rollback of THIS revision refused to restore. */
+  skipped: RollbackSkippedField[]
+  /** Message from a rollback of THIS revision the server refused whole. */
+  error: string | null
+  /** Whether the rollback in flight is THIS row's. */
+  isPending: boolean
+}
+
 /**
  * Reports what the rollback an admin just ran on THIS revision actually did.
  *
@@ -60,13 +79,7 @@ function FieldChangeDiff({ change }: { change: FieldChange }) {
  * failure case is here for the same reason, since a rollback the server refuses
  * outright otherwise leaves the panel unchanged and silent.
  */
-function RollbackOutcome({
-  skipped,
-  error,
-}: {
-  skipped: RollbackSkippedField[]
-  error: string | null
-}) {
+function RollbackOutcome({ skipped, error }: RowRollbackState) {
   if (error) {
     return (
       <p className="mt-2 text-xs text-destructive" role="status">
@@ -99,18 +112,12 @@ function RevisionEntry({
   revision,
   isAdmin,
   onRollback,
-  isRollingBack,
-  rollbackSkipped,
-  rollbackError,
+  rollback,
 }: {
   revision: RevisionItem
   isAdmin: boolean
   onRollback: (revisionId: number) => void
-  isRollingBack: boolean
-  /** Fields the last rollback of THIS revision refused to restore. */
-  rollbackSkipped: RollbackSkippedField[]
-  /** Message from a rollback of THIS revision the server refused whole. */
-  rollbackError: string | null
+  rollback: RowRollbackState
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -183,17 +190,17 @@ function RevisionEntry({
                     onRollback(revision.id)
                   }
                 }}
-                disabled={isRollingBack}
+                disabled={rollback.isPending}
                 className="text-xs"
               >
-                {isRollingBack ? (
+                {rollback.isPending ? (
                   <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
                 ) : (
                   <RotateCcw className="h-3 w-3 mr-1.5" />
                 )}
                 Rollback
               </Button>
-              <RollbackOutcome skipped={rollbackSkipped} error={rollbackError} />
+              <RollbackOutcome {...rollback} />
             </div>
           )}
         </div>
@@ -203,24 +210,20 @@ function RevisionEntry({
 }
 
 /**
- * Routes the single rollback mutation's outcome to the ONE row it belongs to.
- *
- * All rows share one mutation, so the result has to be matched against the
- * revision id it was called with (`variables`) or every expanded row would
- * report another row's skipped fields.
+ * Reduces the single rollback mutation every row shares to the ONE row it
+ * belongs to, matching on the revision id it was called with (`variables`).
  */
-function rollbackOutcomeFor(
+function rollbackStateFor(
   revisionId: number,
   rollback: ReturnType<typeof useRollbackRevision>
-): { rollbackSkipped: RollbackSkippedField[]; rollbackError: string | null } {
+): RowRollbackState {
   if (rollback.variables !== revisionId) {
-    return { rollbackSkipped: [], rollbackError: null }
+    return { skipped: NO_SKIPPED_FIELDS, error: null, isPending: false }
   }
   return {
-    rollbackSkipped: rollback.data?.skipped_fields ?? [],
-    rollbackError: rollback.isError
-      ? ((rollback.error as Error)?.message || 'Unknown error')
-      : null,
+    skipped: rollback.data?.skipped_fields ?? NO_SKIPPED_FIELDS,
+    error: rollback.isError ? ((rollback.error as Error)?.message || 'Unknown error') : null,
+    isPending: rollback.isPending,
   }
 }
 
@@ -295,8 +298,7 @@ export function RevisionHistory({ entityType, entityId, isAdmin = false }: Revis
                     revision={revision}
                     isAdmin={isAdmin}
                     onRollback={id => rollback.mutate(id)}
-                    isRollingBack={rollback.isPending}
-                    {...rollbackOutcomeFor(revision.id, rollback)}
+                    rollback={rollbackStateFor(revision.id, rollback)}
                   />
                 ))}
               </div>

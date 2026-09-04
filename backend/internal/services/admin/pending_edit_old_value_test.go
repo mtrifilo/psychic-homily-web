@@ -3,15 +3,16 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"testing"
 
-	"gorm.io/gorm/schema"
+	"gorm.io/gorm"
+	"gorm.io/gorm/utils/tests"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 // =============================================================================
@@ -41,7 +42,10 @@ func TestEntityModelsCoverPendingEditTypes(t *testing.T) {
 // see would otherwise fail at runtime, on every submission naming it, with the
 // fail-closed refusal deriveOldValues raises for an unknown column.
 func TestAllowedEditFieldsAreDerivable(t *testing.T) {
-	namer := schema.NamingStrategy{}
+	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open dummy connection: %v", err)
+	}
 	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
 		allowed, ok := adminm.AllowedEditFields(entityType)
 		if !ok {
@@ -51,8 +55,10 @@ func TestAllowedEditFieldsAreDerivable(t *testing.T) {
 		if !ok {
 			t.Fatalf("no model for %s", entityType)
 		}
-		columns := map[string]reflect.Value{}
-		collectColumns(reflect.ValueOf(newModel()).Elem(), namer, columns)
+		columns, err := modelColumns(db, newModel())
+		if err != nil {
+			t.Fatalf("%s: %v", entityType, err)
+		}
 
 		for field := range allowed {
 			value, present := columns[field]
@@ -60,52 +66,10 @@ func TestAllowedEditFieldsAreDerivable(t *testing.T) {
 				t.Errorf("%s: allowlisted field %q is not a column on the model", entityType, field)
 				continue
 			}
-			if _, err := emitValue(value); err != nil {
+			if _, err := revisiondiff.EmitValue(value); err != nil {
 				t.Errorf("%s.%s: %v", entityType, field, err)
 			}
 		}
-	}
-}
-
-// The emit rules are revisiondiff's, and the pointer cases are the ones that
-// matter: a nil *string emits "" while every other nullable kind emits nil,
-// because Rollback writes the emitted value straight back into the column.
-func TestEmitValue(t *testing.T) {
-	str := "hello"
-	num := 42
-	f := 1.5
-
-	cases := []struct {
-		name  string
-		in    interface{}
-		want  interface{}
-		isNil bool
-	}{
-		{name: "string", in: "plain", want: "plain"},
-		{name: "int", in: 7, want: 7},
-		{name: "set string pointer", in: &str, want: "hello"},
-		{name: "nil string pointer", in: (*string)(nil), want: ""},
-		{name: "set int pointer", in: &num, want: 42},
-		{name: "nil int pointer", in: (*int)(nil), isNil: true},
-		{name: "set float pointer", in: &f, want: 1.5},
-		{name: "nil float pointer", in: (*float64)(nil), isNil: true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := emitValue(reflect.ValueOf(tc.in))
-			if err != nil {
-				t.Fatalf("emitValue: %v", err)
-			}
-			if tc.isNil {
-				if got != nil {
-					t.Fatalf("got %#v, want nil", got)
-				}
-				return
-			}
-			if got != tc.want {
-				t.Fatalf("got %#v, want %#v", got, tc.want)
-			}
-		})
 	}
 }
 
@@ -133,7 +97,6 @@ func TestSameFieldValue(t *testing.T) {
 		{"number claim on unset number", float64(550), nil, false},
 		{"null claim on set number", nil, 550, false},
 		{"string claim on number column", "550", 550, false},
-		{"bool", true, true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

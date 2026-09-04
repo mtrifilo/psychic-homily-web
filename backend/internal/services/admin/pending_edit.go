@@ -313,8 +313,11 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 // history: its registry entry and its numeric drawer control shipped together,
 // so a capacity string can only be a corrupt row, and it stays an error here.
 func NarrowNumericUpdates(updates map[string]interface{}) error {
-	for field := range contracts.NumericEditFieldBounds() {
-		if err := narrowNumericUpdate(updates, field); err != nil {
+	// One construction, not one per field: NumericEditFieldBounds builds a fresh
+	// map on every call.
+	registry := contracts.NumericEditFieldBounds()
+	for field := range registry {
+		if err := narrowNumericUpdate(updates, field, registry); err != nil {
 			return err
 		}
 	}
@@ -325,37 +328,42 @@ func NarrowNumericUpdates(updates map[string]interface{}) error {
 // caller that must judge fields independently (Rollback, which skips a refused
 // field rather than refusing the whole revision) shares the rule rather than a
 // second copy of it. A field with no registry entry is left alone.
-func narrowNumericUpdate(updates map[string]interface{}, field string) error {
-	bounds, registered := contracts.NumericEditFieldBounds()[field]
-	if registered {
-		raw, present := updates[field]
-		if !present {
-			return nil
-		}
-		if raw == nil {
-			updates[field] = (*int)(nil)
-			return nil
-		}
-		if legacy, isString := raw.(string); isString && bounds.LegacyTextEncoding {
-			// TrimSpace because Postgres accepts ' 1985'::int, so a padded string
-			// is a value this column really would have taken back when the field
-			// was unregistered. Atoi and nothing looser: it refuses "1985.0",
-			// "1e3" and "1985 approx" outright rather than reading a prefix.
-			n, err := strconv.Atoi(strings.TrimSpace(legacy))
-			if err != nil {
-				return apperrors.ErrPendingEditInvalidRequest(
-					fmt.Sprintf("%s must be a whole number", field))
-			}
-			updates[field] = &n
-			return nil
-		}
-		n, ok := utils.WholeNumber(raw)
-		if !ok {
+//
+// registry is passed in rather than looked up, because NumericEditFieldBounds
+// builds a fresh map per call and a per-field caller would otherwise rebuild it
+// once per field.
+func narrowNumericUpdate(updates map[string]interface{}, field string, registry map[string]contracts.NumericEditBounds) error {
+	bounds, registered := registry[field]
+	if !registered {
+		return nil
+	}
+	raw, present := updates[field]
+	if !present {
+		return nil
+	}
+	if raw == nil {
+		updates[field] = (*int)(nil)
+		return nil
+	}
+	if legacy, isString := raw.(string); isString && bounds.LegacyTextEncoding {
+		// TrimSpace because Postgres accepts ' 1985'::int, so a padded string
+		// is a value this column really would have taken back when the field
+		// was unregistered. Atoi and nothing looser: it refuses "1985.0",
+		// "1e3" and "1985 approx" outright rather than reading a prefix.
+		n, err := strconv.Atoi(strings.TrimSpace(legacy))
+		if err != nil {
 			return apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("%s must be a whole number", field))
 		}
 		updates[field] = &n
+		return nil
 	}
+	n, ok := utils.WholeNumber(raw)
+	if !ok {
+		return apperrors.ErrPendingEditInvalidRequest(
+			fmt.Sprintf("%s must be a whole number", field))
+	}
+	updates[field] = &n
 	return nil
 }
 
