@@ -31,7 +31,6 @@ func assertHeaderSafe(t *testing.T, subject string) {
 	t.Helper()
 	assert.NotContains(t, subject, "\r", "a CR ends a header line: %q", subject)
 	assert.NotContains(t, subject, "\n", "an LF ends a header line: %q", subject)
-	assert.NotContains(t, subject, "\r\nBcc:", "the probe's header line survived: %q", subject)
 	for _, r := range subject {
 		assert.False(t, unicode.IsControl(r),
 			"control rune %U survived into the subject: %q", r, subject)
@@ -91,6 +90,37 @@ func TestHeaderSafeSubjectCaps(t *testing.T) {
 // The guard
 // =============================================================================
 
+// chokepoint is the one function allowed to build a Resend request or call the
+// Resend client.
+const chokepoint = "send"
+
+// rogueSendSites walks one parsed file and returns the positions where a
+// resend.SendEmailRequest is built, or the Resend client is called, outside
+// chokepoint. One walk, so the guard below and the meta-test that proves the
+// guard can fail are asserting on the same predicate.
+func rogueSendSites(fset *token.FileSet, file *ast.File) (builds, calls []token.Position) {
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name == chokepoint {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CompositeLit:
+				if isSelector(node.Type, "resend", "SendEmailRequest") {
+					builds = append(builds, fset.Position(node.Pos()))
+				}
+			case *ast.CallExpr:
+				if isEmailsSend(node.Fun) {
+					calls = append(calls, fset.Position(node.Pos()))
+				}
+			}
+			return true
+		})
+	}
+	return builds, calls
+}
+
 // TestResendRequestsAreBuiltOnlyBySend is the structural half of this defence.
 // headerSafeSubject cannot be forgotten by a new sender as long as the request
 // is built in exactly one function and the client is called from exactly one
@@ -101,8 +131,6 @@ func TestHeaderSafeSubjectCaps(t *testing.T) {
 // so it catches a sender added tomorrow, which a test that enumerates today's
 // senders cannot.
 func TestResendRequestsAreBuiltOnlyBySend(t *testing.T) {
-	const chokepoint = "send"
-
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
@@ -119,27 +147,13 @@ func TestResendRequestsAreBuiltOnlyBySend(t *testing.T) {
 		file, parseErr := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
 		require.NoError(t, parseErr, "parsing %s", name)
 
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				continue
-			}
-			ast.Inspect(fn, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.CompositeLit:
-					if isSelector(node.Type, "resend", "SendEmailRequest") && fn.Name.Name != chokepoint {
-						t.Errorf("%s: %s builds a resend.SendEmailRequest; only %s may, "+
-							"so that headerSafeSubject cannot be bypassed",
-							fset.Position(node.Pos()), fn.Name.Name, chokepoint)
-					}
-				case *ast.CallExpr:
-					if isEmailsSend(node.Fun) && fn.Name.Name != chokepoint {
-						t.Errorf("%s: %s calls the Resend client directly; only %s may",
-							fset.Position(node.Pos()), fn.Name.Name, chokepoint)
-					}
-				}
-				return true
-			})
+		builds, calls := rogueSendSites(fset, file)
+		for _, pos := range builds {
+			t.Errorf("%s: builds a resend.SendEmailRequest outside %s, "+
+				"which is how headerSafeSubject gets bypassed", pos, chokepoint)
+		}
+		for _, pos := range calls {
+			t.Errorf("%s: calls the Resend client outside %s", pos, chokepoint)
 		}
 	}
 
@@ -160,8 +174,8 @@ func isSelector(expr ast.Expr, pkg, name string) bool {
 	return ok && ident.Name == pkg
 }
 
-// isEmailsSend reports whether expr selects Send off an Emails field, which is
-// the resend-go client's only send entry point (Emails.Send / Emails.SendWithContext).
+// isEmailsSend reports whether expr selects a Send off an Emails field, which is
+// the resend-go client's send entry point (Emails.Send / Emails.SendWithContext).
 func isEmailsSend(expr ast.Expr) bool {
 	sel, ok := expr.(*ast.SelectorExpr)
 	if !ok || !strings.HasPrefix(sel.Sel.Name, "Send") {
@@ -171,9 +185,8 @@ func isEmailsSend(expr ast.Expr) bool {
 	return ok && inner.Sel.Name == "Emails"
 }
 
-// TestGuardRejectsASecondConstructionSite proves the guard is not vacuous:
-// the same walk over a synthetic file that builds a request outside send must
-// report both an extra construction site and an extra client call.
+// TestGuardRejectsASecondConstructionSite proves the guard is not vacuous by
+// running the same walk over a synthetic sender that bypasses the chokepoint.
 func TestGuardRejectsASecondConstructionSite(t *testing.T) {
 	const rogue = `package notification
 
@@ -187,29 +200,9 @@ func sendRogue(s *EmailService) error {
 	file, err := parser.ParseFile(fset, "rogue.go", rogue, 0)
 	require.NoError(t, err)
 
-	var builds, calls int
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-		ast.Inspect(fn, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.CompositeLit:
-				if isSelector(node.Type, "resend", "SendEmailRequest") && fn.Name.Name != "send" {
-					builds++
-				}
-			case *ast.CallExpr:
-				if isEmailsSend(node.Fun) && fn.Name.Name != "send" {
-					calls++
-				}
-			}
-			return true
-		})
-	}
-
-	assert.Equal(t, 1, builds, "the guard must see a request built outside send")
-	assert.Equal(t, 1, calls, "the guard must see the client called outside send")
+	builds, calls := rogueSendSites(fset, file)
+	assert.Len(t, builds, 1, "the guard must see a request built outside %s", chokepoint)
+	assert.Len(t, calls, 1, "the guard must see the client called outside %s", chokepoint)
 }
 
 // =============================================================================
