@@ -29,10 +29,9 @@ const hostilePayload = `<script>alert(1)</script> <a href="https://evil.test">cl
 
 // assertEscaped fails if any part of hostilePayload survived as markup.
 //
-// The assertions name characters rather than entities because the two renderers
-// spell some entities differently (html/template writes &#34; where htmlEscape
-// writes &quot;), and what matters is that no interpolated value can open a tag,
-// end an attribute, or become a link.
+// The assertions name characters rather than entities: what has to hold is that
+// no interpolated value can open a tag, end an attribute, or become a link, and
+// which entity a renderer chooses to spell that with is its own business.
 func assertEscaped(t *testing.T, template string, body string) {
 	t.Helper()
 	assert.NotContains(t, body, "<script>", "%s: a raw tag reached the body", template)
@@ -42,6 +41,15 @@ func assertEscaped(t *testing.T, template string, body string) {
 	assert.NotContains(t, body, `"quoted"`, "%s: a bare quote can end an attribute", template)
 	assert.NotContains(t, body, "& ampersand", "%s: a bare ampersand starts an entity", template)
 	assert.Contains(t, body, "&lt;script&gt;", "%s: the payload must survive as readable text", template)
+
+	// The legacy frame comes from a shared {{define}} block, so a body that named
+	// it wrongly would render with none or with two. One document, one masthead.
+	// (The doctype itself is not pinned here: the two renderers ship different
+	// ones, XHTML transitional for the design-system frame.)
+	assert.Equal(t, 1, strings.Count(body, "<html"), "%s: one opening html", template)
+	assert.Equal(t, 1, strings.Count(body, "</html>"), "%s: one closing html", template)
+	assert.Equal(t, 1, strings.Count(body, "PSYCHIC HOMILY")+strings.Count(body, ">Psychic Homily</h1>"),
+		"%s: one masthead", template)
 }
 
 // captureBody sends through the resend harness and returns the one captured
@@ -196,8 +204,10 @@ func TestEmailTemplatesEscapeContributorText(t *testing.T) {
 	})
 
 	// The two design-system alerts render through the email_layout.go builders
-	// rather than a template. Same guarantee, different mechanism, so they are
-	// exercised by the same payload.
+	// rather than a template. Those builders escape every value they interpolate,
+	// which is the property this payload tests; unlike html/template they do not
+	// also filter an href's URL scheme, which costs nothing here because no
+	// contributor value reaches an href in either renderer.
 	t.Run("artist show alert", func(t *testing.T) {
 		body := buildArtistShowAlertEmailHTML(
 			hostilePayload, contracts.FollowAlertScopeNearMe,
@@ -231,28 +241,38 @@ func TestEmailTemplatesEscapeContributorText(t *testing.T) {
 	})
 }
 
-// htmlTagInFormat matches an opening tag in a format string: `<`, a tag name,
-// then the character that ends the name. It deliberately does not match
-// `<https://...>`, the angle-bracket wrapper RFC 2369 puts around a header URL,
-// because a colon cannot end a tag name.
-var htmlTagInFormat = regexp.MustCompile(`<[a-zA-Z][a-zA-Z0-9]*[ >/]`)
+// htmlTagLiteral matches an opening tag: `<`, a tag name, then the character
+// that ends the name. It deliberately does not match `<https://...>`, the
+// angle-bracket wrapper RFC 2369 puts around a header URL, because a colon
+// cannot end a tag name.
+var htmlTagLiteral = regexp.MustCompile(`<[a-zA-Z][a-zA-Z0-9]*[ >/]`)
 
-// markupRenderers are the files allowed to assemble email markup by hand.
+// markupRenderers are the files allowed to hold email markup.
 //
-// email_layout.go is the design-system builder set: it owns the frame and every
-// block element, and escapes each value it is handed at the point it writes it.
-// Everywhere else renders through the html/template bodies in
-// email_templates.go, which escape for the context an action sits in.
+// email_layout.go is the design-system builder set. It owns the frame and every
+// block element, and its invariant is that every value it interpolates is
+// wrapped in html.EscapeString at the point it writes it; a new builder there
+// carries that obligation, which is why it is a listed exception rather than a
+// place to put markup that has none.
+//
+// Every other body lives in email_templates.go as html/template, where escaping
+// belongs to the renderer and no author has to remember it.
 var markupRenderers = map[string]bool{
-	"email_layout.go": true,
+	"email_layout.go":    true,
+	"email_templates.go": true,
 }
 
-// TestNoRawHTMLSprintf keeps the two renderers the only two.
+// TestNoRawHTMLSprintf keeps those two files the only two that hold markup.
 //
-// Escaping the values in a template is a fix that holds; the pattern that
-// produced the defect was a new sender pasting a `fmt.Sprintf` body with `%s`
-// in it, which escapes nothing and looks exactly like the senders around it.
-// This fails that commit instead of the next review.
+// It checks string literals rather than fmt.Sprintf calls specifically, because
+// the shapes that reintroduce the defect are not all fmt calls: a package-level
+// format const, a `"<p>" + name + "</p>"` concatenation, and a
+// strings.Builder.WriteString all escape nothing and all read like the code
+// around them. A literal carrying a tag anywhere outside the two renderers is
+// the thing to catch.
+//
+// Scope is this package. A sender written in a sibling package is not covered,
+// and would need its own guard or a move in here.
 func TestNoRawHTMLSprintf(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
@@ -265,37 +285,25 @@ func TestNoRawHTMLSprintf(t *testing.T) {
 			continue
 		}
 
+		// Mode 0 leaves comments out of the AST, so prose about markup in a doc
+		// comment is not a finding.
 		file, err := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
 		require.NoError(t, err)
 
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+			value, err := strconv.Unquote(lit.Value)
+			if err != nil {
 				return true
 			}
-			pkg, ok := sel.X.(*ast.Ident)
-			if !ok || pkg.Name != "fmt" {
-				return true
-			}
-
-			for _, arg := range call.Args {
-				lit, ok := arg.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					continue
-				}
-				value, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					continue
-				}
-				assert.False(t, htmlTagInFormat.MatchString(value),
-					"%s: markup assembled with fmt.%s. Add the body to email_templates.go "+
-						"so html/template escapes it, or a builder in email_layout.go",
-					fset.Position(lit.Pos()), sel.Sel.Name)
-			}
+			assert.False(t, htmlTagLiteral.MatchString(value),
+				"%s: email markup outside the two renderers. Put the body in "+
+					"email_templates.go so html/template escapes it, or add a builder "+
+					"to email_layout.go that escapes every value it interpolates",
+				fset.Position(lit.Pos()))
 			return true
 		})
 	}

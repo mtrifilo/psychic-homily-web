@@ -2,6 +2,7 @@ package notification
 
 import (
 	"fmt"
+	"html"
 	"strings"
 )
 
@@ -40,22 +41,6 @@ const (
 // Uniform rows mean a caller can append or reorder blocks without special
 // casing the final one.
 const emailRowGap = "20px"
-
-// htmlEscape replaces a small set of characters with their HTML entity
-// equivalents. Intentionally minimal — the digest builder controls every
-// string passed in (titles, names, URLs come from our DB), but HTML-escaping
-// names is still the right hygiene to prevent the rare display issue with
-// "&", "<", ">", or quotes in entity names.
-func htmlEscape(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	)
-	return r.Replace(s)
-}
 
 // emailShell wraps message blocks in the shared frame: masthead, kicker rule,
 // hairline border, and the table scaffolding email clients need.
@@ -150,7 +135,7 @@ func emailMasthead(kicker string) string {
 </table>
 </td>
 </tr>
-`, emailSansStack, emailForeground, emailMonoStack, emailMutedForeground, htmlEscape(kicker), emailBorder, emailRowGap, emailBackground)
+`, emailSansStack, emailForeground, emailMonoStack, emailMutedForeground, html.EscapeString(kicker), emailBorder, emailRowGap, emailBackground)
 }
 
 // emailHeadline renders the message's one-line statement of what happened.
@@ -158,7 +143,7 @@ func emailHeadline(text string) string {
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:30px; font-weight:700; line-height:36px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
 </tr>
-`, emailSansStack, emailForeground, htmlEscape(text), emailRowGap, emailBackground)
+`, emailSansStack, emailForeground, html.EscapeString(text), emailRowGap, emailBackground)
 }
 
 // emailParagraph renders a block of body prose.
@@ -166,7 +151,7 @@ func emailParagraph(text string) string {
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:15px; font-weight:400; line-height:24px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
 </tr>
-`, emailSansStack, emailForeground, htmlEscape(text), emailRowGap, emailBackground)
+`, emailSansStack, emailForeground, html.EscapeString(text), emailRowGap, emailBackground)
 }
 
 // emailButton renders the primary call to action.
@@ -192,7 +177,7 @@ func emailButton(href, label string) string {
 </table>
 </td>
 </tr>
-`, emailPrimary, emailPrimaryForeground, emailSansStack, htmlEscape(href), htmlEscape(label), emailRowGap)
+`, emailPrimary, emailPrimaryForeground, emailSansStack, html.EscapeString(href), html.EscapeString(label), emailRowGap)
 }
 
 // emailMonoNote renders a small uppercase monospace detail line, used for
@@ -201,14 +186,14 @@ func emailMonoNote(text string) string {
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:11px; line-height:16px; letter-spacing:0.44px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
 </tr>
-`, emailMonoStack, emailMutedForeground, htmlEscape(text), emailRowGap, emailBackground)
+`, emailMonoStack, emailMutedForeground, html.EscapeString(text), emailRowGap, emailBackground)
 }
 
 // sanitizeEmailHeaderValue strips the characters that END a header line, so a
 // caller-supplied string cannot inject one.
 //
 // It exists because escaping is medium-specific and this repo's escaping is all
-// aimed at the BODY: htmlEscape makes a scraped artist name safe inside markup
+// aimed at the BODY: html.EscapeString makes a scraped artist name safe inside
 // and does nothing at all for a Subject, where the dangerous character is not
 // `<` but a newline. Everything an ingest scrape produces is caller-supplied in
 // that sense, and these messages ship from the platform's own DKIM-aligned
@@ -244,7 +229,7 @@ func sanitizeEmailHeaderValue(value string) string {
 func emailMonoDetails(lines []string) string {
 	var b strings.Builder
 	for _, line := range lines {
-		fmt.Fprintf(&b, `<div style="white-space:pre;">%s</div>`, htmlEscape(line))
+		fmt.Fprintf(&b, `<div style="white-space:pre;">%s</div>`, html.EscapeString(line))
 	}
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:12px; line-height:20px; letter-spacing:0.44px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
@@ -325,14 +310,14 @@ func emailListRows(rows []emailListRow) string {
 		if row.Detail != "" {
 			detail = fmt.Sprintf(
 				`<div style="font-family:%[1]s; font-size:13px; line-height:19px; color:%[2]s;">%[3]s</div>`,
-				emailSansStack, emailMutedForeground, htmlEscape(row.Detail))
+				emailSansStack, emailMutedForeground, html.EscapeString(row.Detail))
 		}
 
 		fmt.Fprintf(&b, `<tr>
 <td width="110" valign="top" style="width:110px; padding:12px 16px 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; font-family:%[2]s; font-size:13px; line-height:20px; color:%[3]s; background-color:%[7]s; white-space:nowrap;">%[4]s</td>
 <td valign="top" style="padding:12px 0 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; background-color:%[7]s;"><div style="font-family:%[8]s; font-size:14px; font-weight:600; line-height:20px; color:%[3]s;">%[5]s</div>%[9]s</td>
 </tr>
-`, emailBorder, emailMonoStack, emailForeground, htmlEscape(row.Label), htmlEscape(row.Title),
+`, emailBorder, emailMonoStack, emailForeground, html.EscapeString(row.Label), html.EscapeString(row.Title),
 			bottom, emailBackground, emailSansStack, detail)
 	}
 
@@ -370,7 +355,7 @@ type emailFineprintLink struct {
 func emailFineprintWithLinks(lines []string, links []emailFineprintLink) string {
 	var b strings.Builder
 	for _, line := range lines {
-		b.WriteString(emailFineprintLine(htmlEscape(line)))
+		b.WriteString(emailFineprintLine(html.EscapeString(line)))
 	}
 	if len(links) > 0 {
 		var row strings.Builder
@@ -381,7 +366,7 @@ func emailFineprintWithLinks(lines []string, links []emailFineprintLink) string 
 			// href and label are escaped INDIVIDUALLY and the anchor is written
 			// here, so no caller can hand this function markup.
 			fmt.Fprintf(&row, `<a href="%s" style="color:%s; text-decoration:underline;">%s</a>`,
-				htmlEscape(link.Href), emailPrimary, htmlEscape(link.Label))
+				html.EscapeString(link.Href), emailPrimary, html.EscapeString(link.Label))
 		}
 		b.WriteString(emailFineprintLine(row.String()))
 	}
@@ -427,7 +412,7 @@ func emailFineprintRow(content string) string {
 func emailFineprint(lines []string) string {
 	var b strings.Builder
 	for _, line := range lines {
-		b.WriteString(emailFineprintLine(htmlEscape(line)))
+		b.WriteString(emailFineprintLine(html.EscapeString(line)))
 	}
 	return emailFineprintRow(b.String())
 }

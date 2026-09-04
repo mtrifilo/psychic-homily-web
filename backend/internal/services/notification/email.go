@@ -424,11 +424,11 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 	}
 
 	html, err := renderEmailTemplate(tierDemotionWarningEmailTemplate, tierDemotionWarningEmailData{
-		Greeting:       greeting,
-		CurrentRatePct: fmt.Sprintf("%.0f", currentRate*100),
-		ThresholdPct:   fmt.Sprintf("%.0f", threshold*100),
-		DisplayName:    displayName,
-		Unsubscribe:    unsubscribeCard{URL: unsubscribeURL, Label: "tier-change emails"},
+		Greeting:    greeting,
+		CurrentRate: currentRate * 100,
+		Threshold:   threshold * 100,
+		DisplayName: displayName,
+		Unsubscribe: unsubscribeCard{URL: unsubscribeURL, Label: "tier-change emails"},
 	})
 	if err != nil {
 		return err
@@ -651,9 +651,9 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 	}
 
 	html, err := renderEmailTemplate(collectionDigestEmailTemplate, collectionDigestEmailData{
-		Groups:         groups,
-		UnsubscribeURL: unsubscribeURL,
-		FrontendURL:    s.frontendURL,
+		Groups:      groups,
+		Unsubscribe: unsubscribeCard{URL: unsubscribeURL, Label: "these weekly digests"},
+		FrontendURL: s.frontendURL,
 	})
 	if err != nil {
 		return err
