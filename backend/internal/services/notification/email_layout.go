@@ -189,28 +189,6 @@ func emailMonoNote(text string) string {
 `, emailMonoStack, emailMutedForeground, html.EscapeString(text), emailRowGap, emailBackground)
 }
 
-// sanitizeEmailHeaderValue strips the characters that END a header line, so a
-// caller-supplied string cannot inject one.
-//
-// It exists because escaping is medium-specific and this repo's escaping is all
-// aimed at the BODY: html.EscapeString makes a scraped artist name safe inside
-// markup and does nothing at all for a Subject, where the dangerous character is
-// not `<` but a newline. Everything an ingest scrape produces is caller-supplied in
-// that sense, and these messages ship from the platform's own DKIM-aligned
-// sender.
-//
-// Removed rather than replaced: a subject is a single line by definition, so
-// there is no rendering to preserve, and a substitute character would only
-// invite the question of which one.
-func sanitizeEmailHeaderValue(value string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\r' || r == '\n' {
-			return -1
-		}
-		return r
-	}, value)
-}
-
 // emailMonoDetails renders the mono DETAILS BLOCK: several aligned metadata
 // lines about the thing the message is announcing, such as when, where, and who
 // else is on the bill.
@@ -236,19 +214,6 @@ func emailMonoDetails(lines []string) string {
 </tr>
 `, emailMonoStack, emailForeground, b.String(), emailRowGap, emailBackground)
 }
-
-// maxEmailSubjectEntityRunes bounds a scraped entity name interpolated into a
-// Subject header.
-//
-// Sanitizing the name stops header SPLITTING; it does nothing about length, and
-// an unfolded multi-kilobyte subject is provider-dependent behaviour ranging
-// from truncation to rejection. A rejected send on the alert paths is logged and
-// swallowed, so the failure mode is a silently lost notification.
-//
-// 120 is well past what any client displays (the masthead's own budget is ~35
-// characters) and well short of the 998-octet line limit, leaving room for the
-// rest of the subject.
-const maxEmailSubjectEntityRunes = 120
 
 // truncateRunes shortens a string to at most n RUNES, appending an ellipsis when
 // it cuts. Runes, not bytes, so a multi-byte name cannot be sliced mid-character
