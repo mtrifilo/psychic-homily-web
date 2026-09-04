@@ -11,6 +11,8 @@ import {
   toArtistPayloads,
   toSetType,
   resolveFormSetType,
+  resolveFormEventDate,
+  DEFAULT_EVENT_TIME,
   DEFAULT_SET_TYPE,
   SET_TYPE_OPTIONS,
   SET_TYPE_VALUES,
@@ -903,5 +905,71 @@ describe('resolveFormSetType', () => {
     expect(
       resolveFormSetType({ set_type: 'co_headliner', is_headliner: true })
     ).toBe(DEFAULT_SET_TYPE)
+  })
+})
+
+describe('resolveFormEventDate', () => {
+  const at = (date: string, time: string, state = 'IL') => ({
+    date,
+    time,
+    venue: { state },
+  })
+
+  it('resolves the clock in the venue row zone, not the state map', () => {
+    // A blank state resolves the Arizona fallback, so a venue that carries its
+    // own zone is the only thing separating the two answers here.
+    const resolved = resolveFormEventDate(at('2027-06-15', '20:00', ''), 'Europe/Berlin')
+    expect(resolved).toEqual({
+      eventDate: '2027-06-15T18:00:00Z',
+      clockExists: true,
+    })
+  })
+
+  it('falls back to the state map when the venue has no zone', () => {
+    expect(resolveFormEventDate(at('2027-01-15', '20:00'), null)).toEqual({
+      eventDate: '2027-01-16T02:00:00Z',
+      clockExists: true,
+    })
+  })
+
+  it('reads a blank time as the 20:00 convention', () => {
+    expect(resolveFormEventDate(at('2027-01-15', ''), null)?.eventDate).toBe(
+      resolveFormEventDate(at('2027-01-15', DEFAULT_EVENT_TIME), null)?.eventDate
+    )
+  })
+
+  it('reads a time it cannot parse as the 20:00 convention', () => {
+    // The AI extraction route writes the model's string into this field without
+    // checking its shape, and the time input renders such a value as blank.
+    expect(resolveFormEventDate(at('2027-01-15', '8:00 PM'), null)?.eventDate).toBe(
+      resolveFormEventDate(at('2027-01-15', DEFAULT_EVENT_TIME), null)?.eventDate
+    )
+  })
+
+  it('reports a clock the spring-forward skips as nonexistent', () => {
+    const resolved = resolveFormEventDate(at('2027-03-14', '02:30'), 'America/Chicago')
+    expect(resolved?.clockExists).toBe(false)
+    // An instant is still produced: the caller decides whether to store it.
+    expect(resolved?.eventDate).toBe('2027-03-14T07:30:00Z')
+  })
+
+  it('reports a clock a fall-back repeats as existing', () => {
+    expect(
+      resolveFormEventDate(at('2026-11-01', '01:30'), 'America/Chicago')?.clockExists
+    ).toBe(true)
+  })
+
+  it('answers null for a date field that names no day', () => {
+    expect(resolveFormEventDate(at('', '20:00'), null)).toBeNull()
+    expect(resolveFormEventDate(at('2027-3-14', '20:00'), null)).toBeNull()
+    expect(resolveFormEventDate(at('03/14/2027', '20:00'), null)).toBeNull()
+  })
+
+  it('answers null for a day outside its own month rather than rolling it forward', () => {
+    // Date.UTC normalizes 2027-02-31 to March 3, which would store a show on a
+    // date nobody chose.
+    expect(resolveFormEventDate(at('2027-02-31', '20:00'), null)).toBeNull()
+    expect(resolveFormEventDate(at('2027-13-01', '20:00'), null)).toBeNull()
+    expect(resolveFormEventDate(at('2028-02-29', '20:00'), null)).not.toBeNull()
   })
 })

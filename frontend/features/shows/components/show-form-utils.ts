@@ -1,4 +1,7 @@
-import { parseISOToDateAndTime } from '@/lib/utils/timeUtils'
+import {
+  parseISOToDateAndTime,
+  resolveLocalClockToUTC,
+} from '@/lib/utils/timeUtils'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { showTimingInput } from '../utils'
 import type { SetType, ShowResponse, VenueResponse } from '../types'
@@ -178,6 +181,83 @@ export interface FormValues {
   image_url: string
 }
 
+/**
+ * The wall clock a show is saved on when the time field is left blank.
+ *
+ * The same 20:00 venue-local convention the ingest writers use for a listing
+ * that states a day and no time, so a show entered here and the same show
+ * ingested elsewhere land on one instant.
+ */
+export const DEFAULT_EVENT_TIME = '20:00'
+
+/**
+ * What a `<input type="date">` puts in the date field once it holds a day: a
+ * four-digit year, a month and a day. The field is otherwise the empty string,
+ * and resolving a clock on that throws.
+ */
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/** What a `<input type="time">` puts in the time field once it holds a clock. */
+const TIME_ONLY_PATTERN = /^\d{2}:\d{2}$/
+
+/**
+ * Whether a string names a day that exists.
+ *
+ * The shape is not enough: `Date.UTC` rolls an out-of-range day forward, so
+ * `2026-02-31` resolves silently to March 3 and stores a show on a date nobody
+ * chose. Reading the parts back off the composed instant is what rejects it.
+ */
+function isCalendarDay(dateString: string): boolean {
+  if (!DATE_ONLY_PATTERN.test(dateString)) return false
+  const [year, month, day] = dateString.split('-').map(Number)
+  const probe = new Date(Date.UTC(year, month - 1, day))
+  return (
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day
+  )
+}
+
+/**
+ * The instant the form's date and time fields name, and whether the venue's
+ * zone has that wall clock at all. Null when the date field does not name a day
+ * that exists, which covers the blank a fresh create form opens with and a day
+ * outside its own month.
+ *
+ * ONE function, and one resolution inside it, because the form asks this twice
+ * and the two answers have to be about the same clock: the schema asks whether
+ * to refuse the save, and the submit asks what to send. A blank time field means
+ * the 20:00 convention in both, so the clock this judges is the clock it would
+ * store. Both read the venue's own IANA zone before the US state map, which
+ * answers America/Phoenix for every non-US venue (PSY-1873). That order is what
+ * the schema and the submit must agree on: America/Phoenix never transitions, so
+ * judging a clock on it while storing on the venue's real zone would pass every
+ * gap clock at a non-US venue.
+ *
+ * `clockExists` is false only inside the window a spring-forward skips, where
+ * the wall clock never happened. `eventDate` still carries an instant there;
+ * the caller decides whether an instant for a clock that never happened is fit
+ * to store.
+ */
+export function resolveFormEventDate(
+  value: {
+    date: string
+    time: string
+    venue: { state: string }
+  },
+  venueTimezone: string | null | undefined
+): { eventDate: string; clockExists: boolean } | null {
+  if (!isCalendarDay(value.date)) return null
+  // A time this cannot read is a time the `<input type="time">` renders blank,
+  // so the user sees an empty field and the 20:00 convention is what they would
+  // submit. The AI extraction route puts the model's string in this field
+  // without checking its shape.
+  const time = TIME_ONLY_PATTERN.test(value.time) ? value.time : DEFAULT_EVENT_TIME
+  const timezone = resolveShowTimezone(value.venue.state, venueTimezone)
+  const { utc, exists } = resolveLocalClockToUTC(value.date, time, timezone)
+  return { eventDate: utc, clockExists: exists }
+}
+
 export const defaultFormValues: FormValues = {
   title: '',
   artists: [
@@ -190,7 +270,7 @@ export const defaultFormValues: FormValues = {
   ],
   venue: { id: undefined, name: '', city: '', state: '', address: '' },
   date: '',
-  time: '20:00',
+  time: DEFAULT_EVENT_TIME,
   cost: '',
   door_cost: '',
   ages: '',

@@ -99,10 +99,10 @@ var StateTimezones = map[string]string{
 // discovery imports (services/pipeline.parseEventDate) and community request
 // fulfillment (handlers/community.parseShowEventDate) must agree, or a reader
 // inspecting a row cannot tell which writer produced it. The frontend show form
-// (frontend/lib/utils/timeUtils.combineDateTimeToUTC, defaulting a blank time to
-// 20:00 venue-local) and the ph CLI are writers too and are NOT compile-checked
-// against this — keep them in sync by hand, exactly as StateTimezones warns
-// above.
+// (frontend/features/shows/components/show-form-utils.DEFAULT_EVENT_TIME, which
+// a blank time field falls back to) and the ph CLI are writers too and are NOT
+// compile-checked against this — keep them in sync by hand, exactly as
+// StateTimezones warns above.
 //
 // NOT enforced on the show create/update API, and deliberately so. Those
 // endpoints take event_date as an already-parsed instant, and an instant cannot
