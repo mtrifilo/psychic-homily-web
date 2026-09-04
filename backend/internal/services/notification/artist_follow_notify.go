@@ -612,10 +612,9 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(
 	manageURL := fmt.Sprintf("%s/settings/notifications", s.frontendURL)
 
 	html := buildArtistShowAlertEmailHTML(lane.artistName, lane.scope, c, unsubscribeURL, manageURL)
-	// The subject is a HEADER, and this is the first place a scraped third-party
-	// string reaches one. HTML escaping does nothing for headers: a CR or LF in an
-	// artist name is how a header is split and another one injected. The body
-	// builders escape their own inputs; this does not go through them.
+	// The subject is a HEADER, so HTML escaping does nothing for it: a CR or LF
+	// in an artist name is how a header is split and another one injected. The
+	// body builders escape their own inputs; this does not go through them.
 	subject := fmt.Sprintf("%s announced a show", sanitizeEmailHeaderValue(lane.artistName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {

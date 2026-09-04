@@ -115,7 +115,8 @@ func TestSendEditRejectedEmail_Success(t *testing.T) {
 	assert.Contains(t, email.Html, "testuser")
 	assert.Contains(t, email.Html, "Some Artist")
 	assert.Contains(t, email.Html, "not accepted")
-	assert.Contains(t, email.Html, "The name does not match the artist's official spelling")
+	assert.Contains(t, email.Html, "The name does not match the artist&#39;s official spelling",
+		"a moderator's prose reaches the body escaped, apostrophe included")
 	assert.Contains(t, email.Html, "Tips for future edits")
 }
 
