@@ -48,17 +48,15 @@ interface VenueDetailProps {
 }
 
 /**
- * The domain to print for a website link,
+ * The domain to print beside a website link,
  * e.g. "https://www.therebelphx.com/events" -> "therebelphx.com".
  *
- * Its only caller passes an href that `socialLinkHref` has already parsed, so
- * the URL constructor here cannot throw and the caption names the host the
- * click resolves to rather than whatever the column happens to hold.
+ * Its argument is an href `socialLinkHref` has already parsed, so this parse
+ * cannot throw and the caption names the host the click resolves to.
  */
 function getDisplayDomain(href: string): string {
   return new URL(href).hostname.replace(/^www\./, '')
 }
-
 
 function VenueGenreProfile({ venueId }: { venueId: number }) {
   const { data } = useVenueGenres(venueId)
@@ -175,10 +173,8 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
     )
   }
 
-  // The anchor and its caption both read this, so the domain a reader sees is
-  // the host of the URL the click resolves to. The gate is the same one
-  // SocialLinks applies to the column: `website` anchors no host, so what it
-  // buys here is an absolute, parseable destination.
+  // The anchor and its caption both read this one value. `website` anchors no
+  // host, so what the gate buys here is an absolute, parseable destination.
   const websiteHref = socialLinkHref('website', venue.social?.website)
 
   return (

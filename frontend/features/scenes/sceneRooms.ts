@@ -6,6 +6,7 @@
  * below is the one this module exists to make testable at both ends.
  */
 
+import { socialLinkHref } from '@/lib/socialLinks'
 import type { SceneVenue } from './types'
 
 /** How the list is ordered, and therefore whether the counts carry ordering. */
@@ -94,18 +95,12 @@ export function roomLocationLabel(
 /**
  * The room's own website, or nothing.
  *
- * Scheme-checked before it becomes an `href`. The column is operator-entered
- * and this is the only place on the page that turns a stored string into a
- * navigable external target, so the check belongs here rather than in the
- * markup — `javascript:` in a venue row would execute in the reader's session.
+ * `SceneVenueSummary.Website` is `venues.website`, the same column the venue
+ * page reads as `venue.social?.website`, so it goes through the same gate: one
+ * stored value cannot link on one surface and not the other. The gate refuses a
+ * `javascript:` value, which would otherwise execute in the reader's session,
+ * and resolves a legacy scheme-less value instead of dropping it.
  */
 export function roomWebsite(room: SceneVenue): string | null {
-  const website = room.website?.trim()
-  if (!website) return null
-  try {
-    const url = new URL(website)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? website : null
-  } catch {
-    return null
-  }
+  return socialLinkHref('website', room.website)
 }

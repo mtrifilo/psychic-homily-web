@@ -133,10 +133,8 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const roster = rosterData?.artists ?? []
   const catalog = catalogData?.releases ?? []
   const hasDescription = !!label.description && label.description.trim().length > 0
-  // The same question SocialLinks itself asks, so the heading and the buttons
-  // below it agree. The API returns the social wrapper even for a label with no
-  // links, and a stored value the host anchor refuses renders nothing, so
-  // testing the columns here would leave an orphan heading over empty space.
+  // The same question SocialLinks asks, so the heading cannot outlive its
+  // buttons: the API returns the social wrapper even for a label with none.
   const hasSocialLinks = hasRenderableSocialLink(label.social)
 
   const statsItems: StatsListItem[] = [

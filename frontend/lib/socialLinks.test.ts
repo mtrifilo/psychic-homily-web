@@ -4,12 +4,12 @@ import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 
 import {
-  ANCHORED_SOCIAL_LINK_PLATFORM_KEYS,
   SOCIAL_LINK_PLATFORMS,
   SOCIAL_LINK_PLATFORM_KEYS,
   hasRenderableSocialLink,
   renderableSocialLinks,
   socialLinkHref,
+  type SocialLinkPlatform,
 } from './socialLinks'
 
 // Read at RUNTIME, not imported.
@@ -37,6 +37,21 @@ const corpus = JSON.parse(
   }[]
 }
 
+/**
+ * The gate's parameter is typed, so a production typo fails the build. The
+ * corpus rows and the unknown-key cases below deliberately feed it names that
+ * are not platform keys, which is what its runtime own-property guard exists
+ * for, so they pass through this one cast rather than widening the signature.
+ */
+function hrefFor(field: string, value: string | null | undefined): string | null {
+  return socialLinkHref(field as SocialLinkPlatform, value)
+}
+
+/** The corpus rows as `it.each` tuples. */
+function rows<T extends { field: string; value: string; why: string }>(cases: T[]) {
+  return cases.map(c => [c.field, c.value, c.why] as const)
+}
+
 describe('cross-language corpus (the write anchor and this gate are one rule)', () => {
   it('has entries on every side', () => {
     expect(Object.keys(corpus.platforms).length).toBeGreaterThan(0)
@@ -47,10 +62,9 @@ describe('cross-language corpus (the write anchor and this gate are one rule)', 
   // The drift tripwire: the Go table asserts the same object.
   it('the host table matches the backend table', () => {
     const mine = Object.fromEntries(
-      ANCHORED_SOCIAL_LINK_PLATFORM_KEYS.map(key => [
-        key,
-        [...(SOCIAL_LINK_PLATFORMS[key].hosts ?? [])],
-      ])
+      SOCIAL_LINK_PLATFORM_KEYS.filter(
+        key => SOCIAL_LINK_PLATFORMS[key].hosts !== null
+      ).map(key => [key, [...(SOCIAL_LINK_PLATFORMS[key].hosts ?? [])]])
     )
     expect(mine).toEqual(corpus.platforms)
   })
@@ -62,10 +76,10 @@ describe('cross-language corpus (the write anchor and this gate are one rule)', 
     expect(mine).toEqual(corpus.unanchored)
   })
 
-  it.each(corpus.storable.map(c => [c.field, c.value, c.why] as const))(
+  it.each(rows(corpus.storable))(
     'renders anything the backend will store: %s %s',
     (field, value) => {
-      expect(socialLinkHref(field, value)).not.toBeNull()
+      expect(hrefFor(field, value)).not.toBeNull()
     }
   )
 
@@ -73,29 +87,27 @@ describe('cross-language corpus (the write anchor and this gate are one rule)', 
   // value outright. Asserting them keeps the divergence pinned: closing it on
   // the write side would make these rows fail here and force the corpus to
   // move them, rather than leaving the contract quietly untrue.
-  it.each(
-    corpus.storableButUnrenderable.map(c => [c.field, c.value, c.why] as const)
-  )('renders nothing for the storable-but-unparseable %s %s (%s)', (field, value) => {
-    expect(socialLinkHref(field, value)).toBeNull()
-  })
-
-  const mustRefuse = corpus.refusedByWriter.filter(c => !c.rendersAnyway)
-  it.each(mustRefuse.map(c => [c.field, c.value, c.why] as const))(
-    'refuses %s %s (%s)',
+  it.each(rows(corpus.storableButUnrenderable))(
+    'renders nothing for the storable-but-unparseable %s %s (%s)',
     (field, value) => {
-      expect(socialLinkHref(field, value)).toBeNull()
+      expect(hrefFor(field, value)).toBeNull()
     }
   )
+
+  const mustRefuse = corpus.refusedByWriter.filter(c => !c.rendersAnyway)
+  it.each(rows(mustRefuse))('refuses %s %s (%s)', (field, value) => {
+    expect(hrefFor(field, value)).toBeNull()
+  })
 
   // The legacy tolerance, asserted rather than assumed: these are the shapes
   // the write boundary refuses and the reader deliberately keeps, because the
   // value still lands on the platform. Without these rows a later tightening
   // would silently take away links that work.
   const stillRenders = corpus.refusedByWriter.filter(c => c.rendersAnyway)
-  it.each(stillRenders.map(c => [c.field, c.value, c.why] as const))(
+  it.each(rows(stillRenders))(
     'still renders the legacy shape %s %s (%s)',
     (field, value) => {
-      expect(socialLinkHref(field, value)).not.toBeNull()
+      expect(hrefFor(field, value)).not.toBeNull()
     }
   )
 
@@ -112,12 +124,12 @@ describe('cross-language corpus (the write anchor and this gate are one rule)', 
 
 describe('socialLinkHref', () => {
   it('returns null for an unknown platform key', () => {
-    expect(socialLinkHref('myspace', 'https://myspace.com/band')).toBeNull()
+    expect(hrefFor('myspace', 'https://myspace.com/band')).toBeNull()
   })
 
   it('does not resolve inherited Object properties as platforms', () => {
-    expect(socialLinkHref('constructor', 'https://instagram.com/x')).toBeNull()
-    expect(socialLinkHref('toString', 'https://instagram.com/x')).toBeNull()
+    expect(hrefFor('constructor', 'https://instagram.com/x')).toBeNull()
+    expect(hrefFor('toString', 'https://instagram.com/x')).toBeNull()
   })
 
   it('returns null for a missing, blank or whitespace-only value', () => {

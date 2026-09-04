@@ -1,3 +1,5 @@
+import { hostIsAnchored, parseHttpUrl, stripUrlWhitespace } from './urlAnchor'
+
 /**
  * The eight social columns an artist, venue, label or festival carries, the
  * hosts each one's value may resolve to, and where a bare handle goes.
@@ -24,6 +26,11 @@
  * subdomain rather than a path, so there is nothing to append a handle to.
  *
  * Key order is render order.
+ *
+ * The `bandcamp` and `spotify` columns have a SECOND reader: MusicEmbed turns
+ * them into a player or a "Listen on" link through lib/bandcamp.ts and
+ * lib/spotify.ts, which are stricter (https only, and a path rule) because they
+ * also guard a server-side fetch. Widening a host here does not widen those.
  *
  * CROSS-LANGUAGE MIRROR: socialHostSuffixes in backend/internal/utils/url.go,
  * where the reasoning behind each host choice lives. Both sides assert this
@@ -80,27 +87,10 @@ export const SOCIAL_LINK_PLATFORM_KEYS = Object.keys(
   SOCIAL_LINK_PLATFORMS
 ) as SocialLinkPlatform[]
 
-/** The fields anchored to a platform's hosts, in render order. */
-export const ANCHORED_SOCIAL_LINK_PLATFORM_KEYS =
-  SOCIAL_LINK_PLATFORM_KEYS.filter(key => SOCIAL_LINK_PLATFORMS[key].hosts !== null)
-
 /** The stored shape every consumer of these columns passes around. */
 export type SocialLinkValues = Partial<
   Record<SocialLinkPlatform, string | null | undefined>
 >
-
-/**
- * Surrounding characters the WHATWG URL parser itself strips: C0 controls and
- * space, and nothing else.
- *
- * `String.trim()` is the wrong tool for deciding whether a stored value will
- * resolve, because it also strips U+00A0 and U+FEFF, which the URL parser
- * keeps. Leading, those make the whole value unparseable, so trimming with
- * `trim()` would certify an href that resolves same-origin.
- */
-function stripUrlWhitespace(raw: string): string {
-  return raw.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
-}
 
 /**
  * A value that already carries its own scheme.
@@ -120,47 +110,32 @@ const HAS_HTTP_SCHEME = /^https?:\/\//i
  * link off the platform.
  */
 function normalizeSocialValue(raw: string, handleBase: string | null): string {
-  if (HAS_HTTP_SCHEME.test(raw)) {
-    return raw
-  }
-  // A domain-shaped value with no scheme. `https://` rather than `//` so the
-  // result is absolute in the parser as well as in a browser.
-  if (
-    raw.includes('.') &&
-    (raw.includes('/') || raw.includes('.com') || raw.includes('.org'))
-  ) {
-    return `https://${raw}`
-  }
-  // A handle never contains a colon, so a value carrying one is a URL or a URI
-  // and is judged as one rather than pasted onto the platform's base. Without
-  // this, "javascript:alert(1)" resolves to a real on-platform 404 and renders
-  // a link, and a "spotify:artist:x" URI renders one too.
-  if (handleBase && !raw.includes(':')) {
+  if (HAS_HTTP_SCHEME.test(raw)) return raw
+  if (handleBase && isHandleShaped(raw)) {
     return `${handleBase}${raw.startsWith('@') ? raw.slice(1) : raw}`
   }
+  // Everything else is treated as a scheme-less URL. `https://` rather than
+  // `//` so the result is absolute to the parser as well as to a browser, and
+  // so no branch here can ever produce a non-http scheme.
   return `https://${raw}`
 }
 
-function parseHttpUrl(raw: string): URL | null {
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return null
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-  return parsed
-}
-
 /**
- * Whether a parsed URL's host is anchored to one of the bases.
+ * Whether a scheme-less value is a handle rather than a URL someone left the
+ * scheme off.
  *
- * The leading dot is load-bearing: it rejects "notinstagram.com" and
- * "instagram.com.evil.test" while accepting "<artist>.bandcamp.com".
+ * A domain-shaped value is not a handle: "instagram.com/calexico" belongs under
+ * its own host, not appended to one. Nor is anything carrying a colon, which is
+ * either a scheme or a port; without that rule "javascript:alert(1)" in the
+ * instagram column resolves to a real on-platform 404 and renders a link, and a
+ * "spotify:artist:x" URI renders one too.
  */
-function hostIsAnchored(parsed: URL, bases: readonly string[]): boolean {
-  const host = parsed.hostname.toLowerCase()
-  return bases.some(base => host === base || host.endsWith(`.${base}`))
+function isHandleShaped(raw: string): boolean {
+  if (raw.includes(':')) return false
+  return !(
+    raw.includes('.') &&
+    (raw.includes('/') || raw.includes('.com') || raw.includes('.org'))
+  )
 }
 
 /**
@@ -193,13 +168,17 @@ function hostIsAnchored(parsed: URL, bases: readonly string[]): boolean {
  * closes that.
  */
 export function socialLinkHref(
-  platform: string,
+  platform: SocialLinkPlatform,
   value: string | null | undefined
 ): string | null {
+  // The own-property test is not redundant with the type: a festival's `social`
+  // is free-form JSONB, so a key that is not a platform reaches here at
+  // runtime, and an inherited key ("constructor") would otherwise resolve to a
+  // function.
   if (!Object.prototype.hasOwnProperty.call(SOCIAL_LINK_PLATFORMS, platform)) {
     return null
   }
-  const entry = SOCIAL_LINK_PLATFORMS[platform as SocialLinkPlatform]
+  const entry = SOCIAL_LINK_PLATFORMS[platform]
   if (typeof value !== 'string') return null
   const raw = stripUrlWhitespace(value)
   if (!raw) return null
@@ -249,5 +228,8 @@ export function renderableSocialLinks(
 export function hasRenderableSocialLink(
   social: SocialLinkValues | null | undefined
 ): boolean {
-  return renderableSocialLinks(social).length > 0
+  if (!social) return false
+  return SOCIAL_LINK_PLATFORM_KEYS.some(
+    platform => socialLinkHref(platform, social[platform]) !== null
+  )
 }

@@ -28,6 +28,7 @@ import {
 } from '@/lib/utils/formatters'
 import { formatTimeInTimezone } from '@/lib/utils/timeUtils'
 import { hasStatedPrice } from '@/lib/utils/showPrice'
+import { socialLinkHref } from '@/lib/socialLinks'
 import {
   useSetShowCancelled,
   useSetShowSoldOut,
@@ -186,34 +187,45 @@ function SubmissionShowCard({
               id={headingId}
               className="flex-1 text-lg font-semibold leading-tight tracking-tight"
             >
-              {artists.map((artist, index) => (
-                <span key={artist.id}>
-                  {index > 0 && (
-                    <span className="font-normal text-muted-foreground/60">
-                      &nbsp;•&nbsp;
-                    </span>
-                  )}
-                  {artist.slug ? (
-                    <Link
-                      href={`/artists/${artist.slug}`}
-                      className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
-                    >
-                      {artist.name}
-                    </Link>
-                  ) : artist.socials?.instagram ? (
-                    <a
-                      href={`https://instagram.com/${artist.socials.instagram}`}
-                      className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {artist.name}
-                    </a>
-                  ) : (
-                    <span>{artist.name}</span>
-                  )}
-                </span>
-              ))}
+              {artists.map((artist, index) => {
+                // An act with no page of its own falls back to its Instagram.
+                // Through the shared gate, not a hand-built URL: the column
+                // holds a full URL on every path that writes it today, and
+                // appending one to a base produced a dead
+                // "instagram.com/https://instagram.com/..." link.
+                const instagramHref = socialLinkHref(
+                  'instagram',
+                  artist.socials?.instagram
+                )
+                return (
+                  <span key={artist.id}>
+                    {index > 0 && (
+                      <span className="font-normal text-muted-foreground/60">
+                        &nbsp;•&nbsp;
+                      </span>
+                    )}
+                    {artist.slug ? (
+                      <Link
+                        href={`/artists/${artist.slug}`}
+                        className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
+                      >
+                        {artist.name}
+                      </Link>
+                    ) : instagramHref ? (
+                      <a
+                        href={instagramHref}
+                        className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {artist.name}
+                      </a>
+                    ) : (
+                      <span>{artist.name}</span>
+                    )}
+                  </span>
+                )
+              })}
             </h2>
 
             <div className="flex shrink-0 items-center gap-1">

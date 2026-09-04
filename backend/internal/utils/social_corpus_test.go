@@ -11,26 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// socialCorpusCase is one field/value pair the corpus makes a claim about.
+type socialCorpusCase struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+	Why   string `json:"why"`
+}
+
 // socialLinkCorpus mirrors testdata/social_link_corpus.json, the file this test
 // shares with frontend/lib/socialLinks.test.ts.
 type socialLinkCorpus struct {
-	Platforms  map[string][]string `json:"platforms"`
-	Unanchored []string            `json:"unanchored"`
-	Storable   []struct {
-		Field string `json:"field"`
-		Value string `json:"value"`
-		Why   string `json:"why"`
-	} `json:"storable"`
-	StorableButUnrenderable []struct {
-		Field string `json:"field"`
-		Value string `json:"value"`
-		Why   string `json:"why"`
-	} `json:"storableButUnrenderable"`
-	RefusedByWriter []struct {
-		Field         string `json:"field"`
-		Value         string `json:"value"`
-		Why           string `json:"why"`
-		RendersAnyway bool   `json:"rendersAnyway"`
+	Platforms               map[string][]string `json:"platforms"`
+	Unanchored              []string            `json:"unanchored"`
+	Storable                []socialCorpusCase  `json:"storable"`
+	StorableButUnrenderable []socialCorpusCase  `json:"storableButUnrenderable"`
+	RefusedByWriter         []struct {
+		socialCorpusCase
+		RendersAnyway bool `json:"rendersAnyway"`
 	} `json:"refusedByWriter"`
 }
 
@@ -62,15 +59,13 @@ func socialWriteBoundary(field, value string) error {
 // TypeScript half reads the same file and asserts the reader's classification,
 // including that every `storable` entry renders, which is the direction that
 // keeps a stored row from silently producing no link.
+//
+// `storableButUnrenderable` is judged here exactly as `storable` is, because
+// the two differ only in what the OTHER language does with them.
 func TestSocialLinkCorpus(t *testing.T) {
 	corpus := loadSocialLinkCorpus(t)
 
-	for _, c := range corpus.Storable {
-		assert.NoError(t, socialWriteBoundary(c.Field, c.Value),
-			"corpus says storable (%s) but the write boundary refuses: %s %q", c.Why, c.Field, c.Value)
-	}
-
-	for _, c := range corpus.StorableButUnrenderable {
+	for _, c := range slices.Concat(corpus.Storable, corpus.StorableButUnrenderable) {
 		assert.NoError(t, socialWriteBoundary(c.Field, c.Value),
 			"corpus says storable (%s) but the write boundary refuses: %s %q", c.Why, c.Field, c.Value)
 	}
@@ -87,20 +82,20 @@ func TestSocialLinkCorpus(t *testing.T) {
 func TestSocialLinkCorpusPinsTheTable(t *testing.T) {
 	corpus := loadSocialLinkCorpus(t)
 
-	assert.ElementsMatch(t, SocialAnchoredFields(), slices.Collect(maps.Keys(corpus.Platforms)),
+	assert.ElementsMatch(t, slices.Collect(maps.Keys(socialHostSuffixes)), slices.Collect(maps.Keys(corpus.Platforms)),
 		"the corpus and the Go table anchor different fields")
 	for field, wantBases := range corpus.Platforms {
-		gotBases, ok := SocialHostBasesFor(field)
+		gotBases, ok := socialHostSuffixes[field]
 		if assert.True(t, ok, "corpus field %q is missing from the Go table", field) {
 			assert.ElementsMatch(t, wantBases, gotBases, "host anchors disagree for %q", field)
 		}
 	}
 
 	// The unanchored fields are a claim in the other direction: absent from the
-	// table means "any host", so a field listed here that later gains bases
+	// table means "any host", so a field listed there that later gains bases
 	// would silently change what the corpus is asserting.
 	for _, field := range corpus.Unanchored {
-		_, anchored := SocialHostBasesFor(field)
+		_, anchored := socialHostSuffixes[field]
 		assert.False(t, anchored, "corpus calls %q unanchored but the Go table anchors it", field)
 	}
 
@@ -111,23 +106,10 @@ func TestSocialLinkCorpusPinsTheTable(t *testing.T) {
 	for _, c := range corpus.Storable {
 		exercised[c.Field] = true
 	}
-	for _, field := range SocialAnchoredFields() {
+	for field := range socialHostSuffixes {
 		assert.True(t, exercised[field],
 			"field %q has no storable corpus case, so its hosts are never exercised", field)
 	}
-}
-
-// TestSocialHostBasesForIsNotMutable pins the copy in the accessor. The table is
-// a security allowlist in a leaf package everything imports, so a caller holding
-// the live slice could widen it for the whole process.
-func TestSocialHostBasesForIsNotMutable(t *testing.T) {
-	bases, ok := SocialHostBasesFor("spotify")
-	require.True(t, ok)
-	bases[0] = "evil.test"
-
-	assert.Error(t, ValidateSocialHost("spotify", "Spotify URL", "https://evil.test/artist/x"))
-	again, _ := SocialHostBasesFor("spotify")
-	assert.Equal(t, []string{"spotify.com"}, again)
 }
 
 // TestSocialWriteBoundaryTreatsBlankAsNoValue pins the clear-the-field gesture

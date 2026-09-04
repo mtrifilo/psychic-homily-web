@@ -156,19 +156,13 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const artists = artistsData?.artists ?? []
   const venues = venuesData?.venues ?? []
   const hasDescription = !!festival.description && festival.description.trim().length > 0
-  // The same question SocialLinks itself asks, so a value the host anchor
-  // refuses cannot leave this heading over empty space.
+  // Both gate on the SAME value each renders, so a Links heading cannot outlive
+  // the rows under it.
   const hasSocialLinks = hasRenderableSocialLink(festival.social)
-  // Both halves gate on the SAME value the anchor renders. A whitespace-only
-  // column is storable, and gating the section on the raw value while gating
-  // the anchor on a resolved one puts a Links heading over nothing in one
-  // direction and an `href="   "` (which reopens the current page) in the
-  // other.
-  //
-  // `festivals.website` is the column the festival write boundary validates as
-  // the unanchored `website` social field, so it is read back through the same
-  // gate: that is what resolves a scheme-less value to an absolute URL instead
-  // of a relative href under /festivals/, and refuses one that never parses.
+  // `festivals.website` is the column the write boundary validates as the
+  // unanchored `website` social field, so it is read back through that field's
+  // gate: a scheme-less value resolves absolute rather than as an href relative
+  // to /festivals/, and one that never parses renders nothing.
   const websiteHref = socialLinkHref('website', festival.website)
   // The same repair and the same vendor table the show page's ticket row
   // reads, so a stored value means one thing on both surfaces. The repair is
