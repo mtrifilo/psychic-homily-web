@@ -493,19 +493,18 @@ jobs:
     # in step forever: rename or split that file and the gate silently stops
     # running, which is the exact drift it exists to catch.
     #
-    # The cost argument for filtering does not hold either. Measured 2026-09-04
-    # with an EMPTY bun cache, which is what a runner has: install 8s, typecheck
-    # 1s, test 1s. It runs in parallel with the rest of CI, so its contribution
-    # to PR wall-clock is small and the `feedback_ci_time_budget` ceiling is not
-    # in play. Two caveats a future reader should not have to rediscover: that
-    # 8s is a local network, and the tree is 1.5 GB / 498 packages, nearly all
-    # of it `promptfoo`, which is a devDependency this job never uses (it runs
-    # only typecheck and the suite). `promptfoo` stays in `devDependencies`
-    # because `cd cli && bun run eval` is a documented manual command and moving
-    # it behind `bunx` would make that command re-resolve a bare npm name every
-    # run (see `pattern_bunx_local_tool_footgun`). If this job's install ever
-    # shows up in the CI budget, splitting the eval harness into its own
-    # manifest is the fix, not a path filter.
+    # The cost argument for filtering does not hold either. Measured ON A RUNNER,
+    # 2026-09-04, run 33915988876: 26 SECONDS end to end, cold, checkout through
+    # `bun test`. It runs in parallel with the rest of CI, so its contribution to
+    # PR wall-clock is ~0 and the `feedback_ci_time_budget` ceiling is not in
+    # play. Worth knowing anyway: the tree is 1.5 GB / 498 packages, nearly all
+    # of it `promptfoo`, a devDependency this job never uses (it runs only
+    # typecheck and the suite). `promptfoo` stays in `devDependencies` because
+    # `cd cli && bun run eval` is a documented manual command, and moving it
+    # behind `bunx` would make that command re-resolve a bare npm name every run
+    # (see `pattern_bunx_local_tool_footgun`). If this job's install ever does
+    # show up in the budget, splitting the eval harness into its own manifest is
+    # the fix, not a path filter.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
