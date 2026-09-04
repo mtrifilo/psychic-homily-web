@@ -82,7 +82,7 @@ func (h *RequestHandler) CreateRequestHandler(ctx context.Context, req *CreateRe
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_request", "request", request.ID, map[string]interface{}{
 				"entity_type": req.Body.EntityType,
 			})
@@ -251,7 +251,7 @@ func (h *RequestHandler) UpdateRequestHandler(ctx context.Context, req *UpdateRe
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "update_request", "request", uint(id), nil)
 		})
 	}
@@ -292,7 +292,7 @@ func (h *RequestHandler) DeleteRequestHandler(ctx context.Context, req *DeleteRe
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_request", "request", uint(id), nil)
 		})
 	}
@@ -438,7 +438,7 @@ func (h *RequestHandler) FulfillRequestHandler(ctx context.Context, req *Fulfill
 		// expanded under PSY-748 — adding requester_id / fulfiller_id /
 		// entity_type / fulfilled_entity_id so reviewers can see who is
 		// being asked to approve what.
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "fulfill_request", "request", uint(id), metadata)
 		})
 	}
@@ -512,7 +512,7 @@ func (h *RequestHandler) ApproveFulfillmentHandler(ctx context.Context, req *App
 		if fulfilledEntityID != nil {
 			metadata["fulfilled_entity_id"] = *fulfilledEntityID
 		}
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "approve_fulfillment", "request", uint(id), metadata)
 		})
 	}
@@ -577,7 +577,7 @@ func (h *RequestHandler) RejectFulfillmentHandler(ctx context.Context, req *Reje
 		if fulfilledEntityID != nil {
 			metadata["fulfilled_entity_id"] = *fulfilledEntityID
 		}
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "reject_fulfillment", "request", uint(id), metadata)
 		})
 	}
@@ -617,7 +617,7 @@ func (h *RequestHandler) CloseRequestHandler(ctx context.Context, req *CloseRequ
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		shared.GoSafe(ctx, "audit_log", func() {
+		shared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "close_request", "request", uint(id), nil)
 		})
 	}

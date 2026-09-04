@@ -25,7 +25,10 @@ const (
 	EnvAPIAddr = "API_ADDR"
 
 	// Database
-	EnvDatabaseURL = "DATABASE_URL"
+	EnvDatabaseURL              = "DATABASE_URL"
+	EnvDBMaxOpenConns           = "DB_MAX_OPEN_CONNS"
+	EnvDBMaxIdleConns           = "DB_MAX_IDLE_CONNS"
+	EnvDBConnMaxLifetimeMinutes = "DB_CONN_MAX_LIFETIME_MINUTES"
 
 	// OAuth
 	EnvGoogleClientID     = "GOOGLE_CLIENT_ID"
@@ -185,9 +188,49 @@ type OAuthConfig struct {
 	SecretKey          string `env:"OAUTH_SECRET_KEY" envDefault:"your-secret-key-change-in-production"`
 }
 
+// Pool defaults. These are a share of a Postgres connection ceiling this
+// process does not own and cannot read, which is why every one of them is an
+// env var: a topology fact belongs in config, so a correction is a variable
+// change rather than a deploy (PSY-1608 is the canonical case of a constant
+// that was reasoned about instead of measured).
+//
+// PostgreSQL's own default max_connections is 100. Sizing against that leaves
+// the API a fifth of it and 80 connections for everything else that shares the
+// instance: the migration runner on every deploy, the CLIs, and a human's psql
+// session during an incident. Raise DB_MAX_OPEN_CONNS once the deployed
+// ceiling has been read, not before.
+//
+// A pool that is too small queues; a pool that is too large refuses. Queuing is
+// the failure this picks.
+const (
+	// DefaultDBMaxOpenConns is the ceiling on connections this process holds
+	// open at once, counting in-use and idle.
+	DefaultDBMaxOpenConns = 20
+
+	// DefaultDBMaxIdleConns is how many of those stay open when unused. Idle
+	// connections are what make a burst cheap, so this is deliberately close to
+	// the open ceiling rather than the database/sql default of 2, which would
+	// have a batch open and close a connection per item.
+	DefaultDBMaxIdleConns = 10
+
+	// DefaultDBConnMaxLifetimeMinutes retires a connection on a fixed schedule.
+	// A pooled connection sits behind a proxy that can drop it without either
+	// end noticing, and a long-lived server otherwise keeps handing out sockets
+	// that are already dead.
+	DefaultDBConnMaxLifetimeMinutes = 30
+)
+
 // DatabaseConfig holds database-related configuration
 type DatabaseConfig struct {
 	URL string
+
+	// MaxOpenConns, MaxIdleConns and ConnMaxLifetime are applied to the
+	// database/sql pool behind GORM in db.Connect. Unset, database/sql leaves
+	// max-open UNLIMITED, which is what lets a burst of fire-and-forget writes
+	// open a connection each and exhaust the server's ceiling.
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
 }
 
 // JWTConfig holds JWT-related configuration
@@ -277,9 +320,7 @@ func Load() (*Config, error) {
 			GitHubCallbackURL:  GetEnv(EnvGitHubCallbackURL, "http://localhost:8080/auth/callback/github"),
 			SecretKey:          oauthSecretKey,
 		},
-		Database: DatabaseConfig{
-			URL: GetEnv(EnvDatabaseURL, "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
-		},
+		Database: databaseConfigFromEnv(),
 		JWT: JWTConfig{
 			SecretKey: GetEnv(EnvJWTSecretKey, "your-super-secret-jwt-key-32-chars-minimum"),
 			Expiry:    int64(getEnvAsInt(EnvJWTExpiryHours, 24)),
@@ -510,6 +551,42 @@ func GetEnv(key, defaultValue string) string {
 // getEnvAsInt safely parses an environment variable as an integer.
 // Returns the parsed integer if the env var exists and is valid,
 // otherwise returns the provided default value.
+// databaseConfigFromEnv reads the connection string and the pool bounds.
+//
+// The bounds are clamped rather than trusted. A non-positive DB_MAX_OPEN_CONNS
+// means UNLIMITED to database/sql, which is the exact state this config exists
+// to leave, so it falls back to the default instead. Idle above open is
+// silently reduced by database/sql; reducing it here means the logged pool
+// shape is the one in effect.
+func databaseConfigFromEnv() DatabaseConfig {
+	maxOpen := getEnvAsInt(EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
+	if maxOpen < 1 {
+		log.Printf("Environment variable %s must be at least 1 (0 or less means unlimited), using default %d",
+			EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
+		maxOpen = DefaultDBMaxOpenConns
+	}
+
+	maxIdle := getEnvAsInt(EnvDBMaxIdleConns, DefaultDBMaxIdleConns)
+	if maxIdle < 0 {
+		maxIdle = 0
+	}
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+
+	lifetimeMinutes := getEnvAsInt(EnvDBConnMaxLifetimeMinutes, DefaultDBConnMaxLifetimeMinutes)
+	if lifetimeMinutes < 0 {
+		lifetimeMinutes = 0
+	}
+
+	return DatabaseConfig{
+		URL:             GetEnv(EnvDatabaseURL, "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
+		MaxOpenConns:    maxOpen,
+		MaxIdleConns:    maxIdle,
+		ConnMaxLifetime: time.Duration(lifetimeMinutes) * time.Minute,
+	}
+}
+
 func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		intValue, err := strconv.Atoi(value)

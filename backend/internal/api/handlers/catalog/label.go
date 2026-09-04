@@ -227,7 +227,7 @@ func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelR
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_label", "label", label.ID, nil)
 		})
 	}
@@ -342,7 +342,7 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 
 	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogEntityEdit(user.ID, "label", labelID, nil)
 		})
 	}
@@ -414,7 +414,7 @@ func (h *LabelHandler) DeleteLabelHandler(ctx context.Context, req *DeleteLabelR
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_label", "label", labelID, nil)
 		})
 	}
@@ -564,7 +564,7 @@ func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArti
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_artist_to_label", "label", labelID, nil)
 		})
 	}
@@ -646,7 +646,7 @@ func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddRel
 		if req.Body.CatalogNumber != nil {
 			metadata["catalog_number"] = *req.Body.CatalogNumber
 		}
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, metadata)
 		})
 	}

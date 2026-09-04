@@ -956,7 +956,7 @@ func TestAdminDecide_ApproveShow_AuditRecordsTheBillSource(t *testing.T) {
 	approved := *pending
 	approved.DecisionState = communitym.EntityRequestStateApproved
 
-	// The audit write is fire-and-forget (GoSafe), so it lands on another
+	// The audit write is queued on the bounded writer, so it lands on another
 	// goroutine after the handler returns. A channel is the only way to read it
 	// without a sleep that would either flake or slow the suite.
 	logged := make(chan map[string]interface{}, 1)

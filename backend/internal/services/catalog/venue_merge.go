@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,7 +96,7 @@ func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (
 
 	// Fire-and-forget audit log after the transaction commits, matching
 	// MergeTags. Errors are logged, never surfaced to the caller.
-	shared.GoSafe(context.Background(), "venue_merge_audit_log", func() {
+	shared.SubmitAuditWrite("venue_merge_audit_log", func() {
 		s.writeMergeAuditLog(actorUserID, result)
 	})
 

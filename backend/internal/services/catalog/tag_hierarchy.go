@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,7 +178,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 		return fmt.Errorf("failed to set tag parent: %w", err)
 	}
 
-	shared.GoSafe(context.Background(), "tag_set_parent_audit_log", func() {
+	shared.SubmitAuditWrite("tag_set_parent_audit_log", func() {
 		s.writeSetParentAuditLog(actorUserID, tag.ID, tag.Name, parentID, parentName)
 	})
 	return nil

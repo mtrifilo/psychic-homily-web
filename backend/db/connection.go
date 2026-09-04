@@ -51,7 +51,37 @@ func Connect(cfg *config.Config) error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	log.Println("✅ Database connected successfully")
+	if err := applyPoolBounds(DB, cfg.Database); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// applyPoolBounds sizes the database/sql pool behind GORM.
+//
+// database/sql leaves max-open UNLIMITED by default, so any path that fans out
+// (a batch's per-item background writes, alert fan-out, discovery import) can
+// open a connection per unit of work until the SERVER refuses, which surfaces
+// as "too many connections" on unrelated requests rather than as slowness here.
+// A bounded pool queues instead.
+//
+// The shape is logged because a pool ceiling is exactly the kind of assumption
+// that fails silently: a wrong number keeps serving and simply does the wrong
+// thing, so it has to be readable from a deploy's logs rather than inferred
+// from the code (see internal/config for the env vars that set it).
+func applyPoolBounds(gormDB *gorm.DB, cfg config.DatabaseConfig) error {
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return fmt.Errorf("failed to reach the underlying sql.DB: %w", err)
+	}
+
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+
+	log.Printf("✅ Database connected successfully (pool: max_open=%d max_idle=%d conn_max_lifetime=%s)",
+		cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime)
 	return nil
 }
 

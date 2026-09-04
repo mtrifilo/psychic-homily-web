@@ -160,7 +160,7 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 	// (services/user/contributor_profile.go), so nothing user-facing reads it
 	// from here.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_field_note", "show", uint(showID), map[string]interface{}{
 				"show_id":       uint(showID),
 				"field_note_id": fieldNote.ID,
