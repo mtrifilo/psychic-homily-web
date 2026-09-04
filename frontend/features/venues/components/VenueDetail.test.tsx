@@ -432,6 +432,19 @@ describe('VenueDetail', () => {
       expect(websiteLink.closest('a')).toHaveAttribute('href', 'https://www.therebelphx.com')
     })
 
+    // The website column anchors no host, so what the gate buys here is a
+    // destination that parses at all: the caption is derived from the same
+    // parse, so an unparseable value has no domain to print either.
+    it('renders no website anchor for a value that is not a URL', () => {
+      mockUseVenue.mockReturnValue({
+        data: makeVenue({ social: { website: 'javascript:alert(1)' } }),
+        isLoading: false,
+        error: null,
+      })
+      render(<VenueDetail venueId="1" />)
+      expect(screen.queryByText('javascript:alert(1)')).not.toBeInTheDocument()
+    })
+
     it('renders social links when social data exists', () => {
       mockUseVenue.mockReturnValue({
         data: makeVenue({ social: { instagram: '@rebel' } }),

@@ -23,6 +23,7 @@ import { VenueBillNetwork, VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
+import { socialLinkHref } from '@/lib/socialLinks'
 
 interface VenueDetailProps {
   venueId: string | number
@@ -47,27 +48,17 @@ interface VenueDetailProps {
 }
 
 /**
- * Extract a display-friendly domain from a URL
- * e.g., "https://www.therebelphx.com/events" -> "therebelphx.com"
+ * The domain to print for a website link,
+ * e.g. "https://www.therebelphx.com/events" -> "therebelphx.com".
+ *
+ * Its only caller passes an href that `socialLinkHref` has already parsed, so
+ * the URL constructor here cannot throw and the caption names the host the
+ * click resolves to rather than whatever the column happens to hold.
  */
-function getDisplayDomain(url: string): string {
-  try {
-    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`)
-    return parsed.hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
+function getDisplayDomain(href: string): string {
+  return new URL(href).hostname.replace(/^www\./, '')
 }
 
-/**
- * Normalize a URL to ensure it has a protocol
- */
-function normalizeUrl(url: string): string {
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url
-  }
-  return `https://${url}`
-}
 
 function VenueGenreProfile({ venueId }: { venueId: number }) {
   const { data } = useVenueGenres(venueId)
@@ -184,6 +175,12 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
     )
   }
 
+  // The anchor and its caption both read this, so the domain a reader sees is
+  // the host of the URL the click resolves to. The gate is the same one
+  // SocialLinks applies to the column: `website` anchors no host, so what it
+  // buys here is an absolute, parseable destination.
+  const websiteHref = socialLinkHref('website', venue.social?.website)
+
   return (
     // max-w-6xl matches the other 4 EntityDetailLayout-based detail pages (ArtistDetail, ReleaseDetail, LabelDetail, FestivalDetail). Previously max-w-5xl was drift from when the 2-col grid was added; the 400px sidebar + gap still fits comfortably at 6xl on desktop.
     <div className="container max-w-6xl mx-auto px-4 py-6">
@@ -270,14 +267,14 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
               className="mt-2"
             />
 
-            {venue.social?.website && (
+            {websiteHref && (
               <a
-                href={normalizeUrl(venue.social.website)}
+                href={websiteHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-2"
               >
-                {getDisplayDomain(venue.social.website)}
+                {getDisplayDomain(websiteHref)}
                 <ExternalLink className="h-3 w-3" />
               </a>
             )}

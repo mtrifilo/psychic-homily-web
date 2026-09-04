@@ -1,26 +1,15 @@
 'use client'
 
-import {
-  Globe,
-  Instagram,
-  Facebook,
-  Twitter,
-  Youtube,
-  Music,
-} from 'lucide-react'
+import { Globe, Instagram, Facebook, Twitter, Youtube } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  renderableSocialLinks,
+  type SocialLinkPlatform,
+  type SocialLinkValues,
+} from '@/lib/socialLinks'
 
 interface SocialLinksProps {
-  social?: {
-    website?: string | null
-    instagram?: string | null
-    facebook?: string | null
-    twitter?: string | null
-    youtube?: string | null
-    spotify?: string | null
-    bandcamp?: string | null
-    soundcloud?: string | null
-  } | null
+  social?: SocialLinkValues | null
   className?: string
 }
 
@@ -66,87 +55,55 @@ function SoundCloudIcon({ className }: { className?: string }) {
   )
 }
 
-const socialLinks: ReadonlyArray<{
-  key: keyof NonNullable<SocialLinksProps['social']>
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  baseUrl: string | null
-}> = [
-  { key: 'website', icon: Globe, label: 'Website', baseUrl: null },
-  { key: 'instagram', icon: Instagram, label: 'Instagram', baseUrl: 'https://instagram.com/' },
-  { key: 'facebook', icon: Facebook, label: 'Facebook', baseUrl: 'https://facebook.com/' },
-  { key: 'twitter', icon: Twitter, label: 'Twitter/X', baseUrl: 'https://twitter.com/' },
-  { key: 'youtube', icon: Youtube, label: 'YouTube', baseUrl: 'https://youtube.com/' },
-  { key: 'spotify', icon: SpotifyIcon, label: 'Spotify', baseUrl: 'https://open.spotify.com/' },
-  { key: 'bandcamp', icon: BandcampIcon, label: 'Bandcamp', baseUrl: null }, // Format varies: username.bandcamp.com
-  { key: 'soundcloud', icon: SoundCloudIcon, label: 'SoundCloud', baseUrl: 'https://soundcloud.com/' },
-]
-
 /**
- * Normalize a social link value to a full URL.
- *
- * Post-PSY-525, the backend write path validates social URL fields as
- * full http/https URLs, so any newly-submitted row is already a full URL.
- * This function remains a tolerance layer for legacy rows submitted
- * before the validator landed — those may still contain partial URLs or
- * bare handles. New code should not rely on the lenient behavior; the
- * canonical storage form is a full URL.
- *
- * Handles cases where the value might be:
- * - A full URL (https://instagram.com/username) — pass through
- * - A partial URL (instagram.com/username) — prepend https://
- * - Just a handle/username — strip leading @, prepend the platform's baseUrl
+ * The glyph each platform is drawn with. It is keyed by the same platform keys
+ * the gate registry declares, so a platform added there without a glyph fails
+ * to typecheck rather than rendering an empty button.
  */
-function normalizeUrl(value: string, baseUrl: string | null): string {
-  // If it already looks like a full URL, return it
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    return value
-  }
-
-  // If it has a domain but no protocol, add https
-  if (value.includes('.') && (value.includes('/') || value.includes('.com') || value.includes('.org'))) {
-    return `https://${value}`
-  }
-
-  // If we have a base URL, prepend it to the handle
-  if (baseUrl) {
-    // Remove @ prefix if present (common for social handles)
-    const handle = value.startsWith('@') ? value.slice(1) : value
-    return `${baseUrl}${handle}`
-  }
-
-  // Fallback: treat as a URL (this shouldn't happen with proper baseUrl config)
-  return value.startsWith('http') ? value : `https://${value}`
+const SOCIAL_ICONS: Record<
+  SocialLinkPlatform,
+  React.ComponentType<{ className?: string }>
+> = {
+  website: Globe,
+  instagram: Instagram,
+  facebook: Facebook,
+  twitter: Twitter,
+  youtube: Youtube,
+  spotify: SpotifyIcon,
+  bandcamp: BandcampIcon,
+  soundcloud: SoundCloudIcon,
 }
 
+/**
+ * The stored social columns as outbound links, one glyph each.
+ *
+ * The href, the label and the order all come from `renderableSocialLinks`, so
+ * this renders only what the host anchor accepts: a stored value whose host is
+ * not the platform's produces no button at all, rather than an arbitrary
+ * destination under a name the reader trusts. Six surfaces mount this component
+ * with a raw contributor-writable column, so the gate lives here rather than at
+ * the callers, where the next caller would silently skip it.
+ */
 export function SocialLinks({ social, className }: SocialLinksProps) {
-  if (!social) return null
-
-  const links = socialLinks.filter(
-    ({ key }) => social[key as keyof typeof social]
-  )
-
+  const links = renderableSocialLinks(social)
   if (links.length === 0) return null
 
   return (
     <div className={className}>
       <div className="flex flex-wrap gap-2">
-        {links.map(({ key, icon: Icon, label, baseUrl }) => {
-          const value = social[key as keyof typeof social]
-          if (!value) return null
-
-          const url = normalizeUrl(value, baseUrl)
+        {links.map(({ platform, label, href }) => {
+          const Icon = SOCIAL_ICONS[platform]
 
           return (
             <Button
-              key={key}
+              key={platform}
               variant="outline"
               size="icon"
               asChild
               className="h-9 w-9"
             >
               <a
-                href={url}
+                href={href}
                 target="_blank"
                 rel="noopener noreferrer"
                 title={label}

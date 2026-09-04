@@ -238,6 +238,33 @@ describe('FestivalDetail', () => {
     expect(screen.getByTestId('festival-lineup')).toHaveTextContent('Lineup (1)')
   })
 
+  // The website column is read through the same gate SocialLinks applies to it,
+  // which is what makes a scheme-less value absolute instead of a relative href
+  // resolving under /festivals/.
+  it('resolves a scheme-less website to an absolute URL', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ website: 'formarcosanti.com', ticket_url: null }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(
+      screen.getByRole('link', { name: 'Official Website' })
+    ).toHaveAttribute('href', 'https://formarcosanti.com')
+  })
+
+  it('renders no website anchor for a value that is not a URL', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ website: 'javascript:alert(1)', ticket_url: null }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('link', { name: 'Official Website' })).toBeNull()
+  })
+
   it('renders the website link, and names the ticket vendor unlinked', () => {
     mockUseFestival.mockReturnValue({
       data: makeFestival({

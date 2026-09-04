@@ -2,8 +2,10 @@ package utils
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -363,6 +365,32 @@ var socialHostSuffixes = map[string][]string{
 	"spotify":    {"spotify.com"},
 	"soundcloud": {"soundcloud.com"},
 	"bandcamp":   {"bandcamp.com"},
+}
+
+// SocialAnchoredFields returns every social field anchored to a platform's
+// hosts, sorted. A field absent from it (website) accepts any host.
+//
+// SocialHostBasesFor returns the host bases allowlisted for one such field, and
+// whether the field is anchored at all. The returned slice is a copy: the table
+// is a security allowlist in a leaf package everything imports, so a caller
+// holding the live slice could widen it for the whole process.
+//
+// Both are exported for the shared corpus test, which is their only caller:
+// frontend/lib/socialLinks.ts mirrors this table and both suites assert it
+// against testdata/social_link_corpus.json, so a field or a host changed in one
+// language and not the other fails the other language's suite. If a production
+// consumer ever appears, prefer moving the rule down beside the table over
+// widening these accessors.
+func SocialAnchoredFields() []string {
+	return slices.Sorted(maps.Keys(socialHostSuffixes))
+}
+
+func SocialHostBasesFor(field string) ([]string, bool) {
+	bases, ok := socialHostSuffixes[field]
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(bases), true
 }
 
 // ValidateSocialHost reports whether value sits on the platform allowlisted for

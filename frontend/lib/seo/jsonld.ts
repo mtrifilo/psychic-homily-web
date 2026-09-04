@@ -12,6 +12,7 @@ import {
 import { toZonedDateOnly, toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
+import { renderableSocialLinks } from '@/lib/socialLinks'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -357,11 +358,13 @@ export function generateMusicEventSchema(show: {
         performer.url = `${SITE_URL}/artists/${artist.slug}`
       }
 
-      if (artist.socials) {
-        const socialLinks = Object.values(artist.socials).filter((v): v is string => !!v)
-        if (socialLinks.length > 0) {
-          performer.sameAs = socialLinks
-        }
+      // Same gate as the on-page links. `sameAs` is an identity claim about the
+      // act, so a stored value on a foreign host publishes that host as the
+      // band to every consumer of this document; and a legacy bare handle is
+      // not a URL at all, which is what `sameAs` is defined to hold.
+      const socialLinks = renderableSocialLinks(artist.socials).map(l => l.href)
+      if (socialLinks.length > 0) {
+        performer.sameAs = socialLinks
       }
 
       return performer
@@ -544,17 +547,11 @@ export function generateMusicGroupSchema(artist: {
     schema.url = `${SITE_URL}/artists/${artist.slug}`
   }
 
-  // Add social links to sameAs
-  if (artist.social) {
-    const socialLinks: string[] = []
-    for (const [, value] of Object.entries(artist.social)) {
-      if (value) {
-        socialLinks.push(value)
-      }
-    }
-    if (socialLinks.length > 0) {
-      schema.sameAs = socialLinks
-    }
+  // Same gate as the on-page links; see the performer block above for why an
+  // identity claim cannot be looser than a href.
+  const socialLinks = renderableSocialLinks(artist.social).map(l => l.href)
+  if (socialLinks.length > 0) {
+    schema.sameAs = socialLinks
   }
 
   if (artist.city || artist.state) {

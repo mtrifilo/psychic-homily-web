@@ -1,0 +1,317 @@
+{
+  "_comment": [
+    "Shared cross-language corpus for the eight social columns (PSY-1997).",
+    "",
+    "THE CONTRACT: anything the Go write boundary stores must be renderable by",
+    "the frontend read gate. Nothing may be storable and unrenderable without",
+    "being named in storableButUnrenderable below, or a curator's save silently",
+    "produces no link and nobody can see why.",
+    "",
+    "Go reads this file in utils.TestSocialLinkCorpus; TypeScript reads the same",
+    "file in frontend/lib/socialLinks.test.ts. Both assert their own half plus",
+    "the host table itself, so a field, a host or a rule added to one language",
+    "and not the other fails the other language's suite and names the value. A",
+    "rule the corpus carries no case for is a rule it cannot police, so add",
+    "cases with rules.",
+    "",
+    "platforms  = the anchored fields and their host bases. Each side asserts",
+    "             its own table equals this, which is what stops the two lists",
+    "             drifting.",
+    "unanchored = the fields that make no platform claim and accept any host.",
+    "storable   = the write boundary accepts it AND the reader must render it.",
+    "storableButUnrenderable = the write boundary accepts it and the browser's",
+    "             URL parser refuses it outright, so no href can be produced.",
+    "             Both are shapes no real profile URL has, and both fail closed",
+    "             (no link), so they are pinned here rather than closed.",
+    "A blank or whitespace-only value is in no bucket: it is the clear-the-field",
+    "gesture, which both sides read as no value rather than as a link, and the",
+    "unit tests on each side cover it.",
+    "",
+    "refusedByWriter = the write boundary refuses it. `rendersAnyway` marks the",
+    "             legacy shapes the reader deliberately keeps: handles and",
+    "             scheme-less domains that still land on the platform. The rest",
+    "             are the ones a click would carry off-platform, and the reader",
+    "             must refuse every one."
+  ],
+  "platforms": {
+    "instagram": ["instagram.com"],
+    "facebook": ["facebook.com", "fb.com"],
+    "twitter": ["twitter.com", "x.com"],
+    "youtube": ["youtube.com", "youtu.be"],
+    "spotify": ["spotify.com"],
+    "soundcloud": ["soundcloud.com"],
+    "bandcamp": ["bandcamp.com"]
+  },
+  "unanchored": ["website"],
+  "storable": [
+    {
+      "field": "website",
+      "value": "https://calexico.example.com/",
+      "why": "the unanchored field takes any https host"
+    },
+    {
+      "field": "website",
+      "value": "http://calexico.example.com/",
+      "why": "http is accepted by the same scheme rule every URL field applies"
+    },
+    {
+      "field": "instagram",
+      "value": "https://instagram.com/calexico",
+      "why": "the apex itself is one of the bases"
+    },
+    {
+      "field": "instagram",
+      "value": "https://www.instagram.com/calexico/",
+      "why": "a subdomain of a base"
+    },
+    {
+      "field": "instagram",
+      "value": "http://instagram.com/calexico",
+      "why": "http, which the write boundary accepts"
+    },
+    {
+      "field": "instagram",
+      "value": "HTTPS://instagram.com/calexico",
+      "why": "Go lowercases the scheme it parses, so an uppercase one is storable"
+    },
+    {
+      "field": "instagram",
+      "value": "  https://instagram.com/calexico  ",
+      "why": "the write boundary trims before judging and stores the padded string, and the URL parser strips the same edges"
+    },
+    {
+      "field": "instagram",
+      "value": "https://EVİL.instagram.com/",
+      "why": "Go folds U+0130 to ASCII and the browser punycodes it; the two name different accounts and both are under instagram.com"
+    },
+    {
+      "field": "facebook",
+      "value": "https://www.facebook.com/calexico",
+      "why": "a subdomain of the first base"
+    },
+    {
+      "field": "facebook",
+      "value": "https://fb.com/calexico",
+      "why": "the second base, which is why facebook carries two"
+    },
+    {
+      "field": "twitter",
+      "value": "https://twitter.com/calexico",
+      "why": "the pre-rebrand host"
+    },
+    {
+      "field": "twitter",
+      "value": "https://x.com/calexico",
+      "why": "the post-rebrand host, which is why twitter carries two"
+    },
+    {
+      "field": "youtube",
+      "value": "https://www.youtube.com/@calexico",
+      "why": "a handle URL on the main host"
+    },
+    {
+      "field": "youtube",
+      "value": "https://youtu.be/BLRUiVXeZKU",
+      "why": "YouTube's own share host, the second base"
+    },
+    {
+      "field": "youtube",
+      "value": "https://music.youtube.com/channel/UCcalexico",
+      "why": "a subdomain of the first base"
+    },
+    {
+      "field": "spotify",
+      "value": "https://open.spotify.com/artist/6cM2X9pUxJqL4z1234567",
+      "why": "the web player, a subdomain of the base"
+    },
+    {
+      "field": "spotify",
+      "value": "https://spotify.com/artist/6cM2X9pUxJqL4z1234567",
+      "why": "the apex itself, which the backend base admits"
+    },
+    {
+      "field": "spotify",
+      "value": "https://evil.test@open.spotify.com/artist/6cM2X9pUxJqL4z1234567",
+      "why": "userinfo is not part of the host in either parser, so the click lands on the platform and both sides accept it"
+    },
+    {
+      "field": "soundcloud",
+      "value": "https://soundcloud.com/calexico",
+      "why": "the apex"
+    },
+    {
+      "field": "bandcamp",
+      "value": "https://calexico.bandcamp.com",
+      "why": "the artist subdomain, which is how a Bandcamp account is spelled"
+    },
+    {
+      "field": "bandcamp",
+      "value": "https://bandcamp.com/calexico",
+      "why": "the apex, which the social field admits even though the embed validator does not"
+    }
+  ],
+  "storableButUnrenderable": [
+    {
+      "field": "instagram",
+      "value": "https://x.instagram.com:99999/",
+      "why": "Go's parser takes any run of digits as a port; the WHATWG parser throws above 65535"
+    },
+    {
+      "field": "instagram",
+      "value": "https://xn--a.instagram.com/",
+      "why": "Go treats xn-- as four ordinary bytes; the WHATWG parser decodes the label and throws when it does not decode"
+    }
+  ],
+  "refusedByWriter": [
+    {
+      "field": "spotify",
+      "value": "https://spotify-account-verify.evil.test/",
+      "why": "a foreign host wearing the platform's name",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "https://instagram.com.evil.test/x",
+      "why": "lookalike suffix, which the leading dot in the anchor exists to reject",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "https://notinstagram.com/x",
+      "why": "prefix lookalike, rejected by the same dot",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "https://evil.test/?x=instagram.com",
+      "why": "the platform name is in the query, which is what a substring check would have matched",
+      "rendersAnyway": false
+    },
+    {
+      "field": "spotify",
+      "value": "https://open.spotify.com@evil.test/x",
+      "why": "userinfo spoofing the host; the hostname is evil.test in both parsers",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "javascript:alert(1)",
+      "why": "not an http scheme, and the tolerance layer cannot produce one",
+      "rendersAnyway": false
+    },
+    {
+      "field": "website",
+      "value": "javascript:alert(1)",
+      "why": "the unanchored field is still held to the scheme rule",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "data:text/html,<script>alert(1)</script>",
+      "why": "not an http scheme",
+      "rendersAnyway": false
+    },
+    {
+      "field": "bandcamp",
+      "value": "https://169.254.169.254/",
+      "why": "a raw link-local address is not on the platform",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "https://instagram.com。evil.test/",
+      "why": "U+3002 is a label separator to the browser's UTS-46 mapping, so the host resolves to instagram.com.evil.test",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "https://instagram.com./x",
+      "why": "a trailing-dot host is neither equal to the base nor a subdomain of it, in either language",
+      "rendersAnyway": false
+    },
+    {
+      "field": "facebook",
+      "value": "https://fb.me/calexico",
+      "why": "a redirector cannot be shown statically to land on-platform, so it is deliberately absent from the bases",
+      "rendersAnyway": false
+    },
+    {
+      "field": "youtube",
+      "value": "https://youtube.com.evil.test/x",
+      "why": "lookalike suffix on the second-most-linked platform",
+      "rendersAnyway": false
+    },
+    {
+      "field": "bandcamp",
+      "value": "calexico",
+      "why": "bandcamp has no handle base, so a bare handle cannot resolve to an account",
+      "rendersAnyway": false
+    },
+    {
+      "field": "soundcloud",
+      "value": "evil.com/calexico",
+      "why": "a scheme-less foreign domain, which the tolerance layer turns into a URL and the anchor then refuses",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "calexico",
+      "why": "a legacy bare handle, which the handle base resolves onto instagram.com",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
+      "value": "@calexico",
+      "why": "a legacy bare handle with the @ prefix a social handle is written with",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
+      "value": "instagram.com/calexico",
+      "why": "a legacy scheme-less value already on the platform",
+      "rendersAnyway": true
+    },
+    {
+      "field": "facebook",
+      "value": "calexicoband",
+      "why": "a legacy bare handle",
+      "rendersAnyway": true
+    },
+    {
+      "field": "twitter",
+      "value": "calexico",
+      "why": "a legacy bare handle, which resolves onto the first base",
+      "rendersAnyway": true
+    },
+    {
+      "field": "youtube",
+      "value": "calexico",
+      "why": "a legacy bare handle",
+      "rendersAnyway": true
+    },
+    {
+      "field": "spotify",
+      "value": "artist/6cM2X9pUxJqL4z1234567",
+      "why": "a legacy path fragment, which the handle base resolves onto the web player",
+      "rendersAnyway": true
+    },
+    {
+      "field": "soundcloud",
+      "value": "calexico",
+      "why": "a legacy bare handle",
+      "rendersAnyway": true
+    },
+    {
+      "field": "website",
+      "value": "calexico.example.com/tour",
+      "why": "a legacy scheme-less value on the field that anchors no host",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
+      "value": "https://instagram.com\\evil.test/x",
+      "why": "Go's parser refuses a backslash in the authority; the browser folds it into the path, so the click still lands on instagram.com",
+      "rendersAnyway": true
+    }
+  ]
+}

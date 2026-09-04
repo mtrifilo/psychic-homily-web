@@ -31,6 +31,7 @@ import {
 import { EntityCollections } from '@/features/collections'
 import { repairTicketUrl, ticketOffer } from '@/lib/tickets/ticketVendors'
 import { outboundRel } from '@/lib/outboundRel'
+import { hasRenderableSocialLink, socialLinkHref } from '@/lib/socialLinks'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FestivalLineup } from './FestivalLineup'
@@ -155,20 +156,20 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const artists = artistsData?.artists ?? []
   const venues = venuesData?.venues ?? []
   const hasDescription = !!festival.description && festival.description.trim().length > 0
-  const hasSocialLinks =
-    !!festival.social && Object.values(festival.social).some(v => !!v)
+  // The same question SocialLinks itself asks, so a value the host anchor
+  // refuses cannot leave this heading over empty space.
+  const hasSocialLinks = hasRenderableSocialLink(festival.social)
   // Both halves gate on the SAME value the anchor renders. A whitespace-only
   // column is storable, and gating the section on the raw value while gating
   // the anchor on a resolved one puts a Links heading over nothing in one
   // direction and an `href="   "` (which reopens the current page) in the
   // other.
   //
-  // The website half trims and stops there, which is a known gap rather than a
-  // matching treatment: a scheme-less `website` still renders as a relative
-  // href, exactly as it did before this change. Repairing it means deciding
-  // what a bare `website` means on every surface that reads it, which is a
-  // wider change than this one.
-  const websiteHref = festival.website?.trim() || null
+  // `festivals.website` is the column the festival write boundary validates as
+  // the unanchored `website` social field, so it is read back through the same
+  // gate: that is what resolves a scheme-less value to an absolute URL instead
+  // of a relative href under /festivals/, and refuses one that never parses.
+  const websiteHref = socialLinkHref('website', festival.website)
   // The same repair and the same vendor table the show page's ticket row
   // reads, so a stored value means one thing on both surfaces. The repair is
   // what keeps a scheme-less `ticket_url` from resolving as a relative href

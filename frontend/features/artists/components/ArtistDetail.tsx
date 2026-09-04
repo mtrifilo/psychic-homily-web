@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
-import { getArtistLocation, hasAnySocialLink } from '../types'
+import { getArtistLocation } from '../types'
 import type { Artist } from '../types'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistAliases } from '@/lib/hooks/admin/useAdminArtists'
@@ -31,6 +31,7 @@ import {
   type MusicLinkCandidate,
 } from '@/lib/hooks/admin/useAdminArtists'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
+import { hasRenderableSocialLink } from '@/lib/socialLinks'
 import {
   SocialLinks,
   MusicEmbed,
@@ -285,7 +286,7 @@ function ArtistSidebar({
       ]
     : []
 
-  const hasSocialLinks = !!artist.social && hasAnySocialLink(artist.social)
+  const hasSocialLinks = hasRenderableSocialLink(artist.social)
   // Whether MusicEmbed will render anything, which a stored Bandcamp URL no
   // longer implies on its own. One shared predicate rather than a local
   // truthiness test, so this section cannot head an empty sidebar.

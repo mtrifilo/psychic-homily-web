@@ -1,41 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasAnySocialLink, getArtistLocation, type ArtistSocial } from './types'
-
-function social(overrides: Partial<ArtistSocial> = {}): ArtistSocial {
-  return {
-    instagram: null,
-    facebook: null,
-    twitter: null,
-    youtube: null,
-    spotify: null,
-    soundcloud: null,
-    bandcamp: null,
-    website: null,
-    ...overrides,
-  }
-}
-
-describe('hasAnySocialLink', () => {
-  it('returns false when every link is null', () => {
-    expect(hasAnySocialLink(social())).toBe(false)
-  })
-
-  it('returns false when links are empty or whitespace-only strings', () => {
-    expect(
-      hasAnySocialLink(social({ instagram: '', website: '   ' }))
-    ).toBe(false)
-  })
-
-  it('returns true when any link has a non-empty value', () => {
-    expect(
-      hasAnySocialLink(social({ bandcamp: 'https://x.bandcamp.com' }))
-    ).toBe(true)
-  })
-
-  it('returns true when the only set link has surrounding whitespace', () => {
-    expect(hasAnySocialLink(social({ spotify: '  url  ' }))).toBe(true)
-  })
-})
+import { getArtistLocation } from './types'
 
 describe('getArtistLocation (PSY-558 display rule)', () => {
   it('suppresses "USA" for a domestic city + state', () => {
