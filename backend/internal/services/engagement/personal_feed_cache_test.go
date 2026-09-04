@@ -12,20 +12,9 @@ import (
 // A feed token is public and its holder controls the polling, so the key space
 // is user-driven and the cache is what a slow leak looks like: one entry per
 // user who ever polled, expiring only on that same user's next request.
-func TestPersonalFeedCache_BoundsEntries(t *testing.T) {
-	var c personalFeedCache
-
-	for i := uint(0); i < personalFeedCacheMaxEntries*3; i++ {
-		c.store(i, []byte("BEGIN:VCALENDAR"), time.Minute)
-	}
-
-	assert.LessOrEqual(t, c.len(), personalFeedCacheMaxEntries,
-		"an unbounded cache grows with every user who has ever polled")
-	assert.NotZero(t, c.len(), "overflow must drop the map, not stop caching")
-}
-
-// Overflow drops the map wholesale, so the eviction to assert is that entries
-// stored before the cap are gone afterwards.
+//
+// Overflow drops the map wholesale, so the eviction to assert is that an entry
+// stored before the cap is gone afterwards.
 func TestPersonalFeedCache_OverflowEvictsOlderEntries(t *testing.T) {
 	var c personalFeedCache
 

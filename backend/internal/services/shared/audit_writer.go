@@ -19,10 +19,12 @@ import (
 // writes need the rest.
 const auditWriteWorkers = 4
 
-// auditWriteQueueDepth is how many writes may be waiting. A batch is capped at
-// 200 items (maxEntityRequestSubmissions), each of which files one audit row,
-// so this holds five concurrent full batches before the queue is the binding
-// constraint.
+// auditWriteQueueDepth is how many writes may be waiting. It absorbs the INSTANT
+// of a burst, not its sustained rate: a batch is capped at 200 items
+// (maxEntityRequestSubmissions), each filing one row, and this holds five of
+// those arriving together. Four workers doing single-row inserts clear far more
+// than the per-user batch limiter (EntityRequestBatchBurstPerMinute) delivers,
+// so reaching this depth means the database is not draining.
 const auditWriteQueueDepth = 1024
 
 // backgroundWrite is one queued unit of work and the label it reports under.
@@ -31,7 +33,7 @@ type backgroundWrite struct {
 	work func()
 }
 
-// BoundedWriter runs fire-and-forget writes on a fixed set of workers.
+// boundedWriter runs fire-and-forget writes on a fixed set of workers.
 //
 // It is the bounded counterpart to GoSafe: same panic containment and same
 // caller contract (submit and move on), but a submission joins a queue instead
@@ -45,35 +47,35 @@ type backgroundWrite struct {
 //     request handler that has already done the durable work, and a full queue
 //     means the database is far enough behind that blocking would convert an
 //     audit backlog into a site-wide stall.
-//   - Shutdown drains what is queued within the caller's context deadline.
+//   - shutdown drains what is queued within the caller's context deadline.
 //     Whatever is still queued when that deadline passes is abandoned, and
-//     Shutdown reports how many. Submissions after Shutdown are refused.
+//     shutdown reports how many. Submissions after shutdown are refused.
 //
 // Both are why a write that must not be lost belongs in the request's own
 // transaction, not here.
-type BoundedWriter struct {
-	name    string
-	queue   chan backgroundWrite
-	wg      sync.WaitGroup
-	dropped atomic.Int64
+type boundedWriter struct {
+	name         string
+	queue        chan backgroundWrite
+	wg           sync.WaitGroup
+	droppedCount atomic.Int64
 
 	// mu guards closed and every send on queue, so a send can never race the
-	// close in Shutdown. It is held only for a non-blocking send.
+	// close in shutdown. It is held only for a non-blocking send.
 	mu     sync.Mutex
 	closed bool
 }
 
-// NewBoundedWriter starts a writer with `workers` workers and a queue of
+// newBoundedWriter starts a writer with `workers` workers and a queue of
 // `queueDepth`. Both are floored at 1: a writer with no workers accepts writes
 // that never run.
-func NewBoundedWriter(name string, workers, queueDepth int) *BoundedWriter {
+func newBoundedWriter(name string, workers, queueDepth int) *boundedWriter {
 	if workers < 1 {
 		workers = 1
 	}
 	if queueDepth < 1 {
 		queueDepth = 1
 	}
-	w := &BoundedWriter{
+	w := &boundedWriter{
 		name:  name,
 		queue: make(chan backgroundWrite, queueDepth),
 	}
@@ -89,8 +91,8 @@ func NewBoundedWriter(name string, workers, queueDepth int) *BoundedWriter {
 	return w
 }
 
-// Submit queues work and returns whether it was accepted. It never blocks.
-func (w *BoundedWriter) Submit(name string, work func()) bool {
+// submit queues work and returns whether it was accepted. It never blocks.
+func (w *boundedWriter) submit(name string, work func()) bool {
 	if work == nil {
 		return false
 	}
@@ -110,10 +112,10 @@ func (w *BoundedWriter) Submit(name string, work func()) bool {
 	}
 }
 
-// Shutdown stops accepting writes and waits for the queued ones to run.
+// shutdown stops accepting writes and waits for the queued ones to run.
 // It returns an error naming what was abandoned if ctx expires first.
 // Calling it more than once is safe; later calls wait on the same drain.
-func (w *BoundedWriter) Shutdown(ctx context.Context) error {
+func (w *boundedWriter) shutdown(ctx context.Context) error {
 	w.mu.Lock()
 	if !w.closed {
 		w.closed = true
@@ -135,19 +137,19 @@ func (w *BoundedWriter) Shutdown(ctx context.Context) error {
 	}
 }
 
-// Dropped is the running count of submissions this writer refused.
-func (w *BoundedWriter) Dropped() int64 {
-	return w.dropped.Load()
+// dropped is the running count of submissions this writer refused.
+func (w *boundedWriter) dropped() int64 {
+	return w.droppedCount.Load()
 }
 
-func (w *BoundedWriter) drop(name, reason string) {
-	w.dropped.Add(1)
+func (w *boundedWriter) drop(name, reason string) {
+	w.droppedCount.Add(1)
 	slog.Default().Error("background write dropped",
 		"writer", w.name,
 		"write", name,
 		"reason", reason,
 		"queue_depth", cap(w.queue),
-		"dropped_total", w.dropped.Load(),
+		"dropped_total", w.droppedCount.Load(),
 	)
 }
 
@@ -155,7 +157,7 @@ func (w *BoundedWriter) drop(name, reason string) {
 // and escalated through the same process-wide handler. Without it a panic in
 // one write would kill a worker permanently, and the pool would shrink silently
 // until nothing wrote at all.
-func (w *BoundedWriter) run(job backgroundWrite) {
+func (w *boundedWriter) run(job backgroundWrite) {
 	defer func() {
 		if r := recover(); r != nil {
 			stack := debug.Stack()
@@ -176,9 +178,13 @@ func (w *BoundedWriter) run(job backgroundWrite) {
 // One instance rather than one per service because the bound being enforced is
 // on a shared resource, the connection pool: per-service pools would each be
 // bounded and together be unbounded again. It is package-level for the same
-// reason the panic handler is, and is started eagerly so a write submitted
-// before main finishes wiring is queued rather than dropped.
-var auditWriter = NewBoundedWriter("audit_log", auditWriteWorkers, auditWriteQueueDepth)
+// reason the panic handler is.
+//
+// Built on first use, so a binary that links this package for other reasons and
+// never writes an audit row parks no idle workers.
+var auditWriter = sync.OnceValue(func() *boundedWriter {
+	return newBoundedWriter("audit_log", auditWriteWorkers, auditWriteQueueDepth)
+})
 
 // SubmitAuditWrite queues an audit-log write on the bounded writer.
 //
@@ -189,17 +195,17 @@ var auditWriter = NewBoundedWriter("audit_log", auditWriteWorkers, auditWriteQue
 // GoSafe remains right for one-off background work whose call site cannot fan
 // out. This exists for the writes that CAN: one per item of a 200-item batch.
 func SubmitAuditWrite(name string, work func()) {
-	auditWriter.Submit(name, work)
+	auditWriter().submit(name, work)
 }
 
 // ShutdownAuditWrites drains the queued audit writes. Call it once the HTTP
 // server has stopped, so no new writes are arriving; a write submitted
 // concurrently with this is refused rather than queued.
 func ShutdownAuditWrites(ctx context.Context) error {
-	return auditWriter.Shutdown(ctx)
+	return auditWriter().shutdown(ctx)
 }
 
 // DroppedAuditWrites is the running count of audit writes refused since boot.
 func DroppedAuditWrites() int64 {
-	return auditWriter.Dropped()
+	return auditWriter().dropped()
 }

@@ -20,7 +20,7 @@ func TestBoundedWriter_BurstIsBoundedAndLosesNothing(t *testing.T) {
 		workers = 4
 		burst   = 200
 	)
-	w := NewBoundedWriter("test_audit", workers, burst)
+	w := newBoundedWriter("test_audit", workers, burst)
 
 	var (
 		mu      sync.Mutex
@@ -33,7 +33,7 @@ func TestBoundedWriter_BurstIsBoundedAndLosesNothing(t *testing.T) {
 	// could be serialized by the test's own timing and prove nothing.
 	release := make(chan struct{})
 	for i := 0; i < burst; i++ {
-		accepted := w.Submit("audit_log", func() {
+		accepted := w.submit("audit_log", func() {
 			mu.Lock()
 			live++
 			if live > maxLive {
@@ -52,53 +52,53 @@ func TestBoundedWriter_BurstIsBoundedAndLosesNothing(t *testing.T) {
 	}
 	close(release)
 
-	require.NoError(t, w.Shutdown(context.Background()))
+	require.NoError(t, w.shutdown(context.Background()))
 
 	assert.Equal(t, int64(burst), ran.Load(), "every queued audit write must run")
 	assert.LessOrEqual(t, maxLive, workers,
 		"a burst must not put more than the worker count in the database at once")
-	assert.Zero(t, w.Dropped())
+	assert.Zero(t, w.dropped())
 }
 
 // Shutdown is what makes "queued" different from "lost": everything accepted
 // before it must still run.
 func TestBoundedWriter_ShutdownDrainsQueuedWrites(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 1, 64)
+	w := newBoundedWriter("test_audit", 1, 64)
 
 	var ran atomic.Int64
 	for i := 0; i < 50; i++ {
-		require.True(t, w.Submit("audit_log", func() { ran.Add(1) }))
+		require.True(t, w.submit("audit_log", func() { ran.Add(1) }))
 	}
 
-	require.NoError(t, w.Shutdown(context.Background()))
+	require.NoError(t, w.shutdown(context.Background()))
 	assert.Equal(t, int64(50), ran.Load())
 }
 
 func TestBoundedWriter_SubmitAfterShutdownIsRefused(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 1, 4)
-	require.NoError(t, w.Shutdown(context.Background()))
+	w := newBoundedWriter("test_audit", 1, 4)
+	require.NoError(t, w.shutdown(context.Background()))
 
 	var ran atomic.Int64
-	assert.False(t, w.Submit("audit_log", func() { ran.Add(1) }))
-	assert.Equal(t, int64(1), w.Dropped())
+	assert.False(t, w.submit("audit_log", func() { ran.Add(1) }))
+	assert.Equal(t, int64(1), w.dropped())
 	assert.Zero(t, ran.Load(), "a refused write must not run")
 }
 
 // Shutdown twice happens on any path that both defers and calls it; it must not
 // panic on a closed channel.
 func TestBoundedWriter_ShutdownIsIdempotent(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 2, 4)
-	require.NoError(t, w.Shutdown(context.Background()))
-	require.NoError(t, w.Shutdown(context.Background()))
+	w := newBoundedWriter("test_audit", 2, 4)
+	require.NoError(t, w.shutdown(context.Background()))
+	require.NoError(t, w.shutdown(context.Background()))
 }
 
 // The documented loss policy: a full queue drops rather than blocking the
 // caller, and says so.
 func TestBoundedWriter_FullQueueDropsRatherThanBlocking(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 1, 1)
+	w := newBoundedWriter("test_audit", 1, 1)
 
 	block := make(chan struct{})
-	require.True(t, w.Submit("audit_log", func() { <-block }))
+	require.True(t, w.submit("audit_log", func() { <-block }))
 
 	// The single worker is now parked, so the queue fills and then refuses.
 	// Submit must return either way and never block the caller.
@@ -107,7 +107,7 @@ func TestBoundedWriter_FullQueueDropsRatherThanBlocking(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 32; i++ {
-			if w.Submit("audit_log", func() {}) {
+			if w.submit("audit_log", func() {}) {
 				accepted++
 			}
 		}
@@ -119,46 +119,46 @@ func TestBoundedWriter_FullQueueDropsRatherThanBlocking(t *testing.T) {
 	}
 
 	assert.LessOrEqual(t, accepted, 1, "a queue of one must not accept more than one waiting write")
-	assert.Positive(t, w.Dropped(), "drops must be counted, not silent")
+	assert.Positive(t, w.dropped(), "drops must be counted, not silent")
 
 	close(block)
-	require.NoError(t, w.Shutdown(context.Background()))
+	require.NoError(t, w.shutdown(context.Background()))
 }
 
 // A panicking write must not take its worker with it, or the pool shrinks
 // silently until nothing writes at all.
 func TestBoundedWriter_PanicIsContainedToOneWrite(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 1, 8)
+	w := newBoundedWriter("test_audit", 1, 8)
 
 	var ran atomic.Int64
-	require.True(t, w.Submit("audit_log", func() { panic("audit write blew up") }))
+	require.True(t, w.submit("audit_log", func() { panic("audit write blew up") }))
 	for i := 0; i < 5; i++ {
-		require.True(t, w.Submit("audit_log", func() { ran.Add(1) }))
+		require.True(t, w.submit("audit_log", func() { ran.Add(1) }))
 	}
 
-	require.NoError(t, w.Shutdown(context.Background()))
+	require.NoError(t, w.shutdown(context.Background()))
 	assert.Equal(t, int64(5), ran.Load(), "the worker must survive a panicking write")
 }
 
 func TestBoundedWriter_NilWorkIsRefused(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 1, 4)
-	defer func() { _ = w.Shutdown(context.Background()) }()
+	w := newBoundedWriter("test_audit", 1, 4)
+	defer func() { _ = w.shutdown(context.Background()) }()
 
-	assert.False(t, w.Submit("audit_log", nil))
+	assert.False(t, w.submit("audit_log", nil))
 }
 
 // A drain that cannot finish reports what it abandoned instead of returning
 // nil and letting the process exit as though nothing was lost.
 func TestBoundedWriter_ShutdownReportsAnIncompleteDrain(t *testing.T) {
-	w := NewBoundedWriter("test_audit", 1, 8)
+	w := newBoundedWriter("test_audit", 1, 8)
 
 	block := make(chan struct{})
-	require.True(t, w.Submit("audit_log", func() { <-block }))
-	require.True(t, w.Submit("audit_log", func() {}))
+	require.True(t, w.submit("audit_log", func() { <-block }))
+	require.True(t, w.submit("audit_log", func() {}))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	err := w.Shutdown(ctx)
+	err := w.shutdown(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "still queued")
 

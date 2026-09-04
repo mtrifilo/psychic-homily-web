@@ -16,6 +16,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -377,6 +378,25 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 
 	write := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if write.Error != nil {
+		// A column CHECK that columnBoundRollbackError does not cover: a field
+		// outside the numeric registry, or a constraint added without an entry.
+		// The driver names the constraint, which says nothing an admin can act
+		// on, so it goes to the log while the caller gets the reason.
+		//
+		// Reaching here fails the WHOLE rollback rather than skipping one field,
+		// which is what the per-field gate exists to avoid. Treat it as a missing
+		// entry in columnBoundedRollbackFields, not as the intended path.
+		if shared.IsCheckConstraintViolation(write.Error) {
+			logger.FromContext(ctx).Error("revision_rollback_check_constraint",
+				"entity_type", revision.EntityType,
+				"entity_id", revision.EntityID,
+				"revision_id", revision.ID,
+				"error", write.Error.Error(),
+			)
+			return nil, fmt.Errorf(
+				"cannot roll back: this revision restores a value the %s column no longer accepts",
+				revision.EntityType)
+		}
 		return nil, fmt.Errorf("failed to apply rollback: %w", write.Error)
 	}
 	if write.RowsAffected == 0 {
