@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import type { components } from '@/types/api'
 
 // --- Types ---
 
@@ -45,9 +46,19 @@ interface UserRevisionsResponse {
   total: number
 }
 
-interface RollbackResponse {
-  success: boolean
-}
+/**
+ * What a rollback actually did, field by field.
+ *
+ * Aliased from the generated OpenAPI types rather than hand-written, so the
+ * skipped list cannot drift from what the endpoint sends (PSY-1550/1600).
+ *
+ * A rollback restores the fields the server's apply-side gates accept and
+ * refuses the rest, so `skipped_fields` is a normal outcome and not an error
+ * branch: a caller that renders only `success` tells an admin an edit was
+ * undone when part of it was not.
+ */
+export type RollbackSkippedField = components['schemas']['RollbackSkippedField']
+export type RollbackResponse = components['schemas']['RollbackRevisionResponseBody']
 
 // --- Hooks ---
 

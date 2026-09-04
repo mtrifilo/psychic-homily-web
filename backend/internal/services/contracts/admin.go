@@ -464,7 +464,34 @@ type RevisionServiceInterface interface {
 	GetEntityHistory(entityType string, entityID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
 	GetRevision(revisionID uint, viewer RevisionViewer) (*adminm.Revision, error)
 	GetUserRevisions(userID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
-	Rollback(ctx context.Context, revisionID uint, adminUserID uint) error
+	// Rollback restores every field of a revision that passes the apply-side
+	// gates and reports the ones it refused. See RollbackResult.
+	Rollback(ctx context.Context, revisionID uint, adminUserID uint) (*RollbackResult, error)
+}
+
+// RollbackSkippedField names one field a rollback declined to restore, with the
+// refusal message the gate produced for it.
+type RollbackSkippedField struct {
+	Field  string `json:"field" doc:"Field that was not restored"`
+	Reason string `json:"reason" doc:"Why the stored previous value was refused"`
+}
+
+// RollbackResult reports what a rollback actually did.
+//
+// A rollback is per FIELD, not per revision: the values it writes come from
+// revisions.field_changes, and a stored value can be one the apply-side gates
+// refuse (the URL rules in particular, since a pre-PSY-1998 row's old_value was
+// contributor input that nothing validated). Refusing the whole revision made
+// one such field block the undo of every honest field recorded beside it, which
+// let a contributor deny undo of their own edit.
+//
+// So both halves are always reported and neither is optional: a partial rollback
+// that did not name what it skipped would leave an admin believing they had
+// undone an edit they had only half undone. A rollback that can restore NOTHING
+// is an error rather than a result, because there is no undo to report.
+type RollbackResult struct {
+	AppliedFields []string               `json:"applied_fields" doc:"Fields restored to their previous values"`
+	SkippedFields []RollbackSkippedField `json:"skipped_fields" doc:"Fields left unchanged, with the reason for each"`
 }
 
 // BandcampProfileFillerInterface is the narrow contract the pending-edit approval

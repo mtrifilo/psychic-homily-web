@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { RevisionItem } from '@/lib/hooks/common/useRevisions'
+import type { RevisionItem, RollbackResponse } from '@/lib/hooks/common/useRevisions'
 import { RevisionHistory } from './RevisionHistory'
 
 // --- Mocks ---
@@ -44,10 +44,25 @@ const mockUseEntityRevisions = vi.fn((..._args: unknown[]) => ({
 }))
 
 const mockRollbackMutate = vi.fn()
-const mockUseRollbackRevision = vi.fn(() => ({
-  mutate: mockRollbackMutate,
-  isPending: false,
-}))
+
+// The mutation state the panel reads: `variables` is the revision id the last
+// rollback was called with, which is how a shared mutation's result is matched
+// to the one row it belongs to.
+type MockRollback = {
+  mutate: typeof mockRollbackMutate
+  isPending: boolean
+  variables?: number
+  data?: RollbackResponse
+  isError?: boolean
+  error?: Error | null
+}
+
+const mockUseRollbackRevision = vi.fn(
+  (): MockRollback => ({
+    mutate: mockRollbackMutate,
+    isPending: false,
+  })
+)
 
 vi.mock('@/lib/hooks/common/useRevisions', async () => {
   const actual = await vi.importActual<typeof import('@/lib/hooks/common/useRevisions')>('@/lib/hooks/common/useRevisions')
@@ -527,5 +542,102 @@ describe('RevisionHistory - formatValue edge cases', () => {
     const values = Array.from(diffLines).map(el => el.textContent)
     expect(values).toContain('0')
     expect(values).toContain('1')
+  })
+})
+
+// A rollback restores the fields that pass the server's write gates and refuses
+// the rest, so the panel has to say which ones it left alone. Without that the
+// button reads as a completed undo while part of the edit is still live.
+describe('RevisionHistory - partial rollback report', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseEntityRevisions.mockReturnValue({
+      data: { revisions: mockRevisions, total: 2 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  async function expandFirstRevision() {
+    const user = userEvent.setup()
+    render(<RevisionHistory entityType="artist" entityId={42} isAdmin={true} />)
+    await user.click(screen.getByText('History'))
+    await user.click(screen.getByText('2 fields changed'))
+    return user
+  }
+
+  it('names each skipped field and the reason it was refused', async () => {
+    mockUseRollbackRevision.mockReturnValue({
+      mutate: mockRollbackMutate,
+      isPending: false,
+      variables: 1,
+      data: {
+        success: true,
+        applied_fields: ['name'],
+        skipped_fields: [
+          { field: 'spotify', reason: 'Spotify URL must be on spotify.com' },
+        ],
+      },
+      isError: false,
+      error: null,
+    })
+
+    await expandFirstRevision()
+
+    expect(screen.getByText(/1 field was left unchanged/)).toBeInTheDocument()
+    expect(screen.getByText('spotify')).toBeInTheDocument()
+    expect(screen.getByText(/Spotify URL must be on spotify\.com/)).toBeInTheDocument()
+  })
+
+  it('reports nothing extra when every field was restored', async () => {
+    mockUseRollbackRevision.mockReturnValue({
+      mutate: mockRollbackMutate,
+      isPending: false,
+      variables: 1,
+      data: { success: true, applied_fields: ['name', 'city'], skipped_fields: [] },
+      isError: false,
+      error: null,
+    })
+
+    await expandFirstRevision()
+
+    expect(screen.queryByText(/left unchanged/)).not.toBeInTheDocument()
+  })
+
+  // One mutation is shared by every row, so an unmatched result is another
+  // row's and must not be attributed to this one.
+  it('does not report another revision\'s outcome on this row', async () => {
+    mockUseRollbackRevision.mockReturnValue({
+      mutate: mockRollbackMutate,
+      isPending: false,
+      variables: 2,
+      data: {
+        success: true,
+        applied_fields: [],
+        skipped_fields: [{ field: 'spotify', reason: 'refused' }],
+      },
+      isError: false,
+      error: null,
+    })
+
+    await expandFirstRevision()
+
+    expect(screen.queryByText(/left unchanged/)).not.toBeInTheDocument()
+  })
+
+  it('surfaces a rollback the server refused outright', async () => {
+    mockUseRollbackRevision.mockReturnValue({
+      mutate: mockRollbackMutate,
+      isPending: false,
+      variables: 1,
+      data: undefined,
+      isError: true,
+      error: new Error('no field of this revision can be restored: website (bad scheme)'),
+    })
+
+    await expandFirstRevision()
+
+    expect(screen.getByText(/Rollback failed/)).toBeInTheDocument()
+    expect(screen.getByText(/no field of this revision can be restored/)).toBeInTheDocument()
   })
 })

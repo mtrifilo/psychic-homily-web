@@ -378,10 +378,10 @@ func TestRevisionHandler_Rollback_Success(t *testing.T) {
 	var receivedAdminID uint
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) error {
+			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) (*contracts.RollbackResult, error) {
 				receivedRevisionID = revisionID
 				receivedAdminID = adminUserID
-				return nil
+				return &contracts.RollbackResult{AppliedFields: []string{"name"}}, nil
 			},
 		},
 		&testhelpers.MockAuditLogService{},
@@ -412,8 +412,8 @@ func TestRevisionHandler_Rollback_InvalidID(t *testing.T) {
 func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) error {
-				return fmt.Errorf("revision not found")
+			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) (*contracts.RollbackResult, error) {
+				return nil, fmt.Errorf("revision not found")
 			},
 		},
 		nil,
@@ -423,10 +423,71 @@ func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// A partial rollback must reach the caller as one: an admin who sees only
+// success believes an edit was undone that was only half undone.
+func TestRevisionHandler_Rollback_ReportsSkippedFields(t *testing.T) {
+	h := NewRevisionHandler(
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
+				return &contracts.RollbackResult{
+					AppliedFields: []string{"description"},
+					SkippedFields: []contracts.RollbackSkippedField{
+						{Field: "spotify", Reason: "Spotify URL must be on spotify.com"},
+					},
+				}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	resp, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "7"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := resp.Body.AppliedFields; len(got) != 1 || got[0] != "description" {
+		t.Errorf("applied_fields = %v, want [description]", got)
+	}
+	if len(resp.Body.SkippedFields) != 1 {
+		t.Fatalf("skipped_fields = %v, want one entry", resp.Body.SkippedFields)
+	}
+	if resp.Body.SkippedFields[0].Field != "spotify" {
+		t.Errorf("skipped field = %q, want spotify", resp.Body.SkippedFields[0].Field)
+	}
+	if resp.Body.SkippedFields[0].Reason == "" {
+		t.Error("a skipped field must carry the reason it was refused")
+	}
+}
+
+// An empty skipped list is serialized as a list, not as an absent key: it is the
+// only signal a client has that a rollback was partial, so a client that checks
+// for the key must find it.
+func TestRevisionHandler_Rollback_SkippedFieldsNeverNil(t *testing.T) {
+	h := NewRevisionHandler(
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
+				return &contracts.RollbackResult{AppliedFields: []string{"name"}}, nil
+			},
+		},
+		nil,
+	)
+
+	resp, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.SkippedFields == nil {
+		t.Error("skipped_fields must be an empty list, not nil")
+	}
+}
+
 func TestRevisionHandler_Rollback_NilAuditLog(t *testing.T) {
 	// Ensure rollback works even when auditLogService is nil
 	h := NewRevisionHandler(
-		&testhelpers.MockRevisionService{},
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(_ context.Context, _ uint, _ uint) (*contracts.RollbackResult, error) {
+				return &contracts.RollbackResult{AppliedFields: []string{"name"}}, nil
+			},
+		},
 		nil,
 	)
 

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -257,45 +259,56 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 	return revisions, total, nil
 }
 
-// Rollback applies the inverse of a revision's changes to the entity.
-// It creates a new revision recording the rollback.
-func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUserID uint) error {
+// Rollback restores the previous value of every field a revision recorded that
+// the apply-side gates still accept, and reports the ones it refused.
+//
+// PER FIELD, NOT PER REVISION, and that is the load-bearing property. The values
+// written here come out of revisions.field_changes, and a stored old_value can be
+// one no forward path would accept: rows written before the submit-time
+// derivation took the submitter's word for it, so a contributor could pair a
+// legitimate new value with an arbitrary previous one and have an admin's undo
+// write it live. Refusing the whole revision for one such field also refused the
+// undo of every honest field recorded beside it, which let a contributor deny
+// undo of their own edit and made a legacy value enough to strand an admin's own
+// revision.
+//
+// A rollback that can restore NOTHING is an error, so a caller never reports a
+// rollback that did nothing.
+//
+// The recorded rollback revision and the returned result describe the SAME
+// fields: history claiming to have restored a field this call skipped would be a
+// second wrong answer on top of the first.
+func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUserID uint) (*contracts.RollbackResult, error) {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// Raw, not GetRevision: a rollback restores stored values, so it must read
 	// the row as written. See getRevisionRaw.
 	revision, err := s.getRevisionRaw(revisionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if revision == nil {
-		return fmt.Errorf("revision not found")
+		return nil, fmt.Errorf("revision not found")
 	}
 
 	// Parse field changes
 	var changes []adminm.FieldChange
 	if err := json.Unmarshal(*revision.FieldChanges, &changes); err != nil {
-		return fmt.Errorf("failed to parse field changes: %w", err)
+		return nil, fmt.Errorf("failed to parse field changes: %w", err)
 	}
 
 	// Build update map from old values (reversing the change)
 	updates := make(map[string]interface{})
-	var rollbackChanges []adminm.FieldChange
 	for _, c := range changes {
 		updates[c.Field] = c.OldValue
-		rollbackChanges = append(rollbackChanges, adminm.FieldChange{
-			Field:    c.Field,
-			OldValue: c.NewValue,
-			NewValue: c.OldValue,
-		})
 	}
 
-	// Apply update to the entity table
-	tableName := revision.EntityType + "s" // artist -> artists, show -> shows, etc.
-	updates["updated_at"] = time.Now()
-
+	// Judge each field on its own, then drop the refused ones from the write.
+	// Every rule the approve path runs over a whole map runs here over one field,
+	// sharing the rule rather than holding a second copy of it.
+	//
 	// Old values come back out of revisions.field_changes as JSONB, so a number
 	// is a float64 here just as it is on the approve path. Writing that to an
 	// integer column succeeds and truncates rather than failing, so a rollback
@@ -306,95 +319,153 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	// would break undo for precisely the rows most likely to need it.
 	//
 	// A nil OldValue means the column was NULL before the edit, and it has to
-	// land as SQL NULL for the undo to be faithful. NarrowNumericUpdates turns a
+	// land as SQL NULL for the undo to be faithful. narrowNumericUpdate turns a
 	// REGISTERED field's nil into a typed (*int)(nil) for exactly that reason;
 	// the unregistered nullable columns here (both prices, both timestamps) pass
 	// through as an untyped nil, which GORM already writes as NULL.
 	//
 	// revisiondiff emits that nil for every nullable numeric kind as of PSY-1960.
-	// Before it did, an admin edit that populated a previously-NULL number
-	// recorded old_value 0, so the undo restored a number nobody had entered --
-	// for a price a false PUBLIC claim rather than a wrong value, since the
-	// ticket line renders 0 as "Free". Rows written before that fix still hold
-	// the 0 and are deliberately NOT backfilled; the reasoning is on the
-	// revisiondiff package doc. Rolling one of those back therefore still writes
-	// 0, and what makes that recoverable now is that the show edit form can
-	// clear a price back to NULL (PSY-1961), which no surface could when the
-	// defect was found.
-	if err := NarrowNumericUpdates(updates); err != nil {
-		return err
-	}
-
-	// PSY-1966: a rollback is a WRITE of a contributor-supplied value, not a
-	// restore of something this system vetted.
+	// Rows written before that fix hold a 0 where the column was NULL and are
+	// deliberately NOT backfilled; the reasoning is on the revisiondiff package
+	// doc. Rolling one of those back therefore still writes 0, and what makes
+	// that recoverable is that the show edit form can clear a price back to NULL.
 	//
-	// That distinction is the whole finding. FieldChange.OldValue arrives on the
-	// suggest-edit body and nothing ever compares it to the entity's actual
-	// current value: the submit handler validates NewValue only, and
-	// ApprovePendingEdit copies the pair verbatim into revisions.field_changes.
-	// So a contributor can submit a legitimate NewValue alongside an arbitrary
-	// OldValue, wait for the approve, and have this function write the OldValue
-	// live. Every gate on the forward paths is bypassed by going backwards.
+	// The URL rules are the reason a field can be refused at all. A rollback is a
+	// WRITE of a stored value into a live column, and for any row whose old_value
+	// predates the submit-time derivation that value never met a forward gate.
+	// Deriving old_value at submit time closes the path for NEW rows only; these
+	// checks are what stands between a planted value already in the table and the
+	// column it names.
 	//
-	// Refusing the whole rollback, rather than dropping the offending field, is
-	// the same call ApprovePendingEdit makes: a partial undo is not the undo the
-	// admin asked for, and the message names what is wrong.
-	//
-	// A legacy row's correction therefore cannot be rolled back, and that is the
-	// intended outcome: un-fixing a bad URL is not an operation worth having.
-	//
-	// SCOPE: a rollback can write ANY field in the entity's edit allowlist, and
-	// none of their forward rules ever ran on OldValue, so all three checks are
-	// needed to reproduce what the forward paths enforce: the shape rule for
-	// bandcamp_embed_url, the scheme + platform-host rules for the other URL
-	// fields (SocialLinks and the ticket link render each as an href under a
-	// trusted label), and the SSRF host guard for image_url.
+	// SCOPE: a rollback can write ANY field in the entity's edit allowlist, so
+	// all three checks are needed to reproduce what the forward paths enforce:
+	// the shape rule for bandcamp_embed_url, the scheme + platform-host rules for
+	// the other URL fields (SocialLinks and the ticket link render each as an
+	// href under a trusted label), and the SSRF host guard for image_url.
 	//
 	// image_url is the one that needs a context, and it is the one that most
 	// needs the check: urlguard's package doc explains that the fetch-time layer
 	// re-checks IP LITERALS only, so a HOSTNAME resolving to 169.254.169.254 is
 	// invisible to it and this write boundary is the only layer with a resolver.
-	// A rollback that skipped it would be the single path into that column that
-	// nothing can see.
-	//
+	var applied []string
+	var skipped []contracts.RollbackSkippedField
+	seen := make(map[string]bool, len(changes))
+	rollbackChanges := make([]adminm.FieldChange, 0, len(changes))
+	for _, c := range changes {
+		if seen[c.Field] {
+			continue
+		}
+		seen[c.Field] = true
+		if err := rollbackFieldError(ctx, updates, c.Field); err != nil {
+			delete(updates, c.Field)
+			skipped = append(skipped, contracts.RollbackSkippedField{
+				Field:  c.Field,
+				Reason: refusalReason(err),
+			})
+			continue
+		}
+		applied = append(applied, c.Field)
+		rollbackChanges = append(rollbackChanges, adminm.FieldChange{
+			Field:    c.Field,
+			OldValue: c.NewValue,
+			NewValue: c.OldValue,
+		})
+	}
+	if len(applied) == 0 {
+		return nil, fmt.Errorf("no field of this revision can be restored: %s", describeSkipped(skipped))
+	}
+
 	// The blank normalization mirrors ApprovePendingEdit's, and it is not an edge
-	// case here: the edit drawer sends old_value "" whenever a contributor sets a
-	// previously-empty field, so "set it, approve, roll back" is the ORDINARY way
-	// to reach it. Without this the column lands blank-but-not-null, which every
-	// `IS NULL` repair path skips forever while it renders nothing.
+	// case here: the edit drawer sends an empty old value whenever a contributor
+	// sets a previously-empty field, so "set it, approve, roll back" is the
+	// ORDINARY way to reach it. Without this the column lands blank-but-not-null,
+	// which every `IS NULL` repair path skips forever while it renders nothing.
 	//
-	// The root fix for all of it is that OldValue should be derived from the
-	// entity at submit time instead of accepted from the client. That is a change
-	// to the pending-edit contract and its diff previews, not a rider here.
-	if err := revalidateShapedURLs(updates); err != nil {
-		return err
-	}
-	if err := validateRollbackURLs(updates); err != nil {
-		return err
-	}
-	if err := revalidateFetchedURLs(ctx, updates); err != nil {
-		return err
-	}
+	// AFTER the gate, never before: ValidateBandcampEmbedURL refuses a
+	// whitespace-only value and passes only the empty string, so normalizing
+	// first would turn "   " into nil and the gate would then skip it.
 	normalizeBlankShapedURLs(updates)
 
 	// A rollback that restores city/state must re-derive whatever the system
 	// derives FROM that location, or the entity lands back in its old city still
 	// carrying what was resolved for the city it was moved away from. Shared with
 	// the approve path, and a no-op for entity types and writes it does not apply
-	// to; see applyDerivedLocation.
+	// to; see applyDerivedLocation. It reads the SURVIVING fields, so a refused
+	// location field cannot pull a derived column with it.
 	applyDerivedLocation(s.db, revision.EntityType, revision.EntityID, updates)
+
+	// Apply update to the entity table
+	tableName := revision.EntityType + "s" // artist -> artists, show -> shows, etc.
+	updates["updated_at"] = time.Now()
 
 	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if result.Error != nil {
-		return fmt.Errorf("failed to apply rollback: %w", result.Error)
+		return nil, fmt.Errorf("failed to apply rollback: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("entity not found: %s %d", revision.EntityType, revision.EntityID)
+		return nil, fmt.Errorf("entity not found: %s %d", revision.EntityType, revision.EntityID)
 	}
 
-	// Record the rollback as a new revision
+	// Record the rollback as a new revision. The summary names the skipped fields
+	// because the row it heads carries only the restored ones, and a reader of
+	// history has no other way to learn the undo was partial.
 	summary := fmt.Sprintf("Rollback of revision #%d", revisionID)
-	return s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary)
+	if len(skipped) > 0 {
+		summary = fmt.Sprintf("%s (skipped: %s)", summary, strings.Join(skippedFieldNames(skipped), ", "))
+	}
+	if err := s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary); err != nil {
+		return nil, err
+	}
+	return &contracts.RollbackResult{AppliedFields: applied, SkippedFields: skipped}, nil
+}
+
+// rollbackFieldError reports why one restored value must not be written, or nil
+// when every apply-side rule that reaches this field accepts it.
+//
+// It mutates updates for the field it accepts, exactly as the whole-map gates
+// do: narrowNumericUpdate rewrites a JSONB float64 into the typed pointer the
+// column needs, so "checked" and "written" stay the same value.
+func rollbackFieldError(ctx context.Context, updates map[string]interface{}, field string) error {
+	if err := narrowNumericUpdate(updates, field); err != nil {
+		return err
+	}
+	if err := revalidateShapedURLField(updates, field); err != nil {
+		return err
+	}
+	if err := validateRollbackURLField(updates, field); err != nil {
+		return err
+	}
+	return revalidateFetchedURLField(ctx, updates, field)
+}
+
+// refusalReason renders a gate's error as the sentence an admin reads beside the
+// field name, without the error-code prefix a PendingEditError carries for logs.
+func refusalReason(err error) string {
+	var editErr *apperrors.PendingEditError
+	if errors.As(err, &editErr) {
+		return editErr.Message
+	}
+	return err.Error()
+}
+
+// skippedFieldNames lists just the field names of a refusal set, for the places
+// that name the fields without room for a reason each.
+func skippedFieldNames(skipped []contracts.RollbackSkippedField) []string {
+	names := make([]string, 0, len(skipped))
+	for _, s := range skipped {
+		names = append(names, s.Field)
+	}
+	return names
+}
+
+// describeSkipped renders field and reason together for a fully-refused
+// rollback, which returns an error and so has no result object to carry them.
+func describeSkipped(skipped []contracts.RollbackSkippedField) string {
+	parts := make([]string, 0, len(skipped))
+	for _, s := range skipped {
+		parts = append(parts, fmt.Sprintf("%s (%s)", s.Field, s.Reason))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // =============================================================================

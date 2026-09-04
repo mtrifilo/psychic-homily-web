@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -54,7 +53,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesHostileOldValu
 			s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
 				Order("id DESC").First(&revision).Error)
 
-			err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
+			err := s.rollbackErr(revision.ID, admin.ID)
 			s.Require().Error(err, "rollback must refuse to write %q into %s", c.hostile, c.field)
 
 			var stored map[string]interface{}
@@ -87,7 +86,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresValidSocialUR
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
 		Order("id DESC").First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, admin.ID))
+	s.Require().NoError(s.rollbackErr(revision.ID, admin.ID))
 
 	var stored map[string]interface{}
 	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Take(&stored).Error)
@@ -114,7 +113,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_IgnoresNonURLFields()
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
 		Order("id DESC").First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, admin.ID))
+	s.Require().NoError(s.rollbackErr(revision.ID, admin.ID))
 
 	var stored map[string]interface{}
 	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Take(&stored).Error)

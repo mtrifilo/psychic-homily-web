@@ -419,9 +419,16 @@ type RollbackRevisionRequest struct {
 }
 
 // RollbackRevisionResponse is the Huma response for POST /admin/revisions/{revision_id}/rollback
+//
+// SkippedFields is a normal outcome, not an error branch: a rollback restores
+// the fields the apply-side gates accept and refuses the rest, so a caller that
+// renders only Success tells an admin an edit was undone when part of it was
+// not. Both lists are always present.
 type RollbackRevisionResponse struct {
 	Body struct {
-		Success bool `json:"success"`
+		Success       bool                             `json:"success"`
+		AppliedFields []string                         `json:"applied_fields" doc:"Fields restored to their previous values"`
+		SkippedFields []contracts.RollbackSkippedField `json:"skipped_fields" doc:"Fields left unchanged, with the reason for each"`
 	}
 }
 
@@ -434,7 +441,8 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 		return nil, huma.Error400BadRequest("Invalid revision ID")
 	}
 
-	if err := h.revisionService.Rollback(ctx, uint(revisionID), user.ID); err != nil {
+	result, err := h.revisionService.Rollback(ctx, uint(revisionID), user.ID)
+	if err != nil {
 		logger.FromContext(ctx).Error("revision_rollback_failed",
 			"revision_id", revisionID,
 			"admin_id", user.ID,
@@ -446,18 +454,43 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 	logger.FromContext(ctx).Info("revision_rolled_back",
 		"revision_id", revisionID,
 		"admin_id", user.ID,
+		"applied_fields", result.AppliedFields,
+		"skipped_fields", rollbackSkippedFieldNames(result.SkippedFields),
 	)
 
-	// Fire-and-forget audit log
+	// Fire-and-forget audit log. The refused fields belong in the audit row for
+	// the same reason they belong in the response: the row is the durable record
+	// of what the admin's action did, and one that named only the revision would
+	// record a full undo that did not happen.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "revision_rollback", "revision", uint(revisionID), map[string]interface{}{
-				"revision_id": revisionID,
+				"revision_id":    revisionID,
+				"applied_fields": result.AppliedFields,
+				"skipped_fields": result.SkippedFields,
 			})
 		})
 	}
 
 	resp := &RollbackRevisionResponse{}
 	resp.Body.Success = true
+	resp.Body.AppliedFields = result.AppliedFields
+	// Never nil: an absent key and an empty list read the same to a renderer
+	// that checks length, but not to one that checks presence, and this list is
+	// the only signal that a rollback was partial.
+	resp.Body.SkippedFields = result.SkippedFields
+	if resp.Body.SkippedFields == nil {
+		resp.Body.SkippedFields = []contracts.RollbackSkippedField{}
+	}
 	return resp, nil
+}
+
+// rollbackSkippedFieldNames lists the refused field names for the structured
+// log, which records what happened rather than what to show an admin.
+func rollbackSkippedFieldNames(skipped []contracts.RollbackSkippedField) []string {
+	names := make([]string, 0, len(skipped))
+	for _, s := range skipped {
+		names = append(names, s.Field)
+	}
+	return names
 }
