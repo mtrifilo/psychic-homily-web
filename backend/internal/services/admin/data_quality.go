@@ -31,6 +31,11 @@ const (
 	categoryFestivalsPlantedTicketTag = "festivals_planted_ticket_tag"
 )
 
+// categoryArtistsBandcampEmbedRefused is the category whose finding is a stored
+// artists.bandcamp_embed_url that the release-page gate refuses, so the row
+// renders no Bandcamp link anywhere.
+const categoryArtistsBandcampEmbedRefused = "artists_bandcamp_embed_refused"
+
 // Who may see a category. Stated per definition rather than as a separate
 // exclusion list, so a category cannot be added without answering the question:
 // the zero value is neither of these and categoryDefinitionsDeclareAnAudience
@@ -108,6 +113,16 @@ var categoryDefinitions = map[string]categoryDefinition{
 		Description: "Festivals whose stored ticket URL credits somebody else's affiliate account",
 		Audience:    audienceAdmin,
 	},
+	categoryArtistsBandcampEmbedRefused: {
+		Label:      "Artists With A Refused Bandcamp Embed",
+		EntityType: "artist",
+		// A finding ABOUT a contributor's value rather than a gap a
+		// contributor could fill: some of these rows point at a foreign host
+		// under a Bandcamp label, and publishing the list would name the
+		// artists carrying one to an unreviewed audience.
+		Description: "Artists whose stored Bandcamp embed URL is not an https artist-subdomain album or track page, so no Bandcamp link renders",
+		Audience:    audienceAdmin,
+	},
 	"releases_missing_year": {
 		Label:       "Releases Missing Year",
 		EntityType:  "release",
@@ -127,6 +142,7 @@ var categoryOrder = []string{
 	"shows_missing_price",
 	categoryShowsPlantedTicketTag,
 	categoryFestivalsPlantedTicketTag,
+	categoryArtistsBandcampEmbedRefused,
 	"releases_missing_year",
 }
 
@@ -272,6 +288,8 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 		return s.getShowsMissingPrice(limit, offset)
 	case categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag:
 		return s.getPlantedTicketTag(category, limit, offset)
+	case categoryArtistsBandcampEmbedRefused:
+		return s.getBandcampEmbedRefused(limit, offset)
 	case "releases_missing_year":
 		return s.getReleasesMissingYear(limit, offset)
 	default:
@@ -607,6 +625,14 @@ func (s *DataQualityService) getCategoryCount(category string) (int, error) {
 		// Counted through the list's own matcher, so the badge and the list it
 		// opens can never disagree.
 		findings, ferr := s.plantedTagFindings(category)
+		if ferr != nil {
+			return 0, ferr
+		}
+		return len(findings), nil
+
+	case categoryArtistsBandcampEmbedRefused:
+		// Counted through the list's own matcher, for the same reason.
+		findings, ferr := s.bandcampEmbedRefusedFindings()
 		if ferr != nil {
 			return 0, ferr
 		}

@@ -16,6 +16,7 @@ import {
   DollarSign,
   Link2Off,
   ListOrdered,
+  Music2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -38,6 +39,7 @@ const categoryIcons: Record<string, LucideIcon> = {
   shows_missing_price: DollarSign,
   shows_planted_ticket_tag: Link2Off,
   festivals_planted_ticket_tag: Link2Off,
+  artists_bandcamp_embed_refused: Music2,
   releases_missing_year: Calendar,
 }
 

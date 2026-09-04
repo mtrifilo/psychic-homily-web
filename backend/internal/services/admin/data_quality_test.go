@@ -715,3 +715,89 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestChartingArtistsMissingL
 		suite.Equal(items[i].EntityID, again[i].EntityID, "rotation order changed across calls at index %d", i)
 	}
 }
+
+// =============================================================================
+// TESTS: Artists With A Refused Bandcamp Embed
+// =============================================================================
+
+func (suite *DataQualityServiceIntegrationTestSuite) createArtistWithEmbed(name, embedURL string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name, BandcampEmbedURL: &embedURL}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+	return artist
+}
+
+// The category has to hold every shape the write gate refuses and none it
+// accepts, and it is the gate itself that decides: the SQL only narrows the
+// scan to rows that hold a value.
+func (suite *DataQualityServiceIntegrationTestSuite) TestBandcampEmbedRefused() {
+	suite.createArtistWithEmbed("Foreign Host", "https://evil.test/album/x")
+	suite.createArtistWithEmbed("Lookalike Host", "https://bandcamp.com.attacker.test/album/x")
+	suite.createArtistWithEmbed("Apex Not Subdomain", "https://bandcamp.com/album/x")
+	suite.createArtistWithEmbed("Plain HTTP", "http://band.bandcamp.com/album/x")
+	suite.createArtistWithEmbed("Profile Root", "https://band.bandcamp.com")
+	suite.createArtistWithEmbed("Merch Page", "https://band.bandcamp.com/merch")
+	suite.createArtistWithEmbed("Trailing Space", "https://band.bandcamp.com/album/x ")
+	suite.createArtistWithEmbed("Dot Segments", "https://band.bandcamp.com/album/../gift-card")
+
+	// Accepted by the gate, so absent from the category.
+	suite.createArtistWithEmbed("Good Album", "https://band.bandcamp.com/album/record")
+	suite.createArtistWithEmbed("Good Track", "https://band.bandcamp.com/track/single")
+	// No value at all is not a refusal; it is the "missing links" categories'
+	// question, not this one's.
+	suite.createArtist("No Embed At All", nil)
+
+	items, total, err := suite.service.GetCategoryItems(categoryArtistsBandcampEmbedRefused, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(8), total)
+
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Name)
+		suite.Equal("artist", item.EntityType)
+	}
+	suite.ElementsMatch([]string{
+		"Foreign Host", "Lookalike Host", "Apex Not Subdomain", "Plain HTTP",
+		"Profile Root", "Merch Page", "Trailing Space", "Dot Segments",
+	}, names)
+
+	// The badge and the list it opens are one answer.
+	summary, err := suite.service.GetSummary()
+	suite.Require().NoError(err)
+	for _, cat := range summary.Categories {
+		if cat.Key == categoryArtistsBandcampEmbedRefused {
+			suite.Equal(8, cat.Count)
+			return
+		}
+	}
+	suite.Fail("category missing from the admin summary")
+}
+
+// The reason splits the two shapes an admin acts on differently, and never
+// reprints the stored value.
+func (suite *DataQualityServiceIntegrationTestSuite) TestBandcampEmbedRefusedReasons() {
+	suite.createArtistWithEmbed("Off Platform", "https://evil.test/album/x")
+	suite.createArtistWithEmbed("On Platform", "https://band.bandcamp.com/merch")
+
+	items, _, err := suite.service.GetCategoryItems(categoryArtistsBandcampEmbedRefused, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(items, 2)
+
+	reasons := map[string]string{}
+	for _, item := range items {
+		reasons[item.Name] = item.Reason
+		suite.NotContains(item.Reason, "evil.test")
+		suite.NotContains(item.Reason, "bandcamp.com/merch")
+	}
+	suite.Equal("Not an https URL on a Bandcamp host", reasons["Off Platform"])
+	suite.Equal("On Bandcamp, but not an album or track page", reasons["On Platform"])
+}
+
+// Admin-only, so /contribute reports it as unknown rather than confirming it
+// exists.
+func (suite *DataQualityServiceIntegrationTestSuite) TestBandcampEmbedRefusedWithheldFromContribute() {
+	_, _, err := suite.service.GetContributeCategoryItems(
+		categoryArtistsBandcampEmbedRefused, nil, 50, 0,
+	)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "unknown category")
+}
