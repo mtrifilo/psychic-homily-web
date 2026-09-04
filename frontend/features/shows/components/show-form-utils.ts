@@ -1,4 +1,8 @@
-import { parseISOToDateAndTime } from '@/lib/utils/timeUtils'
+import {
+  combineDateTimeToUTC,
+  localClockExists,
+  parseISOToDateAndTime,
+} from '@/lib/utils/timeUtils'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { showTimingInput } from '../utils'
 import type { SetType, ShowResponse, VenueResponse } from '../types'
@@ -178,6 +182,47 @@ export interface FormValues {
   image_url: string
 }
 
+/**
+ * The wall clock a show is saved on when the time field is left blank.
+ *
+ * The same 20:00 venue-local convention the ingest writers use for a listing
+ * that states a day and no time, so a show entered here and the same show
+ * ingested elsewhere land on one instant.
+ */
+export const DEFAULT_EVENT_TIME = '20:00'
+
+/**
+ * The instant the form's date and time fields name, and whether the venue's
+ * zone has that wall clock at all.
+ *
+ * ONE function because the form asks this twice and the two answers have to be
+ * about the same clock: the schema asks whether to refuse the save, and the
+ * submit asks what to send. A blank time field means the 20:00 convention in
+ * both, and both read the venue's own IANA zone before the US state map, which
+ * answers America/Phoenix for every non-US venue (PSY-1873).
+ *
+ * `clockExists` is false only inside the window a spring-forward skips, where
+ * the wall clock never happened. `eventDate` still carries an instant there,
+ * because `combineDateTimeToUTC` always returns one; the caller decides whether
+ * an instant for a clock that never happened is fit to store.
+ */
+export function resolveFormEventDate(
+  value: {
+    date: string
+    time: string
+    venue: { state: string }
+  },
+  venueTimezone: string | null | undefined
+): { eventDate: string; timezone: string; clockExists: boolean } {
+  const timezone = resolveShowTimezone(value.venue.state, venueTimezone)
+  const time = value.time || DEFAULT_EVENT_TIME
+  return {
+    eventDate: combineDateTimeToUTC(value.date, time, timezone),
+    timezone,
+    clockExists: localClockExists(value.date, time, timezone),
+  }
+}
+
 export const defaultFormValues: FormValues = {
   title: '',
   artists: [
@@ -190,7 +235,7 @@ export const defaultFormValues: FormValues = {
   ],
   venue: { id: undefined, name: '', city: '', state: '', address: '' },
   date: '',
-  time: '20:00',
+  time: DEFAULT_EVENT_TIME,
   cost: '',
   door_cost: '',
   ages: '',

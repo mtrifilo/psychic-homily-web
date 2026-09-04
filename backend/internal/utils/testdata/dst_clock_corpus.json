@@ -1,0 +1,321 @@
+{
+  "_comment": [
+    "Shared cross-language corpus for resolving a venue-local WALL CLOCK to an",
+    "instant (PSY-2024).",
+    "",
+    "THE CONTRACT: a wall clock a person typed into the show form must resolve to",
+    "the same instant the Go writers resolve it to, on every night of the year,",
+    "including the two nights a zone's clocks move. A frontend that resolves a",
+    "transition-night clock differently stores a time nobody entered, and no read",
+    "surface can tell that instant from a correct one.",
+    "",
+    "Go reads this file in utils.TestDSTClockCorpus, which asserts every row is",
+    "what time.Date produces. TypeScript reads the same file in",
+    "frontend/lib/utils/timeUtils.test.ts, which asserts every row is what",
+    "combineDateTimeToUTC produces. Neither language owns the numbers: they were",
+    "computed by running time.Date and are checked against it on every Go run, so",
+    "a row nobody can reproduce fails the Go suite rather than sitting here as a",
+    "claim.",
+    "",
+    "FIELDS",
+    "date, clock, zone = the wall clock a source or a form field states.",
+    "utc      = the instant time.Date(y, m, d, h, min, 0, 0, loc) returns for it.",
+    "exists   = whether that instant reads back in the zone as the clock asked",
+    "           for. False only inside the hour (or half hour) a spring-forward",
+    "           skips, where there is no correct answer and every implementation",
+    "           still has to return something. A writer that must not store a",
+    "           clock nobody could have meant asks this before storing.",
+    "ambiguous= the clock happens TWICE, in the overlap a fall-back creates.",
+    "           Which of the two instants is returned varies by zone: it is",
+    "           whichever side the offset probe lands on, so 01:30 on",
+    "           America/Chicago's fall-back night resolves to the FIRST",
+    "           occurrence and 02:30 on Europe/Berlin's resolves to the SECOND.",
+    "           Agreement with time.Date is the whole rule; 'the first one' is",
+    "           not, and stating it as one would be false for half these rows.",
+    "why      = which case in the transition the row is buying.",
+    "",
+    "Rows carrying a zone this runtime cannot load fail loudly rather than being",
+    "skipped, so both suites embed or assume a full IANA database."
+  ],
+  "cases": [
+    {
+      "date": "2026-03-08",
+      "clock": "01:30",
+      "zone": "America/Chicago",
+      "utc": "2026-03-08T07:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "the last clock before the gap"
+    },
+    {
+      "date": "2026-03-08",
+      "clock": "02:00",
+      "zone": "America/Chicago",
+      "utc": "2026-03-08T07:00:00Z",
+      "exists": false,
+      "ambiguous": false,
+      "why": "the first clock the gap swallows"
+    },
+    {
+      "date": "2026-03-08",
+      "clock": "02:30",
+      "zone": "America/Chicago",
+      "utc": "2026-03-08T07:30:00Z",
+      "exists": false,
+      "ambiguous": false,
+      "why": "inside the gap, and the same instant 01:30 resolves to"
+    },
+    {
+      "date": "2026-03-08",
+      "clock": "03:00",
+      "zone": "America/Chicago",
+      "utc": "2026-03-08T08:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "the first clock after the gap"
+    },
+    {
+      "date": "2026-03-08",
+      "clock": "07:30",
+      "zone": "America/Chicago",
+      "utc": "2026-03-08T12:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "well past the gap, same calendar day"
+    },
+    {
+      "date": "2026-03-08",
+      "clock": "20:00",
+      "zone": "America/Chicago",
+      "utc": "2026-03-09T01:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal evening on the transition day"
+    },
+    {
+      "date": "2026-11-01",
+      "clock": "00:30",
+      "zone": "America/Chicago",
+      "utc": "2026-11-01T05:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "before the overlap"
+    },
+    {
+      "date": "2026-11-01",
+      "clock": "01:30",
+      "zone": "America/Chicago",
+      "utc": "2026-11-01T06:30:00Z",
+      "exists": true,
+      "ambiguous": true,
+      "why": "inside the overlap, and the occurrence still on daylight time"
+    },
+    {
+      "date": "2026-11-01",
+      "clock": "02:30",
+      "zone": "America/Chicago",
+      "utc": "2026-11-01T08:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "after the overlap"
+    },
+    {
+      "date": "2026-11-01",
+      "clock": "20:00",
+      "zone": "America/Chicago",
+      "utc": "2026-11-02T02:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal evening on the transition day"
+    },
+    {
+      "date": "2026-03-08",
+      "clock": "02:00",
+      "zone": "America/New_York",
+      "utc": "2026-03-08T06:00:00Z",
+      "exists": false,
+      "ambiguous": false,
+      "why": "inside the gap in a second US zone"
+    },
+    {
+      "date": "2026-07-15",
+      "clock": "20:00",
+      "zone": "America/Chicago",
+      "utc": "2026-07-16T01:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal summer night in a US zone"
+    },
+    {
+      "date": "2026-01-15",
+      "clock": "20:00",
+      "zone": "America/New_York",
+      "utc": "2026-01-16T01:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal winter night in a US zone"
+    },
+    {
+      "date": "2026-01-25",
+      "clock": "20:00",
+      "zone": "America/Phoenix",
+      "utc": "2026-01-26T03:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a US zone that never transitions"
+    },
+    {
+      "date": "2026-07-15",
+      "clock": "20:00",
+      "zone": "America/Los_Angeles",
+      "utc": "2026-07-16T03:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal summer night in a US zone"
+    },
+    {
+      "date": "2026-01-15",
+      "clock": "20:00",
+      "zone": "America/Los_Angeles",
+      "utc": "2026-01-16T04:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal winter night in a US zone"
+    },
+    {
+      "date": "2026-03-29",
+      "clock": "00:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-03-28T23:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a European doors time before the gap"
+    },
+    {
+      "date": "2026-03-29",
+      "clock": "01:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-03-29T00:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "the matching music time, still before the gap"
+    },
+    {
+      "date": "2026-03-29",
+      "clock": "02:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-03-29T01:30:00Z",
+      "exists": false,
+      "ambiguous": false,
+      "why": "inside the gap, and the same instant 03:30 resolves to"
+    },
+    {
+      "date": "2026-03-29",
+      "clock": "03:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-03-29T01:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "the first half hour after the gap"
+    },
+    {
+      "date": "2026-10-25",
+      "clock": "01:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-10-24T23:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "before the overlap"
+    },
+    {
+      "date": "2026-10-25",
+      "clock": "02:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-10-25T01:30:00Z",
+      "exists": true,
+      "ambiguous": true,
+      "why": "inside the overlap, and the occurrence already on standard time"
+    },
+    {
+      "date": "2026-10-25",
+      "clock": "03:30",
+      "zone": "Europe/Berlin",
+      "utc": "2026-10-25T02:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "after the overlap"
+    },
+    {
+      "date": "2026-06-15",
+      "clock": "20:00",
+      "zone": "Europe/Berlin",
+      "utc": "2026-06-15T18:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal summer night in a European zone"
+    },
+    {
+      "date": "2026-01-15",
+      "clock": "20:00",
+      "zone": "Europe/Berlin",
+      "utc": "2026-01-15T19:00:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a normal winter night in a European zone"
+    },
+    {
+      "date": "2026-10-04",
+      "clock": "01:30",
+      "zone": "Australia/Sydney",
+      "utc": "2026-10-03T15:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "before a southern-hemisphere gap"
+    },
+    {
+      "date": "2026-10-04",
+      "clock": "02:30",
+      "zone": "Australia/Sydney",
+      "utc": "2026-10-03T16:30:00Z",
+      "exists": false,
+      "ambiguous": false,
+      "why": "inside a southern-hemisphere gap, where spring is October"
+    },
+    {
+      "date": "2026-04-05",
+      "clock": "02:30",
+      "zone": "Australia/Sydney",
+      "utc": "2026-04-04T16:30:00Z",
+      "exists": true,
+      "ambiguous": true,
+      "why": "inside a southern-hemisphere overlap"
+    },
+    {
+      "date": "2026-10-04",
+      "clock": "02:15",
+      "zone": "Australia/Lord_Howe",
+      "utc": "2026-10-03T15:45:00Z",
+      "exists": false,
+      "ambiguous": false,
+      "why": "inside a gap of 30 minutes rather than an hour"
+    },
+    {
+      "date": "2026-04-05",
+      "clock": "01:45",
+      "zone": "Australia/Lord_Howe",
+      "utc": "2026-04-04T15:15:00Z",
+      "exists": true,
+      "ambiguous": true,
+      "why": "inside an overlap of 30 minutes rather than an hour"
+    },
+    {
+      "date": "2026-04-15",
+      "clock": "20:00",
+      "zone": "Asia/Kolkata",
+      "utc": "2026-04-15T14:30:00Z",
+      "exists": true,
+      "ambiguous": false,
+      "why": "a half-hour offset with no transitions"
+    }
+  ]
+}
