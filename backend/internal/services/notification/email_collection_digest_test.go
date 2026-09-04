@@ -99,9 +99,14 @@ func TestSendCollectionDigest_WeeklyCopy_Headers_OptOutBlock(t *testing.T) {
 	// section above the footer) — we look for the user-facing "in one click"
 	// copy and the unsubscribe URL itself.
 	// A URL inside an href carries its query separator as an entity, which
-	// every client decodes back before following the link. Asserting the
-	// attribute rather than the bare URL is what distinguishes a link the
-	// recipient can click from the same characters sitting loose in the markup.
+	// clients decode before following the link. Asserting the attribute rather
+	// than the bare URL is what distinguishes a link the recipient can click
+	// from the same characters sitting loose in the markup.
+	//
+	// html.EscapeString spells that the same way html/template does for a
+	// hex-signed ASCII URL, which is what every unsubscribe endpoint here
+	// produces. It would diverge on a URL carrying `+`, a space, or non-ASCII,
+	// which html/template percent-encodes first.
 	assert.Contains(t, email.Html, `href="`+html.EscapeString(unsubURL)+`"`,
 		"the unsubscribe URL must appear as a clickable link in the email body")
 	assert.Contains(t, email.Html, "one click",

@@ -194,8 +194,8 @@ func emailMonoNote(text string) string {
 //
 // It exists because escaping is medium-specific and this repo's escaping is all
 // aimed at the BODY: html.EscapeString makes a scraped artist name safe inside
-// and does nothing at all for a Subject, where the dangerous character is not
-// `<` but a newline. Everything an ingest scrape produces is caller-supplied in
+// markup and does nothing at all for a Subject, where the dangerous character is
+// not `<` but a newline. Everything an ingest scrape produces is caller-supplied in
 // that sense, and these messages ship from the platform's own DKIM-aligned
 // sender.
 //

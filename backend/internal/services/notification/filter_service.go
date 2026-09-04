@@ -812,6 +812,14 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 
 	html, err := buildFilterEmailHTML(filterName, show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, unsubscribeURL)
 	if err != nil {
+		// A render error is a template bug, so it fails every filter alert
+		// rather than this one. It reports through the same channel as a send
+		// failure, or the outage is a log line nobody is watching.
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "notification_filter")
+			scope.SetTag("email_type", "filter_match")
+			sentry.CaptureException(err)
+		})
 		log.Printf("failed to render filter notification email for user %d: %v", userID, err)
 		return
 	}
@@ -931,6 +939,11 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 		show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, manageURL,
 	)
 	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "notification_filter")
+			scope.SetTag("email_type", "scene_follow")
+			sentry.CaptureException(err)
+		})
 		log.Printf("failed to render scene-follow email for user %d: %v", userID, err)
 		return
 	}

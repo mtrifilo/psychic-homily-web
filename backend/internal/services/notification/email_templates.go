@@ -8,34 +8,31 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// The HTML bodies of the pre-design-system emails, as html/template rather than
-// fmt.Sprintf format strings.
+// HTML email bodies, as html/template.
 //
 // html/template escapes every action for the context it sits in: a text node,
 // an attribute value, or the URL of an href. That is the property this file
 // exists for. Show titles, venue and artist names, usernames, comment bodies and
-// moderator reasons are all contributor-writable and reach these bodies
-// verbatim, and these messages ship from the platform's own DKIM-aligned sender,
-// so an unescaped value is a working link or a rewritten layout in the
-// recipient's inbox.
+// moderator reasons all reach these bodies as stored, so escaping has to be a
+// property of the renderer rather than of a call site: a field added to a
+// template below is escaped whether or not its author thought about it. Nothing
+// in this file escapes by hand.
 //
-// Escaping is a property of the renderer here, not of a call site, so a value
-// added to a template is escaped whether or not the author thought about it.
-// Nothing in this file escapes by hand, and no Go code in this package builds
-// markup for these messages: the conditionals and lists that used to be
-// concatenated into strings are {{if}} and {{range}} blocks below.
+// href actions get one guarantee these bodies do not otherwise have: a URL whose
+// scheme is not http, https or mailto renders as "#ZgotmplZ" rather than as
+// itself. That silently deadens a link built from a schemeless base URL, which
+// is why assertEscaped rejects that string.
 //
-// The design-system messages (verification, artist and venue show alerts) render
-// through the builders in email_layout.go instead, which escape every value at
-// the point they write it. Those two are the only renderers in the package, and
-// TestNoRawHTMLSprintf fails a third.
+// This file and email_layout.go are the only two that hold email markup;
+// TestNoEmailMarkupOutsideRenderers fails a third. The two differ in how they
+// get their safety, so read email_layout.go's own contract before adding to it.
 
-// sharedEmailBlocks are the fragments every legacy body is parsed with.
+// sharedEmailBlocks are the fragments every body in this file is parsed with.
 //
 // A body names them rather than restating them, so the frame and the opt-out
 // card each have one definition instead of one per message.
 //
-// legacyFrame{Open,Close} carry the parts identical in all of them: the doctype,
+// plainFrame{Open,Close} carry the parts identical in all of them: the doctype,
 // the meta tags email clients need, the body's font stack and width, and the
 // wordmark. What sits between them is what makes each message different.
 //
@@ -43,7 +40,7 @@ import (
 // in the recipient's words (e.g. "tier-change emails"); URL is the same
 // HMAC-signed endpoint that goes in the List-Unsubscribe header, so a recipient
 // and a mailbox provider have one way out, and it requires no login.
-const sharedEmailBlocks = `{{define "legacyFrameOpen"}}
+const sharedEmailBlocks = `{{define "plainFrameOpen"}}
 <!DOCTYPE html>
 <html>
 <head>
@@ -54,7 +51,7 @@ const sharedEmailBlocks = `{{define "legacyFrameOpen"}}
     <div style="text-align: center; margin-bottom: 30px;">
         <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
     </div>
-{{end}}{{define "legacyFrameClose"}}</body>
+{{end}}{{define "plainFrameClose"}}</body>
 </html>
 {{end}}{{define "unsubscribeCard"}}
     <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
@@ -73,16 +70,19 @@ type unsubscribeCard struct {
 }
 
 // emailTemplateFuncs are the helpers the templates may call. Kept to the
-// formatting the bodies genuinely need, since a func is the one way a value can
-// reach a template without passing through the field it was declared for.
+// formatting the bodies genuinely need, so that reading a body's data struct is
+// close to reading everything the body can say.
 var emailTemplateFuncs = template.FuncMap{
 	"pluralize": pluralize,
 }
 
 // mustEmailTemplate parses one email body together with the shared blocks.
-// Parsing at package init means a malformed template stops the process at
-// startup rather than at send time, when the failure would be a swallowed
-// notification.
+//
+// Parsing at package init turns a SYNTAX error into a startup panic. It does not
+// catch a contextual one: html/template defers escape analysis to the first
+// Execute, so a misspelled {{template}} name, an unclosed href quote, or an
+// {{if}} whose branches end in different contexts all parse cleanly and fail at
+// send time. allEmailTemplates below is what moves those into CI.
 func mustEmailTemplate(name, body string) *template.Template {
 	return template.Must(
 		template.New(name).Funcs(emailTemplateFuncs).Parse(sharedEmailBlocks + body),
@@ -91,12 +91,13 @@ func mustEmailTemplate(name, body string) *template.Template {
 
 // renderEmailTemplate executes one email body against its data.
 //
-// The error can only be a template that disagrees with its data struct, which
-// every template's test would catch; it is returned rather than panicked so a
-// send path fails the one message instead of the process.
+// An error here means the template and the data disagree, or the template ends
+// in a context html/template will not escape into. Both are programming errors,
+// and both are systematic rather than per-recipient: the caller that swallows
+// one drops every message of that kind, so callers report it.
 func renderEmailTemplate(tmpl *template.Template, data any) (string, error) {
-	// Bodies run 2-3KB, so one sized allocation replaces the handful of
-	// doublings a zero-value builder would take to get there.
+	// 4KB covers the fixed-size bodies in one allocation. The digests grow with
+	// their group count and still reallocate past it.
 	var b strings.Builder
 	b.Grow(4096)
 	if err := tmpl.Execute(&b, data); err != nil {
@@ -113,7 +114,7 @@ type magicLinkEmailData struct {
 	MagicLinkURL string
 }
 
-var magicLinkEmailTemplate = mustEmailTemplate("magic_link", `{{template "legacyFrameOpen"}}
+var magicLinkEmailTemplate = mustEmailTemplate("magic_link", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">Sign in to your account</h2>
         <p>Click the button below to sign in to your Psychic Homily account. This link will expire in 15 minutes.</p>
@@ -128,14 +129,14 @@ var magicLinkEmailTemplate = mustEmailTemplate("magic_link", `{{template "legacy
         <p>If the button doesn't work, copy and paste this link into your browser:</p>
         <p style="word-break: break-all; color: #666;">{{.MagicLinkURL}}</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 type accountRecoveryEmailData struct {
 	DaysRemaining int
 	RecoveryURL   string
 }
 
-var accountRecoveryEmailTemplate = mustEmailTemplate("account_recovery", `{{template "legacyFrameOpen"}}
+var accountRecoveryEmailTemplate = mustEmailTemplate("account_recovery", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">Recover Your Account</h2>
         <p>We received a request to recover your deleted Psychic Homily account. You have <strong>{{.DaysRemaining}} days remaining</strong> to recover your account before it is permanently deleted.</p>
@@ -150,7 +151,7 @@ var accountRecoveryEmailTemplate = mustEmailTemplate("account_recovery", `{{temp
         <p>If the button doesn't work, copy and paste this link into your browser:</p>
         <p style="word-break: break-all; color: #666;">{{.RecoveryURL}}</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
 // Show reminder
@@ -164,7 +165,7 @@ type showReminderEmailData struct {
 	UnsubscribeURL string
 }
 
-var showReminderEmailTemplate = mustEmailTemplate("show_reminder", `{{template "legacyFrameOpen"}}
+var showReminderEmailTemplate = mustEmailTemplate("show_reminder", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">{{.ShowTitle}} is tomorrow!</h2>
         <p style="font-size: 16px; color: #444;">{{.FormattedDate}}</p>
@@ -177,7 +178,7 @@ var showReminderEmailTemplate = mustEmailTemplate("show_reminder", `{{template "
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Don't want these reminders? <a href="{{.UnsubscribeURL}}" style="color: #666;">Unsubscribe</a></p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
 // Contributor tier changes
@@ -193,7 +194,7 @@ type tierPromotionEmailData struct {
 	Unsubscribe    unsubscribeCard
 }
 
-var tierPromotionEmailTemplate = mustEmailTemplate("tier_promotion", `{{template "legacyFrameOpen"}}
+var tierPromotionEmailTemplate = mustEmailTemplate("tier_promotion", `{{template "plainFrameOpen"}}
     <div style="background: #f0fdf4; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #bbf7d0;">
         <h2 style="margin-top: 0; color: #166534;">Congratulations, {{.Greeting}}!</h2>
         <p style="font-size: 16px;">You've been promoted from <strong>{{.OldDisplayName}}</strong> to <strong>{{.DisplayName}}</strong>.</p>
@@ -217,7 +218,7 @@ var tierPromotionEmailTemplate = mustEmailTemplate("tier_promotion", `{{template
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Thank you for contributing to the Psychic Homily community.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 type tierDemotionEmailData struct {
 	Greeting       string
@@ -227,7 +228,7 @@ type tierDemotionEmailData struct {
 	Unsubscribe    unsubscribeCard
 }
 
-var tierDemotionEmailTemplate = mustEmailTemplate("tier_demotion", `{{template "legacyFrameOpen"}}
+var tierDemotionEmailTemplate = mustEmailTemplate("tier_demotion", `{{template "plainFrameOpen"}}
     <div style="background: #fef9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #fecaca;">
         <h2 style="margin-top: 0; color: #991b1b;">Your contributor tier has changed</h2>
         <p>Hi {{.Greeting}},</p>
@@ -244,7 +245,7 @@ var tierDemotionEmailTemplate = mustEmailTemplate("tier_demotion", `{{template "
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Your contributions are valued. Keep at it and you'll regain your tier.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 type tierDemotionWarningEmailData struct {
 	Greeting    string
@@ -254,7 +255,7 @@ type tierDemotionWarningEmailData struct {
 	Unsubscribe unsubscribeCard
 }
 
-var tierDemotionWarningEmailTemplate = mustEmailTemplate("tier_demotion_warning", `{{template "legacyFrameOpen"}}
+var tierDemotionWarningEmailTemplate = mustEmailTemplate("tier_demotion_warning", `{{template "plainFrameOpen"}}
     <div style="background: #fffbeb; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #fde68a;">
         <h2 style="margin-top: 0; color: #92400e;">Your contributor status is at risk</h2>
         <p>Hi {{.Greeting}},</p>
@@ -270,7 +271,7 @@ var tierDemotionWarningEmailTemplate = mustEmailTemplate("tier_demotion_warning"
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>This is a friendly heads-up to help you maintain your contributor status.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
 // Edit review decisions
@@ -285,7 +286,7 @@ type editApprovedEmailData struct {
 	Unsubscribe     unsubscribeCard
 }
 
-var editApprovedEmailTemplate = mustEmailTemplate("edit_approved", `{{template "legacyFrameOpen"}}
+var editApprovedEmailTemplate = mustEmailTemplate("edit_approved", `{{template "plainFrameOpen"}}
     <div style="background: #f0fdf4; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #bbf7d0;">
         <h2 style="margin-top: 0; color: #166534;">Your edit was approved!</h2>
         <p>Hi {{.Greeting}},</p>
@@ -299,7 +300,7 @@ var editApprovedEmailTemplate = mustEmailTemplate("edit_approved", `{{template "
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Keep contributing to build your reputation and unlock new permissions.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 type editRejectedEmailData struct {
 	EntityName      string
@@ -309,7 +310,7 @@ type editRejectedEmailData struct {
 	Unsubscribe     unsubscribeCard
 }
 
-var editRejectedEmailTemplate = mustEmailTemplate("edit_rejected", `{{template "legacyFrameOpen"}}
+var editRejectedEmailTemplate = mustEmailTemplate("edit_rejected", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #e5e7eb;">
         <h2 style="margin-top: 0; color: #1a1a1a;">Update on your edit to {{.EntityName}}</h2>
         <p>Hi {{.Greeting}},</p>
@@ -326,7 +327,7 @@ var editRejectedEmailTemplate = mustEmailTemplate("edit_rejected", `{{template "
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Don't be discouraged — your contributions are valued. Feel free to submit a revised edit.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
 // Comments and mentions
@@ -342,7 +343,7 @@ type commentNotificationEmailData struct {
 	UnsubscribeURL  string
 }
 
-var commentNotificationEmailTemplate = mustEmailTemplate("comment_notification", `{{template "legacyFrameOpen"}}
+var commentNotificationEmailTemplate = mustEmailTemplate("comment_notification", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">New comment on {{.EntityName}}</h2>
         <p style="font-size: 15px; color: #444;"><strong>{{.CommenterName}}</strong> commented on the {{.EntityType}} <strong>{{.EntityName}}</strong>:</p>
@@ -356,7 +357,7 @@ var commentNotificationEmailTemplate = mustEmailTemplate("comment_notification",
         <p>You're receiving this because you're subscribed to {{.EntityTypeTitle}} on {{.EntityName}}.</p>
         <p>Don't want these notifications? <a href="{{.UnsubscribeURL}}" style="color: #666;">Unsubscribe</a></p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 type mentionNotificationEmailData struct {
 	MentionerName  string
@@ -367,7 +368,7 @@ type mentionNotificationEmailData struct {
 	UnsubscribeURL string
 }
 
-var mentionNotificationEmailTemplate = mustEmailTemplate("mention_notification", `{{template "legacyFrameOpen"}}
+var mentionNotificationEmailTemplate = mustEmailTemplate("mention_notification", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">You were mentioned</h2>
         <p style="font-size: 15px; color: #444;"><strong>{{.MentionerName}}</strong> mentioned you in a comment on the {{.EntityType}} <strong>{{.EntityName}}</strong>:</p>
@@ -380,7 +381,7 @@ var mentionNotificationEmailTemplate = mustEmailTemplate("mention_notification",
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Don't want mention notifications? <a href="{{.UnsubscribeURL}}" style="color: #666;">Unsubscribe</a></p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
 // Digests
@@ -392,7 +393,7 @@ type collectionDigestEmailData struct {
 	FrontendURL string
 }
 
-var collectionDigestEmailTemplate = mustEmailTemplate("collection_digest", `{{template "legacyFrameOpen"}}
+var collectionDigestEmailTemplate = mustEmailTemplate("collection_digest", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">New in your collections</h2>
         <p style="font-size: 15px; color: #444;">Items added to collections you follow over the past week.</p>
@@ -411,7 +412,7 @@ var collectionDigestEmailTemplate = mustEmailTemplate("collection_digest", `{{te
         <p>You&rsquo;re receiving this because you opted in to weekly digests for collections you follow on Psychic Homily.</p>
         <p>Manage all notifications in your <a href="{{.FrontendURL}}/settings" style="color: #666;">notification settings</a>.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 type sceneDigestEmailData struct {
 	Groups      []contracts.SceneDigestGroup
@@ -423,7 +424,7 @@ type sceneDigestEmailData struct {
 // but outside {{range .Shows}} / {{range .NewArtists}}, so their dot is the
 // GROUP. A heading moved inside an inner range would repeat per row, and
 // MoreNewArtists is not a field of an artist at all.
-var sceneDigestEmailTemplate = mustEmailTemplate("scene_digest", `{{template "legacyFrameOpen"}}
+var sceneDigestEmailTemplate = mustEmailTemplate("scene_digest", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">Your scenes: the next 7 days</h2>
         <p style="font-size: 15px; color: #444;">Shows in the next 7 days and new bands, for the scenes you follow.</p>
@@ -454,7 +455,7 @@ var sceneDigestEmailTemplate = mustEmailTemplate("scene_digest", `{{template "le
         <p>You&rsquo;re receiving this because you opted in to weekly scene digests on Psychic Homily.</p>
         <p>Manage all notifications in your <a href="{{.FrontendURL}}/settings" style="color: #666;">notification settings</a>.</p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
 // Filter and scene-follow match
@@ -471,7 +472,7 @@ type filterEmailData struct {
 	UnsubscribeURL string
 }
 
-var filterEmailTemplate = mustEmailTemplate("filter_match", `{{template "legacyFrameOpen"}}
+var filterEmailTemplate = mustEmailTemplate("filter_match", `{{template "plainFrameOpen"}}
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">New show matching "{{.FilterName}}"</h2>
         <p style="font-size: 18px; font-weight: 600; color: #1a1a1a; margin: 8px 0;">{{.ShowTitle}}</p>
@@ -487,4 +488,36 @@ var filterEmailTemplate = mustEmailTemplate("filter_match", `{{template "legacyF
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Don't want these notifications? <a href="{{.UnsubscribeURL}}" style="color: #666;">Pause this filter</a></p>
     </div>
-{{template "legacyFrameClose"}}`)
+{{template "plainFrameClose"}}`)
+
+// allEmailTemplates pairs every body in this file with a value of its data type.
+//
+// It exists because html/template runs its contextual-escaping analysis on the
+// first Execute rather than on Parse: a body whose action lands in an attribute
+// name, or whose {{if}} branches end in different contexts, parses cleanly and
+// then fails on the send that would have delivered it. TestEveryTemplateRenders
+// executes this list, so that failure lands in CI instead.
+//
+// Pairing the data value here also makes the template-to-struct correspondence
+// something one file states, rather than a naming convention each call site
+// repeats.
+//
+// A body added above belongs in this list.
+var allEmailTemplates = []struct {
+	tmpl *template.Template
+	data any
+}{
+	{magicLinkEmailTemplate, magicLinkEmailData{}},
+	{accountRecoveryEmailTemplate, accountRecoveryEmailData{}},
+	{showReminderEmailTemplate, showReminderEmailData{}},
+	{tierPromotionEmailTemplate, tierPromotionEmailData{}},
+	{tierDemotionEmailTemplate, tierDemotionEmailData{}},
+	{tierDemotionWarningEmailTemplate, tierDemotionWarningEmailData{}},
+	{editApprovedEmailTemplate, editApprovedEmailData{}},
+	{editRejectedEmailTemplate, editRejectedEmailData{}},
+	{commentNotificationEmailTemplate, commentNotificationEmailData{}},
+	{mentionNotificationEmailTemplate, mentionNotificationEmailData{}},
+	{collectionDigestEmailTemplate, collectionDigestEmailData{}},
+	{sceneDigestEmailTemplate, sceneDigestEmailData{}},
+	{filterEmailTemplate, filterEmailData{}},
+}
