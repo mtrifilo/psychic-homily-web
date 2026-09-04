@@ -151,6 +151,67 @@ describe('ShowSubmissionsConsole', () => {
     })
   })
 
+  // A slug-less act falls back to its Instagram column, which is the only
+  // place on this page that turns a stored social value into an href.
+  describe('the slug-less act fallback link', () => {
+    function showWithSocials(instagram: string) {
+      const show = makeShow(1, 'pending')
+      return {
+        ...show,
+        artists: [{ ...show.artists[0], slug: null, socials: { instagram } }],
+      } as ShowResponse
+    }
+
+    it('links a stored full URL as itself, not appended to a base', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: {
+          shows: [showWithSocials('https://instagram.com/artist-1')],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+        refetch: mockRefetch,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+
+      expect(screen.getByRole('link', { name: 'Artist 1' })).toHaveAttribute(
+        'href',
+        'https://instagram.com/artist-1'
+      )
+    })
+
+    it('still links a legacy bare handle', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [showWithSocials('artist1')], total: 1 },
+        isLoading: false,
+        error: null,
+        refetch: mockRefetch,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+
+      expect(screen.getByRole('link', { name: 'Artist 1' })).toHaveAttribute(
+        'href',
+        'https://instagram.com/artist1'
+      )
+    })
+
+    it('renders no link for a value off the platform', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: {
+          shows: [showWithSocials('https://instagram.com.evil.test/artist-1')],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+        refetch: mockRefetch,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+
+      expect(screen.queryByRole('link', { name: 'Artist 1' })).toBeNull()
+      expect(screen.getByText('Artist 1')).toBeTruthy()
+    })
+  })
+
   it('redirects settled-anonymous viewers with a return path', async () => {
     mockUseAuthContext.mockReturnValue({
       authStatus: 'anonymous',

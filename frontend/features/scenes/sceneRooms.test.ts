@@ -155,4 +155,13 @@ describe('roomWebsite', () => {
     expect(roomWebsite(room({ website: '  ' }))).toBeNull()
     expect(roomWebsite(room({ website: 'not a url' }))).toBeNull()
   })
+
+  // The same column the venue page reads, so it resolves the same way here:
+  // a legacy scheme-less value used to render on one surface and vanish on
+  // the other.
+  it('resolves a legacy scheme-less value, as the venue page does', () => {
+    expect(roomWebsite(room({ website: 'valleybarphx.com' }))).toBe(
+      'https://valleybarphx.com'
+    )
+  })
 })
