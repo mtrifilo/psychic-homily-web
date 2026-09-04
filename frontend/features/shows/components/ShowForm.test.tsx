@@ -5,7 +5,6 @@ import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import type { ShowResponse } from '../types'
 import { SET_TYPE_OPTIONS } from './show-form-utils'
-import { combineDateTimeToUTC } from '@/lib/utils/timeUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Shared mock state
@@ -1866,8 +1865,45 @@ describe('ShowForm: a local time the venue does not have', () => {
     const call = mockShowUpdate.mutate.mock.calls[0][0] as {
       updates: { event_date?: string }
     }
-    expect(call.updates.event_date).toBe(
-      combineDateTimeToUTC(date, '20:00', 'America/Chicago')
+
+    // Read the submitted instant back through Intl rather than through the
+    // resolver that produced it: an assertion against combineDateTimeToUTC
+    // would move with a broken resolver and still pass.
+    const back = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+      .format(new Date(call.updates.event_date as string))
+      .replace(', ', ' ')
+    expect(back).toBe(`${date} 20:00`)
+  })
+
+  it('reports the empty date rather than resolving a clock for it', async () => {
+    // The whole-object DST rule runs even when the date field's own rule has
+    // already failed, and there is no clock to resolve on a blank date.
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Headliner Band'
     )
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Some New Venue')
+    await user.type(screen.getByLabelText(/^City$/i), 'Chicago')
+    await user.type(screen.getByLabelText(/^State$/i), 'IL')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(await screen.findByText('Date is required')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/this time does not exist on this date/i)
+    ).not.toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
   })
 })
