@@ -1,7 +1,6 @@
 import {
-  combineDateTimeToUTC,
-  localClockExists,
   parseISOToDateAndTime,
+  resolveLocalClockToUTC,
 } from '@/lib/utils/timeUtils'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { showTimingInput } from '../utils'
@@ -192,19 +191,28 @@ export interface FormValues {
 export const DEFAULT_EVENT_TIME = '20:00'
 
 /**
+ * What a `<input type="date">` puts in the date field once it holds a day: a
+ * four-digit year, a month and a day. The field is otherwise the empty string,
+ * and resolving a clock on that throws.
+ */
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/**
  * The instant the form's date and time fields name, and whether the venue's
- * zone has that wall clock at all.
+ * zone has that wall clock at all. Null when the date field does not yet hold a
+ * calendar day, which is the state a fresh create form opens in.
  *
- * ONE function because the form asks this twice and the two answers have to be
- * about the same clock: the schema asks whether to refuse the save, and the
- * submit asks what to send. A blank time field means the 20:00 convention in
- * both, and both read the venue's own IANA zone before the US state map, which
+ * ONE function, and one resolution inside it, because the form asks this twice
+ * and the two answers have to be about the same clock: the schema asks whether
+ * to refuse the save, and the submit asks what to send. A blank time field means
+ * the 20:00 convention in both, so the clock this judges is the clock it would
+ * store. Both read the venue's own IANA zone before the US state map, which
  * answers America/Phoenix for every non-US venue (PSY-1873).
  *
  * `clockExists` is false only inside the window a spring-forward skips, where
- * the wall clock never happened. `eventDate` still carries an instant there,
- * because `combineDateTimeToUTC` always returns one; the caller decides whether
- * an instant for a clock that never happened is fit to store.
+ * the wall clock never happened. `eventDate` still carries an instant there;
+ * the caller decides whether an instant for a clock that never happened is fit
+ * to store.
  */
 export function resolveFormEventDate(
   value: {
@@ -213,14 +221,15 @@ export function resolveFormEventDate(
     venue: { state: string }
   },
   venueTimezone: string | null | undefined
-): { eventDate: string; timezone: string; clockExists: boolean } {
+): { eventDate: string; clockExists: boolean } | null {
+  if (!DATE_ONLY_PATTERN.test(value.date)) return null
   const timezone = resolveShowTimezone(value.venue.state, venueTimezone)
-  const time = value.time || DEFAULT_EVENT_TIME
-  return {
-    eventDate: combineDateTimeToUTC(value.date, time, timezone),
-    timezone,
-    clockExists: localClockExists(value.date, time, timezone),
-  }
+  const { utc, exists } = resolveLocalClockToUTC(
+    value.date,
+    value.time || DEFAULT_EVENT_TIME,
+    timezone
+  )
+  return { eventDate: utc, clockExists: exists }
 }
 
 export const defaultFormValues: FormValues = {

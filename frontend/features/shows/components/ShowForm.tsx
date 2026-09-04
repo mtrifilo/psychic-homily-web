@@ -191,10 +191,17 @@ function makeShowFormSchema(
     //
     // On the whole object because the rule needs three fields plus the venue's
     // zone. `path` puts the message on the time field, which is the one the
-    // user can act on. An ambiguous clock, the one a fall-back makes happen
-    // twice, is NOT refused: it happened, and either instant is defensible.
+    // user can act on: a blank time field is read as DEFAULT_EVENT_TIME, so the
+    // clock this judges is always the clock the submit would send. An ambiguous
+    // clock, the one a fall-back makes happen twice, is NOT refused: it
+    // happened, and either instant is defensible.
+    //
+    // Zod runs a whole-object rule even when a field rule has already failed,
+    // so this reaches a date field the user has not filled in. There is no
+    // clock to judge then, and `showFormFields.date` already reports it.
     .superRefine((value, ctx) => {
-      if (resolveFormEventDate(value, venueTimezone).clockExists) return
+      const resolved = resolveFormEventDate(value, venueTimezone)
+      if (!resolved || resolved.clockExists) return
       ctx.addIssue({
         code: 'custom',
         path: ['time'],
@@ -396,8 +403,12 @@ export function ShowForm({
       // venue rule decides when `value.venue.state` may be blank by reasoning
       // about the zone this returns, and its whole-object rule refuses a wall
       // clock the zone does not have. This body is only reached once both have
-      // passed, so `clockExists` is true here and is not re-read.
-      const { eventDate } = resolveFormEventDate(value, selectedVenue?.timezone)
+      // passed, so `clockExists` is true here and is not re-read, and
+      // `showFormFields.date` has already rejected every date that resolves to
+      // no clock at all.
+      const resolved = resolveFormEventDate(value, selectedVenue?.timezone)
+      if (!resolved) return
+      const eventDate = resolved.eventDate
 
       const price = parseCost(value.cost)
       // Independent of `price`: a blank door field leaves door_price absent on
