@@ -107,9 +107,11 @@ const STATE_TIMEZONES: Record<string, string> = {
  *
  * DO NOT change it to UTC, to the reader's zone, or to anything else without
  * changing every writer in the same commit. This is not a display guess: it is
- * one half of a matched pair. `ShowForm`'s submit composes `event_date` with
- * `combineDateTimeToUTC(date, time, resolveShowTimezone(...))`, and
- * `showToFormValues` reads it back through the same resolver (PSY-1873). For a
+ * one half of a matched pair. `ShowForm`'s submit composes `event_date` through
+ * `show-form-utils.resolveFormEventDate`, which resolves the zone with
+ * `resolveShowTimezone` and the clock with `resolveLocalClockToUTC`, and
+ * `showToFormValues` reads it back through the same zone resolver (PSY-1873).
+ * For a
  * show written through the app with no resolvable zone, the stored instant
  * therefore MEANS "this wall clock, read in America/Phoenix", and rendering it
  * here reproduces exactly what the submitter typed. Swapping this constant for
@@ -146,9 +148,9 @@ const STATE_TIMEZONES: Record<string, string> = {
  * WHAT STILL BUILDS A CLOCK ON THIS VALUE, none of it gated:
  * - The edit form, both legs. `show-form-utils.ts` seeds its time input from
  *   `parseISOToDateAndTime(event_date, resolveShowTimezone(...))` and
- *   `ShowForm`'s submit composes the instant back through the same resolver.
- *   That pair is the round trip described above, so the wall clock it shows is
- *   the one the submitter typed; it must not be withheld.
+ *   `resolveFormEventDate` composes the instant back through the same zone
+ *   resolver. That pair is the round trip described above, so the wall clock it
+ *   shows is the one the submitter typed; it must not be withheld.
  * - `getShowLifecycleState` (`./showTiming`) compares venue-local calendar days
  *   through here, so a zone-less venue east of Phoenix keeps ON SALE and the
  *   ticket bracket live past its own midnight. That function carries the
@@ -206,6 +208,12 @@ function zonedClockParts(
   formatter: Intl.DateTimeFormat,
   instant: Date
 ): { year: number; month: number; day: number; hour: number; minute: number } {
+  if (formatter.resolvedOptions().hour12) {
+    // A 12-hour formatter renders 20:00 as hour 8 and puts the rest in a
+    // dayPeriod part this never reads, so the wrong number would be plausible
+    // rather than obviously broken.
+    throw new Error('zonedClockParts needs a formatter with hour12: false')
+  }
   const parts = formatter.formatToParts(instant)
   const p = (type: string) => Number(parts.find(x => x.type === type)?.value ?? 0)
   const hour = p('hour')
@@ -242,21 +250,24 @@ interface ResolvedWallClock {
  * so lands on the wrong side of any transition in between. Re-reading the offset
  * at the candidate instant and re-deriving from it is what makes a clock inside
  * a transition window come out right, and a listing that states 12:30 AM and
- * 1:30 AM on a spring-forward night is exactly such a clock: on one probe both
- * resolve to the same instant.
+ * 1:30 AM on a spring-forward night is exactly such a clock. `timeUtils.test.ts`
+ * runs the one-probe form beside this one so the difference is executable
+ * rather than asserted here.
  *
  * The second candidate is the answer, and there is no third probe to consider.
  * If the FIRST candidate already read back as the clock asked for, then the
  * offset read at it is exactly the offset the wall clock implies, so the second
  * candidate is that same instant. The two agree whenever either is right.
  *
- * Throws on a date or time this cannot read as a calendar day and clock, which
- * is the same input `combineDateTimeToUTC` has always thrown on.
+ * Throws on a date or time it cannot read as a calendar day and clock.
  *
  * The instant returned is the one Go's `time.Date` returns for the same wall
  * clock and zone, pinned row by row by
  * `backend/internal/utils/testdata/dst_clock_corpus.json`, which the Go suite
- * checks against `time.Date` itself. That agreement is the specification.
+ * checks against `time.Date` itself. That agreement is the specification, and it
+ * is a specification about the dates a venue can book: the offset here is
+ * minute-grained, so a zone's pre-1970 local-mean-time offset, which carries
+ * seconds, resolves a few tens of seconds off what Go returns.
  *
  * A clock inside a fall-back overlap happens twice and both instants are
  * defensible. Which one comes back depends on which side of the transition the
@@ -347,10 +358,10 @@ export function resolveLocalClockToUTC(
  * Combines a date string and time string into a UTC ISO timestamp
  * Treats the input as local time in the specified timezone
  *
- * A clock inside a spring-forward gap has no correct answer and still gets one
- * here, because every caller needs a value; a caller that must not store a time
- * nobody could have entered asks {@link resolveLocalClockToUTC} and reads
- * `exists`.
+ * The instant half of {@link resolveLocalClockToUTC}, plus a browser-local
+ * branch for a caller with no zone at all. A caller that STORES the instant
+ * wants the other function: a clock inside a spring-forward gap has no correct
+ * answer and still gets one here, and only `exists` says so.
  *
  * @param dateString - Date in YYYY-MM-DD format (from date input)
  * @param timeString - Time in HH:MM format (from time input)
@@ -376,30 +387,6 @@ export function combineDateTimeToUTC(
   return resolveLocalClockToUTC(dateString, timeString, timezone).utc
 }
 
-/**
- * Whether this wall clock exists on this day in this zone.
- *
- * False only inside the window a spring-forward skips, where
- * {@link combineDateTimeToUTC} must still return something and returns the
- * instant Go's `time.Date` does. 2:30 AM on a spring-forward night is not a time
- * that happened, and storing it resolves to a clock nobody entered: on
- * America/Chicago's 2026-03-08 it is the same instant 1:30 AM resolves to.
- *
- * A clock inside a fall-back overlap is TRUE here. It happened, twice, and the
- * instant returned is one of the two; ambiguity is not a reason to refuse a time
- * a person typed.
- *
- * The zone is required, unlike on {@link combineDateTimeToUTC}: without one
- * there is no zone whose transitions this could be a claim about. A caller that
- * wants the instant too asks {@link resolveLocalClockToUTC} for both at once.
- */
-export function localClockExists(
-  dateString: string,
-  timeString: string,
-  timezone: string
-): boolean {
-  return resolveWallClockInZone(dateString, timeString, timezone).exists
-}
 
 /**
  * Format a UTC date string for display in a specific timezone

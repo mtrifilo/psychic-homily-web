@@ -57,10 +57,10 @@ func parseWallClock(t *testing.T, c dstClockCase) (year int, month time.Month, d
 	return year, time.Month(m), day, hour, minute
 }
 
-// TestDSTClockCorpus holds every corpus row to time.Date, which is what the
-// stated instants were computed from and what the frontend has to agree with.
-// A row edited by hand to a number nothing produces fails here rather than
-// travelling to the other language as a claim.
+// TestDSTClockCorpus holds every corpus row to time.Date, which is the function
+// the Go writers compose through and the answer the frontend resolver has to
+// match. A row edited by hand to a number nothing produces fails here rather
+// than travelling to the other language as a claim.
 func TestDSTClockCorpus(t *testing.T) {
 	corpus := loadDSTClockCorpus(t)
 

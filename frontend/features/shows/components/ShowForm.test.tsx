@@ -1890,6 +1890,27 @@ function nextTransitionDate(
   throw new Error(`no ${direction} transition found for ${timeZone}`)
 }
 
+/**
+ * The clock a submitted instant reads as in a zone, as `YYYY-MM-DD HH:MM`.
+ *
+ * Through Intl rather than through the resolver that produced the instant: an
+ * assertion built from `combineDateTimeToUTC` would move with a broken resolver
+ * and still pass.
+ */
+function readClockInZone(instantISO: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+    .format(new Date(instantISO))
+    .replace(', ', ' ')
+}
+
 /** A US venue in a zone that transitions, so the dates above apply to it. */
 function chicagoVenue() {
   return {
@@ -1961,10 +1982,8 @@ describe('ShowForm: a local time the venue does not have', () => {
       />
     )
 
-    fireSet(
-      screen.getByLabelText(/^Date$/i) as HTMLInputElement,
-      nextTransitionDate('back', 'America/Chicago')
-    )
+    const overlapDate = nextTransitionDate('back', 'America/Chicago')
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, overlapDate)
     fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '01:30')
 
     await user.click(screen.getByRole('button', { name: /save changes/i }))
@@ -1973,6 +1992,16 @@ describe('ShowForm: a local time the venue does not have', () => {
     expect(
       screen.queryByText(/this time does not exist on this date/i)
     ).not.toBeInTheDocument()
+
+    // The instant, not just the fact that a save happened: an overlap has two
+    // instants for this clock and the row gets one of them, so a test that only
+    // watched for the absence of an error would pass on either.
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { event_date?: string }
+    }
+    expect(readClockInZone(call.updates.event_date as string, 'America/Chicago')).toBe(
+      `${overlapDate} 01:30`
+    )
   })
 
   it('leaves a normal evening at the same venue alone', async () => {
@@ -2003,21 +2032,98 @@ describe('ShowForm: a local time the venue does not have', () => {
       updates: { event_date?: string }
     }
 
-    // Read the submitted instant back through Intl rather than through the
-    // resolver that produced it: an assertion against combineDateTimeToUTC
-    // would move with a broken resolver and still pass.
-    const back = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Chicago',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
+    expect(readClockInZone(call.updates.event_date as string, 'America/Chicago')).toBe(
+      `${date} 20:00`
+    )
+  })
+
+
+  // The zone comes from the venue's own row before the state map, and the two
+  // must not disagree between the rule and the submit. A European venue with a
+  // blank state is the case that separates them: the state map answers
+  // America/Phoenix, which never transitions, so a rule that keyed on the state
+  // would pass every gap clock at this venue while the submit stored one.
+  it('refuses a gap clock at a venue whose zone only its own row knows', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          city: 'Berlin',
+          state: '',
+          venues: [
+            {
+              id: 91,
+              slug: 'berghain',
+              name: 'Berghain',
+              address: null,
+              city: 'Berlin',
+              state: '',
+              timezone: 'Europe/Berlin',
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+    fireSet(
+      screen.getByLabelText(/^Date$/i) as HTMLInputElement,
+      nextTransitionDate('forward', 'Europe/Berlin')
+    )
+    fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '02:30')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(
+      await screen.findByText(/this time does not exist on this date/i)
+    ).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  it('stores a European venue evening on the venue zone, not the state map', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
     })
-      .format(new Date(call.updates.event_date as string))
-      .replace(', ', ' ')
-    expect(back).toBe(`${date} 20:00`)
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          city: 'Berlin',
+          state: '',
+          venues: [
+            {
+              id: 91,
+              slug: 'berghain',
+              name: 'Berghain',
+              address: null,
+              city: 'Berlin',
+              state: '',
+              timezone: 'Europe/Berlin',
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    const date = futureDate()
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, date)
+    fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '20:00')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { event_date?: string }
+    }
+    expect(readClockInZone(call.updates.event_date as string, 'Europe/Berlin')).toBe(
+      `${date} 20:00`
+    )
   })
 
   it('reports the empty date rather than resolving a clock for it', async () => {

@@ -396,8 +396,14 @@ export function ShowForm({
       // own IANA zone and only falls back to the US state map, which answers
       // America/Phoenix for every non-US venue (PSY-1873): keying on the state
       // alone wrote a Leeds 8pm show as 03:00Z and the show page then rendered
-      // it at 4:00 AM the next day. The same resolver reads the instant back in
-      // showToFormValues, so an edit round-trips instead of shifting the row.
+      // it at 4:00 AM the next day. The same zone resolver reads the instant back
+      // in showToFormValues, so an edit round-trips instead of shifting the row.
+      //
+      // With ONE exception, pinned by "the form round trip across a DST
+      // transition" in lib/utils/timeUtils.test.ts: a fall-back overlap has two
+      // instants for one wall clock, and reading either one back gives that
+      // clock, so re-saving a row stored on the occurrence this resolver does
+      // not pick moves it by the transition's step.
       //
       // makeShowFormSchema calls this same function on the same values: its
       // venue rule decides when `value.venue.state` may be blank by reasoning
