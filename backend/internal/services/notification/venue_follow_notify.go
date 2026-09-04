@@ -1090,16 +1090,9 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 
 	html := buildVenueShowAlertEmailHTML(batch, mailable, unsubscribeURL, manageURL)
 
-	// The subject is a HEADER, and a venue name on an ingest-created row is
-	// scraped third-party text. HTML escaping does nothing for headers: a CR or
-	// LF in the name is how a header is split and another one injected.
-	//
-	// Bounded as well as sanitized: an unfolded multi-kilobyte subject is
-	// provider-dependent behaviour ranging from truncation to outright rejection,
-	// and a rejected send is logged and swallowed below — a silently lost alert.
 	subject := fmt.Sprintf("%s at %s",
 		venueAlertShowCountPhrase(len(mailable)),
-		truncateRunes(sanitizeEmailHeaderValue(batch.venueName), maxEmailSubjectEntityRunes))
+		entityNameForSubject(batch.venueName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {

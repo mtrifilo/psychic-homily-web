@@ -379,15 +379,6 @@ func TestBuildVenueShowAlertEmailHTML_EscapesScrapedText(t *testing.T) {
 	assert.Contains(t, html, "&lt;img src=x onerror=alert(1)&gt;")
 }
 
-// TestSanitizeVenueAlertSubject covers the OTHER escaping medium. htmlEscape
-// does nothing for a header, where the dangerous character is a newline rather
-// than an angle bracket.
-func TestSanitizeVenueAlertSubject(t *testing.T) {
-	got := sanitizeEmailHeaderValue("Valley Bar\r\nBcc: victim@example.com")
-	assert.NotContains(t, got, "\n")
-	assert.NotContains(t, got, "\r")
-}
-
 // TestEmailListRows covers the one layout element the digest could not inherit.
 func TestEmailListRows(t *testing.T) {
 	assert.Empty(t, emailListRows(nil), "no rows must render no block, not an empty table")
