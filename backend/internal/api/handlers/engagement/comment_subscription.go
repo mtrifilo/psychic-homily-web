@@ -119,7 +119,7 @@ func (h *CommentSubscriptionHandler) SubscribeHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "subscribe_comments", req.EntityType, uint(entityID), nil)
 		})
 	}
@@ -183,7 +183,7 @@ func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "unsubscribe_comments", req.EntityType, uint(entityID), nil)
 		})
 	}

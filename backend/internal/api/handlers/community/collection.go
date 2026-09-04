@@ -281,7 +281,7 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_collection", "collection", collection.ID, nil)
 		})
 	}
@@ -359,7 +359,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 	// the row it authorised the write against, which is the only id available on
 	// the 204 path.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collectionID, nil)
 		})
 	}
@@ -425,7 +425,7 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_collection", "collection", collectionID, map[string]interface{}{"slug": req.Slug})
 		})
 	}
@@ -496,7 +496,7 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 	// once the item is gone. The id comes from the service that authorised the
 	// write, so a successful write always has one.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			metadata := collectionItemAuditMetadata(req.Slug, collectionID)
 			metadata["entity_type"] = req.Body.EntityType
 			metadata["entity_id"] = req.Body.EntityID
@@ -576,7 +576,7 @@ func (h *CollectionHandler) BulkAddItemsHandler(ctx context.Context, req *BulkAd
 	if h.auditLogService != nil && (len(resp.Added) > 0 || len(resp.Errors) > 0) {
 		addedCount := len(resp.Added)
 		errorCount := len(resp.Errors)
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "bulk_add_collection_items", "collection", collectionID, map[string]interface{}{
 				"slug":           req.Slug,
 				"added_count":    addedCount,
@@ -644,7 +644,7 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 	// Audit log (fire and forget). collection_id is the durable parent
 	// reference; see the add path.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID,
 				collectionItemAuditMetadata(req.Slug, collectionID))
 		})
@@ -700,7 +700,7 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 	// against. The service that removed the item hands the parent back, so this
 	// row always carries one.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID),
 				collectionItemAuditMetadata(req.Slug, collectionID))
 		})
@@ -841,7 +841,7 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 	// Audit log (fire and forget). entity_id is the durable identity rather than
 	// a mutable slug, and it comes from the service that applied the flip.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", collectionID, map[string]interface{}{
 				"slug":     req.Slug,
 				"featured": req.Body.Featured,
@@ -1116,7 +1116,7 @@ func (h *CollectionHandler) CloneCollectionHandler(ctx context.Context, req *Clo
 	// Audit log (fire and forget). The audit feed renders this as
 	// "collection_cloned" via mapActionToEventType in admin/stats.go.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "clone_collection", "collection", clone.ID, map[string]interface{}{
 				"source_slug": req.Slug,
 				"source_id":   clone.ForkedFromCollectionID,
@@ -1199,7 +1199,7 @@ func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *Ad
 	}
 
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_collection_tag", "collection", collectionID, map[string]interface{}{
 				"slug":     req.Slug,
 				"tag_id":   req.Body.TagID,
@@ -1251,7 +1251,7 @@ func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req 
 	}
 
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_tag", "collection", collectionID, map[string]interface{}{
 				"slug":   req.Slug,
 				"tag_id": tagID,

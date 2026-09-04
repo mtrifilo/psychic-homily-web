@@ -255,7 +255,7 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_festival", "festival", festival.ID, nil)
 		})
 	}
@@ -358,7 +358,7 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 
 	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogEntityEdit(user.ID, "festival", festivalID, nil)
 		})
 	}
@@ -429,7 +429,7 @@ func (h *FestivalHandler) DeleteFestivalHandler(ctx context.Context, req *Delete
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_festival", "festival", festivalID, nil)
 		})
 	}
@@ -550,7 +550,7 @@ func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *Add
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_festival_artist", "festival", uint(festivalID), nil)
 		})
 	}
@@ -620,7 +620,7 @@ func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_festival_artist", "festival", uint(festivalID), nil)
 		})
 	}
@@ -668,7 +668,7 @@ func (h *FestivalHandler) RemoveFestivalArtistHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_festival_artist", "festival", uint(festivalID), nil)
 		})
 	}
@@ -767,7 +767,7 @@ func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddF
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_festival_venue", "festival", uint(festivalID), nil)
 		})
 	}
@@ -815,7 +815,7 @@ func (h *FestivalHandler) RemoveFestivalVenueHandler(ctx context.Context, req *R
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_festival_venue", "festival", uint(festivalID), nil)
 		})
 	}

@@ -450,7 +450,7 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "revision_rollback", "revision", uint(revisionID), map[string]interface{}{
 				"revision_id": revisionID,
 			})

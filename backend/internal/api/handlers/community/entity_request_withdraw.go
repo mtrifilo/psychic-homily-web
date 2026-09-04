@@ -98,7 +98,7 @@ func (h *EntityRequestHandler) WithdrawEntityRequestHandler(ctx context.Context,
 			"request_id":     reqID,
 			"decision_state": string(withdrawn.DecisionState),
 		}
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "withdraw_entity_request", entityType, reqID, metadata)
 		})
 	}

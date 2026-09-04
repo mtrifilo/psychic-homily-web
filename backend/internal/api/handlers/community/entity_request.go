@@ -399,7 +399,7 @@ func (h *EntityRequestHandler) submitEntityRequest(
 			metadata["created_entity_id"] = *created.CreatedEntityID
 		}
 		addSupersededMetadata(metadata, superseded)
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, action, entityType, reqID, metadata)
 		})
 	}
@@ -881,7 +881,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			metadata["bill_source"] = string(showAssoc.billSource)
 		}
 		entityType := decided.EntityType
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(admin.ID, action, entityType, reqID, metadata)
 		})
 	}

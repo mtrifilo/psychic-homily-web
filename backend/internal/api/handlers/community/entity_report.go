@@ -139,7 +139,7 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "report_"+entityType, entityType, uint(entityID), map[string]interface{}{
 				"report_id":   report.ID,
 				"report_type": reportType,
@@ -322,7 +322,7 @@ func (h *EntityReportHandler) AdminResolveEntityReportHandler(ctx context.Contex
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "resolve_entity_report", resolved.EntityType, resolved.EntityID, map[string]interface{}{
 				"report_id":   resolved.ID,
 				"report_type": resolved.ReportType,
@@ -384,7 +384,7 @@ func (h *EntityReportHandler) AdminDismissEntityReportHandler(ctx context.Contex
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "dismiss_entity_report", dismissed.EntityType, dismissed.EntityID, map[string]interface{}{
 				"report_id":   dismissed.ID,
 				"report_type": dismissed.ReportType,

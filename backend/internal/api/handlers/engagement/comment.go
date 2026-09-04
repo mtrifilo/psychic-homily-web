@@ -422,7 +422,7 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 	// gates it on the wrong id (PSY-1939). comment_id moves to metadata, which is
 	// where a secondary identifier belongs.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_comment", req.EntityType, uint(entityID), map[string]interface{}{
 				"entity_id":  uint(entityID),
 				"comment_id": comment.ID,
@@ -517,7 +517,7 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_comment", parent.EntityType, parent.EntityID, map[string]interface{}{
 				"entity_id":  parent.EntityID,
 				"comment_id": comment.ID,
@@ -594,7 +594,7 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "edit_comment", "comment", uint(commentID), nil)
 		})
 	}
@@ -658,7 +658,7 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 	}
 
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_reply_permission", "comment", uint(commentID), map[string]interface{}{
 				"permission": perm,
 			})
@@ -716,7 +716,7 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_comment", "comment", uint(commentID), nil)
 		})
 	}

@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -236,7 +235,7 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 	// Fire-and-forget audit log after the transaction commits, matching the
 	// convention used in neighboring admin services. Errors inside LogAction
 	// are logged but never bubble up.
-	shared.GoSafe(context.Background(), "tag_merge_audit_log", func() {
+	shared.SubmitAuditWrite("tag_merge_audit_log", func() {
 		s.writeMergeAuditLog(actorUserID, sourceID, mergedTagID, sourceName, targetName, &result)
 	})
 

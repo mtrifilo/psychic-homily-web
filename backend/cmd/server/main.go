@@ -734,8 +734,17 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("error during shutdown: %s\n", err)
+	shutdownErr := srv.Shutdown(ctx)
+
+	// After the HTTP server, so no request is still submitting: the queued audit
+	// writes are drained on the same deadline the server shutdown uses, and
+	// whatever does not make it is reported rather than lost quietly.
+	if err := servicesshared.ShutdownAuditWrites(ctx); err != nil {
+		log.Printf("WARNING: %s", err)
+	}
+
+	if shutdownErr != nil {
+		log.Fatalf("error during shutdown: %s\n", shutdownErr)
 	}
 
 	log.Println("Server gracefully stopped.")
