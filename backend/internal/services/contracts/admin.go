@@ -464,7 +464,50 @@ type RevisionServiceInterface interface {
 	GetEntityHistory(entityType string, entityID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
 	GetRevision(revisionID uint, viewer RevisionViewer) (*adminm.Revision, error)
 	GetUserRevisions(userID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
-	Rollback(ctx context.Context, revisionID uint, adminUserID uint) error
+	// Rollback restores every field of a revision that passes the apply-side
+	// gates and reports the ones it refused. See RollbackResult. A nil error
+	// means a non-nil result.
+	Rollback(ctx context.Context, revisionID uint, adminUserID uint) (*RollbackResult, error)
+}
+
+// RollbackSkippedField names one field a rollback declined to restore, with the
+// refusal message the gate produced for it.
+type RollbackSkippedField struct {
+	Field  string `json:"field" doc:"Field that was not restored"`
+	Reason string `json:"reason" doc:"Why the stored previous value was refused"`
+}
+
+// RollbackResult reports what a rollback actually did.
+//
+// A rollback is per FIELD, not per revision: the values it writes come from
+// revisions.field_changes, and a stored value can be one the apply-side gates
+// refuse (the URL rules in particular, since an old_value written before the
+// submit-time derivation was contributor input that nothing validated). Refusing
+// the whole revision made one such field block the undo of every honest field
+// recorded beside it, which let a contributor deny undo of their own edit.
+//
+// So both halves are always reported and neither is optional: a partial rollback
+// that did not name what it skipped would leave an admin believing they had
+// undone an edit they had only half undone. A rollback that can restore NOTHING
+// is an error rather than a result, because there is no undo to report.
+//
+// Both slices are non-nil on every result this service returns. The generated
+// client types still declare them nullable, because that is how a Go slice is
+// published, so a client that has not read this still needs its own fallback.
+type RollbackResult struct {
+	AppliedFields []string               `json:"applied_fields" doc:"Fields restored to their previous values"`
+	SkippedFields []RollbackSkippedField `json:"skipped_fields" doc:"Fields left unchanged, with the reason for each"`
+}
+
+// SkippedFieldNames lists just the refused field names, for the places that name
+// the fields without room for a reason each: the structured log and the summary
+// of the revision a partial rollback records.
+func (r RollbackResult) SkippedFieldNames() []string {
+	names := make([]string, 0, len(r.SkippedFields))
+	for _, s := range r.SkippedFields {
+		names = append(names, s.Field)
+	}
+	return names
 }
 
 // BandcampProfileFillerInterface is the narrow contract the pending-edit approval

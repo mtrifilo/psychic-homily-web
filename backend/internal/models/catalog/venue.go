@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"sort"
 	"time"
 
 	"psychic-homily-backend/internal/models/auth"
@@ -163,4 +164,64 @@ func (v *Venue) PublicZipcode() *string {
 		return nil
 	}
 	return v.Zipcode
+}
+
+// venuePrivateFieldGates pairs each column the address gate covers with the
+// accessor that decides whether THIS venue publishes it, keyed by the field name
+// revisions and pending edits spell it with.
+//
+// It is the one list of those field names. VenuePrivateFields serves the readers
+// that need the names alone (revision history masks the same set at read time),
+// and WithheldEditFields serves the reader that needs a per-venue verdict. A
+// third gated column of the same shape is one entry here, and revisiondiff's
+// startup validator then checks the name against what a venue revision can carry.
+//
+// The signature covers *string columns, which is what both gated columns are. A
+// gate over another type -- the street coordinates carry the same rule inline in
+// buildVenueResponse -- needs this map generalized before it can live here, not
+// a second list beside it.
+var venuePrivateFieldGates = map[string]func(*Venue) (stored, public *string){
+	"address": func(v *Venue) (*string, *string) { return v.Address, v.PublicAddress() },
+	"zipcode": func(v *Venue) (*string, *string) { return v.Zipcode, v.PublicZipcode() },
+}
+
+// VenuePrivateFields names the venue columns the street-address privacy gate
+// covers, sorted so the order is stable for callers that render it.
+//
+// The NAMES are shared; the caller tier is not. This list says which fields the
+// gate reaches, never who may read them: the live payload withholds them from
+// everybody while revision history serves an admin the unmasked view. That
+// asymmetry is argued once, on revisiondiff.venuePrivateFields.
+func VenuePrivateFields() []string {
+	names := make([]string, 0, len(venuePrivateFieldGates))
+	for name := range venuePrivateFieldGates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// WithheldEditFields names the columns whose stored value THIS venue does not
+// publish, in the field-name spelling a pending edit uses.
+//
+// It answers one question for the pending-edit pipeline: may a submitter's claim
+// about this field's previous value be trusted as evidence? A field the reader
+// is never served cannot have been observed, so a claim about it says nothing,
+// and treating it as a stale-value conflict would refuse the edit forever rather
+// than once.
+//
+// It asks the accessors rather than repeating their rule, so a change to WHEN a
+// field is withheld lands here for free.
+func (v *Venue) WithheldEditFields() []string {
+	if v == nil {
+		return nil
+	}
+	var withheld []string
+	for _, name := range VenuePrivateFields() {
+		stored, public := venuePrivateFieldGates[name](v)
+		if stored != nil && public == nil {
+			withheld = append(withheld, name)
+		}
+	}
+	return withheld
 }

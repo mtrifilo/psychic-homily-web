@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import type { components } from '@/types/api'
 
 // --- Types ---
 
@@ -45,9 +46,19 @@ interface UserRevisionsResponse {
   total: number
 }
 
-interface RollbackResponse {
-  success: boolean
-}
+/**
+ * What a rollback actually did, field by field.
+ *
+ * Aliased from the generated OpenAPI types rather than hand-written, so the
+ * skipped list cannot drift from what the endpoint sends (PSY-1550/1600).
+ *
+ * A rollback restores the fields the server's apply-side gates accept and
+ * refuses the rest, so `skipped_fields` is a normal outcome and not an error
+ * branch: a caller that renders only `success` tells an admin an edit was
+ * undone when part of it was not.
+ */
+export type RollbackSkippedField = components['schemas']['RollbackSkippedField']
+export type RollbackResponse = components['schemas']['RollbackRevisionResponseBody']
 
 // --- Hooks ---
 
@@ -117,8 +128,18 @@ export function useUserRevisions(
 
 /**
  * Rollback a revision (admin only).
+ *
+ * entityType is the singular entity name whose detail queries a successful
+ * rollback invalidates, alongside the revision list. A rollback WRITES the
+ * entity, so without it the panel reports which fields it restored while the
+ * page around it still shows the values from before, which is a worse claim than
+ * saying nothing. Omit it where there is no entity page to refresh.
+ *
+ * The DETAIL prefix rather than an id-keyed key: a detail query is keyed by
+ * whatever the page routed on, which is a slug on every entity page, and this
+ * hook has only the revision id.
  */
-export function useRollbackRevision() {
+export function useRollbackRevision(entityType?: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -128,6 +149,9 @@ export function useRollbackRevision() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.revisions.all })
+      if (entityType) {
+        queryClient.invalidateQueries({ queryKey: [`${entityType}s`, 'detail'] })
+      }
     },
   })
 }

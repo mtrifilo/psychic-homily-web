@@ -156,7 +156,7 @@ func ValidateAll() error {
 			if err != nil {
 				return fmt.Errorf("revisiondiff: %s field %q (%s): %w", e.name, f.Name, f.Path, err)
 			}
-			if !supportedType(ft) {
+			if !SupportedType(ft) {
 				return fmt.Errorf("revisiondiff: %s field %q (%s) has unsupported type %s", e.name, f.Name, f.Path, ft)
 			}
 		}
@@ -184,8 +184,10 @@ func resolveFieldType(t reflect.Type, path string) (reflect.Type, error) {
 	return cur, nil
 }
 
-// supportedType reports whether diffValue/diffPtr can handle ft.
-func supportedType(ft reflect.Type) bool {
+// SupportedType reports whether EmitValue (and so diffValue/diffPtr) can handle
+// ft. Exported for the pending-edit pipeline, which asks the same question about
+// a GORM model's columns before deriving a previous value from one.
+func SupportedType(ft reflect.Type) bool {
 	if ft == timeType {
 		return true
 	}

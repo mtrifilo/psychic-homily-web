@@ -15549,7 +15549,17 @@ export interface components {
              * @example https://example.com/schemas/RollbackRevisionResponseBody.json
              */
             readonly $schema?: string;
+            /** @description Fields restored to their previous values */
+            applied_fields: string[] | null;
+            /** @description Fields left unchanged, with the reason for each */
+            skipped_fields: components["schemas"]["RollbackSkippedField"][] | null;
             success: boolean;
+        };
+        RollbackSkippedField: {
+            /** @description Field that was not restored */
+            field: string;
+            /** @description Why the stored previous value was refused */
+            reason: string;
         };
         SaveReleaseResponseBody: {
             /**

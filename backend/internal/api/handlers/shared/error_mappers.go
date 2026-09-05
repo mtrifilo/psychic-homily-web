@@ -591,7 +591,9 @@ func MapPendingEditError(err error) error {
 		switch editErr.Code {
 		case apperrors.CodePendingEditEntityNotFound, apperrors.CodePendingEditNotFound:
 			return huma.Error404NotFound(editErr.Message)
-		case apperrors.CodePendingEditNotPending, apperrors.CodePendingEditDuplicate:
+		case apperrors.CodePendingEditNotPending,
+			apperrors.CodePendingEditDuplicate,
+			apperrors.CodePendingEditStaleValue:
 			return huma.Error409Conflict(editErr.Message)
 		case apperrors.CodePendingEditNotSubmitter:
 			return huma.Error403Forbidden(editErr.Message)

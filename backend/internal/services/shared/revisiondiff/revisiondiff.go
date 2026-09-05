@@ -265,9 +265,88 @@ func resolvePath(structVal reflect.Value, path string) reflect.Value {
 	return cur
 }
 
+// EmitValue converts one field to the JSON shape a FieldChange stores.
+//
+// It is the emit half of Compare, split out because a revision's previous value
+// is also derived OUTSIDE a diff: the pending-edit pipeline reads it off the
+// entity at submit time. Both spellings of "the previous value" have to agree,
+// because Rollback feeds either one back into the same untyped update map, and
+// an undo must not depend on which surface made the edit. One function is what
+// makes them agree; two that were merely written to match would not stay that
+// way. diffValue and diffPtr emit through here for the same reason.
+//
+// So a nil *string emits "" while every other nullable kind emits nil. The
+// argument for that asymmetry is on diffPtr, and it is a claim about the FIELDS
+// in fields.go rather than about *string in the abstract.
+//
+// Returns an error for a type Compare cannot diff, which SupportedType reports
+// ahead of time and ValidateAll refuses at init.
+func EmitValue(v reflect.Value) (interface{}, error) {
+	t := v.Type()
+	if t == timeType {
+		return v.Interface().(time.Time).Format(time.RFC3339), nil
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return v.String(), nil
+	case reflect.Int:
+		return int(v.Int()), nil
+	case reflect.Ptr:
+		return emitPtr(v, t.Elem())
+	default:
+		return nil, fmt.Errorf("revisiondiff: unsupported field kind %s", t.Kind())
+	}
+}
+
+// emitPtr returns nil for every unset nullable kind except *string, so Rollback
+// restores SQL NULL rather than the type's zero value. The interface{} return is
+// load-bearing on both halves of that: a typed zero is what publishes "DOOR
+// Free" for a price nobody recorded, and "" is not a valid TIMESTAMPTZ, which is
+// what once made a doors_at revision unrollbackable.
+func emitPtr(v reflect.Value, elem reflect.Type) (interface{}, error) {
+	if elem == timeType {
+		if v.IsNil() {
+			return nil, nil
+		}
+		return v.Elem().Interface().(time.Time).Format(time.RFC3339), nil
+	}
+	switch elem.Kind() {
+	case reflect.String:
+		if v.IsNil() {
+			return "", nil
+		}
+		return v.Elem().String(), nil
+	case reflect.Int:
+		if v.IsNil() {
+			return nil, nil
+		}
+		return int(v.Elem().Int()), nil
+	case reflect.Float64:
+		if v.IsNil() {
+			return nil, nil
+		}
+		return v.Elem().Float(), nil
+	default:
+		return nil, fmt.Errorf("revisiondiff: unsupported pointer element kind %s", elem.Kind())
+	}
+}
+
+// mustEmit is EmitValue for the callers that already know the type is
+// supported, because ValidateAll refused every field list that names one that
+// is not. A failure here is a programming error, not a data condition, and
+// Compare's contract is already to panic on it.
+func mustEmit(v reflect.Value) interface{} {
+	out, err := EmitValue(v)
+	if err != nil {
+		panic(err.Error())
+	}
+	return out
+}
+
 // diffValue compares two reflect.Values of the same supported type and returns
-// the old/new emit values plus whether they differ. The emit types match the
-// original compute*Changes helpers exactly so JSONB output is byte-identical.
+// the old/new emit values plus whether they differ. The emit types come from
+// EmitValue, which is shared with the pending-edit pipeline so JSONB output is
+// the same shape whichever surface recorded it.
 func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed bool) {
 	t := before.Type()
 
@@ -276,19 +355,15 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 	if t == timeType {
 		bt := before.Interface().(time.Time)
 		at := after.Interface().(time.Time)
-		return bt.Format(time.RFC3339), at.Format(time.RFC3339), !bt.Equal(at)
+		return mustEmit(before), mustEmit(after), !bt.Equal(at)
 	}
 
 	switch t.Kind() {
 	case reflect.String:
-		b := before.String()
-		a := after.String()
-		return b, a, b != a
+		return mustEmit(before), mustEmit(after), before.String() != after.String()
 
 	case reflect.Int:
-		b := int(before.Int())
-		a := int(after.Int())
-		return b, a, b != a
+		return mustEmit(before), mustEmit(after), before.Int() != after.Int()
 
 	case reflect.Ptr:
 		return diffPtr(before, after, t.Elem())
@@ -339,42 +414,26 @@ func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal int
 	if elem == timeType {
 		b, bok := derefTime(before)
 		a, aok := derefTime(after)
-		return optionalTimeValue(b, bok), optionalTimeValue(a, aok), bok != aok || (bok && !b.Equal(a))
+		return mustEmit(before), mustEmit(after), bok != aok || (bok && !b.Equal(a))
 	}
 
 	switch elem.Kind() {
 	case reflect.String:
-		b := derefString(before)
-		a := derefString(after)
-		return b, a, b != a
+		return mustEmit(before), mustEmit(after), derefString(before) != derefString(after)
 
 	case reflect.Float64:
 		b, bok := derefFloat64(before)
 		a, aok := derefFloat64(after)
-		return optionalValue(b, bok), optionalValue(a, aok), bok != aok || (bok && b != a)
+		return mustEmit(before), mustEmit(after), bok != aok || (bok && b != a)
 
 	case reflect.Int:
 		b, bok := derefInt(before)
 		a, aok := derefInt(after)
-		return optionalValue(b, bok), optionalValue(a, aok), bok != aok || (bok && b != a)
+		return mustEmit(before), mustEmit(after), bok != aok || (bok && b != a)
 
 	default:
 		panic(fmt.Sprintf("revisiondiff: unsupported pointer element kind %s", elem.Kind()))
 	}
-}
-
-// optionalValue returns nil for unset so Rollback restores SQL NULL rather than
-// the type's zero value. The numeric counterpart of optionalTimeValue, and
-// generic only because *float64 and *int need the identical treatment; the time
-// case stays separate because it formats rather than passing the value through.
-//
-// The interface{} return type is load-bearing, exactly as it is there: a typed
-// zero here is what publishes "DOOR Free" for a price nobody recorded.
-func optionalValue[T float64 | int](v T, set bool) interface{} {
-	if !set {
-		return nil
-	}
-	return v
 }
 
 // derefTime reports the pointed-to instant and whether the pointer was set.
@@ -385,17 +444,6 @@ func derefTime(p reflect.Value) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return p.Elem().Interface().(time.Time), true
-}
-
-// optionalTimeValue returns nil for unset so Rollback restores SQL NULL rather
-// than trying to write a string into a TIMESTAMPTZ column. The interface{}
-// return type is load-bearing: returning "" here is what made a doors_at
-// revision unrollbackable.
-func optionalTimeValue(t time.Time, set bool) interface{} {
-	if !set {
-		return nil
-	}
-	return t.Format(time.RFC3339)
 }
 
 func derefString(p reflect.Value) string {

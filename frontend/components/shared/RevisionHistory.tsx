@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, History, Loader2, RotateCcw } from 'lucide-react'
 import { useEntityRevisions, useRollbackRevision } from '@/lib/hooks/common/useRevisions'
-import type { RevisionItem, FieldChange } from '@/lib/hooks/common/useRevisions'
+import type { RevisionItem, FieldChange, RollbackSkippedField } from '@/lib/hooks/common/useRevisions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
@@ -51,6 +51,65 @@ function FieldChangeDiff({ change }: { change: FieldChange }) {
   )
 }
 
+/** No rollback has touched this row, shared so a render allocates nothing. */
+const NO_SKIPPED_FIELDS: readonly RollbackSkippedField[] = []
+
+/**
+ * One row's view of the single rollback mutation every row shares.
+ *
+ * All three values are row-scoped together, because the mutation carries only
+ * the LAST rollback: without the scoping, one row's skipped list renders under
+ * every row, and every row's button spins while any one of them is rolling back.
+ */
+interface RowRollbackState {
+  /** Fields the last rollback of THIS revision refused to restore. */
+  skipped: readonly RollbackSkippedField[]
+  /** Message from a rollback of THIS revision the server refused whole. */
+  error: string | null
+  /** Whether the rollback in flight is THIS row's. */
+  isPending: boolean
+}
+
+/**
+ * Reports what the rollback an admin just ran on THIS revision actually did.
+ *
+ * A rollback restores the fields that pass the server's write gates and refuses
+ * the rest, so the refused list is the load-bearing part: without it the button
+ * reads as a completed undo while part of the edit is still in place. The
+ * failure case is here for the same reason, since a rollback the server refuses
+ * outright otherwise leaves the panel unchanged and silent.
+ *
+ * The copy states what happened and does not reassure. A revision written before
+ * the submit-time derivation can carry a previous value nobody vetted, and only
+ * the URL and numeric fields have a gate, so "the other fields were restored" is
+ * not by itself good news.
+ */
+function RollbackOutcome({ skipped, error }: RowRollbackState) {
+  if (error) {
+    return (
+      <p className="mt-2 text-xs text-destructive" role="status">
+        Rollback failed: {error}
+      </p>
+    )
+  }
+  if (skipped.length === 0) return null
+  return (
+    <div className="mt-2 text-xs" role="status">
+      <p className="text-muted-foreground">
+        Partial rollback. {skipped.length} field
+        {skipped.length === 1 ? ' was' : 's were'} left unchanged:
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {skipped.map(field => (
+          <li key={field.field} className="text-destructive">
+            <span className="font-medium">{field.field}</span>: {field.reason}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 /**
  * Renders a single revision entry with expandable field changes.
  */
@@ -58,12 +117,12 @@ function RevisionEntry({
   revision,
   isAdmin,
   onRollback,
-  isRollingBack,
+  rollback,
 }: {
   revision: RevisionItem
   isAdmin: boolean
   onRollback: (revisionId: number) => void
-  isRollingBack: boolean
+  rollback: RowRollbackState
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -136,22 +195,41 @@ function RevisionEntry({
                     onRollback(revision.id)
                   }
                 }}
-                disabled={isRollingBack}
+                disabled={rollback.isPending}
                 className="text-xs"
               >
-                {isRollingBack ? (
+                {rollback.isPending ? (
                   <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
                 ) : (
                   <RotateCcw className="h-3 w-3 mr-1.5" />
                 )}
                 Rollback
               </Button>
+              <RollbackOutcome {...rollback} />
             </div>
           )}
         </div>
       )}
     </div>
   )
+}
+
+/**
+ * Reduces the single rollback mutation every row shares to the ONE row it
+ * belongs to, matching on the revision id it was called with (`variables`).
+ */
+function rollbackStateFor(
+  revisionId: number,
+  rollback: ReturnType<typeof useRollbackRevision>
+): RowRollbackState {
+  if (rollback.variables !== revisionId) {
+    return { skipped: NO_SKIPPED_FIELDS, error: null, isPending: false }
+  }
+  return {
+    skipped: rollback.data?.skipped_fields ?? NO_SKIPPED_FIELDS,
+    error: rollback.isError ? ((rollback.error as Error)?.message || 'Unknown error') : null,
+    isPending: rollback.isPending,
+  }
 }
 
 /**
@@ -169,7 +247,9 @@ export function RevisionHistory({ entityType, entityId, isAdmin = false }: Revis
     offset,
   })
 
-  const rollback = useRollbackRevision()
+  // The entity type is handed to the hook so a successful rollback refreshes the
+  // page around this panel, not just the panel. See useRollbackRevision.
+  const rollback = useRollbackRevision(entityType)
 
   const total = data?.total ?? 0
   const revisions = data?.revisions ?? []
@@ -225,7 +305,7 @@ export function RevisionHistory({ entityType, entityId, isAdmin = false }: Revis
                     revision={revision}
                     isAdmin={isAdmin}
                     onRollback={id => rollback.mutate(id)}
-                    isRollingBack={rollback.isPending}
+                    rollback={rollbackStateFor(revision.id, rollback)}
                   />
                 ))}
               </div>
