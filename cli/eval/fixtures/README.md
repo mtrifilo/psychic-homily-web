@@ -100,6 +100,16 @@ scored.
   source did not. A model that copies `7 pm` through scores zero on that show:
   the clock is unreadable, and an unreadable stated time is not a stored one.
 
+**These three read `show_recall: 0`, and that is not a broken fixture.** Their
+images do not print a year (a venue calendar says "SEP 04"), so the golden's
+`event_date` carries one only the site's own slug reveals and the model guesses a
+different one. `show_recall` keys a show on date + venue, so the key misses, and
+`show_price_agreement` / `bill_role_agreement` report "not comparable" behind it.
+`show_times_agreement` is unaffected by design: it compares the stated schedules
+as a multiset precisely so a year the source never printed cannot read as a
+missing time. The two metrics answer different questions and disagree here for a
+real reason.
+
 All three are live captures rather than posters because the `ph batch` path
 ingests venue calendars; the registry of those calendars is in
 `.claude/skills/ingest/references/venue-events.md`.
