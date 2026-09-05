@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -13,6 +14,15 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
+
+// auditWriteTimeout bounds a single audit INSERT.
+//
+// These run on shared.SubmitAuditWrite's fixed worker pool, so a write with no
+// deadline does not merely wait: it occupies one of the workers for as long as
+// the database makes it wait, and enough of them occupy all of them. Losing the
+// pool that way drops audit writes for the rest of the process lifetime, which
+// is worse than losing the one write that timed out.
+const auditWriteTimeout = 10 * time.Second
 
 // AuditLogService handles audit log business logic
 type AuditLogService struct {
@@ -60,7 +70,10 @@ func (s *AuditLogService) LogAction(actorID uint, action string, entityType stri
 		}
 	}
 
-	if err := s.db.Create(&log).Error; err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), auditWriteTimeout)
+	defer cancel()
+
+	if err := s.db.WithContext(ctx).Create(&log).Error; err != nil {
 		logger.Default().Error("audit_log_create_failed",
 			"error", err.Error(),
 			"action", action,
@@ -106,7 +119,10 @@ func (s *AuditLogService) LogEntityEdit(actorID uint, entityType string, entityI
 		}
 	}
 
-	if err := s.db.Create(&log).Error; err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), auditWriteTimeout)
+	defer cancel()
+
+	if err := s.db.WithContext(ctx).Create(&log).Error; err != nil {
 		logger.Default().Error("entity_edit_audit_log_create_failed",
 			"error", err.Error(),
 			"entity_type", entityType,

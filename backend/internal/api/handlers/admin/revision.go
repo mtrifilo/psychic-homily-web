@@ -469,7 +469,7 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 	// of what the admin's action did, and one that named only the revision would
 	// record a full undo that did not happen.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "revision_rollback", "revision", uint(revisionID), map[string]interface{}{
 				"revision_id":    revisionID,
 				"applied_fields": result.AppliedFields,

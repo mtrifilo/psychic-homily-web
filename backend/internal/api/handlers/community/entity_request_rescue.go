@@ -254,7 +254,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		if showAssoc != nil && showAssoc.billSource != "" {
 			metadata["bill_source"] = string(showAssoc.billSource)
 		}
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(admin.ID, "rescue_fulfill_entity_request", entityType, reqID, metadata)
 		})
 	}
@@ -310,7 +310,7 @@ func (h *EntityRequestHandler) voidApproved(ctx context.Context, requestID, admi
 		if entityType == "" {
 			entityType = "entity_request"
 		}
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			// rescue_void_* shares the rescue_ prefix with rescue_fulfill_* so a
 			// single prefix query surfaces both halves of the rescue feature.
 			h.auditLogService.LogAction(adminID, "rescue_void_entity_request", entityType, requestID,

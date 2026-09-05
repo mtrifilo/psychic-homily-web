@@ -675,11 +675,75 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NarrowsNumericValues(
 	s.Equal(original, *restored.Capacity, "rollback must restore the exact prior capacity")
 }
 
-// A rollback restores history, so it deliberately does NOT apply the capacity
-// range. Values stored before the bound existed must stay undoable.
+// An API-only bound still does not block an undo: a year from before that bound
+// is exactly the value a rollback exists to restore.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHistoricalValue() {
 	user := s.createTestUser()
+	venue := s.createTestVenue("Legacy Year Venue")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{{Field: "name", OldValue: "Legacy Year Venue", NewValue: "Renamed Venue"}},
+		"renamed"))
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Update("name", "Renamed Venue").Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	s.Require().NoError(s.rollbackErr(recorded.ID, user.ID),
+		"undo must not be blocked by a bound the historical value predates")
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Equal("Legacy Year Venue", restored.Name)
+}
+
+// A capacity the COLUMN refuses is skipped like any other refused field, and its
+// honest siblings still restore.
+//
+// This is the whole reason the column bound is a per-field gate rather than a
+// write that fails: venues_capacity_range would abort the UPDATE carrying every
+// field, so one legacy capacity would deny the undo of a name recorded beside
+// it, which is the failure the per-field rollback exists to remove.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_ColumnBoundedCapacityIsSkippedNotFatal() {
+	user := s.createTestUser()
 	venue := s.createTestVenue("Legacy Capacity Venue")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{
+			{Field: "capacity", OldValue: 0, NewValue: 550},
+			{Field: "name", OldValue: "Legacy Capacity Venue", NewValue: "Counted Room"},
+		},
+		"counted the room and renamed it"))
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"capacity": 550, "name": "Counted Room"}).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	result, err := s.svc.Rollback(context.Background(), recorded.ID, user.ID)
+	s.Require().NoError(err, "one refused field must not deny the undo of the others")
+	s.Require().NotNil(result)
+
+	s.Equal([]string{"name"}, result.AppliedFields)
+	s.Require().Len(result.SkippedFields, 1)
+	s.Equal("capacity", result.SkippedFields[0].Field)
+	s.Contains(result.SkippedFields[0].Reason, "between 1 and 200000")
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Equal("Legacy Capacity Venue", restored.Name, "the honest field restored")
+	s.Require().NotNil(restored.Capacity)
+	s.Equal(550, *restored.Capacity, "the refused field was left as it was")
+}
+
+// A revision whose ONLY field the column refuses restores nothing, and says so
+// rather than reporting an undo that did not happen.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_CapacityOnlyRevisionRestoresNothing() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Capacity Only Venue")
 
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
 		[]adminm.FieldChange{{Field: "capacity", OldValue: 0, NewValue: 550}},
@@ -691,13 +755,83 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHis
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&recorded).Error)
 
-	s.Require().NoError(s.rollbackErr(recorded.ID, user.ID),
-		"undo must not be blocked by a bound the historical value predates")
+	_, err := s.svc.Rollback(context.Background(), recorded.ID, user.ID)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "no field of this revision can be restored")
+	s.Contains(err.Error(), "capacity")
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
 	s.Require().NotNil(restored.Capacity)
-	s.Equal(0, *restored.Capacity)
+	s.Equal(550, *restored.Capacity, "a refused rollback leaves the entity untouched")
+}
+
+// integerColumnRollbackError assumes every registered numeric field sits on a
+// Postgres INTEGER. Read the types back and check, because that assumption is
+// what makes an int32 bound the right one: a column widened to BIGINT would make
+// the gate refuse values the column could hold perfectly well.
+func (s *RevisionServiceIntegrationTestSuite) TestRegisteredNumericColumnsAreInteger() {
+	columns := map[string][2]string{
+		"capacity":     {"venues", "capacity"},
+		"founded_year": {"labels", "founded_year"},
+		"release_year": {"releases", "release_year"},
+	}
+
+	for field := range contracts.NumericEditFieldBounds() {
+		place, known := columns[field]
+		s.Require().Truef(known,
+			"%q is registered but this test does not know its column; "+
+				"integerColumnRollbackError's int32 bound is unverified for it", field)
+
+		var dataType string
+		s.Require().NoError(s.db.Raw(
+			"SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?",
+			place[0], place[1],
+		).Scan(&dataType).Error)
+		s.Equalf("integer", dataType,
+			"%s.%s is %s, so the int32 width gate no longer describes it",
+			place[0], place[1], dataType)
+	}
+}
+
+// The end of the sequence the width gate exists for, through the real Rollback.
+//
+// A stored old value past int32 narrows cleanly, passes the year exemption, and
+// before the gate could only fail at the column with SQLSTATE 22003 -- which is
+// not a CHECK violation, so it escaped the sanitizing branch and took the honest
+// field recorded beside it down with it.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_UnstorableYearIsSkippedNotFatal() {
+	user := s.createTestUser()
+
+	label := catalogm.Label{Name: "Width Gate Records", FoundedYear: nil}
+	s.Require().NoError(s.db.Create(&label).Error)
+
+	s.Require().NoError(s.svc.RecordRevision("label", label.ID, user.ID,
+		[]adminm.FieldChange{
+			{Field: "founded_year", OldValue: 9999999999, NewValue: 1998},
+			{Field: "name", OldValue: "Width Gate Records", NewValue: "Renamed Records"},
+		},
+		"a legacy old_value nobody validated"))
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).Where("id = ?", label.ID).
+		Updates(map[string]interface{}{"founded_year": 1998, "name": "Renamed Records"}).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "label", label.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	result, err := s.svc.Rollback(context.Background(), recorded.ID, user.ID)
+	s.Require().NoError(err, "a value the column cannot store must not deny the undo of the others")
+	s.Require().NotNil(result)
+
+	s.Equal([]string{"name"}, result.AppliedFields)
+	s.Require().Len(result.SkippedFields, 1)
+	s.Equal("founded_year", result.SkippedFields[0].Field)
+
+	var restored catalogm.Label
+	s.Require().NoError(s.db.First(&restored, label.ID).Error)
+	s.Equal("Width Gate Records", restored.Name, "the honest field restored")
+	s.Require().NotNil(restored.FoundedYear)
+	s.Equal(1998, *restored.FoundedYear, "the refused field was left as it was")
 }
 
 // A rollback that restores a venue's city/state must RE-DERIVE the columns the

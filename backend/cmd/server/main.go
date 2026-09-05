@@ -35,6 +35,12 @@ import (
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
+// auditDrainTimeout bounds how long shutdown waits for the queued audit writes
+// after the HTTP server has stopped. It matches the server's own shutdown
+// budget rather than sharing its context, so a slow request drain does not
+// silently spend the audit drain's time.
+const auditDrainTimeout = 10 * time.Second
+
 func main() {
 	// Load environment-specific .env file
 	environment := getEnv("ENVIRONMENT", config.EnvDevelopment)
@@ -193,6 +199,17 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	database := db.GetDB()
+
+	// The audit workers draw from the same pool the requests do, so a pool
+	// smaller than the worker count lets background writes starve request
+	// handling. Neither side can see the other -- the worker count is a
+	// package constant and the ceiling is an env var -- so the comparison
+	// belongs here, where both are in scope.
+	if cfg.Database.MaxOpenConns <= servicesshared.AuditWriteWorkers {
+		log.Printf("WARNING: DB_MAX_OPEN_CONNS=%d is not above the %d audit-log workers; "+
+			"background writes can claim the whole pool and starve requests",
+			cfg.Database.MaxOpenConns, servicesshared.AuditWriteWorkers)
+	}
 
 	// PSY-1384: refuse to boot if critical columns are missing — catches
 	// schema_migrations/DDL drift before engagement writes 422 at runtime.
@@ -734,8 +751,22 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("error during shutdown: %s\n", err)
+	shutdownErr := srv.Shutdown(ctx)
+
+	// After the HTTP server, so no request is still submitting.
+	//
+	// Its own deadline, not the server's leftovers. The case with a backlog to
+	// drain is the same case where srv.Shutdown waited on a long request and
+	// spent the budget, so sharing that context would give the drain zero time
+	// exactly when it has the most to do.
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), auditDrainTimeout)
+	defer drainCancel()
+	if err := servicesshared.ShutdownAuditWrites(drainCtx); err != nil {
+		log.Printf("WARNING: %s", err)
+	}
+
+	if shutdownErr != nil {
+		log.Fatalf("error during shutdown: %s\n", shutdownErr)
 	}
 
 	log.Println("Server gracefully stopped.")

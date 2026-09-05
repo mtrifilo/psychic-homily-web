@@ -275,7 +275,7 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_release", "release", release.ID, nil)
 		})
 	}
@@ -363,7 +363,7 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 
 	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogEntityEdit(user.ID, "release", releaseID, nil)
 		})
 	}
@@ -435,7 +435,7 @@ func (h *ReleaseHandler) DeleteReleaseHandler(ctx context.Context, req *DeleteRe
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_release", "release", releaseID, nil)
 		})
 	}
@@ -559,7 +559,7 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 	// the write: the table carries no created_by, so this entry is the only
 	// record of who put a given URL under a given platform label.
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_release_link", "release", uint(releaseID), map[string]interface{}{
 				"link_id":  link.ID,
 				"platform": link.Platform,
@@ -605,7 +605,7 @@ func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *Rem
 	// without it a removal leaves no way to say what was removed.
 	if h.auditLogService != nil {
 		releaseID, _ := strconv.ParseUint(req.ReleaseID, 10, 32)
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_release_link", "release", uint(releaseID), map[string]interface{}{
 				"link_id": linkID,
 			})

@@ -445,7 +445,7 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "approve_edit_"+approved.EntityType, approved.EntityType, approved.EntityID, map[string]interface{}{
 				"edit_id":      approved.ID,
 				"submitted_by": approved.SubmittedBy,
@@ -511,7 +511,7 @@ func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, 
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "reject_edit_"+rejected.EntityType, rejected.EntityType, rejected.EntityID, map[string]interface{}{
 				"edit_id":      rejected.ID,
 				"submitted_by": rejected.SubmittedBy,

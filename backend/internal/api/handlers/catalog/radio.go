@@ -949,7 +949,7 @@ func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_radio_station", "radio_station", station.ID, nil)
 		})
 	}
@@ -1047,7 +1047,7 @@ func (h *RadioHandler) AdminUpdateRadioStationHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_radio_station", "radio_station", req.StationID, nil)
 		})
 	}
@@ -1094,7 +1094,7 @@ func (h *RadioHandler) AdminDeleteRadioStationHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_radio_station", "radio_station", req.StationID, nil)
 		})
 	}
@@ -1238,7 +1238,7 @@ func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_radio_show", "radio_show", show.ID, map[string]interface{}{
 				"station_id": req.StationID,
 			})
@@ -1355,7 +1355,7 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_radio_show", "radio_show", req.ShowID, nil)
 		})
 	}
@@ -1402,7 +1402,7 @@ func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_radio_show", "radio_show", req.ShowID, nil)
 		})
 	}
@@ -1447,7 +1447,7 @@ func (h *RadioHandler) AdminTriggerStationSyncHandler(ctx context.Context, req *
 	}
 
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "trigger_radio_station_sync", "radio_station", req.StationID, map[string]interface{}{
 				"mode":   req.Body.Mode,
 				"run_id": run.ID,
@@ -1510,7 +1510,7 @@ func (h *RadioHandler) AdminTriggerShowBackfillHandler(ctx context.Context, req 
 	}
 
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "trigger_radio_show_backfill", "radio_show", req.ShowID, map[string]interface{}{
 				"since":  req.Body.Since,
 				"until":  req.Body.Until,
@@ -1616,7 +1616,7 @@ func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkP
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "link_radio_play", "radio_play", req.PlayID, map[string]interface{}{
 				"artist_id":  req.Body.ArtistID,
 				"release_id": req.Body.ReleaseID,
@@ -1680,7 +1680,7 @@ func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *Admin
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "bulk_link_radio_plays", "radio_play", 0, map[string]interface{}{
 				"artist_name": req.Body.ArtistName,
 				"artist_id":   req.Body.ArtistID,
@@ -1741,7 +1741,7 @@ func (h *RadioHandler) AdminReMatchPlaysHandler(ctx context.Context, req *AdminR
 		}
 
 		if h.auditLogService != nil {
-			servicesshared.GoSafe(ctx, "audit_log", func() {
+			servicesshared.SubmitAuditWrite("audit_log", func() {
 				h.auditLogService.LogAction(user.ID, "rematch_radio_plays", "radio_play", 0, map[string]interface{}{
 					"run_id":     run.ID,
 					"station_id": req.Body.StationID,
@@ -1782,7 +1782,7 @@ func (h *RadioHandler) AdminReMatchPlaysHandler(ctx context.Context, req *AdminR
 	}
 
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "rematch_radio_plays", "radio_play", 0, map[string]interface{}{
 				"artist_name": req.Body.ArtistName,
 				"label_name":  req.Body.LabelName,
@@ -1852,7 +1852,7 @@ func (h *RadioHandler) AdminCancelSyncRunHandler(ctx context.Context, req *Admin
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "cancel_radio_sync_run", "radio_sync_run", req.RunID, nil)
 		})
 	}

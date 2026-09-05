@@ -116,3 +116,38 @@ func TestIsSerializationFailure_SurvivesTranslateError(t *testing.T) {
 		t.Errorf("23505 must translate to the duplicate-key sentinel; got %T: %v", dupErr, dupErr)
 	}
 }
+
+// The friendly rollback message depends on 23514 reaching a sentinel rather than
+// a raw driver error, and that mapping lives in the driver, not here. Pin it at
+// the dialector the way the serialization pair is pinned: a driver bump that
+// dropped 23514 would otherwise silently put the constraint name back into an
+// admin-facing 422, with only a container-backed integration test to notice.
+func TestIsCheckConstraintViolation_SurvivesTranslateError(t *testing.T) {
+	dialector := postgres.Dialector{}
+
+	checkErr := dialector.Translate(&pgconn.PgError{Code: "23514"})
+	if !IsCheckConstraintViolation(checkErr) {
+		t.Errorf("23514 must translate to the check-constraint sentinel; got %T: %v", checkErr, checkErr)
+	}
+
+	// A wrapped chain still classifies: callers wrap with fmt.Errorf before the
+	// error reaches a handler.
+	if !IsCheckConstraintViolation(fmt.Errorf("failed to apply rollback: %w", checkErr)) {
+		t.Error("a wrapped check-constraint violation must still be detectable")
+	}
+
+	// Controls: neither nearby class may read as a check violation, or the
+	// rollback path would answer with the wrong reason.
+	if IsCheckConstraintViolation(dialector.Translate(&pgconn.PgError{Code: "23505"})) {
+		t.Error("23505 (duplicate key) must not classify as a check-constraint violation")
+	}
+	if IsCheckConstraintViolation(dialector.Translate(&pgconn.PgError{Code: "40001"})) {
+		t.Error("40001 (serialization failure) must not classify as a check-constraint violation")
+	}
+	if IsCheckConstraintViolation(nil) {
+		t.Error("nil must not classify as a check-constraint violation")
+	}
+	if IsCheckConstraintViolation(errors.New("plain error")) {
+		t.Error("a non-driver error must not classify as a check-constraint violation")
+	}
+}

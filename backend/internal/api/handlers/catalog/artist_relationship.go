@@ -255,7 +255,7 @@ func (h *ArtistRelationshipHandler) CreateRelationshipHandler(ctx context.Contex
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_artist_relationship", "artist", req.Body.SourceArtistID, map[string]interface{}{
 				"target_artist_id": req.Body.TargetArtistID,
 				"type":             req.Body.Type,
@@ -367,7 +367,7 @@ func (h *ArtistRelationshipHandler) DeleteRelationshipHandler(ctx context.Contex
 	}
 
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_artist_relationship", "artist", uint(sourceID), map[string]interface{}{
 				"target_artist_id": uint(targetID),
 				"type":             req.Type,
@@ -427,7 +427,7 @@ func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Conte
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		servicesshared.GoSafe(ctx, "audit_log", func() {
+		servicesshared.SubmitAuditWrite("audit_log", func() {
 			h.auditLog.LogAction(user.ID, "derive_artist_relationships", "system", 0, map[string]interface{}{
 				"shared_bills_upserted":  billsCount,
 				"shared_labels_upserted": labelsCount,

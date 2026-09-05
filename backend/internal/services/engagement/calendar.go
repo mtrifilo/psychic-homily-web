@@ -52,9 +52,146 @@ const (
 	followsActivityPathSuffix = "/follows.atom"
 )
 
+// personalFeedCacheMaxEntries caps each personal feed cache. The key is a user
+// id, but the key SPACE is driven by whoever holds a feed token: an entry is
+// minted per user who polls, and expiry is lazy (an entry is dropped on that
+// user's next request), so nothing reclaims the entry of a user who stops
+// polling. Without a cap the map only grows.
+//
+// The venue and scene feed caches drop the WHOLE map on overflow. This one does
+// not, and the difference is the key: theirs is a public entity id, so an
+// overflow is a crawler walking slugs and everyone's entry is equally cold.
+// Here the key is a user, the routes are exempt from the public-read limiter
+// (see personalFeedRouteTemplates), and a whole-map drop would let 129 accounts
+// evict every real subscriber's feed on demand. At exactly the cap it would also
+// mean every store wipes every entry, so the cache would stop working at the
+// moment it starts mattering. It evicts the single soonest-to-expire entry
+// instead, which costs one pass over at most this many entries.
+//
+// A miss is not cheap enough to be relaxed about. The ICS rebuild runs a count
+// and a page query, then hydrates shows, venues, the bill and its artists; the
+// Atom rebuild runs one query for followed-artist shows and another for their
+// releases. Neither is the single query a cache miss is often assumed to be.
+//
+// Each of the two caches holds up to this many entries, so the process ceiling
+// is twice this count times a feed payload. A payload is itself bounded: the ICS
+// feed carries at most 500 shows and the Atom feed at most
+// followsActivityMaxItems entries.
+const personalFeedCacheMaxEntries = 128
+
 type icsFeedCacheEntry struct {
 	data      []byte
 	expiresAt time.Time
+}
+
+// personalFeedCache is a bounded per-user cache of a rendered feed payload.
+//
+// Callers hand it the bytes they are about to return and get back a copy on
+// read, so a cached payload can never be mutated through the slice a caller
+// holds. Both copies are made outside the lock: a payload is up to a few
+// hundred kilobytes, and calendar clients poll concurrently.
+type personalFeedCache struct {
+	mu      sync.RWMutex
+	entries map[uint]icsFeedCacheEntry
+}
+
+// load returns a copy of a live entry. An expired entry is dropped and reads as
+// a miss, so a user who keeps polling never accumulates stale bytes.
+func (c *personalFeedCache) load(userID uint) ([]byte, bool) {
+	c.mu.RLock()
+	entry, ok := c.entries[userID]
+	c.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if !time.Now().Before(entry.expiresAt) {
+		c.deleteExpired(userID)
+		return nil, false
+	}
+	out := make([]byte, len(entry.data))
+	copy(out, entry.data)
+	return out, true
+}
+
+// store caches a copy of data under userID for ttl, making room first if this is
+// a new key and the cache is full.
+func (c *personalFeedCache) store(userID uint, data []byte, ttl time.Duration) {
+	cached := make([]byte, len(data))
+	copy(cached, data)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[uint]icsFeedCacheEntry, personalFeedCacheMaxEntries)
+	}
+	if _, replacing := c.entries[userID]; !replacing {
+		c.evictForLocked()
+	}
+	c.entries[userID] = icsFeedCacheEntry{
+		data:      cached,
+		expiresAt: time.Now().Add(ttl),
+	}
+}
+
+// evictForLocked frees a slot for a new key when the cache is full. Caller holds
+// the write lock.
+//
+// Expired entries go first, since dropping one costs nothing: it would have read
+// as a miss anyway. Only when every entry is live does it drop one, and it drops
+// the one closest to expiring, which is the one whose remaining value is
+// smallest.
+func (c *personalFeedCache) evictForLocked() {
+	if len(c.entries) < personalFeedCacheMaxEntries {
+		return
+	}
+
+	now := time.Now()
+	var (
+		soonestID      uint
+		soonestExpiry  time.Time
+		haveCandidate  bool
+		removedExpired bool
+	)
+	for id, entry := range c.entries {
+		if !now.Before(entry.expiresAt) {
+			delete(c.entries, id)
+			removedExpired = true
+			continue
+		}
+		if !haveCandidate || entry.expiresAt.Before(soonestExpiry) {
+			soonestID, soonestExpiry, haveCandidate = id, entry.expiresAt, true
+		}
+	}
+	if removedExpired || !haveCandidate {
+		return
+	}
+	delete(c.entries, soonestID)
+}
+
+// deleteExpired drops an entry only if it is still expired, re-checking under
+// the write lock. A concurrent store between load's read and this call has
+// written a fresh entry, and dropping that one would throw away a rebuild that
+// just happened.
+func (c *personalFeedCache) deleteExpired(userID uint) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[userID]
+	if !ok || time.Now().Before(entry.expiresAt) {
+		return
+	}
+	delete(c.entries, userID)
+}
+
+func (c *personalFeedCache) delete(userID uint) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, userID)
+}
+
+func (c *personalFeedCache) len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.entries)
 }
 
 // CalendarService handles personal feed-token CRUD plus ICS / Atom generation.
@@ -63,8 +200,8 @@ type icsFeedCacheEntry struct {
 type CalendarService struct {
 	db            *gorm.DB
 	savedShowSvc  contracts.SavedShowServiceInterface
-	feedCache     sync.Map // userID (uint) → icsFeedCacheEntry (ICS)
-	atomFeedCache sync.Map // userID (uint) → icsFeedCacheEntry (Atom)
+	feedCache     personalFeedCache
+	atomFeedCache personalFeedCache
 }
 
 // NewCalendarService creates a new calendar service
@@ -89,8 +226,8 @@ func followsActivityFeedURL(apiBaseURL, plainToken string) string {
 }
 
 func (s *CalendarService) invalidateFeedCache(userID uint) {
-	s.feedCache.Delete(userID)
-	s.atomFeedCache.Delete(userID)
+	s.feedCache.delete(userID)
+	s.atomFeedCache.delete(userID)
 }
 
 // generateCalendarToken creates a cryptographically secure random calendar token
@@ -244,14 +381,8 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	if cached, ok := s.feedCache.Load(userID); ok {
-		entry := cached.(icsFeedCacheEntry)
-		if time.Now().Before(entry.expiresAt) {
-			out := make([]byte, len(entry.data))
-			copy(out, entry.data)
-			return out, nil
-		}
-		s.feedCache.Delete(userID)
+	if cached, ok := s.feedCache.load(userID); ok {
+		return cached, nil
 	}
 
 	// Upcoming only — venue-local date ≥ today (PSY-1430).
@@ -310,20 +441,11 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 	//     UID per show, and RFC 5546 3.2 resolves a UID collision in favour of
 	//     the higher SEQUENCE, so a subscriber to both this feed and a public
 	//     one always sees the public copy win.
-	//   - feedCache has no entry cap and expires only lazily on that user's next
-	//     request, where the venue feed bounds itself at
-	//     venueFeedCacheMaxEntries. Bounded in practice by the number of issued
-	//     tokens, so it is capacity planning rather than an attack surface.
 	//
-	// Each is a wire-format or memory change wanting its own test, so they are
-	// tracked as their own work rather than folded into a security fix.
+	// Each is a wire-format change wanting its own test, so they are tracked as
+	// their own work rather than folded into a security fix.
 	data := []byte(cal.Serialize())
-	cachedCopy := make([]byte, len(data))
-	copy(cachedCopy, data)
-	s.feedCache.Store(userID, icsFeedCacheEntry{
-		data:      cachedCopy,
-		expiresAt: time.Now().Add(icsFeedCacheTTL),
-	})
+	s.feedCache.store(userID, data, icsFeedCacheTTL)
 	return data, nil
 }
 

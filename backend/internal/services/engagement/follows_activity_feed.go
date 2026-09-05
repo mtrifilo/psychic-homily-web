@@ -88,14 +88,8 @@ func (s *CalendarService) GenerateFollowsActivityFeed(userID uint, frontendURL s
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	if cached, ok := s.atomFeedCache.Load(userID); ok {
-		entry := cached.(icsFeedCacheEntry)
-		if time.Now().Before(entry.expiresAt) {
-			out := make([]byte, len(entry.data))
-			copy(out, entry.data)
-			return out, nil
-		}
-		s.atomFeedCache.Delete(userID)
+	if cached, ok := s.atomFeedCache.load(userID); ok {
+		return cached, nil
 	}
 
 	frontendURL = strings.TrimRight(frontendURL, "/")
@@ -175,12 +169,7 @@ func (s *CalendarService) GenerateFollowsActivityFeed(userID uint, frontendURL s
 	}
 	data := append([]byte(xml.Header), payload...)
 
-	cachedCopy := make([]byte, len(data))
-	copy(cachedCopy, data)
-	s.atomFeedCache.Store(userID, icsFeedCacheEntry{
-		data:      cachedCopy,
-		expiresAt: time.Now().Add(atomFeedCacheTTL),
-	})
+	s.atomFeedCache.store(userID, data, atomFeedCacheTTL)
 	return data, nil
 }
 
