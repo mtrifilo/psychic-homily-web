@@ -303,6 +303,226 @@ describe('VenueEditForm', () => {
     })
   })
 
+  describe('a venue with no state on file (PSY-2001)', () => {
+    // The one form that can repair such a venue used to refuse to open a save
+    // on it: `state` had an unconditional two-character floor, so an admin
+    // could not fix the address without inventing a US state for a room that
+    // has none.
+    it('saves an address fix on a state-less venue with a resolved zone, without sending a state', async () => {
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      // The field is optional here, and says so.
+      expect(screen.queryByLabelText(/^State \*/i)).not.toBeInTheDocument()
+      const stateInput = screen.getByLabelText(/^State$/i)
+      expect(stateInput).toHaveValue('')
+
+      fireEvent.change(screen.getByLabelText(/Address/i), {
+        target: { value: 'Am Flutgraben 2' },
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+      })
+
+      expect(mockMutate).toHaveBeenCalledTimes(1)
+      const [vars] = mockMutate.mock.calls[0] as [
+        { venueId: number; data: Record<string, unknown> },
+      ]
+      expect(vars.venueId).toBe(venue.id)
+      expect(vars.data.address).toBe('Am Flutgraben 2')
+      // The state never changed, so the payload carries no state key at all:
+      // `PUT /venues/{id}` answers 422 to an explicit empty string.
+      expect('state' in vars.data).toBe(false)
+    })
+
+    it('saves a state-less venue whose only zone evidence is a non-US country', async () => {
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        country: 'Germany',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      fireEvent.change(screen.getByLabelText(/Address/i), {
+        target: { value: 'Am Flutgraben 2' },
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+      })
+
+      expect(mockMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('still requires a state on a state-less venue with no zone evidence', async () => {
+      const venue = makeVenue({ city: 'Springfield', state: '', timezone: null })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText(/^State \*/i)).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText(/Address/i), {
+        target: { value: '742 Evergreen Terrace' },
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+      })
+
+      expect(await screen.findByText(/State is required/i)).toBeInTheDocument()
+      expect(mockMutate).not.toHaveBeenCalled()
+    })
+
+    it('rejects a one-character state on an exempt venue', async () => {
+      // The exemption relaxes the rule to "blank, or a state". Accepting a
+      // single character would be a one-way door: the venue stops being exempt
+      // the moment a non-blank state is on file, so the next save would fail
+      // the two-character floor against a value this form wrote, and the
+      // server refuses an empty string that would undo it.
+      const user = userEvent.setup()
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/^State$/i), 'A')
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(await screen.findByText(/State is required/i)).toBeInTheDocument()
+      expect(mockMutate).not.toHaveBeenCalled()
+    })
+
+    it('accepts a real state typed into an exempt venue', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/^State$/i), 'NH')
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1))
+      const [vars] = mockMutate.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ]
+      expect(vars.data.state).toBe('NH')
+    })
+
+    it('keeps the requirement when the venue state is whitespace rather than empty', () => {
+      // Not exempt: the stored value is one the form can leave alone, and
+      // `min(2)` passes on it, so the save works without the exemption.
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '   ',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText(/^State \*/i)).toBeInTheDocument()
+    })
+
+    it('keeps the exemption when a refetch fills the state under the open dialog', () => {
+      // `key={venue.id}` pins identity, not columns, and this prop rides a
+      // refetching query. A rule recomputed per render would revoke the
+      // exemption mid-edit and fail a save the form had already called legal,
+      // while TanStack Form still holds the mount-time defaultValues.
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      const { rerender } = renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByLabelText(/^State \*/i)).not.toBeInTheDocument()
+
+      rerender(
+        <VenueEditForm
+          key={venue.id}
+          venue={{ ...venue, state: 'NH' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByLabelText(/^State \*/i)).not.toBeInTheDocument()
+    })
+
+    it('still blocks clearing a state that is on file, whatever the venue zone', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue({ timezone: 'America/Phoenix', country: 'Germany' })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      await user.clear(screen.getByLabelText(/^State \*/i))
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(await screen.findByText(/State is required/i)).toBeInTheDocument()
+      expect(mockMutate).not.toHaveBeenCalled()
+    })
+  })
+
   describe('timer cleanup (PSY-1664)', () => {
     // A successful save flashes the success alert, then closes the dialog on a
     // delay. That delay used to be a bare `setTimeout`, so it still fired after

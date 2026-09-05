@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest'
-import { formatLocation } from './formatLocation'
+import { formatLocation, isUnitedStatesCountry } from './formatLocation'
+
+describe('isUnitedStatesCountry', () => {
+  it('recognizes the two spellings the display rule has always accepted', () => {
+    for (const value of ['US', 'us', 'USA', 'usa', ' US ']) {
+      expect(isUnitedStatesCountry(value)).toBe(true)
+    }
+  })
+
+  it('answers false for an absent country', () => {
+    expect(isUnitedStatesCountry(null)).toBe(false)
+    expect(isUnitedStatesCountry(undefined)).toBe(false)
+    expect(isUnitedStatesCountry('   ')).toBe(false)
+  })
+
+  it('does not recognize "United States"', () => {
+    // Pins the set, not a preference. The backend's venue-local SQL accepts
+    // this third spelling; widening the set here would change what
+    // formatLocation prints for every entity carrying it, which is the PSY-558
+    // display rule and not this function's call to make.
+    expect(isUnitedStatesCountry('United States')).toBe(false)
+  })
+
+  it('answers false for another country', () => {
+    expect(isUnitedStatesCountry('Germany')).toBe(false)
+  })
+})
 
 describe('formatLocation (canonical PSY-780, PSY-558 rule)', () => {
   // Trailing-comma guards — the original `getVenueLocation` bug that motivated
