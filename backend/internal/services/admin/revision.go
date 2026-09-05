@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -394,7 +395,7 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 				"error", write.Error.Error(),
 			)
 			return nil, fmt.Errorf(
-				"cannot roll back: this revision restores a value the %s column no longer accepts",
+				"cannot roll back: this revision restores a value a %s column no longer accepts",
 				revision.EntityType)
 		}
 		return nil, fmt.Errorf("failed to apply rollback: %w", write.Error)
@@ -455,6 +456,9 @@ func rollbackFieldError(ctx context.Context, updates map[string]interface{}, fie
 	if err := narrowNumericUpdate(updates, field, numericBounds); err != nil {
 		return err
 	}
+	if err := integerColumnRollbackError(updates, field, numericBounds); err != nil {
+		return err
+	}
 	if err := columnBoundRollbackError(updates, field, numericBounds); err != nil {
 		return err
 	}
@@ -465,6 +469,38 @@ func rollbackFieldError(ctx context.Context, updates map[string]interface{}, fie
 		return err
 	}
 	return revalidateFetchedURLField(ctx, updates, field)
+}
+
+// integerColumnRollbackError refuses a restored value the column could not
+// physically store.
+//
+// Every field in contracts.NumericEditFieldBounds is backed by a Postgres
+// INTEGER: venues.capacity, labels.founded_year, releases.release_year. Go's int
+// is 64-bit here and utils.WholeNumber accepts anything an int64 holds, so a
+// stored old value of 9999999999 narrows cleanly and only dies at the column,
+// with SQLSTATE 22003 rather than a CHECK violation.
+//
+// That matters because the year fields are deliberately exempt from a range
+// check: history predates their bound and restoring it is the point. Without a
+// width gate, one such value is not a skipped field, it is a failed UPDATE that
+// takes every honest field in the revision with it, and its driver message
+// reaches the caller.
+//
+// A width check is not a range policy. It says only what the column can hold, so
+// it applies to every registered field, including the ones no CHECK constrains.
+func integerColumnRollbackError(updates map[string]interface{}, field string, registry map[string]contracts.NumericEditBounds) error {
+	if _, registered := registry[field]; !registered {
+		return nil
+	}
+	narrowed, isPtr := updates[field].(*int)
+	if !isPtr || narrowed == nil {
+		return nil
+	}
+	if *narrowed < math.MinInt32 || *narrowed > math.MaxInt32 {
+		return apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"%s is outside the range the column can store", field))
+	}
+	return nil
 }
 
 // columnBoundedRollbackFields are the fields whose COLUMN carries a CHECK

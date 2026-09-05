@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,4 +96,50 @@ func TestColumnBoundRollbackError(t *testing.T) {
 func TestColumnBoundRollbackErrorIgnoresAbsentFields(t *testing.T) {
 	assert.NoError(t, columnBoundRollbackError(map[string]interface{}{}, "capacity",
 		contracts.NumericEditFieldBounds()))
+}
+
+// The width gate, which covers EVERY registered numeric field rather than only
+// the CHECK-constrained ones.
+//
+// The case it exists for is a year: those are deliberately exempt from a range
+// check, so nothing else stands between a stored old value and an int4 column.
+func TestIntegerColumnRollbackError(t *testing.T) {
+	registry := contracts.NumericEditFieldBounds()
+	ptr := func(n int) *int { return &n }
+
+	cases := []struct {
+		name    string
+		field   string
+		value   interface{}
+		refused bool
+	}{
+		// The exact sequence the gate exists for: a contributor-supplied old
+		// value that WholeNumber accepts, narrows cleanly, passes the year
+		// exemption, and can only fail at the column.
+		{"a year past int32 is refused", "founded_year", ptr(9999999999), true},
+		{"a year below int32 is refused", "founded_year", ptr(-9999999999), true},
+		{"release_year is covered too", "release_year", ptr(math.MaxInt32 + 1), true},
+		{"capacity is covered too", "capacity", ptr(math.MaxInt32 + 1), true},
+		{"the int32 ceiling itself fits", "founded_year", ptr(math.MaxInt32), false},
+		{"the int32 floor itself fits", "founded_year", ptr(math.MinInt32), false},
+		// An ordinary out-of-range year must still restore: that exemption is
+		// the whole reason years are not in columnBoundedRollbackFields.
+		{"an out-of-range but storable year still restores", "founded_year", ptr(1), false},
+		{"the clear gesture passes", "founded_year", (*int)(nil), false},
+		{"an unnarrowed value is left to the earlier gate", "founded_year", float64(1), false},
+		{"an unregistered field is not this gate's business", "name", ptr(math.MaxInt32 + 1), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			updates := map[string]interface{}{tc.field: tc.value}
+			err := integerColumnRollbackError(updates, tc.field, registry)
+			if tc.refused {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.field)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

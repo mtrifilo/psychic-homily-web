@@ -766,6 +766,74 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_CapacityOnlyRevisionR
 	s.Equal(550, *restored.Capacity, "a refused rollback leaves the entity untouched")
 }
 
+// integerColumnRollbackError assumes every registered numeric field sits on a
+// Postgres INTEGER. Read the types back and check, because that assumption is
+// what makes an int32 bound the right one: a column widened to BIGINT would make
+// the gate refuse values the column could hold perfectly well.
+func (s *RevisionServiceIntegrationTestSuite) TestRegisteredNumericColumnsAreInteger() {
+	columns := map[string][2]string{
+		"capacity":     {"venues", "capacity"},
+		"founded_year": {"labels", "founded_year"},
+		"release_year": {"releases", "release_year"},
+	}
+
+	for field := range contracts.NumericEditFieldBounds() {
+		place, known := columns[field]
+		s.Require().Truef(known,
+			"%q is registered but this test does not know its column; "+
+				"integerColumnRollbackError's int32 bound is unverified for it", field)
+
+		var dataType string
+		s.Require().NoError(s.db.Raw(
+			"SELECT data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?",
+			place[0], place[1],
+		).Scan(&dataType).Error)
+		s.Equalf("integer", dataType,
+			"%s.%s is %s, so the int32 width gate no longer describes it",
+			place[0], place[1], dataType)
+	}
+}
+
+// The end of the sequence the width gate exists for, through the real Rollback.
+//
+// A stored old value past int32 narrows cleanly, passes the year exemption, and
+// before the gate could only fail at the column with SQLSTATE 22003 -- which is
+// not a CHECK violation, so it escaped the sanitizing branch and took the honest
+// field recorded beside it down with it.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_UnstorableYearIsSkippedNotFatal() {
+	user := s.createTestUser()
+
+	label := catalogm.Label{Name: "Width Gate Records", FoundedYear: nil}
+	s.Require().NoError(s.db.Create(&label).Error)
+
+	s.Require().NoError(s.svc.RecordRevision("label", label.ID, user.ID,
+		[]adminm.FieldChange{
+			{Field: "founded_year", OldValue: 9999999999, NewValue: 1998},
+			{Field: "name", OldValue: "Width Gate Records", NewValue: "Renamed Records"},
+		},
+		"a legacy old_value nobody validated"))
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).Where("id = ?", label.ID).
+		Updates(map[string]interface{}{"founded_year": 1998, "name": "Renamed Records"}).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "label", label.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	result, err := s.svc.Rollback(context.Background(), recorded.ID, user.ID)
+	s.Require().NoError(err, "a value the column cannot store must not deny the undo of the others")
+	s.Require().NotNil(result)
+
+	s.Equal([]string{"name"}, result.AppliedFields)
+	s.Require().Len(result.SkippedFields, 1)
+	s.Equal("founded_year", result.SkippedFields[0].Field)
+
+	var restored catalogm.Label
+	s.Require().NoError(s.db.First(&restored, label.ID).Error)
+	s.Equal("Width Gate Records", restored.Name, "the honest field restored")
+	s.Require().NotNil(restored.FoundedYear)
+	s.Equal(1998, *restored.FoundedYear, "the refused field was left as it was")
+}
+
 // A rollback that restores a venue's city/state must RE-DERIVE the columns the
 // system derives from that location, or the venue lands back in its old city
 // still carrying the timezone resolved for the city it was moved away from.
