@@ -211,6 +211,7 @@ func seedExemplarVenue(db *gorm.DB, userID uint) uint {
 		Social:      fullSocial("rhythmroomphx"),
 		Verified:    true,
 	}
+	mustHoldSocialColumns("venue", venue.Name, venue.Social)
 	if err := db.Create(venue).Error; err != nil {
 		log.Printf("Warning: failed to create exemplar venue: %v", err)
 		return 0
@@ -258,6 +259,7 @@ func seedExemplarLabel(db *gorm.DB, userID uint) uint {
 		ImageURL:    strptr("/seed-placeholders/label.svg"),
 		Social:      fullSocial("sacredbonesrecords"),
 	}
+	mustHoldSocialColumns("label", label.Name, label.Social)
 	if err := db.Create(label).Error; err != nil {
 		log.Printf("Warning: failed to create exemplar label: %v", err)
 		return 0
@@ -315,6 +317,7 @@ func seedExemplarArtist(db *gorm.DB, userID, labelID uint) uint {
 		ImageURL:    strptr("/seed-placeholders/artist.svg"),
 		Social:      social,
 	}
+	mustHoldSocialColumns("artist", artist.Name, artist.Social)
 	if err := db.Create(artist).Error; err != nil {
 		log.Printf("Warning: failed to create exemplar artist: %v", err)
 		return 0

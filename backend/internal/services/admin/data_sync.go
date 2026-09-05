@@ -58,6 +58,20 @@ func parseOptionalRFC3339(s *string) (*time.Time, error) {
 	return &utc, nil
 }
 
+// droppedNote renders the per-row suffix that names social columns the import
+// cleared, or "" when it cleared none.
+//
+// It is a suffix on the row's OWN message rather than a separate warning list,
+// because the per-row messages are the only channel this endpoint has back to
+// the operator, and a drop nobody reads is the silent loss the drop rule exists
+// to avoid.
+func droppedNote(dropped []string) string {
+	if len(dropped) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (dropped unusable social values: %s)", strings.Join(dropped, ", "))
+}
+
 // ExportShows exports shows with their artists and venues
 func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 	if s.db == nil {
@@ -450,8 +464,35 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		}
 	}
 
+	// The eight social columns get the same host anchor the artist endpoints
+	// apply, in the STORED-value spelling because this body is normally an export
+	// of this system's own database; utils.ValidateStoredSocialValue carries why
+	// that matters.
+	//
+	// The offending COLUMN is dropped, not the row, which is the opposite of the
+	// embed rule above and deliberately so. A refused artist here is not merely
+	// skipped: the show pass below recreates it by name through
+	// FindOrCreateArtistTx with a nil initializer, so refusing over one legacy
+	// social value would cost the artist's location, its verified flag and the
+	// other seven links. bandcamp_embed_url has no such second writer, and one
+	// artist carries one of it; the social columns are eight, commonly populated,
+	// and every legacy shape the read gate refuses lives in them.
+	//
+	// The drop is reported in this row's message, so nothing is lost silently.
+	socials := utils.SocialColumns{
+		Instagram:  artist.Instagram,
+		Facebook:   artist.Facebook,
+		Twitter:    artist.Twitter,
+		YouTube:    artist.YouTube,
+		Spotify:    artist.Spotify,
+		SoundCloud: artist.SoundCloud,
+		Bandcamp:   artist.Bandcamp,
+		Website:    artist.Website,
+	}
+	droppedSocials := utils.DropUnrenderableSocialColumns(&socials)
+
 	if dryRun {
-		return fmt.Sprintf("WOULD IMPORT: Artist '%s'", artist.Name), "imported"
+		return fmt.Sprintf("WOULD IMPORT: Artist '%s'%s", artist.Name, droppedNote(droppedSocials)), "imported"
 	}
 
 	newArtist, _, ferr := catalog.FindOrCreateArtistTx(s.db, artist.Name, func(a *catalogm.Artist) {
@@ -466,21 +507,22 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 			a.BandcampEmbedURL = utils.NilIfBlank(*artist.BandcampEmbedURL)
 		}
 		a.Social = catalogm.Social{
-			Instagram:  artist.Instagram,
-			Facebook:   artist.Facebook,
-			Twitter:    artist.Twitter,
-			YouTube:    artist.YouTube,
-			Spotify:    artist.Spotify,
-			SoundCloud: artist.SoundCloud,
-			Bandcamp:   artist.Bandcamp,
-			Website:    artist.Website,
+			Instagram:  socials.Instagram,
+			Facebook:   socials.Facebook,
+			Twitter:    socials.Twitter,
+			YouTube:    socials.YouTube,
+			Spotify:    socials.Spotify,
+			SoundCloud: socials.SoundCloud,
+			Bandcamp:   socials.Bandcamp,
+			Website:    socials.Website,
 		}
 	})
 	if ferr != nil {
 		return fmt.Sprintf("ERROR: Failed to create artist '%s': %v", artist.Name, ferr), "error"
 	}
 
-	return fmt.Sprintf("IMPORTED: Artist '%s' (ID: %d)", artist.Name, newArtist.ID), "imported"
+	return fmt.Sprintf("IMPORTED: Artist '%s' (ID: %d)%s",
+		artist.Name, newArtist.ID, droppedNote(droppedSocials)), "imported"
 }
 
 // importVenue imports a single venue with deduplication
@@ -508,8 +550,24 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 		return fmt.Sprintf("ERROR: Failed to check venue '%s': %v", venue.Name, err), "error"
 	}
 
+	// Same gate and the same drop-the-column-not-the-row rule as importArtist,
+	// and after the duplicate probe for the same round-trip reason: an export of
+	// legacy rows must not fail on the branch that writes nothing.
+	socials := utils.SocialColumns{
+		Instagram:  venue.Instagram,
+		Facebook:   venue.Facebook,
+		Twitter:    venue.Twitter,
+		YouTube:    venue.YouTube,
+		Spotify:    venue.Spotify,
+		SoundCloud: venue.SoundCloud,
+		Bandcamp:   venue.Bandcamp,
+		Website:    venue.Website,
+	}
+	droppedSocials := utils.DropUnrenderableSocialColumns(&socials)
+
 	if dryRun {
-		return fmt.Sprintf("WOULD IMPORT: Venue '%s' in %s, %s", venue.Name, venue.City, venue.State), "imported"
+		return fmt.Sprintf("WOULD IMPORT: Venue '%s' in %s, %s%s",
+			venue.Name, venue.City, venue.State, droppedNote(droppedSocials)), "imported"
 	}
 
 	// Create new venue with slug
@@ -529,14 +587,14 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 		Zipcode:  venue.Zipcode,
 		Verified: venue.Verified,
 		Social: catalogm.Social{
-			Instagram:  venue.Instagram,
-			Facebook:   venue.Facebook,
-			Twitter:    venue.Twitter,
-			YouTube:    venue.YouTube,
-			Spotify:    venue.Spotify,
-			SoundCloud: venue.SoundCloud,
-			Bandcamp:   venue.Bandcamp,
-			Website:    venue.Website,
+			Instagram:  socials.Instagram,
+			Facebook:   socials.Facebook,
+			Twitter:    socials.Twitter,
+			YouTube:    socials.YouTube,
+			Spotify:    socials.Spotify,
+			SoundCloud: socials.SoundCloud,
+			Bandcamp:   socials.Bandcamp,
+			Website:    socials.Website,
 		},
 	}
 
@@ -559,7 +617,8 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 		return fmt.Sprintf("ERROR: Failed to create venue '%s': %v", venue.Name, err), "error"
 	}
 
-	return fmt.Sprintf("IMPORTED: Venue '%s' in %s (ID: %d)", venue.Name, venue.City, newVenue.ID), "imported"
+	return fmt.Sprintf("IMPORTED: Venue '%s' in %s (ID: %d)%s",
+		venue.Name, venue.City, newVenue.ID, droppedNote(droppedSocials)), "imported"
 }
 
 // venueTimezoneForShow reads the IANA zone already stored on the show's primary

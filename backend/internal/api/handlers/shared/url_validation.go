@@ -109,7 +109,7 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 // URLFieldNames returns every field this registry treats as a URL.
 //
 // Exported so internal/services/admin can ask "is this field a URL?" without
-// restating the answer. Its rollback gate has to cover every URL field the
+// restating the answer. Its apply gate has to cover every URL field the
 // per-entity edit allowlists expose, and a test that decided for itself what
 // counted as a URL would drift from this registry the moment one changed.
 func URLFieldNames() []string {
@@ -119,6 +119,23 @@ func URLFieldNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// URLFieldDisplayName returns the name a refusal gives a URL field, and whether
+// this registry knows the field at all.
+//
+// Exported for the same reason the two name lists are: the labels are spelled in
+// three packages (here, the apply gate in internal/services/admin, and
+// utils.SocialFieldLabels for the offline writers), and only utils can be
+// imported by all three. TestSocialLabelsAgreeAcrossLayers reads this so a
+// wording changed here and nowhere else fails by name, rather than leaving one
+// operator to see two names for one column.
+func URLFieldDisplayName(field string) (string, bool) {
+	spec, ok := urlFieldSpecs[field]
+	if !ok {
+		return "", false
+	}
+	return spec.displayName, true
 }
 
 // ShapeRuledURLFieldNames returns the field names carrying a `shape` rule: the
@@ -281,10 +298,10 @@ func ValidateURLField(ctx context.Context, fieldName string, value *string) erro
 // validateSocialHost rejects a social-platform URL whose host isn't on that
 // platform's allowlist, as a huma 422.
 //
-// The allowlist and the matching rule live in utils.SocialHostSuffixes /
-// utils.ValidateSocialHost, because the rollback gate in internal/services/admin
-// needs the same rule and cannot import a handler package. This is the HTTP
-// wrapper; the policy is one table.
+// The allowlist and the matching rule live behind utils.ValidateSocialHost,
+// because its other callers cannot import a handler package: the apply gate in
+// internal/services/admin, and the offline writers' ValidateStoredSocialValue.
+// This is the HTTP wrapper; the policy is one table.
 //
 // This is a broad HOST floor for the free-form social fields. The stricter,
 // path-aware rules are utils.ValidateBandcampEmbedURL (the `shape` rule on

@@ -145,3 +145,37 @@ describe('StationDetailPanel header refresh (PSY-1121)', () => {
     expect(screen.queryByText('Inactive')).toBeNull()
   })
 })
+
+// The admin detail row is where an operator checks what was saved, so it reads
+// the stored website through the same gate the public station surfaces ask: a
+// value that will not link out there must not look live in here. The stored
+// text is printed either way, so a refused value stays visible and fixable.
+describe('StationDetailPanel website gate', () => {
+  beforeEach(() => {
+    hoisted.detailReturn = { data: undefined }
+  })
+
+  it('links a website the public surfaces would link', () => {
+    hoisted.detailReturn = {
+      data: { ...freshDetail, website: 'https://kexp.org' },
+    }
+    openDetail()
+
+    expect(screen.getByRole('link', { name: 'https://kexp.org' })).toHaveAttribute(
+      'href',
+      'https://kexp.org'
+    )
+  })
+
+  it('prints a refused website as plain text rather than a link', () => {
+    hoisted.detailReturn = {
+      data: { ...freshDetail, website: 'javascript:alert(1)' },
+    }
+    openDetail()
+
+    expect(
+      screen.queryByRole('link', { name: 'javascript:alert(1)' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('javascript:alert(1)')).toBeInTheDocument()
+  })
+})

@@ -7,8 +7,10 @@ import {
   SOCIAL_LINK_PLATFORMS,
   SOCIAL_LINK_PLATFORM_KEYS,
   hasRenderableSocialLink,
+  isSocialLinkPlatform,
   renderableSocialLinks,
   socialLinkHref,
+  unanchoredLinkHref,
   type SocialLinkPlatform,
 } from './socialLinks'
 
@@ -27,6 +29,7 @@ const corpus = JSON.parse(
 ) as {
   platforms: Record<string, string[]>
   unanchored: string[]
+  handleBases: Record<string, string>
   storable: { field: string; value: string; why: string }[]
   storableButUnrenderable: { field: string; value: string; why: string }[]
   refusedByWriter: {
@@ -70,6 +73,19 @@ describe('cross-language corpus (the write anchor and this gate are one rule)', 
       ).map(key => [key, [...(SOCIAL_LINK_PLATFORMS[key].hosts ?? [])]])
     )
     expect(mine).toEqual(corpus.platforms)
+  })
+
+  // `handleBase` used to be the half of the registry no shared file pinned. The
+  // backend now carries the same table (utils.socialHandleBases, for the offline
+  // writers' legacy tolerance), so it is pinned in both languages: a typo still
+  // produces an ANCHORED url, which is why no other assertion here catches one.
+  it('the handle bases match the backend', () => {
+    const mine = Object.fromEntries(
+      SOCIAL_LINK_PLATFORM_KEYS.filter(
+        key => SOCIAL_LINK_PLATFORMS[key].handleBase !== null
+      ).map(key => [key, SOCIAL_LINK_PLATFORMS[key].handleBase])
+    )
+    expect(mine).toEqual(corpus.handleBases)
   })
 
   it('the unanchored fields match the backend', () => {
@@ -268,5 +284,54 @@ describe('hasRenderableSocialLink', () => {
         instagram: 'https://instagram.com/calexico',
       })
     ).toBe(true)
+  })
+})
+
+describe('isSocialLinkPlatform', () => {
+  it('accepts every key the registry renders', () => {
+    for (const key of SOCIAL_LINK_PLATFORM_KEYS) {
+      expect(isSocialLinkPlatform(key)).toBe(true)
+    }
+  })
+
+  // radio_stations.social is free-form JSONB whose key is the visible label, so
+  // these reach the predicate at runtime.
+  it('rejects a key the registry does not know', () => {
+    expect(isSocialLinkPlatform('bluesky')).toBe(false)
+    expect(isSocialLinkPlatform('mixcloud')).toBe(false)
+  })
+
+  it('rejects an inherited Object property', () => {
+    expect(isSocialLinkPlatform('constructor')).toBe(false)
+    expect(isSocialLinkPlatform('toString')).toBe(false)
+  })
+})
+
+describe('unanchoredLinkHref', () => {
+  it('is the website field\'s rule, so the two cannot drift', () => {
+    for (const value of [
+      'https://wfmu.org',
+      'http://wfmu.org',
+      'wfmu.org',
+      'javascript:alert(1)',
+      '123',
+      'https://user@wfmu.org/',
+      '',
+      null,
+      undefined,
+    ]) {
+      expect(unanchoredLinkHref(value)).toBe(socialLinkHref('website', value))
+    }
+  })
+
+  it('accepts any host, which is the point of the unanchored field', () => {
+    expect(unanchoredLinkHref('https://give.example.test/x')).toBe(
+      'https://give.example.test/x'
+    )
+  })
+
+  it('returns nothing for a value no browser resolves to an http url', () => {
+    expect(unanchoredLinkHref('javascript:alert(1)')).toBeNull()
+    expect(unanchoredLinkHref('  ')).toBeNull()
   })
 })

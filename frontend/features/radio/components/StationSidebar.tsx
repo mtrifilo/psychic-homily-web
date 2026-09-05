@@ -3,6 +3,11 @@
 import Link from 'next/link'
 import { BracketLink, SectionHeader, StatsList } from '@/components/shared'
 import type { StatsListItem } from '@/components/shared'
+import {
+  isSocialLinkPlatform,
+  socialLinkHref,
+  unanchoredLinkHref,
+} from '@/lib/socialLinks'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
 import { useStationTopArtists } from '../hooks/useStationTopArtists'
 import { useStationTopLabels } from '../hooks/useStationTopLabels'
@@ -77,57 +82,70 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   }
   items.push({ label: 'On the graph since', value: formatMonthYear(station.created_at) })
 
-  // ONE policy for every URL in this box: keep only absolute http(s), drop the
-  // rest. These columns are operator-entered free text, and `social` is
-  // free-form JSONB with arbitrary keys, whose values are sometimes bare
-  // handles. The entity social gate (lib/socialLinks.ts) does not answer for
-  // this column: its registry is the eight typed columns on artists, venues and
-  // labels, and it is keyed on platform. Dropping an unusable value is better than
-  // both alternatives: a broken/relative anchor, or a permanently greyed
-  // bracket (BracketLink's `external` floor renders one) that looks like a
-  // disabled feature rather than bad data.
+  // ONE gate for every URL in this box, and it is the gate the entity pages ask
+  // (lib/socialLinks.ts). These columns are operator-entered free text and
+  // `social` is free-form JSONB whose KEY is printed as the link's label, so a
+  // value under a platform's name is judged by that platform's host anchor,
+  // while `donate` and the station website anchor no host and are judged by the
+  // parse. A key the registry does not know makes a claim nothing can check, so
+  // it renders nothing at all: a station carrying a `bluesky` or `mixcloud` key
+  // keeps the stored value and shows no bracket for it.
+  //
+  // This is the READ half only: nothing validates these columns on write, which
+  // is tracked in PSY-1953.
+  //
+  // Every entry below carries the href the gate RETURNED, never the raw column,
+  // so the value the anchor was checked against is the value the browser
+  // resolves. A null href is the whole drop rule.
+  //
+  // Dropping an unusable value beats both alternatives: a broken/relative
+  // anchor, or a permanently greyed bracket (BracketLink's `external` floor
+  // renders one) that looks like a disabled feature rather than bad data.
   //
   // `ariaLabel` names the station on every entry: the labels here are hosts and
-  // network keys ("wfmu.org", "bluesky") that say nothing on their own, and the
-  // ↗ is a VISUAL marker that should not be read aloud as "north east arrow".
+  // network keys ("wfmu.org", "instagram") that say nothing on their own, and
+  // the ↗ is a VISUAL marker that should not be read aloud as "north east
+  // arrow". Named parameters, not positional, because `label` and `ariaLabel`
+  // are both strings and both plausible in either slot.
   const links: Array<{ label: string; href: string; ariaLabel: string }> = []
-  // Trimmed before the scheme test, matching BracketLink: the write path
-  // persists raw operator input, so a pasted "  https://..." must not be
-  // mistaken for an unusable value and dropped.
-  //
-  // Named parameters, not positional: `label` and `ariaLabel` are both strings
-  // and both plausible in either slot, so a transposition would typecheck and
-  // render a bracket whose visible text and spoken name are swapped.
-  const addLink = (link: {
+  const addLink = ({
+    label,
+    href,
+    ariaLabel,
+  }: {
     label: string
-    url: string | null | undefined
+    href: string | null
     ariaLabel: string
   }) => {
-    // `typeof` guard, not just a null check: `social` is free-form JSONB with
-    // no server-side schema, so its values are only string-typed by assertion.
-    // A stored number would make `.trim()` throw during render and take the
-    // whole sidebar to the error boundary, where the old code merely skipped
-    // the entry.
-    const href = typeof link.url === 'string' ? link.url.trim() : ''
-    if (href && /^https?:\/\//i.test(href)) {
-      links.push({ label: link.label, href, ariaLabel: link.ariaLabel })
-    }
+    if (href) links.push({ label, href, ariaLabel })
   }
 
   addLink({
     label: 'donate',
-    url: station.donation_url,
+    href: unanchoredLinkHref(station.donation_url),
     ariaLabel: `Donate to ${station.name}`,
   })
-  if (station.website) {
-    addLink({
-      label: `${hostLabel(station.website)} ↗`,
-      url: station.website,
+  const websiteHref = unanchoredLinkHref(station.website)
+  // The host caption comes from the gated href, so the domain a reader sees is
+  // the host the click resolves to. Computing it needs the narrowed string,
+  // which is the only reason this one does not go through addLink.
+  if (websiteHref) {
+    links.push({
+      label: `${hostLabel(websiteHref)} ↗`,
+      href: websiteHref,
       ariaLabel: `${station.name} website`,
     })
   }
   for (const [key, url] of Object.entries(station.social ?? {})) {
-    addLink({ label: `${key} ↗`, url, ariaLabel: `${station.name} on ${key}` })
+    // `social` has no server-side schema, so its values are string-typed only
+    // by assertion; the gate's own typeof check is what keeps a stored number
+    // away from a string method during render.
+    if (!isSocialLinkPlatform(key)) continue
+    addLink({
+      label: `${key} ↗`,
+      href: socialLinkHref(key, url),
+      ariaLabel: `${station.name} on ${key}`,
+    })
   }
 
   return (
@@ -162,7 +180,12 @@ function formatMonthYear(iso: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
 
-/** Short display host for a website URL ("wfmu.org"). */
+/**
+ * Short display host for a website URL ("wfmu.org").
+ *
+ * Only ever called with an href the gate returned, so the parse cannot fail in
+ * practice; the fallback is what a caller that forgot would render.
+ */
 function hostLabel(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '')

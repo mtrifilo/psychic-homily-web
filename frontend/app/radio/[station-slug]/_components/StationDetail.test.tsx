@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { STATION_PLAYLISTS_ANCHOR } from '@/features/radio/components/StationGraph'
 
 // Control the station fetch; stub the heavy child components (they own their own
@@ -89,5 +89,61 @@ describe('StationDetail (PSY-1472)', () => {
     })
     rerender(<StationDetail stationSlug="kexp-2" />)
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2)
+  })
+})
+
+// The header's Website and Donate buttons are outbound hrefs built from
+// operator-entered free-text columns, read through the same gate the sidebar and
+// the entity pages ask.
+describe('StationDetail header outbound links', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockHash.mockReturnValue('')
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+
+  function renderWith(overrides: Record<string, unknown>) {
+    mockUseRadioStation.mockReturnValue({
+      data: makeStation(overrides),
+      isLoading: false,
+      error: null,
+    })
+    render(<StationDetail stationSlug="kexp" />)
+  }
+
+  it('renders the website, donate and listen buttons for absolute http urls', () => {
+    renderWith({
+      website: 'https://kexp.org',
+      donation_url: 'https://give.kexp.org',
+      stream_url: 'https://kexp.streamguys1.com/kexp160.aac',
+    })
+    expect(screen.getByRole('link', { name: /website/i })).toHaveAttribute(
+      'href',
+      'https://kexp.org'
+    )
+    expect(screen.getByRole('link', { name: /donate/i })).toHaveAttribute(
+      'href',
+      'https://give.kexp.org'
+    )
+    expect(screen.getByRole('link', { name: /listen live/i })).toHaveAttribute(
+      'href',
+      'https://kexp.streamguys1.com/kexp160.aac'
+    )
+  })
+
+  // stream_url is included: whether a non-http stream scheme should be STORED is
+  // a different question, but a value that reaches an href is a link.
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,<script>alert(1)</script>'],
+    ['not a url'],
+    ['https://user@kexp.org/'],
+  ])('renders no button at all for a refused value (%s)', value => {
+    renderWith({ website: value, donation_url: value, stream_url: value })
+    expect(screen.queryByRole('link', { name: /website/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /donate/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /listen live/i })
+    ).not.toBeInTheDocument()
   })
 })
