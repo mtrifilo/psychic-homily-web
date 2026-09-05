@@ -13,6 +13,8 @@
  */
 import { statesASlot } from "../src/lib/setType.ts";
 
+import { parseClockTime } from "../src/lib/showTimes";
+
 export interface BatchItem {
   entity_type: string;
   name?: string;
@@ -32,6 +34,14 @@ export interface BatchItem {
   venues?: Array<{ name?: string; city?: string; state?: string; is_primary?: boolean }>;
   price?: number | string;
   door_price?: number | string;
+  /**
+   * Declared, not left to the index signature below: `scheduleKey` and `showKey`
+   * read these, and through `[key: string]: unknown` a typo compiles and turns
+   * every schedule into the all-absent key, which scores as perfect agreement.
+   */
+  event_date?: string;
+  doors_at?: string;
+  music_at?: string;
   [key: string]: unknown;
 }
 
@@ -94,9 +104,24 @@ export interface ShowFieldScore {
   billRoles: FieldAgreement;
 }
 
+export interface ShowTimesScore {
+  /** count of golden shows, each of which states one schedule */
+  expected: number;
+  /** count of golden schedules the model reproduced */
+  found: number;
+  /** golden schedules the model did not produce */
+  missed: string[];
+  /** schedules the model produced that no golden show states */
+  invented: string[];
+  /** found / expected, in [0, 1]; 1.0 when there are no golden shows */
+  recall: number;
+}
+
 export interface ExtractionScore {
   artists: EntityScore;
   venues: EntityScore;
+  /** Agreement between the golden shows' stated schedules and the model's. */
+  showTimes: ShowTimesScore;
   /** Per-festival field correctness (name, dates, slug, year). */
   festivalFields: FestivalFieldScore[];
   /** Fraction of golden lineup artists whose billing_tier matches in the model output. */
@@ -377,6 +402,89 @@ export function scoreShowFields(expected: BatchItem[], actual: BatchItem[]): Sho
 }
 
 /**
+ * One stated time as the fact it names rather than as it was typed: the clock
+ * "HH:MM" when the time is readable, "?" plus the raw text when the source
+ * stated something unreadable, and "" when nothing was stated.
+ *
+ * Read through the same parser the ingest path uses, so a model that writes
+ * "7:30 PM" for an image reading "7:30PM" agrees with the golden: both reach
+ * `shows.doors_at` as the same instant, and a spacing difference is not an
+ * extraction error. A stated-but-unreadable value stays distinct from an absent
+ * one because those are different claims about the source.
+ */
+function scheduleKeyPart(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") return "none";
+  const clock = parseClockTime(value);
+  if (clock === null) return `?${value.trim().toLowerCase()}`;
+  return `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
+}
+
+/**
+ * The pair of times one show states, as a single comparable key.
+ *
+ * Spelled `doors=X music=Y` rather than `X|Y` because these keys are printed
+ * back to a human in the assertion's reason, and the case the door-time fixtures
+ * exist to report is the all-absent one, which rendered as a bare `|`.
+ */
+function scheduleKey(show: BatchItem): string {
+  return `doors=${scheduleKeyPart(show.doors_at)} music=${scheduleKeyPart(show.music_at)}`;
+}
+
+/**
+ * Compare the schedules the golden shows state against the model's, as
+ * MULTISETS rather than per show.
+ *
+ * The two failure modes these fixtures exist to catch are both answerable
+ * without deciding which extracted show is which: a labelled door/show time the
+ * model dropped, and a time the model invented from a listing that labelled
+ * none. Matching show-to-show would need a key built from the event date or the
+ * bill, which would make a year the source never printed, or one misread band
+ * name, read as a missing TIME. Multiset comparison keeps this metric about the
+ * clocks.
+ *
+ * A golden show whose listing states no time contributes the empty schedule, so
+ * a model that invents one for it scores zero here and the invented value is
+ * named in `invented`.
+ *
+ * The denominator is every golden show, which folds one MISSING show into this
+ * metric as a missing schedule; `artists` already reports what was dropped, so
+ * the two together say which happened. `invented` collects every extra schedule
+ * the model produced, INCLUDING an all-absent one from a spurious extra show, so
+ * a non-empty `invented` means "produced a schedule the golden does not have",
+ * not always "made a time up" - read the key it names.
+ */
+export function scoreShowTimes(expected: BatchItem[], actual: BatchItem[]): ShowTimesScore {
+  const expectedKeys = itemsOfType(expected, "show").map(scheduleKey);
+  const remaining = new Map<string, number>();
+  for (const key of expectedKeys) remaining.set(key, (remaining.get(key) ?? 0) + 1);
+
+  const invented: string[] = [];
+  let found = 0;
+  for (const key of itemsOfType(actual, "show").map(scheduleKey)) {
+    const left = remaining.get(key) ?? 0;
+    if (left > 0) {
+      remaining.set(key, left - 1);
+      found++;
+    } else {
+      invented.push(key);
+    }
+  }
+
+  const missed: string[] = [];
+  for (const [key, count] of remaining) {
+    for (let i = 0; i < count; i++) missed.push(key);
+  }
+
+  return {
+    expected: expectedKeys.length,
+    found,
+    missed,
+    invented,
+    recall: expectedKeys.length === 0 ? 1 : found / expectedKeys.length,
+  };
+}
+
+/**
  * Score a model's extraction against the golden batch.
  *
  * `overall` weights artist recall most heavily (it is the dominant correctness
@@ -405,13 +513,14 @@ export function scoreExtraction(expected: BatchItem[], actual: BatchItem[]): Ext
       ? 1
       : festivalFields.filter((f) => f.correct).length / festivalFields.length;
   const billingComponent = billingTierAgreement.rate;
+  const showTimes = scoreShowTimes(expected, actual);
 
   // Weights: artists dominate; venue/festival/billing are secondary signals.
   //
-  // Show-field agreement is reported beside `overall` rather than folded into
-  // it: a fixture with no golden shows would otherwise gain a vacuous perfect
-  // component and drift upward, and every fixture's score would stop being
-  // comparable with the number it scored before. Pinned by the
+  // Show-field agreement and show-time agreement are reported BESIDE `overall`
+  // rather than folded into it: a fixture with no golden shows would otherwise
+  // gain a vacuous perfect component and drift upward, and every fixture's score
+  // would stop being comparable with the number it scored before. Pinned by the
   // "do not move overall" test in cli/test/eval-scoring.test.ts.
   const overall =
     0.55 * artistComponent +
@@ -422,6 +531,7 @@ export function scoreExtraction(expected: BatchItem[], actual: BatchItem[]): Ext
   return {
     artists,
     venues,
+    showTimes,
     festivalFields,
     billingTierAgreement,
     showFields: scoreShowFields(expected, actual),
@@ -460,6 +570,15 @@ export function formatScore(score: ExtractionScore): string {
   lines.push(`Venues: ${v.found}/${v.expected} found (recall ${(v.recall * 100).toFixed(1)}%)`);
   if (v.missed.length) lines.push(`  missed: ${v.missed.join(", ")}`);
   if (v.hallucinated.length) lines.push(`  hallucinated: ${v.hallucinated.join(", ")}`);
+
+  const t = score.showTimes;
+  if (t.expected > 0) {
+    lines.push(
+      `Show times: ${t.found}/${t.expected} schedules matched (${(t.recall * 100).toFixed(1)}%)`,
+    );
+    if (t.missed.length) lines.push(`  missed: ${t.missed.join(", ")}`);
+    if (t.invented.length) lines.push(`  invented: ${t.invented.join(", ")}`);
+  }
 
   lines.push("Festival fields:");
   for (const f of score.festivalFields) {

@@ -65,16 +65,27 @@ The assertion returns `namedScores` per fixture:
 - `venue_recall` — fraction of golden venues produced
 - `festival_<field>` — per-field correctness (name, slug, year, start_date, end_date)
 - `billing_tier_agreement` — fraction of lineup artists whose billing tier matches
-- `show_recall` — fraction of golden shows the model produced (matched on date + venue)
-- `show_price_agreement` — `price` and `door_price` compared INCLUDING absence
-- `bill_role_agreement` — `artists[].set_type` compared INCLUDING absence
+- `show_recall`: fraction of golden shows the model produced (matched on date + venue)
+- `show_price_agreement`: `price` and `door_price` compared INCLUDING absence
+- `bill_role_agreement`: `artists[].set_type` compared INCLUDING absence
+- `show_times_agreement`: fraction of the golden shows' stated `doors_at` /
+  `music_at` schedules the model reproduced. Compared as a MULTISET, not show by
+  show, so a misread band name or a year the source never printed cannot read as
+  a missing time. A golden show that states no time contributes the empty
+  schedule, which is how a fixture asserts that a bare unlabelled clock must NOT
+  become a time; anything the model produced beyond the golden is listed as
+  invented in the assertion's reason.
 - `schema_valid` — 1 if the output conforms to `batch-schema.json`
-- `overall` — weighted summary (artists 55%, festival fields 20%, billing 15%, venue 10%)
+- `overall`: weighted summary (artists 55%, festival fields 20%, billing 15%,
+  venue 10%)
 
-The last three do not feed `overall`, so a fixture's score stays comparable with
-the number it scored before they existed. Both agreement metrics are computed
-over MATCHED shows only, so their components also fail when a golden show was
-missed or an extra one invented: a rate over nothing is not a pass.
+`show_recall`, `show_price_agreement`, `bill_role_agreement` and
+`show_times_agreement` do NOT feed `overall`, so a fixture's score stays
+comparable with the number it scored before they existed. `show_price_agreement`
+and `bill_role_agreement` are computed over MATCHED shows only, so their
+components also fail when a golden show was missed or an extra one invented: a
+rate over nothing is not a pass. `show_times_agreement` is omitted entirely for a
+fixture whose golden states no shows, for the same reason.
 
 **No hard pass/fail accuracy gate is set.** The eval reports scores; it does not
 fail a build on low accuracy (PSY-935 — threshold-setting is a follow-up user

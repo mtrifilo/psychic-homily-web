@@ -477,6 +477,54 @@ jobs:
         working-directory: ./frontend
         run: bun run lint
 
+  cli-tests:
+    name: CLI Tests
+    runs-on: ubuntu-latest
+    # ALWAYS-RUN, NOT PATH-FILTERED, and that is deliberate. `backend-image.yml`
+    # argues the general case at length: a path-filtered workflow reports NOTHING
+    # on a PR that misses the filter rather than a neutral status, so it can
+    # never become a required check without bricking the merge queue.
+    #
+    # This job has a second, specific reason. Its most valuable test is the
+    # drift gate in `cli/test/showTimes.test.ts`, which parses the clock-parser
+    # table out of `backend/internal/services/pipeline/discovery_test.go` and
+    # holds the TypeScript parser to every verdict in it. Expressing that as a
+    # path list means naming a Go test file from a CLI job and keeping the two
+    # in step forever: rename or split that file and the gate silently stops
+    # running, which is the exact drift it exists to catch.
+    #
+    # The cost argument for filtering does not hold either. Measured ON A RUNNER,
+    # 2026-09-04, run 33915988876: 26 SECONDS end to end, cold, checkout through
+    # `bun test`. It runs in parallel with the rest of CI, so its contribution to
+    # PR wall-clock is ~0 and the `feedback_ci_time_budget` ceiling is not in
+    # play. Worth knowing anyway: the tree is 1.5 GB / 498 packages, nearly all
+    # of it `promptfoo`, a devDependency this job never uses (it runs only
+    # typecheck and the suite). `promptfoo` stays in `devDependencies` because
+    # `cd cli && bun run eval` is a documented manual command, and moving it
+    # behind `bunx` would make that command re-resolve a bare npm name every run
+    # (see `pattern_bunx_local_tool_footgun`). If this job's install ever does
+    # show up in the budget, splitting the eval harness into its own manifest is
+    # the fix, not a path filter.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: ./cli
+        run: bun install --frozen-lockfile
+
+      # Typecheck first: it is the stricter gate and the faster signal, so a type
+      # error fails the job without waiting on the suite.
+      - name: Typecheck (tsc --noEmit)
+        working-directory: ./cli
+        run: bun run typecheck
+
+      - name: Test (bun test)
+        working-directory: ./cli
+        run: bun test
+
   e2e-smoke:
     name: E2E Smoke (PR)
     # PSY-446: fast PR feedback. Runs only `@smoke`-tagged Playwright tests
@@ -832,11 +880,12 @@ jobs:
     # positive: e2e-tests has no needs and shares this job's push+main gate,
     # and e2e-report skips only under the same `!cancelled()` guard this
     # job carries, so the two skip together. Scoped to main-branch pushes.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.cli-tests.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
     needs:
       - migration-lint
       - migration-reversibility
       - backend-tests
+      - cli-tests
       - backend-lint
       - mocks-gen-check
       - api-types-check

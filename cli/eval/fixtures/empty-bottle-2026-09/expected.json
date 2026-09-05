@@ -1,0 +1,73 @@
+[
+  {
+    "entity_type": "artist",
+    "name": "Otha"
+  },
+  {
+    "entity_type": "artist",
+    "name": "Miss Twink USA"
+  },
+  {
+    "entity_type": "artist",
+    "name": "Radium Dolls"
+  },
+  {
+    "entity_type": "artist",
+    "name": "Autofill"
+  },
+  {
+    "entity_type": "artist",
+    "name": "Wild Zero"
+  },
+  {
+    "entity_type": "venue",
+    "name": "Empty Bottle",
+    "city": "Chicago",
+    "state": "IL"
+  },
+  {
+    "entity_type": "show",
+    "event_date": "2026-09-11",
+    "city": "Chicago",
+    "state": "IL",
+    "artists": [
+      {
+        "name": "Otha"
+      },
+      {
+        "name": "Miss Twink USA"
+      }
+    ],
+    "venues": [
+      {
+        "name": "Empty Bottle",
+        "city": "Chicago",
+        "state": "IL"
+      }
+    ]
+  },
+  {
+    "entity_type": "show",
+    "event_date": "2026-09-12",
+    "city": "Chicago",
+    "state": "IL",
+    "artists": [
+      {
+        "name": "Radium Dolls"
+      },
+      {
+        "name": "Autofill"
+      },
+      {
+        "name": "Wild Zero"
+      }
+    ],
+    "venues": [
+      {
+        "name": "Empty Bottle",
+        "city": "Chicago",
+        "state": "IL"
+      }
+    ]
+  }
+]

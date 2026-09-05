@@ -1,0 +1,39 @@
+[
+  {
+    "entity_type": "artist",
+    "name": "Wolves of Glendale"
+  },
+  {
+    "entity_type": "artist",
+    "name": "Wynchester"
+  },
+  {
+    "entity_type": "venue",
+    "name": "Lincoln Hall",
+    "city": "Chicago",
+    "state": "IL"
+  },
+  {
+    "entity_type": "show",
+    "event_date": "2026-09-04",
+    "city": "Chicago",
+    "state": "IL",
+    "doors_at": "7:30PM",
+    "music_at": "8:30PM",
+    "artists": [
+      {
+        "name": "Wolves of Glendale"
+      },
+      {
+        "name": "Wynchester"
+      }
+    ],
+    "venues": [
+      {
+        "name": "Lincoln Hall",
+        "city": "Chicago",
+        "state": "IL"
+      }
+    ]
+  }
+]

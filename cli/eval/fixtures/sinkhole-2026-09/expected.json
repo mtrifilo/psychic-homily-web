@@ -1,0 +1,47 @@
+[
+  {
+    "entity_type": "artist",
+    "name": "Earth Tongue"
+  },
+  {
+    "entity_type": "artist",
+    "name": "Scuzz"
+  },
+  {
+    "entity_type": "artist",
+    "name": "The Maness Brothers"
+  },
+  {
+    "entity_type": "venue",
+    "name": "Sinkhole",
+    "city": "St. Louis",
+    "state": "MO"
+  },
+  {
+    "entity_type": "show",
+    "event_date": "2026-09-08",
+    "city": "St. Louis",
+    "state": "MO",
+    "doors_at": "7:00 pm",
+    "music_at": "8:00 pm",
+    "artists": [
+      {
+        "name": "Earth Tongue"
+      },
+      {
+        "name": "Scuzz"
+      },
+      {
+        "name": "The Maness Brothers"
+      }
+    ],
+    "venues": [
+      {
+        "name": "Sinkhole",
+        "city": "St. Louis",
+        "state": "MO"
+      }
+    ],
+    "price": 16.65
+  }
+]

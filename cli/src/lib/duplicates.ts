@@ -1,6 +1,8 @@
 import type { APIClient } from "./api";
 import type { EntityType } from "./types";
 import { resolveVenueTimezone, localTimeToUTC } from "./timezone";
+import * as display from "./display";
+import { readEventDate } from "./showTimes";
 
 export type MatchResult = "exact" | "fuzzy" | "none";
 export type ActionType = "create" | "update" | "skip";
@@ -772,6 +774,22 @@ interface ShowResponseForDedup {
 }
 
 /**
+ * How many shows this check will read before giving up.
+ *
+ * SITE-WIDE, not per venue. The request carries only the date window, so it
+ * returns every visible show on that span across every venue and the venue
+ * match happens in JS below. The cap is therefore a ceiling on how many shows
+ * the whole site has on one calendar day, not on how many one venue has.
+ *
+ * It is a bound against an unbounded page walk (a misresolved zone, a seeded
+ * database), not a product limit. Exceeding it is reported by
+ * `checkShowDuplicate` rather than swallowed, because a silent stop here reads
+ * as "not a duplicate" and the run then tries a create that the backend's
+ * unique key rejects.
+ */
+const DEDUP_SCAN_CAP = 600;
+
+/**
  * Extract the calendar date (YYYY-MM-DD) from a date string.
  * Handles full ISO timestamps, date-only strings, etc.
  */
@@ -798,14 +816,22 @@ function extractCalendarDate(dateStr: string): string {
  * venue's timezone too (PSY-1873): once the writer anchors a Leeds show in
  * Europe/London, a Phoenix-derived window is seven hours off and a re-ingest
  * stops recognising its own rows. Both go through `resolveVenueTimezone`.
+ *
+ * The DAY goes through `readEventDate` for the same reason, not through a
+ * leading-ten-character slice. An `event_date` that states its own zone names a
+ * day in the VENUE's calendar, not in UTC: `2026-09-06T01:00:00Z` at a Chicago
+ * venue is the evening of September 5, and a window built on the 6th does not
+ * contain the row the writer is about to store. That is the shape this CLI
+ * itself writes, so the slice missed its own rows.
  */
 export function showDedupWindow(
   eventDate: string,
   state?: string,
   timezone?: string,
 ): { fromDate: string; toDate: string } {
-  const calendarDate = extractCalendarDate(eventDate);
   const zone = resolveVenueTimezone(state, timezone);
+  const reading = readEventDate(eventDate, zone);
+  const calendarDate = reading ? reading.day : extractCalendarDate(eventDate);
   return {
     fromDate: localTimeToUTC(calendarDate, "00:00", zone),
     toDate: localTimeToUTC(calendarDate, "23:59", zone),
@@ -843,12 +869,42 @@ export async function checkShowDuplicate(
     // window matches how event_date is stored. See showDedupWindow.
     const { fromDate, toDate } = showDedupWindow(eventDate, state, timezone);
 
-    const result = await client.get<ShowResponseForDedup[]>("/shows", {
-      from_date: fromDate,
-      to_date: toDate,
-    });
+    // `/shows` answers with an ENVELOPE, `{shows, total, limit, offset}`, and
+    // pages at 50 by default. Reading it as a bare array yielded [] on every
+    // call, so this check reported "not a duplicate" for every show ever put
+    // through it and the 422 from the backend's unique key was the only thing
+    // catching a re-ingest. Both shapes are accepted here because the bare-array
+    // reading is what the code has always claimed the endpoint returns.
+    //
+    // Paging matters as much as the shape: a busy venue-local day easily
+    // exceeds one page, and the duplicate is as likely to be on page two.
+    const shows: ShowResponseForDedup[] = [];
+    let scanTruncated = false;
+    const pageSize = 200;
+    for (let offset = 0; offset < DEDUP_SCAN_CAP; offset += pageSize) {
+      const result = await client.get<
+        ShowResponseForDedup[] | { shows?: ShowResponseForDedup[]; total?: number }
+      >("/shows", {
+        from_date: fromDate,
+        to_date: toDate,
+        limit: String(pageSize),
+        offset: String(offset),
+      });
 
-    const shows = Array.isArray(result) ? result : [];
+      const page = Array.isArray(result) ? result : (result?.shows ?? []);
+      shows.push(...page);
+      if (page.length < pageSize) break;
+      scanTruncated = offset + pageSize >= DEDUP_SCAN_CAP;
+    }
+
+    if (scanTruncated) {
+      // Say it rather than return a quiet "no duplicate": the caller would
+      // create a show the backend then refuses on its unique key, and the
+      // operator would have no way to tell that from a genuinely new show.
+      display.warn(
+        `Duplicate check read the first ${DEDUP_SCAN_CAP} shows in this date window and stopped; a duplicate beyond that was not seen.`,
+      );
+    }
 
     for (const show of shows) {
       // Check if any venue matches
