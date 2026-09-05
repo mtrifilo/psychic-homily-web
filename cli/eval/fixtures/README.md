@@ -100,15 +100,23 @@ scored.
   source did not. A model that copies `7 pm` through scores zero on that show:
   the clock is unreadable, and an unreadable stated time is not a stored one.
 
-**These three read `show_recall: 0`, and that is not a broken fixture.** Their
-images do not print a year (a venue calendar says "SEP 04"), so the golden's
-`event_date` carries one only the site's own slug reveals and the model guesses a
-different one. `show_recall` keys a show on date + venue, so the key misses, and
-`show_price_agreement` / `bill_role_agreement` report "not comparable" behind it.
+**All three currently read `show_recall: 0`, for a reason worth knowing.**
+`show_recall` keys a show on date + venue, and on every one of these captures the
+model produced a different YEAR from the golden, so the key misses. For
+`lh-st-lincoln-hall-2026-09` and `empty-bottle-2026-09` the year is genuinely not
+on the image (a venue calendar says "SEP 04"), and the golden's comes from the
+site's own slug. For `sinkhole-2026-09` the poster DOES print `2026` and the
+model read it as 2025 anyway: that one is a real extraction miss and the metric
+is right to report it.
+
+A missed show FAILS `show_price_agreement` and `bill_role_agreement` rather than
+neutrally skipping them — `agreementResult` marks a blocked metric not
+comparable and not passed — so a run that gets the date wrong cannot quietly
+collect a vacuous 1 on the two rules those metrics enforce.
 `show_times_agreement` is unaffected by design: it compares the stated schedules
 as a multiset precisely so a year the source never printed cannot read as a
-missing time. The two metrics answer different questions and disagree here for a
-real reason.
+missing time. The metrics answer different questions and disagree here for a real
+reason.
 
 All three are live captures rather than posters because the `ph batch` path
 ingests venue calendars; the registry of those calendars is in

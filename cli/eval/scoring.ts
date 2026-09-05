@@ -34,6 +34,14 @@ export interface BatchItem {
   venues?: Array<{ name?: string; city?: string; state?: string; is_primary?: boolean }>;
   price?: number | string;
   door_price?: number | string;
+  /**
+   * Declared, not left to the index signature below: `scheduleKey` and `showKey`
+   * read these, and through `[key: string]: unknown` a typo compiles and turns
+   * every schedule into the all-absent key, which scores as perfect agreement.
+   */
+  event_date?: string;
+  doors_at?: string;
+  music_at?: string;
   [key: string]: unknown;
 }
 

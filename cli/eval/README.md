@@ -77,14 +77,15 @@ The assertion returns `namedScores` per fixture:
   invented in the assertion's reason.
 - `schema_valid` — 1 if the output conforms to `batch-schema.json`
 - `overall`: weighted summary (artists 55%, festival fields 20%, billing 15%,
-  venue 10%, show times 15%). Show times join the average only for a fixture
-  whose golden has shows, and the weights are renormalized, so a fixture with
-  none scores exactly what the other four give it.
+  venue 10%)
 
-The last three do not feed `overall`, so a fixture's score stays comparable with
-the number it scored before they existed. Both agreement metrics are computed
-over MATCHED shows only, so their components also fail when a golden show was
-missed or an extra one invented: a rate over nothing is not a pass.
+`show_recall`, `show_price_agreement`, `bill_role_agreement` and
+`show_times_agreement` do NOT feed `overall`, so a fixture's score stays
+comparable with the number it scored before they existed. `show_price_agreement`
+and `bill_role_agreement` are computed over MATCHED shows only, so their
+components also fail when a golden show was missed or an extra one invented: a
+rate over nothing is not a pass. `show_times_agreement` is omitted entirely for a
+fixture whose golden states no shows, for the same reason.
 
 **No hard pass/fail accuracy gate is set.** The eval reports scores; it does not
 fail a build on low accuracy (PSY-935 — threshold-setting is a follow-up user
