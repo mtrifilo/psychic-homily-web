@@ -14365,7 +14365,6 @@ export interface components {
             artist_id: number;
             /** Format: int64 */
             follow_count: number;
-            image_url: string;
             name: string;
             /** Format: int64 */
             score: number;

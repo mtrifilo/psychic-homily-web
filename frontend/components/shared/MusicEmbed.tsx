@@ -3,13 +3,14 @@
 import { useQuery } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
-import { parseSpotifyEmbed, type SpotifyEmbedKind } from '@/lib/spotify'
+import { type SpotifyEmbedKind } from '@/lib/spotify'
 import {
   bandcampEmbedSrc,
   isAllowedBandcampUrl,
   isBandcampReleaseUrl,
   type BandcampEmbedResponse,
 } from '@/lib/bandcamp'
+import { playableMusicSources } from '@/lib/playableMusicSources'
 import { queryKeys } from '@/lib/queryClient'
 
 interface MusicEmbedProps {
@@ -268,10 +269,10 @@ export function MusicEmbed({
   )
 }
 
-// Map the resolved inputs onto the rendered embed, preserving the
-// bandcamp(album/track) → spotify → bandcamp-fallback → profile-fallback
-// priority. Kept pure (no hooks, no fetch) so the priority logic is testable
-// and obvious at a single level of abstraction.
+// Map the resolved inputs onto the rendered embed: the shared player ladder
+// (`playableMusicSources`) first, then this component's own outbound-link
+// fallbacks, which no other surface offers. Kept pure (no hooks, no fetch) so
+// the priority logic is testable and obvious at a single level of abstraction.
 function deriveEmbedState({
   bandcampAlbumUrl,
   bandcampProfileUrl,
@@ -291,29 +292,31 @@ function deriveEmbedState({
   bandcampIsPending: boolean
   bandcampEmbed: BandcampEmbed | null
 }): EmbedState {
-  // Priority 1: Bandcamp album/track embed (resolved kind + id).
-  if (bandcampAlbumUrl) {
+  // A PLAYER, from the one ladder every surface shares: Bandcamp album/track
+  // first, then the artist's Spotify. The 'platform' scope is what lets an
+  // on-platform page that is not a release still be offered to the resolver,
+  // which is the only thing that can tell whether it carries a player.
+  //
+  // Spotify's rung needs no async step, so reaching it is the answer. Bandcamp's
+  // does, and a resolve that came back empty leaves the rung with nothing to
+  // render, so the walk continues to whatever is below it.
+  for (const source of playableMusicSources({
+    bandcampUrl: bandcampAlbumUrl,
+    spotifyUrl,
+    bandcampScope: 'platform',
+  })) {
+    if (source.service === 'spotify') {
+      return { type: 'spotify', spotifyKind: source.kind, spotifyId: source.id }
+    }
     if (bandcampIsPending) {
       return { type: 'loading' }
     }
     if (bandcampEmbed) {
       return { type: 'bandcamp', embedKind: bandcampEmbed.kind, embedId: bandcampEmbed.id }
     }
-    // Resolve finished with no usable embed (error or empty) → fall through.
   }
 
-  // Priority 2: Spotify artist/album/track URL. Artist pages pass an artist
-  // URL; release pages pass an album/track URL (PSY-1195). parseSpotifyEmbed
-  // host-anchors + id-validates all three, so a bad/look-alike URL falls
-  // through to the fallbacks below rather than producing a broken iframe.
-  if (spotifyUrl) {
-    const parsed = parseSpotifyEmbed(spotifyUrl)
-    if (parsed) {
-      return { type: 'spotify', spotifyKind: parsed.kind, spotifyId: parsed.id }
-    }
-  }
-
-  // Priority 3: Bandcamp fallback links.
+  // Outbound links, once no player is available.
   //
   // Both URLs are proven Bandcamp before either becomes an href, and this is the
   // only place that check is COMPLETE: nearly every surface that mounts this

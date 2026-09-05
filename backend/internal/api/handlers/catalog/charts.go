@@ -533,7 +533,6 @@ type PopularArtistResponse struct {
 	ArtistID          uint   `json:"artist_id"`
 	Name              string `json:"name"`
 	Slug              string `json:"slug"`
-	ImageURL          string `json:"image_url"`
 	FollowCount       int    `json:"follow_count"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	Score             int    `json:"score"`
@@ -563,7 +562,6 @@ func (h *ChartsHandler) GetPopularArtistsHandler(ctx context.Context, req *GetPo
 			ArtistID:          a.ArtistID,
 			Name:              a.Name,
 			Slug:              a.Slug,
-			ImageURL:          a.ImageURL,
 			FollowCount:       a.FollowCount,
 			UpcomingShowCount: a.UpcomingShowCount,
 			Score:             a.Score,
@@ -1153,7 +1151,6 @@ func (h *ChartsHandler) GetChartsOverviewHandler(ctx context.Context, _ *GetChar
 			ArtistID:          a.ArtistID,
 			Name:              a.Name,
 			Slug:              a.Slug,
-			ImageURL:          a.ImageURL,
 			FollowCount:       a.FollowCount,
 			UpcomingShowCount: a.UpcomingShowCount,
 			Score:             a.Score,
