@@ -947,7 +947,7 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 		log.Printf("failed to render scene-follow email for user %d: %v", userID, err)
 		return
 	}
-	subject := fmt.Sprintf("New show in %s", sceneName)
+	subject := fmt.Sprintf("New show in %s", entityNameForSubject(sceneName))
 	if err := s.sendEmail(email, subject, html, manageURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "notification_filter")

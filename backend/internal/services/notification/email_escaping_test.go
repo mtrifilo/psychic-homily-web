@@ -32,6 +32,23 @@ func hostile(field string) string {
 	return `<script>alert(1)</script> <a href="https://evil.test">click</a> "quoted" & ` + field
 }
 
+// assertSubjectNotHTMLEscaped fails if a Subject carries the BODY's escaping. A
+// subject is a header, not markup, so the characters html/template would have
+// replaced must arrive as written.
+//
+// It asserts on hostile()'s leading characters rather than on the whole value
+// because a Subject is length-bounded (maxEmailSubjectRunes) and two hostile
+// names assemble to exactly that bound: asserting the tail would make this
+// escaping guard fail for a length reason, reporting the wrong cause.
+func assertSubjectNotHTMLEscaped(t *testing.T, subject string) {
+	t.Helper()
+	assert.Contains(t, subject, "<script>", "a subject must carry < and > as written")
+	assert.Contains(t, subject, `"quoted"`, "a subject must carry a double quote as written")
+	assert.NotContains(t, subject, "&lt;", "the subject carries the body's escaping")
+	assert.NotContains(t, subject, "&amp;", "the subject carries the body's escaping")
+	assert.NotContains(t, subject, "&#34;", "the subject carries the body's escaping")
+}
+
 // assertEscaped fails if any part of a hostile value survived as markup, or if
 // any named field is missing from the body.
 //
@@ -187,7 +204,7 @@ func TestEmailTemplatesEscapeContributorText(t *testing.T) {
 			"http://localhost:3000/artists/x", "http://unsub?a=1&b=2",
 		))
 		assertEscaped(t, "comment_notification", email.Html, "commenter", "entityName", "excerpt")
-		assert.Contains(t, email.Subject, name, "the plain-text subject must not be HTML-escaped")
+		assertSubjectNotHTMLEscaped(t, email.Subject)
 	})
 
 	t.Run("mention notification", func(t *testing.T) {
@@ -198,7 +215,7 @@ func TestEmailTemplatesEscapeContributorText(t *testing.T) {
 			"http://localhost:3000/releases/x#comment-1", "http://unsub?a=1&b=2",
 		))
 		assertEscaped(t, "mention_notification", email.Html, "mentioner", "entityName", "excerpt")
-		assert.Contains(t, email.Subject, name, "the plain-text subject must not be HTML-escaped")
+		assertSubjectNotHTMLEscaped(t, email.Subject)
 	})
 
 	t.Run("collection digest", func(t *testing.T) {
