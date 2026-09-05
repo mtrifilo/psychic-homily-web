@@ -2,6 +2,7 @@ package notification
 
 import (
 	"encoding/json"
+	"html"
 	"strings"
 	"testing"
 
@@ -270,7 +271,7 @@ func TestBuildArtistShowAlertEmailHTML(t *testing.T) {
 	// as `&amp;`. That is the correct spelling in HTML and resolves to the same
 	// URL; the assertion is written against it rather than against the raw string
 	// so a future change that stopped escaping would fail here.
-	assert.Contains(t, nearMe, `href="`+htmlEscape(unsubURL)+`"`,
+	assert.Contains(t, nearMe, `href="`+html.EscapeString(unsubURL)+`"`,
 		"the opt-out must be a real anchor, not escaped text: RFC 8058 needs the body link to work")
 	assert.Contains(t, nearMe, "Unsubscribe from artist show alerts")
 	assert.Contains(t, nearMe, manageURL)
@@ -559,7 +560,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_EmailOptInSendsWithWorkingUnsu
 	s.Contains(sent.unsubscribeURL, "/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts)
 	// Same endpoint in the header (raw, per RFC 2369) and in the body (HTML
 	// attribute-escaped). A recipient and a mailbox provider get one way out.
-	s.Contains(sent.html, `href="`+htmlEscape(sent.unsubscribeURL)+`"`,
+	s.Contains(sent.html, `href="`+html.EscapeString(sent.unsubscribeURL)+`"`,
 		"the header URL and the in-body link must be the same endpoint")
 }
 

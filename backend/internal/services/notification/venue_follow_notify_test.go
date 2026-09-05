@@ -379,9 +379,9 @@ func TestBuildVenueShowAlertEmailHTML_EscapesScrapedText(t *testing.T) {
 	assert.Contains(t, html, "&lt;img src=x onerror=alert(1)&gt;")
 }
 
-// TestSanitizeVenueAlertSubject covers the OTHER escaping medium. htmlEscape
-// does nothing for a header, where the dangerous character is a newline rather
-// than an angle bracket.
+// TestSanitizeVenueAlertSubject covers the OTHER escaping medium.
+// html.EscapeString does nothing for a header, where the dangerous character is
+// a newline rather than an angle bracket.
 func TestSanitizeVenueAlertSubject(t *testing.T) {
 	got := sanitizeEmailHeaderValue("Valley Bar\r\nBcc: victim@example.com")
 	assert.NotContains(t, got, "\n")

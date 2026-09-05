@@ -2,7 +2,6 @@ package notification
 
 import (
 	"fmt"
-	"html"
 	"net/http"
 	"strings"
 	"time"
@@ -120,35 +119,12 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 
 	magicLinkURL := fmt.Sprintf("%s/auth/magic-link?token=%s", s.frontendURL, token)
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">Sign in to your account</h2>
-        <p>Click the button below to sign in to your Psychic Homily account. This link will expire in 15 minutes.</p>
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Sign In</a>
-        </p>
-        <p style="font-size: 14px; color: #666;">For security, this link expires in 15 minutes and can only be used once.</p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>If you didn't request this email, you can safely ignore it.</p>
-        <p>If the button doesn't work, copy and paste this link into your browser:</p>
-        <p style="word-break: break-all; color: #666;">%s</p>
-    </div>
-</body>
-</html>
-`, magicLinkURL, magicLinkURL)
+	html, err := renderEmailTemplate(magicLinkEmailTemplate, magicLinkEmailData{
+		MagicLinkURL: magicLinkURL,
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -157,7 +133,7 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 		Html:    html,
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -178,35 +154,13 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 
 	recoveryURL := fmt.Sprintf("%s/auth/recover?token=%s", s.frontendURL, token)
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">Recover Your Account</h2>
-        <p>We received a request to recover your deleted Psychic Homily account. You have <strong>%d days remaining</strong> to recover your account before it is permanently deleted.</p>
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Recover Account</a>
-        </p>
-        <p style="font-size: 14px; color: #666;">This link will expire in 1 hour.</p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>If you didn't request this, you can safely ignore this email. Your account will remain scheduled for deletion.</p>
-        <p>If the button doesn't work, copy and paste this link into your browser:</p>
-        <p style="word-break: break-all; color: #666;">%s</p>
-    </div>
-</body>
-</html>
-`, daysRemaining, recoveryURL, recoveryURL)
+	html, err := renderEmailTemplate(accountRecoveryEmailTemplate, accountRecoveryEmailData{
+		DaysRemaining: daysRemaining,
+		RecoveryURL:   recoveryURL,
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -215,7 +169,7 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 		Html:    html,
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -252,38 +206,17 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 		dateLayout = showReminderDateTimeLayout
 	}
 	formattedDate := eventTime.At.Format(dateLayout)
-	venueText := ""
-	if len(venues) > 0 {
-		venueText = fmt.Sprintf(`<p style="font-size: 16px; color: #444;">Venue: <strong>%s</strong></p>`, strings.Join(venues, ", "))
+
+	html, err := renderEmailTemplate(showReminderEmailTemplate, showReminderEmailData{
+		ShowTitle:      showTitle,
+		FormattedDate:  formattedDate,
+		VenueText:      strings.Join(venues, ", "),
+		ShowURL:        showURL,
+		UnsubscribeURL: unsubscribeURL,
+	})
+	if err != nil {
+		return err
 	}
-
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">%s is tomorrow!</h2>
-        <p style="font-size: 16px; color: #444;">%s</p>
-        %s
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View Show</a>
-        </p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Don't want these reminders? <a href="%s" style="color: #666;">Unsubscribe</a></p>
-    </div>
-</body>
-</html>
-`, showTitle, formattedDate, venueText, showURL, unsubscribeURL)
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -296,7 +229,7 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 		},
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -390,58 +323,23 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
 	displayName := TierDisplayName(newTier)
 	oldDisplayName := TierDisplayName(oldTier)
 
-	permissionsHTML := ""
-	if len(newPermissions) > 0 {
-		permissionsHTML = `<h3 style="color: #1a1a1a; margin-bottom: 8px;">New permissions unlocked:</h3><ul style="padding-left: 20px; color: #444;">`
-		for _, perm := range newPermissions {
-			permissionsHTML += fmt.Sprintf(`<li style="margin-bottom: 4px;">%s</li>`, perm)
-		}
-		permissionsHTML += `</ul>`
-	}
-
-	nextTierHTML := ""
-	switch newTier {
-	case "contributor":
-		nextTierHTML = `<p style="font-size: 14px; color: #666; margin-top: 20px;">Keep contributing quality edits to reach <strong>Trusted Contributor</strong> status (25 approved edits with 95%+ approval rate).</p>`
-	case "trusted_contributor":
-		nextTierHTML = `<p style="font-size: 14px; color: #666; margin-top: 20px;">Keep contributing to your local scene to reach <strong>Local Ambassador</strong> status (50 approved edits with 10+ city edits).</p>`
-	case "local_ambassador":
-		nextTierHTML = `<p style="font-size: 14px; color: #666; margin-top: 20px;">You've reached the highest contributor tier. Thank you for your dedication to the community!</p>`
-	}
-
 	greeting := "there"
 	if username != "" {
 		greeting = username
 	}
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f0fdf4; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #bbf7d0;">
-        <h2 style="margin-top: 0; color: #166534;">Congratulations, %s!</h2>
-        <p style="font-size: 16px;">You've been promoted from <strong>%s</strong> to <strong>%s</strong>.</p>
-        <p style="color: #444;">%s</p>
-        %s
-        %s
-    </div>
-
-    %s
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Thank you for contributing to the Psychic Homily community.</p>
-    </div>
-</body>
-</html>
-`, greeting, oldDisplayName, displayName, reason, permissionsHTML, nextTierHTML, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
+	html, err := renderEmailTemplate(tierPromotionEmailTemplate, tierPromotionEmailData{
+		Greeting:       greeting,
+		OldDisplayName: oldDisplayName,
+		DisplayName:    displayName,
+		Reason:         reason,
+		NewTier:        newTier,
+		NewPermissions: newPermissions,
+		Unsubscribe:    unsubscribeCard{URL: unsubscribeURL, Label: "tier-change emails"},
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -451,7 +349,7 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -479,39 +377,16 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
 		greeting = username
 	}
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #fef9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #fecaca;">
-        <h2 style="margin-top: 0; color: #991b1b;">Your contributor tier has changed</h2>
-        <p>Hi %s,</p>
-        <p>Your tier has changed from <strong>%s</strong> to <strong>%s</strong>.</p>
-        <p style="color: #444;"><strong>Reason:</strong> %s</p>
-        <h3 style="color: #1a1a1a; margin-bottom: 8px;">How to recover your tier:</h3>
-        <ul style="padding-left: 20px; color: #444;">
-            <li style="margin-bottom: 4px;">Focus on submitting accurate, high-quality edits</li>
-            <li style="margin-bottom: 4px;">Double-check your information before submitting</li>
-            <li style="margin-bottom: 4px;">Review the contribution guidelines for best practices</li>
-        </ul>
-    </div>
-
-    %s
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Your contributions are valued. Keep at it and you'll regain your tier.</p>
-    </div>
-</body>
-</html>
-`, greeting, oldDisplayName, newDisplayName, reason, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
+	html, err := renderEmailTemplate(tierDemotionEmailTemplate, tierDemotionEmailData{
+		Greeting:       greeting,
+		OldDisplayName: oldDisplayName,
+		NewDisplayName: newDisplayName,
+		Reason:         reason,
+		Unsubscribe:    unsubscribeCard{URL: unsubscribeURL, Label: "tier-change emails"},
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -521,7 +396,7 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -548,38 +423,16 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 		greeting = username
 	}
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #fffbeb; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #fde68a;">
-        <h2 style="margin-top: 0; color: #92400e;">Your contributor status is at risk</h2>
-        <p>Hi %s,</p>
-        <p>Your current approval rate of <strong>%.0f%%</strong> is approaching the <strong>%.0f%%</strong> threshold required to maintain your <strong>%s</strong> status.</p>
-        <h3 style="color: #1a1a1a; margin-bottom: 8px;">Tips to improve your approval rate:</h3>
-        <ul style="padding-left: 20px; color: #444;">
-            <li style="margin-bottom: 4px;">Verify information from multiple sources before submitting</li>
-            <li style="margin-bottom: 4px;">Pay attention to formatting and data accuracy</li>
-            <li style="margin-bottom: 4px;">Review feedback on previously rejected edits</li>
-        </ul>
-    </div>
-
-    %s
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>This is a friendly heads-up to help you maintain your contributor status.</p>
-    </div>
-</body>
-</html>
-`, greeting, currentRate*100, threshold*100, displayName, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
+	html, err := renderEmailTemplate(tierDemotionWarningEmailTemplate, tierDemotionWarningEmailData{
+		Greeting:    greeting,
+		CurrentRate: currentRate * 100,
+		Threshold:   threshold * 100,
+		DisplayName: displayName,
+		Unsubscribe: unsubscribeCard{URL: unsubscribeURL, Label: "tier-change emails"},
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -589,7 +442,7 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -617,36 +470,17 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 	// Capitalize first letter for CTA button text (e.g. "artist" -> "Artist")
 	entityTypeTitle := strings.ToUpper(entityType[:1]) + entityType[1:]
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f0fdf4; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #bbf7d0;">
-        <h2 style="margin-top: 0; color: #166534;">Your edit was approved!</h2>
-        <p>Hi %s,</p>
-        <p>Your edit to the %s <strong>%s</strong> has been reviewed and approved. Your changes are now live!</p>
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #16a34a; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View %s</a>
-        </p>
-        <p style="font-size: 14px; color: #444;">Thank you for improving the Psychic Homily database. Every contribution helps the community discover great music.</p>
-    </div>
-
-    %s
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Keep contributing to build your reputation and unlock new permissions.</p>
-    </div>
-</body>
-</html>
-`, greeting, entityType, entityName, entityURL, entityTypeTitle, unsubscribeCardHTML(unsubscribeURL, "edit-review emails"))
+	html, err := renderEmailTemplate(editApprovedEmailTemplate, editApprovedEmailData{
+		Greeting:        greeting,
+		EntityType:      entityType,
+		EntityName:      entityName,
+		EntityURL:       entityURL,
+		EntityTypeTitle: entityTypeTitle,
+		Unsubscribe:     unsubscribeCard{URL: unsubscribeURL, Label: "edit-review emails"},
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -656,7 +490,7 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -681,49 +515,28 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 		commenterName = "A contributor"
 	}
 
-	// User-controlled strings enter an HTML body below — escape at the
-	// boundary (display/first names and comment bodies are free-form text;
-	// entity names are community-editable).
-	commenterName = html.EscapeString(commenterName)
-	entityName = html.EscapeString(entityName)
-	commentExcerpt = html.EscapeString(commentExcerpt)
-
 	// Capitalize first letter of entity type for the subject (e.g. "artist" -> "Artist").
 	entityTypeTitle := entityType
 	if entityTypeTitle != "" {
 		entityTypeTitle = strings.ToUpper(entityTypeTitle[:1]) + entityTypeTitle[1:]
 	}
 
+	// The subject is a header, not markup: it carries the entity name as
+	// written, while the body below gets it escaped for the context it lands in.
 	subject := fmt.Sprintf("New comment on %s", entityName)
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">New comment on %s</h2>
-        <p style="font-size: 15px; color: #444;"><strong>%s</strong> commented on the %s <strong>%s</strong>:</p>
-        <blockquote style="border-left: 4px solid #f97316; padding-left: 16px; margin: 16px 0; color: #555; font-style: italic;">%s</blockquote>
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View Discussion</a>
-        </p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>You're receiving this because you're subscribed to %s on %s.</p>
-        <p>Don't want these notifications? <a href="%s" style="color: #666;">Unsubscribe</a></p>
-    </div>
-</body>
-</html>
-`, entityName, commenterName, entityType, entityName, commentExcerpt, entityURL, entityTypeTitle, entityName, unsubscribeURL)
+	html, err := renderEmailTemplate(commentNotificationEmailTemplate, commentNotificationEmailData{
+		EntityName:      entityName,
+		CommenterName:   commenterName,
+		EntityType:      entityType,
+		CommentExcerpt:  commentExcerpt,
+		EntityURL:       entityURL,
+		EntityTypeTitle: entityTypeTitle,
+		UnsubscribeURL:  unsubscribeURL,
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -736,7 +549,7 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 		},
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -760,40 +573,19 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 		mentionerName = "Someone"
 	}
 
-	// Subject stays unescaped (plain-text header); the HTML body below gets
-	// escaped copies of every user-controlled string.
 	subject := fmt.Sprintf("%s mentioned you in a comment on %s", mentionerName, entityName)
-	mentionerName = html.EscapeString(mentionerName)
-	entityName = html.EscapeString(entityName)
-	commentExcerpt = html.EscapeString(commentExcerpt)
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">You were mentioned</h2>
-        <p style="font-size: 15px; color: #444;"><strong>%s</strong> mentioned you in a comment on the %s <strong>%s</strong>:</p>
-        <blockquote style="border-left: 4px solid #f97316; padding-left: 16px; margin: 16px 0; color: #555; font-style: italic;">%s</blockquote>
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Reply</a>
-        </p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Don't want mention notifications? <a href="%s" style="color: #666;">Unsubscribe</a></p>
-    </div>
-</body>
-</html>
-`, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL)
+	html, err := renderEmailTemplate(mentionNotificationEmailTemplate, mentionNotificationEmailData{
+		MentionerName:  mentionerName,
+		EntityType:     entityType,
+		EntityName:     entityName,
+		CommentExcerpt: commentExcerpt,
+		CommentURL:     commentURL,
+		UnsubscribeURL: unsubscribeURL,
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -806,7 +598,7 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 		},
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -858,57 +650,14 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 		subject = fmt.Sprintf("New this week in %s: %d %s", groups[0].CollectionTitle, totalItems, pluralize("item", totalItems))
 	}
 
-	// Render each group as its own block.
-	var groupsHTML strings.Builder
-	for _, g := range groups {
-		fmt.Fprintf(&groupsHTML, `<div style="margin-bottom: 24px;">
-				<h3 style="margin: 0 0 8px; color: #1a1a1a;"><a href="%s" style="color: #1a1a1a; text-decoration: none;">%s</a></h3>
-				<ul style="margin: 0; padding-left: 20px; color: #444;">`,
-			g.CollectionURL,
-			htmlEscape(g.CollectionTitle))
-		for _, item := range g.Items {
-			fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a> <span style="color: #888;">(%s, added by %s)</span></li>`,
-				item.EntityURL,
-				htmlEscape(item.EntityName),
-				htmlEscape(item.EntityType),
-				htmlEscape(item.AddedBy))
-		}
-		groupsHTML.WriteString(`</ul></div>`)
+	html, err := renderEmailTemplate(collectionDigestEmailTemplate, collectionDigestEmailData{
+		Groups:      groups,
+		Unsubscribe: unsubscribeCard{URL: unsubscribeURL, Label: "these weekly digests"},
+		FrontendURL: s.frontendURL,
+	})
+	if err != nil {
+		return err
 	}
-
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">New in your collections</h2>
-        <p style="font-size: 15px; color: #444;">Items added to collections you follow over the past week.</p>
-        %s
-    </div>
-
-    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
-        <p style="margin: 0; font-size: 14px; color: #444;">
-            Don&rsquo;t want these weekly digests?
-            <a href="%s" style="color: #c2410c; font-weight: 600;">Unsubscribe in one click</a> &mdash;
-            no login required.
-        </p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>You&rsquo;re receiving this because you opted in to weekly digests for collections you follow on Psychic Homily.</p>
-        <p>Manage all notifications in your <a href="%s/settings" style="color: #666;">notification settings</a>.</p>
-    </div>
-</body>
-</html>
-`, groupsHTML.String(), unsubscribeURL, s.frontendURL)
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -918,7 +667,7 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -969,68 +718,14 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 		subject = fmt.Sprintf("The next 7 days in %s", groups[0].SceneName)
 	}
 
-	// Render each scene as its own block: shows sub-list, then new-bands sub-list.
-	var groupsHTML strings.Builder
-	for _, g := range groups {
-		fmt.Fprintf(&groupsHTML, `<div style="margin-bottom: 28px;">
-				<h3 style="margin: 0 0 8px; color: #1a1a1a;"><a href="%s" style="color: #1a1a1a; text-decoration: none;">%s</a></h3>`,
-			g.SceneURL, htmlEscape(g.SceneName))
-		if len(g.Shows) > 0 {
-			groupsHTML.WriteString(`<p style="margin: 4px 0; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em;">Next 7 days</p>`)
-			groupsHTML.WriteString(`<ul style="margin: 0 0 10px; padding-left: 20px; color: #444;">`)
-			for _, sh := range g.Shows {
-				venue := ""
-				if sh.VenueName != "" {
-					venue = " · " + htmlEscape(sh.VenueName)
-				}
-				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a> <span style="color: #888;">(%s%s)</span></li>`,
-					sh.ShowURL, htmlEscape(sh.DisplayTitle), htmlEscape(sh.Date), venue)
-			}
-			groupsHTML.WriteString(`</ul>`)
-		}
-		if len(g.NewArtists) > 0 {
-			groupsHTML.WriteString(`<p style="margin: 4px 0; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em;">New bands based here</p>`)
-			groupsHTML.WriteString(`<ul style="margin: 0; padding-left: 20px; color: #444;">`)
-			for _, a := range g.NewArtists {
-				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a></li>`,
-					a.ArtistURL, htmlEscape(a.Name))
-			}
-			if g.MoreNewArtists > 0 {
-				fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px; list-style: none; color: #888;"><a href="%s" style="color: #888;">+%d more new %s — see the scene</a></li>`,
-					g.SceneURL, g.MoreNewArtists, pluralize("band", g.MoreNewArtists))
-			}
-			groupsHTML.WriteString(`</ul>`)
-		}
-		groupsHTML.WriteString(`</div>`)
+	html, err := renderEmailTemplate(sceneDigestEmailTemplate, sceneDigestEmailData{
+		Groups:      groups,
+		Unsubscribe: unsubscribeCard{URL: unsubscribeURL, Label: "weekly scene digests"},
+		FrontendURL: s.frontendURL,
+	})
+	if err != nil {
+		return err
 	}
-
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">Your scenes: the next 7 days</h2>
-        <p style="font-size: 15px; color: #444;">Shows in the next 7 days and new bands, for the scenes you follow.</p>
-        %s
-    </div>
-
-    %s
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>You&rsquo;re receiving this because you opted in to weekly scene digests on Psychic Homily.</p>
-        <p>Manage all notifications in your <a href="%s/settings" style="color: #666;">notification settings</a>.</p>
-    </div>
-</body>
-</html>
-`, groupsHTML.String(), unsubscribeCardHTML(unsubscribeURL, "weekly scene digests"), s.frontendURL)
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -1040,7 +735,7 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
@@ -1051,23 +746,6 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 	}
 
 	return nil
-}
-
-// unsubscribeCardHTML renders the prominent in-body opt-out block shared by
-// the notification emails. `label` describes the category in the recipient's
-// words (e.g. "tier-change emails"). The same `unsubscribeURL`
-// goes in the List-Unsubscribe header — RFC 8058 one-click and the visible
-// in-body link are the same endpoint, so a recipient and a mailbox provider
-// both have a single way out. The endpoint requires no login (HMAC-signed).
-func unsubscribeCardHTML(unsubscribeURL, label string) string {
-	return fmt.Sprintf(`
-    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
-        <p style="margin: 0; font-size: 14px; color: #444;">
-            Don&rsquo;t want %s?
-            <a href="%s" style="color: #c2410c; font-weight: 600;">Unsubscribe in one click</a> &mdash;
-            no login required.
-        </p>
-    </div>`, label, unsubscribeURL)
 }
 
 // unsubscribeHeaders returns the RFC 8058 / RFC 2369 List-Unsubscribe headers.
@@ -1089,22 +767,6 @@ func pluralize(word string, n int) string {
 	return word + "s"
 }
 
-// htmlEscape replaces a small set of characters with their HTML entity
-// equivalents. Intentionally minimal — the digest builder controls every
-// string passed in (titles, names, URLs come from our DB), but HTML-escaping
-// names is still the right hygiene to prevent the rare display issue with
-// "&", "<", ">", or quotes in entity names.
-func htmlEscape(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	)
-	return r.Replace(s)
-}
-
 // SendEditRejectedEmail sends a notification when a user's pending edit is rejected.
 // unsubscribeURL is the HMAC-signed edit-notifications opt-out link (RFC 8058).
 func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason, unsubscribeURL string) error {
@@ -1117,39 +779,16 @@ func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, enti
 		greeting = username
 	}
 
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #e5e7eb;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">Update on your edit to %s</h2>
-        <p>Hi %s,</p>
-        <p>Your edit to the %s <strong>%s</strong> was not accepted this time.</p>
-        <p style="background: #fef3c7; border-radius: 6px; padding: 12px 16px; color: #92400e;"><strong>Reason:</strong> %s</p>
-        <h3 style="color: #1a1a1a; margin-bottom: 8px;">Tips for future edits:</h3>
-        <ul style="padding-left: 20px; color: #444;">
-            <li style="margin-bottom: 4px;">Double-check facts against official sources (venue websites, artist pages)</li>
-            <li style="margin-bottom: 4px;">Include a clear summary explaining why you are making the change</li>
-            <li style="margin-bottom: 4px;">Ensure spelling and formatting are accurate</li>
-        </ul>
-    </div>
-
-    %s
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Don't be discouraged — your contributions are valued. Feel free to submit a revised edit.</p>
-    </div>
-</body>
-</html>
-`, entityName, greeting, entityType, entityName, rejectionReason, unsubscribeCardHTML(unsubscribeURL, "edit-review emails"))
+	html, err := renderEmailTemplate(editRejectedEmailTemplate, editRejectedEmailData{
+		EntityName:      entityName,
+		Greeting:        greeting,
+		EntityType:      entityType,
+		RejectionReason: rejectionReason,
+		Unsubscribe:     unsubscribeCard{URL: unsubscribeURL, Label: "edit-review emails"},
+	})
+	if err != nil {
+		return err
+	}
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
@@ -1159,7 +798,7 @@ func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, enti
 		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
-	_, err := s.client.Emails.Send(params)
+	_, err = s.client.Emails.Send(params)
 	if err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")

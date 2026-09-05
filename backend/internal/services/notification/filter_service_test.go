@@ -8,6 +8,7 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -173,7 +174,8 @@ func TestUniqueCommentIDs(t *testing.T) {
 }
 
 func TestBuildFilterEmailHTML(t *testing.T) {
-	html := buildFilterEmailHTML("PHX punk shows", "Deafheaven at Rebel Lounge", "Monday, March 15, 2026", "The Rebel Lounge", "Deafheaven, Touche Amore", "$25", "https://example.com/shows/1", "https://example.com/unsubscribe/filter/1")
+	html, err := buildFilterEmailHTML("PHX punk shows", "Deafheaven at Rebel Lounge", "Monday, March 15, 2026", "The Rebel Lounge", "Deafheaven, Touche Amore", "$25", "https://example.com/shows/1", "https://example.com/unsubscribe/filter/1")
+	require.NoError(t, err)
 	assert.Contains(t, html, "PHX punk shows")
 	assert.Contains(t, html, "Deafheaven at Rebel Lounge")
 	assert.Contains(t, html, "Monday, March 15, 2026")
