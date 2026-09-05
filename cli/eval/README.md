@@ -16,7 +16,7 @@ you change the extraction prompt, the skill's rules, or the model.
 | `extraction-prompt.md`     | The extraction prompt — **single source of truth**, shared with `.claude/skills/ingest/SKILL.md`. Edit extraction rules HERE. |
 | `batch-schema.json`        | JSON Schema for the batch output (mirrors what `ph batch` consumes). |
 | `prompt.ts`                | promptfoo prompt function: injects `extraction-prompt.md` text + the fixture image into an Anthropic multimodal message. |
-| `scoring.ts`               | Pure, unit-tested scoring logic (artists found/missed/hallucinated, venue, festival fields, billing-tier agreement). |
+| `scoring.ts`               | Pure, unit-tested scoring logic (artists found/missed/hallucinated, venue, festival fields, billing-tier agreement, show recall, show price + bill-role agreement). |
 | `assert.ts`                | promptfoo custom assertion adapting `scoring.ts` + schema validation into a GradingResult. |
 | `promptfooconfig.yaml`     | The eval config (prompt, provider, fixtures, assertion).             |
 | `fixtures/`                | Golden image + expected-JSON fixtures (`fixtures/README.md`).        |
@@ -49,8 +49,8 @@ bun run eval       # runs promptfoo against every fixture
 
 `bun run eval` prints a per-fixture table. The assertion's `reason` field carries
 the full per-entity breakdown (artists found/missed/hallucinated, venue, festival
-fields, billing-tier agreement, overall score). To browse results in the
-promptfoo UI:
+fields, billing-tier agreement, shows matched/missed/hallucinated, show price and
+bill-role agreement, overall score). To browse results in the promptfoo UI:
 
 ```bash
 bun run eval:view
@@ -65,8 +65,16 @@ The assertion returns `namedScores` per fixture:
 - `venue_recall` — fraction of golden venues produced
 - `festival_<field>` — per-field correctness (name, slug, year, start_date, end_date)
 - `billing_tier_agreement` — fraction of lineup artists whose billing tier matches
+- `show_recall` — fraction of golden shows the model produced (matched on date + venue)
+- `show_price_agreement` — `price` and `door_price` compared INCLUDING absence
+- `bill_role_agreement` — `artists[].set_type` compared INCLUDING absence
 - `schema_valid` — 1 if the output conforms to `batch-schema.json`
 - `overall` — weighted summary (artists 55%, festival fields 20%, billing 15%, venue 10%)
+
+The last three do not feed `overall`, so a fixture's score stays comparable with
+the number it scored before they existed. Both agreement metrics are computed
+over MATCHED shows only, so their components also fail when a golden show was
+missed or an extra one invented: a rate over nothing is not a pass.
 
 **No hard pass/fail accuracy gate is set.** The eval reports scores; it does not
 fail a build on low accuracy (PSY-935 — threshold-setting is a follow-up user

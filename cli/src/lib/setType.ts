@@ -42,7 +42,7 @@ export const SET_TYPE_VOCABULARY_CSV = SET_TYPE_VOCABULARY.join(", ");
  * what gets sent back, and what gets warned about. Absent, blank and
  * `performer` are its three spellings.
  */
-function statesASlot(value: string | null | undefined): value is string {
+export function statesASlot(value: string | null | undefined): value is string {
   if (value == null) return false;
   const trimmed = value.trim();
   return trimmed !== "" && trimmed !== SET_TYPE_UNCURATED;
@@ -84,4 +84,19 @@ export function isUnroundtrippableSetType(
   value: string | null | undefined,
 ): boolean {
   return statesASlot(value) && roundTrippableRole(value) === undefined;
+}
+
+/**
+ * The bill slot an act states, or `undefined` when it states none.
+ *
+ * The backend's resolution ladder, minus its position fallback: a
+ * round-trippable `set_type` wins, the legacy `is_headliner` flag decides only
+ * in its absence, and anything else is silence. It answers what an act's OWN
+ * signal says, so it never reads bill order as a role.
+ */
+export function statedSlot(act: {
+  set_type?: string | null;
+  is_headliner?: boolean;
+}): SetType | undefined {
+  return roundTrippableRole(act.set_type) ?? (act.is_headliner === true ? "headliner" : undefined);
 }

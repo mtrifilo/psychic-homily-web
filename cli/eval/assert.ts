@@ -16,7 +16,9 @@ import {
   scoreExtraction,
   parseModelBatch,
   formatScore,
+  listMismatches,
   type BatchItem,
+  type FieldAgreement,
 } from "./scoring.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +43,36 @@ function getSchemaValidator() {
   const validate = ajv.compile(schema);
   schemaValidator = (data: unknown) => validate(data) as boolean;
   return schemaValidator;
+}
+
+/**
+ * One component result for an agreement metric.
+ *
+ * The mismatch lines go in the reason, capped, so a failing run says which
+ * value disagreed without a second read of the output file.
+ *
+ * `threshold` is the rate this metric has to reach. `blocker` fails the
+ * component whatever the rate: an agreement rate is computed over what was
+ * COMPARABLE, so a metric with nothing to compare scores a vacuous 1, and the
+ * caller passes the reason that emptiness is not a pass.
+ */
+function agreementResult(
+  label: string,
+  a: FieldAgreement,
+  scoreName: string,
+  threshold: number,
+  blocker?: string,
+): GradingResult {
+  const mismatches = listMismatches(a);
+  return {
+    pass: !blocker && a.rate >= threshold,
+    score: a.rate,
+    reason:
+      `${label} ${a.matched}/${a.comparable}` +
+      (mismatches.length ? `: ${mismatches.join("; ")}` : "") +
+      (blocker ? ` [not comparable: ${blocker}]` : ""),
+    namedScores: { [scoreName]: a.rate },
+  };
 }
 
 export default function assert(output: string, context: AssertContext): GradingResult {
@@ -79,6 +111,14 @@ export default function assert(output: string, context: AssertContext): GradingR
   const schemaValid = getSchemaValidator()(actual);
   const score = scoreExtraction(expected, actual);
 
+  const { missed, hallucinated } = score.showFields.shows;
+  const showsBlocker =
+    missed.length > 0
+      ? `${missed.length} golden show(s) not produced: ${missed.join(", ")}`
+      : hallucinated.length > 0
+        ? `${hallucinated.length} show(s) no golden show claims: ${hallucinated.join(", ")}`
+        : undefined;
+
   const componentResults: GradingResult[] = [
     {
       pass: schemaValid,
@@ -113,11 +153,43 @@ export default function assert(output: string, context: AssertContext): GradingR
         score.festivalFields.map((f) => [`festival_${f.field}`, f.correct ? 1 : 0]),
       ),
     },
+    agreementResult(
+      "Billing-tier agreement",
+      score.billingTierAgreement,
+      "billing_tier_agreement",
+      0.8,
+    ),
+    // Show prices and bill roles are graded at 1.0 rather than the fuzzy
+    // threshold the artist-recall and billing-tier metrics carry: both are
+    // "state it only when the source states it" rules, so one spurious door
+    // price or one inferred headliner is the whole failure the metric exists
+    // to see.
+    //
+    // They are computed over MATCHED shows only, so a run that produced no
+    // show at all would score a vacuous 1 on both. `showsBlocker` is what
+    // stops a model that emitted the wrong date from passing the two rules
+    // these fixtures exist to enforce.
+    agreementResult(
+      "Show prices (absence included)",
+      score.showFields.prices,
+      "show_price_agreement",
+      1,
+      showsBlocker,
+    ),
+    agreementResult(
+      "Bill roles (absence included)",
+      score.showFields.billRoles,
+      "bill_role_agreement",
+      1,
+      showsBlocker,
+    ),
     {
-      pass: score.billingTierAgreement.rate >= 0.8,
-      score: score.billingTierAgreement.rate,
-      reason: `Billing-tier agreement ${score.billingTierAgreement.matched}/${score.billingTierAgreement.comparable}`,
-      namedScores: { billing_tier_agreement: score.billingTierAgreement.rate },
+      pass: showsBlocker === undefined,
+      score: score.showFields.shows.rate,
+      reason:
+        `Shows ${score.showFields.shows.matched}/${score.showFields.shows.expected} matched on date + venue, ` +
+        `${score.showFields.shows.hallucinated.length} hallucinated`,
+      namedScores: { show_recall: score.showFields.shows.rate },
     },
   ];
 
@@ -134,6 +206,9 @@ export default function assert(output: string, context: AssertContext): GradingR
       artist_recall: score.artists.recall,
       venue_recall: score.venues.recall,
       billing_tier_agreement: score.billingTierAgreement.rate,
+      show_recall: score.showFields.shows.rate,
+      show_price_agreement: score.showFields.prices.rate,
+      bill_role_agreement: score.showFields.billRoles.rate,
       schema_valid: schemaValid ? 1 : 0,
     },
   };

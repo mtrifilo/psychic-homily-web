@@ -8,7 +8,7 @@ import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
-import { isValidSetType } from "../lib/setType";
+import { isValidSetType, statedSlot } from "../lib/setType";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -502,6 +502,17 @@ export function showPriceLine(input: {
   return parts.length > 0 ? parts.join(" / ") : null;
 }
 
+/**
+ * The dry run's per-act role tag: `[headliner]`, `[direct_support]`, or nothing.
+ *
+ * Formatting only. Which slot an act states is {@link statedSlot}'s question,
+ * so `performer`, blank and out-of-vocabulary values are all silent here.
+ */
+export function billRoleTag(artist: { is_headliner?: boolean; set_type?: string }): string {
+  const role = statedSlot(artist);
+  return role ? dim(` [${role}]`) : "";
+}
+
 function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void {
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
@@ -557,8 +568,7 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
       const tag = artist.status === "existing"
         ? green(`EXISTING (ID: ${artist.id})${confidenceStr ? yellow(` [${confidenceStr} match]`) : ""}`)
         : yellow("NEW");
-      const headliner = artist.is_headliner ? dim(" [headliner]") : "";
-      process.stderr.write(`    ${artist.name} ${tag}${headliner}\n`);
+      process.stderr.write(`    ${artist.name} ${tag}${billRoleTag(artist)}\n`);
     }
 
     // Venues

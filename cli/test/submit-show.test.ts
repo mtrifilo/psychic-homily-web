@@ -6,6 +6,7 @@ import {
   buildShowPayload,
   normalizeDate,
   showPriceLine,
+  billRoleTag,
   submitShows,
   type ShowPlan,
 } from "../src/commands/submit-show";
@@ -474,6 +475,45 @@ describe("showPriceLine", () => {
 
   test("prints a NaN price verbatim rather than throwing", () => {
     expect(showPriceLine({ price: Number.NaN })).toBe("NaN");
+  });
+});
+
+describe("billRoleTag", () => {
+  // The tag is dimmed, and `dim` wraps whenever stdout is a TTY or FORCE_COLOR
+  // is set. Asserting the raw string would make these the only tests in the
+  // suite that fail under an interactive `bun test`.
+  const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+  // The dry run is the last place an operator can catch a role that got
+  // extracted wrong, so the preview has to print the one that will be written.
+  test("prints a stated role", () => {
+    expect(plain(billRoleTag({ set_type: "direct_support" }))).toBe(" [direct_support]");
+  });
+
+  test("prints a stated headliner once, not twice", () => {
+    // is_headliner is derived from the role on the way in, so both signals
+    // agree here and the tag must not double up.
+    expect(plain(billRoleTag({ set_type: "headliner", is_headliner: true }))).toBe(
+      " [headliner]",
+    );
+  });
+
+  test("says nothing for an act with no stated slot", () => {
+    expect(billRoleTag({})).toBe("");
+  });
+
+  test("says nothing for performer, which is a spelling of slot unknown", () => {
+    expect(billRoleTag({ set_type: "performer" })).toBe("");
+    expect(billRoleTag({ set_type: "   " })).toBe("");
+  });
+
+  test("says nothing for a role the API would refuse", () => {
+    // The same value the edit commands drop rather than send back.
+    expect(billRoleTag({ set_type: "co-headliner" })).toBe("");
+  });
+
+  test("falls back to the legacy flag when no role is stated", () => {
+    expect(plain(billRoleTag({ is_headliner: true }))).toBe(" [headliner]");
   });
 });
 
