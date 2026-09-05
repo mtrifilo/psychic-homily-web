@@ -23,11 +23,16 @@ type socialCorpusCase struct {
 type socialLinkCorpus struct {
 	Platforms               map[string][]string `json:"platforms"`
 	Unanchored              []string            `json:"unanchored"`
+	HandleBases             map[string]string   `json:"handleBases"`
 	Storable                []socialCorpusCase  `json:"storable"`
 	StorableButUnrenderable []socialCorpusCase  `json:"storableButUnrenderable"`
 	RefusedByWriter         []struct {
 		socialCorpusCase
 		RendersAnyway bool `json:"rendersAnyway"`
+		// GoParserRefuses marks a rendersAnyway row the reader keeps only
+		// because the two languages parse it differently, not because the
+		// legacy tolerance resolves it.
+		GoParserRefuses bool `json:"goParserRefuses"`
 	} `json:"refusedByWriter"`
 }
 

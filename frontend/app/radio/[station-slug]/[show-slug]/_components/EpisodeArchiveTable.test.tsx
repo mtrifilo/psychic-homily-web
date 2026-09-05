@@ -139,6 +139,25 @@ describe('EpisodeArchiveTable', () => {
     expect(mp3).toHaveTextContent('[mp3]')
   })
 
+  // archive_url is written verbatim from a station's own feed, so it is a
+  // third-party string reaching an href. The gate decides it BEFORE BracketLink
+  // sees it, so a refused value renders no bracket at all rather than the
+  // primitive's greyed one, which would read as a disabled feature.
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,<script>alert(1)</script>'],
+    ['not a url'],
+  ])('renders no bracket for an archive_url the gate refuses (%s)', url => {
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[makeEpisode({ archive_url: url })]}
+      />
+    )
+    expect(screen.queryByRole('link', { name: /archive/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('[mp3]')).not.toBeInTheDocument()
+  })
+
   it('omits the [mp3] link when there is no archive_url', () => {
     render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode()]} />)
     expect(screen.queryByText('mp3')).not.toBeInTheDocument()

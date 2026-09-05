@@ -236,4 +236,37 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
     expect(screen.queryByText(/ON AIR NOW/)).not.toBeInTheDocument()
     expect(screen.queryByText(/so far/)).not.toBeInTheDocument()
   })
+
+  // archive_url and mixcloud_url are written verbatim from a station's own feed,
+  // so they are third-party strings reaching an href.
+  it('renders both archive buttons for absolute http urls', () => {
+    setEpisode(
+      makeEpisode({
+        archive_url: 'https://example.com/ep.mp3',
+        mixcloud_url: 'https://www.mixcloud.com/x/y/',
+      })
+    )
+    render(<EpisodeDateDetail {...props} />)
+    expect(screen.getByRole('link', { name: /play archive/i })).toHaveAttribute(
+      'href',
+      'https://example.com/ep.mp3'
+    )
+    expect(screen.getByRole('link', { name: /mixcloud/i })).toHaveAttribute(
+      'href',
+      'https://www.mixcloud.com/x/y/'
+    )
+  })
+
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,<script>alert(1)</script>'],
+    ['not a url'],
+  ])('renders no archive button for a value the gate refuses (%s)', url => {
+    setEpisode(makeEpisode({ archive_url: url, mixcloud_url: url }))
+    render(<EpisodeDateDetail {...props} />)
+    expect(
+      screen.queryByRole('link', { name: /play archive/i })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /mixcloud/i })).not.toBeInTheDocument()
+  })
 })

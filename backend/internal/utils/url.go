@@ -347,10 +347,11 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 // intentionally excluded: they cannot be statically verified to land
 // on-platform, which is the point of the anchor. `website` is the escape hatch.
 //
-// It lives in utils, not beside the handler validator that has always used it,
-// because PSY-1966 gave it a SECOND consumer that cannot import a handler
-// package: the rollback gate in internal/services/admin. Copying it there would
-// have made a third spelling of a security allowlist. One table, two callers.
+// It lives in utils, not beside the handler validator that reads it, because
+// its other consumers cannot import a handler package: the apply gate in
+// internal/services/admin, and ValidateStoredSocialValue in this package.
+// Copying it to each would have made three spellings of a security allowlist.
+// One table, three callers.
 //
 // UNEXPORTED on purpose. Only ValidateSocialHost below is exported, so a
 // security allowlist in a leaf package everything imports cannot be reached, or
@@ -485,5 +486,9 @@ func NormalizeInstagramHandle(raw string) (string, error) {
 			trimmed,
 		)
 	}
+	// The literal, not socialHandleBases["instagram"]: a map miss there yields ""
+	// and would silently store a bare handle where a URL is contracted.
+	// TestSocialHandleBasesMatchCorpus asserts the two agree, which is the drift
+	// protection without the failure mode.
 	return "https://instagram.com/" + handle, nil
 }

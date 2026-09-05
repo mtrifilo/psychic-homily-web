@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -452,7 +454,7 @@ var shapedURLFields = map[string]struct {
 	},
 }
 
-// rollbackURLFields is every field a rollback may write whose value is a URL
+// rollbackURLFields is every field an apply path may write whose value is a URL
 // somebody will click, with the label a refusal names it by.
 //
 // It exists because Rollback is the one write path that takes its value from
@@ -473,15 +475,19 @@ var shapedURLFields = map[string]struct {
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
 // alike: the allowlists share these names.
 //
-// It covers every URL field the shared registry knows, which is a SUPERSET of
-// what today's *AllowedEditFields maps expose: cover_image_url, for instance,
-// belongs to collections and is not editable through this pipeline at all. A
-// superset on purpose: an entry costs one map lookup on a field that never
-// appears, and a field added to an allowlist later is guarded on arrival rather
-// than on someone remembering this file.
+// It is a SUPERSET of what today's *AllowedEditFields maps expose:
+// cover_image_url, for instance, belongs to collections and is not editable
+// through this pipeline at all. A superset on purpose: an entry costs one map
+// lookup on a field that never appears, and a field added to an allowlist later
+// is guarded on arrival rather than on someone remembering this file.
+//
+// It is NOT the handler registry's field list, in either direction: flyer_url is
+// here and not there (that registry leaves it length-only), bandcamp_embed_url
+// is there and not here (shapedURLFields owns it). The two answer different
+// questions.
 //
 // Only the platform fields carry a host anchor; the rest get the scheme rule,
-// which is still the difference between restoring a link and restoring
+// which is still the difference between writing a link and writing
 // "javascript:..." into a rendered attribute.
 //
 // image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
@@ -541,6 +547,44 @@ func validateRollbackURLField(updates map[string]interface{}, field string) erro
 		return err
 	}
 	return utils.ValidateSocialHost(field, displayName, value)
+}
+
+// validateApproveURLs re-runs the forward paths' URL rules over the values an
+// APPROVAL is about to write, and reports the first that must not go live.
+//
+// SAME field set as the rollback path, and per field it is the same function.
+// An earlier revision of this gate ran on a SUBSET, on the reasoning that
+// approve only needs to re-run rules the submit handler already applied. That
+// reasoning was wrong about the one field it excluded: flyer_url is in no
+// submit-side registry at all (not urlFieldSpecs, not boundedTextFieldSpecs,
+// not NumericEditFieldBounds), so shared.ValidateFieldChangeValue returns nil
+// for it and the suggest-edit path applies NO rule to it. Excluding it here
+// left the one contributor-editable URL field with no gate on any forward path,
+// and festivals render it as an image source on a public page.
+//
+// What that costs: a contributor who files a relative or non-http flyer_url is
+// told at APPROVE rather than at submit, and because this gate is all-or-nothing
+// the rest of that edit waits with it. Recoverable (the admin rejects with the
+// reason, the contributor resubmits), and the alternative is storing a value
+// nothing ever checked. Closing it at submit instead means registering flyer_url
+// in urlFieldSpecs, which PSY-525 deliberately left out; that is a change to the
+// submit contract and belongs with its own decision.
+//
+// WHOLE-MAP, unlike the rollback path, because the two buttons mean different
+// things. A rollback restores many fields at once and drops the ones it refuses
+// (PSY-1998), since one planted old_value must not block the undo of the honest
+// fields beside it. An approve applies ONE contributor's edit as filed: applying
+// part of it would approve something neither the contributor nor the admin read.
+//
+// Fields are visited in sorted order, so a row breaking more than one rule names
+// the same field every run rather than whichever the map yielded first.
+func validateApproveURLs(updates map[string]interface{}) error {
+	for _, field := range slices.Sorted(maps.Keys(rollbackURLFields)) {
+		if err := validateRollbackURLField(updates, field); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
@@ -834,6 +878,36 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			"error", err.Error(),
 		)
 		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("cannot approve: %s", err))
+	}
+
+	// The scheme rule and the platform host anchor, run for the same reason the
+	// two gates above are: the queue outlives the gate, so a row filed before a
+	// rule existed carries a value no forward validator has seen, and approve is
+	// where it goes live.
+	//
+	// It applies the SAME per-field rule Rollback applies
+	// (validateRollbackURLField) over the same field set, so no value is accepted
+	// by one apply path and refused by the other. The two still run their three
+	// gates in a different ORDER, so an admin can see a different one of two
+	// true refusals depending on which button was pressed; unifying the sequence
+	// is worth doing and is not this change.
+	//
+	// LAST of the three here, which decides the message for a value more than one
+	// gate would refuse: "http:///x" in image_url reports the missing host from
+	// ValidateHTTPURL rather than passing urlguard, whose literal-host check
+	// treats an empty host as nothing to resolve.
+	if err := validateApproveURLs(updates); err != nil {
+		slog.Default().Warn("pending_edit_blocked_url_rule",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"error", err.Error(),
+		)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"cannot approve: %s. Reject this edit and ask the contributor to resubmit.", err,
+		))
 	}
 
 	normalizeBlankShapedURLs(updates)

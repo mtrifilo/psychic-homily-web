@@ -325,6 +325,7 @@ func seedExemplarArchiveVenue(db *gorm.DB, userID uint) uint {
 		Social:      fullSocial("chronologyhall"),
 		Verified:    true,
 	}
+	mustHoldSocialColumns("venue", venue.Name, venue.Social)
 	if err := db.Create(venue).Error; err != nil {
 		log.Printf("Warning: failed to create archive exemplar venue: %v", err)
 		return 0

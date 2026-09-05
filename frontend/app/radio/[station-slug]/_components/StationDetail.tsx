@@ -23,6 +23,7 @@ import {
 } from '@/features/radio'
 import { STATION_PLAYLISTS_ANCHOR } from '@/features/radio/components/StationGraph'
 import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 interface StationDetailProps {
   stationSlug: string
@@ -94,6 +95,23 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
     )
   }
 
+  // Every column here is operator-entered free text that becomes an outbound
+  // href, so each is read through the same gate the sidebar and the entity pages
+  // ask. It anchors no host on these columns (a station's site is on any
+  // domain), so what it buys is a value a browser resolves to an absolute
+  // http(s) URL: a scheme-less domain is repaired, and anything else renders no
+  // button rather than a live attribute.
+  //
+  // stream_url is included even though it addresses a media endpoint: whether a
+  // non-http stream scheme should be STORED is a different question, but a value
+  // that reaches an href is a link, and a link is what this rule is about.
+  //
+  // This is the READ half only: nothing validates these columns on write, which
+  // is tracked in PSY-1953.
+  const donationHref = unanchoredLinkHref(station.donation_url)
+  const websiteHref = unanchoredLinkHref(station.website)
+  const streamHref = unanchoredLinkHref(station.stream_url)
+
   const location = [station.city, station.state].filter(Boolean).join(', ')
   // Mono identity sub-line: "91.1 FM · Jersey City, NJ · FM/AM + Internet"
   const subline = [
@@ -156,37 +174,25 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
                   <Radio className="h-4 w-4 mr-2" />
                   Listen Live
                 </Button>
-              ) : station.stream_url ? (
+              ) : streamHref ? (
                 <Button asChild size="sm">
-                  <a
-                    href={station.stream_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={streamHref} target="_blank" rel="noopener noreferrer">
                     <Radio className="h-4 w-4 mr-2" />
                     Listen Live
                   </a>
                 </Button>
               ) : null}
-              {station.donation_url && (
+              {donationHref && (
                 <Button asChild variant="outline" size="sm">
-                  <a
-                    href={station.donation_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={donationHref} target="_blank" rel="noopener noreferrer">
                     <Heart className="h-4 w-4 mr-2" />
                     Donate
                   </a>
                 </Button>
               )}
-              {station.website && (
+              {websiteHref && (
                 <Button asChild variant="ghost" size="sm">
-                  <a
-                    href={station.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={websiteHref} target="_blank" rel="noopener noreferrer">
                     <Globe className="h-4 w-4 mr-2" />
                     Website
                     <ExternalLink className="h-3 w-3 ml-1" />

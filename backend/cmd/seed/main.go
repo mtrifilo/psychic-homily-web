@@ -87,6 +87,7 @@ func main() {
 				Website:   &venue.Social.Website,
 			},
 		}
+		mustHoldSocialColumns("venue", venueModel.Name, venueModel.Social)
 		venueModels = append(venueModels, venueModel)
 	}
 
@@ -134,6 +135,7 @@ func main() {
 				Website:   &artist.Social.Website,
 			},
 		}
+		mustHoldSocialColumns("artist", artistModel.Name, artistModel.Social)
 		artistModels = append(artistModels, artistModel)
 	}
 
@@ -919,6 +921,42 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 	fmt.Printf("✅ Processed %d radio shows (%d created)\n", len(seeddata.RadioShows), radioShowsCreated)
 
 	return stationsCreated, radioShowsCreated
+}
+
+// mustHoldSocialColumns refuses to seed a row whose social columns would render
+// as a link off the platform they are labelled with, and stops the whole run
+// rather than skipping the row.
+//
+// Stopping is right for a seed: the YAML is checked in, so a refusal is a fixture
+// bug an operator fixes at the source, and a half-seeded database is harder to
+// reason about than none.
+//
+// The STORED-value spelling of the rule, so the YAML's bare handles still load;
+// utils.ValidateStoredSocialValue carries why that spelling exists.
+//
+// Called by every writer in this binary that sets the TYPED social columns
+// (catalogm.Social): the two YAML loops and the four rich exemplars. An
+// exemplar's values are Go literals rather than operator input, so the gate is
+// insurance there, but a template typo would otherwise seed a row this project's
+// own read gate refuses to render.
+//
+// NOT called for festivals.social, which is a different column: free-form JSONB
+// with no typed struct, written as a raw literal by seedExemplarFestival. This
+// signature cannot take it, and what keys that column may hold is not a question
+// this rule answers.
+func mustHoldSocialColumns(entity, name string, social catalogm.Social) {
+	if err := utils.ValidateStoredSocialColumns(utils.SocialColumns{
+		Instagram:  social.Instagram,
+		Facebook:   social.Facebook,
+		Twitter:    social.Twitter,
+		YouTube:    social.YouTube,
+		Spotify:    social.Spotify,
+		SoundCloud: social.SoundCloud,
+		Bandcamp:   social.Bandcamp,
+		Website:    social.Website,
+	}); err != nil {
+		log.Fatalf("Seed data for %s %q has an unusable social value: %v", entity, name, err)
+	}
 }
 
 func connectToDatabase() *gorm.DB {

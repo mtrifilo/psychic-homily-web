@@ -12,6 +12,7 @@ import {
   previewToHops,
 } from '@/features/radio'
 import type { RadioEpisodeListItem } from '@/features/radio'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 interface EpisodeArchiveTableProps {
   episodes: RadioEpisodeListItem[]
@@ -52,6 +53,12 @@ export function EpisodeArchiveTable({
             ? undefined
             : `/radio/${stationSlug}/${showSlug}/${episode.air_date}`
           const isLive = isLiveNow(episode.starts_at, episode.ends_at)
+          // Same gate as the episode page's Play-archive button, so one stored
+          // value cannot link in the table and not on the page it links to.
+          // BracketLink's own floor is a scheme prefix test on the raw string;
+          // this decides the href BEFORE the primitive sees it, so a value the
+          // gate refuses renders no bracket at all rather than a greyed one.
+          const archiveHref = unanchoredLinkHref(episode.archive_url)
           // Same viewer-local date the cell shows — accessible names must not
           // announce a different day than the rendered text (PSY-1306).
           const cellDate = airDateCellText(episode.starts_at, episode.ends_at, episode.air_date, {
@@ -117,10 +124,10 @@ export function EpisodeArchiveTable({
                   <span className="text-primary">
                     <span aria-hidden="true">●</span> live
                   </span>
-                ) : episode.archive_url ? (
+                ) : archiveHref ? (
                   <BracketLink
                     label="mp3"
-                    href={episode.archive_url}
+                    href={archiveHref}
                     external
                     // text-xs beats BracketLink's text-sm base; the enclosing
                     // <td> already supplies font-mono. Adopts the primitive's

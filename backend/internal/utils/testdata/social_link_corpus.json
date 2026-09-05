@@ -18,6 +18,12 @@
     "             its own table equals this, which is what stops the two lists",
     "             drifting.",
     "unanchored = the fields that make no platform claim and accept any host.",
+    "handleBases = where a bare handle resolves on each field that takes one.",
+    "             A field absent from it takes no handle. Both sides assert",
+    "             their own table equals this, because a base is not covered",
+    "             by the anchor assertions: a typo in one still produces an",
+    "             ANCHORED url, and would send every legacy handle to the",
+    "             wrong page while every other assertion passed.",
     "storable   = the write boundary accepts it AND the reader must render it.",
     "storableButUnrenderable = the write boundary accepts it and the reader",
     "             renders nothing, each row's `why` saying which reason: the",
@@ -33,7 +39,11 @@
     "             legacy shapes the reader deliberately keeps: handles and",
     "             scheme-less domains that still land on the platform. The rest",
     "             are the ones a click would carry off-platform, and the reader",
-    "             must refuse every one."
+    "             must refuse every one.",
+    "`goParserRefuses` marks a rendersAnyway row the reader keeps only because",
+    "             the two languages PARSE it differently, not because the legacy",
+    "             tolerance resolves it. The offline writers' gate is allowed to",
+    "             refuse those, and is asserted on every other rendersAnyway row."
   ],
   "platforms": {
     "instagram": ["instagram.com"],
@@ -45,6 +55,14 @@
     "bandcamp": ["bandcamp.com"]
   },
   "unanchored": ["website"],
+  "handleBases": {
+    "instagram": "https://instagram.com/",
+    "facebook": "https://facebook.com/",
+    "twitter": "https://twitter.com/",
+    "youtube": "https://youtube.com/",
+    "spotify": "https://open.spotify.com/",
+    "soundcloud": "https://soundcloud.com/"
+  },
   "storable": [
     {
       "field": "website",
@@ -148,6 +166,11 @@
     }
   ],
   "storableButUnrenderable": [
+    {
+      "field": "instagram",
+      "value": "\u00a0https://instagram.com/calexico",
+      "why": "a leading no-break space, which is what pasting a handle out of a rendered page produces: strings.TrimSpace strips it so the HTTP boundary stores it, while the URL parser keeps it and the value resolves to nothing. The offline writers' ValidateStoredSocialValue strips only what the parser strips, so it refuses this one"
+    },
     {
       "field": "instagram",
       "value": "https://x.instagram.com:99999/",
@@ -269,6 +292,18 @@
     },
     {
       "field": "instagram",
+      "value": "fashion.club.la",
+      "why": "a real dotted handle from the dev seed: a dot alone must not make a handle look like a domain, or the seed stops loading",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
+      "value": "jia._.pet",
+      "why": "a dotted handle whose dots sit next to punctuation, also from the dev seed",
+      "rendersAnyway": true
+    },
+    {
+      "field": "instagram",
       "value": "instagram.com/calexico",
       "why": "a legacy scheme-less value already on the platform",
       "rendersAnyway": true
@@ -317,6 +352,13 @@
     },
     {
       "field": "website",
+      "value": "//calexico.example.com/tour",
+      "why": "protocol-relative: Go's parser reads no host at all and refuses, while the browser collapses the slashes and resolves the host, so the reader keeps it",
+      "rendersAnyway": true,
+      "goParserRefuses": true
+    },
+    {
+      "field": "website",
       "value": "123",
       "why": "neither a URL nor a handle: repairing it would produce https://123, which resolves to the host 0.0.0.123",
       "rendersAnyway": false
@@ -325,7 +367,8 @@
       "field": "instagram",
       "value": "https://instagram.com\\evil.test/x",
       "why": "Go's parser refuses a backslash in the authority; the browser folds it into the path, so the click still lands on instagram.com",
-      "rendersAnyway": true
+      "rendersAnyway": true,
+      "goParserRefuses": true
     }
   ]
 }

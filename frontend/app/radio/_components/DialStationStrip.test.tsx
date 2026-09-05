@@ -373,3 +373,49 @@ describe('DialStationStrip', () => {
     expect(screen.getByText("Couldn't load on-air info.")).toBeInTheDocument()
   })
 })
+
+// Both consumers of the operator-entered `website` column read it through the
+// same gate: the flagship strip's [▶ Listen] Button and the channel row's
+// [ listen ] bracket. They used to disagree, one checking the scheme and the
+// other not.
+describe('DialStationStrip website gate', () => {
+  beforeEach(() => {
+    mockUseStationNowPlaying.mockReset()
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying(),
+      'wfmu-drummer': channelNowPlaying(),
+    })
+  })
+
+  function renderWithWebsite(value: unknown) {
+    mockUseRadioStation.mockReset().mockImplementation(() => ({
+      data: { website: value },
+      isLoading: false,
+    }))
+    render(<DialStationStrip station={makeStation()} />)
+  }
+
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,<script>alert(1)</script>'],
+    ['not a url'],
+    ['https://user@wfmu.org/'],
+  ])('drops both affordances for a refused value (%s)', value => {
+    renderWithWebsite(value)
+    expect(screen.queryByRole('link', { name: /^Listen$/ })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Listen to Give the Drummer Radio/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders both affordances for an absolute http url', () => {
+    renderWithWebsite('https://wfmu.org')
+    expect(screen.getByRole('link', { name: /^Listen$/ })).toHaveAttribute(
+      'href',
+      'https://wfmu.org'
+    )
+    expect(
+      screen.getByRole('link', { name: /Listen to Give the Drummer Radio/ })
+    ).toHaveAttribute('href', 'https://wfmu.org')
+  })
+})

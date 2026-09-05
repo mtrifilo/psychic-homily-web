@@ -18,6 +18,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // --- CLI flags ---
@@ -185,6 +186,38 @@ func runFileImport(database *gorm.DB, festivalService *catalog.FestivalService, 
 	printSummary(stats)
 }
 
+// validateFestivalURLs holds the two festival columns that become an href to the
+// scheme rule, because this CLI calls the service directly and so meets none of
+// the handler's validation.
+//
+// COVERAGE, stated exactly: the festival endpoints apply this to `website` only
+// and leave `ticket_url` unchecked, so on that column this CLI is stricter than
+// they are. The pending-edit apply path is stricter there too (ticket_url is in
+// its registry), so the direct endpoint is the outlier, not this.
+//
+// The REQUEST-time spelling of the rule (no legacy-handle tolerance), because
+// every value here is typed at a prompt or written in a JSON file for this run:
+// there are no legacy rows passing through, so an operator who leaves the scheme
+// off should be told now rather than have it guessed at.
+//
+// Neither field anchors a host today, so ValidateSocialHost returns nil for both.
+// It is called anyway so a field that gains an anchor is guarded here on arrival
+// rather than on someone remembering this file.
+func validateFestivalURLs(input *FestivalInput) error {
+	for _, field := range []struct{ name, label, value string }{
+		{"website", "Website URL", input.Website},
+		{"ticket_url", "Ticket URL", input.TicketURL},
+	} {
+		if err := utils.ValidateHTTPURL(field.value, field.label); err != nil {
+			return fmt.Errorf("festival %q: %w", input.Name, err)
+		}
+		if err := utils.ValidateSocialHost(field.name, field.label, field.value); err != nil {
+			return fmt.Errorf("festival %q: %w", input.Name, err)
+		}
+	}
+	return nil
+}
+
 func createFestivalFromInput(database *gorm.DB, festivalService *catalog.FestivalService, input *FestivalInput, stats *importStats) uint {
 	// Check if festival already exists (by series_slug + edition_year)
 	existing := findExistingFestival(database, input.SeriesSlug, input.EditionYear)
@@ -193,6 +226,24 @@ func createFestivalFromInput(database *gorm.DB, festivalService *catalog.Festiva
 		fmt.Println("         Will add lineup entries to existing festival.")
 		fmt.Println()
 		return existing.ID
+	}
+
+	// The URL rules the HTTP festival endpoints apply, run here because this CLI
+	// calls the service directly and so meets none of the handler's validation.
+	// Both columns become an outbound link on the festival page.
+	//
+	// AFTER the exists probe, for the same reason importArtist checks after its
+	// duplicate probe: the EXISTS branch above writes neither column and returns
+	// the id so the lineup pass can run, so validating first would abort a whole
+	// re-run of a file over a value that branch never touches. Re-running the
+	// same JSON to add lineup entries is the documented workflow.
+	//
+	// BEFORE the dry-run gate, though: a dry run that reported a create the live
+	// run would refuse would be a lie.
+	if err := validateFestivalURLs(input); err != nil {
+		fmt.Printf("[ERROR] %v\n", err)
+		stats.errors++
+		return 0
 	}
 
 	if confirm && !dryRun {

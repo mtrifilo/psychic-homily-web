@@ -99,6 +99,7 @@ import {
   type UnmatchedPlayGroup,
   type SuggestedMatch,
 } from '@/lib/hooks/admin/useAdminRadio'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 // ============================================================================
 // Constants
@@ -1779,6 +1780,30 @@ function StationShowList({
   )
 }
 
+/**
+ * An operator-entered URL column shown on the admin detail row: a link when the
+ * shared gate accepts it, the plain stored text when it does not.
+ *
+ * This row is where an admin checks what was saved, so it prints the value
+ * either way and only the linking differs. Nothing validates these columns on
+ * write (tracked in PSY-1953), so a value that will not link is exactly what an
+ * admin needs to see here.
+ */
+function GatedExternalValue({ value }: { value: string }) {
+  const href = unanchoredLinkHref(value)
+  if (!href) return <span className="text-muted-foreground">{value}</span>
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary hover:underline"
+    >
+      {value}
+    </a>
+  )
+}
+
 function StationDetailPanel({
   station,
   onBack,
@@ -1897,17 +1922,13 @@ function StationDetailPanel({
           {stationDetail.website && (
             <div>
               <span className="text-muted-foreground">Website:</span>{' '}
-              <a href={stationDetail.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                {stationDetail.website}
-              </a>
+              <GatedExternalValue value={stationDetail.website} />
             </div>
           )}
           {stationDetail.stream_url && (
             <div>
               <span className="text-muted-foreground">Stream:</span>{' '}
-              <a href={stationDetail.stream_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                {stationDetail.stream_url}
-              </a>
+              <GatedExternalValue value={stationDetail.stream_url} />
             </div>
           )}
         </div>
