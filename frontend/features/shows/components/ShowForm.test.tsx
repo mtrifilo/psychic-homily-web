@@ -1360,6 +1360,34 @@ describe('ShowForm: creating on a prefilled state-less venue', () => {
     expect(submission.state).toBe('')
   })
 
+
+  // Where PSY-2001's exemption and the DST rule meet. This venue's state is
+  // blank and exempt, so nothing but its own `timezone` names a zone, and the
+  // state map's Arizona fallback never transitions: a gap rule reading the
+  // state rather than the venue row would pass every clock here.
+  it('refuses a clock the venue zone skips even though its blank state is exempt', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm
+        mode="create"
+        prefilledVenue={zonedBerlinVenue}
+        redirectOnCreate={false}
+      />
+    )
+
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await fillBillAndDate(user, nextTransitionDate('forward', 'Europe/Berlin'))
+    fireSet(screen.getByLabelText(/^Time$/i) as HTMLInputElement, '02:30')
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(
+      await screen.findByText(/this time does not exist on this date/i)
+    ).toBeInTheDocument()
+    expect(screen.queryByText('State is required')).not.toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
   // A DEAD END, pinned as the honest refusal rather than as good UX: the State
   // field is disabled for every prefilled venue, so the message names something
   // the user cannot supply here. Accepting the submit instead would anchor the
