@@ -51,6 +51,11 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 // refusal in validateProfileName; location takes only this bound.
 const maxProfileFieldRunes = 100
 
+// maxBioRunes bounds the bio in RUNES. Unlike the fields above, bio is a TEXT
+// column with no width of its own, so this tracks the /profile form rather
+// than the schema.
+const maxBioRunes = 500
+
 // maxEmailBytes is RFC 5321's maximum path length for an address. It is a byte
 // count, which is the stricter reading of the users table's VARCHAR(255), so no
 // accepted address can overflow that column, multi-byte local parts included.
@@ -91,6 +96,15 @@ func validateEmailAddress(raw string) (message string, ok bool) {
 	}
 	addr, err := mail.ParseAddress(raw)
 	if err != nil || addr.Address != raw {
+		// Name the cause when padding is the ONLY problem. The address reads
+		// as correct on screen, so the generic message looks like a false
+		// rejection. This refines the MESSAGE only: the value is still
+		// refused, never trimmed and accepted.
+		if trimmed := strings.TrimSpace(raw); trimmed != raw {
+			if t, terr := mail.ParseAddress(trimmed); terr == nil && t.Address == trimmed {
+				return "Email must not have leading or trailing spaces", false
+			}
+		}
 		return "Email must be a valid email address", false
 	}
 	if hasNonASCIIInvisible(raw) {
@@ -2337,9 +2351,14 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 
 	if req.Body.Bio != nil {
 		bio := strings.TrimSpace(*req.Body.Bio)
-		if len(bio) > 500 {
+		// RUNES, not bytes. The column is TEXT, so there is no width to
+		// protect: the bound exists to match the /profile form's
+		// maxLength=500, and that attribute counts UTF-16 code units. Counting
+		// bytes here refused a 200-character Japanese bio that the form had
+		// just accepted, with a message that said "500 characters".
+		if utf8.RuneCountInString(bio) > maxBioRunes {
 			resp.Body.Success = false
-			resp.Body.Message = "Bio must be 500 characters or fewer"
+			resp.Body.Message = fmt.Sprintf("Bio must be %d characters or fewer", maxBioRunes)
 			resp.Body.ErrorCode = autherrors.CodeValidationFailed
 			return resp, nil
 		}

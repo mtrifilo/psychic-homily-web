@@ -4038,6 +4038,7 @@ func TestValidateEmailAddress(t *testing.T) {
 		{"over the byte bound", strings.Repeat("x", maxEmailBytes) + "@example.com", false},
 		{"leading whitespace", "  user@example.com", false},
 		{"trailing whitespace", "user@example.com  ", false},
+		{"tab padded", "\tuser@example.com", false},
 		{"trailing CRLF", "user@example.com\r\n", false},
 		// The two space-padded cases above fail the byte-identity check, because
 		// ParseAddress folds ASCII whitespace away. The CRLF and NUL cases never
@@ -4494,6 +4495,93 @@ func TestUpdateProfileHandler_IdentityNamesShareOneGuard(t *testing.T) {
 			}
 			if gotUpdates[field.column] != atBound {
 				t.Errorf("expected trimmed %s at the bound, got %v", field.column, gotUpdates[field.column])
+			}
+		})
+	}
+}
+
+// TestValidateEmailAddress_PaddingMessageNamesTheCause pins that a padded but
+// otherwise valid address gets a message naming the padding, while anything
+// else keeps the generic one. Without this the two collapse into one message
+// and the padded caller is left guessing at an address that looks correct.
+func TestValidateEmailAddress_PaddingMessageNamesTheCause(t *testing.T) {
+	const paddingMsg = "Email must not have leading or trailing spaces"
+	const genericMsg = "Email must be a valid email address"
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"trailing space", "user@example.com ", paddingMsg},
+		{"leading space", " user@example.com", paddingMsg},
+		{"leading tab", "\tuser@example.com", paddingMsg},
+		{"trailing CRLF", "user@example.com\r\n", paddingMsg},
+		// Trimming would not rescue these, so the cause is not padding.
+		{"padded but still malformed", "  not-an-email  ", genericMsg},
+		{"display-name form", "Name <user@example.com>", genericMsg},
+		{"unpadded and malformed", "not-an-email", genericMsg},
+		{"non-ASCII invisible", "user@example.com\u00a0", genericMsg},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, ok := validateEmailAddress(tc.input)
+			if ok {
+				t.Fatal("expected a refusal")
+			}
+			if msg != tc.want {
+				t.Errorf("message = %q, want %q", msg, tc.want)
+			}
+		})
+	}
+}
+
+// TestUpdateProfileHandler_BioBoundIsRunes pins the bio bound as runes rather
+// than bytes. A 500-rune multi-byte bio is well over 500 bytes, and the
+// /profile form's maxLength=500 counts UTF-16 units, so a byte bound refused
+// text the form had just accepted while claiming a character limit.
+func TestUpdateProfileHandler_BioBoundIsRunes(t *testing.T) {
+	cases := []struct {
+		name   string
+		bio    string
+		wantOK bool
+	}{
+		{"multi-byte at the bound", strings.Repeat("あ", maxBioRunes), true},
+		{"multi-byte over the bound", strings.Repeat("あ", maxBioRunes+1), false},
+		{"ascii at the bound", strings.Repeat("x", maxBioRunes), true},
+		{"ascii over the bound", strings.Repeat("x", maxBioRunes+1), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotUpdates map[string]any
+			mock := &testhelpers.MockUserService{
+				UpdateUserFn: func(_ uint, updates map[string]any) (*authm.User, error) {
+					gotUpdates = updates
+					return &authm.User{ID: 1}, nil
+				},
+			}
+			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+			req := &UpdateProfileRequest{}
+			req.Body.Bio = strPtr(tc.bio)
+
+			resp, err := h.UpdateProfileHandler(ctx, req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantOK {
+				if !resp.Body.Success {
+					t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+				}
+				if gotUpdates["bio"] != tc.bio {
+					t.Error("expected the bio to reach the update")
+				}
+				return
+			}
+			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+				t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
 			}
 		})
 	}
