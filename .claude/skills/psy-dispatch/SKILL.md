@@ -423,7 +423,7 @@ Fix PSY-{N}: {ticket title}.
    - Continue from your worktree.
 7. Commit the implementation.
 8. Run `/code-review` (Skill tool, skill: "code-review"). If it edited files, commit them as a SEPARATE commit `PSY-{N}: code-review pass`. **Re-run the relevant local tests from step 4** if code-review changed anything substantive. Re-run the manual repro from step 5 only if code-review edited a file you exercised in step 5.
-8.5. Run `/adversarial-review` (Skill tool, skill: "adversarial-review") — the hostile pre-PR gate; the change must EARN a clean verdict, not get the benefit of the doubt. **You are a dispatched sub-agent WITHOUT the Agent tool, so you cannot spawn the parallel panel — run the four lenses INLINE** (Saboteur / Future-Maintainer / Security / Completeness) against your branch diff, applying the skill's finding bar. This is expected, not an error (same inline fallback as `/code-review` from a worktree — see `pattern_subagent_inline_code_review.md`). Verdict handling:
+8.5. Run `/adversarial-review` (Skill tool, skill: "adversarial-review") — the hostile pre-PR gate; the change must EARN a clean verdict, not get the benefit of the doubt. **Check your own tool list first: a dispatched worktree agent usually DOES have the Agent tool** (verified 2026-09-06, PSY-2026: the agent spawned three parallel fresh panels), so spawn the real parallel panel with `model: "opus"`. Only if you genuinely lack the Agent tool, run the four lenses INLINE (Saboteur / Future-Maintainer / Security / Completeness) against your branch diff, applying the skill's finding bar, and say in the PR body that no independent context reviewed the diff (same inline fallback as `/code-review` from a worktree — see `pattern_subagent_inline_code_review.md`). Verdict handling:
    - **BLOCK** (any surviving CRITICAL/HIGH): fix the findings (or reject a wrong one with a concrete technical counter-argument), then re-run the lenses; cap 3 rounds. If you cannot clear the BLOCK, STOP and report — do NOT push (rule 3).
    - **CONCERNS** (MEDIUM only): fix what's cheap; disclose any deferral in the PR body.
    - **CLEAN**: proceed.
@@ -456,7 +456,7 @@ Fix PSY-{N}: {ticket title}.
     `/adversarial-review` — <CLEAN, no findings | N findings addressed in separate commit `<sha>`>.
     - [HIGH] <finding> → fixed in `<short-sha>` (<one line>)
     - [MEDIUM] <finding> → <fixed | deferred: reason>
-    Panel: Saboteur · Future-Maintainer · Security · Completeness — run inline (no Agent tool in a worktree).
+    Panel: Saboteur · Future-Maintainer · Security · Completeness — fresh sub-agents (or "run inline" if you genuinely lacked the Agent tool).
 
     Closes PSY-{N}
     ```
@@ -515,7 +515,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **`psy-ticket`** — ticket *creation* (this skill is for ticket *execution*).
 - **`linear-reference`** — workspace-agnostic `linear` CLI reference. Drop down to it when you need a command shape outside `psy-ticket`'s ticket-creation focus — `linear issue update --state` flags, posting comments on dispatched tickets (`linear issue comment add` rejects `--no-interactive`), project-update posts, milestone / document ops.
 - **`code-review`** — invoked by every dispatched agent before opening its PR.
-- **`/adversarial-review`** — invoked per-agent in step 8.5 (after `/code-review`, before push); the hostile "earn the pass" gate. Runs its lenses inline in a worktree (no Agent tool); fixes ship in a separate commit referenced in the PR body; the `PreToolUse` hook blocks `gh pr create` until it passes. User-level skill at `~/.claude/skills/adversarial-review/SKILL.md`.
+- **`/adversarial-review`** — invoked per-agent in step 8.5 (after `/code-review`, before push); the hostile "earn the pass" gate. Runs a real fresh panel when the agent has the Agent tool (it usually does; inline only as the fallback); fixes ship in a separate commit referenced in the PR body; the `PreToolUse` hook blocks `gh pr create` until it passes. User-level skill at `~/.claude/skills/adversarial-review/SKILL.md`.
 - `feedback_code_review_before_pr.md` — `/code-review` AND relevant local tests run before every PR (single-ticket or batched); failure blocks push, escalate to orchestrator instead of pushing past it.
 - `feedback_no_speculative_implementation.md` — when a ticket is ambiguous about WHAT to build, STOP and ask.
 - `feedback_plan_mode_questions_first.md` — surface forks via `AskUserQuestion` before exiting plan mode / dispatching.
