@@ -583,10 +583,12 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 // per sceneGroupKeySQL key, so a caller ENUMERATING scenes must collapse them
 // to published identity before using one.
 //
-// The two counts are projected because sceneGroupOutranks tie-breaks a
-// contested slug on them: they are the same aggregates ListScenes selects,
-// over the same grouping, so the collapse here picks the same winner the
-// directory publishes. Nothing else reads them.
+// The two counts are projected for sceneGroupOutranks, which is the only thing
+// that reads them. They do not decide either collision shape the geo dataset
+// can currently produce: a CBSA group beats a fallback group on the scope test,
+// and two fallback groups are separated by their city minima. They are here so
+// that a shape reaching the count tiebreak ties the way the directory does,
+// since they are the same aggregates ListScenes selects over the same grouping.
 func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenueGroup, error) {
 	var groups []sceneVenueGroup
 	err := s.db.WithContext(ctx).Raw(`
@@ -671,11 +673,13 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.Site
 // sceneWeekEntriesFor is the projection half of sceneWeekEntries, over an
 // already-fetched group set.
 //
-// The group ORDER is the parameter that matters. Delegating the winner choice
-// below and taking the first row of the scan differ only when a contested
-// slug's groups arrive loser-first, and which row a GROUP BY hands over first
-// is the planner's to decide, so a caller supplying the slice is the only way
-// the two behaviours are told apart.
+// sceneWeekEntries is the only production caller; the split is not a layering
+// boundary and inlining it would remove the one thing that pins the winner
+// rule. Delegating the winner choice below and taking the first row of the scan
+// differ ONLY when a contested slug's groups arrive loser-first, and which row a
+// GROUP BY hands over first is the planner's to decide, so
+// TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo can only reach
+// that order by handing the slice in itself.
 func (s *SitemapService) sceneWeekEntriesFor(ctx context.Context, groups []sceneVenueGroup) ([]contracts.SitemapEntry, error) {
 	// Two venue groups can resolve to the same display slug, and here the
 	// survivor's identity builds the query scope below rather than only naming a

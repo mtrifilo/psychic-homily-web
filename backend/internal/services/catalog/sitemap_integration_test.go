@@ -180,6 +180,21 @@ func TestSitemapEntriesFamilyFilterIsolatesOneFamily(t *testing.T) {
 	if len(entries.Artists) != 0 {
 		t.Errorf("artists under labels filter = %v, want empty", entries.Artists)
 	}
+
+	// A family with nothing to announce still answers with an empty ARRAY. The
+	// catalogue here has no venues, so scene_weeks resolves no scenes at all,
+	// and a nil slice would reach the generator as JSON null where it iterates
+	// per family.
+	empty, err := NewSitemapService(td.DB).Entries(context.Background(), "scene_weeks")
+	if err != nil {
+		t.Fatalf("Entries(scene_weeks): %v", err)
+	}
+	if empty.SceneWeeks == nil {
+		t.Error("scene_weeks on an empty catalogue = nil, want an empty slice")
+	}
+	if len(empty.SceneWeeks) != 0 {
+		t.Errorf("scene_weeks on an empty catalogue = %v, want empty", sitemapSlugsOf(empty.SceneWeeks))
+	}
 }
 
 // subShardedFamily is how the test below seeds one row of a family with an
@@ -598,8 +613,9 @@ func TestSitemapEntriesVenueYearsMatchesThePastHistogram(t *testing.T) {
 // starting at weekStart in that week's own location. label makes the seeded
 // slugs unique when two groups share a city spelling family.
 //
-// verified is set after Create because a false bool is GORM's zero value on
-// insert, so the column default would win.
+// Only verified rooms form a scene. Verified is set on the insert rather than
+// by a follow-up Update: Venue.Verified carries no `default` tag, and that tag
+// is what makes GORM omit a zero value and let the column default decide.
 func seedSceneWeekGroup(t *testing.T, db *gorm.DB, label, city, state string, metro *string, tz string, weekStart time.Time) {
 	t.Helper()
 
@@ -612,12 +628,10 @@ func seedSceneWeekGroup(t *testing.T, db *gorm.DB, label, city, state string, me
 			State:    state,
 			Metro:    metro,
 			Timezone: strPtr(tz),
+			Verified: true,
 		}
 		if err := db.Create(v).Error; err != nil {
 			t.Fatalf("seed venue %s/%d: %v", label, i, err)
-		}
-		if err := db.Model(v).Update("verified", true).Error; err != nil {
-			t.Fatalf("verify venue %s/%d: %v", label, i, err)
 		}
 		rooms = append(rooms, v.ID)
 	}
@@ -639,13 +653,17 @@ func seedSceneWeekGroup(t *testing.T, db *gorm.DB, label, city, state string, me
 }
 
 // assertSceneWeekCollisionResolvesTo asserts a two-group fixture whose groups
-// publish ONE slug emits exactly wantSlug.
+// publish ONE slug emits exactly wantSlug, then that the exported path agrees,
+// which is what ties the projection it exercises to the family the sitemap
+// actually serves.
 //
-// It runs the projection over BOTH orders the groups can reach it in, which is
-// the assertion that separates delegating the winner choice from taking the
-// scan's first row: those two agree until a contested slug arrives loser-first,
-// and no fixture can ask the planner for that. It then runs the exported path,
-// which is what proves the projection under test is the one the family serves.
+// It runs the projection over BOTH orders the groups can reach it in. That
+// separates delegating the winner choice from taking the scan's first row only
+// where the colliding groups' DISPLAY identities differ, because everything
+// downstream is derived from the survivor's display identity: where the two
+// identities coincide, both orders and both winner rules produce the same
+// output and the permutation is a guard rather than a discriminator. Each
+// caller's doc says which of the two it is.
 func assertSceneWeekCollisionResolvesTo(t *testing.T, svc *SitemapService, wantSlug string) {
 	t.Helper()
 	ctx := context.Background()
@@ -689,8 +707,10 @@ func assertSceneWeekCollisionResolvesTo(t *testing.T, svc *SitemapService, wantS
 	}
 }
 
-// TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo (PSY-1981) is
-// the collision shape that decides which SHOWS the sitemap publishes weeks for.
+// TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo is the
+// collision shape that decides which SHOWS the sitemap publishes weeks for, and
+// the one that discriminates: it fails if the winner is taken from the scan's
+// first row rather than resolved.
 //
 // Two spellings of one non-US city are two venue groups under one slug with no
 // metro drift involved (sceneGroupKeySQL lower/trims, buildSceneSlug also maps
@@ -752,17 +772,21 @@ func TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo(t *testing.T
 	assertSceneWeekCollisionResolvesTo(t, NewSitemapService(td.DB), "saint-jerome-qc/"+ISOWeekKey(resolvedWeekStart))
 }
 
-// TestSitemapEntriesSceneWeeksFollowTheMetroGroupOnDrift (PSY-1981) is the other
-// collision shape: a CBSA group and a no-metro fallback group whose literal city
-// is that metro's principal city, which is what a stale venues.metro produces.
+// TestSitemapEntriesSceneWeeksExcludeDriftedRoomsFromTheMetroScope covers the
+// other collision shape: a CBSA group and a no-metro fallback group whose
+// literal city is that metro's principal city, which is what a stale
+// venues.metro produces.
 //
-// Here the two groups share a DISPLAY identity (the principal city), so the
-// scope is the metro either way and venuePredicate leaves the drifted rooms out
-// of the emitted weeks whichever group survives, exactly as /scenes/phoenix-az
-// itself leaves them out. This pins that correspondence: a winner selected from
-// a group's own key rather than its display identity would put the sitemap a
-// week away from the page it points at.
-func TestSitemapEntriesSceneWeeksFollowTheMetroGroupOnDrift(t *testing.T) {
+// It is a CHARACTERIZATION test, and cannot fail on the winner rule. The two
+// groups share a DISPLAY identity (the principal city), and everything
+// downstream is derived from that identity, so the scope is the metro whichever
+// group survives and venuePredicate leaves the drifted rooms out of the emitted
+// weeks either way, exactly as /scenes/phoenix-az itself leaves them out.
+//
+// What it does pin is that correspondence: derive the scope from a group's own
+// key instead of its display identity and this fixture emits the drifted
+// rooms' week, a week away from the page the URL points at.
+func TestSitemapEntriesSceneWeeksExcludeDriftedRoomsFromTheMetroScope(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
