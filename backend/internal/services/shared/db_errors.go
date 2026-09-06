@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+
+	apperrors "psychic-homily-backend/internal/errors"
 )
 
 // pgSerializationFailure is the Postgres SQLSTATE for a serialization failure —
@@ -39,6 +41,23 @@ const pgDeadlockDetected = "40P01"
 // versions.
 func IsDuplicateKey(err error) bool {
 	return errors.Is(err, gorm.ErrDuplicatedKey)
+}
+
+// UserExistsIfDuplicate returns the canonical USER_EXISTS refusal when err is a
+// unique violation raised by an INSERT into users, and nil for anything else,
+// so callers keep their own wrapping for a genuine backend failure.
+//
+// email is the only unique column those inserts populate (username is left
+// NULL, and NULLs do not collide), so a duplicate key there means the caller's
+// own GetUserByEmail pre-check lost a race with a concurrent signup for the
+// same identity. users_lower_email_key, not the pre-check, is the authority;
+// this keeps the refusal a caller renders under concurrency identical to the
+// one it renders serially.
+func UserExistsIfDuplicate(email string, err error) error {
+	if IsDuplicateKey(err) {
+		return apperrors.ErrUserExists(email)
+	}
+	return nil
 }
 
 // IsCheckConstraintViolation reports whether err is a Postgres check-constraint

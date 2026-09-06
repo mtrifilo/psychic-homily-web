@@ -303,14 +303,8 @@ func (s *UserService) createUserWithPassword(
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
-		// email is the only unique column this insert populates (username is
-		// left NULL), so a unique violation here is the GetUserByEmail check
-		// above losing a race with a concurrent signup for the same identity.
-		// The users_lower_email_key index, not the check, is the authority;
-		// mapping keeps the caller's USER_EXISTS response the same under
-		// concurrency as it is serially.
-		if shared.IsDuplicateKey(err) {
-			return nil, apperrors.ErrUserExists(email)
+		if dup := shared.UserExistsIfDuplicate(email, err); dup != nil {
+			return nil, dup
 		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
@@ -483,6 +477,9 @@ func (s *UserService) createNewUserOauthWithConsent(
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
+		if dup := shared.UserExistsIfDuplicate(gothUser.Email, err); dup != nil {
+			return nil, dup
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -950,6 +947,9 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*authm.User, erro
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
+		if dup := shared.UserExistsIfDuplicate(email, err); dup != nil {
+			return nil, dup
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 

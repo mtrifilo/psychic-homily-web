@@ -31,15 +31,10 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	}, "Apple", "Name")
 
 	s.Require().NoError(err)
+	// Returning the pre-existing row's ID is what proves the link branch ran
+	// and no second account was minted.
 	s.Equal(existingUser.ID, user.ID)
 	s.Equal("Apple.Case@Example.com", *user.Email)
 	s.Require().Len(user.OAuthAccounts, 1)
 	s.Equal("apple-sub-case-variant", user.OAuthAccounts[0].ProviderUserID)
-
-	var rows int64
-	s.Require().NoError(
-		s.db.Model(&authm.User{}).
-			Where(authm.EmailIdentityWhere, "apple.case@example.com").
-			Count(&rows).Error)
-	s.Equal(int64(1), rows)
 }

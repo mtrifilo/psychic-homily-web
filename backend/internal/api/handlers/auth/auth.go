@@ -1060,8 +1060,9 @@ func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *Con
 		return resp, nil
 	}
 
-	// Verify the email matches
-	if user.Email == nil || *user.Email != claims.Email {
+	// Verify the email matches. Case-insensitive, the same identity rule the
+	// lookups use: a token names a mailbox, not a spelling of one.
+	if user.Email == nil || !authm.SameEmailIdentity(*user.Email, claims.Email) {
 		logger.AuthWarn(ctx, "confirm_verification_email_mismatch",
 			"user_id", user.ID,
 			"token_email_hash", logger.HashEmail(claims.Email),
@@ -1263,8 +1264,10 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Verify the email still matches (in case user changed email)
-	if user.Email == nil || *user.Email != claims.Email {
+	// Verify the email still matches (in case user changed email).
+	// Case-insensitive, the same identity rule the lookups use: a token names
+	// a mailbox, not a spelling of one.
+	if user.Email == nil || !authm.SameEmailIdentity(*user.Email, claims.Email) {
 		logger.AuthWarn(ctx, "magic_link_email_mismatch",
 			"user_id", user.ID,
 			"token_email_hash", logger.HashEmail(claims.Email),

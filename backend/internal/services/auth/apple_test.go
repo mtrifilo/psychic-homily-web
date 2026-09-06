@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
@@ -584,10 +585,15 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 
 	svc := s.newService()
 
+	// createAppleUser is called here directly, so it skips the email pre-check
+	// FindOrCreateAppleUser does and lands on the unique index. That is the
+	// same position a concurrent signup reaches, and it gets the same refusal.
 	_, err := svc.createAppleUser("apple-dupe-id", "dupe@example.com", "Dupe", "User")
 
-	s.Error(err)
-	s.Contains(err.Error(), "failed to create user")
+	s.Require().Error(err)
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeUserExists, authErr.Code)
 }
 
 // ---------------------------------------------------------------------------

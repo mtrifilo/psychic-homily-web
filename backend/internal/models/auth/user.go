@@ -30,7 +30,14 @@ const (
 
 // User represents a user account
 type User struct {
-	ID                  uint             `json:"id" gorm:"primaryKey"`
+	ID uint `json:"id" gorm:"primaryKey"`
+	// Address uniqueness is enforced case-INSENSITIVELY by the functional unique
+	// index users_lower_email_key, not by this tag — no AutoMigrate runs, so the
+	// tag is documentation only and does NOT create a (case-sensitive) index.
+	// Look an address up with EmailIdentityWhere, never with a raw email = ?.
+	// FOOTGUN: if AutoMigrate is ever introduced, this tag would create a
+	// conflicting case-sensitive unique index on email — drop the tag (or match
+	// the functional index) at that point.
 	Email               *string          `json:"email" gorm:"uniqueIndex"`
 	Username            *string          `json:"username" gorm:"uniqueIndex"`
 	PasswordHash        *string          `json:"-" gorm:"column:password_hash"`           // Hidden from JSON
