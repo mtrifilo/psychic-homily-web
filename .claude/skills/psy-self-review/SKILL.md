@@ -12,7 +12,7 @@ Born out of the May 16–17 Entity Pages Density Rollout retro: PSY-658 PR claim
 
 ## When this skill fires
 
-The user invokes it explicitly via `/psy-self-review`, OR `/psy-solo` calls it at phase 7.6 as part of the standard pre-push sequence — and re-runs it after a phase 7.9 rebase that materially changes the PR body's evidence claims (`/psy-dispatch`'s per-agent step 8.5 is `/adversarial-review`; dispatched agents run this skill's checks inline only if the orchestrator's prompt asks for them).
+The user invokes it explicitly via `/psy-self-review`, OR `/psy-solo` calls it at phase 7.6 as part of the standard pre-push sequence — and re-runs it after a phase 7.9 rebase that materially changes the PR body's evidence claims (`/psy-dispatch`'s per-agent step 8.5 is `/adversarial-review`; dispatched agents run this skill's checks only if the orchestrator's prompt asks for them, spawning the 3-way panel as general-purpose sub-agents or running inline, and saying which).
 
 Do NOT invoke for:
 - Backend-only / docs-only / config-only PRs (test plan is integration-test or "docs-only, no manual repro applicable"; nothing for the sub-agents to evidence-check beyond what `/code-review` already covers).
@@ -244,7 +244,7 @@ Under 250 words.
 ## Related skills and memories
 
 - **`/psy-solo`** — single-ticket workflow that invokes this skill at phase 7.6 (after the PR-body draft, before the phase 7.9 rebase and the PR open).
-- **`/psy-dispatch`** — parallel-worktree dispatch; its per-agent gate is `/adversarial-review` at step 8.5, NOT this skill (dispatched sub-agents lack the Agent tool this skill's 3-way panel needs). Dispatched agents run these checks inline only when the orchestrator's prompt asks for them.
+- **`/psy-dispatch`** — parallel-worktree dispatch; its per-agent gate is `/adversarial-review` at step 8.5, NOT this skill (dispatched worktree agents usually do have the Agent tool, verified 2026-09-06; this skill is simply not part of the per-agent gauntlet unless the orchestrator's prompt asks for it, in which case the agent may spawn its 3-way panel or run the checks inline and say which).
 - **`/code-review`** — runs earlier in the same pre-push sequence (psy-solo phase 5; phases 5.5–7.5 sit between it and this skill). Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped audit. Complements this skill: `/psy-self-review` catches pre-push; `/psy-audit` catches what slipped through.
 - `feedback_code_review_before_pr.md` — same rule shape: failure blocks push, escalate to user instead of pushing past.
