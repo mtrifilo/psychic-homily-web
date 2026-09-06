@@ -46,11 +46,17 @@ func TestHasPublicName(t *testing.T) {
 		{"last name only", &authm.User{ID: 1, LastName: strptr("Doe")}, false},
 		{"email only", &authm.User{ID: 1, Email: strptr("asdf@example.com")}, false},
 		{"empty strings", &authm.User{ID: 1, DisplayName: strptr(""), Username: strptr(""), FirstName: strptr("")}, false},
-		// Whitespace is not a name. Registration stores first_name raw (only the
-		// profile PATCH trims), so all of these are storable today, and
-		// untrimmed each one is a non-empty string that satisfies every `!= ""`
-		// gate and every `name &&` guard on the frontend — producing a byline
-		// that reads "added Jul 12 by " with nothing after the "by".
+		// Whitespace is not a name. Untrimmed, each of these is a non-empty
+		// string that satisfies every `!= ""` gate above and every `name &&`
+		// guard on the frontend, producing a byline that reads "added Jul 12
+		// by " with nothing after the "by".
+		//
+		// The first_name rows are still reachable: the goth OAuth callback
+		// writes that column raw. The display_name row is not reachable from
+		// any request path any more, since UpdateProfileHandler is the only
+		// writer of that column and now trims and refuses control characters.
+		// It stays as a resolver-level regression guard: this primitive must
+		// keep returning "no name" for such a value however it got stored.
 		{"space", &authm.User{ID: 1, FirstName: strptr(" ")}, false},
 		{"tab", &authm.User{ID: 1, FirstName: strptr("\t")}, false},
 		{"newline", &authm.User{ID: 1, DisplayName: strptr("\n")}, false},
