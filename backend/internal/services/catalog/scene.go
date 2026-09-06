@@ -121,10 +121,13 @@ const usCountry = "US"
 // published slug, so a drifted venues.metro or a second spelling of one city is
 // two rows for one scene. ListScenes, the charts active-scenes count and
 // sitemap.go's sceneWeekEntries settle that through
-// collapseSceneGroupsToCanonicalSlug; sitemap.go's sceneEntries still dedupes
-// by slug inline, because its winner rule is genuinely different: it MERGES the
-// colliding groups' MAX(updated_at) rather than dropping the losers, which it
-// can do because a lastmod is the only field it publishes.
+// collapseSceneGroupsToCanonicalSlug. sitemap.go's sceneEntries is the ONE
+// enumerating caller that still dedupes inline, and it does not merely pick a
+// different winner: it MERGES the colliding groups' MAX(updated_at), so a
+// scene's lastmod can be stamped by a show at a room its page does not list.
+// The published slug SET is the same either way, which is why that is a lastmod
+// inaccuracy rather than a wrong URL, and why it is still open rather than
+// correct.
 //
 // NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different

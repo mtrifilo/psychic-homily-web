@@ -671,22 +671,16 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.Site
 // sceneWeekEntriesFor is the projection half of sceneWeekEntries, over an
 // already-fetched group set.
 //
-// Split from the query because the winner rule below has to hold for ANY order
-// the ungrouped scan above returns a contested slug's groups in, and no fixture
-// can ask a planner for a particular one. Taking the slice as a parameter is
-// what makes that order reachable.
+// The group ORDER is the parameter that matters. Delegating the winner choice
+// below and taking the first row of the scan differ only when a contested
+// slug's groups arrive loser-first, and which row a GROUP BY hands over first
+// is the planner's to decide, so a caller supplying the slice is the only way
+// the two behaviours are told apart.
 func (s *SitemapService) sceneWeekEntriesFor(ctx context.Context, groups []sceneVenueGroup) ([]contracts.SitemapEntry, error) {
-	if len(groups) == 0 {
-		return []contracts.SitemapEntry{}, nil
-	}
-
-	// Two venue groups can resolve to the same display slug, and WHICH one wins
-	// decides the emitted URLs, not just a row: the survivor's display identity
-	// builds the scope below, and the scope selects the rooms whose shows become
-	// the week permalinks. So the winner has to be the group ParseSceneSlug
-	// resolves the slug to, which is the rule ListScenes and the charts masthead
-	// publish through, and it has to be that group whatever order the ungrouped
-	// scan returned the rows in.
+	// Two venue groups can resolve to the same display slug, and here the
+	// survivor's identity builds the query scope below rather than only naming a
+	// row: that scope selects the rooms whose shows become the week permalinks.
+	// collapseSceneGroupsToCanonicalSlug carries the rule and the reasoning.
 	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scene-weeks")
 
 	entries := make([]contracts.SitemapEntry, 0, len(unique)*sceneWeekSitemapWindow)
