@@ -30,8 +30,8 @@ import (
 // type.
 //
 // db is the handle to read and validate through; see applyDerivedVenueLocation
-// for why both callers pass s.db and what a future caller that builds updates
-// while holding a transaction must do instead.
+// for which handle each caller passes, and why a caller that builds updates
+// while holding a transaction must pass that transaction.
 func applyDerivedLocation(db *gorm.DB, entityType string, entityID uint, updates map[string]interface{}) {
 	switch entityType {
 	case "venue":

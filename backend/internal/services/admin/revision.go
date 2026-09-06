@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -274,6 +275,20 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 // undo of their own edit and made a legacy value enough to strand an admin's own
 // revision.
 //
+// A field the entity NO LONGER HOLDS is skipped by the same report. A rollback
+// is an undo of one revision, and undoing a revision whose value something else
+// has already replaced is not an undo: it discards the later change and records
+// a previous value the entity never held, which the next rollback then restores.
+// The check is the entity's own value, read inside this call's transaction under
+// FOR UPDATE on the row it is about to write, through the derivation the approve
+// path uses (observeCurrentValues). An unlocked read would be a check the write
+// it guards can invalidate in between.
+//
+// The recorded rollback revision's old_value is that OBSERVED value, not the
+// revision's recorded new_value. The two agree for every field that passes the
+// check, and where a stored claim and the column disagree the column is the one
+// that was true.
+//
 // A rollback that can restore NOTHING is an error, so a caller never reports a
 // rollback that did nothing.
 //
@@ -326,32 +341,26 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 
 	// Judge each field on its own, then drop the refused ones from the write.
 	// What the gates are and why each one runs is on rollbackFieldError.
-	var applied []string
-	// Never nil: an absent key and an empty list read the same to a renderer
-	// that checks length, but not to one that checks presence, and this list is
-	// the only signal that a rollback was partial.
-	skipped := []contracts.RollbackSkippedField{}
-	rollbackChanges := make([]adminm.FieldChange, 0, len(fieldOrder))
+	//
+	// These gates run OUTSIDE the transaction below, and must: revalidateFetchedURLField
+	// resolves DNS, so holding a row lock across it would pin the row for the
+	// length of a network call. The one check that must run INSIDE the
+	// transaction is the entity read, because it reads a value the same
+	// transaction overwrites.
+	//
+	// Refusals accumulate by field name rather than into the reported list
+	// directly, so the two rounds of judging can be reported in one pass, in the
+	// order the revision recorded the fields.
+	refusals := make(map[string]string, len(fieldOrder))
 	numericBounds := contracts.NumericEditFieldBounds()
 	for _, field := range fieldOrder {
 		if err := rollbackFieldError(ctx, updates, field, numericBounds); err != nil {
 			delete(updates, field)
-			skipped = append(skipped, contracts.RollbackSkippedField{
-				Field:  field,
-				Reason: refusalReason(err),
-			})
-			continue
+			refusals[field] = refusalReason(err)
 		}
-		c := byField[field]
-		applied = append(applied, field)
-		rollbackChanges = append(rollbackChanges, adminm.FieldChange{
-			Field:    field,
-			OldValue: c.NewValue,
-			NewValue: c.OldValue,
-		})
 	}
-	if len(applied) == 0 {
-		return nil, fmt.Errorf("no field of this revision can be restored: %s", describeSkipped(skipped))
+	if len(refusals) == len(fieldOrder) {
+		return nil, errNothingRestorable(fieldOrder, refusals)
 	}
 
 	// The blank normalization mirrors ApprovePendingEdit's, and it is not an edge
@@ -365,19 +374,145 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	// first would turn "   " into nil and the gate would then skip it.
 	normalizeBlankShapedURLs(updates)
 
-	// A rollback that restores city/state must re-derive whatever the system
-	// derives FROM that location, or the entity lands back in its old city still
-	// carrying what was resolved for the city it was moved away from. Shared with
-	// the approve path, and a no-op for entity types and writes it does not apply
-	// to; see applyDerivedLocation. It reads the SURVIVING fields, so a refused
-	// location field cannot pull a derived column with it.
-	applyDerivedLocation(s.db, revision.EntityType, revision.EntityID, updates)
+	// The claim per field is the revision's NEW value: a rollback undoes one
+	// revision, so it is only an undo while the entity still holds what that
+	// revision wrote. Built here rather than inside the transaction because it
+	// depends on nothing the transaction reads.
+	claims := make([]adminm.FieldChange, 0, len(fieldOrder))
+	for _, field := range fieldOrder {
+		if _, refused := refusals[field]; !refused {
+			claims = append(claims, adminm.FieldChange{Field: field, OldValue: byField[field].NewValue})
+		}
+	}
 
-	// Apply update to the entity table
-	tableName := revision.EntityType + "s" // artist -> artists, show -> shows, etc.
-	updates["updated_at"] = time.Now()
+	var result *contracts.RollbackResult
+	var rollbackChanges []adminm.FieldChange
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// FIRST statement of the transaction, so the entity row is locked before
+		// anything else this call touches, and the lock is held until the write
+		// below commits.
+		current, changedSince, err := observeRollbackValues(tx, revision.EntityType, revision.EntityID, claims)
+		if err != nil {
+			return err
+		}
+		for _, field := range changedSince {
+			delete(updates, field)
+			refusals[field] = changedSinceReason
+		}
+		if len(refusals) == len(fieldOrder) {
+			return errNothingRestorable(fieldOrder, refusals)
+		}
 
-	write := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
+		var applied []string
+		rollbackChanges = make([]adminm.FieldChange, 0, len(fieldOrder))
+		for _, field := range fieldOrder {
+			if _, refused := refusals[field]; refused {
+				continue
+			}
+			applied = append(applied, field)
+			rollbackChanges = append(rollbackChanges, adminm.FieldChange{
+				Field:    field,
+				OldValue: current[field],
+				NewValue: byField[field].OldValue,
+			})
+		}
+		result = &contracts.RollbackResult{
+			AppliedFields: applied,
+			SkippedFields: skippedFields(fieldOrder, refusals),
+		}
+
+		// A rollback that restores city/state must re-derive whatever the system
+		// derives FROM that location, or the entity lands back in its old city
+		// still carrying what was resolved for the city it was moved away from.
+		// Shared with the approve path, and a no-op for entity types and writes
+		// it does not apply to; see applyDerivedLocation. It reads the SURVIVING
+		// fields, so a refused location field cannot pull a derived column with
+		// it, and it reads through tx because this caller builds the map while
+		// holding the row lock, which is the case applyDerivedVenueLocation's
+		// doc names.
+		//
+		// That helper is best effort on its own: a read it cannot make leaves the
+		// derived columns alone rather than failing the write. Inside a
+		// transaction that promise does not survive, because a failed statement
+		// aborts the whole transaction and the write below dies with it. So a
+		// derivation this cannot make refuses the rollback rather than degrading
+		// it, and nothing is applied.
+		applyDerivedLocation(tx, revision.EntityType, revision.EntityID, updates)
+
+		updates["updated_at"] = time.Now()
+		return applyRollbackUpdate(ctx, tx, revision, updates)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Record the rollback as a new revision. The summary names the skipped fields
+	// because the row it heads carries only the restored ones, and a reader of
+	// history has no other way to learn the undo was partial.
+	summary := fmt.Sprintf("Rollback of revision #%d", revisionID)
+	if len(result.SkippedFields) > 0 {
+		summary = fmt.Sprintf("%s (skipped: %s)", summary, strings.Join(result.SkippedFieldNames(), ", "))
+	}
+	// Fire-and-forget, and OUTSIDE the transaction, matching the approve path's
+	// posture: the entity write is committed by the time this runs, so an error
+	// here would report a rollback that did happen as failed. The cost of that
+	// choice is a window where the entity is rolled back with no history row, and
+	// a second attempt at the same revision is then refused as changed since.
+	if err := s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary); err != nil {
+		logger.Default().Error("revision_rollback_record_failed",
+			"revision_id", revisionID,
+			"entity_type", revision.EntityType,
+			"entity_id", revision.EntityID,
+			"error", err.Error(),
+		)
+	}
+	return result, nil
+}
+
+// changedSinceReason is the sentence an admin reads beside a field the entity no
+// longer holds the revision's value for.
+//
+// It says what was observed and not what to do about it, because what to do
+// differs by cause: a later edit, a merge and a direct admin write all land
+// here.
+const changedSinceReason = "this field changed after the revision was recorded, so restoring it would discard that change"
+
+// observeRollbackValues reads the entity under a row lock and reports the value
+// it currently holds for every field the claims name, plus the fields whose
+// claim it no longer matches.
+//
+// tx must be the transaction that goes on to write the entity: the read takes
+// the row FOR UPDATE, and that lock is what makes the answer hold until the
+// write lands.
+func observeRollbackValues(tx *gorm.DB, entityType string, entityID uint, claims []adminm.FieldChange) (map[string]interface{}, []string, error) {
+	locked := tx.Clauses(clause.Locking{Strength: "UPDATE"})
+	resolved, stale, err := observeCurrentValues(locked, entityType, entityID, claims)
+	if err != nil {
+		// A vanished entity reads the same to a caller whichever statement of
+		// this transaction discovers it.
+		var editErr *apperrors.PendingEditError
+		if errors.As(err, &editErr) && editErr.Code == apperrors.CodePendingEditEntityNotFound {
+			return nil, nil, fmt.Errorf("entity not found: %s %d", entityType, entityID)
+		}
+		return nil, nil, fmt.Errorf("cannot roll back: %s", refusalReason(err))
+	}
+
+	current := make(map[string]interface{}, len(resolved))
+	for _, c := range resolved {
+		current[c.Field] = c.OldValue
+	}
+	changedSince := make([]string, 0, len(stale))
+	for _, s := range stale {
+		changedSince = append(changedSince, s.Field)
+	}
+	return current, changedSince, nil
+}
+
+// applyRollbackUpdate writes the restored values, translating the failures a
+// caller can act on.
+func applyRollbackUpdate(ctx context.Context, tx *gorm.DB, revision *adminm.Revision, updates map[string]interface{}) error {
+	// artist -> artists, show -> shows, etc.
+	write := tx.Table(revision.EntityType+"s").Where("id = ?", revision.EntityID).Updates(updates)
 	if write.Error != nil {
 		// A column CHECK that columnBoundRollbackError does not cover: a field
 		// outside the numeric registry, or a constraint added without an entry.
@@ -394,37 +529,43 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 				"revision_id", revision.ID,
 				"error", write.Error.Error(),
 			)
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"cannot roll back: this revision restores a value a %s column no longer accepts",
 				revision.EntityType)
 		}
-		return nil, fmt.Errorf("failed to apply rollback: %w", write.Error)
+		return fmt.Errorf("failed to apply rollback: %w", write.Error)
 	}
 	if write.RowsAffected == 0 {
-		return nil, fmt.Errorf("entity not found: %s %d", revision.EntityType, revision.EntityID)
+		// Unreachable while the locked read that opened this transaction holds
+		// the row; kept as a fail-safe rather than reporting a silent no-op as a
+		// successful undo.
+		return fmt.Errorf("entity not found: %s %d", revision.EntityType, revision.EntityID)
 	}
+	return nil
+}
 
-	// Record the rollback as a new revision. The summary names the skipped fields
-	// because the row it heads carries only the restored ones, and a reader of
-	// history has no other way to learn the undo was partial.
-	result := &contracts.RollbackResult{AppliedFields: applied, SkippedFields: skipped}
-	summary := fmt.Sprintf("Rollback of revision #%d", revisionID)
-	if len(skipped) > 0 {
-		summary = fmt.Sprintf("%s (skipped: %s)", summary, strings.Join(result.SkippedFieldNames(), ", "))
+// skippedFields renders the refusals as the reported list, in the order the
+// revision recorded the fields.
+//
+// Never nil: an absent key and an empty list read the same to a renderer that
+// checks length, but not to one that checks presence, and this list is the only
+// signal that a rollback was partial.
+func skippedFields(fieldOrder []string, refusals map[string]string) []contracts.RollbackSkippedField {
+	skipped := make([]contracts.RollbackSkippedField, 0, len(fieldOrder))
+	for _, field := range fieldOrder {
+		if reason, refused := refusals[field]; refused {
+			skipped = append(skipped, contracts.RollbackSkippedField{Field: field, Reason: reason})
+		}
 	}
-	// Fire-and-forget, matching the approve path and for the same reason: the
-	// entity write above has already committed, so returning an error here would
-	// report a rollback that did not happen as failed. The history row is lost
-	// and logged; the undo is not undone by saying so.
-	if err := s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary); err != nil {
-		logger.Default().Error("revision_rollback_record_failed",
-			"revision_id", revisionID,
-			"entity_type", revision.EntityType,
-			"entity_id", revision.EntityID,
-			"error", err.Error(),
-		)
-	}
-	return result, nil
+	return skipped
+}
+
+// errNothingRestorable is the refusal for a rollback with no field left to
+// write. It names every field and its reason because there is no result object
+// to carry them.
+func errNothingRestorable(fieldOrder []string, refusals map[string]string) error {
+	return fmt.Errorf("no field of this revision can be restored: %s",
+		describeSkipped(skippedFields(fieldOrder, refusals)))
 }
 
 // rollbackFieldError reports why one restored value must not be written, or nil

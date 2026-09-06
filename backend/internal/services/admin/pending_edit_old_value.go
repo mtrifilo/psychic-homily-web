@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -14,6 +17,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -50,23 +54,40 @@ import (
 //
 // The exception is a WITHHELD field, where the recorded value is the withheld
 // view and not the column: an unverified venue's address records "" while the
-// column holds a street address. Rollback writes OldValue back verbatim
-// (RevisionService.Rollback), so restoring such a revision blanks the column
-// rather than restoring it. Nothing here narrows that; the gate only stops a
-// row from being applied over a value nobody observed.
-
-// entityModels pairs each pending-edit entity type with the GORM model whose
-// columns a pending edit may name.
+// column holds a street address.
 //
-// Keyed by the same strings adminm.IsValidPendingEditEntityType accepts, and
-// TestEntityModelsCoverPendingEditTypes fails when the two disagree, so an
-// entity type gaining pending edits cannot reach this file with no model.
-var entityModels = map[string]func() interface{}{
+// Two separate things follow from that, and only one of them is settled.
+//
+// The OBSERVATION is settled: Rollback derives through the same functions but
+// reads such a column as the column, because it answers for a different
+// audience. See adminAudience.
+//
+// The WRITE is not. Rollback still writes OldValue back verbatim, so restoring a
+// contributor-originated revision on an unverified venue writes the recorded ""
+// over a real street address rather than restoring the address that preceded
+// the edit. Nothing here narrows that: the recorded value is the only record of
+// what the field held, and for a withheld field it never described the column.
+
+// entityModelsByType pairs each entity type with the GORM model whose columns a
+// derivation here may read.
+//
+// It answers for two scopes, and the wider one is why "show" is here. A pending
+// edit names a field from a contributor allowlist, and every allowlisted type
+// accepts pending edits. A REVISION records fields no allowlist covers (a
+// label's status, a festival's edition_year), and shows record revisions while
+// accepting no pending edits. RevisionService.Rollback derives through this map
+// for every type it can be handed, so a type missing here is one whose rollback
+// cannot observe what it is about to overwrite.
+//
+// TestEveryDerivableFieldResolvesToAColumn pins the union of both scopes against
+// it.
+var entityModelsByType = map[string]func() interface{}{
 	adminm.PendingEditEntityArtist:   func() interface{} { return &catalogm.Artist{} },
 	adminm.PendingEditEntityVenue:    func() interface{} { return &catalogm.Venue{} },
 	adminm.PendingEditEntityFestival: func() interface{} { return &catalogm.Festival{} },
 	adminm.PendingEditEntityRelease:  func() interface{} { return &catalogm.Release{} },
 	adminm.PendingEditEntityLabel:    func() interface{} { return &catalogm.Label{} },
+	"show":                           func() interface{} { return &catalogm.Show{} },
 }
 
 // modelSchemaCache is the per-process store gorm's schema parser memoizes into,
@@ -175,18 +196,93 @@ func verifyOldValuesAtApprove(tx *gorm.DB, entityType string, entityID uint, cha
 // resolveOldValues derives the entity's current value for every field in changes
 // and reports which recorded previous values no longer describe it.
 //
-// The two callers differ in the copy they attach to a mismatch and in the handle
-// they pass, which is where the approve path's row lock lives. Sharing the body
-// is what keeps "the value the submitter observed" and "the value the approval
-// writes over" the same question; two implementations of it would be free to
-// disagree about a withheld field, an empty string, or a number's encoding.
+// This is the PENDING-EDIT entry point, scoped by the contributor allowlist. The
+// two callers behind it differ in the copy they attach to a mismatch and in the
+// handle they pass, which is where the approve path's row lock lives. Sharing
+// the body is what keeps "the value the submitter observed" and "the value the
+// approval writes over" the same question; two implementations of it would be
+// free to disagree about a withheld field, an empty string, or a number's
+// encoding.
 //
 // The returned changes carry the derived OldValue whether or not any field is
 // stale, so the submit path can store them and the approve path can ignore them.
 func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+	return resolveFieldValues(db, entityType, entityID, changes, contributorAudience)
+}
+
+// audience names who a derived value is answered FOR. It is the only thing that
+// separates the two callers of the shared derivation: the read, the emit rules
+// and the comparison are identical, which is the point of having one function.
+//
+// It is one value rather than a pair of options because the two things it
+// decides are two consequences of the same fact: which fields are in scope, and
+// whether a withheld column reads as the column or as the blank its readers are
+// served. The pairings that mix them are both wrong. Deriving the column under
+// the contributor allowlist publishes an unverified venue's address to the
+// contributor. Deriving the blank under the revision scope makes that address
+// permanently un-restorable, because no observation could ever confirm the
+// column.
+type audience int
+
+const (
+	// contributorAudience derives what the submitter of a pending edit may
+	// observe. The value is stored on that contributor's row and served back to
+	// them unmasked, so a withheld column reads as the blank, and the fields in
+	// scope are the contributor allowlist.
+	contributorAudience audience = iota
+
+	// adminAudience derives what a rollback may observe. Its answer decides an
+	// admin-only write inside a transaction, and the value it records lands in
+	// revisions.field_changes, which revisiondiff masks for every non-admin
+	// reader over the SAME field list the accessors withhold
+	// (catalog.VenuePrivateFields drives both), so a withheld column reads as
+	// the column.
+	//
+	// Its scope is every scalar column of the model, not an allowlist. A
+	// revision records fields no allowlist covers: a label's status, a
+	// festival's edition_year, and every field of a show, which accepts no
+	// pending edits at all. The column map is still a fail-closed gate.
+	adminAudience
+)
+
+// masksWithheldColumns reports whether this audience reads a withheld column as
+// the blank its readers are served rather than as the column.
+func (a audience) masksWithheldColumns() bool { return a == contributorAudience }
+
+// fieldScope returns the fields this audience may answer for, or nil when every
+// scalar column of the model is in scope.
+func (a audience) fieldScope(entityType string) (map[string]bool, error) {
+	if a == adminAudience {
+		return nil, nil
+	}
 	allowed, ok := adminm.AllowedEditFields(entityType)
 	if !ok {
-		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
+		return nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
+	}
+	return allowed, nil
+}
+
+// observeCurrentValues is the ROLLBACK path's entry into the same derivation the
+// submit and approve paths use, answering for adminAudience.
+//
+// Sharing the derivation is the point: a rollback writes a stored value into a
+// live column, so "the value a rollback is about to overwrite" and "the value an
+// approval is about to overwrite" have to be one question.
+//
+// db carries whatever clauses the caller attached, which is where the row lock
+// lives. An unlocked read here is a check the write it guards can invalidate in
+// between.
+func observeCurrentValues(db *gorm.DB, entityType string, entityID uint, claims []adminm.FieldChange) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+	return resolveFieldValues(db, entityType, entityID, claims, adminAudience)
+}
+
+// resolveFieldValues is the derivation itself: one entity read, then per field
+// the value the caller's audience is entitled to and whether the caller's claim
+// describes it. What the two callers vary is on audience.
+func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange, readFor audience) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+	inScope, err := readFor.fieldScope(entityType)
+	if err != nil {
+		return nil, nil, err
 	}
 	columns, withheld, err := currentEntityColumns(db, entityType, entityID)
 	if err != nil {
@@ -196,6 +292,7 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 	out := make([]adminm.FieldChange, len(changes))
 	copy(out, changes)
 
+	numericBounds := contracts.NumericEditFieldBounds()
 	var stale []apperrors.StaleFieldValue
 	for i := range out {
 		field := out[i].Field
@@ -204,7 +301,7 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 		// suggest-edit handler rejects a non-allowlisted field before this
 		// runs; this function does not depend on that, because the value it
 		// derives is the one Rollback later writes.
-		if !allowed[field] {
+		if inScope != nil && !inScope[field] {
 			return nil, nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not editable on %s entities", field, entityType))
 		}
@@ -217,17 +314,19 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 		// what its reader is served, rather than from the column. See
 		// withheldEditFieldsReporter: a pending edit is read back by its
 		// submitter, so deriving from the column would publish the value the
-		// entity payload withholds.
-		if withheld[field] {
+		// entity payload withholds. adminAudience is the one audience this does
+		// not hold for.
+		if withheld[field] && readFor.masksWithheldColumns() {
 			column = reflect.Zero(column.Type())
 		}
 		value, err := revisiondiff.EmitValue(column)
 		if err != nil {
-			// Unreachable for an allowlisted field: TestAllowedEditFieldsAreDerivable
-			// pins every one of them against this rule.
+			// Unreachable for a field either scope can name:
+			// TestEveryDerivableFieldResolvesToAColumn pins all of them against
+			// this rule.
 			return nil, nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
 		}
-		if !sameFieldValue(out[i].OldValue, value) {
+		if !claimDescribes(readFor, field, column.Type(), out[i].OldValue, value, numericBounds) {
 			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
@@ -247,7 +346,7 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 // db carries whatever clauses the caller attached, which is how the approve path
 // gets its FOR UPDATE. The one read below is the only statement it applies to.
 func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (columns map[string]reflect.Value, withheld map[string]bool, err error) {
-	newModel, ok := entityModels[entityType]
+	newModel, ok := entityModelsByType[entityType]
 	if !ok {
 		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
 	}
@@ -288,7 +387,7 @@ func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (column
 // the relations and the JSONB columns out of a map whose keys a pending edit may
 // name. The consequence worth knowing: a real column of an unsupported type goes
 // missing just as quietly, and what makes that loud is
-// TestAllowedEditFieldsAreDerivable, which reports any allowlisted field this
+// TestEveryDerivableFieldResolvesToAColumn, which reports any allowlisted field this
 // map does not hold.
 func modelColumns(db *gorm.DB, model interface{}) (map[string]reflect.Value, error) {
 	parsed, err := schema.Parse(model, &modelSchemaCache, db.NamingStrategy)
@@ -315,6 +414,10 @@ func modelColumns(db *gorm.DB, model interface{}) (map[string]reflect.Value, err
 //
 // Numbers compare numerically across encodings because a claim arrives from
 // JSON as float64 while the derived value is an int.
+//
+// Text is compared as text. A TIMESTAMP column is the exception, and it is the
+// caller's to make rather than this function's, because the difference is
+// visible only from the column: see sameInstant.
 func sameFieldValue(claim, current interface{}) bool {
 	claimBlank, currentBlank := isBlankValue(claim), isBlankValue(current)
 	if claimBlank || currentBlank {
@@ -327,6 +430,95 @@ func sameFieldValue(claim, current interface{}) bool {
 	cs, claimIsString := claim.(string)
 	vs, currentIsString := current.(string)
 	return claimIsString && currentIsString && cs == vs
+}
+
+// claimDescribes reports whether a caller's claim about a field describes the
+// value the entity holds, across every encoding the two can reach this
+// comparison in.
+//
+// sameFieldValue answers for the encodings that are a property of the VALUE. The
+// two exceptions below are properties of the COLUMN and of the CALLER, which is
+// why they are decided here rather than inside it.
+func claimDescribes(
+	readFor audience,
+	field string,
+	columnType reflect.Type,
+	claim, current interface{},
+	numericBounds map[string]contracts.NumericEditBounds,
+) bool {
+	if sameFieldValue(claim, current) {
+		return true
+	}
+	// A timestamp is an instant, not the text of one offset of it. Gated on the
+	// column and not on whether the two strings happen to parse: a free-text
+	// column holding an RFC3339-shaped value is text, and two spellings of one
+	// moment are two values there.
+	if isTimestampColumn(columnType) {
+		return sameInstant(claim, current)
+	}
+	// A number a STORED row spells as text. Only the admin audience reads such a
+	// row, and only for the fields NumericEditBounds.LegacyTextEncoding marks:
+	// they were editable through this pipeline before they were registered, back
+	// when the drawer submitted them as strings, so a revision recorded then
+	// holds "1985" against a column holding 1985. NarrowNumericUpdates already
+	// parses those rather than refusing them on the write side; refusing them
+	// here would report the field as changed when nothing changed it, and strand
+	// exactly the history most likely to need undoing.
+	//
+	// The contributor audience keeps the strict comparison: a string reaching
+	// the submit path is a claim nothing stored, and the registry's doc records
+	// that submit-side behaviour is unaffected by the flag.
+	if readFor == adminAudience && numericBounds[field].LegacyTextEncoding {
+		return sameNumberAcrossText(claim, current)
+	}
+	return false
+}
+
+// sameNumberAcrossText reports whether a claim spelled as text names the same
+// number as a value emitted from a numeric column.
+func sameNumberAcrossText(claim, current interface{}) bool {
+	cs, claimIsString := claim.(string)
+	if !claimIsString {
+		return false
+	}
+	cn, err := strconv.ParseFloat(strings.TrimSpace(cs), 64)
+	if err != nil {
+		return false
+	}
+	vn, currentIsNumber := numericValue(current)
+	return currentIsNumber && cn == vn
+}
+
+// timeType is the one column type whose emitted value is text describing
+// something other than itself.
+var timeType = reflect.TypeOf(time.Time{})
+
+// isTimestampColumn reports whether a column's emitted value is an RFC3339
+// rendering of an instant.
+func isTimestampColumn(t reflect.Type) bool {
+	return t == timeType || (t.Kind() == reflect.Ptr && t.Elem() == timeType)
+}
+
+// sameInstant reports whether two emitted TIMESTAMP values name the same moment.
+//
+// EmitValue renders a time as RFC3339, which carries the zone offset of whatever
+// location the value was in, so one moment has many spellings: a claim recorded
+// from a UTC value reads "2026-09-20T20:15:54Z" while the same column read back
+// on a connection in Phoenix reads "2026-09-20T13:15:54-07:00". A claim is about
+// the value the field holds, not about which offset rendered it.
+//
+// Only reached for a column that IS a timestamp. A free-text column whose
+// contents happen to parse as RFC3339 is text, and two spellings of one instant
+// are two different strings there.
+func sameInstant(claim, current interface{}) bool {
+	cs, claimIsString := claim.(string)
+	vs, currentIsString := current.(string)
+	if !claimIsString || !currentIsString {
+		return false
+	}
+	ct, claimParses := time.Parse(time.RFC3339, cs)
+	vt, currentParses := time.Parse(time.RFC3339, vs)
+	return claimParses == nil && currentParses == nil && ct.Equal(vt)
 }
 
 func isBlankValue(v interface{}) bool {

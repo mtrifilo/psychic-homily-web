@@ -135,6 +135,20 @@ var registry = []struct {
 	{"festival", FestivalFields, contracts.FestivalDetailResponse{}},
 }
 
+// EntityFields exposes what revision history records, keyed by entity type, for
+// the callers that must cover every type rather than diff one.
+//
+// It exists so that "which entity types record revisions, and which fields" is
+// asked here instead of copied into a second list that drifts. The field slices
+// are this package's own and are not copied; callers read them.
+func EntityFields() map[string][]Field {
+	byType := make(map[string][]Field, len(registry))
+	for _, e := range registry {
+		byType[e.name] = e.fields
+	}
+	return byType
+}
+
 func init() {
 	if err := ValidateAll(); err != nil {
 		// A bad field list is a programming error — fail at startup (and in
