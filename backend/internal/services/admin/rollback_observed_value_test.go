@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,59 +12,17 @@ import (
 
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 // =============================================================================
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-// Every field a revision can record must be one the rollback derivation can
-// observe, for every entity type that records revisions.
-//
-// This is the drift guard for the map the rollback path reads through. A field
-// on a revisiondiff list whose column this file cannot resolve does not fail
-// visibly: it fails the whole rollback of any revision that names it, with the
-// fail-closed refusal resolveFieldValues raises for an unknown column. An entity
-// type with no model there fails EVERY rollback of that type, which is how shows
-// would go if the map were still the pending-edit map.
-func TestRevisionFieldsAreObservable(t *testing.T) {
-	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open dummy connection: %v", err)
-	}
-	for _, entityType := range revisiondiff.EntityTypes() {
-		newModel, ok := entityModels[entityType]
-		if !ok {
-			t.Errorf("%s records revisions but has no model in entityModels, so no rollback of one can observe the entity", entityType)
-			continue
-		}
-		columns, err := modelColumns(db, newModel())
-		if err != nil {
-			t.Fatalf("%s: %v", entityType, err)
-		}
-		fields, ok := revisiondiff.FieldsFor(entityType)
-		if !ok {
-			t.Fatalf("no revision field list for %s", entityType)
-		}
-		for _, field := range fields {
-			value, present := columns[field.Name]
-			if !present {
-				t.Errorf("%s: revision field %q is not a column on the model", entityType, field.Name)
-				continue
-			}
-			if _, err := revisiondiff.EmitValue(value); err != nil {
-				t.Errorf("%s.%s: %v", entityType, field.Name, err)
-			}
-		}
-	}
-}
-
 // The rollback derivation reads the entity it is about to overwrite, so it must
 // take the row FOR UPDATE. Nothing at the read itself says whether a lock was
 // attached, since the lock is a clause on the handle, so this reads the emitted
 // SQL. The property the lock holds is asserted by the integration tests.
-func TestObserveCurrentValuesLocksTheRow(t *testing.T) {
+func TestRollbackObservationLocksTheRow(t *testing.T) {
 	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{DryRun: true})
 	if err != nil {
 		t.Fatalf("open dummy connection: %v", err)
@@ -77,36 +34,11 @@ func TestObserveCurrentValuesLocksTheRow(t *testing.T) {
 		t.Fatalf("register callback: %v", err)
 	}
 
-	byField := map[string]adminm.FieldChange{
-		"title": {Field: "title", OldValue: "Old", NewValue: "New"},
-	}
-	if _, err := observeRollbackValues(db, "show", 7, []string{"title"}, byField, nil); err != nil {
+	claims := []adminm.FieldChange{{Field: "title", OldValue: "New"}}
+	if _, _, err := observeRollbackValues(db, "show", 7, claims); err != nil {
 		t.Fatalf("observeRollbackValues: %v", err)
 	}
-	if len(queries) != 1 {
-		t.Fatalf("issued %d queries, want 1: %q", len(queries), queries)
-	}
-	if !strings.Contains(queries[0], "FOR UPDATE") {
-		t.Errorf("the rollback read is not locked: %q", queries[0])
-	}
-}
-
-// A revision's claim about a timestamp is an INSTANT, not the text of one offset
-// of it. Both sides render through EmitValue, which writes RFC3339 carrying
-// whatever location the value was in, so a claim recorded from a UTC value and a
-// column read back in the connection's local zone are the same field.
-func TestSameFieldValue_TimestampsCompareAsInstants(t *testing.T) {
-	utc := "2026-09-20T20:15:54Z"
-	offset := "2026-09-20T13:15:54-07:00"
-	if !sameFieldValue(utc, offset) {
-		t.Errorf("the same instant in two offsets must compare equal: %q vs %q", utc, offset)
-	}
-	if sameFieldValue(utc, "2026-09-20T20:15:55Z") {
-		t.Error("a different instant must not compare equal")
-	}
-	if sameFieldValue("not a time", utc) {
-		t.Error("a non-timestamp string must not compare equal to a timestamp")
-	}
+	assertLocking(t, "rollback", queries, true)
 }
 
 // =============================================================================
@@ -308,12 +240,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_PlantedNewValueIsRefu
 // refuse every show rollback outright.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_ShowRevisionIsObservable() {
 	admin := s.createTestUser()
-	show := &catalogm.Show{
-		Title:     "Original Bill",
-		EventDate: time.Now().UTC().AddDate(0, 0, 21),
-		Status:    catalogm.ShowStatusApproved,
-	}
-	s.Require().NoError(s.db.Create(show).Error)
+	show := s.seedShow("Original Bill", catalogm.ShowStatusApproved, nil)
 
 	changes := []adminm.FieldChange{{Field: "title", OldValue: "Original Bill", NewValue: "Renamed Bill"}}
 	s.Require().NoError(s.svc.RecordRevision("show", show.ID, admin.ID, changes, "retitled"))

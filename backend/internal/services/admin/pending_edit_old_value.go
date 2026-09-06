@@ -53,26 +53,23 @@ import (
 // view and not the column: an unverified venue's address records "" while the
 // column holds a street address.
 //
-// Rollback derives through the same functions but takes the STORED view of such
-// a column, because its audience is different: its answer is admin-only and the
-// value it records lands in revision history, which masks the same field list at
-// read time for every non-admin. See valueDerivation.storedView.
+// Rollback derives through the same functions but reads such a column as the
+// column, because it answers for a different audience. See adminAudience.
 
-// entityModels pairs each entity type with the GORM model whose columns a
+// entityModelsByType pairs each entity type with the GORM model whose columns a
 // derivation here may read.
 //
-// It covers two callers with different scopes, and the wider one is why "show"
-// is here. A pending edit names a field from a contributor allowlist, and every
-// allowlisted type accepts pending edits. A REVISION records fields no
-// allowlist covers (a label's status, a festival's edition_year) and exists for
-// entity types that accept no pending edits at all, shows being the whole of
-// that set. RevisionService.Rollback derives through this map for every type it
-// can be handed, so a type missing here is one whose rollback cannot observe
-// what it is about to overwrite.
+// It answers for two scopes, and the wider one is why "show" is here. A pending
+// edit names a field from a contributor allowlist, and every allowlisted type
+// accepts pending edits. A REVISION records fields no allowlist covers (a
+// label's status, a festival's edition_year), and shows record revisions while
+// accepting no pending edits. RevisionService.Rollback derives through this map
+// for every type it can be handed, so a type missing here is one whose rollback
+// cannot observe what it is about to overwrite.
 //
-// Two drift guards pin it: TestEntityModelsCoverPendingEditTypes for the
-// pending-edit half, TestRevisionFieldsAreObservable for the revision half.
-var entityModels = map[string]func() interface{}{
+// TestEveryDerivableFieldResolvesToAColumn pins the union of both scopes against
+// it.
+var entityModelsByType = map[string]func() interface{}{
 	adminm.PendingEditEntityArtist:   func() interface{} { return &catalogm.Artist{} },
 	adminm.PendingEditEntityVenue:    func() interface{} { return &catalogm.Venue{} },
 	adminm.PendingEditEntityFestival: func() interface{} { return &catalogm.Festival{} },
@@ -198,70 +195,83 @@ func verifyOldValuesAtApprove(tx *gorm.DB, entityType string, entityID uint, cha
 // The returned changes carry the derived OldValue whether or not any field is
 // stale, so the submit path can store them and the approve path can ignore them.
 func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+	return resolveFieldValues(db, entityType, entityID, changes, contributorAudience)
+}
+
+// audience names who a derived value is answered FOR. It is the only thing that
+// separates the two callers of the shared derivation: the read, the emit rules
+// and the comparison are identical, which is the point of having one function.
+//
+// It is one value rather than a pair of options because the two things it
+// decides — which fields are in scope, and whether a withheld column reads as
+// the column or as the blank its readers are served — are two consequences of
+// the same fact, and the pairings that mix them are both wrong. Deriving the
+// column under the contributor allowlist publishes an unverified venue's address
+// to the contributor. Deriving the blank under the revision scope makes that
+// address permanently un-restorable, because no observation could ever confirm
+// the column.
+type audience int
+
+const (
+	// contributorAudience derives what the submitter of a pending edit may
+	// observe. The value is stored on that contributor's row and served back to
+	// them unmasked, so a withheld column reads as the blank, and the fields in
+	// scope are the contributor allowlist.
+	contributorAudience audience = iota
+
+	// adminAudience derives what a rollback may observe. Its answer decides an
+	// admin-only write inside a transaction, and the value it records lands in
+	// revisions.field_changes, which revisiondiff masks for every non-admin
+	// reader over the SAME field list the accessors withhold
+	// (catalog.VenuePrivateFields drives both) — so a withheld column reads as
+	// the column.
+	//
+	// Its scope is every scalar column of the model, not an allowlist. A
+	// revision records fields no allowlist covers: a label's status, a
+	// festival's edition_year, and every field of a show, which accepts no
+	// pending edits at all. The column map is still a fail-closed gate.
+	adminAudience
+)
+
+// masksWithheldColumns reports whether this audience reads a withheld column as
+// the blank its readers are served rather than as the column.
+func (a audience) masksWithheldColumns() bool { return a == contributorAudience }
+
+// fieldScope returns the fields this audience may answer for, or nil when every
+// scalar column of the model is in scope.
+func (a audience) fieldScope(entityType string) (map[string]bool, error) {
+	if a == adminAudience {
+		return nil, nil
+	}
 	allowed, ok := adminm.AllowedEditFields(entityType)
 	if !ok {
-		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
+		return nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
 	}
-	return resolveFieldValues(db, entityType, entityID, changes, valueDerivation{inScope: allowed})
+	return allowed, nil
 }
 
-// valueDerivation is everything that separates the two callers of the shared
-// derivation. The read, the emit rules and the comparison are identical, which
-// is the point of having one function.
-type valueDerivation struct {
-	// inScope names the fields this caller may answer for. A nil inScope puts
-	// every scalar column of the model in scope: that is the REVISION scope, not
-	// an absence of one, because the column map is itself a fail-closed gate and
-	// it is the only gate that fits a record whose fields came from revisiondiff
-	// rather than from a contributor allowlist.
-	inScope map[string]bool
-
-	// storedView answers a WITHHELD column with the column itself rather than
-	// with the blank its readers are served.
-	//
-	// The pending-edit paths leave it false: what they derive is stored on a
-	// contributor's row and served back to that contributor unmasked, so an
-	// unverified venue's address must never be the value they derive.
-	//
-	// Rollback sets it, and the difference is the audience, not the rule. Its
-	// answer decides an admin-only write inside a transaction, and the value it
-	// records lands in revisions.field_changes, which revisiondiff masks for
-	// every non-admin reader over the SAME field list the accessors withhold
-	// (catalog.VenuePrivateFields drives both). Deriving the withheld blank here
-	// would hide nothing that history does not already hide, while making an
-	// unverified venue's address permanently un-restorable: the derivation could
-	// never confirm the column, so every rollback of it would be skipped.
-	storedView bool
-}
-
-// observeCurrentValues derives what the entity holds right now for every field
-// the claims name, and reports the claims that no longer describe it.
+// observeCurrentValues is the ROLLBACK path's entry into the same derivation the
+// submit and approve paths use, answering for adminAudience.
 //
-// This is the rollback path's entry into the SAME derivation the submit and
-// approve paths use, and sharing it is the point: a rollback writes a stored
-// value into a live column, so "the value a rollback is about to overwrite" and
-// "the value an approval is about to overwrite" have to be one question. Two
-// implementations would be free to disagree about a withheld field, an empty
-// string, or a number's encoding.
-//
-// The claim a rollback makes per field is the revision's NEW value: the
-// revision claims to have written it, and a rollback is only an undo of that
-// revision while the entity still holds it.
-//
-// It takes the REVISION scope: no contributor allowlist, and the stored view of
-// a withheld column. Both are argued on valueDerivation.
+// Sharing the derivation is the point: a rollback writes a stored value into a
+// live column, so "the value a rollback is about to overwrite" and "the value an
+// approval is about to overwrite" have to be one question.
 //
 // db carries whatever clauses the caller attached, which is where the row lock
 // lives. An unlocked read here is a check the write it guards can invalidate in
 // between.
 func observeCurrentValues(db *gorm.DB, entityType string, entityID uint, claims []adminm.FieldChange) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
-	return resolveFieldValues(db, entityType, entityID, claims, valueDerivation{storedView: true})
+	return resolveFieldValues(db, entityType, entityID, claims, adminAudience)
 }
 
 // resolveFieldValues is the derivation itself: one entity read, then per field
 // the value the caller's audience is entitled to and whether the caller's claim
-// describes it. What the two callers vary is on valueDerivation.
-func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange, derivation valueDerivation) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+// describes it. What the two callers vary is on audience.
+func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange, readFor audience) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+	inScope, err := readFor.fieldScope(entityType)
+	if err != nil {
+		return nil, nil, err
+	}
 	columns, withheld, err := currentEntityColumns(db, entityType, entityID)
 	if err != nil {
 		return nil, nil, err
@@ -278,7 +288,7 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 		// suggest-edit handler rejects a non-allowlisted field before this
 		// runs; this function does not depend on that, because the value it
 		// derives is the one Rollback later writes.
-		if derivation.inScope != nil && !derivation.inScope[field] {
+		if inScope != nil && !inScope[field] {
 			return nil, nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not editable on %s entities", field, entityType))
 		}
@@ -293,7 +303,7 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 		// submitter, so deriving from the column would publish the value the
 		// entity payload withholds. valueDerivation.storedView is the one
 		// audience this does not hold for.
-		if withheld[field] && !derivation.storedView {
+		if withheld[field] && readFor.masksWithheldColumns() {
 			column = reflect.Zero(column.Type())
 		}
 		value, err := revisiondiff.EmitValue(column)
@@ -322,7 +332,7 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 // db carries whatever clauses the caller attached, which is how the approve path
 // gets its FOR UPDATE. The one read below is the only statement it applies to.
 func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (columns map[string]reflect.Value, withheld map[string]bool, err error) {
-	newModel, ok := entityModels[entityType]
+	newModel, ok := entityModelsByType[entityType]
 	if !ok {
 		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
 	}

@@ -19,56 +19,54 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-// entityModels must answer for every entity type that can carry a pending edit.
-// A type with no model reaches deriveOldValues and fails every submission for
-// that entity. A key that is neither an editable type nor a revision-recording
-// one is dead weight that reads as coverage; the revision half of the map is
-// pinned by TestRevisionFieldsAreObservable.
-func TestEntityModelsCoverPendingEditTypes(t *testing.T) {
-	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
-		if _, ok := entityModels[entityType]; !ok {
-			t.Errorf("entity type %q accepts pending edits but has no model in entityModels", entityType)
+// entityModelsByType must answer for every entity type either derivation can be
+// handed, and for nothing else. A type with no model fails every submission for
+// that entity (pending edits) or every rollback of one (revisions); a key that
+// is neither is dead weight that reads as coverage.
+func TestEntityModelsCoverEveryDerivableType(t *testing.T) {
+	for entityType := range derivableFieldsByType() {
+		if _, ok := entityModelsByType[entityType]; !ok {
+			t.Errorf("entity type %q can reach a derivation but has no model in entityModelsByType", entityType)
 		}
 	}
-	for entityType := range entityModels {
-		if adminm.IsValidPendingEditEntityType(entityType) {
-			continue
+	for entityType := range entityModelsByType {
+		if _, derivable := derivableFieldsByType()[entityType]; !derivable {
+			t.Errorf("entityModelsByType has %q, which neither accepts pending edits nor records revisions", entityType)
 		}
-		if _, records := revisiondiff.FieldsFor(entityType); records {
-			continue
-		}
-		t.Errorf("entityModels has %q, which neither accepts pending edits nor records revisions", entityType)
 	}
 }
 
-// Every allowlisted field must resolve to a column on its entity's model and
-// hold a type emitValue can convert. This is the drift guard for the two lists:
-// a field added to an allowlist whose column lives somewhere this file cannot
-// see would otherwise fail at runtime, on every submission naming it, with the
-// fail-closed refusal deriveOldValues raises for an unknown column.
-func TestAllowedEditFieldsAreDerivable(t *testing.T) {
+// Every field either derivation can be asked about must resolve to a column on
+// its entity's model and hold a type EmitValue can convert.
+//
+// The two sources are one guard because the derivation is one function and the
+// domain it answers over is their UNION. Splitting them invites the belief that
+// a revision's fields are the revisiondiff lists alone, which they are not: an
+// approved pending edit records its own changes, and the allowlists carry names
+// (image_url, bandcamp_embed_url) those lists do not.
+//
+// A field this map does not hold fails at runtime rather than visibly: a
+// submission naming it is refused for an unknown column, and a rollback of a
+// revision carrying it fails whole.
+func TestEveryDerivableFieldResolvesToAColumn(t *testing.T) {
 	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open dummy connection: %v", err)
 	}
-	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
-		allowed, ok := adminm.AllowedEditFields(entityType)
+	for entityType, fields := range derivableFieldsByType() {
+		newModel, ok := entityModelsByType[entityType]
 		if !ok {
-			t.Fatalf("no allowlist for %s", entityType)
-		}
-		newModel, ok := entityModels[entityType]
-		if !ok {
-			t.Fatalf("no model for %s", entityType)
+			t.Errorf("no model for %s", entityType)
+			continue
 		}
 		columns, err := modelColumns(db, newModel())
 		if err != nil {
 			t.Fatalf("%s: %v", entityType, err)
 		}
-
-		for field := range allowed {
+		for _, field := range fields {
 			value, present := columns[field]
 			if !present {
-				t.Errorf("%s: allowlisted field %q is not a column on the model", entityType, field)
+				t.Errorf("%s: derivable field %q is not a column on the model", entityType, field)
 				continue
 			}
 			if _, err := revisiondiff.EmitValue(value); err != nil {
@@ -76,6 +74,28 @@ func TestAllowedEditFieldsAreDerivable(t *testing.T) {
 			}
 		}
 	}
+}
+
+// derivableFieldsByType is every field name a derivation can be handed, per
+// entity type: the contributor allowlists, which the submit and approve paths
+// answer over, plus the revision field lists, which the rollback path does.
+func derivableFieldsByType() map[string][]string {
+	byType := map[string][]string{}
+	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
+		allowed, ok := adminm.AllowedEditFields(entityType)
+		if !ok {
+			continue
+		}
+		for field := range allowed {
+			byType[entityType] = append(byType[entityType], field)
+		}
+	}
+	for entityType, fields := range revisiondiff.EntityFields() {
+		for _, field := range fields {
+			byType[entityType] = append(byType[entityType], field.Name)
+		}
+	}
+	return byType
 }
 
 // A claim is compared against the derived value across the encodings the two
@@ -102,6 +122,13 @@ func TestSameFieldValue(t *testing.T) {
 		{"number claim on unset number", float64(550), nil, false},
 		{"null claim on set number", nil, 550, false},
 		{"string claim on number column", "550", 550, false},
+		// A timestamp is compared as an INSTANT. EmitValue renders RFC3339
+		// carrying the offset of whatever location the value was in, so the same
+		// moment reaches the two sides as two strings whenever a claim recorded
+		// from a UTC value meets a column read back in the connection's zone.
+		{"same instant in two offsets", "2026-09-20T20:15:54Z", "2026-09-20T13:15:54-07:00", true},
+		{"different instants", "2026-09-20T20:15:54Z", "2026-09-20T20:15:55Z", false},
+		{"non-timestamp against a timestamp", "not a time", "2026-09-20T20:15:54Z", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -415,14 +442,16 @@ func toFloat(t *testing.T, v interface{}) float64 {
 // A name a reporter withholds has to be a field a submission can actually carry,
 // or the withholding matches nothing and reads exactly like a gate that works.
 func TestWithheldFieldsAreEditable(t *testing.T) {
-	for entityType, newModel := range entityModels {
+	for entityType, newModel := range entityModelsByType {
 		reporter, ok := newModel().(withheldEditFieldsReporter)
 		if !ok {
 			continue
 		}
+		// A type that records revisions but accepts no pending edits has no
+		// allowlist and nothing here to say about it.
 		allowed, ok := adminm.AllowedEditFields(entityType)
 		if !ok {
-			t.Fatalf("no allowlist for %s", entityType)
+			continue
 		}
 		// A zero-value model withholds nothing, so ask the model's own list of
 		// gated names rather than a verdict about one instance.

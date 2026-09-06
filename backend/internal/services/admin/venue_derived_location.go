@@ -36,18 +36,22 @@ import (
 // re-derivation here, so this is the one an outsider can aim, even though the
 // resolved zone itself is ours and never theirs to supply.
 //
-// db is the handle to read and validate through. Both callers pass s.db, and for
-// both that is correct rather than accidental: Rollback writes through s.db too,
-// and ApprovePendingEdit finishes building this map BEFORE it opens its
-// transaction, so there is no open tx to validate inside — the write applies an
-// already-decided map. A future caller that builds updates WHILE holding a
-// transaction must pass that tx, or the validating read lands on a second
-// connection outside the transaction carrying the write (the shape PSY-1709 fixed
-// in catalog.VenueService.FindOrCreateVenue).
+// db is the handle to read and validate through, and the right handle differs by
+// caller because the two build this map at different moments.
+// ApprovePendingEdit finishes building it BEFORE it opens its transaction, so
+// there is no open tx to validate inside and it passes s.db; the write then
+// applies an already-decided map. RevisionService.Rollback decides which fields
+// survive only after a locked read, so it builds the map WHILE holding its
+// transaction and passes that tx. A caller in the second shape that passed s.db
+// would land the validating read on a second connection outside the transaction
+// carrying the write, which is the shape PSY-1709 fixed in
+// catalog.VenueService.FindOrCreateVenue.
 //
 // Best effort: a venue row that cannot be read leaves the four columns alone
 // rather than failing the whole edit, which would throw away the fields that CAN
-// be applied.
+// be applied. That degradation is the caller's to keep: inside a transaction a
+// failed statement aborts the whole transaction, so a caller passing a tx gets a
+// failed write rather than a skipped derivation.
 //
 // NOT covered here: artists and festivals carry a derived metro of their own and
 // no timezone, so they go through applyDerivedEntityMetro — the metro-only
