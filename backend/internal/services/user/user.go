@@ -218,7 +218,7 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	// OAuth account doesn't exist, check if user exists by email
 	var existingUser authm.User
 	if gothUser.Email != "" {
-		result.Error = s.db.Where("email = ?", gothUser.Email).First(&existingUser).Error
+		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
 			// User exists, link OAuth account
 			return s.linkOAuthAccount(&existingUser, gothUser, provider)
@@ -303,6 +303,15 @@ func (s *UserService) createUserWithPassword(
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
+		// email is the only unique column this insert populates (username is
+		// left NULL), so a unique violation here is the GetUserByEmail check
+		// above losing a race with a concurrent signup for the same identity.
+		// The users_lower_email_key index, not the check, is the authority;
+		// mapping keeps the caller's USER_EXISTS response the same under
+		// concurrency as it is serially.
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrUserExists(email)
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -624,7 +633,9 @@ func (s *UserService) GetUserByID(userID uint) (*authm.User, error) {
 	return &user, nil
 }
 
-// GetUserByEmail retrieves a user by email
+// GetUserByEmail retrieves a user by email. The match is case-insensitive
+// (authm.EmailIdentityWhere), so the caller may pass the address in whatever
+// casing its owner typed.
 func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -632,7 +643,7 @@ func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 
 	var user authm.User
 
-	result := s.db.Where("email = ?", email).
+	result := s.db.Where(authm.EmailIdentityWhere, email).
 		Preload("OAuthAccounts").
 		Preload("Preferences").
 		First(&user)
@@ -1486,7 +1497,9 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error
 // Account recovery grace period constant
 const AccountRecoveryGracePeriod = 30 * 24 * time.Hour // 30 days
 
-// GetUserByEmailIncludingDeleted retrieves a user by email, including soft-deleted accounts
+// GetUserByEmailIncludingDeleted retrieves a user by email, including
+// soft-deleted accounts. The match is case-insensitive
+// (authm.EmailIdentityWhere).
 func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1495,7 +1508,7 @@ func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User,
 	var user authm.User
 
 	// Query without filtering by is_active to include soft-deleted accounts
-	result := s.db.Where("email = ?", email).
+	result := s.db.Where(authm.EmailIdentityWhere, email).
 		Preload("OAuthAccounts").
 		Preload("Preferences").
 		First(&user)

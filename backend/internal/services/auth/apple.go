@@ -136,7 +136,7 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	// No existing Apple account. Check if a user exists with the same email.
 	if claims.Email != "" {
 		var existingUser authm.User
-		if err := s.db.Where("email = ?", claims.Email).First(&existingUser).Error; err == nil {
+		if err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error; err == nil {
 			// Link Apple account to existing user
 			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
 		}
