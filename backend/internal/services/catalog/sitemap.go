@@ -577,20 +577,22 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 	return entries, nil
 }
 
-// sceneGroupRow is one qualifying scene for the sitemap projections.
-type sceneGroupRow struct {
-	Metro string `gorm:"column:metro"`
-	City  string `gorm:"column:city"`
-	State string `gorm:"column:state"`
-}
-
 // listQualifyingScenes returns the same threshold-gated scene set as
 // ListScenes (2+ verified venues, 3+ approved shows), without the genre /
-// coordinate hydration that list endpoint pays for.
-func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneGroupRow, error) {
-	var groups []sceneGroupRow
+// coordinate hydration that list endpoint pays for. Rows are SQL groups, one
+// per sceneGroupKeySQL key, so a caller ENUMERATING scenes must collapse them
+// to published identity before using one.
+//
+// The two counts are projected because sceneGroupOutranks tie-breaks a
+// contested slug on them: they are the same aggregates ListScenes selects,
+// over the same grouping, so the collapse here picks the same winner the
+// directory publishes. Nothing else reads them.
+func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenueGroup, error) {
+	var groups []sceneVenueGroup
 	err := s.db.WithContext(ctx).Raw(`
-		SELECT `+sceneGroupIdentitySQL+`
+		SELECT `+sceneGroupIdentitySQL+`,
+		       COUNT(DISTINCT v.id) AS venue_count,
+		       COUNT(DISTINCT s.id) AS show_count
 		FROM venues v
 		LEFT JOIN show_venues sv ON sv.venue_id = v.id
 		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
@@ -663,32 +665,36 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.Site
 	if err != nil {
 		return nil, err
 	}
+	return s.sceneWeekEntriesFor(ctx, groups)
+}
+
+// sceneWeekEntriesFor is the projection half of sceneWeekEntries, over an
+// already-fetched group set.
+//
+// Split from the query because the winner rule below has to hold for ANY order
+// the ungrouped scan above returns a contested slug's groups in, and no fixture
+// can ask a planner for a particular one. Taking the slice as a parameter is
+// what makes that order reachable.
+func (s *SitemapService) sceneWeekEntriesFor(ctx context.Context, groups []sceneVenueGroup) ([]contracts.SitemapEntry, error) {
 	if len(groups) == 0 {
 		return []contracts.SitemapEntry{}, nil
 	}
 
-	// Two venue groups can resolve to the same display slug (a metro group plus
-	// a no-metro fallback that shares the principal city — common in E2E seed
-	// data). Collapse first so we query each canonical scene once.
-	type sceneIdent struct {
-		city, state, slug string
-	}
-	unique := make([]sceneIdent, 0, len(groups))
-	seenSlug := map[string]bool{}
-	for _, g := range groups {
-		city, state := metroDisplayIdentity(g.Metro, g.City, g.State)
-		slug := buildSceneSlug(city, state)
-		if seenSlug[slug] {
-			continue
-		}
-		seenSlug[slug] = true
-		unique = append(unique, sceneIdent{city: city, state: state, slug: slug})
-	}
+	// Two venue groups can resolve to the same display slug, and WHICH one wins
+	// decides the emitted URLs, not just a row: the survivor's display identity
+	// builds the scope below, and the scope selects the rooms whose shows become
+	// the week permalinks. So the winner has to be the group ParseSceneSlug
+	// resolves the slug to, which is the rule ListScenes and the charts masthead
+	// publish through, and it has to be that group whatever order the ungrouped
+	// scan returned the rows in.
+	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scene-weeks")
 
 	entries := make([]contracts.SitemapEntry, 0, len(unique)*sceneWeekSitemapWindow)
-	for _, sc := range unique {
-		scope := metroScopeFor(s.geocoder, sc.city, sc.state)
-		loc := s.sceneLocation(scope, sc.state)
+	for _, grp := range unique {
+		city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
+		slug := buildSceneSlug(city, state)
+		scope := metroScopeFor(s.geocoder, city, state)
+		loc := s.sceneLocation(scope, state)
 
 		nowLocal := time.Now().In(loc)
 		y, w := nowLocal.ISOWeek()
@@ -746,7 +752,7 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.Site
 				continue
 			}
 			entries = append(entries, contracts.SitemapEntry{
-				Slug:      sc.slug + "/" + key,
+				Slug:      slug + "/" + key,
 				UpdatedAt: agg.updatedAt,
 			})
 		}

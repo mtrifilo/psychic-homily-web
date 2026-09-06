@@ -119,9 +119,12 @@ const usCountry = "US"
 // sceneKeyForGroup) wants this key raw, because a group's own key is what those
 // maps are keyed by. ENUMERATING scenes must not: the key is FINER than the
 // published slug, so a drifted venues.metro or a second spelling of one city is
-// two rows for one scene. ListScenes and the charts active-scenes count settle
-// that through collapseSceneGroupsToCanonicalSlug; sitemap.go's sceneEntries
-// and sceneWeekEntries still dedupe by slug inline, with their own winner rules.
+// two rows for one scene. ListScenes, the charts active-scenes count and
+// sitemap.go's sceneWeekEntries settle that through
+// collapseSceneGroupsToCanonicalSlug; sitemap.go's sceneEntries still dedupes
+// by slug inline, because its winner rule is genuinely different: it MERGES the
+// colliding groups' MAX(updated_at) rather than dropping the losers, which it
+// can do because a lastmod is the only field it publishes.
 //
 // NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
@@ -186,16 +189,22 @@ type sceneVenueGroup struct {
 // /shows renders that list keyed by slug and React reconciles the pair
 // undefined (PSY-1831).
 //
-// TWO production callers now, and the second reads only len(): ListScenes
-// publishes the returned rows, while the charts masthead's activeSceneCount
-// counts them (PSY-1949). Any future change to the CARDINALITY of the return —
-// an early return, a skip for groups carrying no counts (which is every group
-// on the charts path, since that caller selects none) — moves a user-visible
-// stat, not just a list. `surface` names the caller in the log below.
+// THREE production callers, reading three different things from the return.
+// ListScenes publishes the returned rows; the charts masthead's
+// activeSceneCount reads only len() (PSY-1949); the sitemap's sceneWeekEntries
+// reads each survivor's IDENTITY, which becomes the scope selecting the rooms
+// whose shows it turns into week permalinks. Any future change to the
+// CARDINALITY of the return (an early return, a skip for groups carrying no
+// counts, which is every group on the charts path since that caller selects
+// none) moves a user-visible stat and a set of indexed URLs, not just a list.
+// `surface` names the caller in the log below.
 //
 // The survivor is the group ParseSceneSlug resolves the slug to, so the row's
-// counts are the counts its destination page will print. sceneGroupOutranks
-// holds that correspondence and carries a branch per collision shape.
+// counts are the counts its destination page will print and its scope is the
+// scope that page is built from. sceneGroupOutranks holds that correspondence
+// and carries a branch per collision shape. That function is a TOTAL order over
+// the groups, so the survivor does not depend on the order the caller's
+// ungrouped scan returned the rows in.
 //
 // The losers are DROPPED, not summed into the survivor. venuePredicate selects
 // a scene's rooms by the survivor's key alone — `venues.metro = <CBSA>` for a
