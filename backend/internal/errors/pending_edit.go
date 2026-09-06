@@ -162,12 +162,9 @@ func ErrPendingEditInvalidRequest(message string) *PendingEditError {
 // path, naming the fields whose claimed previous value disagrees with the
 // entity.
 //
-// The message says only that the field moved, never what it moved to. Field
-// NAMES are safe there because a submission can only name a field its entity's
-// edit allowlist exposes. The value travels in StaleFields instead, where it is
-// the derived reader's view rather than the column: deriveOldValues holds that
-// half of the rule, deriving the withheld view for exactly the fields the entity
-// withholds, so the pair carries no bit about a column its reader may not see.
+// The message names fields and never values. A name is safe in it because a
+// submission can only name a field its entity's edit allowlist exposes; the
+// values travel in StaleFields, under that type's disclosure rule.
 func ErrPendingEditStaleValue(stale []StaleFieldValue) *PendingEditError {
 	subject := "This field has"
 	if len(stale) > 1 {

@@ -21,8 +21,8 @@ import (
 // verdict a concurrent approval can invalidate between the check and the write.
 // The submit side deliberately takes no lock, since it writes no entity row.
 //
-// Asserted on the emitted SQL, because the difference between the two callers is
-// one boolean and nothing else about the code reveals which one is passed.
+// Asserted on the emitted SQL, because the lock is a clause on a handle and
+// nothing at the read itself says whether the caller attached one.
 func TestOldValueReadsLockOnlyOnTheApprovePath(t *testing.T) {
 	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{DryRun: true})
 	if err != nil {
@@ -60,18 +60,9 @@ func assertLocking(t *testing.T, path string, queries []string, want bool) {
 	}
 }
 
-// =============================================================================
-// APPROVE-TIME RE-DERIVATION (PSY-2025)
-//
-// The unique index admits one pending edit per submitter per entity, so two
-// submitters can queue edits composed against the same reading of a field. The
-// first approval replaces that reading; the second edit's recorded old_value
-// then describes a state the entity no longer holds, and Rollback writes
-// old_value back into the column.
-// =============================================================================
-
-// queueDescriptionEdit submits a description edit as its own user, so two of
-// them can sit in the queue against one artist.
+// queueDescriptionEdit submits a description edit as its own user. The unique
+// index admits one pending edit per submitter per entity, so two edits against
+// one artist need two submitters.
 func (s *PendingEditServiceIntegrationTestSuite) queueDescriptionEdit(artistID uint, from, to string) *contracts.PendingEditResponse {
 	submitter := s.createTestUser()
 	resp, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
@@ -132,10 +123,10 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RefusesS
 		"the recorded previous value is never re-stamped")
 }
 
-// The no-op variant of the same race, per the PSY-2025 decision: the second edit
-// proposes exactly what the first applied, so applying it would change no
-// column, but its recorded previous value is still one the entity no longer
-// holds and Rollback would still restore it.
+// The no-op variant of the same race: the second edit proposes exactly what the
+// first applied, so applying it would change no column, but its recorded
+// previous value is still one the entity no longer holds and Rollback would
+// still restore it.
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RefusesSupersededOldValueOnIdenticalNewValue() {
 	reviewer := s.createTestUser()
 	artist := s.createTestArtist("Same Proposal")
@@ -288,11 +279,9 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_DeletedE
 // The same race with the two approvals dispatched together. Exactly one may
 // apply.
 //
-// A smoke test, not the lock's guard: the two transactions are short enough that
-// they rarely interleave, and this passes with the lock removed. What pins the
-// lock is TestOldValueReadsLockOnlyOnTheApprovePath, which reads the emitted
-// SQL. This one is here for the property itself, which no amount of SQL
-// inspection asserts.
+// The property, not the lock: whether the two transactions actually interleave
+// is not under this test's control, so what pins the lock is
+// TestOldValueReadsLockOnlyOnTheApprovePath, which reads the emitted SQL.
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ConcurrentApprovalsApplyOnce() {
 	reviewer := s.createTestUser()
 	artist := s.createTestArtist("Concurrent")

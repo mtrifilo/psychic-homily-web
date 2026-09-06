@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 import type { Artist, ArtistShow, ArtistAlias } from '../types'
 
 // Mock next/link
@@ -186,21 +187,11 @@ vi.mock('./RelatedArtists', () => ({
 // The mock renders header / sidebar / children slots directly. The new
 // density primitives (BracketLink, SectionHeader, StatsList) get lightweight
 // mocks so their props are inspectable.
-// The 409 body a stale-value refusal produces, so the mocked editor can exercise
-// the reader this page passes down and a wrong field name fails here.
-function stubStaleConflict() {
-  const error: Error & { status?: number; details?: unknown } = new Error('moved')
-  error.status = 409
-  error.details = [
-    {
-      value: {
-        code: 'PENDING_EDIT_STALE_VALUE',
-        current_values: { description: 'Reseeded from the server' },
-      },
-    },
-  ]
-  return error
-}
+// The rejection the mocked editor hands the reader this page passes down, so a
+// wrong field name in that wiring fails here.
+const STALE_CONFLICT = stubStaleValueConflict({
+  description: 'Reseeded from the server',
+})
 
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links">Social Links</div>,
@@ -276,7 +267,7 @@ vi.mock('@/components/shared', () => ({
         </button>
       )}
       <span data-testid="entity-description-conflict-read">
-        {currentValueOnConflict?.(stubStaleConflict()) ?? 'none'}
+        {currentValueOnConflict?.(STALE_CONFLICT) ?? 'none'}
       </span>
     </div>
   ),
@@ -434,8 +425,8 @@ describe('ArtistDetail', () => {
       })
     })
 
-    // PSY-2025: the page hands the editor a reader for the stale-value 409 it may
-    // get back. A wrong field name here reads as "no conflict" and the editor
+    // The page hands the editor a reader for the stale-value 409 it may get
+    // back. A wrong field name here reads as "no conflict", and the editor
     // silently keeps a draft the server has already refused.
     it('reads the description out of a stale-value conflict for the editor', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)

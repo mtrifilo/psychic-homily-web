@@ -595,9 +595,6 @@ func MapPendingEditError(err error) error {
 			apperrors.CodePendingEditDuplicate:
 			return huma.Error409Conflict(editErr.Message)
 		case apperrors.CodePendingEditStaleValue:
-			if len(editErr.StaleFields) == 0 {
-				return huma.Error409Conflict(editErr.Message)
-			}
 			return huma.Error409Conflict(editErr.Message, staleValueDetail(editErr))
 		case apperrors.CodePendingEditNotSubmitter:
 			return huma.Error403Forbidden(editErr.Message)
@@ -618,9 +615,8 @@ func MapPendingEditError(err error) error {
 // message. Mirrors collectionLimitDetail; the `code` rides inside the value
 // because huma's error model has no field for one.
 //
-// The values are the derivation a successful submission stores and serves back,
-// so this discloses nothing a caller could not already obtain by submitting a
-// matching claim. See apperrors.StaleFieldValue.
+// apperrors.StaleFieldValue carries the rule that makes these values safe to
+// return.
 func staleValueDetail(e *apperrors.PendingEditError) *huma.ErrorDetail {
 	current := make(map[string]any, len(e.StaleFields))
 	for _, f := range e.StaleFields {

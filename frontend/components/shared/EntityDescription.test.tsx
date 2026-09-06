@@ -477,7 +477,7 @@ describe('EntityDescription', () => {
     })
   })
 
-  // ── Stale-value conflict re-seed (PSY-2025) ───────────────────────
+  // ── Stale-value conflict re-seed ──────────────────────────────────
 
   describe('conflict re-seed', () => {
     const conflict = new Error('This field has changed since you loaded the form: description.')

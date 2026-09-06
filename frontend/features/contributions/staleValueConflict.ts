@@ -17,9 +17,8 @@ export const STALE_VALUE_CODE = 'PENDING_EDIT_STALE_VALUE'
  * values, so the code has to be checked rather than the status alone.
  *
  * The value returned is the server's derivation of what THIS reader observes,
- * which for a column the entity withholds is the withheld view rather than the
- * column. It is the same value a successful submission would have stored, which
- * is what makes it the right thing to re-seed a form with.
+ * which is the same value a successful submission would have stored. That is
+ * what makes it the right thing to re-seed a form with.
  */
 export function staleFieldCurrentValue(
   error: unknown,

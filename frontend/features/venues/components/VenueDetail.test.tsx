@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { VenueDetail } from './VenueDetail'
 import { VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
 import type { Venue } from '../types'
+import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 
 // Mock AuthContext.
 // Return type widened so individual tests can override `user`/`isAuthenticated`
@@ -92,21 +93,11 @@ vi.mock('../hooks/useVenueEdit', () => ({
   useVenueDelete: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
-// The 409 body a stale-value refusal produces, so the mocked editor can exercise
-// the reader this page passes down and a wrong field name fails here.
-function stubStaleConflict() {
-  const error: Error & { status?: number; details?: unknown } = new Error('moved')
-  error.status = 409
-  error.details = [
-    {
-      value: {
-        code: 'PENDING_EDIT_STALE_VALUE',
-        current_values: { description: 'Reseeded from the server' },
-      },
-    },
-  ]
-  return error
-}
+// The rejection the mocked editor hands the reader this page passes down, so a
+// wrong field name in that wiring fails here.
+const STALE_CONFLICT = stubStaleValueConflict({
+  description: 'Reseeded from the server',
+})
 
 // Mock child components
 vi.mock('@/components/shared', () => ({
@@ -144,7 +135,7 @@ vi.mock('@/components/shared', () => ({
         </button>
       )}
       <span data-testid="entity-description-conflict-read">
-        {currentValueOnConflict?.(stubStaleConflict()) ?? 'none'}
+        {currentValueOnConflict?.(STALE_CONFLICT) ?? 'none'}
       </span>
     </div>
   ),
@@ -645,8 +636,8 @@ describe('VenueDetail', () => {
       expect(mockSuggestEditMutate).not.toHaveBeenCalled()
     })
 
-    // PSY-2025: the page hands the editor a reader for the stale-value 409 it may
-    // get back. A wrong field name here reads as "no conflict" and the editor
+    // The page hands the editor a reader for the stale-value 409 it may get
+    // back. A wrong field name here reads as "no conflict", and the editor
     // silently keeps a draft the server has already refused.
     it('reads the description out of a stale-value conflict for the editor', () => {
       render(<VenueDetail venueId="1" />)

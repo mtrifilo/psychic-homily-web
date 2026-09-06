@@ -585,25 +585,6 @@ func TestMapPendingEditError_StaleValueCarriesCurrentValues(t *testing.T) {
 	}
 }
 
-// A stale-value error with no field list still maps to a 409 rather than
-// reaching huma with an empty detail.
-func TestMapPendingEditError_StaleValueWithoutFieldsHasNoDetail(t *testing.T) {
-	mapped := MapPendingEditError(&apperrors.PendingEditError{
-		Code:    apperrors.CodePendingEditStaleValue,
-		Message: "moved",
-	})
-	if s := statusOf(t, mapped); s != 409 {
-		t.Fatalf("status = %d, want 409", s)
-	}
-	var model *huma.ErrorModel
-	if !stderrors.As(mapped, &model) {
-		t.Fatalf("mapped error is %T, want *huma.ErrorModel", mapped)
-	}
-	if len(model.Errors) != 0 {
-		t.Errorf("Errors = %d entries, want 0", len(model.Errors))
-	}
-}
-
 func TestMapPendingEditError_NonPendingEditErrorReturnsNil(t *testing.T) {
 	if got := MapPendingEditError(stderrors.New("boom")); got != nil {
 		t.Errorf("MapPendingEditError(plain error) = %v, want nil", got)

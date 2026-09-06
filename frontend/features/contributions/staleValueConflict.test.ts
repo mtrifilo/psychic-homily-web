@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { staleFieldCurrentValue, STALE_VALUE_CODE } from './staleValueConflict'
+import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 import type { ApiError } from '@/lib/api'
 
 /**
- * Builds the shape apiRequest produces for a huma error body: `details` is the
- * `errors` array, and each entry's `value` carries the code and the per-field
- * current values (huma's error model has no field for a code).
+ * A 409 whose detail carries an arbitrary `value`, for the rows that are about
+ * a payload the shared fixture cannot produce.
  */
-function conflict(value: unknown): ApiError {
+function conflictWithValue(value: unknown): ApiError {
   const error: ApiError = new Error('This field has changed')
   error.status = 409
   error.details = [{ message: 'This field has changed', location: 'body.changes', value }]
@@ -16,20 +16,17 @@ function conflict(value: unknown): ApiError {
 
 describe('staleFieldCurrentValue', () => {
   it('reads the named field from a stale-value 409', () => {
-    const error = conflict({
-      code: STALE_VALUE_CODE,
-      current_values: { description: 'Mesa emo, formed 1993.' },
-    })
+    const error = stubStaleValueConflict({ description: 'Mesa emo, formed 1993.' })
     expect(staleFieldCurrentValue(error, 'description')).toBe('Mesa emo, formed 1993.')
   })
 
   it('reads an empty current value as the value it is, not as absence', () => {
-    const error = conflict({ code: STALE_VALUE_CODE, current_values: { description: '' } })
+    const error = stubStaleValueConflict({ description: '' })
     expect(staleFieldCurrentValue(error, 'description')).toBe('')
   })
 
   it('reports nothing for a field the refusal did not name', () => {
-    const error = conflict({ code: STALE_VALUE_CODE, current_values: { name: 'Other' } })
+    const error = stubStaleValueConflict({ name: 'Other' })
     expect(staleFieldCurrentValue(error, 'description')).toBeUndefined()
   })
 
@@ -43,7 +40,7 @@ describe('staleFieldCurrentValue', () => {
   })
 
   it('reports nothing for a detail carrying a different code', () => {
-    const error = conflict({
+    const error = conflictWithValue({
       code: 'COLLECTION_LIMIT',
       current_values: { description: 'not this one' },
     })
@@ -51,7 +48,7 @@ describe('staleFieldCurrentValue', () => {
   })
 
   it('reports nothing for a non-string current value', () => {
-    const error = conflict({ code: STALE_VALUE_CODE, current_values: { capacity: 550 } })
+    const error = stubStaleValueConflict({ capacity: 550 })
     expect(staleFieldCurrentValue(error, 'capacity')).toBeUndefined()
   })
 
