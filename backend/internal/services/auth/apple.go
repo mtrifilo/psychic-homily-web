@@ -18,6 +18,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 const (
@@ -136,7 +137,7 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	// No existing Apple account. Check if a user exists with the same email.
 	if claims.Email != "" {
 		var existingUser authm.User
-		if err := s.db.Where("email = ?", claims.Email).First(&existingUser).Error; err == nil {
+		if err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error; err == nil {
 			// Link Apple account to existing user
 			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
 		}
@@ -194,6 +195,9 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
+		if dup := shared.UserExistsIfDuplicate(email, err); dup != nil {
+			return nil, dup
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 

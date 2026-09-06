@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -833,6 +834,21 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		},
 	)
 	if err != nil {
+		// A duplicate address here is the same condition the pre-check above
+		// reports as USER_EXISTS, reached by losing a race instead of by
+		// failing the check. It gets the same answer, so the response does not
+		// depend on which of the two saw it.
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
+			logger.AuthWarn(ctx, "passkey_signup_finish_user_exists",
+				"email_hash", logger.HashEmail(email),
+				"error_code", autherrors.CodeUserExists,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = authErr.UserMessage()
+			resp.Body.ErrorCode = autherrors.CodeUserExists
+			return resp, nil
+		}
 		logger.AuthError(ctx, "passkey_signup_finish_failed", err,
 			"email_hash", logger.HashEmail(email),
 		)

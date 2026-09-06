@@ -114,7 +114,7 @@ func seedRichExemplars(db *gorm.DB) {
 	// The admin test user owns every tag application and the collection. It is
 	// seeded by seedTestUsers, which main() calls before this function.
 	var admin authm.User
-	if err := db.Where("email = ?", "admin@test.local").First(&admin).Error; err != nil {
+	if err := db.Where(authm.EmailIdentityWhere, "admin@test.local").First(&admin).Error; err != nil {
 		log.Printf("Warning: admin user not found; skipping rich exemplars: %v", err)
 		return
 	}

@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+
+	apperrors "psychic-homily-backend/internal/errors"
 )
 
 // pgSerializationFailure is the Postgres SQLSTATE for a serialization failure —
@@ -39,6 +41,41 @@ const pgDeadlockDetected = "40P01"
 // versions.
 func IsDuplicateKey(err error) bool {
 	return errors.Is(err, gorm.ErrDuplicatedKey)
+}
+
+// userEmailUniqueConstraints are the indexes that make an address unique: the
+// functional index the identity rule is built on, and the byte-exact index the
+// column's UNIQUE constraint creates.
+var userEmailUniqueConstraints = map[string]bool{
+	"users_lower_email_uniq": true,
+	"users_email_key":        true,
+}
+
+// UserExistsIfDuplicate returns the canonical USER_EXISTS refusal when err is a
+// unique violation against one of the users-table ADDRESS indexes, and nil for
+// anything else, so callers keep their own wrapping for a genuine failure.
+//
+// A violation of an address index means the caller's own GetUserByEmail
+// pre-check lost a race with a concurrent signup for the same identity. The
+// index, not the pre-check, is the authority. Whether that reaches the client
+// as USER_EXISTS is the CALLER's decision: password registration renders it,
+// while the passkey, Apple and goth callbacks collapse every create failure
+// into their own generic shape.
+//
+// It matches on the constraint name rather than on "some unique index was
+// violated" because users.username is unique too, and rendering a username
+// collision as "an account with this email already exists" would be a wrong
+// answer on an auth surface. No signup path populates username today, which is
+// why the guard belongs here rather than in a comment asserting it never will.
+func UserExistsIfDuplicate(email string, err error) error {
+	if !IsDuplicateKey(err) {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && !userEmailUniqueConstraints[pgErr.ConstraintName] {
+		return nil
+	}
+	return apperrors.ErrUserExists(email)
 }
 
 // IsCheckConstraintViolation reports whether err is a Postgres check-constraint

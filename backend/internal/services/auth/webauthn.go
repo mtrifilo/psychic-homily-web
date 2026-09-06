@@ -14,6 +14,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // WebAuthnService handles WebAuthn/passkey operations
@@ -476,6 +477,9 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
+		if dup := shared.UserExistsIfDuplicate(email, err); dup != nil {
+			return nil, dup
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
