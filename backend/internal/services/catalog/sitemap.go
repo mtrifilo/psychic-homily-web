@@ -589,12 +589,23 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 // and two fallback groups are separated by their city minima. They are here so
 // that a shape reaching the count tiebreak ties the way the directory does,
 // since they are the same aggregates ListScenes selects over the same grouping.
+//
+// updated_at is the group's newest APPROVED show, which sceneEntries publishes
+// as the root URL's lastmod. It aggregates over the join's show side, so the
+// LEFT JOIN's showless-venue rows contribute nothing to it, and the show floor
+// in HAVING is what keeps it non-null on every row that survives.
+//
+// The eligibility here is the whole family's: both scene projections read this
+// one group set, so the root URL and its week permalinks cannot advertise
+// different scenes. The LEFT JOIN is load-bearing for that, since a verified
+// room with no approved shows still counts toward the venue floor on /scenes.
 func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenueGroup, error) {
 	var groups []sceneVenueGroup
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT `+sceneGroupIdentitySQL+`,
 		       COUNT(DISTINCT v.id) AS venue_count,
-		       COUNT(DISTINCT s.id) AS show_count
+		       COUNT(DISTINCT s.id) AS show_count,
+		       MAX(s.updated_at)    AS updated_at
 		FROM venues v
 		LEFT JOIN show_venues sv ON sv.venue_id = v.id
 		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
@@ -614,44 +625,44 @@ func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenue
 // computed aggregations (no scenes.updated_at), so lastmod is MAX(show.updated_at)
 // among approved shows at the scene's venues — the closest durable signal to
 // "this page's content changed".
+//
+// It reads the same group set as sceneWeekEntries, which is what makes
+// /scenes/{slug} and /scenes/{slug}/{week} one family: a scene the sitemap
+// gives week permalinks to also gets its root URL, because one query decides
+// both.
 func (s *SitemapService) sceneEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
-	type row struct {
-		Metro     string    `gorm:"column:metro"`
-		City      string    `gorm:"column:city"`
-		State     string    `gorm:"column:state"`
-		UpdatedAt time.Time `gorm:"column:updated_at"`
-	}
-	var rows []row
-	err := s.db.WithContext(ctx).Raw(`
-		SELECT `+sceneGroupIdentitySQL+`,
-		       MAX(s.updated_at) AS updated_at
-		FROM venues v
-		JOIN show_venues sv ON sv.venue_id = v.id
-		JOIN shows s ON s.id = sv.show_id AND s.status = ?
-		WHERE true
-		  `+sceneVenueEligibilitySQL+`
-		GROUP BY `+sceneGroupKeySQL+`
-		HAVING COUNT(DISTINCT v.id) >= ?
-		   AND COUNT(DISTINCT s.id) >= ?
-	`, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&rows).Error
+	groups, err := s.listQualifyingScenes(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return s.sceneEntriesFor(groups), nil
+}
 
-	entries := make([]contracts.SitemapEntry, 0, len(rows))
-	bySlug := map[string]time.Time{}
-	for _, r := range rows {
-		city, state := metroDisplayIdentity(r.Metro, r.City, r.State)
-		slug := buildSceneSlug(city, state)
-		if prev, ok := bySlug[slug]; !ok || r.UpdatedAt.After(prev) {
-			bySlug[slug] = r.UpdatedAt
-		}
-	}
-	for slug, updatedAt := range bySlug {
-		entries = append(entries, contracts.SitemapEntry{Slug: slug, UpdatedAt: updatedAt})
+// sceneEntriesFor is the projection half of sceneEntries, over an
+// already-fetched group set.
+//
+// sceneEntries is the only production caller; the split exists for the same
+// reason sceneWeekEntriesFor's does. Delegating the winner choice below and
+// keeping whichever colliding row arrives first differ ONLY when a contested
+// slug's groups arrive loser-first, and which row a GROUP BY hands over first
+// is the planner's to decide, so a test can only reach that order by handing
+// the slice in itself.
+func (s *SitemapService) sceneEntriesFor(groups []sceneVenueGroup) []contracts.SitemapEntry {
+	// Two venue groups can resolve to the same display slug, and one root URL is
+	// published for it either way. What the collapse decides here is WHOSE
+	// lastmod that URL carries: the group the slug resolves to, rather than the
+	// newest stamp across rooms the page does not list.
+	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scenes")
+
+	entries := make([]contracts.SitemapEntry, 0, len(unique))
+	for _, grp := range unique {
+		entries = append(entries, contracts.SitemapEntry{
+			Slug:      sceneGroupSlug(grp),
+			UpdatedAt: grp.UpdatedAt,
+		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
-	return entries, nil
+	return entries
 }
 
 // sceneWeekEntries projects archived week permalinks for the last

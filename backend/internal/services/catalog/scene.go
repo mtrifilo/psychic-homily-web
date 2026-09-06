@@ -119,14 +119,11 @@ const usCountry = "US"
 // sceneKeyForGroup) wants this key raw, because a group's own key is what those
 // maps are keyed by. ENUMERATING scenes must not: the key is FINER than the
 // published slug, so a drifted venues.metro or a second spelling of one city is
-// two rows for one scene. ListScenes, the charts active-scenes count and
-// sitemap.go's sceneWeekEntries settle that through
-// collapseSceneGroupsToCanonicalSlug. sitemap.go's sceneEntries is the ONE
-// enumerating caller that still dedupes inline, and it does not merely pick a
-// different winner: it MERGES the colliding groups' MAX(updated_at), so a
-// scene's lastmod can be stamped by a show at a room its page does not list.
-// The published slug SET is the same either way, so that is a lastmod
-// inaccuracy rather than a wrong URL.
+// two rows for one scene. ListScenes, the charts active-scenes count and both
+// of sitemap.go's scene projections settle that through
+// collapseSceneGroupsToCanonicalSlug, so each published scene carries the
+// aggregates of the one group its slug resolves to rather than a merge across
+// the groups that collided on it.
 //
 // NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
@@ -154,24 +151,32 @@ const sceneVenueEligibilitySQL = `AND v.verified = true
 // documents), so a call site projecting the identity differently stops
 // corresponding to the slug it publishes — silently, since the rows still scan.
 //
-// Call sites: ListScenes below, sitemap.go's listQualifyingScenes and
-// sceneEntries, and the charts summary's activeSceneCount.
+// Call sites: ListScenes below, sitemap.go's listQualifyingScenes and the
+// charts summary's activeSceneCount.
 const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
 		       MIN(v.state) AS state`
 
 // sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
-// (empty for a fallback group), its literal city/state, and the counts
-// ListScenes publishes. Package-level (rather than local to ListScenes) so the
-// slug collapse below is a plain function over it.
+// (empty for a fallback group), its literal city/state, the counts ListScenes
+// publishes, and the newest approved show at its rooms. Package-level (rather
+// than local to ListScenes) so the slug collapse below is a plain function over
+// it.
+//
+// No query projects every field, and an unprojected column scans as the zero
+// value: UpcomingCount and ThisWeekCount come only from ListScenes, UpdatedAt
+// only from sitemap.go's listQualifyingScenes. Reading one of them on a path
+// that does not select it compiles and yields zero, so a new reader has to
+// widen the queries that reach it, not only the struct.
 type sceneVenueGroup struct {
-	Metro         string `gorm:"column:metro"`
-	City          string `gorm:"column:city"`
-	State         string `gorm:"column:state"`
-	VenueCount    int    `gorm:"column:venue_count"`
-	ShowCount     int    `gorm:"column:show_count"`
-	UpcomingCount int    `gorm:"column:upcoming_count"`
-	ThisWeekCount int    `gorm:"column:this_week_count"`
+	Metro         string    `gorm:"column:metro"`
+	City          string    `gorm:"column:city"`
+	State         string    `gorm:"column:state"`
+	VenueCount    int       `gorm:"column:venue_count"`
+	ShowCount     int       `gorm:"column:show_count"`
+	UpcomingCount int       `gorm:"column:upcoming_count"`
+	ThisWeekCount int       `gorm:"column:this_week_count"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 // collapseSceneGroupsToCanonicalSlug returns at most one group per DISPLAY SLUG.
@@ -274,7 +279,8 @@ func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder
 	// the data is fixed; that is deliberate, because a once-per-process log goes
 	// quiet after a deploy while the fault is still live. The charts caller adds
 	// a slower stream on top (one line per masthead cache miss, ~1/min per key),
-	// and the sitemap a third (one line per scene_weeks fetch).
+	// and the sitemap two more (one line per scenes fetch, one per scene_weeks
+	// fetch).
 	//
 	// `surface` is not decoration, because the callers do NOT see one collision
 	// set. The directory's is all-time and gated on sceneMinVenues and
@@ -334,13 +340,12 @@ func sceneGroupSlug(grp sceneVenueGroup) string {
 // neither branch separates, so a collapse stays stable across calls rather than
 // reintroducing the reshuffling this function exists to remove.
 //
-// VenueCount and ShowCount are the ONLY count fields this may read.
-// sceneVenueGroup carries UpcomingCount and ThisWeekCount as well, and the two
-// enumerating callers outside ListScenes (sitemap.go's listQualifyingScenes and
-// the charts activeSceneCount) do not project them, so those arrive zero. A
-// tiebreak added on either would compile, leave ListScenes correct, and pick a
-// different survivor everywhere else, which on the sitemap path is a different
-// set of indexed URLs.
+// Besides the identity triple, VenueCount and ShowCount are the ONLY fields of
+// sceneVenueGroup this may read. UpcomingCount, ThisWeekCount and UpdatedAt are
+// projected by one caller each, so they arrive zero everywhere else: a tiebreak
+// added on any of them would compile, leave the caller that projects it
+// correct, and pick a different survivor on every other path, which on the
+// sitemap path is a different set of indexed URLs.
 func sceneGroupOutranks(a, b sceneVenueGroup, g geo.Geocoder) bool {
 	if am, bm := sceneGroupMatchesItsSlugScope(a, g), sceneGroupMatchesItsSlugScope(b, g); am != bm {
 		return am
