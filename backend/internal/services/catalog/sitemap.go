@@ -664,7 +664,11 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 	for _, grp := range unique {
 		city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
 		slug := buildSceneSlug(city, state)
-		scope := metroScopeFor(s.geocoder, city, state)
+		// The winner's OWN key, not a re-reading of its display identity: a
+		// fallback group whose city pins a CBSA holds rooms the metro scope
+		// does not, and the weeks published under its slug are its rooms' weeks
+		// (the page that slug serves is scoped the same way).
+		scope := sceneScopeForGroup(grp)
 		loc := s.sceneLocation(scope, state)
 
 		nowLocal := time.Now().In(loc)

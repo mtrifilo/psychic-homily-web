@@ -83,16 +83,35 @@ func (s *EntityExistenceService) existsByIDOrSlug(model any, idOrSlug string, ex
 }
 
 // sceneExists gates the proxy soft-404 for /scenes/{slug}. It mirrors
-// GetSceneDetail's existence rule (>= sceneMinVenues verified venues), now
-// metro-aware (PSY-1255 step C): a US slug whose (city,state) pins a CBSA counts
-// verified venues across the WHOLE metro (so a Twin Cities slug, or an old
-// suburb slug rolled into its metro, resolves), while a no-CBSA slug keeps the
+// GetSceneDetail's existence rule (>= sceneMinVenues verified venues) in the
+// same two readings ParseSceneSlug resolves a slug through, so the gate and the
+// page agree about which slugs have a scene behind them.
+//
+// The slug's own venue group answers first, through the rule the scenes
+// directory publishes by: a city whose verified rooms all carry a NULL
+// venues.metro is a scene the metro count below cannot see, and gating it off
+// soft-404s a page the directory links to.
+//
+// The metro count is what a slug no group publishes still passes on: a US slug
+// whose (city,state) pins a CBSA counts verified venues across the WHOLE metro,
+// so a Twin Cities slug, or an old suburb slug rolled into its metro, resolves
+// to the page ParseSceneSlug canonicalizes it to. A no-CBSA slug keeps the
 // literal city-state venue match.
 func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
-	q := s.db.Model(&catalogm.Venue{}).Where("verified = true")
 	city, state := parseSceneSlugParts(slug)
+	cbsa := ""
 	if m, ok := geo.Default().ResolveMetro(city, state, usCountry); ok {
-		q = q.Where("metro = ?", m.CBSACode)
+		cbsa = m.CBSACode
+	}
+	if _, ok, err := publishedSceneGroup(s.db, geo.Default(), slug, cbsa); err != nil {
+		return false, err
+	} else if ok {
+		return true, nil
+	}
+
+	q := s.db.Model(&catalogm.Venue{}).Where("verified = true")
+	if cbsa != "" {
+		q = q.Where("metro = ?", cbsa)
 	} else {
 		// No-CBSA fallback: match the SAME slug form ParseSceneSlug's no-CBSA
 		// resolver uses (scene.go), so the proxy gate and the page agree. It LOWERs

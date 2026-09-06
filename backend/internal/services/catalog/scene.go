@@ -422,20 +422,151 @@ type sceneScope struct {
 
 func (sc sceneScope) isMetro() bool { return sc.metro != "" }
 
-// scopeFor resolves a scene's (principal) city/state to its query scope. A US
-// city that pins a CBSA becomes a metro scope; anything else is a city/state
-// fallback. ResolveMetro already refuses an unpinned ambiguous name, so a
-// wrong-namesake metro is never selected.
+// scopeFor resolves a scene's DISPLAY city/state to its query scope: the scope
+// of the venue group that publishes the scene's slug, and the geocoder's
+// reading of the place when no group does. See sceneScopeFor.
 func (s *SceneService) scopeFor(city, state string) sceneScope {
-	return metroScopeFor(s.geocoder, city, state)
+	return sceneScopeFor(s.db, s.geocoder, city, state)
 }
 
-// metroScopeFor is scopeFor without a SceneService — the geocoder is the only
-// thing the resolution actually needs. Package-level so the venue list can key
-// the Atlas city rail on the SAME scope the scene is computed from (PSY-1574).
-// A second, independently-written "near this city" rule would drift from the
-// scene rosters and give two different answers to one question, so there is
-// exactly one definition of a scene's scope and both callers reach for it.
+// sceneScopeFor is scopeFor without a SceneService: the scope a scene addressed
+// as (city, state) queries through.
+//
+// It reads the venue rows rather than the geocoder alone because the scenes
+// DIRECTORY does. ListScenes groups verified rooms by sceneGroupKeySQL, so a
+// city whose rooms all carry a NULL venues.metro is a FALLBACK group even
+// though the city itself pins a CBSA, and the slug that group publishes is the
+// city's own. Resolving that slug through the geocoder alone answers with the
+// metro, whose rooms are a different set and, in that shape, an empty one: the
+// directory lists the scene, the sitemap announces it, and the page it links to
+// 404s.
+//
+// publishedSceneGroup answers with the group the slug names, under the winner
+// rule collapseSceneGroupsToCanonicalSlug publishes by, so the two surfaces
+// cannot answer differently about which rooms a scene holds.
+//
+// The geocoder reading is what a slug NO group publishes still resolves
+// through: a metro member slug on a healthy metro (mesa-az), and a place with
+// too few verified rooms to be a scene at all. Both must keep answering as they
+// did, the first because it canonicalizes to its metro's page and the second
+// because the caller's own existence gate is what turns it into a 404.
+func sceneScopeFor(database *gorm.DB, g geo.Geocoder, city, state string) sceneScope {
+	geocoded := metroScopeFor(g, city, state)
+	grp, ok, err := publishedSceneGroup(database, g, buildSceneSlug(city, state), geocoded.metro)
+	if err != nil {
+		// The scope still answers, because every caller of this is about to run
+		// a query that will surface the same fault with its own error. Failing
+		// the resolution here would turn a transient database error into a 404,
+		// which reads as "this scene does not exist".
+		slog.Default().Error("scene scope resolution failed; keeping the geocoded scope",
+			"city", city, "state", state, "error", err)
+		return geocoded
+	}
+	if !ok {
+		return geocoded
+	}
+	return sceneScopeForGroup(grp)
+}
+
+// sceneScopeForGroup is the scope a venue group's own rows form: its CBSA for a
+// metro group, its literal (city, state) for a fallback group.
+//
+// The scope's city/state carry the group's DISPLAY identity, which is the
+// principal city for a metro group and the group's own literal city otherwise,
+// so buildSceneSlug over them reproduces the slug the group publishes.
+//
+// Deriving the scope from the group's KEY is what keeps a group's rooms and its
+// page's rooms the same set. Re-deriving it from the display identity instead
+// hands a drifted fallback group the metro scope, whose rooms it does not hold.
+func sceneScopeForGroup(grp sceneVenueGroup) sceneScope {
+	if grp.Metro != "" {
+		city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
+		return sceneScope{metro: grp.Metro, city: city, state: state}
+	}
+	return sceneScope{city: grp.City, state: grp.State}
+}
+
+// publishedSceneGroup returns the venue group that publishes a scene slug, and
+// false when no group does.
+//
+// Candidates are narrowed to the groups that can carry the slug: the CBSA's
+// rooms (a metro group displays under its principal city, and its rooms sit in
+// member cities the slug never names) and the rooms whose own slug form is this
+// slug. cbsa is the caller's metro reading of the slug, empty when the place
+// pins none. The final slug comparison, not the narrowing, is what decides
+// membership, so a wider narrowing would only cost rows.
+//
+// sceneSlugExprSQL names bare columns, which resolve against the single venues
+// table this scans. A join added here would make them ambiguous, and Postgres
+// would say so.
+//
+// The winner among candidates is sceneGroupOutranks', the rule
+// collapseSceneGroupsToCanonicalSlug publishes the directory and the sitemap by.
+// Only VenueCount is projected alongside the identity, which that function is
+// free to read; ShowCount arrives zero on every row, so it ties and the group
+// key decides, exactly as it does for a set the counts cannot separate.
+//
+// The venue floor is applied and the show floor is NOT. A scene's PAGE has
+// never required shows to exist (GetSceneDetail gates on verified rooms alone),
+// so a group carrying rooms and no shows must keep resolving to its own scope
+// rather than falling back to a metro whose rooms it does not hold. The
+// directory's extra show floor means a group can publish a page it does not
+// list, which is the direction that costs nobody a 404.
+func publishedSceneGroup(database *gorm.DB, g geo.Geocoder, slug, cbsa string) (sceneVenueGroup, bool, error) {
+	if database == nil {
+		return sceneVenueGroup{}, false, fmt.Errorf("database not initialized")
+	}
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		return sceneVenueGroup{}, false, nil
+	}
+
+	narrowed := sceneSlugExprSQL + " = ?"
+	args := []any{slug}
+	if cbsa != "" {
+		narrowed = "v.metro = ? OR " + narrowed
+		args = []any{cbsa, slug}
+	}
+	args = append(args, sceneMinVenues)
+
+	var groups []sceneVenueGroup
+	if err := database.Raw(`
+		SELECT `+sceneGroupIdentitySQL+`,
+		       COUNT(DISTINCT v.id) AS venue_count
+		FROM venues v
+		WHERE true
+		  `+sceneVenueEligibilitySQL+`
+		  AND (`+narrowed+`)
+		GROUP BY `+sceneGroupKeySQL+`
+		HAVING COUNT(DISTINCT v.id) >= ?
+	`, args...).Scan(&groups).Error; err != nil {
+		return sceneVenueGroup{}, false, fmt.Errorf("failed to resolve the venue group for scene slug %q: %w", slug, err)
+	}
+
+	var winner sceneVenueGroup
+	found := false
+	for _, grp := range groups {
+		if sceneGroupSlug(grp) != slug {
+			continue
+		}
+		if !found || sceneGroupOutranks(grp, winner, g) {
+			winner, found = grp, true
+		}
+	}
+	return winner, found, nil
+}
+
+// metroScopeFor is the GEOCODER's reading of a place: the CBSA it pins, else
+// the literal (city, state). Package-level so the venue list can key the Atlas
+// city rail on the same reading the scene scopes start from (PSY-1574). A
+// second, independently-written "near this city" rule would drift from the
+// scene rosters and give two different answers to one question.
+//
+// sceneScopeFor, not this, is what a scene addressed by its slug queries
+// through: this reading knows the geo dataset and nothing about which rooms
+// exist. The venue list stays on this one because its metro predicate unions
+// the literal city in (metroRollupPredicate), so a NULL-metro room in a CBSA
+// city is already in its answer.
 func metroScopeFor(g geo.Geocoder, city, state string) sceneScope {
 	if g != nil {
 		if m, ok := g.ResolveMetro(city, state, usCountry); ok {
@@ -1397,12 +1528,24 @@ func parseSceneSlugParts(slug string) (city, state string) {
 }
 
 // ParseSceneSlug resolves a scene slug to the scene's canonical DISPLAY identity
-// (city, state). A US slug whose (city,state) pins a Census CBSA resolves to that
-// metro's PRINCIPAL city — so an old member slug ("tempe-az", "brooklyn-ny")
-// lands on its metro's canonical scene instead of 404ing (PSY-1255 step C). A
-// slug with no CBSA falls back to matching a verified venue's literal (city,
-// state). Scene EXISTENCE (>= sceneMinVenues) is enforced downstream by
-// GetSceneDetail, so this may resolve a slug whose metro has no qualifying scene.
+// (city, state), in three readings, narrowest first.
+//
+// The slug's own venue group answers first: the group that publishes this slug
+// displays under the identity its page must serve, and that is the identity the
+// scenes directory published the slug under. A city whose verified rooms all
+// carry a NULL venues.metro is such a group, and the metro reading below would
+// answer with a principal city those rooms are not in.
+//
+// A slug NO group publishes resolves through the geo dataset, as before: a US
+// slug whose (city,state) pins a Census CBSA resolves to that metro's PRINCIPAL
+// city, so an old member slug ("tempe-az", "brooklyn-ny") lands on its metro's
+// canonical scene instead of 404ing (PSY-1255 step C). A slug with no CBSA
+// falls back to matching a verified venue's literal (city, state).
+//
+// Only the first reading knows whether a scene EXISTS, and it is not a gate:
+// the two below resolve identities with too few verified rooms to be a scene,
+// and GetSceneDetail's own >= sceneMinVenues check is what turns those into a
+// 404.
 func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	if s.db == nil {
 		return "", "", fmt.Errorf("database not initialized")
@@ -1411,11 +1554,25 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 		return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 	}
 
+	cbsa := ""
 	if city, state := parseSceneSlugParts(slug); city != "" && s.geocoder != nil {
 		if m, ok := s.geocoder.ResolveMetro(city, state, usCountry); ok {
-			if mp, ok := geo.MetroPrincipalByCBSA(m.CBSACode); ok {
-				return mp.City, mp.State, nil
-			}
+			cbsa = m.CBSACode
+		}
+	}
+
+	grp, ok, err := publishedSceneGroup(s.db, s.geocoder, slug, cbsa)
+	if err != nil {
+		return "", "", err
+	}
+	if ok {
+		city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
+		return city, state, nil
+	}
+
+	if cbsa != "" {
+		if mp, ok := geo.MetroPrincipalByCBSA(cbsa); ok {
+			return mp.City, mp.State, nil
 		}
 	}
 
@@ -1428,15 +1585,14 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 		State string
 	}
 	var result cityState
-	err := s.db.Raw(`
+	if err = s.db.Raw(`
 		SELECT city, state
 		FROM venues
 		WHERE verified = true
 		  AND `+sceneSlugExprSQL+` = ?
 		ORDER BY city, state
 		LIMIT 1
-	`, strings.ToLower(slug)).Scan(&result).Error
-	if err != nil {
+	`, strings.ToLower(slug)).Scan(&result).Error; err != nil {
 		return "", "", fmt.Errorf("failed to resolve scene slug: %w", err)
 	}
 	if result.City == "" {
