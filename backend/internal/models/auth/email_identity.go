@@ -7,8 +7,12 @@ import "strings"
 //
 // One mailbox is one account, so identity is case-insensitive while the stored
 // bytes keep whatever casing the owner typed. The fold runs in Postgres, the
-// same lower() the unique index users_lower_email_key is built over, so the
+// same lower() the unique index users_lower_email_uniq is built over, so the
 // query and the index cannot disagree about case.
+//
+// The column is unqualified, so this belongs on a query rooted at users and
+// joined to nothing else carrying an email column. Qualify it at such a call
+// site rather than widening this constant.
 const EmailIdentityWhere = "lower(email) = lower(?)"
 
 // SameEmailIdentity reports whether two addresses name the same mailbox, for

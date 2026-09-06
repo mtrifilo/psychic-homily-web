@@ -451,14 +451,19 @@ func (s *UserService) createNewUserOauthWithConsent(
 		}
 	}()
 
-	// Create user
+	// Create user. Email is left NULL when the provider supplied none: an empty
+	// string is a real value that collides with every other addressless account
+	// under the users_lower_email_uniq index, while NULLs do not collide.
+	// GitHub returns no address for a user with none public.
 	user := &authm.User{
-		Email:         &gothUser.Email,
 		FirstName:     &gothUser.FirstName,
 		LastName:      &gothUser.LastName,
 		AvatarURL:     &gothUser.AvatarURL,
 		IsActive:      true,
 		EmailVerified: true, // OAuth users are email verified
+	}
+	if gothUser.Email != "" {
+		user.Email = &gothUser.Email
 	}
 	if consent != nil && consent.TermsAccepted && consent.TermsVersion != "" {
 		acceptedAt := consent.AcceptedAt

@@ -1,0 +1,54 @@
+-- PSY-2030: one mailbox is one account.
+--
+-- users.email already carries a UNIQUE constraint, but it compares raw bytes,
+-- so Bob@x.com and bob@x.com are two rows for one mailbox. Every application
+-- lookup now compares lower(email) = lower(?) (authm.EmailIdentityWhere), and
+-- this index is what makes that comparison an identity rather than a
+-- convention: without it a check-then-insert can still admit a second row for
+-- the same mailbox under concurrency.
+--
+-- lower() here and lower() in the lookup are the same Postgres function, so
+-- the index and the query agree on case by construction.
+--
+-- No dedup step: verified ZERO lower(email) collisions and ZERO mixed-case
+-- addresses on prod (2 users) on 2026-09-06, so the unique index builds
+-- cleanly. Exact-case duplicates were already impossible under users_email_key;
+-- case-variant duplicates were possible but none exist. Re-check before
+-- deploying to an environment this was not measured against:
+--   SELECT lower(email), count(*) FROM users
+--   WHERE email IS NOT NULL GROUP BY 1 HAVING count(*) > 1;
+--
+-- The index also constrains SOFT-DELETED rows. users.deleted_at is a plain
+-- timestamp, not a GORM soft-delete column, so no query scopes them out and
+-- SoftDeleteAccount keeps the address for the 30-day recovery window. A
+-- deleted account therefore reserves its mailbox case-insensitively, where it
+-- previously reserved only the exact bytes.
+--
+-- If a collision does exist the CREATE fails, and golang-migrate has already
+-- recorded this version dirty, so the container crash-loops and redeploying
+-- the PREVIOUS image does not clear it. Recovery is manual: resolve the
+-- colliding pair, then `migrate force 20260904174500` and redeploy. That is
+-- the intended trade: a collision is a pair of accounts a human has to merge
+-- or rename, never something a migration may decide by keeping one.
+--
+-- Multi-statement DDL; golang-migrate wraps the file in a transaction, so the
+-- index is built NON-concurrently (CONCURRENTLY is illegal in a txn). It would
+-- be the wrong tool here regardless: a failed CONCURRENTLY unique build leaves
+-- an INVALID index behind and lets the deploy proceed, which is the opposite
+-- of the fail-loud behaviour above. The SHARE lock blocks writes to users for
+-- the build; nothing writes users on a read request, so that is signups and
+-- profile edits only, on a table of this size.
+
+CREATE UNIQUE INDEX users_lower_email_uniq ON users (LOWER(email));
+
+-- idx_users_email indexed the raw column for lookups that no longer exist: the
+-- application resolves an address through users_lower_email_uniq, and the byte
+-- exact users_email_key index that the column's UNIQUE constraint creates
+-- already covers anything matching raw bytes. Keeping it would make every
+-- signup and profile edit maintain a third index tuple for no reader.
+--
+-- users_email_key itself is now subsumed too (any byte-identical pair is also
+-- lower-identical), but dropping a UNIQUE constraint is a wider call than
+-- pruning an unused index, so it is left for its own change.
+
+DROP INDEX IF EXISTS idx_users_email;

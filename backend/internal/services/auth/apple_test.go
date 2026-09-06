@@ -585,10 +585,13 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 
 	svc := s.newService()
 
-	// createAppleUser is called here directly, so it skips the email pre-check
-	// FindOrCreateAppleUser does and lands on the unique index. That is the
-	// same position a concurrent signup reaches, and it gets the same refusal.
-	_, err := svc.createAppleUser("apple-dupe-id", "dupe@example.com", "Dupe", "User")
+	// A CASE VARIANT, so the insert collides on users_lower_email_uniq rather
+	// than on the byte-exact users_email_key: this asserts the new index, not
+	// the one that was always there. createAppleUser is called directly, so it
+	// skips the pre-check FindOrCreateAppleUser does and lands on the index the
+	// way a lost race would. The service returns USER_EXISTS; AppleCallbackHandler
+	// still collapses it to its own generic shape, which this does not assert.
+	_, err := svc.createAppleUser("apple-dupe-id", "DUPE@Example.com", "Dupe", "User")
 
 	s.Require().Error(err)
 	var authErr *apperrors.AuthError

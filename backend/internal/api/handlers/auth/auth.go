@@ -76,18 +76,16 @@ const maxEmailBytes = 254
 // quoted local part in "a b"@example.com, is refused too, because the form that
 // would be stored is not the form that was sent.
 //
-// Byte-identity is also why this rewrites nothing and returns no value. Every
-// lookup by address (login, magic link, account recovery, passkey login)
-// matches the stored bytes exactly, so a guard that quietly normalized its
-// input would store one string and authenticate against another. Refusing the
-// padded form reports the problem at signup instead of creating an account that
-// cannot afterwards be logged into.
+// Byte-identity is also why this rewrites nothing and returns no value. The
+// stored bytes are the ones the owner typed, so a guard that quietly
+// normalized its input would store one string and authenticate against
+// another. Refusing the padded form reports the problem at signup instead of
+// creating an account that cannot afterwards be logged into.
 //
-// KNOWN GAP, pre-existing and NOT closed here: that byte-exact matching is
-// case-sensitive, and users.email has no case-insensitive unique index, so
-// "Bob@x.com" and "bob@x.com" are two accounts for one mailbox. Closing it
-// needs a migration plus a backfill decision for any existing pair, so it is
-// tracked separately rather than decided by this guard.
+// Case is the one dimension identity ignores. Lookups compare
+// authm.EmailIdentityWhere, and users_lower_email_uniq enforces the same fold,
+// so "Bob@x.com" and "bob@x.com" are one account. That fold lives in the
+// comparison, never in what this guard stores.
 //
 // Returns the user-facing message and ok=false on refusal.
 func validateEmailAddress(raw string) (message string, ok bool) {
@@ -1264,7 +1262,7 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Verify the email still matches (in case user changed email).
+	// Verify the token's address still names this account's mailbox.
 	// Case-insensitive, the same identity rule the lookups use: a token names
 	// a mailbox, not a spelling of one.
 	if user.Email == nil || !authm.SameEmailIdentity(*user.Email, claims.Email) {
