@@ -240,7 +240,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesWhenEveryField
 }
 
 // Undo the undo. The rollback revision records what the entity held, so rolling
-// THAT back puts the entity where the first rollback found it — which is the
+// THAT back puts the entity where the first rollback found it, which is the
 // property a recorded old_value nobody observed silently breaks.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_OfARollbackRestoresTheValueItReplaced() {
 	admin := s.createTestUser()
@@ -310,8 +310,8 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_ShowRevisionIsObserva
 	s.Equal("Original Bill", restored.Title)
 }
 
-// A revision can record fields no contributor may edit — a label's status is one
-// of them. The derivation's scope is the model's columns, not the allowlist, so
+// A revision can record fields no contributor may edit, a label's status among
+// them. The derivation's scope is the model's columns, not the allowlist, so
 // these restore like any other field.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_AdminOnlyFieldIsObservable() {
 	admin := s.createTestUser()

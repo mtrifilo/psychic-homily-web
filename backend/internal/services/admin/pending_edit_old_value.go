@@ -203,13 +203,13 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 // and the comparison are identical, which is the point of having one function.
 //
 // It is one value rather than a pair of options because the two things it
-// decides — which fields are in scope, and whether a withheld column reads as
-// the column or as the blank its readers are served — are two consequences of
-// the same fact, and the pairings that mix them are both wrong. Deriving the
-// column under the contributor allowlist publishes an unverified venue's address
-// to the contributor. Deriving the blank under the revision scope makes that
-// address permanently un-restorable, because no observation could ever confirm
-// the column.
+// decides are two consequences of the same fact: which fields are in scope, and
+// whether a withheld column reads as the column or as the blank its readers are
+// served. The pairings that mix them are both wrong. Deriving the column under
+// the contributor allowlist publishes an unverified venue's address to the
+// contributor. Deriving the blank under the revision scope makes that address
+// permanently un-restorable, because no observation could ever confirm the
+// column.
 type audience int
 
 const (
@@ -223,7 +223,7 @@ const (
 	// admin-only write inside a transaction, and the value it records lands in
 	// revisions.field_changes, which revisiondiff masks for every non-admin
 	// reader over the SAME field list the accessors withhold
-	// (catalog.VenuePrivateFields drives both) — so a withheld column reads as
+	// (catalog.VenuePrivateFields drives both), so a withheld column reads as
 	// the column.
 	//
 	// Its scope is every scalar column of the model, not an allowlist. A

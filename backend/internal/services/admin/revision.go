@@ -428,7 +428,8 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 		// it does not apply to; see applyDerivedLocation. It reads the SURVIVING
 		// fields, so a refused location field cannot pull a derived column with
 		// it, and it reads through tx because this caller builds the map while
-		// holding the row lock — the case applyDerivedVenueLocation's doc names.
+		// holding the row lock, which is the case applyDerivedVenueLocation's
+		// doc names.
 		//
 		// That helper is best effort on its own: a read it cannot make leaves the
 		// derived columns alone rather than failing the write. Inside a
