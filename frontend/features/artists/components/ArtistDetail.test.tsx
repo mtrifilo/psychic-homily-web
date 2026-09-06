@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 import type { Artist, ArtistShow, ArtistAlias } from '../types'
 
 // Mock next/link
@@ -78,20 +79,31 @@ vi.mock('./ArtistShowsList', () => ({
   ),
 }))
 
-vi.mock('@/features/contributions', () => ({
-  EntityEditDrawer: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
-  EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
-    visible ? <div data-testid="save-success-banner">Changes saved</div> : null,
-  useEntitySaveSuccessBanner: () => ({
-    isVisible: false,
-    handleSaveSuccess: vi.fn(),
-  }),
-  AttributionLine: (): null => null,
-  ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
-    open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
-  useSuggestEdit: () => ({ mutate: vi.fn(), isPending: false }),
-}))
+const mockSuggestEditMutate = vi.fn()
+
+vi.mock('@/features/contributions', async () => {
+  // The real reader, imported inside the factory because a hoisted mock cannot
+  // close over a top-level import. The assertion below is that this page names
+  // the right field when it wires the reader up, so a stub would test nothing.
+  const { staleFieldCurrentValue } = await import(
+    '@/features/contributions/staleValueConflict'
+  )
+  return {
+    EntityEditDrawer: ({ open }: { open: boolean }) =>
+      open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
+    EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
+      visible ? <div data-testid="save-success-banner">Changes saved</div> : null,
+    useEntitySaveSuccessBanner: () => ({
+      isVisible: false,
+      handleSaveSuccess: vi.fn(),
+    }),
+    AttributionLine: (): null => null,
+    ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
+      open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
+    useSuggestEdit: () => ({ mutate: mockSuggestEditMutate, isPending: false }),
+    staleFieldCurrentValue,
+  }
+})
 
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
@@ -177,6 +189,17 @@ vi.mock('./RelatedArtists', () => ({
 // The mock renders header / sidebar / children slots directly. The new
 // density primitives (BracketLink, SectionHeader, StatsList) get lightweight
 // mocks so their props are inspectable.
+// The rejection the mocked editor hands the reader this page passes down, so a
+// wrong field name in that wiring fails here.
+const STALE_CONFLICT = stubStaleValueConflict({
+  description: 'Reseeded from the server',
+})
+
+// What the open editor was composed against. Distinct from any value the artist
+// query holds, so an implementation that re-read the cache instead of taking the
+// editor's baseline fails the assertion below.
+const EDITOR_BASELINE = 'The text the editor was re-seeded with'
+
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links">Social Links</div>,
   MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
@@ -228,8 +251,34 @@ vi.mock('@/components/shared', () => ({
   FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number; variant?: string }) => (
     <button data-testid="follow-button">Follow {entityType} {entityId}</button>
   ),
-  EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
-    <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
+  EntityDescription: ({
+    description,
+    canEdit,
+    onSave,
+    currentValueFromRejection,
+  }: {
+    description: string | null | undefined
+    canEdit: boolean
+    onSave?: (description: string, previousDescription: string) => Promise<void>
+    currentValueFromRejection?: (error: unknown) => string | undefined
+  }) => (
+    <div data-testid="entity-description">
+      {description || (canEdit ? 'Add description' : '')}
+      {/* The baseline is deliberately NOT `description`: the page must forward
+          what the editor was composed against, which a re-seed moves away from
+          the prop. Passing the prop here would pass under either implementation. */}
+      {canEdit && (
+        <button
+          data-testid="entity-description-save"
+          onClick={() => onSave?.('New artist bio', EDITOR_BASELINE)}
+        >
+          Save description
+        </button>
+      )}
+      <span data-testid="entity-description-conflict-read">
+        {currentValueFromRejection?.(STALE_CONFLICT) ?? 'none'}
+      </span>
+    </div>
   ),
   AddToCollectionButton: () => (
     <button data-testid="add-to-collection">[Add to collection]</button>
@@ -385,6 +434,16 @@ describe('ArtistDetail', () => {
       })
     })
 
+    // The page hands the editor a reader for the stale-value 409 it may get
+    // back. A wrong field name here reads as "no conflict", and the editor
+    // silently keeps a draft the server has already refused.
+    it('reads the description out of a stale-value conflict for the editor', () => {
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('entity-description-conflict-read')).toHaveTextContent(
+        'Reseeded from the server'
+      )
+    })
+
     it('renders artist name in header', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       const headerSlot = screen.getByTestId('header-slot')
@@ -538,6 +597,34 @@ describe('ArtistDetail', () => {
       })
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.getByTestId('bracket-Edit')).toBeInTheDocument()
+    })
+
+    // The inline editor's own baseline is what reaches old_value, not the value
+    // in the artist query: a conflict re-seeds the editor, and a claim taken
+    // from the cache would repeat a value the server has already refused.
+    it('sends the editor baseline as old_value on a trusted-tier save', async () => {
+      const user = userEvent.setup()
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { id: 7, is_admin: false, user_tier: 'trusted_contributor' },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      await user.click(screen.getByTestId('entity-description-save'))
+
+      expect(mockSuggestEditMutate).toHaveBeenCalledTimes(1)
+      expect(mockSuggestEditMutate).toHaveBeenCalledWith(
+        {
+          entityType: 'artist',
+          entityId: 42,
+          changes: [
+            { field: 'description', old_value: EDITOR_BASELINE, new_value: 'New artist bio' },
+          ],
+          summary: 'Updated description via inline editor',
+        },
+        expect.anything()
+      )
     })
 
     it('shows the [Add tag] bracket link for authenticated users (PSY-654)', () => {

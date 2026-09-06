@@ -1972,6 +1972,31 @@ describe('ModerationQueue', () => {
     })
   })
 
+  // Characterization of the card's error slot, not a guard on the backend rule:
+  // the card renders `error.message`, so what this pins is that an approve
+  // refusal reaches the moderator as its own words rather than "Action failed".
+  describe('stale-value refusal on approve', () => {
+    it('prints the refusal message on the pending-edit card', () => {
+      const conflict: Error & { status?: number } = new Error(
+        'This field changed since this edit was submitted: description. The edit cannot be applied over a different value. Reject it and ask the contributor to resubmit.'
+      )
+      conflict.status = 409
+      mockUseApprovePendingEdit.mockReturnValue({
+        ...defaultMutationReturn,
+        isError: true,
+        error: conflict,
+      })
+      setDefaultMocks({ edits: [mockPendingEdit] })
+
+      render(<ModerationQueue />)
+
+      expect(
+        screen.getByText(/changed since this edit was submitted: description/i)
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Action failed')).not.toBeInTheDocument()
+    })
+  })
+
   // ── PSY-1975: a request whose payload was rewritten after it was filed ────
   //
   // A resubmission replaces the queued row's submission in place, so updated_at

@@ -525,7 +525,8 @@ func TestMapPendingEditError_CodeToStatus(t *testing.T) {
 		{"edit not found", apperrors.ErrPendingEditNotFound(), 404},
 		{"not pending", apperrors.ErrPendingEditNotPending("approved"), 409},
 		{"duplicate", apperrors.ErrPendingEditDuplicate(stderrors.New("unique constraint")), 409},
-		{"stale value", apperrors.ErrPendingEditStaleValue([]string{"name"}), 409},
+		{"stale value (submit)", apperrors.ErrPendingEditStaleValue(staleName()), 409},
+		{"stale value (approve)", apperrors.ErrPendingEditStaleValueAtApprove(staleName()), 409},
 		{"not submitter", apperrors.ErrPendingEditNotSubmitter(), 403},
 		{"invalid entity type", apperrors.ErrPendingEditInvalidEntityType("show"), 422},
 		{"invalid request", apperrors.ErrPendingEditInvalidRequest("no changes provided"), 422},
@@ -539,6 +540,46 @@ func TestMapPendingEditError_CodeToStatus(t *testing.T) {
 			}
 			if s := statusOf(t, got); s != tc.status {
 				t.Errorf("MapPendingEditError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func staleName() []apperrors.StaleFieldValue {
+	return []apperrors.StaleFieldValue{{Field: "name", Current: "Current Name"}}
+}
+
+// A stale-value 409 carries the entity's current value per named field under
+// errors[].value, which is what lets the inline editors re-seed their draft
+// instead of parsing the message. Asserted on both constructors, since the two
+// differ only in copy.
+func TestMapPendingEditError_StaleValueCarriesCurrentValues(t *testing.T) {
+	for name, err := range map[string]*apperrors.PendingEditError{
+		"submit":  apperrors.ErrPendingEditStaleValue(staleName()),
+		"approve": apperrors.ErrPendingEditStaleValueAtApprove(staleName()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			mapped := MapPendingEditError(err)
+			var model *huma.ErrorModel
+			if !stderrors.As(mapped, &model) {
+				t.Fatalf("mapped error is %T, want *huma.ErrorModel", mapped)
+			}
+			if len(model.Errors) != 1 {
+				t.Fatalf("Errors = %d entries, want 1", len(model.Errors))
+			}
+			value, ok := model.Errors[0].Value.(map[string]any)
+			if !ok {
+				t.Fatalf("Errors[0].Value is %T, want map[string]any", model.Errors[0].Value)
+			}
+			if value["code"] != apperrors.CodePendingEditStaleValue {
+				t.Errorf("code = %v, want %s", value["code"], apperrors.CodePendingEditStaleValue)
+			}
+			current, ok := value["current_values"].(map[string]any)
+			if !ok {
+				t.Fatalf("current_values is %T, want map[string]any", value["current_values"])
+			}
+			if current["name"] != "Current Name" {
+				t.Errorf("current_values[name] = %v, want %q", current["name"], "Current Name")
 			}
 		})
 	}

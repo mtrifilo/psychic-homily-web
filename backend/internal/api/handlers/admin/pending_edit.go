@@ -11,6 +11,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -206,7 +207,35 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 				"user_id", user.ID,
 				"error", approveErr.Error(),
 			)
-			// Fall through — the pending edit was still created
+			// A stale-value refusal here is the submit-time conflict arriving
+			// one step late: the entity moved between the derivation this
+			// request just made and the locked re-read inside the approval.
+			// It is answered like the submit-time one, with the 409 that
+			// carries the current value, because on this path the submitter
+			// and the approver are the same person and the queued row is not
+			// a reviewable submission but a step of the write they asked for.
+			//
+			// The row goes with it. It records a previous value the entity no
+			// longer holds, which is never re-stamped, so leaving it queued
+			// leaves a row no approval can ever apply — and the one pending
+			// edit per submitter per entity index would then refuse this
+			// user's next attempt at the field. Cancel is the submitter's own
+			// verb and this request IS the submitter.
+			var staleErr *apperrors.PendingEditError
+			if errors.As(approveErr, &staleErr) && staleErr.Code == apperrors.CodePendingEditStaleValue {
+				if cancelErr := h.pendingEditService.CancelPendingEdit(resp.ID, user.ID); cancelErr != nil {
+					logger.FromContext(ctx).Error("pending_edit_auto_approve_cleanup_failed",
+						"edit_id", resp.ID,
+						"user_id", user.ID,
+						"error", cancelErr.Error(),
+					)
+				}
+				if mapped := shared.MapPendingEditError(approveErr); mapped != nil {
+					return nil, mapped
+				}
+			}
+			// Every other approval failure falls through: the pending edit was
+			// still created and stays reviewable.
 		} else {
 			// PSY-618: do NOT emit a "edit_<type>" audit row here. The
 			// pending_entity_edits row above is the canonical user-facing

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"sync"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -39,14 +39,21 @@ import (
 // the entity means the edit was composed against a value the entity no longer
 // has. That is a conflict, answered with 409, not a value to store.
 //
-// SUBMIT TIME, and the qualifier is load bearing. The derived value is what the
-// column held when the edit was QUEUED, and ApprovePendingEdit records it into
-// revisions.field_changes without re-reading the entity. The unique index admits
-// one pending edit per submitter per entity, so two submitters can queue against
-// the same value; approving both leaves the second revision recording a previous
-// value the first approval had already replaced, and rolling that one back
-// discards the first edit. Closing that needs a re-derivation inside the approve
-// transaction, which is a change to what approval means and not a rider here.
+// The value is derived at SUBMIT time and CHECKED AGAIN at approve time. The
+// unique index admits one pending edit per submitter per entity, so two
+// submitters can queue edits against the same value; the recorded old_value of
+// the second describes the entity as it was before the first was applied.
+// ApprovePendingEdit therefore re-reads the entity under a row lock and refuses
+// the whole edit when any recorded old_value no longer describes it
+// (verifyOldValuesAtApprove). The stored value is never re-stamped, so what an
+// approved row records is what the entity held at the moment it was applied.
+//
+// The exception is a WITHHELD field, where the recorded value is the withheld
+// view and not the column: an unverified venue's address records "" while the
+// column holds a street address. Rollback writes OldValue back verbatim
+// (RevisionService.Rollback), so restoring such a revision blanks the column
+// rather than restoring it. Nothing here narrows that; the gate only stops a
+// row from being applied over a value nobody observed.
 
 // entityModels pairs each pending-edit entity type with the GORM model whose
 // columns a pending edit may name.
@@ -116,19 +123,80 @@ var _ withheldEditFieldsReporter = (*catalogm.Venue)(nil)
 // The comparison is against the value the submitter could OBSERVE, which for a
 // withheld field is not the column. See withheldEditFieldsReporter.
 func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) ([]adminm.FieldChange, error) {
+	out, stale, err := resolveOldValues(db, entityType, entityID, changes)
+	if err != nil {
+		return nil, err
+	}
+	if len(stale) > 0 {
+		return nil, apperrors.ErrPendingEditStaleValue(stale)
+	}
+	return out, nil
+}
+
+// verifyOldValuesAtApprove reports whether every OldValue already recorded on a
+// pending edit still describes the entity, and refuses the approval when one
+// does not.
+//
+// Same derivation and same comparison as the submit path, over the values that
+// path stored, so a row cannot be applied over a value nobody observed.
+//
+// tx must be the transaction that goes on to write the entity. The read takes
+// the row FOR UPDATE, and that lock is what makes the answer hold until the
+// write lands: this reads a value it is about to overwrite, so an unlocked read
+// is a check a concurrent approval can invalidate in between. Passing a handle
+// that is not in a transaction leaves the check with no guarantee at all.
+//
+// Nothing is re-stamped on a mismatch and nothing is applied. The edit stays
+// pending for the moderator to reject: a re-stamped previous value is one no
+// reviewer ever saw, and Rollback would restore it.
+//
+// This is the transaction's FIRST statement, so the entity row is locked before
+// the pending_entity_edits row the status flip takes. Every approval acquires
+// them in that order.
+func verifyOldValuesAtApprove(tx *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) error {
+	locked := tx.Clauses(clause.Locking{Strength: "UPDATE"})
+	_, stale, err := resolveOldValues(locked, entityType, entityID, changes)
+	if err != nil {
+		// An entity that vanished between submission and approval is the approve
+		// path's ENTITY_GONE (422, this edit can no longer be applied), not the
+		// submit path's 404 for an entity that never existed.
+		var editErr *apperrors.PendingEditError
+		if errors.As(err, &editErr) && editErr.Code == apperrors.CodePendingEditEntityNotFound {
+			return apperrors.ErrPendingEditEntityGone(entityType, entityID)
+		}
+		return err
+	}
+	if len(stale) > 0 {
+		return apperrors.ErrPendingEditStaleValueAtApprove(stale)
+	}
+	return nil
+}
+
+// resolveOldValues derives the entity's current value for every field in changes
+// and reports which recorded previous values no longer describe it.
+//
+// The two callers differ in the copy they attach to a mismatch and in the handle
+// they pass, which is where the approve path's row lock lives. Sharing the body
+// is what keeps "the value the submitter observed" and "the value the approval
+// writes over" the same question; two implementations of it would be free to
+// disagree about a withheld field, an empty string, or a number's encoding.
+//
+// The returned changes carry the derived OldValue whether or not any field is
+// stale, so the submit path can store them and the approve path can ignore them.
+func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
 	allowed, ok := adminm.AllowedEditFields(entityType)
 	if !ok {
-		return nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
+		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
 	}
 	columns, withheld, err := currentEntityColumns(db, entityType, entityID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	out := make([]adminm.FieldChange, len(changes))
 	copy(out, changes)
 
-	var stale []string
+	var stale []apperrors.StaleFieldValue
 	for i := range out {
 		field := out[i].Field
 		// Fail closed, twice, because the alternative to knowing what a field
@@ -137,12 +205,12 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 		// runs; this function does not depend on that, because the value it
 		// derives is the one Rollback later writes.
 		if !allowed[field] {
-			return nil, apperrors.ErrPendingEditInvalidRequest(
+			return nil, nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not editable on %s entities", field, entityType))
 		}
 		column, known := columns[field]
 		if !known {
-			return nil, apperrors.ErrPendingEditInvalidRequest(
+			return nil, nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not a column on %s entities", field, entityType))
 		}
 		// A withheld field derives from the UNSET value of its type, which is
@@ -157,18 +225,14 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 		if err != nil {
 			// Unreachable for an allowlisted field: TestAllowedEditFieldsAreDerivable
 			// pins every one of them against this rule.
-			return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
+			return nil, nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
 		}
 		if !sameFieldValue(out[i].OldValue, value) {
-			stale = append(stale, field)
+			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
 	}
-	if len(stale) > 0 {
-		sort.Strings(stale)
-		return nil, apperrors.ErrPendingEditStaleValue(stale)
-	}
-	return out, nil
+	return out, stale, nil
 }
 
 // currentEntityColumns loads one entity and returns each of its columns paired
@@ -179,6 +243,9 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 // caller can tell an unknown field from a NULL one. Values are left as
 // reflect.Values and converted per field by the caller, since a submission names
 // a handful of the thirty-odd columns a model carries.
+//
+// db carries whatever clauses the caller attached, which is how the approve path
+// gets its FOR UPDATE. The one read below is the only statement it applies to.
 func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (columns map[string]reflect.Value, withheld map[string]bool, err error) {
 	newModel, ok := entityModels[entityType]
 	if !ok {

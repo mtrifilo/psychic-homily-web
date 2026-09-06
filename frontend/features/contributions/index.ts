@@ -23,6 +23,9 @@ export {
   isLooseEndsCategory,
 } from './types'
 
+// Conflict reading
+export { staleFieldCurrentValue, STALE_VALUE_CODE } from './staleValueConflict'
+
 // Hooks
 export {
   useSuggestEdit,

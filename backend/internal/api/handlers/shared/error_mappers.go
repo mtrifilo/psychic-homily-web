@@ -592,9 +592,10 @@ func MapPendingEditError(err error) error {
 		case apperrors.CodePendingEditEntityNotFound, apperrors.CodePendingEditNotFound:
 			return huma.Error404NotFound(editErr.Message)
 		case apperrors.CodePendingEditNotPending,
-			apperrors.CodePendingEditDuplicate,
-			apperrors.CodePendingEditStaleValue:
+			apperrors.CodePendingEditDuplicate:
 			return huma.Error409Conflict(editErr.Message)
+		case apperrors.CodePendingEditStaleValue:
+			return huma.Error409Conflict(editErr.Message, staleValueDetail(editErr))
 		case apperrors.CodePendingEditNotSubmitter:
 			return huma.Error403Forbidden(editErr.Message)
 		case apperrors.CodePendingEditEntityGone,
@@ -606,4 +607,30 @@ func MapPendingEditError(err error) error {
 		}
 	}
 	return nil
+}
+
+// staleValueDetail builds an *huma.ErrorDetail carrying the entity's current
+// value for each field a stale-value 409 names, under `errors[].value`, so a
+// client can re-seed the form it composed the edit in without parsing the
+// message. Mirrors collectionLimitDetail; the `code` rides inside the value
+// because huma's error model has no field for one.
+//
+// apperrors.StaleFieldValue carries the rule that makes these values safe to
+// return.
+//
+// No Location: the two paths that raise this error do not share one. Approve is
+// a POST with no body, so any request-shaped location would be wrong there, and
+// the field names are inside current_values either way.
+func staleValueDetail(e *apperrors.PendingEditError) *huma.ErrorDetail {
+	current := make(map[string]any, len(e.StaleFields))
+	for _, f := range e.StaleFields {
+		current[f.Field] = f.Current
+	}
+	return &huma.ErrorDetail{
+		Message: e.Message,
+		Value: map[string]any{
+			"code":           e.Code,
+			"current_values": current,
+		},
+	}
 }

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { VenueDetail } from './VenueDetail'
 import { VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
 import type { Venue } from '../types'
+import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 
 // Mock AuthContext.
 // Return type widened so individual tests can override `user`/`isAuthenticated`
@@ -92,6 +93,17 @@ vi.mock('../hooks/useVenueEdit', () => ({
   useVenueDelete: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
+// The rejection the mocked editor hands the reader this page passes down, so a
+// wrong field name in that wiring fails here.
+const STALE_CONFLICT = stubStaleValueConflict({
+  description: 'Reseeded from the server',
+})
+
+// What the open editor was composed against. Distinct from any value the venue
+// query holds, so an implementation that re-read the cache instead of taking the
+// editor's baseline fails the assertion below.
+const EDITOR_BASELINE = 'The text the editor was re-seeded with'
+
 // Mock child components
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
@@ -109,21 +121,29 @@ vi.mock('@/components/shared', () => ({
     description,
     canEdit,
     onSave,
+    currentValueFromRejection,
   }: {
     description: string | null | undefined
     canEdit: boolean
-    onSave?: (description: string) => Promise<void>
+    onSave?: (description: string, previousDescription: string) => Promise<void>
+    currentValueFromRejection?: (error: unknown) => string | undefined
   }) => (
     <div data-testid="entity-description">
       {description || (canEdit ? 'Add description' : '')}
+      {/* The baseline is deliberately NOT `description`: the page must forward
+          what the editor was composed against, which a re-seed moves away from
+          the prop. Passing the prop here would pass under either implementation. */}
       {canEdit && (
         <button
           data-testid="entity-description-save"
-          onClick={() => onSave?.('New venue bio')}
+          onClick={() => onSave?.('New venue bio', EDITOR_BASELINE)}
         >
           Save description
         </button>
       )}
+      <span data-testid="entity-description-conflict-read">
+        {currentValueFromRejection?.(STALE_CONFLICT) ?? 'none'}
+      </span>
     </div>
   ),
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
@@ -170,20 +190,29 @@ vi.mock('./VenueBillNetwork', async importOriginal => ({
   ),
 }))
 
-vi.mock('@/features/contributions', () => ({
-  EntityEditDrawer: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
-  EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
-    visible ? <div data-testid="save-success-banner">Changes saved</div> : null,
-  useEntitySaveSuccessBanner: () => ({
-    isVisible: false,
-    handleSaveSuccess: vi.fn(),
-  }),
-  AttributionLine: (): null => null,
-  ReportEntityDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="report-dialog">Report Dialog</div> : null,
-  useSuggestEdit: () => ({ mutate: mockSuggestEditMutate, isPending: false }),
-}))
+vi.mock('@/features/contributions', async () => {
+  // The real reader, imported inside the factory because a hoisted mock cannot
+  // close over a top-level import. The assertion below is that this page names
+  // the right field when it wires the reader up, so a stub would test nothing.
+  const { staleFieldCurrentValue } = await import(
+    '@/features/contributions/staleValueConflict'
+  )
+  return {
+    EntityEditDrawer: ({ open }: { open: boolean }) =>
+      open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
+    EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
+      visible ? <div data-testid="save-success-banner">Changes saved</div> : null,
+    useEntitySaveSuccessBanner: () => ({
+      isVisible: false,
+      handleSaveSuccess: vi.fn(),
+    }),
+    AttributionLine: (): null => null,
+    ReportEntityDialog: ({ open }: { open: boolean }) =>
+      open ? <div data-testid="report-dialog">Report Dialog</div> : null,
+    useSuggestEdit: () => ({ mutate: mockSuggestEditMutate, isPending: false }),
+    staleFieldCurrentValue,
+  }
+})
 
 vi.mock('./DeleteVenueDialog', () => ({
   DeleteVenueDialog: ({ open }: { open: boolean }) =>
@@ -614,6 +643,17 @@ describe('VenueDetail', () => {
       expect(mockSuggestEditMutate).not.toHaveBeenCalled()
     })
 
+    // The page hands the editor a reader for the stale-value 409 it may get
+    // back. A wrong field name here reads as "no conflict", and the editor
+    // silently keeps a draft the server has already refused.
+    it('reads the description out of a stale-value conflict for the editor', () => {
+      render(<VenueDetail venueId="1" />)
+
+      expect(screen.getByTestId('entity-description-conflict-read')).toHaveTextContent(
+        'Reseeded from the server'
+      )
+    })
+
     it('routes trusted-tier (non-admin) saves through useSuggestEdit, not useVenueUpdate', async () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
@@ -632,7 +672,7 @@ describe('VenueDetail', () => {
           entityType: 'venue',
           entityId: 1,
           changes: [
-            { field: 'description', old_value: 'Old bio', new_value: 'New venue bio' },
+            { field: 'description', old_value: EDITOR_BASELINE, new_value: 'New venue bio' },
           ],
           summary: 'Updated description via inline editor',
         },
