@@ -312,7 +312,12 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 			// pins every one of them against this rule.
 			return nil, nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
 		}
-		if !sameFieldValue(out[i].OldValue, value) {
+		// The instant comparison is gated on the COLUMN, not on whether the two
+		// strings happen to parse: a free-text column holding an RFC3339-shaped
+		// value is text, and two spellings of one moment are two values there.
+		same := sameFieldValue(out[i].OldValue, value) ||
+			(isTimestampColumn(column.Type()) && sameInstant(out[i].OldValue, value))
+		if !same {
 			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
@@ -401,13 +406,9 @@ func modelColumns(db *gorm.DB, model interface{}) (map[string]reflect.Value, err
 // Numbers compare numerically across encodings because a claim arrives from
 // JSON as float64 while the derived value is an int.
 //
-// Timestamps compare as INSTANTS, not as text. EmitValue renders a time as
-// RFC3339, which carries the zone offset of whatever location the time happened
-// to be in, so the same moment renders "2026-09-20T20:15:54Z" from a UTC value
-// and "2026-09-20T13:15:54-07:00" from the connection's local one. A claim is
-// about the value the field holds, not about which offset rendered it, and a
-// text comparison would make every timestamp field permanently unrestorable the
-// day a read came back in a different location.
+// Text is compared as text. A TIMESTAMP column is the exception, and it is the
+// caller's to make rather than this function's, because the difference is
+// visible only from the column: see sameInstant.
 func sameFieldValue(claim, current interface{}) bool {
 	claimBlank, currentBlank := isBlankValue(claim), isBlankValue(current)
 	if claimBlank || currentBlank {
@@ -419,22 +420,39 @@ func sameFieldValue(claim, current interface{}) bool {
 	}
 	cs, claimIsString := claim.(string)
 	vs, currentIsString := current.(string)
+	return claimIsString && currentIsString && cs == vs
+}
+
+// timeType is the one column type whose emitted value is text describing
+// something other than itself.
+var timeType = reflect.TypeOf(time.Time{})
+
+// isTimestampColumn reports whether a column's emitted value is an RFC3339
+// rendering of an instant.
+func isTimestampColumn(t reflect.Type) bool {
+	return t == timeType || (t.Kind() == reflect.Ptr && t.Elem() == timeType)
+}
+
+// sameInstant reports whether two emitted TIMESTAMP values name the same moment.
+//
+// EmitValue renders a time as RFC3339, which carries the zone offset of whatever
+// location the value was in, so one moment has many spellings: a claim recorded
+// from a UTC value reads "2026-09-20T20:15:54Z" while the same column read back
+// on a connection in Phoenix reads "2026-09-20T13:15:54-07:00". A claim is about
+// the value the field holds, not about which offset rendered it.
+//
+// Only reached for a column that IS a timestamp. A free-text column whose
+// contents happen to parse as RFC3339 is text, and two spellings of one instant
+// are two different strings there.
+func sameInstant(claim, current interface{}) bool {
+	cs, claimIsString := claim.(string)
+	vs, currentIsString := current.(string)
 	if !claimIsString || !currentIsString {
 		return false
 	}
-	if cs == vs {
-		return true
-	}
-	ct, claimIsTime := timestampValue(cs)
-	vt, currentIsTime := timestampValue(vs)
-	return claimIsTime && currentIsTime && ct.Equal(vt)
-}
-
-// timestampValue parses the one timestamp encoding a FieldChange can carry:
-// EmitValue writes RFC3339 and nothing else writes a time at all.
-func timestampValue(s string) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, s)
-	return t, err == nil
+	ct, claimParses := time.Parse(time.RFC3339, cs)
+	vt, currentParses := time.Parse(time.RFC3339, vs)
+	return claimParses == nil && currentParses == nil && ct.Equal(vt)
 }
 
 func isBlankValue(v interface{}) bool {

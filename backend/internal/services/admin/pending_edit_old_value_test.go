@@ -122,13 +122,11 @@ func TestSameFieldValue(t *testing.T) {
 		{"number claim on unset number", float64(550), nil, false},
 		{"null claim on set number", nil, 550, false},
 		{"string claim on number column", "550", 550, false},
-		// A timestamp is compared as an INSTANT. EmitValue renders RFC3339
-		// carrying the offset of whatever location the value was in, so the same
-		// moment reaches the two sides as two strings whenever a claim recorded
-		// from a UTC value meets a column read back in the connection's zone.
-		{"same instant in two offsets", "2026-09-20T20:15:54Z", "2026-09-20T13:15:54-07:00", true},
-		{"different instants", "2026-09-20T20:15:54Z", "2026-09-20T20:15:55Z", false},
-		{"non-timestamp against a timestamp", "not a time", "2026-09-20T20:15:54Z", false},
+		// Two spellings of one instant are two different strings HERE. The
+		// instant comparison is sameInstant's, reached only for a column that is
+		// a timestamp, so a free-text column holding an RFC3339-shaped value
+		// keeps text semantics.
+		{"same instant in two offsets, as text", "2026-09-20T20:15:54Z", "2026-09-20T13:15:54-07:00", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

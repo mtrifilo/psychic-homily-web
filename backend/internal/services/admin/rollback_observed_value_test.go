@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -39,6 +40,59 @@ func TestRollbackObservationLocksTheRow(t *testing.T) {
 		t.Fatalf("observeRollbackValues: %v", err)
 	}
 	assertLocking(t, "rollback", queries, true)
+}
+
+// A TIMESTAMP column's emitted value is text describing something other than
+// itself: EmitValue renders RFC3339 carrying the offset of whatever location the
+// value was in, so a claim recorded from a UTC value and the same column read
+// back on a connection in another zone are two strings naming one moment.
+//
+// The gate is the COLUMN, which is why this is a separate comparison rather than
+// a branch inside sameFieldValue. Only shows and festivals carry one among the
+// fields either derivation answers over.
+func TestSameInstant(t *testing.T) {
+	utc := "2026-09-20T20:15:54Z"
+	offset := "2026-09-20T13:15:54-07:00"
+	if !sameInstant(utc, offset) {
+		t.Errorf("one instant in two offsets must compare equal: %q vs %q", utc, offset)
+	}
+	if sameInstant(utc, "2026-09-20T20:15:55Z") {
+		t.Error("a different instant must not compare equal")
+	}
+	if sameInstant("not a time", utc) {
+		t.Error("an unparseable value must not compare equal to a timestamp")
+	}
+	if sameInstant(nil, utc) {
+		t.Error("a non-string claim must not compare equal to a timestamp")
+	}
+}
+
+// isTimestampColumn is what decides whether sameInstant is consulted at all, so
+// it has to answer for both spellings a time column takes on these models
+// (shows.event_date is time.Time, shows.doors_at is *time.Time) and for nothing
+// else.
+func TestIsTimestampColumn(t *testing.T) {
+	var (
+		at    time.Time
+		maybe *time.Time
+		text  string
+		ptr   *string
+	)
+	for _, tc := range []struct {
+		name string
+		typ  reflect.Type
+		want bool
+	}{
+		{"time.Time", reflect.TypeOf(at), true},
+		{"*time.Time", reflect.TypeOf(maybe), true},
+		{"string", reflect.TypeOf(text), false},
+		{"*string", reflect.TypeOf(ptr), false},
+		{"int", reflect.TypeOf(0), false},
+	} {
+		if got := isTimestampColumn(tc.typ); got != tc.want {
+			t.Errorf("isTimestampColumn(%s) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }
 
 // =============================================================================
