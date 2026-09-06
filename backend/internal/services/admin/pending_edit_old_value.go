@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"sync"
 
 	"gorm.io/gorm"
@@ -46,9 +45,15 @@ import (
 // the second describes the entity as it was before the first was applied.
 // ApprovePendingEdit therefore re-reads the entity under a row lock and refuses
 // the whole edit when any recorded old_value no longer describes it
-// (verifyOldValuesAtApprove). The stored value is never re-stamped, so a
-// recorded previous value is always one that was observed, and Rollback restores
-// a state the entity actually held.
+// (verifyOldValuesAtApprove). The stored value is never re-stamped, so what an
+// approved row records is what the entity held at the moment it was applied.
+//
+// The exception is a WITHHELD field, where the recorded value is the withheld
+// view and not the column: an unverified venue's address records "" while the
+// column holds a street address. Rollback writes OldValue back verbatim
+// (RevisionService.Rollback), so restoring such a revision blanks the column
+// rather than restoring it. Nothing here narrows that; the gate only stops a
+// row from being applied over a value nobody observed.
 
 // entityModels pairs each pending-edit entity type with the GORM model whose
 // columns a pending edit may name.
@@ -144,6 +149,10 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 // Nothing is re-stamped on a mismatch and nothing is applied. The edit stays
 // pending for the moderator to reject: a re-stamped previous value is one no
 // reviewer ever saw, and Rollback would restore it.
+//
+// This is the transaction's FIRST statement, so the entity row is locked before
+// the pending_entity_edits row the status flip takes. Every approval acquires
+// them in that order.
 func verifyOldValuesAtApprove(tx *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) error {
 	locked := tx.Clauses(clause.Locking{Strength: "UPDATE"})
 	_, stale, err := resolveOldValues(locked, entityType, entityID, changes)
@@ -222,9 +231,6 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
-	}
-	if len(stale) > 1 {
-		sort.Slice(stale, func(i, j int) bool { return stale[i].Field < stale[j].Field })
 	}
 	return out, stale, nil
 }

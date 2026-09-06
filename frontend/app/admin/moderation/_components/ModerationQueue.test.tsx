@@ -1972,9 +1972,9 @@ describe('ModerationQueue', () => {
     })
   })
 
-  // The card is where a moderator learns why a row would not apply, so an
-  // approve refusal's own message has to reach it rather than a generic failure
-  // line.
+  // Characterization of the card's error slot, not a guard on the backend rule:
+  // the card renders `error.message`, so what this pins is that an approve
+  // refusal reaches the moderator as its own words rather than "Action failed".
   describe('stale-value refusal on approve', () => {
     it('prints the refusal message on the pending-edit card', () => {
       const conflict: Error & { status?: number } = new Error(

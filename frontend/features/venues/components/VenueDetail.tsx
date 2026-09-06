@@ -299,7 +299,7 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
             <EntityDescription
               description={venue.description}
               canEdit={!!canEditDirectly}
-              currentValueOnConflict={(err) => staleFieldCurrentValue(err, 'description')}
+              currentValueFromRejection={(err) => staleFieldCurrentValue(err, 'description')}
               onSave={async (description, previousDescription) => {
                 await new Promise<void>((resolve, reject) => {
                   if (user?.is_admin) {

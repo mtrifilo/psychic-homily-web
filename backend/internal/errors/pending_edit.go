@@ -2,6 +2,7 @@ package errors
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -55,13 +56,24 @@ const (
 // describes the entity, paired with the value the entity holds now as its
 // READER observes it.
 //
-// Current is the same derivation a successful submission stores and serves back
-// in the pending-edit response, so returning it discloses nothing a caller
-// could not already obtain by submitting a matching claim: a column the entity
-// withholds derives as its withheld view, not as the column.
+// DISCLOSURE RULE, and it is the reason Current may travel in an error body at
+// all. Current is not the column: it is the same derivation a successful
+// submission stores, which for a column the entity withholds from its readers is
+// the withheld view. Every other field a pending edit may name is on an entity
+// edit allowlist, and every allowlisted field outside that withheld set is
+// already served by an unauthenticated GET of the entity. So the value returned
+// here is one the caller can read anyway, and the withheld ones report the same
+// blank whatever the column holds.
+//
+// A field that becomes reader-gated without being declared withheld breaks that,
+// and breaks it by returning the value outright rather than by leaking a bit.
+// See the withheld-fields reporter in services/admin/pending_edit_old_value.go.
+//
+// No json tags: nothing marshals this type. The wire shape is built by
+// staleValueDetail in api/handlers/shared/error_mappers.go.
 type StaleFieldValue struct {
-	Field   string `json:"field"`
-	Current any    `json:"current_value"`
+	Field   string
+	Current any
 }
 
 // PendingEditError represents a pending-edit error with additional context.
@@ -201,14 +213,15 @@ func ErrPendingEditStaleValueAtApprove(stale []StaleFieldValue) *PendingEditErro
 	}
 }
 
-// staleFieldNames lists the field names of stale, in the order given. Both
-// constructors join them into a message, and both are handed an
-// already-sorted list so the message is stable across runs.
+// staleFieldNames lists the field names of stale, sorted. Both constructors join
+// them into a message, and sorting here rather than at the caller is what makes
+// that message the same string for the same set of fields.
 func staleFieldNames(stale []StaleFieldValue) []string {
 	names := make([]string, len(stale))
 	for i, f := range stale {
 		names[i] = f.Field
 	}
+	sort.Strings(names)
 	return names
 }
 

@@ -1255,7 +1255,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <EntityDescription
             description={artist.description}
             canEdit={!!canEditDirectly}
-            currentValueOnConflict={(err) => staleFieldCurrentValue(err, 'description')}
+            currentValueFromRejection={(err) => staleFieldCurrentValue(err, 'description')}
             onSave={async (description, previousDescription) => {
               await new Promise<void>((resolve, reject) => {
                 if (isAdmin) {

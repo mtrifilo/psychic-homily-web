@@ -99,6 +99,11 @@ const STALE_CONFLICT = stubStaleValueConflict({
   description: 'Reseeded from the server',
 })
 
+// What the open editor was composed against. Distinct from any value the venue
+// query holds, so an implementation that re-read the cache instead of taking the
+// editor's baseline fails the assertion below.
+const EDITOR_BASELINE = 'The text the editor was re-seeded with'
+
 // Mock child components
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
@@ -116,26 +121,28 @@ vi.mock('@/components/shared', () => ({
     description,
     canEdit,
     onSave,
-    currentValueOnConflict,
+    currentValueFromRejection,
   }: {
     description: string | null | undefined
     canEdit: boolean
     onSave?: (description: string, previousDescription: string) => Promise<void>
-    currentValueOnConflict?: (error: unknown) => string | undefined
+    currentValueFromRejection?: (error: unknown) => string | undefined
   }) => (
     <div data-testid="entity-description">
       {description || (canEdit ? 'Add description' : '')}
-      {/* The real editor sends its own baseline, so the mock does too. */}
+      {/* The baseline is deliberately NOT `description`: the page must forward
+          what the editor was composed against, which a re-seed moves away from
+          the prop. Passing the prop here would pass under either implementation. */}
       {canEdit && (
         <button
           data-testid="entity-description-save"
-          onClick={() => onSave?.('New venue bio', description ?? '')}
+          onClick={() => onSave?.('New venue bio', EDITOR_BASELINE)}
         >
           Save description
         </button>
       )}
       <span data-testid="entity-description-conflict-read">
-        {currentValueOnConflict?.(STALE_CONFLICT) ?? 'none'}
+        {currentValueFromRejection?.(STALE_CONFLICT) ?? 'none'}
       </span>
     </div>
   ),
@@ -665,7 +672,7 @@ describe('VenueDetail', () => {
           entityType: 'venue',
           entityId: 1,
           changes: [
-            { field: 'description', old_value: 'Old bio', new_value: 'New venue bio' },
+            { field: 'description', old_value: EDITOR_BASELINE, new_value: 'New venue bio' },
           ],
           summary: 'Updated description via inline editor',
         },

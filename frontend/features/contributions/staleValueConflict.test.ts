@@ -10,7 +10,7 @@ import type { ApiError } from '@/lib/api'
 function conflictWithValue(value: unknown): ApiError {
   const error: ApiError = new Error('This field has changed')
   error.status = 409
-  error.details = [{ message: 'This field has changed', location: 'body.changes', value }]
+  error.details = [{ message: 'This field has changed', value }]
   return error
 }
 

@@ -331,6 +331,133 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_Concurre
 	s.Contains([]string{"Mesa emo, formed 1993.", "Tempe emo, formed 1994."}, description)
 }
 
+// Two fields moving at once: the message names both, sorted, and the refusal
+// reports a current value for each. The plural copy and the ordering have no
+// other coverage.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ReportsEveryStaleField() {
+	submitter := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Two Fields")
+	s.Require().NoError(s.db.Model(artist).Updates(map[string]interface{}{
+		"description": "Original blurb.",
+		"website":     "https://old.example.org",
+	}).Error)
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     submitter.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "website", OldValue: "https://old.example.org", NewValue: "https://new.example.org"},
+			{Field: "description", OldValue: "Original blurb.", NewValue: "A better blurb."},
+		},
+		Summary: "site and blurb",
+	})
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(artist).Updates(map[string]interface{}{
+		"description": "Somebody else's blurb.",
+		"website":     "https://somewhere.else.example.org",
+	}).Error)
+
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
+	s.Require().Error(err)
+
+	var editErr *apperrors.PendingEditError
+	s.Require().ErrorAs(err, &editErr)
+	s.Contains(editErr.Message, "These fields changed", "two stale fields take the plural copy")
+	s.Contains(editErr.Message, "description, website", "the message lists them sorted")
+	s.Contains(editErr.Message, "different values")
+
+	current := map[string]interface{}{}
+	for _, f := range editErr.StaleFields {
+		current[f.Field] = f.Current
+	}
+	s.Equal(map[string]interface{}{
+		"description": "Somebody else's blurb.",
+		"website":     "https://somewhere.else.example.org",
+	}, current)
+}
+
+// A numeric column is the one place the recorded claim and the derived value
+// reach the comparison in different encodings: the stored old_value round-trips
+// through JSONB as a float64 while the column yields an int. An ordinary
+// capacity edit must approve, and a superseded one must refuse.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ComparesNumericOldValue() {
+	submitter := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Numeric Approve")
+	s.Require().NoError(s.db.Model(venue).Update("capacity", 550).Error)
+
+	queue := func(userID uint) uint {
+		resp, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+			EntityType: "venue",
+			EntityID:   venue.ID,
+			UserID:     userID,
+			Changes:    []adminm.FieldChange{{Field: "capacity", OldValue: float64(550), NewValue: float64(600)}},
+			Summary:    "bigger room",
+		})
+		s.Require().NoError(err)
+		return resp.ID
+	}
+	first := queue(submitter.ID)
+	second := queue(s.createTestUser().ID)
+
+	_, err := s.svc.ApprovePendingEdit(context.Background(), first, reviewer.ID)
+	s.Require().NoError(err, "a numeric claim that still matches must not read as stale")
+
+	var applied catalogm.Venue
+	s.Require().NoError(s.db.First(&applied, venue.ID).Error)
+	s.Require().NotNil(applied.Capacity)
+	s.Equal(600, *applied.Capacity)
+
+	_, err = s.svc.ApprovePendingEdit(context.Background(), second, reviewer.ID)
+	s.Require().Error(err)
+	var editErr *apperrors.PendingEditError
+	s.Require().ErrorAs(err, &editErr)
+	s.Equal(apperrors.CodePendingEditStaleValue, editErr.Code)
+}
+
+// Verifying a venue publishes its address, which moves the DERIVED value for a
+// queued address edit from the withheld blank to the column. The gate cannot
+// tell that from the column having moved, so the edit becomes unapprovable and
+// the moderator has to reject it.
+//
+// That is the conservative answer rather than the desirable one, and it is
+// pinned here so a change to it is deliberate: applying the edit would record a
+// previous value of "" against a column that held a street address, and Rollback
+// writes OldValue back verbatim.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VerifyingVenueStrandsQueuedAddressEdit() {
+	submitter := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Becomes Verified")
+	s.Require().NoError(s.db.Model(venue).Update("address", "123 Real St").Error)
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue",
+		EntityID:   venue.ID,
+		UserID:     submitter.ID,
+		Changes:    []adminm.FieldChange{{Field: "address", OldValue: nil, NewValue: "456 New St"}},
+		Summary:    "they moved",
+	})
+	s.Require().NoError(err)
+	s.Equal("", s.storedChanges(created.ID)["address"].OldValue)
+
+	s.Require().NoError(s.db.Model(venue).Update("verified", true).Error)
+
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
+	s.Require().Error(err)
+
+	var editErr *apperrors.PendingEditError
+	s.Require().ErrorAs(err, &editErr)
+	s.Equal(apperrors.CodePendingEditStaleValue, editErr.Code)
+
+	var after catalogm.Venue
+	s.Require().NoError(s.db.First(&after, venue.ID).Error)
+	s.Require().NotNil(after.Address)
+	s.Equal("123 Real St", *after.Address)
+}
+
 // A row that predates the derivation carries an unvetted previous value, and the
 // gate refuses it for the same reason it refuses a superseded one: nothing
 // distinguishes the two, and applying either records a previous value nobody

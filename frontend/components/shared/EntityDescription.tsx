@@ -33,7 +33,7 @@ interface EntityDescriptionProps {
    * leaves the draft alone and shows the rejection's own message. Omitted, the
    * editor never re-seeds.
    */
-  currentValueOnConflict?: (error: unknown) => string | undefined
+  currentValueFromRejection?: (error: unknown) => string | undefined
 }
 
 /**
@@ -66,7 +66,7 @@ export function EntityDescription({
   description,
   canEdit,
   onSave,
-  currentValueOnConflict,
+  currentValueFromRejection,
 }: EntityDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
@@ -111,7 +111,7 @@ export function EntityDescription({
       // A refusal that reports the current value re-seeds the editor with it,
       // so the next Save is composed against a value the server actually holds
       // rather than repeating a claim it has already rejected.
-      const current = currentValueOnConflict?.(err)
+      const current = currentValueFromRejection?.(err)
       if (current !== undefined) {
         setEditValue(current)
         setBaseline(current)

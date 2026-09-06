@@ -617,14 +617,17 @@ func MapPendingEditError(err error) error {
 //
 // apperrors.StaleFieldValue carries the rule that makes these values safe to
 // return.
+//
+// No Location: the two paths that raise this error do not share one. Approve is
+// a POST with no body, so any request-shaped location would be wrong there, and
+// the field names are inside current_values either way.
 func staleValueDetail(e *apperrors.PendingEditError) *huma.ErrorDetail {
 	current := make(map[string]any, len(e.StaleFields))
 	for _, f := range e.StaleFields {
 		current[f.Field] = f.Current
 	}
 	return &huma.ErrorDetail{
-		Message:  e.Message,
-		Location: "body.changes",
+		Message: e.Message,
 		Value: map[string]any{
 			"code":           e.Code,
 			"current_values": current,

@@ -79,6 +79,8 @@ vi.mock('./ArtistShowsList', () => ({
   ),
 }))
 
+const mockSuggestEditMutate = vi.fn()
+
 vi.mock('@/features/contributions', async () => {
   // The real reader, imported inside the factory because a hoisted mock cannot
   // close over a top-level import. The assertion below is that this page names
@@ -98,7 +100,7 @@ vi.mock('@/features/contributions', async () => {
     AttributionLine: (): null => null,
     ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
       open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
-    useSuggestEdit: () => ({ mutate: vi.fn(), isPending: false }),
+    useSuggestEdit: () => ({ mutate: mockSuggestEditMutate, isPending: false }),
     staleFieldCurrentValue,
   }
 })
@@ -193,6 +195,11 @@ const STALE_CONFLICT = stubStaleValueConflict({
   description: 'Reseeded from the server',
 })
 
+// What the open editor was composed against. Distinct from any value the artist
+// query holds, so an implementation that re-read the cache instead of taking the
+// editor's baseline fails the assertion below.
+const EDITOR_BASELINE = 'The text the editor was re-seeded with'
+
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links">Social Links</div>,
   MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
@@ -248,26 +255,28 @@ vi.mock('@/components/shared', () => ({
     description,
     canEdit,
     onSave,
-    currentValueOnConflict,
+    currentValueFromRejection,
   }: {
     description: string | null | undefined
     canEdit: boolean
     onSave?: (description: string, previousDescription: string) => Promise<void>
-    currentValueOnConflict?: (error: unknown) => string | undefined
+    currentValueFromRejection?: (error: unknown) => string | undefined
   }) => (
     <div data-testid="entity-description">
       {description || (canEdit ? 'Add description' : '')}
-      {/* The real editor sends its own baseline, so the mock does too. */}
+      {/* The baseline is deliberately NOT `description`: the page must forward
+          what the editor was composed against, which a re-seed moves away from
+          the prop. Passing the prop here would pass under either implementation. */}
       {canEdit && (
         <button
           data-testid="entity-description-save"
-          onClick={() => onSave?.('New artist bio', description ?? '')}
+          onClick={() => onSave?.('New artist bio', EDITOR_BASELINE)}
         >
           Save description
         </button>
       )}
       <span data-testid="entity-description-conflict-read">
-        {currentValueOnConflict?.(STALE_CONFLICT) ?? 'none'}
+        {currentValueFromRejection?.(STALE_CONFLICT) ?? 'none'}
       </span>
     </div>
   ),
@@ -588,6 +597,34 @@ describe('ArtistDetail', () => {
       })
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.getByTestId('bracket-Edit')).toBeInTheDocument()
+    })
+
+    // The inline editor's own baseline is what reaches old_value, not the value
+    // in the artist query: a conflict re-seeds the editor, and a claim taken
+    // from the cache would repeat a value the server has already refused.
+    it('sends the editor baseline as old_value on a trusted-tier save', async () => {
+      const user = userEvent.setup()
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { id: 7, is_admin: false, user_tier: 'trusted_contributor' },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      await user.click(screen.getByTestId('entity-description-save'))
+
+      expect(mockSuggestEditMutate).toHaveBeenCalledTimes(1)
+      expect(mockSuggestEditMutate).toHaveBeenCalledWith(
+        {
+          entityType: 'artist',
+          entityId: 42,
+          changes: [
+            { field: 'description', old_value: EDITOR_BASELINE, new_value: 'New artist bio' },
+          ],
+          summary: 'Updated description via inline editor',
+        },
+        expect.anything()
+      )
     })
 
     it('shows the [Add tag] bracket link for authenticated users (PSY-654)', () => {

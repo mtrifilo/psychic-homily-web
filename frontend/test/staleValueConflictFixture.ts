@@ -6,10 +6,10 @@ import type { ApiError } from '@/lib/api'
  * response's `errors` array, and each entry's `value` carries the code and the
  * entity's current value per named field.
  *
- * One builder for every suite that exercises the re-seed, so the wire shape is
- * spelled once. Two copies would both stay green after a rename on the server
- * while asserting a shape it no longer sends, which is the drift these suites
- * exist to catch.
+ * One builder for every suite that exercises the re-seed. The shape is
+ * transcribed from the Go mapper by hand, with no generator behind it, so this
+ * catches no server-side rename; what it buys is that a rename is one edit here
+ * rather than one per suite.
  */
 export function stubStaleValueConflict(
   currentValues: Record<string, unknown>,
@@ -20,7 +20,6 @@ export function stubStaleValueConflict(
   error.details = [
     {
       message,
-      location: 'body.changes',
       value: { code: STALE_VALUE_CODE, current_values: currentValues },
     },
   ]

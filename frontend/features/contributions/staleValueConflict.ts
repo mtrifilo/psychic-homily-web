@@ -10,8 +10,12 @@ import type { ApiError } from '@/lib/api'
 export const STALE_VALUE_CODE = 'PENDING_EDIT_STALE_VALUE'
 
 /**
- * The entity's current value for `field` on a stale-value 409, or undefined for
- * any other rejection.
+ * The entity's current value for `field` on a stale-value 409.
+ *
+ * Undefined for every other rejection, and also for a stale-value 409 whose
+ * value for `field` is not a string: a re-seed target has to be text, so a
+ * numeric column (capacity, founded_year, release_year) reports nothing here
+ * and its caller keeps whatever it was showing.
  *
  * A 409 is also how a duplicate queued edit is reported, and that one carries no
  * values, so the code has to be checked rather than the status alone.

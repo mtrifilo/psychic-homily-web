@@ -491,7 +491,7 @@ describe('EntityDescription', () => {
           description="Original blurb."
           canEdit={true}
           onSave={onSaveFail}
-          currentValueOnConflict={() => 'Mesa emo, formed 1993.'}
+          currentValueFromRejection={() => 'Mesa emo, formed 1993.'}
         />
       )
 
@@ -523,7 +523,7 @@ describe('EntityDescription', () => {
           description="Original blurb."
           canEdit={true}
           onSave={onSave}
-          currentValueOnConflict={() => 'Mesa emo, formed 1993.'}
+          currentValueFromRejection={() => 'Mesa emo, formed 1993.'}
         />
       )
 
@@ -561,7 +561,7 @@ describe('EntityDescription', () => {
           description="Original blurb."
           canEdit={true}
           onSave={onSaveFail}
-          currentValueOnConflict={() => undefined}
+          currentValueFromRejection={() => undefined}
         />
       )
 
@@ -585,7 +585,7 @@ describe('EntityDescription', () => {
           description="Original blurb."
           canEdit={true}
           onSave={onSaveFail}
-          currentValueOnConflict={() => ''}
+          currentValueFromRejection={() => ''}
         />
       )
 
