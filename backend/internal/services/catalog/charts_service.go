@@ -1912,9 +1912,9 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 // bug on every scene surface — normalizing it here would only hide it.
 //
 // geo.Default() is the geocoder every production caller of the collapse holds
-// (SceneService injects that same instance) and it is stateless, so this reaches
-// for it directly rather than carrying a field a struct-literal test could leave
-// nil.
+// (both SceneService and SitemapService inject that same instance) and it is
+// stateless, so this reaches for it directly rather than carrying a field a
+// struct-literal test could leave nil.
 func (s *ChartsService) activeSceneCount(bounds chartBounds, scene string) (int, error) {
 	query := `
 		SELECT ` + sceneGroupIdentitySQL + `

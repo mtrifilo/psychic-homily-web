@@ -110,18 +110,23 @@ const usCountry = "US"
 
 // sceneGroupKeySQL is the SQL identity of "one scene" for VENUES aliased v:
 // the CBSA metro when the venue rolls up to one, else a (city,state) fallback
-// key. Shared by the scenes list (ListScenes) and the charts summary's
-// active-scenes count — two surfaces disagreeing on what a scene IS would
-// show contradictory scene counts.
+// key. Shared by the scenes list (ListScenes), the charts summary's
+// active-scenes count and both of sitemap.go's scene projections. Surfaces
+// disagreeing on what a scene IS would publish contradictory scene sets.
 //
 // Two use modes, and only one of them may stop here. KEYING a batched lookup by
 // group (sceneTimezonesByKey, sceneCalendarWeekCounts; Go-side twin
 // sceneKeyForGroup) wants this key raw, because a group's own key is what those
 // maps are keyed by. ENUMERATING scenes must not: the key is FINER than the
 // published slug, so a drifted venues.metro or a second spelling of one city is
-// two rows for one scene. ListScenes and the charts active-scenes count settle
-// that through collapseSceneGroupsToCanonicalSlug; sitemap.go's sceneEntries
-// and sceneWeekEntries still dedupe by slug inline, with their own winner rules.
+// two rows for one scene. ListScenes, the charts active-scenes count and
+// sitemap.go's sceneWeekEntries settle that through
+// collapseSceneGroupsToCanonicalSlug. sitemap.go's sceneEntries is the ONE
+// enumerating caller that still dedupes inline, and it does not merely pick a
+// different winner: it MERGES the colliding groups' MAX(updated_at), so a
+// scene's lastmod can be stamped by a show at a room its page does not list.
+// The published slug SET is the same either way, so that is a lastmod
+// inaccuracy rather than a wrong URL.
 //
 // NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
@@ -186,16 +191,23 @@ type sceneVenueGroup struct {
 // /shows renders that list keyed by slug and React reconciles the pair
 // undefined (PSY-1831).
 //
-// TWO production callers now, and the second reads only len(): ListScenes
-// publishes the returned rows, while the charts masthead's activeSceneCount
-// counts them (PSY-1949). Any future change to the CARDINALITY of the return —
-// an early return, a skip for groups carrying no counts (which is every group
-// on the charts path, since that caller selects none) — moves a user-visible
-// stat, not just a list. `surface` names the caller in the log below.
+// THREE production callers, reading three different things from the return.
+// ListScenes publishes the returned rows; the charts masthead's
+// activeSceneCount reads only len() (PSY-1949); the sitemap's
+// sceneWeekEntriesFor takes each survivor's DISPLAY identity, re-resolves a
+// scope from it, and turns that scope's rooms into week permalinks (the
+// survivor's own Metro is not carried through). Any future change to the
+// CARDINALITY of the return (an early return, a skip for groups carrying no
+// counts, which is every group on the charts path since that caller selects
+// none) moves a user-visible stat and a set of indexed URLs, not just a list.
+// `surface` names the caller in the log below.
 //
 // The survivor is the group ParseSceneSlug resolves the slug to, so the row's
-// counts are the counts its destination page will print. sceneGroupOutranks
-// holds that correspondence and carries a branch per collision shape.
+// counts are the counts its destination page will print and its scope is the
+// scope that page is built from. sceneGroupOutranks holds that correspondence
+// and carries a branch per collision shape. That function is a TOTAL order over
+// the groups, so the survivor does not depend on the order the caller's
+// ungrouped scan returned the rows in.
 //
 // The losers are DROPPED, not summed into the survivor. venuePredicate selects
 // a scene's rooms by the survivor's key alone — `venues.metro = <CBSA>` for a
@@ -261,14 +273,16 @@ func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder
 	// also feeds the Atlas globe and the home scene graph, so this repeats until
 	// the data is fixed; that is deliberate, because a once-per-process log goes
 	// quiet after a deploy while the fault is still live. The charts caller adds
-	// a slower stream on top (one line per masthead cache miss, ~1/min per key).
+	// a slower stream on top (one line per masthead cache miss, ~1/min per key),
+	// and the sitemap a third (one line per scene_weeks fetch).
 	//
-	// `surface` is not decoration: the two callers see DIFFERENT collision sets.
-	// The directory's is all-time and gated on sceneMinVenues/sceneMinShows, the
-	// masthead's is window-bounded with no floor at all — so it can report a
-	// collision between groups too small to appear on /scenes, and an operator
-	// who checks the directory for it would find one clean row and write the
-	// warning off as noise.
+	// `surface` is not decoration, because the callers do NOT see one collision
+	// set. The directory's is all-time and gated on sceneMinVenues and
+	// sceneMinShows; the sitemap's is the same population, gated the same way;
+	// the masthead's is window-bounded with no floor at all, so it alone can
+	// report a collision between groups too small to appear on /scenes, and an
+	// operator who checks the directory for one of those would find a clean row
+	// and write the warning off as noise.
 	slog.Default().Warn(
 		"scene slug collision collapsed; two venue groups publish one scene identity — check venues.metro drift and city spelling variants",
 		"surface", surface,
@@ -319,6 +333,14 @@ func sceneGroupSlug(grp sceneVenueGroup) string {
 // The count and key comparisons below only make the order TOTAL for a shape
 // neither branch separates, so a collapse stays stable across calls rather than
 // reintroducing the reshuffling this function exists to remove.
+//
+// VenueCount and ShowCount are the ONLY count fields this may read.
+// sceneVenueGroup carries UpcomingCount and ThisWeekCount as well, and the two
+// enumerating callers outside ListScenes (sitemap.go's listQualifyingScenes and
+// the charts activeSceneCount) do not project them, so those arrive zero. A
+// tiebreak added on either would compile, leave ListScenes correct, and pick a
+// different survivor everywhere else, which on the sitemap path is a different
+// set of indexed URLs.
 func sceneGroupOutranks(a, b sceneVenueGroup, g geo.Geocoder) bool {
 	if am, bm := sceneGroupMatchesItsSlugScope(a, g), sceneGroupMatchesItsSlugScope(b, g); am != bm {
 		return am
