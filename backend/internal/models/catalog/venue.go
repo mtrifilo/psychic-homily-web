@@ -225,3 +225,14 @@ func (v *Venue) WithheldEditFields() []string {
 	}
 	return withheld
 }
+
+// GatedEditFieldNames names every column the gate can reach, whatever any
+// particular venue holds. It is the per-TYPE half of the pair whose per-ROW half
+// is WithheldEditFields, and the superset of it.
+//
+// The two answer different questions and the difference is a row's contents.
+// WithheldEditFields reports a field only while its column is set, because a
+// NULL column publishes nothing to withhold. So it cannot answer "could this
+// field ever have been withheld", which is what a reader of an already-recorded
+// value has to ask.
+func (v *Venue) GatedEditFieldNames() []string { return VenuePrivateFields() }

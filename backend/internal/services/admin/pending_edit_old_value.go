@@ -64,8 +64,8 @@ import (
 //
 // The RECORD: every change this derivation returns carries
 // FieldChange.OldValueWithheld, so the row itself says whether its blank is the
-// column's value or the mask over it. Nothing else can say: a withheld blank and
-// a genuinely empty column are the same three characters in the same slot.
+// column's value or the mask over it. See that field for why nothing else can
+// say.
 //
 // The WRITE: Rollback refuses to put a withheld blank into a column. See
 // restoreWithheldBlanks. It restores the value an earlier revision recorded
@@ -123,8 +123,16 @@ var modelSchemaCache sync.Map
 // where the gate that does the withholding lives and the two would otherwise
 // drift apart silently: a field withheld by a new accessor but absent from a list
 // over here would be published by this path the day the accessor was added.
+// The second method answers the same gate's other question, and it is here
+// rather than in a list because the answers must come from one place. A reader
+// of an ALREADY-RECORDED value cannot ask "does this venue withhold its address
+// today": the row it is reading may predate the column's current contents. It
+// asks whether the gate reaches the field at all, which is a fact about the type
+// and about which a zero-valued model can be asked. See
+// catalog.Venue.GatedEditFieldNames.
 type withheldEditFieldsReporter interface {
 	WithheldEditFields() []string
+	GatedEditFieldNames() []string
 }
 
 // The venue address gate is the one that exists, and it is asserted rather than
@@ -136,22 +144,26 @@ type withheldEditFieldsReporter interface {
 var _ withheldEditFieldsReporter = (*catalogm.Venue)(nil)
 
 // gatedFieldNames names, per entity type, every field a withholding gate can
-// reach, whether or not it withholds one on any particular row.
+// reach, whether or not it withholds one on any particular row. Rollback reads
+// it to decide whether a recorded blank carrying no stamp could have been a
+// withholding.
 //
-// withheldEditFieldsReporter answers for ONE entity ("does this venue withhold
-// its address today"), which is the question the derivation asks. This answers
-// the one a rollback asks of a row written before the stamp existed: could this
-// blank have been a withholding at all? A zero-valued model cannot answer it,
-// because the gate reports a field only when the column is set, so the names
-// have to be listed rather than discovered.
-//
-// The names come from catalog.VenuePrivateFields, the same source the accessors
-// and revisiondiff read, so a third gated column is one entry there.
-// TestGatedFieldNamesCoverEveryReporter is the tripwire for a model that gains a
-// gate without gaining an entry here.
-var gatedFieldNames = map[string]map[string]bool{
-	adminm.PendingEditEntityVenue: namesAsSet(catalogm.VenuePrivateFields()),
-}
+// DERIVED, not listed: every entity type this package can read is asked whether
+// it has a gate, so a model that gains one is covered by the same change that
+// gives it the accessor, and a list here cannot fall behind the gate it
+// describes. That is the same argument withheldEditFieldsReporter makes, applied
+// to the other question the gate answers.
+var gatedFieldNames = func() map[string]map[string]bool {
+	out := make(map[string]map[string]bool, len(entityModelsByType))
+	for entityType, newModel := range entityModelsByType {
+		reporter, gated := newModel().(withheldEditFieldsReporter)
+		if !gated {
+			continue
+		}
+		out[entityType] = namesAsSet(reporter.GatedEditFieldNames())
+	}
+	return out
+}()
 
 func namesAsSet(names []string) map[string]bool {
 	set := make(map[string]bool, len(names))
@@ -401,9 +413,7 @@ func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (column
 
 	withheld = map[string]bool{}
 	if reporter, ok := model.(withheldEditFieldsReporter); ok {
-		for _, f := range reporter.WithheldEditFields() {
-			withheld[f] = true
-		}
+		withheld = namesAsSet(reporter.WithheldEditFields())
 	}
 	return columns, withheld, nil
 }

@@ -453,24 +453,13 @@ func TestWithheldFieldsAreEditable(t *testing.T) {
 		}
 		// A zero-value model withholds nothing, so ask the model's own list of
 		// gated names rather than a verdict about one instance.
-		for _, name := range namesWithheldBy(t, entityType) {
+		for _, name := range reporter.GatedEditFieldNames() {
 			if !allowed[name] {
 				t.Errorf("%s: withheld field %q is not editable, so nothing is withheld by naming it",
 					entityType, name)
 			}
 		}
-		_ = reporter
 	}
-}
-
-// namesWithheldBy returns every field name the entity type's gate can withhold.
-// Venue is the only entity with a gate; a new one belongs here beside it.
-func namesWithheldBy(t *testing.T, entityType string) []string {
-	t.Helper()
-	if entityType == adminm.PendingEditEntityVenue {
-		return catalogm.VenuePrivateFields()
-	}
-	return nil
 }
 
 // release_date is the one allowlisted field whose stored type and its wire form

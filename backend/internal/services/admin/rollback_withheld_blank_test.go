@@ -14,39 +14,39 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-// A model that gains a withholding gate needs an entry in gatedFieldNames, or a
-// row written before the stamp existed goes on being read as an honest blank and
-// the rollback goes on emptying the column.
-//
-// The reporter is the gate; this map is the list of names the gate can reach.
-// Discovering the names from a zero-valued model is impossible on purpose:
-// WithheldEditFields reports a field only while its column is set.
+// Every entity type with a gate has to reach gatedFieldNames, or a recorded
+// blank carrying no stamp goes on being read as an honest one and the rollback
+// goes on emptying the column.
 func TestGatedFieldNamesCoverEveryReporter(t *testing.T) {
 	for entityType, newModel := range entityModelsByType {
 		if _, gated := newModel().(withheldEditFieldsReporter); !gated {
 			continue
 		}
-		names := gatedFieldNames[entityType]
-		if len(names) == 0 {
-			t.Errorf("%s withholds columns but names none in gatedFieldNames", entityType)
+		if len(gatedFieldNames[entityType]) == 0 {
+			t.Errorf("%s has a withholding gate but names no gated field", entityType)
 		}
 	}
 }
 
-// The names have to be ones a venue revision can carry, or the rule matches
-// nothing and looks exactly like a rule that works.
-func TestGatedFieldNamesAreEditableFields(t *testing.T) {
-	for entityType, names := range gatedFieldNames {
-		allowed, ok := adminm.AllowedEditFields(entityType)
-		if !ok {
-			t.Errorf("gatedFieldNames names %q, which is not a pending-edit entity type", entityType)
-			continue
-		}
-		for name := range names {
-			if !allowed[name] {
-				t.Errorf("%s: gated field %q is not editable, so no recorded change can name it",
-					entityType, name)
-			}
+// The per-TYPE list has to cover everything the per-ROW gate can actually
+// withhold. A name the gate withholds but the list omits is a blank the rollback
+// trusts, which is the defect this whole rule exists to stop.
+//
+// Venue is the one gated model, so its two columns are populated here to make
+// the gate report them; a second gated model belongs beside it.
+func TestGatedFieldNamesCoverEverythingTheGateWithholds(t *testing.T) {
+	unverified := &catalogm.Venue{
+		Address: stringPtr("1 Old St"),
+		Zipcode: stringPtr("85003"),
+	}
+	withheld := unverified.WithheldEditFields()
+	if len(withheld) == 0 {
+		t.Fatal("fixture withholds nothing, so this test asserts nothing")
+	}
+	gated := gatedFieldNames[adminm.PendingEditEntityVenue]
+	for _, name := range withheld {
+		if !gated[name] {
+			t.Errorf("venue withholds %q but the gated-name list omits it", name)
 		}
 	}
 }

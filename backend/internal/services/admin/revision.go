@@ -293,8 +293,8 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 // The recorded rollback revision's old_value is that OBSERVED value, not the
 // revision's recorded new_value. The two agree for every field that passes the
 // check, and where a stored claim and the column disagree the column is the one
-// that was true. Its new_value is the value this call WROTE, which for a
-// recovered field is not the value the revision recorded.
+// that was true. Its new_value is the value this call decided to restore, which
+// for a field recovered from history is not the value the revision recorded.
 //
 // A rollback that can restore NOTHING is an error, so a caller never reports a
 // rollback that did nothing.
@@ -317,53 +317,33 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 		return nil, fmt.Errorf("revision not found")
 	}
 
-	// Parse field changes
-	var changes []adminm.FieldChange
-	if err := json.Unmarshal(*revision.FieldChanges, &changes); err != nil {
-		return nil, fmt.Errorf("failed to parse field changes: %w", err)
-	}
-
-	// One entry per field, the last occurrence winning, which is what an update
-	// map built from the slice would hold anyway. Collapsing here rather than
-	// letting the map do it keeps the value WRITTEN and the change RECORDED as
-	// the same entry: a row carrying a field twice would otherwise be gated and
-	// recorded from one occurrence while the column took the other.
-	fieldOrder := make([]string, 0, len(changes))
-	byField := make(map[string]adminm.FieldChange, len(changes))
-	for _, c := range changes {
-		if _, seen := byField[c.Field]; !seen {
-			fieldOrder = append(fieldOrder, c.Field)
-		}
-		byField[c.Field] = c
+	fieldOrder, byField, err := collapseFieldChanges(revision.FieldChanges)
+	if err != nil {
+		return nil, err
 	}
 	if len(fieldOrder) == 0 {
 		return nil, fmt.Errorf("revision %d records no field changes", revisionID)
 	}
 
-	// Build update map from old values (reversing the change)
-	updates := make(map[string]interface{}, len(fieldOrder))
-	// restored keeps the same values in the shape a FieldChange stores, because
-	// the gates below narrow what updates holds (a JSONB float64 becomes the
-	// typed pointer the column needs) and two fields below take the value that
-	// was WRITTEN rather than the value that was recorded. Where they differ,
-	// this is the one the recorded rollback revision reports.
-	restored := make(map[string]interface{}, len(fieldOrder))
-	for _, field := range fieldOrder {
-		updates[field] = byField[field].OldValue
-		restored[field] = byField[field].OldValue
-	}
-
 	refusals := make(map[string]string, len(fieldOrder))
 
-	// Substituted BEFORE the gates, so a value recovered from history is judged
-	// by every rule a recorded value is judged by. Outside the transaction with
-	// the gates, because it reads the revisions table and not the entity row the
-	// transaction locks.
-	if err := restoreWithheldBlanks(s.db, revision, fieldOrder, byField, updates, restored, refusals); err != nil {
+	// Rewrites byField itself, and runs BEFORE the update map is built, so the
+	// entry a field is GATED from and RECORDED from is the entry it is WRITTEN
+	// from: a value recovered from history is judged by every rule a recorded
+	// value is judged by, and the rollback revision reports what this call
+	// decided to restore. Outside the transaction, because it reads the
+	// revisions table and not the entity row the transaction locks.
+	if err := restoreWithheldBlanks(s.db, revision, fieldOrder, byField, refusals); err != nil {
 		return nil, err
 	}
-	if len(refusals) == len(fieldOrder) {
-		return nil, errNothingRestorable(fieldOrder, refusals)
+
+	// Build update map from old values (reversing the change)
+	updates := make(map[string]interface{}, len(fieldOrder))
+	for _, field := range fieldOrder {
+		if _, refused := refusals[field]; refused {
+			continue
+		}
+		updates[field] = byField[field].OldValue
 	}
 
 	// Judge each field on its own, then drop the refused ones from the write.
@@ -442,7 +422,7 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 			rollbackChanges = append(rollbackChanges, adminm.FieldChange{
 				Field:    field,
 				OldValue: current[field],
-				NewValue: restored[field],
+				NewValue: byField[field].OldValue,
 				// The observation reads a withheld column as the column, so
 				// this old_value is always the entity's own. revisiondiff
 				// masks it for every non-admin reader.
@@ -532,9 +512,10 @@ const withheldBlankReason = "the previous value recorded here is a blank shown i
 // The stamp is what makes the blank legible. FieldChange.OldValueWithheld is
 // three-state, and each state gets a different answer here:
 //
-//   - stamped withheld: the column was NOT empty when the value was recorded,
-//     because the gate reports a field only while the column is set. So the
-//     blank is known wrong, and the field is restored from history or skipped.
+//   - stamped withheld: the column was NOT empty when the value was recorded.
+//     A gate withholds a field only while its column is set, so a stamp is also
+//     a claim that there was something to withhold. The blank is known wrong,
+//     and the field is restored from history or skipped.
 //   - stamped observed: the blank IS the column's value. It is written, which
 //     is what makes "a contributor fills in an empty address, an admin undoes
 //     it" still work.
@@ -553,12 +534,14 @@ const withheldBlankReason = "the previous value recorded here is a blank shown i
 // skipped. The one case that refuses more than it must is a gated column holding
 // the empty string rather than NULL: the gate calls that withheld, and undoing
 // back to it is refused.
+// It rewrites the entry in byField rather than a map beside it, so the recorded
+// change and the value about to be written stay one thing. Refusals go into
+// refusals, which is the list the caller builds the write from.
 func restoreWithheldBlanks(
 	db *gorm.DB,
 	revision *adminm.Revision,
 	fieldOrder []string,
 	byField map[string]adminm.FieldChange,
-	updates, restored map[string]interface{},
 	refusals map[string]string,
 ) error {
 	gated := gatedFieldNames[revision.EntityType]
@@ -576,8 +559,10 @@ func restoreWithheldBlanks(
 			return err
 		}
 		if found && !isBlankValue(prior) {
-			updates[field] = prior
-			restored[field] = prior
+			// Stamped observed along with the value: what replaces the blank is
+			// a value some revision recorded writing to the column.
+			change.OldValue = prior
+			byField[field] = change.WithOldValueWithheld(false)
 			continue
 		}
 		if change.OldValueUnstamped() {
@@ -586,10 +571,33 @@ func restoreWithheldBlanks(
 			// keeps the undo of a genuinely empty field working.
 			continue
 		}
-		delete(updates, field)
 		refusals[field] = withheldBlankReason
 	}
 	return nil
+}
+
+// collapseFieldChanges parses a stored revision diff into the fields it names,
+// in the order it names them, and one change per field.
+//
+// The LAST occurrence of a field wins, which is what an update map built from
+// the slice would hold anyway. Collapsing rather than letting the map do it
+// keeps the value WRITTEN and the change RECORDED as the same entry: a row
+// carrying a field twice would otherwise be gated and recorded from one
+// occurrence while the column took the other.
+func collapseFieldChanges(raw *json.RawMessage) ([]string, map[string]adminm.FieldChange, error) {
+	var changes []adminm.FieldChange
+	if err := json.Unmarshal(*raw, &changes); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse field changes: %w", err)
+	}
+	fieldOrder := make([]string, 0, len(changes))
+	byField := make(map[string]adminm.FieldChange, len(changes))
+	for _, c := range changes {
+		if _, seen := byField[c.Field]; !seen {
+			fieldOrder = append(fieldOrder, c.Field)
+		}
+		byField[c.Field] = c
+	}
+	return fieldOrder, byField, nil
 }
 
 // priorRecordedValue returns the value the most recent EARLIER revision on this
@@ -598,13 +606,14 @@ func restoreWithheldBlanks(
 // Ordered by id, which for an append-only table is the order the revisions were
 // recorded; created_at ties within a transaction.
 //
-// The containment operator asks postgres which stored rows name the field, so a
-// history of any length costs one indexed-by-entity scan and one row read rather
-// than unmarshalling every revision the entity ever had. The argument is a
-// parameter, not interpolated.
+// WHAT IT COSTS. idx_revisions_entity serves the entity equality; nothing
+// indexes field_changes, so the containment operator is a row filter and the id
+// ordering is a sort over what survives it. The LIMIT does not short-circuit.
+// One statement per suspect field, and a field is suspect only when its recorded
+// value is blank AND a gate reaches it, which today is two venue columns on an
+// admin-only endpoint. It is bounded by one entity's own history.
 //
-// The LAST occurrence of the field in the matched row wins, matching how
-// Rollback collapses a row that names one field twice.
+// The probe argument is a parameter, not interpolated.
 func priorRecordedValue(db *gorm.DB, revision *adminm.Revision, field string) (interface{}, bool, error) {
 	contains, err := json.Marshal([]map[string]string{{"field": field}})
 	if err != nil {
@@ -626,18 +635,15 @@ func priorRecordedValue(db *gorm.DB, revision *adminm.Revision, field string) (i
 		return nil, false, nil
 	}
 
-	var changes []adminm.FieldChange
-	if err := json.Unmarshal(*rows[0].FieldChanges, &changes); err != nil {
+	_, byField, err := collapseFieldChanges(rows[0].FieldChanges)
+	if err != nil {
 		return nil, false, fmt.Errorf("failed to parse the history of %s: %w", field, err)
 	}
-	var value interface{}
-	found := false
-	for _, c := range changes {
-		if c.Field == field {
-			value, found = c.NewValue, true
-		}
+	prior, found := byField[field]
+	if !found {
+		return nil, false, nil
 	}
-	return value, found, nil
+	return prior.NewValue, true, nil
 }
 
 // observeRollbackValues reads the entity under a row lock and reports the value
