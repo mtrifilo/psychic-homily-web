@@ -44,17 +44,36 @@ const (
 	CodePendingEditInvalidRequest = "PENDING_EDIT_INVALID_REQUEST"
 	// CodePendingEditInternal indicates a database or infrastructure failure.
 	CodePendingEditInternal = "PENDING_EDIT_INTERNAL"
-	// CodePendingEditStaleValue indicates the submitter's claim about a
-	// field's current value disagrees with the entity, so the edit was
-	// composed against a value the entity no longer holds.
+	// CodePendingEditStaleValue indicates a recorded previous value disagrees
+	// with the entity, so the edit was composed against a value the entity no
+	// longer holds. Raised on both apply-relevant paths: the submitter's claim
+	// at submit time, and the stored old_value at approve time.
 	CodePendingEditStaleValue = "PENDING_EDIT_STALE_VALUE"
 )
 
+// StaleFieldValue names a field whose recorded previous value no longer
+// describes the entity, paired with the value the entity holds now as its
+// READER observes it.
+//
+// Current is the same derivation a successful submission stores and serves back
+// in the pending-edit response, so returning it discloses nothing a caller
+// could not already obtain by submitting a matching claim: a column the entity
+// withholds derives as its withheld view, not as the column.
+type StaleFieldValue struct {
+	Field   string `json:"field"`
+	Current any    `json:"current_value"`
+}
+
 // PendingEditError represents a pending-edit error with additional context.
+//
+// StaleFields is populated only on CodePendingEditStaleValue and carries the
+// entity's current value for each field the refusal names, so a client can
+// re-seed the form it composed the edit in rather than parse the message.
 type PendingEditError struct {
-	Code     string
-	Message  string
-	Internal error
+	Code        string
+	Message     string
+	Internal    error
+	StaleFields []StaleFieldValue
 }
 
 // Error implements the error interface.
@@ -139,26 +158,61 @@ func ErrPendingEditInvalidRequest(message string) *PendingEditError {
 	}
 }
 
-// ErrPendingEditStaleValue creates a stale-value conflict error naming the
-// fields whose claimed previous value disagrees with the entity.
+// ErrPendingEditStaleValue creates a stale-value conflict error for the SUBMIT
+// path, naming the fields whose claimed previous value disagrees with the
+// entity.
 //
-// The message is user-facing and says only that the field moved, never what it
-// moved to. Field NAMES are safe here because a submission can only name a field
-// its entity's edit allowlist exposes; a VALUE would not be, since the same
-// submission may name a field whose stored value the entity withholds from this
-// reader. deriveOldValues holds the other half of that rule, deriving the
-// withheld view rather than the column for exactly those fields.
-func ErrPendingEditStaleValue(fields []string) *PendingEditError {
+// The message says only that the field moved, never what it moved to. Field
+// NAMES are safe there because a submission can only name a field its entity's
+// edit allowlist exposes. The value travels in StaleFields instead, where it is
+// the derived reader's view rather than the column: deriveOldValues holds that
+// half of the rule, deriving the withheld view for exactly the fields the entity
+// withholds, so the pair carries no bit about a column its reader may not see.
+func ErrPendingEditStaleValue(stale []StaleFieldValue) *PendingEditError {
 	subject := "This field has"
-	if len(fields) > 1 {
+	if len(stale) > 1 {
 		subject = "These fields have"
 	}
 	return &PendingEditError{
 		Code: CodePendingEditStaleValue,
 		Message: fmt.Sprintf(
 			"%s changed since you loaded the form: %s. Reload to see the current values, then submit your edit again.",
-			subject, strings.Join(fields, ", ")),
+			subject, strings.Join(staleFieldNames(stale), ", ")),
+		StaleFields: stale,
 	}
+}
+
+// ErrPendingEditStaleValueAtApprove creates a stale-value conflict error for the
+// APPROVE path, naming the fields whose STORED previous value no longer
+// describes the entity.
+//
+// Same code, so the same 409, and the same disclosure rule as the submit
+// constructor above. The copy differs because the reader differs: the moderator
+// cannot make this edit applicable, since the stored previous value is never
+// re-stamped, so it points at the only two moves that resolve the row.
+func ErrPendingEditStaleValueAtApprove(stale []StaleFieldValue) *PendingEditError {
+	subject, values := "This field", "a different value"
+	if len(stale) > 1 {
+		subject, values = "These fields", "different values"
+	}
+	return &PendingEditError{
+		Code: CodePendingEditStaleValue,
+		Message: fmt.Sprintf(
+			"%s changed since this edit was submitted: %s. The edit cannot be applied over %s. Reject it and ask the contributor to resubmit.",
+			subject, strings.Join(staleFieldNames(stale), ", "), values),
+		StaleFields: stale,
+	}
+}
+
+// staleFieldNames lists the field names of stale, in the order given. Both
+// constructors join them into a message, and both are handed an
+// already-sorted list so the message is stable across runs.
+func staleFieldNames(stale []StaleFieldValue) []string {
+	names := make([]string, len(stale))
+	for i, f := range stale {
+		names[i] = f.Field
+	}
+	return names
 }
 
 // ErrPendingEditInternal wraps a database or infrastructure failure.

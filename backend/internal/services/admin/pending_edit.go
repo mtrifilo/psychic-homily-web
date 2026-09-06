@@ -957,6 +957,19 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 	// The closure returns typed errors directly: a vanished entity is a 422
 	// (the edit can no longer be applied), everything else is a 500.
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// The recorded old_value has to still describe the entity, checked here
+		// rather than before the transaction because the check is only worth as
+		// much as the lock it holds: it takes the entity row FOR UPDATE, and the
+		// Updates below writes that row under the same lock.
+		//
+		// Refusal is whole-edit and applies nothing. Every field of a
+		// contributor's submission was composed against one reading of the
+		// entity, so applying the fields that still match would record a
+		// revision the submitter never proposed.
+		if err := verifyOldValuesAtApprove(tx, edit.EntityType, edit.EntityID, changes); err != nil {
+			return err
+		}
+
 		tableName := edit.EntityType + "s"
 		result := tx.Table(tableName).Where("id = ?", edit.EntityID).Updates(updates)
 		if result.Error != nil {

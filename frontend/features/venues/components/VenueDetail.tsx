@@ -20,7 +20,7 @@ import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork, VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, staleFieldCurrentValue, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
 import { socialLinkHref } from '@/lib/socialLinks'
@@ -299,7 +299,8 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
             <EntityDescription
               description={venue.description}
               canEdit={!!canEditDirectly}
-              onSave={async (description) => {
+              currentValueOnConflict={(err) => staleFieldCurrentValue(err, 'description')}
+              onSave={async (description, previousDescription) => {
                 await new Promise<void>((resolve, reject) => {
                   if (user?.is_admin) {
                     venueUpdate.mutate(
@@ -329,7 +330,11 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                       changes: [
                         {
                           field: 'description',
-                          old_value: venue.description ?? '',
+                          // The editor's own baseline, not the cached entity: a
+                          // conflict re-seeds the box, and the claim has to
+                          // describe what the user is looking at rather than
+                          // whatever the detail query holds at this moment.
+                          old_value: previousDescription,
                           new_value: description,
                         },
                       ],

@@ -7,10 +7,33 @@ import { Textarea } from '@/components/ui/textarea'
 
 const MAX_DESCRIPTION_LENGTH = 5000
 
+/**
+ * Shown in the error slot after a save was refused because the description moved
+ * under the editor. It reports the replacement rather than reassuring: the draft
+ * the user typed is gone, and the only way forward is to make the change again
+ * on top of the text now in the box.
+ */
+const RESEEDED_NOTE =
+  'This description changed while you were editing. Your draft was replaced with the current text, so make your change again and save.'
+
 interface EntityDescriptionProps {
   description: string | null | undefined
   canEdit: boolean
-  onSave: (description: string) => Promise<void>
+  /**
+   * previousDescription is the value THIS editor was composed against: what it
+   * was seeded with, or what a conflict re-seeded it with. Callers that submit
+   * an edit through the contribution pipeline send it as `old_value`, so the
+   * claim describes the box the user was looking at rather than whatever the
+   * surrounding query happens to hold when Save is pressed.
+   */
+  onSave: (description: string, previousDescription: string) => Promise<void>
+  /**
+   * Reads a rejected save for the value the field holds NOW. A string replaces
+   * the draft with it and reports the replacement in the error slot; undefined
+   * leaves the draft alone and shows the rejection's own message. Omitted, the
+   * editor never re-seeds.
+   */
+  currentValueOnConflict?: (error: unknown) => string | undefined
 }
 
 /**
@@ -43,9 +66,14 @@ export function EntityDescription({
   description,
   canEdit,
   onSave,
+  currentValueOnConflict,
 }: EntityDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
+  // The value the open editor is composed against. Seeded from the prop when
+  // editing starts and replaced on a conflict, so it stays the text the user is
+  // looking at rather than tracking the prop, which a background refetch moves.
+  const [baseline, setBaseline] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,6 +81,7 @@ export function EntityDescription({
 
   const handleStartEdit = () => {
     setEditValue(description || '')
+    setBaseline(description || '')
     setError(null)
     setIsEditing(true)
   }
@@ -60,6 +89,7 @@ export function EntityDescription({
   const handleCancel = () => {
     setIsEditing(false)
     setEditValue('')
+    setBaseline('')
     setError(null)
   }
 
@@ -73,13 +103,24 @@ export function EntityDescription({
     setError(null)
 
     try {
-      await onSave(editValue.trim())
+      await onSave(editValue.trim(), baseline)
       setIsEditing(false)
       setEditValue('')
+      setBaseline('')
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to save description'
-      )
+      // A refusal that reports the current value re-seeds the editor with it,
+      // so the next Save is composed against a value the server actually holds
+      // rather than repeating a claim it has already rejected.
+      const current = currentValueOnConflict?.(err)
+      if (current !== undefined) {
+        setEditValue(current)
+        setBaseline(current)
+        setError(RESEEDED_NOTE)
+      } else {
+        setError(
+          err instanceof Error ? err.message : 'Failed to save description'
+        )
+      }
     } finally {
       setIsSaving(false)
     }
@@ -126,8 +167,10 @@ export function EntityDescription({
             </Button>
           </div>
         </div>
+        {/* role="alert" because a re-seed rewrites the textarea underneath the
+            cursor: a reader who cannot see the box change has to be told. */}
         {error && (
-          <p className="text-xs text-destructive">{error}</p>
+          <p role="alert" className="text-xs text-destructive">{error}</p>
         )}
       </div>
     )

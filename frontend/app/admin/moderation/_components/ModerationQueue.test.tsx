@@ -1972,6 +1972,32 @@ describe('ModerationQueue', () => {
     })
   })
 
+  // ── PSY-2025: approve refuses an edit whose recorded previous value moved ──
+  //
+  // The card is where a moderator learns why the row would not apply, so the
+  // refusal's own message has to reach it rather than a generic failure line.
+  describe('stale-value refusal on approve (PSY-2025)', () => {
+    it('prints the refusal message on the pending-edit card', () => {
+      const conflict: Error & { status?: number } = new Error(
+        'This field changed since this edit was submitted: description. The edit cannot be applied over a different value. Reject it and ask the contributor to resubmit.'
+      )
+      conflict.status = 409
+      mockUseApprovePendingEdit.mockReturnValue({
+        ...defaultMutationReturn,
+        isError: true,
+        error: conflict,
+      })
+      setDefaultMocks({ edits: [mockPendingEdit] })
+
+      render(<ModerationQueue />)
+
+      expect(
+        screen.getByText(/changed since this edit was submitted: description/i)
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Action failed')).not.toBeInTheDocument()
+    })
+  })
+
   // ── PSY-1975: a request whose payload was rewritten after it was filed ────
   //
   // A resubmission replaces the queued row's submission in place, so updated_at

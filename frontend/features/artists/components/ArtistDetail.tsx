@@ -52,7 +52,7 @@ import {
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { EntityChartRankBadge } from '@/features/charts'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, staleFieldCurrentValue } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
@@ -1255,7 +1255,8 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <EntityDescription
             description={artist.description}
             canEdit={!!canEditDirectly}
-            onSave={async (description) => {
+            currentValueOnConflict={(err) => staleFieldCurrentValue(err, 'description')}
+            onSave={async (description, previousDescription) => {
               await new Promise<void>((resolve, reject) => {
                 if (isAdmin) {
                   updateArtist.mutate(
@@ -1283,7 +1284,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
                     changes: [
                       {
                         field: 'description',
-                        old_value: artist.description ?? '',
+                        // The editor's own baseline, not the cached entity: a
+                        // conflict re-seeds the box, and the claim has to
+                        // describe what the user is looking at rather than
+                        // whatever the detail query holds at this moment.
+                        old_value: previousDescription,
                         new_value: description,
                       },
                     ],

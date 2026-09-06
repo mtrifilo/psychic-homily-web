@@ -592,9 +592,13 @@ func MapPendingEditError(err error) error {
 		case apperrors.CodePendingEditEntityNotFound, apperrors.CodePendingEditNotFound:
 			return huma.Error404NotFound(editErr.Message)
 		case apperrors.CodePendingEditNotPending,
-			apperrors.CodePendingEditDuplicate,
-			apperrors.CodePendingEditStaleValue:
+			apperrors.CodePendingEditDuplicate:
 			return huma.Error409Conflict(editErr.Message)
+		case apperrors.CodePendingEditStaleValue:
+			if len(editErr.StaleFields) == 0 {
+				return huma.Error409Conflict(editErr.Message)
+			}
+			return huma.Error409Conflict(editErr.Message, staleValueDetail(editErr))
 		case apperrors.CodePendingEditNotSubmitter:
 			return huma.Error403Forbidden(editErr.Message)
 		case apperrors.CodePendingEditEntityGone,
@@ -606,4 +610,28 @@ func MapPendingEditError(err error) error {
 		}
 	}
 	return nil
+}
+
+// staleValueDetail builds an *huma.ErrorDetail carrying the entity's current
+// value for each field a stale-value 409 names, under `errors[].value`, so a
+// client can re-seed the form it composed the edit in without parsing the
+// message. Mirrors collectionLimitDetail; the `code` rides inside the value
+// because huma's error model has no field for one.
+//
+// The values are the derivation a successful submission stores and serves back,
+// so this discloses nothing a caller could not already obtain by submitting a
+// matching claim. See apperrors.StaleFieldValue.
+func staleValueDetail(e *apperrors.PendingEditError) *huma.ErrorDetail {
+	current := make(map[string]any, len(e.StaleFields))
+	for _, f := range e.StaleFields {
+		current[f.Field] = f.Current
+	}
+	return &huma.ErrorDetail{
+		Message:  e.Message,
+		Location: "body.changes",
+		Value: map[string]any{
+			"code":           e.Code,
+			"current_values": current,
+		},
+	}
 }

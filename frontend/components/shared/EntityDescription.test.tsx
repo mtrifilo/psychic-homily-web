@@ -314,7 +314,7 @@ describe('EntityDescription', () => {
 
       await user.click(screen.getByRole('button', { name: /save/i }))
 
-      expect(defaultOnSave).toHaveBeenCalledWith('New text')
+      expect(defaultOnSave).toHaveBeenCalledWith('New text', 'Old text')
     })
 
     it('returns to display mode after successful save', async () => {
@@ -476,4 +476,129 @@ describe('EntityDescription', () => {
       expect(defaultOnSave).not.toHaveBeenCalled()
     })
   })
+
+  // ── Stale-value conflict re-seed (PSY-2025) ───────────────────────
+
+  describe('conflict re-seed', () => {
+    const conflict = new Error('This field has changed since you loaded the form: description.')
+
+    it('replaces the draft with the value the refusal reports', async () => {
+      const onSaveFail = vi.fn().mockRejectedValue(conflict)
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <EntityDescription
+          description="Original blurb."
+          canEdit={true}
+          onSave={onSaveFail}
+          currentValueOnConflict={() => 'Mesa emo, formed 1993.'}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /edit description/i }))
+      await user.clear(screen.getByRole('textbox'))
+      await user.type(screen.getByRole('textbox'), 'My own blurb.')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('Mesa emo, formed 1993.')
+      })
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Your draft was replaced with the current text/
+      )
+      // The server's own message is replaced, not appended: it tells the user to
+      // reload, which is what just happened.
+      expect(screen.queryByText(conflict.message)).not.toBeInTheDocument()
+    })
+
+    it('sends the re-seeded value as the baseline on the next save', async () => {
+      const onSave = vi
+        .fn()
+        .mockRejectedValueOnce(conflict)
+        .mockResolvedValueOnce(undefined)
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <EntityDescription
+          description="Original blurb."
+          canEdit={true}
+          onSave={onSave}
+          currentValueOnConflict={() => 'Mesa emo, formed 1993.'}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /edit description/i }))
+      await user.clear(screen.getByRole('textbox'))
+      await user.type(screen.getByRole('textbox'), 'My own blurb.')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('Mesa emo, formed 1993.')
+      })
+
+      await user.type(screen.getByRole('textbox'), ' Now with a correction.')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledTimes(2)
+      })
+      expect(onSave.mock.calls[0]).toEqual(['My own blurb.', 'Original blurb.'])
+      expect(onSave.mock.calls[1]).toEqual([
+        'Mesa emo, formed 1993. Now with a correction.',
+        'Mesa emo, formed 1993.',
+      ])
+      await waitFor(() => {
+        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      })
+    })
+
+    it('leaves the draft alone when the reader reports no current value', async () => {
+      const onSaveFail = vi.fn().mockRejectedValue(new Error('Network error'))
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <EntityDescription
+          description="Original blurb."
+          canEdit={true}
+          onSave={onSaveFail}
+          currentValueOnConflict={() => undefined}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /edit description/i }))
+      await user.clear(screen.getByRole('textbox'))
+      await user.type(screen.getByRole('textbox'), 'My own blurb.')
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('Network error')
+      })
+      expect(screen.getByRole('textbox')).toHaveValue('My own blurb.')
+    })
+
+    it('re-seeds to empty when the field was cleared under the editor', async () => {
+      const onSaveFail = vi.fn().mockRejectedValue(conflict)
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <EntityDescription
+          description="Original blurb."
+          canEdit={true}
+          onSave={onSaveFail}
+          currentValueOnConflict={() => ''}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /edit description/i }))
+      await user.click(screen.getByRole('button', { name: /save/i }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('')
+      })
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Your draft was replaced with the current text/
+      )
+    })
+  })
+
 })
