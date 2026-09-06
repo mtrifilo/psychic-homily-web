@@ -629,9 +629,16 @@ func (s *SceneService) artistPredicate(scope sceneScope, alias string) (string, 
 // Model(&Venue{}) emits an unaliased `FROM "venues"`, which is why the alias is
 // the bare table name.
 func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
+	return verifiedVenueCountIn(s.db, scope)
+}
+
+// verifiedVenueCountIn is verifiedVenueCount without a SceneService, so the
+// proxy's existence probe gates on the same count the page does rather than on
+// a second spelling of it.
+func verifiedVenueCountIn(database *gorm.DB, scope sceneScope) (int64, error) {
 	pred, args := trackedVenuePredicate(scope, "venues")
 	var n int64
-	if err := s.db.Model(&catalogm.Venue{}).Where(pred, args...).Count(&n).Error; err != nil {
+	if err := database.Model(&catalogm.Venue{}).Where(pred, args...).Count(&n).Error; err != nil {
 		return 0, err
 	}
 	return n, nil

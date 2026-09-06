@@ -84,19 +84,22 @@ func (s *EntityExistenceService) existsByIDOrSlug(model any, idOrSlug string, ex
 
 // sceneExists gates the proxy soft-404 for /scenes/{slug}. It mirrors
 // GetSceneDetail's existence rule (>= sceneMinVenues verified venues) in the
-// same two readings ParseSceneSlug resolves a slug through, so the gate and the
-// page agree about which slugs have a scene behind them.
+// readings ParseSceneSlug resolves a slug through, so the gate and the page
+// agree about which slugs have a scene behind them.
 //
 // The slug's own venue group answers first, through the rule the scenes
 // directory publishes by: a city whose verified rooms all carry a NULL
 // venues.metro is a scene the metro count below cannot see, and gating it off
 // soft-404s a page the directory links to.
 //
-// The metro count is what a slug no group publishes still passes on: a US slug
-// whose (city,state) pins a CBSA counts verified venues across the WHOLE metro,
-// so a Twin Cities slug, or an old suburb slug rolled into its metro, resolves
-// to the page ParseSceneSlug canonicalizes it to. A no-CBSA slug keeps the
-// literal city-state venue match.
+// A slug no group publishes is canonicalized the way ParseSceneSlug
+// canonicalizes it, and counted in the scope that identity resolves to: a metro
+// member slug (mesa-az) names its metro's principal city, so the gate answers
+// for the page that slug actually serves. Counting the CBSA's own rooms instead
+// would gate a member slug off whenever the metro it rolls up to is itself a
+// drifted fallback group.
+//
+// A slug with no CBSA at all keeps the literal city-state venue match.
 func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
 	city, state := parseSceneSlugParts(slug)
 	cbsa := ""
@@ -109,17 +112,25 @@ func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
 		return true, nil
 	}
 
-	q := s.db.Model(&catalogm.Venue{}).Where("verified = true")
 	if cbsa != "" {
-		q = q.Where("metro = ?", cbsa)
-	} else {
-		// No-CBSA fallback: match the SAME slug form ParseSceneSlug's no-CBSA
-		// resolver uses (scene.go), so the proxy gate and the page agree. It LOWERs
-		// both sides (handles mixed-case venue data) AND is lossless for hyphenated
-		// city names like "Winston-Salem" — unlike re-parsing the slug, which would
-		// collapse the hyphen to a space and miss the stored row.
-		q = q.Where(sceneSlugExprSQL+" = ?", strings.ToLower(slug))
+		if principal, ok := geo.MetroPrincipalByCBSA(cbsa); ok {
+			scope := sceneScopeFor(s.db, geo.Default(), principal.City, principal.State)
+			n, err := verifiedVenueCountIn(s.db, scope)
+			if err != nil {
+				return false, err
+			}
+			return n >= sceneMinVenues, nil
+		}
 	}
+
+	// No-CBSA fallback: match the SAME slug form ParseSceneSlug's no-CBSA
+	// resolver uses (scene.go), so the proxy gate and the page agree. It LOWERs
+	// both sides (handles mixed-case venue data) AND is lossless for hyphenated
+	// city names like "Winston-Salem", unlike re-parsing the slug, which would
+	// collapse the hyphen to a space and miss the stored row.
+	q := s.db.Model(&catalogm.Venue{}).
+		Where("verified = true").
+		Where(sceneSlugExprSQL+" = ?", strings.ToLower(slug))
 	var verifiedVenueCount int64
 	if err := q.Distinct("id").Count(&verifiedVenueCount).Error; err != nil {
 		return false, err

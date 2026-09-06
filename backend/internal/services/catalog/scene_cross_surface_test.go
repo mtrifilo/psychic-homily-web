@@ -6,6 +6,7 @@ import (
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/geo"
 )
 
 // seedCrossSurfaceScenes builds the corpus every scene surface is asserted over
@@ -158,6 +159,36 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 		week, err := suite.sceneService.GetSceneWeek(city, state, weekKey)
 		suite.Require().NoError(err, "the sitemap announces a week permalink that 404s: %s", entry.Slug)
 		suite.NotZero(week.ShowCount, "the sitemap announces an empty week: %s", entry.Slug)
+	}
+}
+
+// TestExistenceProbeAgreesWithTheDetailRouteOnMemberSlugs covers the slugs no
+// group publishes: a metro MEMBER city's slug, which ParseSceneSlug
+// canonicalizes onto its metro's page. The probe is what the frontend proxy
+// soft-404s on, so a probe that says no about a page that renders hides it.
+//
+// Sedona is the case that bites: it rolls up to a metro whose own rooms all
+// carry a NULL venues.metro, so counting the CBSA's rooms answers zero while
+// the page it canonicalizes to serves the drifted group's rooms.
+func (suite *SceneServiceIntegrationTestSuite) TestExistenceProbeAgreesWithTheDetailRouteOnMemberSlugs() {
+	suite.seedCrossSurfaceScenes()
+	existence := NewEntityExistenceService(suite.db)
+
+	for _, slug := range []string{"sedona-az", "mesa-az"} {
+		metro, pins := geo.Default().ResolveMetro(strings.ReplaceAll(strings.TrimSuffix(slug, "-az"), "-", " "), "az", usCountry)
+		suite.Require().True(pins, "%s is only a member slug if it pins a CBSA", slug)
+		suite.Require().NotEmpty(metro.CBSACode)
+
+		city, state, err := suite.sceneService.ParseSceneSlug(slug)
+		suite.Require().NoError(err)
+		suite.NotEqual(slug, buildSceneSlug(city, state), "%s must canonicalize onto another city's page", slug)
+
+		_, detailErr := suite.sceneService.GetSceneDetail(city, state)
+		exists, err := existence.Exists("scenes", slug)
+		suite.Require().NoError(err)
+		suite.Equal(detailErr == nil, exists,
+			"the proxy gate and the page disagree about %s", slug)
+		suite.True(exists, "%s canonicalizes onto a scene that exists in this corpus", slug)
 	}
 }
 
