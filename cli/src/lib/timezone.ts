@@ -7,10 +7,9 @@
  * `localTimeToUTC` and the frontend's `resolveLocalClockToUTC` both probe the
  * zone offset twice, and both return the instant Go's `time.Date` returns for a
  * wall clock inside a DST transition. They are two implementations of one rule,
- * and only one of them is held to it: this file does not read
- * `backend/internal/utils/testdata/dst_clock_corpus.json`, which the Go and the
- * frontend suites each assert every row of, so the two can drift apart with
- * nothing here failing.
+ * and all three implementations are held to it by one file:
+ * `backend/internal/utils/testdata/dst_clock_corpus.json`, whose every row the
+ * Go suite, the frontend suite, and `cli/test/timezone.test.ts` each assert.
  */
 
 /** Map of US state abbreviations to IANA timezones. */
@@ -166,11 +165,11 @@ function isValidTimeZone(name: string): boolean {
  * A wall clock that does not exist (the hour a spring-forward skips) has no
  * correct answer, and one that happens twice (fall-back) has two. For both,
  * this returns the instant Go's `time.Date` returns for the same wall clock and
- * zone, verified against Go across every 2025-2027 transition in 30 zones. That
- * agreement is the whole specification: which side of the transition it lands
- * on varies by zone and is not a rule worth restating here. A caller that must
- * not store a clock the source could not have meant should ask
- * `localClockExists` first.
+ * zone. That agreement is the whole specification: which side of the transition
+ * it lands on varies by zone and is not a rule worth restating here. The rows
+ * that pin it are in `dst_clock_corpus.json`, which `test/timezone.test.ts`
+ * asserts every row of. A caller that must not store a clock the source could
+ * not have meant should ask `localClockExists` first.
  *
  * @param dateStr  Date in YYYY-MM-DD format
  * @param timeStr  Time in HH:MM or HH:MM:SS format
