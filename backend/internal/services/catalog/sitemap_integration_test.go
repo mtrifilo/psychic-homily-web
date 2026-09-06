@@ -878,7 +878,8 @@ func stampSceneShowsUpdatedAt(t *testing.T, db *gorm.DB, city string, at time.Ti
 		t.Fatalf("stamp shows for %q: %v", city, res.Error)
 	}
 	if res.RowsAffected != int64(sceneMinShows) {
-		t.Fatalf("stamped %d shows for %q, want %d", res.RowsAffected, city, sceneMinShows)
+		t.Fatalf("stamped %d shows at venues with city = %q, want the %d that one seeded group carries; the fixture, not this helper, decides that count",
+			res.RowsAffected, city, sceneMinShows)
 	}
 }
 

@@ -404,9 +404,12 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		out.VenueYears = venueYears
 	}
 
-	// scenes and scene_weeks are two projections of ONE group set, fetched here
-	// so a scene cannot clear the floors for its week permalinks and miss them
-	// for its root URL.
+	// scenes and scene_weeks are two projections of ONE group set: the same
+	// eligibility decides a scene's root URL and its week permalinks, so the two
+	// families cannot apply different floors. They are still two documents
+	// fetched as two requests, so a scene approved between them can appear in one
+	// and not the other until the next build; what this rules out is a rule
+	// difference, not a timing skew.
 	if want("scenes") || want("scene_weeks") {
 		groups, err := s.listQualifyingScenes(ctx)
 		if err != nil {
@@ -596,8 +599,9 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 //
 // updated_at is the group's newest APPROVED show, which sceneEntries publishes
 // as the root URL's lastmod. It aggregates over the join's show side, so a
-// showless venue's row contributes nothing to it, and the show floor in the
-// grouping keeps it non-null on every row that survives.
+// showless venue's row contributes nothing to it. shows.updated_at is NOT NULL
+// and the grouping's show floor keeps at least one show row per surviving
+// group, so the aggregate is non-null on every row scanned here.
 func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenueGroup, error) {
 	var groups []sceneVenueGroup
 	err := s.db.WithContext(ctx).Raw(`
