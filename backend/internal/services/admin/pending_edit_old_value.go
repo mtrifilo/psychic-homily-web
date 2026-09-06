@@ -56,17 +56,20 @@ import (
 // view and not the column: an unverified venue's address records "" while the
 // column holds a street address.
 //
-// Two separate things follow from that, and only one of them is settled.
+// Three things follow from that, and each is answered somewhere different.
 //
-// The OBSERVATION is settled: Rollback derives through the same functions but
-// reads such a column as the column, because it answers for a different
-// audience. See adminAudience.
+// The OBSERVATION: Rollback derives through the same functions but reads such a
+// column as the column, because it answers for a different audience. See
+// adminAudience.
 //
-// The WRITE is not. Rollback still writes OldValue back verbatim, so restoring a
-// contributor-originated revision on an unverified venue writes the recorded ""
-// over a real street address rather than restoring the address that preceded
-// the edit. Nothing here narrows that: the recorded value is the only record of
-// what the field held, and for a withheld field it never described the column.
+// The RECORD: every change this derivation returns carries
+// FieldChange.OldValueWithheld, so the row itself says whether its blank is the
+// column's value or the mask over it. Nothing else can say: a withheld blank and
+// a genuinely empty column are the same three characters in the same slot.
+//
+// The WRITE: Rollback refuses to put a withheld blank into a column. See
+// restoreWithheldBlanks. It restores the value an earlier revision recorded
+// writing there when history holds one, and otherwise skips the field.
 
 // entityModelsByType pairs each entity type with the GORM model whose columns a
 // derivation here may read.
@@ -131,6 +134,32 @@ type withheldEditFieldsReporter interface {
 // TestWithheldFieldsAreEditable checks that whatever a reporter names is a field
 // a submission can actually carry.
 var _ withheldEditFieldsReporter = (*catalogm.Venue)(nil)
+
+// gatedFieldNames names, per entity type, every field a withholding gate can
+// reach, whether or not it withholds one on any particular row.
+//
+// withheldEditFieldsReporter answers for ONE entity ("does this venue withhold
+// its address today"), which is the question the derivation asks. This answers
+// the one a rollback asks of a row written before the stamp existed: could this
+// blank have been a withholding at all? A zero-valued model cannot answer it,
+// because the gate reports a field only when the column is set, so the names
+// have to be listed rather than discovered.
+//
+// The names come from catalog.VenuePrivateFields, the same source the accessors
+// and revisiondiff read, so a third gated column is one entry there.
+// TestGatedFieldNamesCoverEveryReporter is the tripwire for a model that gains a
+// gate without gaining an entry here.
+var gatedFieldNames = map[string]map[string]bool{
+	adminm.PendingEditEntityVenue: namesAsSet(catalogm.VenuePrivateFields()),
+}
+
+func namesAsSet(names []string) map[string]bool {
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[name] = true
+	}
+	return set
+}
 
 // deriveOldValues replaces every OldValue in changes with the value the entity
 // currently holds, and reports a conflict when the submitter claimed something
@@ -316,7 +345,8 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 		// submitter, so deriving from the column would publish the value the
 		// entity payload withholds. adminAudience is the one audience this does
 		// not hold for.
-		if withheld[field] && readFor.masksWithheldColumns() {
+		masked := withheld[field] && readFor.masksWithheldColumns()
+		if masked {
 			column = reflect.Zero(column.Type())
 		}
 		value, err := revisiondiff.EmitValue(column)
@@ -330,6 +360,12 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
+		// Stamped unconditionally, which is what makes the answer the server's
+		// on both counts. The stamp arrives on the wire beside the value (the
+		// suggest-edit body decodes into this same struct), so a submitter can
+		// claim a field was withheld when it was not, and a rollback reading
+		// that claim would refuse to restore a value it could have restored.
+		out[i] = out[i].WithOldValueWithheld(masked)
 	}
 	return out, stale, nil
 }

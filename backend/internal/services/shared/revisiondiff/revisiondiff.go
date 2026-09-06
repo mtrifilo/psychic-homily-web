@@ -234,11 +234,15 @@ func Compare(before, after interface{}, fields []Field) []adminm.FieldChange {
 
 		oldVal, newVal, changed := diffValue(bf, af)
 		if changed {
+			// Stamped observed: a diff's previous value is read off the
+			// before-image, never substituted. A gated field of an entity that
+			// withholds it reads as unset on BOTH sides here, so it emits no
+			// change at all rather than a blank that misdescribes the column.
 			changes = append(changes, adminm.FieldChange{
 				Field:    f.Name,
 				OldValue: oldVal,
 				NewValue: newVal,
-			})
+			}.WithOldValueWithheld(false))
 		}
 	}
 	return changes

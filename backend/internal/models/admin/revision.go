@@ -47,8 +47,50 @@ type Revision struct {
 func (Revision) TableName() string { return "revisions" }
 
 // FieldChange represents a single field's before/after values.
+//
+// OldValueWithheld is a THREE-state stamp, and the third state is the reason it
+// is a pointer:
+//
+//   - true: OldValue is the blank served in place of a column this change's
+//     audience is not shown. It is NOT what the field held.
+//   - false: OldValue is the value the recorder read off the entity.
+//   - nil: nothing recorded either way. Every row written before the stamp
+//     existed reads this way, and so does any row a writer that does not stamp
+//     produces.
+//
+// A plain bool would collapse nil into false, which is the one collapse a
+// consumer must not make: a blank the pipeline WITHHELD and a blank the column
+// genuinely held are the same three characters in the same slot, and only this
+// stamp separates them. Rollback writes OldValue back into the column, so
+// treating an unstamped blank as observed is how a real street address gets
+// overwritten with "".
+//
+// It is a stamp beside the value rather than a sentinel inside it because
+// OldValue is untyped and reaches a column verbatim: any sentinel string would
+// be a value some column could legitimately hold, and every reader of the
+// history would have to know it.
 type FieldChange struct {
-	Field    string      `json:"field"`
-	OldValue interface{} `json:"old_value"`
-	NewValue interface{} `json:"new_value"`
+	Field            string      `json:"field"`
+	OldValue         interface{} `json:"old_value"`
+	NewValue         interface{} `json:"new_value"`
+	OldValueWithheld *bool       `json:"old_value_withheld,omitempty"`
 }
+
+// WithOldValueWithheld returns a copy of the change carrying the stamp. Value
+// receiver and a fresh pointer per call, so no two changes share the target.
+func (c FieldChange) WithOldValueWithheld(withheld bool) FieldChange {
+	c.OldValueWithheld = &withheld
+	return c
+}
+
+// OldValueIsWithheld reports whether the change positively records that its
+// OldValue is a withheld blank. An unstamped change reports false: absence of a
+// stamp is absence of knowledge, not a claim that the value was observed. Use
+// OldValueUnstamped to tell the two apart.
+func (c FieldChange) OldValueIsWithheld() bool {
+	return c.OldValueWithheld != nil && *c.OldValueWithheld
+}
+
+// OldValueUnstamped reports whether the change records nothing about where its
+// OldValue came from.
+func (c FieldChange) OldValueUnstamped() bool { return c.OldValueWithheld == nil }

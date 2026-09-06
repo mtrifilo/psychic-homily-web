@@ -72,6 +72,11 @@ var venuePrivateFields = func() map[string]struct{} {
 // returns a new slice and never mutates the input, because the input is
 // unmarshalled from a stored row that other code paths (rollback) must still
 // see raw.
+//
+// The OldValueWithheld stamp goes with the value it describes. Once both sides
+// read RedactedValue the stamp describes nothing on the row, and what it would
+// still describe is the venue's verification state at the time of the edit,
+// which this view is not serving.
 func RedactVenueChanges(changes []adminm.FieldChange) []adminm.FieldChange {
 	out := make([]adminm.FieldChange, len(changes))
 	copy(out, changes)
@@ -81,6 +86,7 @@ func RedactVenueChanges(changes []adminm.FieldChange) []adminm.FieldChange {
 		}
 		out[i].OldValue = RedactedValue
 		out[i].NewValue = RedactedValue
+		out[i].OldValueWithheld = nil
 	}
 	return out
 }

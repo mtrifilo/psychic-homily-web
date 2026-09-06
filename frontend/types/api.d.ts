@@ -11361,6 +11361,7 @@ export interface components {
             field: string;
             new_value: unknown;
             old_value: unknown;
+            old_value_withheld?: boolean;
         };
         FieldNoteStructuredData: {
             /** Format: int64 */

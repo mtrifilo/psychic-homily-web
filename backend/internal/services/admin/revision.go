@@ -284,10 +284,17 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 // path uses (observeCurrentValues). An unlocked read would be a check the write
 // it guards can invalidate in between.
 //
+// A recorded value that is a WITHHELD BLANK is never written. The pending-edit
+// pipeline records, for a column its submitter is not shown, the blank it shows
+// them instead, so writing that back empties a column that held a real value.
+// Such a field is restored from the value an earlier revision recorded writing
+// there, or skipped by the same report. See restoreWithheldBlanks.
+//
 // The recorded rollback revision's old_value is that OBSERVED value, not the
 // revision's recorded new_value. The two agree for every field that passes the
 // check, and where a stored claim and the column disagree the column is the one
-// that was true.
+// that was true. Its new_value is the value this call WROTE, which for a
+// recovered field is not the value the revision recorded.
 //
 // A rollback that can restore NOTHING is an error, so a caller never reports a
 // rollback that did nothing.
@@ -335,8 +342,28 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 
 	// Build update map from old values (reversing the change)
 	updates := make(map[string]interface{}, len(fieldOrder))
+	// restored keeps the same values in the shape a FieldChange stores, because
+	// the gates below narrow what updates holds (a JSONB float64 becomes the
+	// typed pointer the column needs) and two fields below take the value that
+	// was WRITTEN rather than the value that was recorded. Where they differ,
+	// this is the one the recorded rollback revision reports.
+	restored := make(map[string]interface{}, len(fieldOrder))
 	for _, field := range fieldOrder {
 		updates[field] = byField[field].OldValue
+		restored[field] = byField[field].OldValue
+	}
+
+	refusals := make(map[string]string, len(fieldOrder))
+
+	// Substituted BEFORE the gates, so a value recovered from history is judged
+	// by every rule a recorded value is judged by. Outside the transaction with
+	// the gates, because it reads the revisions table and not the entity row the
+	// transaction locks.
+	if err := restoreWithheldBlanks(s.db, revision, fieldOrder, byField, updates, restored, refusals); err != nil {
+		return nil, err
+	}
+	if len(refusals) == len(fieldOrder) {
+		return nil, errNothingRestorable(fieldOrder, refusals)
 	}
 
 	// Judge each field on its own, then drop the refused ones from the write.
@@ -349,11 +376,13 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	// transaction overwrites.
 	//
 	// Refusals accumulate by field name rather than into the reported list
-	// directly, so the two rounds of judging can be reported in one pass, in the
-	// order the revision recorded the fields.
-	refusals := make(map[string]string, len(fieldOrder))
+	// directly, so the three rounds of judging can be reported in one pass, in
+	// the order the revision recorded the fields.
 	numericBounds := contracts.NumericEditFieldBounds()
 	for _, field := range fieldOrder {
+		if _, refused := refusals[field]; refused {
+			continue
+		}
 		if err := rollbackFieldError(ctx, updates, field, numericBounds); err != nil {
 			delete(updates, field)
 			refusals[field] = refusalReason(err)
@@ -413,8 +442,11 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 			rollbackChanges = append(rollbackChanges, adminm.FieldChange{
 				Field:    field,
 				OldValue: current[field],
-				NewValue: byField[field].OldValue,
-			})
+				NewValue: restored[field],
+				// The observation reads a withheld column as the column, so
+				// this old_value is always the entity's own. revisiondiff
+				// masks it for every non-admin reader.
+			}.WithOldValueWithheld(false))
 		}
 		result = &contracts.RollbackResult{
 			AppliedFields: applied,
@@ -476,6 +508,137 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 // differs by cause: a later edit, a merge and a direct admin write all land
 // here.
 const changedSinceReason = "this field changed after the revision was recorded, so restoring it would discard that change"
+
+// withheldBlankReason is the sentence an admin reads beside a field whose
+// recorded previous value is a blank the pipeline substituted for a value the
+// submitter was not shown, and which no earlier revision records.
+//
+// It names the blank rather than the field's privacy. "This field is secret"
+// would be the wrong reading: the admin can see the value, and the History panel
+// beside this message is showing it. What is missing is the value that preceded
+// the edit.
+const withheldBlankReason = "the previous value recorded here is a blank shown in place of a value the contributor was not allowed to see, and no earlier revision records what the field actually held"
+
+// restoreWithheldBlanks replaces, or refuses, every recorded value that is a
+// blank the pipeline substituted for a withheld column.
+//
+// WHY A ROLLBACK MUST NOT WRITE ONE. A contributor editing an unverified
+// venue's address is served "" in place of the street address, and the pending
+// edit records that blank as the field's previous value (see the OLD-VALUE
+// CONTRACT). Writing it back on undo empties a column that held a real address:
+// the venue's own address is destroyed by the button whose whole purpose is to
+// put things back.
+//
+// The stamp is what makes the blank legible. FieldChange.OldValueWithheld is
+// three-state, and each state gets a different answer here:
+//
+//   - stamped withheld: the column was NOT empty when the value was recorded,
+//     because the gate reports a field only while the column is set. So the
+//     blank is known wrong, and the field is restored from history or skipped.
+//   - stamped observed: the blank IS the column's value. It is written, which
+//     is what makes "a contributor fills in an empty address, an admin undoes
+//     it" still work.
+//   - unstamped, on a field a gate can reach: the row records nothing about
+//     where its blank came from, so it could be either. History decides: an
+//     earlier revision recording a real value for the field proves the column
+//     was not empty, so that value is restored. With no such revision nothing
+//     here can tell the two apart, and the recorded blank is written.
+//
+// History means the most recent EARLIER revision that recorded writing to the
+// field, which is the value the field held going into the revision being undone
+// unless something changed the column without recording a revision.
+//
+// The recovered value must itself be non-blank. A blank recovered for a stamped
+// withheld field contradicts the stamp, so it is not trusted and the field is
+// skipped. The one case that refuses more than it must is a gated column holding
+// the empty string rather than NULL: the gate calls that withheld, and undoing
+// back to it is refused.
+func restoreWithheldBlanks(
+	db *gorm.DB,
+	revision *adminm.Revision,
+	fieldOrder []string,
+	byField map[string]adminm.FieldChange,
+	updates, restored map[string]interface{},
+	refusals map[string]string,
+) error {
+	gated := gatedFieldNames[revision.EntityType]
+	for _, field := range fieldOrder {
+		change := byField[field]
+		// Known withheld, or unstamped on a field a gate can reach, which is
+		// the same blank with nothing recorded about where it came from.
+		suspect := change.OldValueIsWithheld() || (change.OldValueUnstamped() && gated[field])
+		if !suspect || !isBlankValue(change.OldValue) {
+			continue
+		}
+
+		prior, found, err := priorRecordedValue(db, revision, field)
+		if err != nil {
+			return err
+		}
+		if found && !isBlankValue(prior) {
+			updates[field] = prior
+			restored[field] = prior
+			continue
+		}
+		if change.OldValueUnstamped() {
+			// Unknowable: an unstamped blank with no history behind it is as
+			// likely the column's own value as a mask over one. Writing it
+			// keeps the undo of a genuinely empty field working.
+			continue
+		}
+		delete(updates, field)
+		refusals[field] = withheldBlankReason
+	}
+	return nil
+}
+
+// priorRecordedValue returns the value the most recent EARLIER revision on this
+// entity recorded writing to the field, and whether one exists.
+//
+// Ordered by id, which for an append-only table is the order the revisions were
+// recorded; created_at ties within a transaction.
+//
+// The containment operator asks postgres which stored rows name the field, so a
+// history of any length costs one indexed-by-entity scan and one row read rather
+// than unmarshalling every revision the entity ever had. The argument is a
+// parameter, not interpolated.
+//
+// The LAST occurrence of the field in the matched row wins, matching how
+// Rollback collapses a row that names one field twice.
+func priorRecordedValue(db *gorm.DB, revision *adminm.Revision, field string) (interface{}, bool, error) {
+	contains, err := json.Marshal([]map[string]string{{"field": field}})
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to build the history probe for %s: %w", field, err)
+	}
+
+	var rows []adminm.Revision
+	err = db.
+		Select("field_changes").
+		Where("entity_type = ? AND entity_id = ? AND id < ? AND field_changes @> ?::jsonb",
+			revision.EntityType, revision.EntityID, revision.ID, string(contains)).
+		Order("id DESC").
+		Limit(1).
+		Find(&rows).Error
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read the history of %s: %w", field, err)
+	}
+	if len(rows) == 0 || rows[0].FieldChanges == nil {
+		return nil, false, nil
+	}
+
+	var changes []adminm.FieldChange
+	if err := json.Unmarshal(*rows[0].FieldChanges, &changes); err != nil {
+		return nil, false, fmt.Errorf("failed to parse the history of %s: %w", field, err)
+	}
+	var value interface{}
+	found := false
+	for _, c := range changes {
+		if c.Field == field {
+			value, found = c.NewValue, true
+		}
+	}
+	return value, found, nil
+}
 
 // observeRollbackValues reads the entity under a row lock and reports the value
 // it currently holds for every field the claims name, plus the fields whose
