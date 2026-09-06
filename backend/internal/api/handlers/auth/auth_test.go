@@ -4017,3 +4017,380 @@ func TestUpdateProfileHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
 		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
+
+// --- PSY-2026 input validation: shared email + identity-name guards ---
+
+// TestValidateEmailAddress pins the accept/refuse contract of the guard every
+// address-writing handler shares. The rule is a bare RFC 5322 address: the
+// parsed address must equal the trimmed input, so no display-name form, no
+// RFC comment, no second address, and no trailing CRLF survives into the
+// users row or an outbound To header.
+func TestValidateEmailAddress(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		wantOK   bool
+		wantAddr string
+	}{
+		{"plain", "user@example.com", true, "user@example.com"},
+		{"dotless domain accepted", "a@b", true, "a@b"},
+		{"surrounding whitespace trimmed", "  user@example.com  ", true, "user@example.com"},
+		{"trailing CRLF trimmed away", "user@example.com\r\n", true, "user@example.com"},
+		{"unicode local part", "日本@example.com", true, "日本@example.com"},
+		{"display-name form", "Name <user@example.com>", false, ""},
+		{"angle-addr form", "<user@example.com>", false, ""},
+		{"rfc comment", "user@example.com (comment)", false, ""},
+		{"header injection", "user@example.com\r\nBcc: evil@example.com", false, ""},
+		{"second address", "user@example.com, evil@example.com", false, ""},
+		{"embedded NUL", "user@example.com\x00", false, ""},
+		{"no at sign", "not-an-email", false, ""},
+		{"empty", "", false, ""},
+		{"whitespace only", "   ", false, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, msg, ok := validateEmailAddress(tc.input)
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v, want %v (message=%q)", ok, tc.wantOK, msg)
+			}
+			if got != tc.wantAddr {
+				t.Errorf("normalized=%q, want %q", got, tc.wantAddr)
+			}
+			if !ok && msg == "" {
+				t.Error("expected a user-facing refusal message")
+			}
+		})
+	}
+}
+
+// TestValidateProfileName_SharedAcrossIdentityFields proves display_name,
+// first_name and last_name run through one helper: the same input yields the
+// same verdict for all three, and only the field label differs in the message.
+func TestValidateProfileName_SharedAcrossIdentityFields(t *testing.T) {
+	labels := []string{"Display name", "First name", "Last name"}
+
+	cases := []struct {
+		name    string
+		input   string
+		wantOK  bool
+		wantVal string
+	}{
+		{"plain", "Ada", true, "Ada"},
+		{"trimmed", "  Ada  ", true, "Ada"},
+		{"at the bound", strings.Repeat("x", maxProfileNameRunes), true, strings.Repeat("x", maxProfileNameRunes)},
+		{"multibyte at the bound counts runes", strings.Repeat("é", maxProfileNameRunes), true, strings.Repeat("é", maxProfileNameRunes)},
+		{"over the bound", strings.Repeat("x", maxProfileNameRunes+1), false, ""},
+		{"newline", "evil\nname", false, ""},
+		{"carriage return", "evil\rname", false, ""},
+		{"tab", "evil\tname", false, ""},
+		{"NUL", "evil\x00name", false, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, label := range labels {
+				got, msg, ok := validateProfileName(label, tc.input)
+				if ok != tc.wantOK {
+					t.Fatalf("%s: ok=%v, want %v (message=%q)", label, ok, tc.wantOK, msg)
+				}
+				if got != tc.wantVal {
+					t.Errorf("%s: normalized=%q, want %q", label, got, tc.wantVal)
+				}
+				if !ok && !strings.HasPrefix(msg, label) {
+					t.Errorf("%s: message %q does not name the field", label, msg)
+				}
+			}
+		})
+	}
+}
+
+// TestRegisterHandler_RejectsMalformedEmail asserts the address is refused
+// before any user row is created.
+func TestRegisterHandler_RejectsMalformedEmail(t *testing.T) {
+	cases := []struct {
+		name  string
+		email string
+	}{
+		{"display-name form", "Name <a@b.com>"},
+		{"header injection", "a@b.com\r\nBcc: evil@example.com"},
+		{"rfc comment", "a@b.com (comment)"},
+		{"no at sign", "not-an-email"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var created bool
+			h := authHandler(func(ah *AuthHandler) {
+				ah.userService = &testhelpers.MockUserService{
+					CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+						created = true
+						return &authm.User{ID: 1}, nil
+					},
+				}
+			})
+
+			input := &RegisterRequest{}
+			input.Body.Email = tc.email
+			input.Body.Password = "a-valid-password-123"
+			input.Body.TermsAccepted = true
+			input.Body.TermsVersion = "2026-01-31"
+			input.Body.AgeConfirmed = true
+			input.Body.MinAgeAttested = MinSignupAge
+
+			resp, err := h.RegisterHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+				t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+			}
+			if created {
+				t.Error("expected no user row for a refused address")
+			}
+		})
+	}
+}
+
+// TestRegisterHandler_AcceptsDotlessDomain pins the resolved open question:
+// registration accepts what net/mail.ParseAddress accepts, with no extra
+// domain rule layered on top.
+func TestRegisterHandler_AcceptsDotlessDomain(t *testing.T) {
+	var gotEmail string
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+				gotEmail = email
+				return &authm.User{ID: 1, Email: strPtr(email)}, nil
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *authm.User) (string, error) { return "tok", nil },
+		}
+	})
+
+	input := &RegisterRequest{}
+	input.Body.Email = "a@b"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	if gotEmail != "a@b" {
+		t.Errorf("expected stored email=a@b, got %q", gotEmail)
+	}
+}
+
+// TestRegisterHandler_StoresTrimmedEmail locks the normalization contract: the
+// value handed to the user service is the trimmed address, so a padded or
+// CRLF-terminated input cannot reach the users row or an outbound To header.
+func TestRegisterHandler_StoresTrimmedEmail(t *testing.T) {
+	var gotEmail string
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+				gotEmail = email
+				return &authm.User{ID: 1, Email: strPtr(email)}, nil
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *authm.User) (string, error) { return "tok", nil },
+		}
+	})
+
+	input := &RegisterRequest{}
+	input.Body.Email = "  padded@example.com\r\n"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	if gotEmail != "padded@example.com" {
+		t.Errorf("expected stored email=padded@example.com, got %q", gotEmail)
+	}
+}
+
+// TestRegisterHandler_RejectsMalformedNames asserts the identity-name guard
+// runs on the unauthenticated registration path for both name fields.
+func TestRegisterHandler_RejectsMalformedNames(t *testing.T) {
+	cases := []struct {
+		name      string
+		firstName *string
+		lastName  *string
+	}{
+		{"first name newline", strPtr("evil\nname"), nil},
+		{"first name too long", strPtr(strings.Repeat("x", maxProfileNameRunes+1)), nil},
+		{"last name newline", nil, strPtr("evil\nname")},
+		{"last name too long", nil, strPtr(strings.Repeat("x", maxProfileNameRunes+1))},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var created bool
+			h := authHandler(func(ah *AuthHandler) {
+				ah.userService = &testhelpers.MockUserService{
+					CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+						created = true
+						return &authm.User{ID: 1}, nil
+					},
+				}
+			})
+
+			input := &RegisterRequest{}
+			input.Body.Email = "names@example.com"
+			input.Body.Password = "a-valid-password-123"
+			input.Body.TermsAccepted = true
+			input.Body.TermsVersion = "2026-01-31"
+			input.Body.AgeConfirmed = true
+			input.Body.MinAgeAttested = MinSignupAge
+			input.Body.FirstName = tc.firstName
+			input.Body.LastName = tc.lastName
+
+			resp, err := h.RegisterHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+				t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+			}
+			if created {
+				t.Error("expected no user row for a refused name")
+			}
+		})
+	}
+}
+
+// TestRegisterHandler_TrimsNames pins that registration stores the trimmed
+// names, matching the profile-update path.
+func TestRegisterHandler_TrimsNames(t *testing.T) {
+	var gotFirst, gotLast string
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+				gotFirst, gotLast = firstName, lastName
+				return &authm.User{ID: 1, Email: strPtr(email)}, nil
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *authm.User) (string, error) { return "tok", nil },
+		}
+	})
+
+	input := &RegisterRequest{}
+	input.Body.Email = "trim-names@example.com"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.FirstName = strPtr("  Ada  ")
+	input.Body.LastName = strPtr("  Lovelace  ")
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	if gotFirst != "Ada" || gotLast != "Lovelace" {
+		t.Errorf("expected trimmed names, got first=%q last=%q", gotFirst, gotLast)
+	}
+}
+
+// TestUpdateProfileHandler_IdentityNamesShareOneGuard walks the three identity
+// fields through the same refusal inputs on the profile-update path. Before
+// PSY-2026 only display_name was guarded; the table is what keeps the three
+// from drifting apart again.
+func TestUpdateProfileHandler_IdentityNamesShareOneGuard(t *testing.T) {
+	fields := []struct {
+		name   string
+		column string
+		set    func(req *UpdateProfileRequest, v string)
+	}{
+		{"display_name", "display_name", func(req *UpdateProfileRequest, v string) { req.Body.DisplayName = strPtr(v) }},
+		{"first_name", "first_name", func(req *UpdateProfileRequest, v string) { req.Body.FirstName = strPtr(v) }},
+		{"last_name", "last_name", func(req *UpdateProfileRequest, v string) { req.Body.LastName = strPtr(v) }},
+	}
+
+	refusals := []struct {
+		name  string
+		value string
+	}{
+		{"newline", "evil\nname"},
+		{"carriage return", "evil\rname"},
+		{"NUL", "evil\x00name"},
+		{"over the bound", strings.Repeat("x", maxProfileNameRunes+1)},
+	}
+
+	for _, field := range fields {
+		for _, refusal := range refusals {
+			t.Run(field.name+"/"+refusal.name, func(t *testing.T) {
+				var updated bool
+				mock := &testhelpers.MockUserService{
+					UpdateUserFn: func(_ uint, _ map[string]any) (*authm.User, error) {
+						updated = true
+						return &authm.User{ID: 1}, nil
+					},
+				}
+				h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+				ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+				req := &UpdateProfileRequest{}
+				field.set(req, refusal.value)
+
+				resp, err := h.UpdateProfileHandler(ctx, req)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+					t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+				}
+				if updated {
+					t.Error("expected no update for a refused name")
+				}
+			})
+		}
+
+		t.Run(field.name+"/at the bound accepted", func(t *testing.T) {
+			atBound := strings.Repeat("x", maxProfileNameRunes)
+			var gotUpdates map[string]any
+			mock := &testhelpers.MockUserService{
+				UpdateUserFn: func(_ uint, updates map[string]any) (*authm.User, error) {
+					gotUpdates = updates
+					return &authm.User{ID: 1}, nil
+				},
+			}
+			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+			req := &UpdateProfileRequest{}
+			field.set(req, "  "+atBound+"  ")
+
+			resp, err := h.UpdateProfileHandler(ctx, req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !resp.Body.Success {
+				t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+			}
+			if gotUpdates[field.column] != atBound {
+				t.Errorf("expected trimmed %s at the bound, got %v", field.column, gotUpdates[field.column])
+			}
+		})
+	}
+}

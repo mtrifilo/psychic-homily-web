@@ -1443,3 +1443,49 @@ func TestCreateCredentialCreationReaderFromSignup_NoAuthenticatorAttachment(t *t
 		t.Fatal("expected non-nil reader")
 	}
 }
+
+// TestBeginSignupHandler_RejectsMalformedEmail covers the second address-write
+// path: the address stored in the challenge here is what FinishSignupHandler
+// writes to the users row, so it is refused before the lookup that would
+// otherwise be the first thing a malformed address reaches.
+func TestBeginSignupHandler_RejectsMalformedEmail(t *testing.T) {
+	cases := []struct {
+		name  string
+		email string
+	}{
+		{"display-name form", "Name <a@b.com>"},
+		{"header injection", "a@b.com\r\nBcc: evil@example.com"},
+		{"rfc comment", "a@b.com (comment)"},
+		{"no at sign", "not-an-email"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var lookedUp bool
+			us := &testhelpers.MockUserService{
+				GetUserByEmailFn: func(email string) (*authm.User, error) {
+					lookedUp = true
+					return nil, nil
+				},
+			}
+			h := testPasskeyHandlerWithMocks(nil, nil, us)
+			input := &BeginSignupRequest{}
+			input.Body.Email = tc.email
+			input.Body.TermsAccepted = true
+			input.Body.TermsVersion = "2026-01-31"
+			input.Body.AgeConfirmed = true
+			input.Body.MinAgeAttested = MinSignupAge
+
+			resp, err := h.BeginSignupHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+				t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+			}
+			if lookedUp {
+				t.Error("expected no user lookup for a refused address")
+			}
+		})
+	}
+}

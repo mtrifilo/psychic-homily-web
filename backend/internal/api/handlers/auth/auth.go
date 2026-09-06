@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 	"unicode"
@@ -41,6 +43,46 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 		return autherrors.CodeAgeConfirmationRequired, err.Message, false
 	}
 	return "", "", true
+}
+
+// maxProfileNameRunes bounds every user-supplied identity name (display name,
+// first name, last name) in RUNES, not bytes. It matches the users table's
+// VARCHAR(100) on those three columns and the /profile form's maxLength=100.
+const maxProfileNameRunes = 100
+
+// validateEmailAddress is the shared guard for every handler that stores a
+// user-supplied address. It requires a bare RFC 5322 address: parseable, and
+// with the parsed address equal to the trimmed input, so a display-name form
+// ("Name <a@b.com>"), an RFC comment, or a second address cannot reach the
+// users table or an outbound To header.
+//
+// The returned value, not the raw input, is what callers must store: trimming
+// is what removes a trailing CRLF from an address that parses either way.
+// Returns the user-facing message and ok=false on refusal.
+func validateEmailAddress(raw string) (normalized, message string, ok bool) {
+	trimmed := strings.TrimSpace(raw)
+	addr, err := mail.ParseAddress(trimmed)
+	if err != nil || addr.Address != trimmed {
+		return "", "Enter a valid email address", false
+	}
+	return trimmed, "", true
+}
+
+// validateProfileName is the shared guard for the three identity-name fields.
+// It rejects control characters, because the value is interpolated into
+// notification subjects/bodies and attribution surfaces, and bounds the length
+// at maxProfileNameRunes. label names the field in the refusal message
+// ("Display name", "First name", "Last name"). Returns the trimmed value, and
+// the user-facing message with ok=false on refusal.
+func validateProfileName(label, raw string) (normalized, message string, ok bool) {
+	trimmed := strings.TrimSpace(raw)
+	if strings.ContainsFunc(trimmed, unicode.IsControl) {
+		return "", fmt.Sprintf("%s contains unsupported characters", label), false
+	}
+	if utf8.RuneCountInString(trimmed) > maxProfileNameRunes {
+		return "", fmt.Sprintf("%s must be %d characters or fewer", label, maxProfileNameRunes), false
+	}
+	return trimmed, "", true
 }
 
 // AuthHandler handles authentication requests
@@ -524,8 +566,11 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 
 type RegisterRequest struct {
 	Body struct {
-		Email          string  `json:"email" example:"test@example.com" doc:"User email" validate:"required,email"`
-		Password       string  `json:"password" example:"password" doc:"User password" validate:"required"`
+		// No `validate:"..."` tags: huma reads its own schema tags, this repo
+		// wires no go-playground validator, and RegisterHandler is where the
+		// address and name rules are actually enforced.
+		Email          string  `json:"email" example:"test@example.com" doc:"User email"`
+		Password       string  `json:"password" example:"password" doc:"User password"`
 		FirstName      *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
 		LastName       *string `json:"last_name,omitempty" example:"Doe" doc:"User last name (optional)"`
 		TermsAccepted  bool    `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
@@ -566,6 +611,16 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		)
 		resp.Body.Success = false
 		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	email, errMsg, ok := validateEmailAddress(input.Body.Email)
+	if !ok {
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", errMsg,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
@@ -636,14 +691,32 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	// Handle optional first and last names
 	var firstName, lastName string
 	if input.Body.FirstName != nil {
-		firstName = *input.Body.FirstName
+		firstName, errMsg, ok = validateProfileName("First name", *input.Body.FirstName)
+		if !ok {
+			logger.AuthWarn(ctx, "register_validation_failed",
+				"error", errMsg,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = errMsg
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
 	}
 	if input.Body.LastName != nil {
-		lastName = *input.Body.LastName
+		lastName, errMsg, ok = validateProfileName("Last name", *input.Body.LastName)
+		if !ok {
+			logger.AuthWarn(ctx, "register_validation_failed",
+				"error", errMsg,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = errMsg
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
 	}
 
 	user, err := h.userService.CreateUserWithPasswordWithLegal(
-		input.Body.Email,
+		email,
 		input.Body.Password,
 		firstName,
 		lastName,
@@ -664,7 +737,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
 			logger.AuthWarn(ctx, "register_failed",
-				"email_hash", logger.HashEmail(input.Body.Email),
+				"email_hash", logger.HashEmail(email),
 				"error", err.Error(),
 				"error_code", autherrors.CodeUserExists,
 			)
@@ -683,7 +756,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		// shape; only the transport status flips.
 		svcErr := autherrors.ErrServiceUnavailable("register_create_user", err)
 		logger.AuthError(ctx, "register_failed", err,
-			"email_hash", logger.HashEmail(input.Body.Email),
+			"email_hash", logger.HashEmail(email),
 			"error_code", autherrors.CodeServiceUnavailable,
 		)
 		resp.Body.Success = false
@@ -709,7 +782,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 
 	logger.AuthInfo(ctx, "register_success",
 		"user_id", user.ID,
-		"email_hash", logger.HashEmail(input.Body.Email),
+		"email_hash", logger.HashEmail(email),
 	)
 
 	// Send Discord notification for new user signup
@@ -2139,33 +2212,28 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 		updates["username"] = username
 	}
 
-	if req.Body.DisplayName != nil {
-		displayName := strings.TrimSpace(*req.Body.DisplayName)
-		// Reject control characters (incl. newlines): the name is interpolated
-		// into notification subjects/bodies and attribution surfaces.
-		if strings.ContainsFunc(displayName, unicode.IsControl) {
+	// display_name, first_name and last_name all feed the attribution and
+	// notification chains, so the three share one guard.
+	for _, field := range []struct {
+		column string
+		label  string
+		value  *string
+	}{
+		{"display_name", "Display name", req.Body.DisplayName},
+		{"first_name", "First name", req.Body.FirstName},
+		{"last_name", "Last name", req.Body.LastName},
+	} {
+		if field.value == nil {
+			continue
+		}
+		name, errMsg, ok := validateProfileName(field.label, *field.value)
+		if !ok {
 			resp.Body.Success = false
-			resp.Body.Message = "Display name contains unsupported characters"
+			resp.Body.Message = errMsg
 			resp.Body.ErrorCode = autherrors.CodeValidationFailed
 			return resp, nil
 		}
-		// 100 CHARACTERS (not bytes) — must stay in sync with the users
-		// migration's VARCHAR(100) and the /profile form's maxLength=100.
-		if utf8.RuneCountInString(displayName) > 100 {
-			resp.Body.Success = false
-			resp.Body.Message = "Display name must be 100 characters or fewer"
-			resp.Body.ErrorCode = autherrors.CodeValidationFailed
-			return resp, nil
-		}
-		updates["display_name"] = displayName
-	}
-
-	if req.Body.FirstName != nil {
-		updates["first_name"] = strings.TrimSpace(*req.Body.FirstName)
-	}
-
-	if req.Body.LastName != nil {
-		updates["last_name"] = strings.TrimSpace(*req.Body.LastName)
+		updates[field.column] = name
 	}
 
 	if req.Body.Location != nil {

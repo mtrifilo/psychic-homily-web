@@ -621,10 +621,19 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
-	email := input.Body.Email
-	if email == "" {
+	if input.Body.Email == "" {
 		resp.Body.Success = false
 		resp.Body.Message = "Email is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	// The address stored here is the one FinishSignupHandler reads back out of
+	// the challenge and writes to the users row, so this is the only guard on
+	// the passkey-signup write path.
+	email, errMsg, ok := validateEmailAddress(input.Body.Email)
+	if !ok {
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
