@@ -4061,8 +4061,10 @@ func TestValidateEmailAddress(t *testing.T) {
 		// mean requiring an ASCII domain, which is a stricter domain rule than
 		// was decided for this ticket. Pinned so the gap is visible and so a
 		// later change to close it is a deliberate edit to these lines.
-		{"hangul filler accepted (known gap)", "user@example.com\u3164", true},
-		{"braille blank accepted (known gap)", "user@example.com\u2800", true},
+		{"hangul filler in domain accepted (known gap)", "user@example.com\u3164", true},
+		{"braille blank in domain accepted (known gap)", "user@example.com\u2800", true},
+		// Local part too, which is why closing this class is not a domain rule.
+		{"hangul filler in local part accepted (known gap)", "us\u3164er@example.com", true},
 		{"display-name form", "Name <user@example.com>", false},
 		{"angle-addr form", "<user@example.com>", false},
 		{"rfc comment", "user@example.com (comment)", false},

@@ -63,12 +63,17 @@ func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityT
 
 func (m *mockAppleAuthService) GenerateToken(*authm.User) (string, error) { return "apple-token", nil }
 
-// TestAppleCallbackHandler_NameGuard covers the third handler that writes
-// users.first_name / users.last_name. Both fields arrive in the REQUEST BODY
-// rather than in the identity token, so they are caller-controlled.
+// TestAppleCallbackHandler_NameGuard covers the third of the three REQUEST-BODY
+// handlers that write users.first_name / users.last_name, the others being
+// RegisterHandler and UpdateProfileHandler. Both fields arrive in the request
+// body rather than in the identity token, so they are caller-controlled.
 //
-// Unlike the other two write sites this one DROPS a refused name instead of
-// erroring: FindOrCreateAppleUser ignores the names once the Apple account is
+// Those three are not the whole inventory: the goth OAuth callback
+// (services/user/user.go) writes the same columns from provider-asserted values
+// and is guarded by nothing. That gap is tracked, not covered here.
+//
+// Unlike the other two request-body sites this one DROPS a refused name instead
+// of erroring: FindOrCreateAppleUser ignores the names once the Apple account is
 // known, so refusing would fail an authentication over a discarded field.
 func TestAppleCallbackHandler_NameGuard(t *testing.T) {
 	overLong := strings.Repeat("x", maxProfileFieldRunes+1)

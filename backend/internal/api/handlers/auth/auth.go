@@ -113,9 +113,11 @@ func validateEmailAddress(raw string) (message string, ok bool) {
 // It does NOT close that class in general, and must not be described as if it
 // does. Characters that render blank while being neither control, space, nor
 // format still pass: U+3164 HANGUL FILLER, U+115F, U+1160, U+FFA0 and U+2800
-// BRAILLE PATTERN BLANK are all Graphic and So/Lo. Refusing those generically
-// means requiring an ASCII domain, which is a stricter domain rule than this
-// ticket's owner decided on, so the residue is tracked rather than closed here.
+// BRAILLE PATTERN BLANK are all Graphic and So/Lo. They pass in the LOCAL PART
+// as readily as in the domain, so closing the class generically means
+// constraining which scripts an address may use on both sides of the "@", not
+// just tightening the domain. That is a broader rule than this ticket decided
+// on, so the residue is tracked rather than closed here.
 //
 // Applied to addresses only, never to names. validateProfileName deliberately
 // allows category Cf, because the joiners several scripts need in legitimate
