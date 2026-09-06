@@ -627,9 +627,9 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
-	// The address stored here is the one FinishSignupHandler reads back out of
-	// the challenge and writes to the users row, so this is the only guard on
-	// the passkey-signup write path.
+	// FinishSignupHandler writes the users row from the address this handler
+	// stores in the challenge, never from its own request body, so the guard
+	// belongs here.
 	email, errMsg, ok := validateEmailAddress(input.Body.Email)
 	if !ok {
 		resp.Body.Success = false

@@ -46,8 +46,8 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 }
 
 // maxProfileNameRunes bounds every user-supplied identity name (display name,
-// first name, last name) in RUNES, not bytes. It matches the users table's
-// VARCHAR(100) on those three columns and the /profile form's maxLength=100.
+// first name, last name) in RUNES, not bytes, matching the users table's
+// VARCHAR(100) on all three columns.
 const maxProfileNameRunes = 100
 
 // validateEmailAddress is the shared guard for every handler that stores a
@@ -63,7 +63,7 @@ func validateEmailAddress(raw string) (normalized, message string, ok bool) {
 	trimmed := strings.TrimSpace(raw)
 	addr, err := mail.ParseAddress(trimmed)
 	if err != nil || addr.Address != trimmed {
-		return "", "Enter a valid email address", false
+		return "", "Email must be a valid email address", false
 	}
 	return trimmed, "", true
 }
@@ -566,9 +566,8 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 
 type RegisterRequest struct {
 	Body struct {
-		// No `validate:"..."` tags: huma reads its own schema tags, this repo
-		// wires no go-playground validator, and RegisterHandler is where the
-		// address and name rules are actually enforced.
+		// No `validate:"..."` tags: nothing reads them here. RegisterHandler
+		// enforces the address and name rules.
 		Email          string  `json:"email" example:"test@example.com" doc:"User email"`
 		Password       string  `json:"password" example:"password" doc:"User password"`
 		FirstName      *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
