@@ -60,7 +60,10 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 		limit = sceneCollectionsDefaultLimit
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 
 	// Same existence gate as the scene's other front-page rails
 	// (GetSceneShowsInRange, GetActiveArtists, GetSceneGraph): a slug that

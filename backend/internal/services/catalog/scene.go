@@ -422,62 +422,42 @@ type sceneScope struct {
 
 func (sc sceneScope) isMetro() bool { return sc.metro != "" }
 
-// scopeFor resolves a scene's DISPLAY city/state to its query scope: the scope
-// of the venue group that publishes the scene's slug, and the geocoder's
-// reading of the place when no group does. See sceneScopeFor.
-func (s *SceneService) scopeFor(city, state string) sceneScope {
-	return sceneScopeFor(s.db, s.geocoder, city, state)
-}
-
-// sceneScopeFor is scopeFor without a SceneService: the scope a scene addressed
-// as (city, state) queries through.
+// scopeFor is the scope a scene addressed by its DISPLAY (city, state) queries
+// through: the scope of the venue group that publishes the scene's slug, and
+// the geocoder's reading of the place when no group publishes it.
 //
 // It reads the venue rows rather than the geocoder alone because the scenes
 // DIRECTORY does. ListScenes groups verified rooms by sceneGroupKeySQL, so a
 // city whose rooms all carry a NULL venues.metro is a FALLBACK group even
 // though the city itself pins a CBSA, and the slug that group publishes is the
-// city's own. Resolving that slug through the geocoder alone answers with the
-// metro, whose rooms are a different set and, in that shape, an empty one: the
-// directory lists the scene, the sitemap announces it, and the page it links to
-// 404s.
+// city's own. The geocoder reading of that slug is the metro, whose rooms are a
+// different set and, in that shape, an empty one.
 //
-// publishedSceneGroup answers with the group the slug names, under the winner
-// rule collapseSceneGroupsToCanonicalSlug publishes by, so the two surfaces
-// cannot answer differently about which rooms a scene holds.
+// The geocoder reading answers for the slugs no group publishes: a metro member
+// slug (mesa-az), which canonicalizes onto its metro's page, and a place with
+// too few verified rooms to be a scene, which the caller's own existence gate
+// turns into a 404.
 //
-// The geocoder reading is what a slug NO group publishes still resolves
-// through: a metro member slug on a healthy metro (mesa-az), and a place with
-// too few verified rooms to be a scene at all. Both must keep answering as they
-// did, the first because it canonicalizes to its metro's page and the second
-// because the caller's own existence gate is what turns it into a 404.
-func sceneScopeFor(database *gorm.DB, g geo.Geocoder, city, state string) sceneScope {
-	geocoded := metroScopeFor(g, city, state)
-	grp, ok, err := publishedSceneGroup(database, g, buildSceneSlug(city, state), geocoded.metro)
+// A failed lookup returns the error: the geocoded scope holds a different room
+// set, so answering with it serves another scene's rooms.
+func (s *SceneService) scopeFor(city, state string) (sceneScope, error) {
+	geocoded := metroScopeFor(s.geocoder, city, state)
+	grp, ok, err := publishedSceneGroup(s.db, s.geocoder, buildSceneSlug(city, state), geocoded.metro)
 	if err != nil {
-		// The scope still answers, because every caller of this is about to run
-		// a query that will surface the same fault with its own error. Failing
-		// the resolution here would turn a transient database error into a 404,
-		// which reads as "this scene does not exist".
-		slog.Default().Error("scene scope resolution failed; keeping the geocoded scope",
-			"city", city, "state", state, "error", err)
-		return geocoded
+		return sceneScope{}, err
 	}
 	if !ok {
-		return geocoded
+		return geocoded, nil
 	}
-	return sceneScopeForGroup(grp)
+	return sceneScopeForGroup(grp), nil
 }
 
 // sceneScopeForGroup is the scope a venue group's own rows form: its CBSA for a
 // metro group, its literal (city, state) for a fallback group.
 //
-// The scope's city/state carry the group's DISPLAY identity, which is the
-// principal city for a metro group and the group's own literal city otherwise,
-// so buildSceneSlug over them reproduces the slug the group publishes.
-//
-// Deriving the scope from the group's KEY is what keeps a group's rooms and its
-// page's rooms the same set. Re-deriving it from the display identity instead
-// hands a drifted fallback group the metro scope, whose rooms it does not hold.
+// The scope's city/state carry the group's DISPLAY identity, so buildSceneSlug
+// over them reproduces the slug the group publishes. Taking the scope from the
+// group's KEY is what keeps a group's rooms and its page's rooms one set.
 func sceneScopeForGroup(grp sceneVenueGroup) sceneScope {
 	if grp.Metro != "" {
 		city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
@@ -489,29 +469,34 @@ func sceneScopeForGroup(grp sceneVenueGroup) sceneScope {
 // publishedSceneGroup returns the venue group that publishes a scene slug, and
 // false when no group does.
 //
-// Candidates are narrowed to the groups that can carry the slug: the CBSA's
-// rooms (a metro group displays under its principal city, and its rooms sit in
-// member cities the slug never names) and the rooms whose own slug form is this
-// slug. cbsa is the caller's metro reading of the slug, empty when the place
-// pins none. The final slug comparison, not the narrowing, is what decides
-// membership, so a wider narrowing would only cost rows.
+// Exactly two kinds of group can carry a slug, and they are read separately
+// because one is a lookup and the other is a count:
 //
-// sceneSlugExprSQL names bare columns, which resolve against the single venues
-// table this scans. A join added here would make them ambiguous, and Postgres
-// would say so.
+//   - FALLBACK groups, keyed on a literal (city, state). Their rooms carry no
+//     metro and their own slug form is the slug, which idx_venues_verified_scene_slug
+//     answers. There can be several: sceneGroupKeySQL only lower/trims while
+//     buildSceneSlug also maps spaces to dashes, so two spellings of one city
+//     are two groups under one slug.
+//   - The METRO group of the CBSA the slug's place pins, which displays under
+//     that metro's principal city. It carries the slug only when the slug IS the
+//     principal's, so a member slug (mesa-az) reads no metro rows at all, and
+//     v.metro = ? is one indexed count rather than a grouped scan.
+//
+// COUNT(*) rather than COUNT(DISTINCT v.id): neither read joins, so a venue is
+// one row.
 //
 // The winner among candidates is sceneGroupOutranks', the rule
 // collapseSceneGroupsToCanonicalSlug publishes the directory and the sitemap by.
-// Only VenueCount is projected alongside the identity, which that function is
-// free to read; ShowCount arrives zero on every row, so it ties and the group
-// key decides, exactly as it does for a set the counts cannot separate.
+// The collapse itself is not reused because it logs a collision per call, which
+// belongs to the surfaces that enumerate scenes rather than to a resolution
+// every scene request performs. ShowCount is unprojected here, so it ties at
+// zero and the group key decides, as it does for any set the counts cannot
+// separate.
 //
-// The venue floor is applied and the show floor is NOT. A scene's PAGE has
-// never required shows to exist (GetSceneDetail gates on verified rooms alone),
-// so a group carrying rooms and no shows must keep resolving to its own scope
-// rather than falling back to a metro whose rooms it does not hold. The
-// directory's extra show floor means a group can publish a page it does not
-// list, which is the direction that costs nobody a 404.
+// The venue floor is applied and the show floor is NOT: GetSceneDetail gates on
+// verified rooms alone, so a group carrying rooms and no shows resolves to its
+// own scope. The directory's extra show floor can therefore publish a page it
+// does not list, which is the direction that costs nobody a 404.
 func publishedSceneGroup(database *gorm.DB, g geo.Geocoder, slug, cbsa string) (sceneVenueGroup, bool, error) {
 	if database == nil {
 		return sceneVenueGroup{}, false, fmt.Errorf("database not initialized")
@@ -521,26 +506,43 @@ func publishedSceneGroup(database *gorm.DB, g geo.Geocoder, slug, cbsa string) (
 		return sceneVenueGroup{}, false, nil
 	}
 
-	narrowed := sceneSlugExprSQL + " = ?"
-	args := []any{slug}
-	if cbsa != "" {
-		narrowed = "v.metro = ? OR " + narrowed
-		args = []any{cbsa, slug}
-	}
-	args = append(args, sceneMinVenues)
-
+	// sceneSlugExprSQL names bare columns, which resolve against the single
+	// venues table this scans.
 	var groups []sceneVenueGroup
 	if err := database.Raw(`
 		SELECT `+sceneGroupIdentitySQL+`,
-		       COUNT(DISTINCT v.id) AS venue_count
+		       COUNT(*) AS venue_count
 		FROM venues v
 		WHERE true
 		  `+sceneVenueEligibilitySQL+`
-		  AND (`+narrowed+`)
+		  AND v.metro IS NULL
+		  AND `+sceneSlugExprSQL+` = ?
 		GROUP BY `+sceneGroupKeySQL+`
-		HAVING COUNT(DISTINCT v.id) >= ?
-	`, args...).Scan(&groups).Error; err != nil {
-		return sceneVenueGroup{}, false, fmt.Errorf("failed to resolve the venue group for scene slug %q: %w", slug, err)
+		HAVING COUNT(*) >= ?
+	`, slug, sceneMinVenues).Scan(&groups).Error; err != nil {
+		return sceneVenueGroup{}, false, fmt.Errorf("failed to resolve the fallback venue groups for scene slug %q: %w", slug, err)
+	}
+
+	if cbsa != "" {
+		principal, ok := geo.MetroPrincipalByCBSA(cbsa)
+		if ok && buildSceneSlug(principal.City, principal.State) == slug {
+			var metroGroup sceneVenueGroup
+			if err := database.Raw(`
+				SELECT MIN(v.city) AS city,
+				       MIN(v.state) AS state,
+				       COUNT(*) AS venue_count
+				FROM venues v
+				WHERE true
+				  `+sceneVenueEligibilitySQL+`
+				  AND v.metro = ?
+			`, cbsa).Scan(&metroGroup).Error; err != nil {
+				return sceneVenueGroup{}, false, fmt.Errorf("failed to count the metro venue group for scene slug %q: %w", slug, err)
+			}
+			metroGroup.Metro = cbsa
+			if metroGroup.VenueCount >= sceneMinVenues {
+				groups = append(groups, metroGroup)
+			}
+		}
 	}
 
 	var winner sceneVenueGroup
@@ -562,11 +564,10 @@ func publishedSceneGroup(database *gorm.DB, g geo.Geocoder, slug, cbsa string) (
 // second, independently-written "near this city" rule would drift from the
 // scene rosters and give two different answers to one question.
 //
-// sceneScopeFor, not this, is what a scene addressed by its slug queries
-// through: this reading knows the geo dataset and nothing about which rooms
-// exist. The venue list stays on this one because its metro predicate unions
-// the literal city in (metroRollupPredicate), so a NULL-metro room in a CBSA
-// city is already in its answer.
+// It knows the geo dataset and nothing about which rooms exist, so a scene
+// addressed by its slug goes through scopeFor instead. The venue list stays on
+// this one: metroRollupPredicate unions the literal city into its metro
+// predicate, so a NULL-metro room in a CBSA city is already in its answer.
 func metroScopeFor(g geo.Geocoder, city, state string) sceneScope {
 	if g != nil {
 		if m, ok := g.ResolveMetro(city, state, usCountry); ok {
@@ -629,16 +630,9 @@ func (s *SceneService) artistPredicate(scope sceneScope, alias string) (string, 
 // Model(&Venue{}) emits an unaliased `FROM "venues"`, which is why the alias is
 // the bare table name.
 func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
-	return verifiedVenueCountIn(s.db, scope)
-}
-
-// verifiedVenueCountIn is verifiedVenueCount without a SceneService, so the
-// proxy's existence probe gates on the same count the page does rather than on
-// a second spelling of it.
-func verifiedVenueCountIn(database *gorm.DB, scope sceneScope) (int64, error) {
 	pred, args := trackedVenuePredicate(scope, "venues")
 	var n int64
-	if err := database.Model(&catalogm.Venue{}).Where(pred, args...).Count(&n).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where(pred, args...).Count(&n).Error; err != nil {
 		return 0, err
 	}
 	return n, nil
@@ -866,7 +860,10 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	}
 
 	now := time.Now().UTC()
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	vp, vargs := scope.venuePredicate("v")
 	ap, aargs := s.artistPredicate(scope, "a2")
 	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
@@ -1100,7 +1097,10 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 		loc = time.UTC
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	} else if n < sceneMinVenues {
@@ -1273,7 +1273,10 @@ func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now ti
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, 0, err
+	}
 	ap, aargs := s.artistPredicate(scope, "a")
 
 	// Total in the window (uncapped) so the caller can show "+N more".
@@ -1338,7 +1341,10 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, 0, err
+	}
 	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	} else if n < sceneMinVenues {
@@ -1430,7 +1436,10 @@ func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDa
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	} else if n < sceneMinVenues {
@@ -1543,11 +1552,11 @@ func parseSceneSlugParts(slug string) (city, state string) {
 // carry a NULL venues.metro is such a group, and the metro reading below would
 // answer with a principal city those rooms are not in.
 //
-// A slug NO group publishes resolves through the geo dataset, as before: a US
-// slug whose (city,state) pins a Census CBSA resolves to that metro's PRINCIPAL
-// city, so an old member slug ("tempe-az", "brooklyn-ny") lands on its metro's
-// canonical scene instead of 404ing (PSY-1255 step C). A slug with no CBSA
-// falls back to matching a verified venue's literal (city, state).
+// A slug NO group publishes resolves through the geo dataset: a US slug whose
+// (city,state) pins a Census CBSA resolves to that metro's PRINCIPAL city, so a
+// member slug ("tempe-az", "brooklyn-ny") lands on its metro's canonical scene
+// instead of 404ing (PSY-1255 step C). A slug with no CBSA falls back to
+// matching a verified venue's literal (city, state).
 //
 // Only the first reading knows whether a scene EXISTS, and it is not a gate:
 // the two below resolve identities with too few verified rooms to be a scene,
@@ -1701,7 +1710,10 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	ap, aargs := s.artistPredicate(scope, "a")
 
 	type genreRow struct {
@@ -1712,7 +1724,7 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 	}
 
 	var rows []genreRow
-	err := s.db.Raw(`
+	err = s.db.Raw(`
 		SELECT t.id AS tag_id, t.name, t.slug, COUNT(DISTINCT a.id) AS count
 		FROM artists a
 		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = a.id
@@ -1757,7 +1769,10 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 		return 0, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return 0, err
+	}
 	ap, aargs := s.artistPredicate(scope, "a")
 
 	type genreRow struct {
@@ -1765,7 +1780,7 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 	}
 
 	var rows []genreRow
-	err := s.db.Raw(`
+	err = s.db.Raw(`
 		SELECT COUNT(DISTINCT a.id) AS count
 		FROM artists a
 		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = a.id
@@ -1903,7 +1918,10 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	}
 
 	// Validate scene exists (mirrors GetActiveArtists / GetSceneDetail).
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	} else if n < sceneMinVenues {

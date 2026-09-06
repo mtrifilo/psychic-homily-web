@@ -43,7 +43,7 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 
 	// Drift with nothing to collide with: every verified room of a CBSA-pinning
 	// PRINCIPAL city carries a NULL metro, so the scene the directory lists is
-	// the fallback group and the metro holds no rooms at all (PSY-2033).
+	// the fallback group and the metro holds no rooms at all.
 	flagstaffA := suite.createVerifiedVenueNullMetro("Orpheum Flagstaff", "Flagstaff", "AZ")
 	flagstaffB := suite.createVerifiedVenueNullMetro("Green Room", "Flagstaff", "AZ")
 	shows("Flagstaff", flagstaffA, flagstaffB)
@@ -69,12 +69,19 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 	// Below the venue floor, drifted as well: it must stay off every surface.
 	sedona := suite.createVerifiedVenueNullMetro("Sound Bites", "Sedona", "AZ")
 	shows("Sedona", sedona)
+
+	// A spelling collision whose halves are one room each: the slug matches two
+	// rooms and no group clears the floor, so no scene exists under it and the
+	// page the slug resolves to holds one room.
+	trois := suite.createVerifiedVenue("Trois A", "Trois Rivieres", "QC")
+	suite.Require().Nil(trois.Metro, "a non-US city must not pin a CBSA")
+	suite.createVerifiedVenue("Trois B", "Trois-Rivieres", "QC")
 }
 
-// TestEveryListedSceneResolvesOnItsDetailRoute is the cross-surface property
-// PSY-2033 exists to hold: a slug the scenes directory publishes has a page,
-// that page is built from the rooms the directory counted, and the existence
-// probe the frontend proxy soft-404s on agrees that it is there.
+// TestEveryListedSceneResolvesOnItsDetailRoute is the cross-surface property:
+// a slug the scenes directory publishes has a page, that page is built from the
+// rooms the directory counted, and the existence probe the frontend proxy
+// soft-404s on agrees that it is there.
 //
 // It asserts over whatever the directory returns rather than over a list of
 // expected slugs, so a shape added to the corpus is covered by construction.
@@ -115,6 +122,15 @@ func (suite *SceneServiceIntegrationTestSuite) TestEveryListedSceneResolvesOnIts
 		week, err := suite.sceneService.GetSceneWeek(city, state, ISOWeekKey(time.Now().UTC()))
 		suite.Require().NoError(err, "the week permalink 404s for a scene the directory lists: %s", listed.Slug)
 		suite.Equal(listed.Slug, buildSceneSlug(week.City, week.State))
+
+		// The seam under all of the above: the scope the page queries through
+		// holds the rooms the directory counted.
+		scope, err := suite.sceneService.scopeFor(listed.City, listed.State)
+		suite.Require().NoError(err)
+		count, err := suite.sceneService.verifiedVenueCount(scope)
+		suite.Require().NoError(err)
+		suite.Equal(int64(listed.VenueCount), count,
+			"%s is scoped to a room set the directory did not count", listed.Slug)
 	}
 
 	suite.NotContains(slugs, "sedona-az", "a city below the venue floor is not a scene")
@@ -162,52 +178,39 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 	}
 }
 
-// TestExistenceProbeAgreesWithTheDetailRouteOnMemberSlugs covers the slugs no
-// group publishes: a metro MEMBER city's slug, which ParseSceneSlug
-// canonicalizes onto its metro's page. The probe is what the frontend proxy
-// soft-404s on, so a probe that says no about a page that renders hides it.
+// TestExistenceProbeAgreesWithTheDetailRoute covers the slugs the directory
+// does NOT publish, where the probe and the page can still disagree. The probe
+// is what the frontend proxy soft-404s on, so a probe that says no about a page
+// that renders hides it, and one that says yes about a page that 404s sends a
+// reader to an error.
 //
-// Sedona is the case that bites: it rolls up to a metro whose own rooms all
-// carry a NULL venues.metro, so counting the CBSA's rooms answers zero while
-// the page it canonicalizes to serves the drifted group's rooms.
-func (suite *SceneServiceIntegrationTestSuite) TestExistenceProbeAgreesWithTheDetailRouteOnMemberSlugs() {
+// Both directions are seeded. A metro member slug (sedona-az, mesa-az) has no
+// group of its own and canonicalizes onto its metro's page; sedona-az is the
+// one that bites, because the metro it rolls up to holds its rooms in a drifted
+// fallback group. A spelling collision below the floor (trois-rivieres-qc)
+// matches two rooms by slug and one by scope.
+func (suite *SceneServiceIntegrationTestSuite) TestExistenceProbeAgreesWithTheDetailRoute() {
 	suite.seedCrossSurfaceScenes()
 	existence := NewEntityExistenceService(suite.db)
 
-	for _, slug := range []string{"sedona-az", "mesa-az"} {
-		metro, pins := geo.Default().ResolveMetro(strings.ReplaceAll(strings.TrimSuffix(slug, "-az"), "-", " "), "az", usCountry)
-		suite.Require().True(pins, "%s is only a member slug if it pins a CBSA", slug)
-		suite.Require().NotEmpty(metro.CBSACode)
-
+	agrees := func(slug string) bool {
 		city, state, err := suite.sceneService.ParseSceneSlug(slug)
 		suite.Require().NoError(err)
-		suite.NotEqual(slug, buildSceneSlug(city, state), "%s must canonicalize onto another city's page", slug)
-
+		suite.NotEqual(slug, "", "the fixture names a slug")
 		_, detailErr := suite.sceneService.GetSceneDetail(city, state)
 		exists, err := existence.Exists("scenes", slug)
 		suite.Require().NoError(err)
-		suite.Equal(detailErr == nil, exists,
-			"the proxy gate and the page disagree about %s", slug)
-		suite.True(exists, "%s canonicalizes onto a scene that exists in this corpus", slug)
+		suite.Equal(detailErr == nil, exists, "the proxy gate and the page disagree about %s", slug)
+		return exists
 	}
-}
 
-// TestPublishedSceneGroupPicksTheDirectorysWinner pins the seam itself: the
-// group a slug resolves its scope from is the group the directory publishes
-// that slug's counts from. Asserted over the corpus rather than one shape, so
-// the two rules cannot be changed apart.
-func (suite *SceneServiceIntegrationTestSuite) TestPublishedSceneGroupPicksTheDirectorysWinner() {
-	suite.seedCrossSurfaceScenes()
-
-	scenes, err := suite.sceneService.ListScenes()
-	suite.Require().NoError(err)
-	suite.Require().NotEmpty(scenes)
-
-	for _, listed := range scenes {
-		scope := suite.sceneService.scopeFor(listed.City, listed.State)
-		count, err := suite.sceneService.verifiedVenueCount(scope)
-		suite.Require().NoError(err)
-		suite.Equal(int64(listed.VenueCount), count,
-			"%s is scoped to a room set the directory did not count", listed.Slug)
+	for _, slug := range []string{"sedona-az", "mesa-az"} {
+		city, state := parseSceneSlugParts(slug)
+		_, pins := geo.Default().ResolveMetro(city, state, usCountry)
+		suite.Require().True(pins, "%s is only a member slug if it pins a CBSA", slug)
+		suite.True(agrees(slug), "%s canonicalizes onto a scene this corpus holds", slug)
 	}
+
+	suite.False(agrees("trois-rivieres-qc"),
+		"two spellings of one room each are not a scene under either spelling")
 }

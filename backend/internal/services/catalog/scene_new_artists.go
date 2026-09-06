@@ -72,7 +72,10 @@ func (s *SceneService) GetSceneLatestArtists(city, state string, now time.Time, 
 		limit = sceneLatestArtistsDefaultLimit
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	ap, aargs := s.artistPredicate(scope, "a")
 
 	type row struct {

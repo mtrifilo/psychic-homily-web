@@ -722,7 +722,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	// week's buckets: GetSceneWeek buckets scene-locally, so a UTC-formatted key
 	// names the wrong week whenever the anchor instant has already crossed into
 	// Monday UTC but is still Sunday in the scene (Phoenix is UTC-7 year round).
-	sceneLoc, _ := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
+	phoenixScope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	sceneLoc, _ := suite.sceneService.sceneLocation(phoenixScope, "AZ")
 	anchorWeekKey := ISOWeekKey(anchor.In(sceneLoc))
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
@@ -1086,7 +1088,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroD
 
 	// The number the surviving row publishes is the number its destination page
 	// serves: the collapse must not leave the directory contradicting the page.
-	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor("Phoenix", "AZ"))
+	scope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	count, err := suite.sceneService.verifiedVenueCount(scope)
 	suite.Require().NoError(err)
 	suite.Equal(int64(scenes[0].VenueCount), count)
 }
@@ -1130,7 +1134,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDo
 	suite.Equal(resolvedState, scenes[0].State)
 
 	// And the counts must be that group's alone, not the pair summed.
-	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor(resolvedCity, resolvedState))
+	scope, err := suite.sceneService.scopeFor(resolvedCity, resolvedState)
+	suite.Require().NoError(err)
+	count, err := suite.sceneService.verifiedVenueCount(scope)
 	suite.Require().NoError(err)
 	suite.Equal(int64(scenes[0].VenueCount), count)
 	suite.Equal(2, scenes[0].VenueCount)

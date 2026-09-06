@@ -1,29 +1,32 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/services/geo"
 )
 
 // EntityExistenceService answers lightweight public entity existence probes.
-// It intentionally avoids the detail services, which hydrate joins and response
-// bodies that the frontend proxy does not need before rendering a page.
+// It avoids the detail services' HYDRATION, which builds joins and response
+// bodies the frontend proxy does not need before rendering a page. Scene
+// existence is not hydration: it is slug resolution plus a count, and it runs
+// through SceneService so the gate cannot answer differently than the page.
 type EntityExistenceService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	scenes *SceneService
 }
 
 func NewEntityExistenceService(database *gorm.DB) *EntityExistenceService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &EntityExistenceService{db: database}
+	return &EntityExistenceService{db: database, scenes: NewSceneService(database)}
 }
 
 func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, error) {
@@ -82,58 +85,33 @@ func (s *EntityExistenceService) existsByIDOrSlug(model any, idOrSlug string, ex
 	return id != 0, nil
 }
 
-// sceneExists gates the proxy soft-404 for /scenes/{slug}. It mirrors
-// GetSceneDetail's existence rule (>= sceneMinVenues verified venues) in the
-// readings ParseSceneSlug resolves a slug through, so the gate and the page
-// agree about which slugs have a scene behind them.
+// sceneExists gates the proxy soft-404 for /scenes/{slug}.
 //
-// The slug's own venue group answers first, through the rule the scenes
-// directory publishes by: a city whose verified rooms all carry a NULL
-// venues.metro is a scene the metro count below cannot see, and gating it off
-// soft-404s a page the directory links to.
+// It runs the page's own rule rather than a probe-sized restatement of it: the
+// slug resolved through ParseSceneSlug, scoped through scopeFor, counted
+// against the >= sceneMinVenues floor GetSceneDetail gates on. Restating it
+// gave the gate and the page different answers about the same slug, in both
+// directions, and a gate that disagrees with the page it guards either hides a
+// scene or announces one that 404s.
 //
-// A slug no group publishes is canonicalized the way ParseSceneSlug
-// canonicalizes it, and counted in the scope that identity resolves to: a metro
-// member slug (mesa-az) names its metro's principal city, so the gate answers
-// for the page that slug actually serves. Counting the CBSA's own rooms instead
-// would gate a member slug off whenever the metro it rolls up to is itself a
-// drifted fallback group.
-//
-// A slug with no CBSA at all keeps the literal city-state venue match.
+// An unresolvable slug is absence, not failure: ParseSceneSlug reports it as a
+// scene-not-found error, and the probe answers false.
 func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
-	city, state := parseSceneSlugParts(slug)
-	cbsa := ""
-	if m, ok := geo.Default().ResolveMetro(city, state, usCountry); ok {
-		cbsa = m.CBSACode
-	}
-	if _, ok, err := publishedSceneGroup(s.db, geo.Default(), slug, cbsa); err != nil {
-		return false, err
-	} else if ok {
-		return true, nil
-	}
-
-	if cbsa != "" {
-		if principal, ok := geo.MetroPrincipalByCBSA(cbsa); ok {
-			scope := sceneScopeFor(s.db, geo.Default(), principal.City, principal.State)
-			n, err := verifiedVenueCountIn(s.db, scope)
-			if err != nil {
-				return false, err
-			}
-			return n >= sceneMinVenues, nil
+	city, state, err := s.scenes.ParseSceneSlug(slug)
+	if err != nil {
+		var sceneErr *apperrors.SceneError
+		if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
+			return false, nil
 		}
-	}
-
-	// No-CBSA fallback: match the SAME slug form ParseSceneSlug's no-CBSA
-	// resolver uses (scene.go), so the proxy gate and the page agree. It LOWERs
-	// both sides (handles mixed-case venue data) AND is lossless for hyphenated
-	// city names like "Winston-Salem", unlike re-parsing the slug, which would
-	// collapse the hyphen to a space and miss the stored row.
-	q := s.db.Model(&catalogm.Venue{}).
-		Where("verified = true").
-		Where(sceneSlugExprSQL+" = ?", strings.ToLower(slug))
-	var verifiedVenueCount int64
-	if err := q.Distinct("id").Count(&verifiedVenueCount).Error; err != nil {
 		return false, err
 	}
-	return verifiedVenueCount >= sceneMinVenues, nil
+	scope, err := s.scenes.scopeFor(city, state)
+	if err != nil {
+		return false, err
+	}
+	n, err := s.scenes.verifiedVenueCount(scope)
+	if err != nil {
+		return false, err
+	}
+	return n >= sceneMinVenues, nil
 }
