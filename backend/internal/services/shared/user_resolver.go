@@ -81,8 +81,10 @@ func ResolveUserName(user *authm.User) string {
 // ResolveUserName's own body if not. Nowhere else.
 //
 // A tier holding only WHITESPACE counts as unset, and what a tier does return
-// is trimmed. Registration stores first_name raw (services/user/user.go; only
-// the profile PATCH trims), so " " and "\t" and "\n" are all storable today.
+// is trimmed. The request-body write paths now trim these columns and refuse
+// control characters, but the goth OAuth callback still writes first_name and
+// last_name straight from the provider (services/user/user.go), so " " and
+// "\t" and "\n" all remain storable.
 // Untrimmed they are non-empty strings that satisfy every `!= ""` gate above
 // and every `name &&` guard on the frontend, and the byline renders as a
 // dangling "added Jul 12 by " with an empty span. Trimming here rather than at

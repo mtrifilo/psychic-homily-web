@@ -46,8 +46,8 @@ func TestHasPublicName(t *testing.T) {
 		{"last name only", &authm.User{ID: 1, LastName: strptr("Doe")}, false},
 		{"email only", &authm.User{ID: 1, Email: strptr("asdf@example.com")}, false},
 		{"empty strings", &authm.User{ID: 1, DisplayName: strptr(""), Username: strptr(""), FirstName: strptr("")}, false},
-		// Whitespace is not a name. Registration stores first_name raw (only the
-		// profile PATCH trims), so all of these are storable today, and
+		// Whitespace is not a name. The goth OAuth callback still writes
+		// first_name raw, so all of these are storable today, and
 		// untrimmed each one is a non-empty string that satisfies every `!= ""`
 		// gate and every `name &&` guard on the frontend — producing a byline
 		// that reads "added Jul 12 by " with nothing after the "by".

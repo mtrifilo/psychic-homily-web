@@ -4039,17 +4039,30 @@ func TestValidateEmailAddress(t *testing.T) {
 		{"leading whitespace", "  user@example.com", false},
 		{"trailing whitespace", "user@example.com  ", false},
 		{"trailing CRLF", "user@example.com\r\n", false},
-		// ParseAddress folds ASCII whitespace away, which is what makes the
-		// padded forms above fail the byte-identity check. It does NOT do that
-		// for non-ASCII invisibles, so these round-trip unchanged and are
-		// accepted, on the same "accept what ParseAddress accepts" rule as the
-		// dotless domain. Byte-identical storage is what keeps them harmless:
-		// the address is looked up as the same bytes it was stored as, so an
-		// account created this way is reachable rather than locked out. It is
-		// still undeliverable, which is the deliverability follow-up's problem,
-		// not this guard's.
-		{"non-breaking space tail accepted", "user@example.com\u00a0", true},
-		{"zero-width space tail accepted", "user@example.com\u200b", true},
+		// The two space-padded cases above fail the byte-identity check, because
+		// ParseAddress folds ASCII whitespace away. The CRLF and NUL cases never
+		// reach that check: ParseAddress rejects them outright.
+		//
+		// ParseAddress does NOT fold non-ASCII invisibles, so these would
+		// round-trip byte-identical and pass identity. hasNonASCIIInvisible is
+		// what refuses them, so that two addresses rendering the same cannot be
+		// two rows.
+		{"non-breaking space tail", "user@example.com\u00a0", false},
+		{"zero-width space tail", "user@example.com\u200b", false},
+		{"NEL (C1 control)", "user@example.com\u0085", false},
+		{"BOM lead", "\ufeffuser@example.com", false},
+		{"ideographic space", "user@example.com\u3000", false},
+		// Legal RFC 5322, but ParseAddress normalizes the quotes away, so the
+		// form that would be stored is not the form that was sent.
+		{"quoted local part", "\"a b\"@example.com", false},
+		// The DOCUMENTED RESIDUE. These render blank but are Graphic and
+		// neither control, space, nor format, so hasNonASCIIInvisible does not
+		// catch them and they are accepted. Refusing them generically would
+		// mean requiring an ASCII domain, which is a stricter domain rule than
+		// was decided for this ticket. Pinned so the gap is visible and so a
+		// later change to close it is a deliberate edit to these lines.
+		{"hangul filler accepted (known gap)", "user@example.com\u3164", true},
+		{"braille blank accepted (known gap)", "user@example.com\u2800", true},
 		{"display-name form", "Name <user@example.com>", false},
 		{"angle-addr form", "<user@example.com>", false},
 		{"rfc comment", "user@example.com (comment)", false},
@@ -4092,9 +4105,9 @@ func TestValidateProfileName_Contract(t *testing.T) {
 		// Whitespace-only is the clear-the-field sentinel, not a refusal.
 		{"whitespace only clears", "   ", true, ""},
 		{"empty clears", "", true, ""},
-		{"at the bound", strings.Repeat("x", maxProfileNameRunes), true, strings.Repeat("x", maxProfileNameRunes)},
-		{"multibyte at the bound counts runes", strings.Repeat("é", maxProfileNameRunes), true, strings.Repeat("é", maxProfileNameRunes)},
-		{"over the bound", strings.Repeat("x", maxProfileNameRunes+1), false, ""},
+		{"at the bound", strings.Repeat("x", maxProfileFieldRunes), true, strings.Repeat("x", maxProfileFieldRunes)},
+		{"multibyte at the bound counts runes", strings.Repeat("é", maxProfileFieldRunes), true, strings.Repeat("é", maxProfileFieldRunes)},
+		{"over the bound", strings.Repeat("x", maxProfileFieldRunes+1), false, ""},
 		{"newline", "evil\nname", false, ""},
 		{"carriage return", "evil\rname", false, ""},
 		{"tab", "evil\tname", false, ""},
@@ -4209,6 +4222,11 @@ func TestRegisterHandler_AcceptsDotlessDomain(t *testing.T) {
 // exactly. A guard that rewrote the address would create accounts that cannot
 // subsequently be logged into, so padding is refused rather than trimmed.
 func TestRegisterHandler_StoresAddressUnchanged(t *testing.T) {
+	// The mixed-case address here pins that the guard does not REWRITE its
+	// input. It is not an endorsement of case-sensitive account identity: that
+	// "Bob@x.com" and "bob@x.com" are two accounts is a pre-existing gap
+	// recorded on validateEmailAddress, and closing it needs a migration, not a
+	// change to this assertion.
 	t.Run("exact bytes reach the user service", func(t *testing.T) {
 		const addr = "Mixed.Case@Example.com"
 		var gotEmail string
@@ -4319,9 +4337,9 @@ func TestRegisterHandler_RejectsMalformedNames(t *testing.T) {
 		lastName  *string
 	}{
 		{"first name newline", strPtr("evil\nname"), nil},
-		{"first name too long", strPtr(strings.Repeat("x", maxProfileNameRunes+1)), nil},
+		{"first name too long", strPtr(strings.Repeat("x", maxProfileFieldRunes+1)), nil},
 		{"last name newline", nil, strPtr("evil\nname")},
-		{"last name too long", nil, strPtr(strings.Repeat("x", maxProfileNameRunes+1))},
+		{"last name too long", nil, strPtr(strings.Repeat("x", maxProfileFieldRunes+1))},
 	}
 
 	for _, tc := range cases {
@@ -4420,7 +4438,7 @@ func TestUpdateProfileHandler_IdentityNamesShareOneGuard(t *testing.T) {
 		{"newline", "evil\nname"},
 		{"carriage return", "evil\rname"},
 		{"NUL", "evil\x00name"},
-		{"over the bound", strings.Repeat("x", maxProfileNameRunes+1)},
+		{"over the bound", strings.Repeat("x", maxProfileFieldRunes+1)},
 	}
 
 	for _, field := range fields {
@@ -4452,7 +4470,7 @@ func TestUpdateProfileHandler_IdentityNamesShareOneGuard(t *testing.T) {
 		}
 
 		t.Run(field.name+"/at the bound accepted", func(t *testing.T) {
-			atBound := strings.Repeat("x", maxProfileNameRunes)
+			atBound := strings.Repeat("x", maxProfileFieldRunes)
 			var gotUpdates map[string]any
 			mock := &testhelpers.MockUserService{
 				UpdateUserFn: func(_ uint, updates map[string]any) (*authm.User, error) {

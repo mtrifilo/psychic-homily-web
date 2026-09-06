@@ -5,7 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
+
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testAppleAuthHandler() *AppleAuthHandler {
@@ -34,29 +39,59 @@ func TestAppleCallbackHandler_EmptyToken(t *testing.T) {
 	}
 }
 
-// TestAppleCallbackHandler_RejectsMalformedNames covers the third handler that
-// writes users.first_name / users.last_name. first_name and last_name arrive in
-// the REQUEST BODY, not in the identity token, so they are caller-controlled on
-// a public endpoint and take the same guard as registration and profile update.
+// mockAppleAuthService records the names the handler passes through, so a test
+// can assert what would reach the users row.
+type mockAppleAuthService struct {
+	gotFirstName string
+	gotLastName  string
+	called       bool
+}
+
+func (m *mockAppleAuthService) ValidateIdentityToken(string) (*contracts.AppleIdentityTokenClaims, error) {
+	return &contracts.AppleIdentityTokenClaims{
+		Email:            "apple@example.com",
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "apple-sub-1"},
+	}, nil
+}
+
+func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
+	m.called = true
+	m.gotFirstName = firstName
+	m.gotLastName = lastName
+	return &authm.User{ID: 1, Email: strPtr("apple@example.com")}, nil
+}
+
+func (m *mockAppleAuthService) GenerateToken(*authm.User) (string, error) { return "apple-token", nil }
+
+// TestAppleCallbackHandler_NameGuard covers the third handler that writes
+// users.first_name / users.last_name. Both fields arrive in the REQUEST BODY
+// rather than in the identity token, so they are caller-controlled.
 //
-// The refusal lands before ValidateIdentityToken, so a nil service is enough to
-// reach it: a token that never gets verified proves the guard ran first.
-func TestAppleCallbackHandler_RejectsMalformedNames(t *testing.T) {
+// Unlike the other two write sites this one DROPS a refused name instead of
+// erroring: FindOrCreateAppleUser ignores the names once the Apple account is
+// known, so refusing would fail an authentication over a discarded field.
+func TestAppleCallbackHandler_NameGuard(t *testing.T) {
+	overLong := strings.Repeat("x", maxProfileFieldRunes+1)
+
 	cases := []struct {
 		name      string
 		firstName *string
 		lastName  *string
-		wantMsg   string
+		wantFirst string
+		wantLast  string
 	}{
-		{"first name newline", strPtr("evil\nname"), nil, "First name contains unsupported characters"},
-		{"first name too long", strPtr(strings.Repeat("x", maxProfileNameRunes+1)), nil, "First name must be 100 characters or fewer"},
-		{"last name newline", nil, strPtr("evil\nname"), "Last name contains unsupported characters"},
-		{"last name too long", nil, strPtr(strings.Repeat("x", maxProfileNameRunes+1)), "Last name must be 100 characters or fewer"},
+		{"clean names pass through", strPtr("Ada"), strPtr("Lovelace"), "Ada", "Lovelace"},
+		{"names are trimmed", strPtr("  Ada  "), strPtr("  Lovelace  "), "Ada", "Lovelace"},
+		{"control character is dropped", strPtr("evil\nname"), strPtr("Lovelace"), "", "Lovelace"},
+		{"over-long first name is dropped", strPtr(overLong), nil, "", ""},
+		{"over-long last name is dropped", strPtr("Ada"), strPtr(overLong), "Ada", ""},
+		{"absent names stay empty", nil, nil, "", ""},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := testAppleAuthHandler()
+			svc := &mockAppleAuthService{}
+			h := NewAppleAuthHandler(svc, &testhelpers.MockDiscordService{}, testConfig())
 			input := &AppleCallbackRequest{}
 			input.Body.IdentityToken = "any-token"
 			input.Body.FirstName = tc.firstName
@@ -66,11 +101,18 @@ func TestAppleCallbackHandler_RejectsMalformedNames(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-				t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+			// A refused name must never abort the sign-in.
+			if !resp.Body.Success {
+				t.Fatalf("expected success=true, got code=%s message=%q", resp.Body.ErrorCode, resp.Body.Message)
 			}
-			if resp.Body.Message != tc.wantMsg {
-				t.Errorf("expected message %q, got %q", tc.wantMsg, resp.Body.Message)
+			if !svc.called {
+				t.Fatal("expected the sign-in to reach FindOrCreateAppleUser")
+			}
+			if svc.gotFirstName != tc.wantFirst {
+				t.Errorf("first_name reaching the service = %q, want %q", svc.gotFirstName, tc.wantFirst)
+			}
+			if svc.gotLastName != tc.wantLast {
+				t.Errorf("last_name reaching the service = %q, want %q", svc.gotLastName, tc.wantLast)
 			}
 		})
 	}

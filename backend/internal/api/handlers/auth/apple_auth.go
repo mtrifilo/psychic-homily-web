@@ -31,7 +31,7 @@ func NewAppleAuthHandler(appleAuthService contracts.AppleAuthServiceInterface, d
 // AppleCallbackRequest represents the Sign in with Apple callback request
 type AppleCallbackRequest struct {
 	Body struct {
-		IdentityToken string  `json:"identity_token" doc:"Apple identity token (JWT)" validate:"required"`
+		IdentityToken string  `json:"identity_token" doc:"Apple identity token (JWT)"`
 		FirstName     *string `json:"first_name,omitempty" doc:"User's first name (only provided on first sign-in)"`
 		LastName      *string `json:"last_name,omitempty" doc:"User's last name (only provided on first sign-in)"`
 	}
@@ -69,30 +69,33 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 
 	// Names are request-body fields, not identity-token claims: the token
 	// authenticates the Apple account but says nothing about the names, so they
-	// are caller-controlled and take the same guard as the other two handlers
-	// that write these columns. Checked before the token, which is verified
-	// against Apple's remote JWKS.
+	// are caller-controlled and take the same guard as the other request-body
+	// handlers that write these columns (RegisterHandler, UpdateProfileHandler).
+	//
+	// A refused name is DROPPED, not turned into an error, which is where this
+	// diverges from those two. Apple sends a name only on the first authorization,
+	// so clients cache it and resend it on later callbacks, and
+	// FindOrCreateAppleUser ignores both names entirely once the Apple account is
+	// known. Refusing would therefore fail an authentication over a field the
+	// request was going to discard. Dropping keeps the column clean, which is the
+	// property the guard is for, without making a cosmetic field able to block
+	// sign-in. firstName/lastName already default to "" when Apple omits them, so
+	// a dropped name is a shape the create path handles.
 	firstName := ""
 	lastName := ""
 	if input.Body.FirstName != nil {
-		name, errMsg, ok := validateProfileName("First name", *input.Body.FirstName)
-		if !ok {
-			resp.Body.Success = false
-			resp.Body.Message = errMsg
-			resp.Body.ErrorCode = autherrors.CodeValidationFailed
-			return resp, nil
+		if name, errMsg, ok := validateProfileName("First name", *input.Body.FirstName); ok {
+			firstName = name
+		} else {
+			logger.AuthWarn(ctx, "apple_auth_name_dropped", "field", "first_name", "error", errMsg)
 		}
-		firstName = name
 	}
 	if input.Body.LastName != nil {
-		name, errMsg, ok := validateProfileName("Last name", *input.Body.LastName)
-		if !ok {
-			resp.Body.Success = false
-			resp.Body.Message = errMsg
-			resp.Body.ErrorCode = autherrors.CodeValidationFailed
-			return resp, nil
+		if name, errMsg, ok := validateProfileName("Last name", *input.Body.LastName); ok {
+			lastName = name
+		} else {
+			logger.AuthWarn(ctx, "apple_auth_name_dropped", "field", "last_name", "error", errMsg)
 		}
-		lastName = name
 	}
 
 	// Validate the Apple identity token

@@ -45,37 +45,44 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 	return "", "", true
 }
 
-// maxProfileNameRunes bounds every user-supplied identity name (display name,
-// first name, last name) in RUNES, not bytes, matching the users table's
-// VARCHAR(100) on all three columns and the /profile form's maxLength=100 on
-// the one of them that form renders. The location column shares that width but
-// keeps its own length check: it takes no control-character refusal, so it does
-// not go through validateProfileName.
-const maxProfileNameRunes = 100
+// maxProfileFieldRunes bounds the user-supplied profile text columns in RUNES,
+// not bytes: display_name, first_name, last_name and location are each
+// VARCHAR(100). The three names additionally take the control-character
+// refusal in validateProfileName; location takes only this bound.
+const maxProfileFieldRunes = 100
 
 // maxEmailBytes is RFC 5321's maximum path length for an address. It is a byte
 // count, which is the stricter reading of the users table's VARCHAR(255), so no
 // accepted address can overflow that column, multi-byte local parts included.
 const maxEmailBytes = 254
 
-// validateEmailAddress is the shared guard for the handlers that store a
-// user-supplied address: password registration and passkey signup. The OAuth
-// account-creation paths (services/auth/apple.go and the goth callback in
-// services/user/user.go) write the column from a provider-asserted address
-// rather than from a request body, and are trusted by design, not overlooked.
+// validateEmailAddress is the shared guard for the handlers that store an
+// address taken from a REQUEST BODY: password registration and passkey signup.
+// The two OAuth account-creation paths write users.email from a
+// provider-asserted value instead (services/auth/apple.go from the verified
+// identity token, services/user/user.go from the goth callback), and are
+// trusted by design rather than overlooked.
 //
-// The rule is that the input must ALREADY be a bare RFC 5322 addr-spec: it
-// parses, and the parsed address is byte-identical to the input. That refuses a
-// display-name form ("Name <a@b.com>"), an RFC comment, a second address, and
-// any surrounding whitespace or trailing CRLF.
+// The rule is byte-identity: the input parses, and the parsed address equals
+// the input exactly. That refuses a display-name form ("Name <a@b.com>"), an
+// RFC comment, a second address, and surrounding ASCII whitespace. A trailing
+// CRLF or NUL is refused a step earlier, by the parser itself. It is stricter
+// than addr-spec validity: a legal address the parser normalizes, such as the
+// quoted local part in "a b"@example.com, is refused too, because the form that
+// would be stored is not the form that was sent.
 //
-// Byte-identical is deliberate, and is why this returns no rewritten value.
-// Every lookup by address (login, magic link, account recovery, passkey login)
-// matches the stored bytes exactly, so a guard that quietly rewrote the input
-// would store one string and authenticate against another. Refusing the padded
-// form reports the problem at signup instead of creating an account that cannot
-// afterwards be logged into. No case folding either: address comparison is
-// case-sensitive end to end, and this guard does not change that.
+// Byte-identity is also why this rewrites nothing and returns no value. Every
+// lookup by address (login, magic link, account recovery, passkey login)
+// matches the stored bytes exactly, so a guard that quietly normalized its
+// input would store one string and authenticate against another. Refusing the
+// padded form reports the problem at signup instead of creating an account that
+// cannot afterwards be logged into.
+//
+// KNOWN GAP, pre-existing and NOT closed here: that byte-exact matching is
+// case-sensitive, and users.email has no case-insensitive unique index, so
+// "Bob@x.com" and "bob@x.com" are two accounts for one mailbox. Closing it
+// needs a migration plus a backfill decision for any existing pair, so it is
+// tracked separately rather than decided by this guard.
 //
 // Returns the user-facing message and ok=false on refusal.
 func validateEmailAddress(raw string) (message string, ok bool) {
@@ -86,13 +93,44 @@ func validateEmailAddress(raw string) (message string, ok bool) {
 	if err != nil || addr.Address != raw {
 		return "Email must be a valid email address", false
 	}
+	if hasNonASCIIInvisible(raw) {
+		return "Email must be a valid email address", false
+	}
 	return "", true
+}
+
+// hasNonASCIIInvisible reports whether s carries a non-ASCII character in
+// exactly three categories: control (Cc/Cf's controls, including U+0085 NEL),
+// space (Zs and friends, including U+00A0), or format (Cf, including U+200B and
+// the BOM).
+//
+// ParseAddress preserves all of these, so an address carrying one is
+// byte-distinct from, yet renders the same as, one without. Left accepted they
+// defeat both the users.email unique index and the "account already exists"
+// check, letting a caller mint rows that read as another user's address on any
+// surface that prints the address raw.
+//
+// It does NOT close that class in general, and must not be described as if it
+// does. Characters that render blank while being neither control, space, nor
+// format still pass: U+3164 HANGUL FILLER, U+115F, U+1160, U+FFA0 and U+2800
+// BRAILLE PATTERN BLANK are all Graphic and So/Lo. Refusing those generically
+// means requiring an ASCII domain, which is a stricter domain rule than this
+// ticket's owner decided on, so the residue is tracked rather than closed here.
+//
+// Applied to addresses only, never to names. validateProfileName deliberately
+// allows category Cf, because the joiners several scripts need in legitimate
+// names live there; an email address needs none of them.
+func hasNonASCIIInvisible(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool {
+		return r > unicode.MaxASCII &&
+			(unicode.IsControl(r) || unicode.IsSpace(r) || unicode.Is(unicode.Cf, r))
+	})
 }
 
 // validateProfileName is the shared guard for the three identity-name fields.
 // It rejects control characters, because the value is rendered into notification
 // bodies and public attribution surfaces, and bounds the length at
-// maxProfileNameRunes. label names the field in the refusal message
+// maxProfileFieldRunes. label names the field in the refusal message
 // ("Display name", "First name", "Last name").
 //
 // The predicate is unicode.IsControl, so category Cc only. A bidi override or a
@@ -108,8 +146,8 @@ func validateProfileName(label, raw string) (trimmed, message string, ok bool) {
 	if strings.ContainsFunc(name, unicode.IsControl) {
 		return "", fmt.Sprintf("%s contains unsupported characters", label), false
 	}
-	if utf8.RuneCountInString(name) > maxProfileNameRunes {
-		return "", fmt.Sprintf("%s must be %d characters or fewer", label, maxProfileNameRunes), false
+	if utf8.RuneCountInString(name) > maxProfileFieldRunes {
+		return "", fmt.Sprintf("%s must be %d characters or fewer", label, maxProfileFieldRunes), false
 	}
 	return name, "", true
 }
@@ -769,7 +807,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
 			logger.AuthWarn(ctx, "register_failed",
 				// Not err.Error(): ErrUserExists carries the raw address in its
-				// internal error, which would defeat the hash on the line above.
+				// internal error, which would defeat the hash below.
 				"email_hash", logger.HashEmail(input.Body.Email),
 				"error_code", autherrors.CodeUserExists,
 			)
@@ -2245,9 +2283,19 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 	}
 
 	// display_name, first_name and last_name all feed the attribution and
-	// notification chains, so the three share one guard here. The Apple callback
-	// and RegisterHandler are the other two handlers that write these columns,
-	// and they call the same helper.
+	// notification chains, so the three share one guard here.
+	//
+	// The other handlers that write these columns from a REQUEST BODY are
+	// RegisterHandler and the Apple callback, and both call the same helper.
+	//
+	// KNOWN GAP, tracked separately: the goth OAuth callback also writes
+	// first_name/last_name, straight from the provider
+	// (services/user/user.go), and is guarded by nothing. It is a redirect
+	// flow with no JSON error shape to refuse into, so the fix there is to
+	// REPAIR the value (trim, drop controls, truncate) rather than reject it,
+	// which is a different contract from this one and not decided here. Until
+	// then a provider name over the column width fails that signup at the
+	// insert, and resolvePublicNameTiers still trims for exactly this reason.
 	for _, field := range []struct {
 		column string
 		label  string
@@ -2272,13 +2320,13 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 
 	if req.Body.Location != nil {
 		location := strings.TrimSpace(*req.Body.Location)
-		// 100 CHARACTERS (not bytes) — must stay in sync with the users
-		// migration's VARCHAR(100) and the /profile form's maxLength=100.
-		// No further validation (PSY-1416): free-text "City, state", not
-		// geocoded, and not interpolated into the attribution/email chain.
-		if utf8.RuneCountInString(location) > 100 {
+		// Shares the column width with the identity names, hence the shared
+		// constant, but takes no control-character refusal (PSY-1416): it is
+		// free-text "City, state", not geocoded, and not rendered into the
+		// attribution or notification chains.
+		if utf8.RuneCountInString(location) > maxProfileFieldRunes {
 			resp.Body.Success = false
-			resp.Body.Message = "Location must be 100 characters or fewer"
+			resp.Body.Message = fmt.Sprintf("Location must be %d characters or fewer", maxProfileFieldRunes)
 			resp.Body.ErrorCode = autherrors.CodeValidationFailed
 			return resp, nil
 		}
