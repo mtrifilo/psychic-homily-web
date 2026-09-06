@@ -60,6 +60,9 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RecordedRevisionDescr
 		{Field: "website", OldValue: "javascript:alert(1)", NewValue: "https://band.example.org"},
 	}
 	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, admin.ID, changes, "two fields"))
+	// The entity has to hold what the revision recorded writing, or the rollback
+	// skips every field as changed since. See applyRecordedChanges.
+	s.applyRecordedChanges("artist", artist.ID, changes)
 	original := s.latestRevision("artist", artist.ID)
 
 	_, err := s.svc.Rollback(context.Background(), original.ID, admin.ID)
@@ -114,6 +117,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_ReportsNoSkipsWhenEve
 		{Field: "website", OldValue: "https://old.example.org", NewValue: "https://new.example.org"},
 	}
 	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, admin.ID, changes, "two good fields"))
+	s.applyRecordedChanges("artist", artist.ID, changes)
 	revision := s.latestRevision("artist", artist.ID)
 
 	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
@@ -126,6 +130,20 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_ReportsNoSkipsWhenEve
 	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Take(&stored).Error)
 	s.Equal("old blurb", stored["description"])
 	s.Equal("https://old.example.org", stored["website"])
+}
+
+// applyRecordedChanges writes a revision's NEW values onto the entity, which is
+// the state the revision claims to have left behind.
+//
+// A rollback only restores a field the entity still holds the revision's value
+// for, so a fixture that records a revision without applying it is describing an
+// entity somebody else has already changed, and every field of it is skipped.
+func (s *RevisionServiceIntegrationTestSuite) applyRecordedChanges(entityType string, entityID uint, changes []adminm.FieldChange) {
+	updates := make(map[string]interface{}, len(changes))
+	for _, c := range changes {
+		updates[c.Field] = c.NewValue
+	}
+	s.Require().NoError(s.db.Table(entityType+"s").Where("id = ?", entityID).Updates(updates).Error)
 }
 
 // latestRevision reads the most recent revision recorded against an entity.
@@ -180,6 +198,8 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_CollapsesARepeatedFie
 		EntityType: "artist", EntityID: artist.ID, UserID: admin.ID, FieldChanges: &raw,
 	}
 	s.Require().NoError(s.db.Create(revision).Error)
+	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).
+		Update("description", "live").Error)
 
 	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
 	s.Require().NoError(err)

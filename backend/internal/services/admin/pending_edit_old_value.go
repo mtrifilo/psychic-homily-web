@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -50,23 +51,34 @@ import (
 //
 // The exception is a WITHHELD field, where the recorded value is the withheld
 // view and not the column: an unverified venue's address records "" while the
-// column holds a street address. Rollback writes OldValue back verbatim
-// (RevisionService.Rollback), so restoring such a revision blanks the column
-// rather than restoring it. Nothing here narrows that; the gate only stops a
-// row from being applied over a value nobody observed.
-
-// entityModels pairs each pending-edit entity type with the GORM model whose
-// columns a pending edit may name.
+// column holds a street address.
 //
-// Keyed by the same strings adminm.IsValidPendingEditEntityType accepts, and
-// TestEntityModelsCoverPendingEditTypes fails when the two disagree, so an
-// entity type gaining pending edits cannot reach this file with no model.
+// Rollback derives through the same functions but takes the STORED view of such
+// a column, because its audience is different: its answer is admin-only and the
+// value it records lands in revision history, which masks the same field list at
+// read time for every non-admin. See valueDerivation.storedView.
+
+// entityModels pairs each entity type with the GORM model whose columns a
+// derivation here may read.
+//
+// It covers two callers with different scopes, and the wider one is why "show"
+// is here. A pending edit names a field from a contributor allowlist, and every
+// allowlisted type accepts pending edits. A REVISION records fields no
+// allowlist covers (a label's status, a festival's edition_year) and exists for
+// entity types that accept no pending edits at all, shows being the whole of
+// that set. RevisionService.Rollback derives through this map for every type it
+// can be handed, so a type missing here is one whose rollback cannot observe
+// what it is about to overwrite.
+//
+// Two drift guards pin it: TestEntityModelsCoverPendingEditTypes for the
+// pending-edit half, TestRevisionFieldsAreObservable for the revision half.
 var entityModels = map[string]func() interface{}{
 	adminm.PendingEditEntityArtist:   func() interface{} { return &catalogm.Artist{} },
 	adminm.PendingEditEntityVenue:    func() interface{} { return &catalogm.Venue{} },
 	adminm.PendingEditEntityFestival: func() interface{} { return &catalogm.Festival{} },
 	adminm.PendingEditEntityRelease:  func() interface{} { return &catalogm.Release{} },
 	adminm.PendingEditEntityLabel:    func() interface{} { return &catalogm.Label{} },
+	"show":                           func() interface{} { return &catalogm.Show{} },
 }
 
 // modelSchemaCache is the per-process store gorm's schema parser memoizes into,
@@ -175,11 +187,13 @@ func verifyOldValuesAtApprove(tx *gorm.DB, entityType string, entityID uint, cha
 // resolveOldValues derives the entity's current value for every field in changes
 // and reports which recorded previous values no longer describe it.
 //
-// The two callers differ in the copy they attach to a mismatch and in the handle
-// they pass, which is where the approve path's row lock lives. Sharing the body
-// is what keeps "the value the submitter observed" and "the value the approval
-// writes over" the same question; two implementations of it would be free to
-// disagree about a withheld field, an empty string, or a number's encoding.
+// This is the PENDING-EDIT entry point, scoped by the contributor allowlist. The
+// two callers behind it differ in the copy they attach to a mismatch and in the
+// handle they pass, which is where the approve path's row lock lives. Sharing
+// the body is what keeps "the value the submitter observed" and "the value the
+// approval writes over" the same question; two implementations of it would be
+// free to disagree about a withheld field, an empty string, or a number's
+// encoding.
 //
 // The returned changes carry the derived OldValue whether or not any field is
 // stale, so the submit path can store them and the approve path can ignore them.
@@ -188,6 +202,66 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 	if !ok {
 		return nil, nil, apperrors.ErrPendingEditInvalidEntityType(entityType)
 	}
+	return resolveFieldValues(db, entityType, entityID, changes, valueDerivation{inScope: allowed})
+}
+
+// valueDerivation is everything that separates the two callers of the shared
+// derivation. The read, the emit rules and the comparison are identical, which
+// is the point of having one function.
+type valueDerivation struct {
+	// inScope names the fields this caller may answer for. A nil inScope puts
+	// every scalar column of the model in scope: that is the REVISION scope, not
+	// an absence of one, because the column map is itself a fail-closed gate and
+	// it is the only gate that fits a record whose fields came from revisiondiff
+	// rather than from a contributor allowlist.
+	inScope map[string]bool
+
+	// storedView answers a WITHHELD column with the column itself rather than
+	// with the blank its readers are served.
+	//
+	// The pending-edit paths leave it false: what they derive is stored on a
+	// contributor's row and served back to that contributor unmasked, so an
+	// unverified venue's address must never be the value they derive.
+	//
+	// Rollback sets it, and the difference is the audience, not the rule. Its
+	// answer decides an admin-only write inside a transaction, and the value it
+	// records lands in revisions.field_changes, which revisiondiff masks for
+	// every non-admin reader over the SAME field list the accessors withhold
+	// (catalog.VenuePrivateFields drives both). Deriving the withheld blank here
+	// would hide nothing that history does not already hide, while making an
+	// unverified venue's address permanently un-restorable: the derivation could
+	// never confirm the column, so every rollback of it would be skipped.
+	storedView bool
+}
+
+// observeCurrentValues derives what the entity holds right now for every field
+// the claims name, and reports the claims that no longer describe it.
+//
+// This is the rollback path's entry into the SAME derivation the submit and
+// approve paths use, and sharing it is the point: a rollback writes a stored
+// value into a live column, so "the value a rollback is about to overwrite" and
+// "the value an approval is about to overwrite" have to be one question. Two
+// implementations would be free to disagree about a withheld field, an empty
+// string, or a number's encoding.
+//
+// The claim a rollback makes per field is the revision's NEW value: the
+// revision claims to have written it, and a rollback is only an undo of that
+// revision while the entity still holds it.
+//
+// It takes the REVISION scope: no contributor allowlist, and the stored view of
+// a withheld column. Both are argued on valueDerivation.
+//
+// db carries whatever clauses the caller attached, which is where the row lock
+// lives. An unlocked read here is a check the write it guards can invalidate in
+// between.
+func observeCurrentValues(db *gorm.DB, entityType string, entityID uint, claims []adminm.FieldChange) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
+	return resolveFieldValues(db, entityType, entityID, claims, valueDerivation{storedView: true})
+}
+
+// resolveFieldValues is the derivation itself: one entity read, then per field
+// the value the caller's audience is entitled to and whether the caller's claim
+// describes it. What the two callers vary is on valueDerivation.
+func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange, derivation valueDerivation) ([]adminm.FieldChange, []apperrors.StaleFieldValue, error) {
 	columns, withheld, err := currentEntityColumns(db, entityType, entityID)
 	if err != nil {
 		return nil, nil, err
@@ -204,7 +278,7 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 		// suggest-edit handler rejects a non-allowlisted field before this
 		// runs; this function does not depend on that, because the value it
 		// derives is the one Rollback later writes.
-		if !allowed[field] {
+		if derivation.inScope != nil && !derivation.inScope[field] {
 			return nil, nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not editable on %s entities", field, entityType))
 		}
@@ -217,8 +291,9 @@ func resolveOldValues(db *gorm.DB, entityType string, entityID uint, changes []a
 		// what its reader is served, rather than from the column. See
 		// withheldEditFieldsReporter: a pending edit is read back by its
 		// submitter, so deriving from the column would publish the value the
-		// entity payload withholds.
-		if withheld[field] {
+		// entity payload withholds. valueDerivation.storedView is the one
+		// audience this does not hold for.
+		if withheld[field] && !derivation.storedView {
 			column = reflect.Zero(column.Type())
 		}
 		value, err := revisiondiff.EmitValue(column)
@@ -315,6 +390,14 @@ func modelColumns(db *gorm.DB, model interface{}) (map[string]reflect.Value, err
 //
 // Numbers compare numerically across encodings because a claim arrives from
 // JSON as float64 while the derived value is an int.
+//
+// Timestamps compare as INSTANTS, not as text. EmitValue renders a time as
+// RFC3339, which carries the zone offset of whatever location the time happened
+// to be in, so the same moment renders "2026-09-20T20:15:54Z" from a UTC value
+// and "2026-09-20T13:15:54-07:00" from the connection's local one. A claim is
+// about the value the field holds, not about which offset rendered it, and a
+// text comparison would make every timestamp field permanently unrestorable the
+// day a read came back in a different location.
 func sameFieldValue(claim, current interface{}) bool {
 	claimBlank, currentBlank := isBlankValue(claim), isBlankValue(current)
 	if claimBlank || currentBlank {
@@ -326,7 +409,22 @@ func sameFieldValue(claim, current interface{}) bool {
 	}
 	cs, claimIsString := claim.(string)
 	vs, currentIsString := current.(string)
-	return claimIsString && currentIsString && cs == vs
+	if !claimIsString || !currentIsString {
+		return false
+	}
+	if cs == vs {
+		return true
+	}
+	ct, claimIsTime := timestampValue(cs)
+	vt, currentIsTime := timestampValue(vs)
+	return claimIsTime && currentIsTime && ct.Equal(vt)
+}
+
+// timestampValue parses the one timestamp encoding a FieldChange can carry:
+// EmitValue writes RFC3339 and nothing else writes a time at all.
+func timestampValue(s string) (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, s)
+	return t, err == nil
 }
 
 func isBlankValue(v interface{}) bool {

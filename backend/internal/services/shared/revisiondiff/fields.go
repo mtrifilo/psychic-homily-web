@@ -135,6 +135,31 @@ var registry = []struct {
 	{"festival", FestivalFields, contracts.FestivalDetailResponse{}},
 }
 
+// EntityTypes lists the entity types revision history records, in registry
+// order. It is the set every other per-type answer here is defined over, so a
+// caller that must cover all of them asks in one place instead of keeping a
+// second list that drifts.
+func EntityTypes() []string {
+	types := make([]string, 0, len(registry))
+	for _, e := range registry {
+		types = append(types, e.name)
+	}
+	return types
+}
+
+// FieldsFor returns the field list revision history records for an entity type,
+// and whether the type records revisions at all.
+//
+// The slice is this package's own and is not copied. Callers read it.
+func FieldsFor(entityType string) ([]Field, bool) {
+	for _, e := range registry {
+		if e.name == entityType {
+			return e.fields, true
+		}
+	}
+	return nil, false
+}
+
 func init() {
 	if err := ValidateAll(); err != nil {
 		// A bad field list is a programming error — fail at startup (and in

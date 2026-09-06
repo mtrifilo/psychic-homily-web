@@ -19,10 +19,11 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-// entityModels must answer for exactly the entity types that can carry a
-// pending edit. A type with no model reaches deriveOldValues and fails every
-// submission for that entity; a model for a type that cannot be edited is dead
-// weight that reads as coverage.
+// entityModels must answer for every entity type that can carry a pending edit.
+// A type with no model reaches deriveOldValues and fails every submission for
+// that entity. A key that is neither an editable type nor a revision-recording
+// one is dead weight that reads as coverage; the revision half of the map is
+// pinned by TestRevisionFieldsAreObservable.
 func TestEntityModelsCoverPendingEditTypes(t *testing.T) {
 	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
 		if _, ok := entityModels[entityType]; !ok {
@@ -30,9 +31,13 @@ func TestEntityModelsCoverPendingEditTypes(t *testing.T) {
 		}
 	}
 	for entityType := range entityModels {
-		if !adminm.IsValidPendingEditEntityType(entityType) {
-			t.Errorf("entityModels has %q, which does not accept pending edits", entityType)
+		if adminm.IsValidPendingEditEntityType(entityType) {
+			continue
 		}
+		if _, records := revisiondiff.FieldsFor(entityType); records {
+			continue
+		}
+		t.Errorf("entityModels has %q, which neither accepts pending edits nor records revisions", entityType)
 	}
 }
 
