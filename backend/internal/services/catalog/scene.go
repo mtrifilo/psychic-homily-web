@@ -119,14 +119,10 @@ const usCountry = "US"
 // sceneKeyForGroup) wants this key raw, because a group's own key is what those
 // maps are keyed by. ENUMERATING scenes must not: the key is FINER than the
 // published slug, so a drifted venues.metro or a second spelling of one city is
-// two rows for one scene. ListScenes, the charts active-scenes count and
-// sitemap.go's sceneWeekEntries settle that through
-// collapseSceneGroupsToCanonicalSlug. sitemap.go's sceneEntries is the ONE
-// enumerating caller that still dedupes inline, and it does not merely pick a
-// different winner: it MERGES the colliding groups' MAX(updated_at), so a
-// scene's lastmod can be stamped by a show at a room its page does not list.
-// The published slug SET is the same either way, so that is a lastmod
-// inaccuracy rather than a wrong URL.
+// two rows for one scene. ListScenes, the charts active-scenes count and both
+// of sitemap.go's scene projections settle that through
+// collapseSceneGroupsToCanonicalSlug, so each published scene carries the
+// aggregates of the one group its slug resolves to.
 //
 // NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
@@ -154,24 +150,55 @@ const sceneVenueEligibilitySQL = `AND v.verified = true
 // documents), so a call site projecting the identity differently stops
 // corresponding to the slug it publishes — silently, since the rows still scan.
 //
-// Call sites: ListScenes below, sitemap.go's listQualifyingScenes and
-// sceneEntries, and the charts summary's activeSceneCount.
+// Call sites: ListScenes below, sitemap.go's listQualifyingScenes and the
+// charts summary's activeSceneCount.
 const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
 		       MIN(v.state) AS state`
 
+// sceneQualifyingGroupingSQL is everything after the select list in "the
+// qualifying scene set": eligible venues LEFT JOINed to their approved shows,
+// grouped by sceneGroupKeySQL, keeping the groups that clear both floors. The
+// LEFT JOIN is what lets a verified room that has never hosted an approved show
+// count toward the venue floor.
+//
+// It binds three placeholders, in this order: the approved show status, then
+// the venue and show minima. A caller's own select-list placeholders bind ahead
+// of them.
+//
+// Shared by ListScenes below and sitemap.go's listQualifyingScenes, which
+// publish one scene set between them. A call site spelling this body out again
+// can move its own half of that set without moving the other, and the rows
+// still scan either way. The charts summary's activeSceneCount deliberately
+// does NOT use it: that surface is window-bounded with no floor at all.
+const sceneQualifyingGroupingSQL = `
+		FROM venues v
+		LEFT JOIN show_venues sv ON sv.venue_id = v.id
+		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
+		WHERE true
+		  ` + sceneVenueEligibilitySQL + `
+		GROUP BY ` + sceneGroupKeySQL + `
+		HAVING COUNT(DISTINCT v.id) >= ?
+		   AND COUNT(DISTINCT s.id) >= ?`
+
 // sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
-// (empty for a fallback group), its literal city/state, and the counts
-// ListScenes publishes. Package-level (rather than local to ListScenes) so the
-// slug collapse below is a plain function over it.
+// (empty for a fallback group), its literal city/state, the counts ListScenes
+// publishes, and the newest approved show at its rooms. Package-level (rather
+// than local to ListScenes) so the slug collapse below is a plain function over
+// it.
+//
+// Fields are projected per call site, and an unselected column scans as the
+// zero value rather than failing. sceneGroupOutranks says which ones that makes
+// unsafe to read.
 type sceneVenueGroup struct {
-	Metro         string `gorm:"column:metro"`
-	City          string `gorm:"column:city"`
-	State         string `gorm:"column:state"`
-	VenueCount    int    `gorm:"column:venue_count"`
-	ShowCount     int    `gorm:"column:show_count"`
-	UpcomingCount int    `gorm:"column:upcoming_count"`
-	ThisWeekCount int    `gorm:"column:this_week_count"`
+	Metro         string    `gorm:"column:metro"`
+	City          string    `gorm:"column:city"`
+	State         string    `gorm:"column:state"`
+	VenueCount    int       `gorm:"column:venue_count"`
+	ShowCount     int       `gorm:"column:show_count"`
+	UpcomingCount int       `gorm:"column:upcoming_count"`
+	ThisWeekCount int       `gorm:"column:this_week_count"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 // collapseSceneGroupsToCanonicalSlug returns at most one group per DISPLAY SLUG.
@@ -194,7 +221,7 @@ type sceneVenueGroup struct {
 // THREE production callers, reading three different things from the return.
 // ListScenes publishes the returned rows; the charts masthead's
 // activeSceneCount reads only len() (PSY-1949); the sitemap's
-// sceneWeekEntriesFor takes each survivor's DISPLAY identity, re-resolves a
+// sceneWeekEntries takes each survivor's DISPLAY identity, re-resolves a
 // scope from it, and turns that scope's rooms into week permalinks (the
 // survivor's own Metro is not carried through). Any future change to the
 // CARDINALITY of the return (an early return, a skip for groups carrying no
@@ -274,7 +301,8 @@ func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder
 	// the data is fixed; that is deliberate, because a once-per-process log goes
 	// quiet after a deploy while the fault is still live. The charts caller adds
 	// a slower stream on top (one line per masthead cache miss, ~1/min per key),
-	// and the sitemap a third (one line per scene_weeks fetch).
+	// and the sitemap two more (one line per scenes fetch, one per scene_weeks
+	// fetch).
 	//
 	// `surface` is not decoration, because the callers do NOT see one collision
 	// set. The directory's is all-time and gated on sceneMinVenues and
@@ -334,13 +362,12 @@ func sceneGroupSlug(grp sceneVenueGroup) string {
 // neither branch separates, so a collapse stays stable across calls rather than
 // reintroducing the reshuffling this function exists to remove.
 //
-// VenueCount and ShowCount are the ONLY count fields this may read.
-// sceneVenueGroup carries UpcomingCount and ThisWeekCount as well, and the two
-// enumerating callers outside ListScenes (sitemap.go's listQualifyingScenes and
-// the charts activeSceneCount) do not project them, so those arrive zero. A
-// tiebreak added on either would compile, leave ListScenes correct, and pick a
-// different survivor everywhere else, which on the sitemap path is a different
-// set of indexed URLs.
+// Besides the identity triple, VenueCount and ShowCount are the ONLY fields of
+// sceneVenueGroup this may read. UpcomingCount, ThisWeekCount and UpdatedAt are
+// projected by one caller each, so they arrive zero everywhere else: a tiebreak
+// added on any of them would compile, leave the caller that projects it
+// correct, and pick a different survivor on every other path, which on the
+// sitemap path is a different set of indexed URLs.
 func sceneGroupOutranks(a, b sceneVenueGroup, g geo.Geocoder) bool {
 	if am, bm := sceneGroupMatchesItsSlugScope(a, g), sceneGroupMatchesItsSlugScope(b, g); am != bm {
 		return am
@@ -548,16 +575,9 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		       COUNT(DISTINCT v.id) AS venue_count,
 		       COUNT(DISTINCT s.id) AS show_count,
 		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count
-		FROM venues v
-		LEFT JOIN show_venues sv ON sv.venue_id = v.id
-		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
-		WHERE true
-		  `+sceneVenueEligibilitySQL+`
-		GROUP BY `+sceneGroupKeySQL+`
-		HAVING COUNT(DISTINCT v.id) >= ?
-		   AND COUNT(DISTINCT s.id) >= ?
-	`, now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
+		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count`+
+		sceneQualifyingGroupingSQL,
+		now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
