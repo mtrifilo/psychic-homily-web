@@ -404,20 +404,24 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		out.VenueYears = venueYears
 	}
 
-	if want("scenes") {
-		scenes, err := s.sceneEntries(ctx)
+	// scenes and scene_weeks are two projections of ONE group set, fetched here
+	// so a scene cannot clear the floors for its week permalinks and miss them
+	// for its root URL.
+	if want("scenes") || want("scene_weeks") {
+		groups, err := s.listQualifyingScenes(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to collect scene sitemap entries: %w", err)
+			return nil, fmt.Errorf("failed to list qualifying scenes: %w", err)
 		}
-		out.Scenes = scenes
-	}
-
-	if want("scene_weeks") {
-		weeks, err := s.sceneWeekEntries(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to collect scene-week sitemap entries: %w", err)
+		if want("scenes") {
+			out.Scenes = s.sceneEntries(groups)
 		}
-		out.SceneWeeks = weeks
+		if want("scene_weeks") {
+			weeks, err := s.sceneWeekEntries(ctx, groups)
+			if err != nil {
+				return nil, fmt.Errorf("failed to collect scene-week sitemap entries: %w", err)
+			}
+			out.SceneWeeks = weeks
+		}
 	}
 
 	if want("labels") {
@@ -591,30 +595,18 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 // since they are the same aggregates ListScenes selects over the same grouping.
 //
 // updated_at is the group's newest APPROVED show, which sceneEntries publishes
-// as the root URL's lastmod. It aggregates over the join's show side, so the
-// LEFT JOIN's showless-venue rows contribute nothing to it, and the show floor
-// in HAVING is what keeps it non-null on every row that survives.
-//
-// The eligibility here is the whole family's: both scene projections read this
-// one group set, so the root URL and its week permalinks cannot advertise
-// different scenes. The LEFT JOIN is load-bearing for that, since a verified
-// room with no approved shows still counts toward the venue floor on /scenes.
+// as the root URL's lastmod. It aggregates over the join's show side, so a
+// showless venue's row contributes nothing to it, and the show floor in the
+// grouping keeps it non-null on every row that survives.
 func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenueGroup, error) {
 	var groups []sceneVenueGroup
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT `+sceneGroupIdentitySQL+`,
 		       COUNT(DISTINCT v.id) AS venue_count,
 		       COUNT(DISTINCT s.id) AS show_count,
-		       MAX(s.updated_at)    AS updated_at
-		FROM venues v
-		LEFT JOIN show_venues sv ON sv.venue_id = v.id
-		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
-		WHERE true
-		  `+sceneVenueEligibilitySQL+`
-		GROUP BY `+sceneGroupKeySQL+`
-		HAVING COUNT(DISTINCT v.id) >= ?
-		   AND COUNT(DISTINCT s.id) >= ?
-	`, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
+		       MAX(s.updated_at)    AS updated_at`+
+		sceneQualifyingGroupingSQL,
+		catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, err
 	}
@@ -622,36 +614,13 @@ func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenue
 }
 
 // sceneEntries projects one SitemapEntry per qualifying scene. Scenes are
-// computed aggregations (no scenes.updated_at), so lastmod is MAX(show.updated_at)
-// among approved shows at the scene's venues — the closest durable signal to
-// "this page's content changed".
+// computed aggregations (no scenes.updated_at), so lastmod is the resolving
+// group's newest approved show — the closest durable signal to "this page's
+// content changed".
 //
-// It reads the same group set as sceneWeekEntries, which is what makes
-// /scenes/{slug} and /scenes/{slug}/{week} one family: a scene the sitemap
-// gives week permalinks to also gets its root URL, because one query decides
-// both.
-func (s *SitemapService) sceneEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
-	groups, err := s.listQualifyingScenes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.sceneEntriesFor(groups), nil
-}
-
-// sceneEntriesFor is the projection half of sceneEntries, over an
-// already-fetched group set.
-//
-// sceneEntries is the only production caller; the split exists for the same
-// reason sceneWeekEntriesFor's does. Delegating the winner choice below and
-// keeping whichever colliding row arrives first differ ONLY when a contested
-// slug's groups arrive loser-first, and which row a GROUP BY hands over first
-// is the planner's to decide, so a test can only reach that order by handing
-// the slice in itself.
-func (s *SitemapService) sceneEntriesFor(groups []sceneVenueGroup) []contracts.SitemapEntry {
-	// Two venue groups can resolve to the same display slug, and one root URL is
-	// published for it either way. What the collapse decides here is WHOSE
-	// lastmod that URL carries: the group the slug resolves to, rather than the
-	// newest stamp across rooms the page does not list.
+// A slug collision publishes one root URL whichever group survives, so what the
+// collapse decides here is only whose lastmod that URL carries.
+func (s *SitemapService) sceneEntries(groups []sceneVenueGroup) []contracts.SitemapEntry {
 	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scenes")
 
 	entries := make([]contracts.SitemapEntry, 0, len(unique))
@@ -673,25 +642,14 @@ func (s *SitemapService) sceneEntriesFor(groups []sceneVenueGroup) []contracts.S
 // Week boundaries are resolved in each scene's own timezone — the same rule
 // GetSceneWeek uses — so a show at 21:00 Sunday Chicago does not fall into the
 // wrong ISO week when bucketed in UTC.
-func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
-	groups, err := s.listQualifyingScenes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.sceneWeekEntriesFor(ctx, groups)
-}
-
-// sceneWeekEntriesFor is the projection half of sceneWeekEntries, over an
-// already-fetched group set.
 //
-// sceneWeekEntries is the only production caller; the split is not a layering
-// boundary and inlining it would remove the one thing that pins the winner
-// rule. Delegating the winner choice below and taking the first row of the scan
-// differ ONLY when a contested slug's groups arrive loser-first, and which row a
-// GROUP BY hands over first is the planner's to decide, so
-// TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo can only reach
-// that order by handing the slice in itself.
-func (s *SitemapService) sceneWeekEntriesFor(ctx context.Context, groups []sceneVenueGroup) ([]contracts.SitemapEntry, error) {
+// It takes the group set rather than fetching one, so Entries hands the same
+// rows to both scene projections. That also lets a test choose the order a
+// contested slug's groups arrive in, which is the only thing that tells
+// delegating the winner choice below apart from taking the scan's first row:
+// the two differ ONLY on a loser-first arrival, and which row a GROUP BY hands
+// over first is the planner's to decide.
+func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVenueGroup) ([]contracts.SitemapEntry, error) {
 	// Two venue groups can resolve to the same display slug, and here the
 	// survivor's identity builds the query scope below rather than only naming a
 	// row: that scope selects the rooms whose shows become the week permalinks.

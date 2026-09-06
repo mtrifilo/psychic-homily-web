@@ -122,8 +122,7 @@ const usCountry = "US"
 // two rows for one scene. ListScenes, the charts active-scenes count and both
 // of sitemap.go's scene projections settle that through
 // collapseSceneGroupsToCanonicalSlug, so each published scene carries the
-// aggregates of the one group its slug resolves to rather than a merge across
-// the groups that collided on it.
+// aggregates of the one group its slug resolves to.
 //
 // NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
@@ -157,17 +156,40 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
 		       MIN(v.state) AS state`
 
+// sceneQualifyingGroupingSQL is everything after the select list in "the
+// qualifying scene set": eligible venues LEFT JOINed to their approved shows,
+// grouped by sceneGroupKeySQL, keeping the groups that clear both floors. The
+// LEFT JOIN is what lets a verified room that has never hosted an approved show
+// count toward the venue floor.
+//
+// It binds three placeholders, in this order: the approved show status, then
+// the venue and show minima. A caller's own select-list placeholders bind ahead
+// of them.
+//
+// Shared by ListScenes below and sitemap.go's listQualifyingScenes, which
+// publish one scene set between them. A call site spelling this body out again
+// can move its own half of that set without moving the other, and the rows
+// still scan either way. The charts summary's activeSceneCount deliberately
+// does NOT use it: that surface is window-bounded with no floor at all.
+const sceneQualifyingGroupingSQL = `
+		FROM venues v
+		LEFT JOIN show_venues sv ON sv.venue_id = v.id
+		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
+		WHERE true
+		  ` + sceneVenueEligibilitySQL + `
+		GROUP BY ` + sceneGroupKeySQL + `
+		HAVING COUNT(DISTINCT v.id) >= ?
+		   AND COUNT(DISTINCT s.id) >= ?`
+
 // sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
 // (empty for a fallback group), its literal city/state, the counts ListScenes
 // publishes, and the newest approved show at its rooms. Package-level (rather
 // than local to ListScenes) so the slug collapse below is a plain function over
 // it.
 //
-// No query projects every field, and an unprojected column scans as the zero
-// value: UpcomingCount and ThisWeekCount come only from ListScenes, UpdatedAt
-// only from sitemap.go's listQualifyingScenes. Reading one of them on a path
-// that does not select it compiles and yields zero, so a new reader has to
-// widen the queries that reach it, not only the struct.
+// Fields are projected per call site, and an unselected column scans as the
+// zero value rather than failing. sceneGroupOutranks says which ones that makes
+// unsafe to read.
 type sceneVenueGroup struct {
 	Metro         string    `gorm:"column:metro"`
 	City          string    `gorm:"column:city"`
@@ -199,7 +221,7 @@ type sceneVenueGroup struct {
 // THREE production callers, reading three different things from the return.
 // ListScenes publishes the returned rows; the charts masthead's
 // activeSceneCount reads only len() (PSY-1949); the sitemap's
-// sceneWeekEntriesFor takes each survivor's DISPLAY identity, re-resolves a
+// sceneWeekEntries takes each survivor's DISPLAY identity, re-resolves a
 // scope from it, and turns that scope's rooms into week permalinks (the
 // survivor's own Metro is not carried through). Any future change to the
 // CARDINALITY of the return (an early return, a skip for groups carrying no
@@ -553,16 +575,9 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		       COUNT(DISTINCT v.id) AS venue_count,
 		       COUNT(DISTINCT s.id) AS show_count,
 		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count
-		FROM venues v
-		LEFT JOIN show_venues sv ON sv.venue_id = v.id
-		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
-		WHERE true
-		  `+sceneVenueEligibilitySQL+`
-		GROUP BY `+sceneGroupKeySQL+`
-		HAVING COUNT(DISTINCT v.id) >= ?
-		   AND COUNT(DISTINCT s.id) >= ?
-	`, now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
+		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count`+
+		sceneQualifyingGroupingSQL,
+		now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}

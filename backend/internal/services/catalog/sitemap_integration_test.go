@@ -608,8 +608,8 @@ func TestSitemapEntriesVenueYearsMatchesThePastHistogram(t *testing.T) {
 	}
 }
 
-// seedSceneWeekGroup seeds one qualifying scene group with every room hosting
-// shows, which is the shape both scene projections have always agreed on.
+// seedSceneWeekGroup seeds one qualifying scene group with the shows spread
+// over every room.
 func seedSceneWeekGroup(t *testing.T, db *gorm.DB, label, city, state string, metro *string, tz string, weekStart time.Time) {
 	t.Helper()
 	seedSceneGroupOverRooms(t, db, label, city, state, metro, tz, weekStart, sceneMinVenues)
@@ -669,23 +669,12 @@ func seedSceneGroupOverRooms(t *testing.T, db *gorm.DB, label, city, state strin
 	}
 }
 
-// assertSceneWeekCollisionResolvesTo asserts a two-group fixture whose groups
-// publish ONE slug emits exactly wantSlug, then that the exported path agrees,
-// which is what ties the projection it exercises to the family the sitemap
-// actually serves.
-//
-// It runs the projection over BOTH orders the groups can reach it in. That
-// separates delegating the winner choice from taking the scan's first row only
-// where the colliding groups' DISPLAY identities differ, because everything
-// downstream is derived from the survivor's display identity: where the two
-// identities coincide, both orders and both winner rules produce the same
-// output and the permutation is a guard rather than a discriminator. Each
-// caller's doc says which of the two it is.
-func assertSceneWeekCollisionResolvesTo(t *testing.T, svc *SitemapService, wantSlug string) {
+// sceneCollisionGroups returns the qualifying groups of a fixture whose groups
+// publish ONE slug, and fails unless the fixture is exactly that shape.
+func sceneCollisionGroups(t *testing.T, svc *SitemapService) []sceneVenueGroup {
 	t.Helper()
-	ctx := context.Background()
 
-	groups, err := svc.listQualifyingScenes(ctx)
+	groups, err := svc.listQualifyingScenes(context.Background())
 	if err != nil {
 		t.Fatalf("listQualifyingScenes: %v", err)
 	}
@@ -695,20 +684,88 @@ func assertSceneWeekCollisionResolvesTo(t *testing.T, svc *SitemapService, wantS
 	if a, b := sceneGroupSlug(groups[0]), sceneGroupSlug(groups[1]); a != b {
 		t.Fatalf("fixture must collide: the groups publish %q and %q", a, b)
 	}
+	return groups
+}
+
+// forEachSceneGroupOrder runs assert over both orders a colliding pair can
+// reach a projection in. Which row a GROUP BY hands over first is the planner's
+// to decide, so handing the slice in is the only way to reach the loser-first
+// order, and that order is what separates delegating the winner choice from
+// keeping the first row that arrives.
+//
+// It separates them only where the colliding groups' DISPLAY identities differ,
+// since everything downstream of the collapse is derived from that identity.
+// Each caller's doc says whether its fixture discriminates or guards.
+func forEachSceneGroupOrder(t *testing.T, groups []sceneVenueGroup, assert func(where string, perm []sceneVenueGroup)) {
+	t.Helper()
 
 	for _, perm := range [][]sceneVenueGroup{
 		{groups[0], groups[1]},
 		{groups[1], groups[0]},
 	} {
-		first := fmt.Sprintf("metro=%q city=%q", perm[0].Metro, perm[0].City)
-		entries, err := svc.sceneWeekEntriesFor(ctx, perm)
+		assert(fmt.Sprintf("with metro=%q city=%q first", perm[0].Metro, perm[0].City), perm)
+	}
+}
+
+// saintJeromeSpellings is one non-US city under two spellings: two venue groups
+// publishing saintJeromeSlug with no metro drift involved, since
+// sceneGroupKeySQL only lower/trims while buildSceneSlug also maps spaces to
+// dashes.
+var saintJeromeSpellings = [2]struct{ label, city string }{
+	{"spaced", "Saint Jerome"},
+	{"hyphenated", "Saint-Jerome"},
+}
+
+const saintJeromeSlug = "saint-jerome-qc"
+
+// seedSaintJeromeCollision seeds both spellings, each at the week start
+// weekStartFor gives it, and returns the city ParseSceneSlug resolves the slug
+// to.
+//
+// The winner is derived rather than named: Go compares the group minima
+// byte-wise while Postgres orders them under the database's collation, so a
+// collation that disagrees fails here instead of going green on the wrong
+// spelling.
+func seedSaintJeromeCollision(t *testing.T, db *gorm.DB, weekStartFor func(city string) time.Time) string {
+	t.Helper()
+
+	for _, sp := range saintJeromeSpellings {
+		if metro := seedMetro(sp.city, "QC"); metro != nil {
+			t.Fatalf("fixture city %q pins CBSA %q; this collision must involve no metro drift", sp.city, *metro)
+		}
+		seedSceneWeekGroup(t, db, sp.label, sp.city, "QC", nil, "America/Toronto", weekStartFor(sp.city))
+	}
+
+	city, state, err := NewSceneService(db).ParseSceneSlug(saintJeromeSlug)
+	if err != nil {
+		t.Fatalf("ParseSceneSlug: %v", err)
+	}
+	if state != "QC" {
+		t.Fatalf("ParseSceneSlug resolved state %q, want QC", state)
+	}
+	if city != saintJeromeSpellings[0].city && city != saintJeromeSpellings[1].city {
+		t.Fatalf("ParseSceneSlug resolved city %q, want one of the two seeded spellings", city)
+	}
+	return city
+}
+
+// assertSceneWeekCollisionResolvesTo asserts a two-group fixture whose groups
+// publish ONE slug emits exactly wantSlug, then that the exported path agrees,
+// which is what ties the projection it exercises to the family the sitemap
+// actually serves.
+func assertSceneWeekCollisionResolvesTo(t *testing.T, svc *SitemapService, wantSlug string) {
+	t.Helper()
+	ctx := context.Background()
+
+	forEachSceneGroupOrder(t, sceneCollisionGroups(t, svc), func(where string, perm []sceneVenueGroup) {
+		entries, err := svc.sceneWeekEntries(ctx, perm)
 		if err != nil {
-			t.Fatalf("sceneWeekEntriesFor with %s first: %v", first, err)
+			t.Fatalf("sceneWeekEntries %s: %v", where, err)
 		}
 		if got := sitemapSlugsOf(entries); len(got) != 1 || got[0] != wantSlug {
-			t.Fatalf("with %s first, scene_weeks = %v, want exactly [%s]", first, got, wantSlug)
+			t.Fatalf("%s, scene_weeks = %v, want exactly [%s]", where, got, wantSlug)
 		}
-	}
+	})
 
 	entries, err := svc.Entries(ctx, "scene_weeks")
 	if err != nil {
@@ -729,21 +786,14 @@ func assertSceneWeekCollisionResolvesTo(t *testing.T, svc *SitemapService, wantS
 // the one that discriminates: it fails if the winner is taken from the scan's
 // first row rather than resolved.
 //
-// Two spellings of one non-US city are two venue groups under one slug with no
-// metro drift involved (sceneGroupKeySQL lower/trims, buildSceneSlug also maps
-// spaces to dashes). Neither group pins a CBSA, so each one's display identity
-// is its own literal city, and the surviving identity is what builds the scope
-// selecting the rooms whose shows become the week permalinks. Take the group the
-// slug does not resolve to and every URL in this family names a week computed
-// from rooms /scenes/saint-jerome-qc never shows.
+// Neither spelling pins a CBSA, so each group's display identity is its own
+// literal city, and the surviving identity is what builds the scope selecting
+// the rooms whose shows become the week permalinks. Take the group the slug does
+// not resolve to and every URL in this family names a week computed from rooms
+// /scenes/saint-jerome-qc never shows.
 //
 // The two groups' shows sit in DIFFERENT ISO weeks, so an emitted key names its
 // group outright instead of merely counting it.
-//
-// The expectation is derived from ParseSceneSlug rather than hardcoded to a
-// spelling, the same way TestListScenes_SpellingVariantsDoNotSplitTheScene puts
-// it: Go compares the group minima byte-wise while Postgres orders under the
-// database's collation, and this fails loudly if the two ever disagree.
 func TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -758,35 +808,15 @@ func TestSitemapEntriesSceneWeeksFollowTheSpellingTheSlugResolvesTo(t *testing.T
 	y, w := time.Now().In(loc).ISOWeek()
 	currentStart := ISOWeekStart(y, w, loc)
 
-	spellings := []struct {
-		label, city string
-		weekStart   time.Time
-	}{
-		{"spaced", "Saint Jerome", currentStart},
-		{"hyphenated", "Saint-Jerome", currentStart.AddDate(0, 0, -7)},
+	weekStartByCity := map[string]time.Time{
+		saintJeromeSpellings[0].city: currentStart,
+		saintJeromeSpellings[1].city: currentStart.AddDate(0, 0, -7),
 	}
-	weekStartByCity := make(map[string]time.Time, len(spellings))
-	for _, sp := range spellings {
-		if metro := seedMetro(sp.city, "QC"); metro != nil {
-			t.Fatalf("fixture city %q pins CBSA %q; this collision must involve no metro drift", sp.city, *metro)
-		}
-		weekStartByCity[sp.city] = sp.weekStart
-		seedSceneWeekGroup(t, td.DB, sp.label, sp.city, "QC", nil, "America/Toronto", sp.weekStart)
-	}
+	resolvedCity := seedSaintJeromeCollision(t, td.DB, func(city string) time.Time {
+		return weekStartByCity[city]
+	})
 
-	resolvedCity, resolvedState, err := NewSceneService(td.DB).ParseSceneSlug("saint-jerome-qc")
-	if err != nil {
-		t.Fatalf("ParseSceneSlug: %v", err)
-	}
-	if resolvedState != "QC" {
-		t.Fatalf("ParseSceneSlug resolved state %q, want QC", resolvedState)
-	}
-	resolvedWeekStart, ok := weekStartByCity[resolvedCity]
-	if !ok {
-		t.Fatalf("ParseSceneSlug resolved city %q, want one of the two seeded spellings", resolvedCity)
-	}
-
-	assertSceneWeekCollisionResolvesTo(t, NewSitemapService(td.DB), "saint-jerome-qc/"+ISOWeekKey(resolvedWeekStart))
+	assertSceneWeekCollisionResolvesTo(t, NewSitemapService(td.DB), saintJeromeSlug+"/"+ISOWeekKey(weekStartByCity[resolvedCity]))
 }
 
 // TestSitemapEntriesSceneWeeksExcludeDriftedRoomsFromTheMetroScope covers the
@@ -857,10 +887,10 @@ func stampSceneShowsUpdatedAt(t *testing.T, db *gorm.DB, city string, at time.Ti
 // child URL, so announcing it without announcing /scenes/{slug} indexes a
 // scene's archive and hides the page that links to it.
 //
-// The fixture is the shape that broke it: a scene sized exactly at the venue
-// floor where one verified room has never hosted an approved show. Join shows
-// with an inner JOIN and that room leaves the venue count, so the scene clears
-// the floor for its weeks and misses it for its root.
+// The fixture is a scene sized exactly at the venue floor where one verified
+// room has never hosted an approved show. Join shows with an inner JOIN and that
+// room leaves the venue count, so the scene clears the floor for its weeks and
+// misses it for its root.
 //
 // The property is asserted over the whole document rather than the one slug, so
 // a future family member that qualifies differently is covered by the same
@@ -930,14 +960,10 @@ func TestSitemapEntriesEverySceneWithWeekPermalinksHasARootEntry(t *testing.T) {
 // only the lastmod discriminates: merge the colliding groups' newest shows and
 // /scenes/{slug} claims it changed when a room that page does not list changed.
 //
-// Two spellings of one non-US city are two venue groups under one slug with no
-// metro drift involved, the same fixture the scene-week collision uses. The
-// group the slug does NOT resolve to is stamped with the newer timestamp, so a
-// projection that merges across the collision fails on the value it emits.
-//
-// The winner is derived from ParseSceneSlug rather than hardcoded to a
-// spelling: Go compares the group minima byte-wise while Postgres orders under
-// the database's collation, and this fails loudly if the two ever disagree.
+// It reuses the spelling collision, where the two groups' DISPLAY identities
+// differ, so the permutation discriminates. The group the slug does NOT resolve
+// to carries the newer timestamp, which is what a projection taking the max
+// across the collision would emit.
 func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -952,59 +978,26 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 	y, w := time.Now().In(loc).ISOWeek()
 	currentStart := ISOWeekStart(y, w, loc)
 
-	spellings := []struct{ label, city string }{
-		{"spaced", "Saint Jerome"},
-		{"hyphenated", "Saint-Jerome"},
-	}
-	for _, sp := range spellings {
-		if metro := seedMetro(sp.city, "QC"); metro != nil {
-			t.Fatalf("fixture city %q pins CBSA %q; this collision must involve no metro drift", sp.city, *metro)
-		}
-		seedSceneWeekGroup(t, td.DB, sp.label, sp.city, "QC", nil, "America/Toronto", currentStart)
-	}
+	resolvedCity := seedSaintJeromeCollision(t, td.DB, func(string) time.Time {
+		return currentStart
+	})
 
-	svc := NewSitemapService(td.DB)
-	resolvedCity, resolvedState, err := NewSceneService(td.DB).ParseSceneSlug("saint-jerome-qc")
-	if err != nil {
-		t.Fatalf("ParseSceneSlug: %v", err)
-	}
-	if resolvedState != "QC" {
-		t.Fatalf("ParseSceneSlug resolved state %q, want QC", resolvedState)
-	}
-
-	// The resolving group is stamped OLDER, so the merge this replaces would
-	// publish the other group's stamp and this test would see it.
+	// The resolving group is stamped OLDER than the group that loses the slug.
 	wantLastmod := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	loserLastmod := wantLastmod.AddDate(0, 1, 0)
-	stamped := false
-	for _, sp := range spellings {
+	for _, sp := range saintJeromeSpellings {
 		at := loserLastmod
 		if sp.city == resolvedCity {
 			at = wantLastmod
-			stamped = true
 		}
 		stampSceneShowsUpdatedAt(t, td.DB, sp.city, at)
 	}
-	if !stamped {
-		t.Fatalf("ParseSceneSlug resolved city %q, want one of the two seeded spellings", resolvedCity)
-	}
 
-	ctx := context.Background()
-	groups, err := svc.listQualifyingScenes(ctx)
-	if err != nil {
-		t.Fatalf("listQualifyingScenes: %v", err)
-	}
-	if len(groups) != 2 {
-		t.Fatalf("listQualifyingScenes returned %d groups, want the 2 that collide on one slug: %+v", len(groups), groups)
-	}
-	if a, b := sceneGroupSlug(groups[0]), sceneGroupSlug(groups[1]); a != b {
-		t.Fatalf("fixture must collide: the groups publish %q and %q", a, b)
-	}
-
+	svc := NewSitemapService(td.DB)
 	assertSceneRootEntry := func(where string, entries []contracts.SitemapEntry) {
 		t.Helper()
-		if got := sitemapSlugsOf(entries); len(got) != 1 || got[0] != "saint-jerome-qc" {
-			t.Fatalf("%s: scenes = %v, want exactly [saint-jerome-qc]", where, got)
+		if got := sitemapSlugsOf(entries); len(got) != 1 || got[0] != saintJeromeSlug {
+			t.Fatalf("%s: scenes = %v, want exactly [%s]", where, got, saintJeromeSlug)
 		}
 		if got := entries[0].UpdatedAt.UTC(); !got.Equal(wantLastmod) {
 			t.Errorf("%s: lastmod = %s, want the resolving group's %s (the other group carries %s)",
@@ -1012,15 +1005,11 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 		}
 	}
 
-	for _, perm := range [][]sceneVenueGroup{
-		{groups[0], groups[1]},
-		{groups[1], groups[0]},
-	} {
-		where := fmt.Sprintf("with metro=%q city=%q first", perm[0].Metro, perm[0].City)
-		assertSceneRootEntry(where, svc.sceneEntriesFor(perm))
-	}
+	forEachSceneGroupOrder(t, sceneCollisionGroups(t, svc), func(where string, perm []sceneVenueGroup) {
+		assertSceneRootEntry(where, svc.sceneEntries(perm))
+	})
 
-	entries, err := svc.Entries(ctx, "scenes")
+	entries, err := svc.Entries(context.Background(), "scenes")
 	if err != nil {
 		t.Fatalf("Entries(scenes): %v", err)
 	}
