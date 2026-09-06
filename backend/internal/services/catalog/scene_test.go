@@ -1102,10 +1102,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroD
 //
 // The assertion is the CORRESPONDENCE, not a guess at which spelling wins:
 // whichever literal ParseSceneSlug resolves the slug to is the one the list must
-// publish, since that is the pair venuePredicate will serve. Asserting the
-// agreement rather than a hardcoded winner also keeps the test honest about
-// collation — Go compares the group minima byte-wise and Postgres orders under
-// the database's collation, and this fails loudly if those ever disagree.
+// publish, since that is the pair venuePredicate will serve. Both sides pick
+// that literal through sceneGroupOutranks here, because both groups clear the
+// venue floor. TestSceneSlugOrderByAgreesWithTheGroupMinima covers the groups
+// that do not, which are the ones ParseSceneSlug still resolves with SQL.
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDoNotSplitTheScene() {
 	user := suite.createUser()
 	spacedA := suite.createVerifiedVenue("Spaced A", "Saint Jerome", "QC")

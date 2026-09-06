@@ -108,13 +108,29 @@ func TestGetSceneDetail_Success(t *testing.T) {
 func TestGetSceneDetail_SlugNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneDetailRequest{Slug: "nonexistent-xx"}
 	_, err := h.GetSceneDetailHandler(context.Background(), req)
 	testhelpers.AssertHumaError(t, err, 404)
+}
+
+// A slug resolution that fails for any reason OTHER than the scene not existing
+// is an infrastructure fault, and it is live: ParseSceneSlug reads venue rows on
+// every slug. Published as a 404 it tells the reader, the crawler and the
+// frontend proxy that a scene is gone because the database was briefly
+// unreachable, and the proxy caches that answer.
+func TestGetSceneDetail_SlugResolutionFaultIsAServerError(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(string) (string, string, error) {
+			return "", "", fmt.Errorf("failed to resolve the fallback venue groups: connection refused")
+		},
+	}
+	h := NewSceneHandler(mock)
+	_, err := h.GetSceneDetailHandler(context.Background(), &GetSceneDetailRequest{Slug: "phoenix-az"})
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetSceneDetail_SceneNotFound(t *testing.T) {
@@ -182,7 +198,7 @@ func TestGetSceneActiveArtists_Success(t *testing.T) {
 func TestGetSceneActiveArtists_SlugNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 		},
 	}
 	h := NewSceneHandler(mock)
@@ -480,7 +496,7 @@ func TestGetSceneGraph_TypeFilterParsed(t *testing.T) {
 func TestGetSceneGraph_SlugNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 		},
 	}
 	h := NewSceneHandler(mock)
@@ -572,7 +588,7 @@ func TestGetSceneGenres_Success(t *testing.T) {
 func TestGetSceneGenres_SlugNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 		},
 	}
 	h := NewSceneHandler(mock)

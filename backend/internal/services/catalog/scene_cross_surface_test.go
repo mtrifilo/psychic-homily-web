@@ -19,11 +19,19 @@ import (
 func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 	user := suite.createUser()
 	band := suite.createArtist("Local Band")
-	future := time.Now().UTC().AddDate(0, 0, 3)
+
+	// Midweek of the CURRENT ISO week, at midday UTC. The week assertions read
+	// the current week, and the sitemap's week window ends at the current
+	// week's end, so a fixture anchored on "now plus a few days" covers them
+	// only early in the week. Midday UTC on Wednesday and Thursday is inside
+	// the same ISO week for every North American zone the corpus uses.
+	nowUTC := time.Now().UTC()
+	y, w := nowUTC.ISOWeek()
+	midweek := ISOWeekStart(y, w, time.UTC).AddDate(0, 0, 2).Add(12 * time.Hour)
 
 	shows := func(prefix string, rooms ...*catalogm.Venue) {
 		for i := 0; i < sceneMinShows; i++ {
-			suite.createApprovedShow(prefix, rooms[i%len(rooms)].ID, band.ID, user.ID, future.AddDate(0, 0, i))
+			suite.createApprovedShow(prefix, rooms[i%len(rooms)].ID, band.ID, user.ID, midweek.Add(time.Duration(i)*6*time.Hour))
 		}
 	}
 
@@ -55,6 +63,17 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 	tempeB := suite.createVerifiedVenueNullMetro("Marquee", "Tempe", "AZ")
 	shows("Tempe", tempeA, tempeB)
 
+	// PARTIAL drift, which is what an interrupted reconcile leaves: one room of
+	// a city keeps its CBSA while the rest lose it. The metro group is below
+	// the venue floor, so the drifted group is what the directory publishes,
+	// and the room still carrying the CBSA belongs to its metro's group rather
+	// than to this scene.
+	driftedTucsonA := suite.createVerifiedVenueNullMetro("Drifted Tucson A", "Tucson", "AZ")
+	driftedTucsonB := suite.createVerifiedVenueNullMetro("Drifted Tucson B", "Tucson", "AZ")
+	pinnedTucson := suite.createVerifiedVenue("Club Congress", "Tucson", "AZ")
+	suite.Require().NotNil(pinnedTucson.Metro, "the partial-drift fixture needs one room still carrying the CBSA")
+	shows("Tucson", driftedTucsonA, driftedTucsonB)
+
 	// Two spellings of one non-US city: two groups under one slug with no drift
 	// involved, since the group key only lower/trims while the slug also maps
 	// spaces to dashes (PSY-1981).
@@ -65,6 +84,17 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 	hyphenA := suite.createVerifiedVenue("Hyphen A", "Saint-Jerome", "QC")
 	hyphenB := suite.createVerifiedVenue("Hyphen B", "Saint-Jerome", "QC")
 	shows("Hyphen", hyphenA, hyphenB)
+
+	// A collision the SHOW floor decides. The spelling with more rooms has no
+	// shows, so the directory publishes the other one, and the spelling with
+	// more rooms is the one a venue-count comparison alone would pick.
+	suite.createVerifiedVenue("Quiet A", "Val Dor", "QC")
+	suite.createVerifiedVenue("Quiet B", "Val Dor", "QC")
+	quietC := suite.createVerifiedVenue("Quiet C", "Val Dor", "QC")
+	suite.Require().Nil(quietC.Metro, "a non-US city must not pin a CBSA")
+	bookedA := suite.createVerifiedVenue("Booked A", "Val-Dor", "QC")
+	bookedB := suite.createVerifiedVenue("Booked B", "Val-Dor", "QC")
+	shows("Val-Dor", bookedA, bookedB)
 
 	// Below the venue floor, drifted as well: it must stay off every surface.
 	sedona := suite.createVerifiedVenueNullMetro("Sound Bites", "Sedona", "AZ")
@@ -87,7 +117,7 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 // expected slugs, so a shape added to the corpus is covered by construction.
 func (suite *SceneServiceIntegrationTestSuite) TestEveryListedSceneResolvesOnItsDetailRoute() {
 	suite.seedCrossSurfaceScenes()
-	existence := NewEntityExistenceService(suite.db)
+	existence := NewEntityExistenceService(suite.db, suite.sceneService)
 
 	scenes, err := suite.sceneService.ListScenes()
 	suite.Require().NoError(err)
@@ -134,8 +164,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestEveryListedSceneResolvesOnIts
 	}
 
 	suite.NotContains(slugs, "sedona-az", "a city below the venue floor is not a scene")
-	_, _, err = suite.sceneService.ParseSceneSlug("sedona-az")
-	suite.Require().NoError(err, "an unlisted city with a verified room still resolves an identity")
+	suite.NotContains(slugs, "trois-rivieres-qc", "two spellings of one room each are not a scene")
+
+	// The floor still gates: an identity whose own rooms are one, and whose
+	// metro holds none, has no page. Addressed as the identity it is, since a
+	// route reaches it through ParseSceneSlug, which canonicalizes sedona-az
+	// onto the metro's principal city instead.
 	_, err = suite.sceneService.GetSceneDetail("Sedona", "AZ")
 	suite.Error(err, "the venue floor still gates the detail page")
 }
@@ -165,6 +199,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 	for _, entry := range entries.Scenes {
 		roots[entry.Slug] = true
 	}
+	suite.Require().NotEmpty(entries.SceneWeeks,
+		"the corpus must announce week permalinks, or the loop below passes vacuously")
+	announced := map[string]bool{}
 	for _, entry := range entries.SceneWeeks {
 		slug, weekKey, ok := strings.Cut(entry.Slug, "/")
 		suite.Require().True(ok, "a week entry names a scene and a week: %s", entry.Slug)
@@ -175,6 +212,81 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 		week, err := suite.sceneService.GetSceneWeek(city, state, weekKey)
 		suite.Require().NoError(err, "the sitemap announces a week permalink that 404s: %s", entry.Slug)
 		suite.NotZero(week.ShowCount, "the sitemap announces an empty week: %s", entry.Slug)
+		announced[entry.Slug] = true
+	}
+
+	// The other direction, which is what makes the week projection's scope
+	// load-bearing: a scene whose page serves shows this week must have its
+	// week permalink announced. A week scoped to rooms the scene does not hold
+	// finds no shows and quietly announces nothing.
+	weekKey := ISOWeekKey(time.Now().UTC())
+	for _, entry := range entries.Scenes {
+		city, state, err := suite.sceneService.ParseSceneSlug(entry.Slug)
+		suite.Require().NoError(err)
+		week, err := suite.sceneService.GetSceneWeek(city, state, weekKey)
+		suite.Require().NoError(err)
+		if week.ShowCount == 0 {
+			continue
+		}
+		suite.True(announced[entry.Slug+"/"+weekKey],
+			"%s serves %d shows this week and the sitemap announces no week permalink for it",
+			entry.Slug, week.ShowCount)
+	}
+}
+
+// TestSceneSlugOrderByAgreesWithTheGroupMinima pins the one comparison Go and
+// Postgres both perform: sceneGroupOutranks compares two groups' MIN(city)
+// BYTE-WISE, while ParseSceneSlug's literal fallback takes `ORDER BY city, state
+// LIMIT 1` under the database's collation.
+//
+// The two answer different populations. Groups above the venue floor are
+// resolved in Go; the SQL is what resolves the ones below it, where no group
+// publishes the slug. A collation that sorts punctuation the other way makes
+// them name different spellings, and this fails rather than going quiet, which
+// is what the corpus's below-floor collision is seeded for.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneSlugOrderByAgreesWithTheGroupMinima() {
+	suite.seedCrossSurfaceScenes()
+
+	for _, slug := range []string{"trois-rivieres-qc", "val-dor-qc", "saint-jerome-qc"} {
+		var sqlPick struct {
+			City  string
+			State string
+		}
+		suite.Require().NoError(suite.db.Raw(`
+			SELECT city, state
+			FROM venues
+			WHERE verified = true
+			  AND `+sceneSlugExprSQL+` = ?
+			ORDER BY city, state
+			LIMIT 1
+		`, slug).Scan(&sqlPick).Error)
+		suite.Require().NotEmpty(sqlPick.City, "the fixture must hold rooms under %s", slug)
+
+		var goPick string
+		suite.Require().NoError(suite.db.Raw(`
+			SELECT MIN(city)
+			FROM venues
+			WHERE verified = true
+			  AND `+sceneSlugExprSQL+` = ?
+		`, slug).Scan(&goPick).Error)
+
+		var cities []string
+		suite.Require().NoError(suite.db.Raw(`
+			SELECT DISTINCT city
+			FROM venues
+			WHERE verified = true
+			  AND `+sceneSlugExprSQL+` = ?
+		`, slug).Scan(&cities).Error)
+		byteWise := cities[0]
+		for _, c := range cities[1:] {
+			if c < byteWise {
+				byteWise = c
+			}
+		}
+
+		suite.Equal(sqlPick.City, byteWise,
+			"ORDER BY and a byte-wise comparison pick different spellings of %s", slug)
+		suite.Equal(goPick, byteWise, "MIN(city) and a byte-wise comparison disagree for %s", slug)
 	}
 }
 
@@ -191,12 +303,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 // matches two rooms by slug and one by scope.
 func (suite *SceneServiceIntegrationTestSuite) TestExistenceProbeAgreesWithTheDetailRoute() {
 	suite.seedCrossSurfaceScenes()
-	existence := NewEntityExistenceService(suite.db)
+	existence := NewEntityExistenceService(suite.db, suite.sceneService)
 
 	agrees := func(slug string) bool {
 		city, state, err := suite.sceneService.ParseSceneSlug(slug)
 		suite.Require().NoError(err)
-		suite.NotEqual(slug, "", "the fixture names a slug")
 		_, detailErr := suite.sceneService.GetSceneDetail(city, state)
 		exists, err := existence.Exists("scenes", slug)
 		suite.Require().NoError(err)

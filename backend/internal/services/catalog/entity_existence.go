@@ -22,11 +22,18 @@ type EntityExistenceService struct {
 	scenes *SceneService
 }
 
-func NewEntityExistenceService(database *gorm.DB) *EntityExistenceService {
+// NewEntityExistenceService builds the probe over a scene service. Pass the
+// process's shared SceneService: ParseSceneSlug's negative cache is per
+// instance, so a probe holding its own would answer a slug from a miss the page
+// never took, and go on answering it for the cache's TTL.
+func NewEntityExistenceService(database *gorm.DB, scenes *SceneService) *EntityExistenceService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &EntityExistenceService{db: database, scenes: NewSceneService(database)}
+	if scenes == nil {
+		scenes = NewSceneService(database)
+	}
+	return &EntityExistenceService{db: database, scenes: scenes}
 }
 
 func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, error) {
