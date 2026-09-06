@@ -4,10 +4,13 @@
  * The state to timezone mapping mirrors the frontend's getTimezoneForState()
  * in frontend/lib/utils/timeUtils.ts. Keep them in sync.
  *
- * `localTimeToUTC` and the frontend's `combineDateTimeToUTC` no longer agree:
- * this one probes the zone offset twice and matches Go for a wall clock inside a
- * DST transition, the frontend's probes once and does not. Reconciling them is a
- * frontend change with its own gates, not something to do quietly from here.
+ * `localTimeToUTC` and the frontend's `resolveLocalClockToUTC` both probe the
+ * zone offset twice, and both return the instant Go's `time.Date` returns for a
+ * wall clock inside a DST transition. They are two implementations of one rule,
+ * and only one of them is held to it: this file does not read
+ * `backend/internal/utils/testdata/dst_clock_corpus.json`, which the Go and the
+ * frontend suites each assert every row of, so the two can drift apart with
+ * nothing here failing.
  */
 
 /** Map of US state abbreviations to IANA timezones. */

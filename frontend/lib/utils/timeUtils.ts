@@ -107,9 +107,11 @@ const STATE_TIMEZONES: Record<string, string> = {
  *
  * DO NOT change it to UTC, to the reader's zone, or to anything else without
  * changing every writer in the same commit. This is not a display guess: it is
- * one half of a matched pair. `ShowForm`'s submit composes `event_date` with
- * `combineDateTimeToUTC(date, time, resolveShowTimezone(...))`, and
- * `showToFormValues` reads it back through the same resolver (PSY-1873). For a
+ * one half of a matched pair. `ShowForm`'s submit composes `event_date` through
+ * `show-form-utils.resolveFormEventDate`, which resolves the zone with
+ * `resolveShowTimezone` and the clock with `resolveLocalClockToUTC`, and
+ * `showToFormValues` reads it back through the same zone resolver (PSY-1873).
+ * For a
  * show written through the app with no resolvable zone, the stored instant
  * therefore MEANS "this wall clock, read in America/Phoenix", and rendering it
  * here reproduces exactly what the submitter typed. Swapping this constant for
@@ -146,9 +148,9 @@ const STATE_TIMEZONES: Record<string, string> = {
  * WHAT STILL BUILDS A CLOCK ON THIS VALUE, none of it gated:
  * - The edit form, both legs. `show-form-utils.ts` seeds its time input from
  *   `parseISOToDateAndTime(event_date, resolveShowTimezone(...))` and
- *   `ShowForm`'s submit composes the instant back through the same resolver.
- *   That pair is the round trip described above, so the wall clock it shows is
- *   the one the submitter typed; it must not be withheld.
+ *   `resolveFormEventDate` composes the instant back through the same zone
+ *   resolver. That pair is the round trip described above, so the wall clock it
+ *   shows is the one the submitter typed; it must not be withheld.
  * - `getShowLifecycleState` (`./showTiming`) compares venue-local calendar days
  *   through here, so a zone-less venue east of Phoenix keeps ON SALE and the
  *   ticket bracket live past its own midnight. That function carries the
@@ -191,8 +193,175 @@ export function hasTimezoneForState(state?: string | null): boolean {
 }
 
 /**
+ * The calendar day and clock an instant reads as in a zone, through a formatter
+ * the caller owns.
+ *
+ * Takes the formatter rather than a zone name so a caller reading many instants
+ * in one zone builds one; the formatter must ask for year, month, day, hour and
+ * minute with `hour12: false`.
+ *
+ * Intl renders midnight as hour 24 under some locale and option combinations
+ * and as 0 under others. This always answers 0, so the two shapes never reach a
+ * caller.
+ */
+function zonedClockParts(
+  formatter: Intl.DateTimeFormat,
+  instant: Date
+): { year: number; month: number; day: number; hour: number; minute: number } {
+  if (formatter.resolvedOptions().hour12) {
+    // A 12-hour formatter renders 20:00 as hour 8 and puts the rest in a
+    // dayPeriod part this never reads, so the wrong number would be plausible
+    // rather than obviously broken.
+    throw new Error('zonedClockParts needs a formatter with hour12: false')
+  }
+  const parts = formatter.formatToParts(instant)
+  const p = (type: string) => Number(parts.find(x => x.type === type)?.value ?? 0)
+  const hour = p('hour')
+  return {
+    year: p('year'),
+    month: p('month'),
+    day: p('day'),
+    hour: hour === 24 ? 0 : hour,
+    minute: p('minute'),
+  }
+}
+
+/**
+ * A wall clock resolved in a zone: the instant it names, and whether the zone
+ * has such a clock on that day at all.
+ */
+interface ResolvedWallClock {
+  /** Milliseconds since the epoch. */
+  instant: number
+  /**
+   * Whether {@link instant} reads back in the zone as the clock that was asked
+   * for. False only inside the window a spring-forward skips.
+   */
+  exists: boolean
+}
+
+/**
+ * Resolve a wall clock in an IANA zone to the instant it names.
+ *
+ * JS has no "this wall clock, in this zone" constructor, so the offset is
+ * probed. The probe runs TWICE, and that is the whole of what this function
+ * knows that a one-line offset lookup does not: the first offset is read at the
+ * wall clock interpreted as UTC, which is up to a day away from the answer and
+ * so lands on the wrong side of any transition in between. Re-reading the offset
+ * at the candidate instant and re-deriving from it is what makes a clock inside
+ * a transition window come out right, and a listing that states 12:30 AM and
+ * 1:30 AM on a spring-forward night is exactly such a clock. `timeUtils.test.ts`
+ * runs the one-probe form beside this one so the difference is executable
+ * rather than asserted here.
+ *
+ * The second candidate is the answer, and there is no third probe to consider.
+ * If the FIRST candidate already read back as the clock asked for, then the
+ * offset read at it is exactly the offset the wall clock implies, so the second
+ * candidate is that same instant. The two agree whenever either is right.
+ *
+ * Throws on a date or time it cannot read as a calendar day and clock.
+ *
+ * The instant returned is the one Go's `time.Date` returns for the same wall
+ * clock and zone, pinned row by row by
+ * `backend/internal/utils/testdata/dst_clock_corpus.json`, which the Go suite
+ * checks against `time.Date` itself. That agreement is the specification, and it
+ * is a specification about the dates a venue can book: the offset here is
+ * minute-grained, so a zone's pre-1970 local-mean-time offset, which carries
+ * seconds, resolves a few tens of seconds off what Go returns.
+ *
+ * A clock inside a fall-back overlap happens twice and both instants are
+ * defensible. Which one comes back depends on which side of the transition the
+ * probe lands on, and that varies by zone rather than following a rule: 01:30 on
+ * America/Chicago's fall-back night resolves to the earlier occurrence and 02:30
+ * on Europe/Berlin's resolves to the later one. Both are in the corpus.
+ *
+ * A clock inside a spring-forward gap never happened, so no instant is right.
+ * One is still returned, because every caller needs a value, and `exists` is
+ * false so a caller that must not store a clock nobody could have meant can
+ * refuse instead.
+ */
+function resolveWallClockInZone(
+  dateString: string,
+  timeString: string,
+  timezone: string
+): ResolvedWallClock {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const [hours, minutes] = timeString.split(':').map(Number)
+
+  // The requested wall clock, read as if it were UTC.
+  const wanted = Date.UTC(year, month - 1, day, hours, minutes, 0, 0)
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+
+  /** The wall clock this instant reads as in the zone, as a UTC-shaped number. */
+  const wallClockAt = (instant: number): number => {
+    const c = zonedClockParts(formatter, new Date(instant))
+    return Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute, 0, 0)
+  }
+
+  const offsetAt = (instant: number): number => wallClockAt(instant) - instant
+  const first = wanted - offsetAt(wanted)
+  const instant = wanted - offsetAt(first)
+
+  return { instant, exists: wallClockAt(instant) === wanted }
+}
+
+/** A wall clock resolved in a zone, as a caller storing the instant needs it. */
+export interface ResolvedLocalClock {
+  /** RFC3339 UTC instant without milliseconds, which is what Go's parser expects. */
+  utc: string
+  /**
+   * Whether the zone has this wall clock on this day. False only inside the
+   * window a spring-forward skips, where `utc` is still an instant but is a
+   * clock nobody could have entered.
+   */
+  exists: boolean
+}
+
+/**
+ * Resolve a venue-local wall clock to the instant it names, with the one fact a
+ * caller needs before storing it.
+ *
+ * Both answers come from ONE resolution, so a caller cannot judge a different
+ * clock from the one it stores.
+ *
+ * @param dateString - Date in YYYY-MM-DD format (from a date input)
+ * @param timeString - Time in HH:MM format (from a time input)
+ * @param timezone - IANA timezone, e.g. 'America/Phoenix'
+ */
+export function resolveLocalClockToUTC(
+  dateString: string,
+  timeString: string,
+  timezone: string
+): ResolvedLocalClock {
+  const { instant, exists } = resolveWallClockInZone(
+    dateString,
+    timeString,
+    timezone
+  )
+  return {
+    utc: new Date(instant).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    exists,
+  }
+}
+
+/**
  * Combines a date string and time string into a UTC ISO timestamp
  * Treats the input as local time in the specified timezone
+ *
+ * The instant half of {@link resolveLocalClockToUTC}, plus a browser-local
+ * branch for a caller with no zone at all. A caller that STORES the instant
+ * wants the other function: a clock inside a spring-forward gap has no correct
+ * answer and still gets one here, and only `exists` says so.
  *
  * @param dateString - Date in YYYY-MM-DD format (from date input)
  * @param timeString - Time in HH:MM format (from time input)
@@ -204,51 +373,20 @@ export function combineDateTimeToUTC(
   timeString: string,
   timezone?: string
 ): string {
-  // Parse date and time parts manually to avoid JS Date timezone quirks
-  const [year, month, day] = dateString.split('-').map(Number)
-  const [hours, minutes] = timeString.split(':').map(Number)
-
   if (!timezone) {
-    // No timezone specified — use browser-local behavior (backward compatible)
+    // No timezone specified: use browser-local behavior (backward compatible).
+    // The engine resolves the transition nights on its own rule here, which is
+    // not necessarily the zoned branch's; nothing that composes an instant for
+    // STORAGE takes this branch.
+    const [year, month, day] = dateString.split('-').map(Number)
+    const [hours, minutes] = timeString.split(':').map(Number)
     const date = new Date(year, month - 1, day, hours, minutes, 0, 0)
     return date.toISOString().replace(/\.\d{3}Z$/, 'Z')
   }
 
-  // Timezone-aware: interpret the date/time as being in the target timezone.
-  // 1. Create a UTC date with the desired wall-clock values
-  const utcGuess = Date.UTC(year, month - 1, day, hours, minutes, 0, 0)
-
-  // 2. Probe the target timezone's UTC offset at that instant
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-  const parts = formatter.formatToParts(new Date(utcGuess))
-  const p = (type: string) => Number(parts.find(x => x.type === type)?.value ?? 0)
-  const tzYear = p('year')
-  const tzMonth = p('month')
-  const tzDay = p('day')
-  let tzHour = p('hour')
-  if (tzHour === 24) tzHour = 0 // Intl may return 24 for midnight
-  const tzMinute = p('minute')
-
-  // 3. The offset (in ms) is how much the timezone's wall clock differs from our UTC guess
-  const localAsUtc = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, 0, 0)
-  const offsetMs = localAsUtc - utcGuess
-
-  // 4. Subtract the offset to get the correct UTC time
-  const corrected = new Date(utcGuess - offsetMs)
-
-  // Convert to UTC and return as RFC3339 format (without milliseconds)
-  // Go's time.Time parser expects this format
-  return corrected.toISOString().replace(/\.\d{3}Z$/, 'Z')
+  return resolveLocalClockToUTC(dateString, timeString, timezone).utc
 }
+
 
 /**
  * Format a UTC date string for display in a specific timezone
@@ -450,7 +588,9 @@ export function parseISOToDateAndTime(
     return { date, time }
   }
 
-  // Timezone-aware: extract date/time parts in the target timezone
+  // Timezone-aware: extract date/time parts in the target timezone. Through the
+  // same reader the wall-clock resolver uses, so the form's two legs cannot
+  // disagree about which clock an instant reads as.
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     year: 'numeric',
@@ -460,14 +600,11 @@ export function parseISOToDateAndTime(
     minute: '2-digit',
     hour12: false,
   })
-  const parts = formatter.formatToParts(dateObj)
-  const p = (type: string) => parts.find(x => x.type === type)?.value ?? '00'
+  const c = zonedClockParts(formatter, dateObj)
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0')
 
-  let hourVal = p('hour')
-  if (hourVal === '24') hourVal = '00' // Intl may return 24 for midnight
-
-  const date = `${p('year')}-${p('month')}-${p('day')}`
-  const time = `${hourVal}:${p('minute')}`
-
-  return { date, time }
+  return {
+    date: `${pad(c.year, 4)}-${pad(c.month)}-${pad(c.day)}`,
+    time: `${pad(c.hour)}:${pad(c.minute)}`,
+  }
 }

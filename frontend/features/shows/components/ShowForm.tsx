@@ -23,11 +23,7 @@ import {
   type ShowUpdate,
   type ShowUpdateResponse,
 } from '../hooks/useShowUpdate'
-import { combineDateTimeToUTC } from '@/lib/utils/timeUtils'
-import {
-  isShowTimezoneResolved,
-  resolveShowTimezone,
-} from '@/lib/utils/formatters'
+import { isShowTimezoneResolved } from '@/lib/utils/formatters'
 import type { Venue } from '@/features/venues'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { useDismissTimer } from '@/lib/hooks/common'
@@ -64,6 +60,7 @@ import {
   toSetType,
   defaultFormValues,
   showToFormValues,
+  resolveFormEventDate,
   parseCost,
   priceUpdateValue,
   removeArtistAtIndex,
@@ -129,7 +126,7 @@ const showFormFields = {
  * state supplied by the caller.
  *
  * A blank state field is an exemption, not a mode. The submit composes
- * event_date through `resolveShowTimezone(venue.state, selectedVenue.timezone)`,
+ * event_date through `resolveFormEventDate(value, selectedVenue.timezone)`,
  * which prefers the venue's resolved IANA zone and consults the state only when
  * there is none; a blank state then resolves FALLBACK_SHOW_TIMEZONE. So a blank
  * state is safe exactly when the zone that expression returns is a zone the
@@ -168,17 +165,50 @@ const showFormFields = {
  * - EDITING the state re-anchors the instant, because the submit reads this
  *   field. Filling in a blank state is the reachable form of that.
  * - Whitespace passes, since the rule tests emptiness rather than content.
+ *
+ * `venueTimezone` is the selected venue's own IANA zone, which the whole-object
+ * rule below needs and no field carries.
  */
-function makeShowFormSchema(stateLessVenueId: number | undefined) {
-  return z.object({
-    ...showFormFields,
-    venue: venueFields.refine(
-      venue =>
-        venue.state !== '' ||
-        (stateLessVenueId !== undefined && venue.id === stateLessVenueId),
-      { message: 'State is required', path: ['state'] }
-    ),
-  })
+function makeShowFormSchema(
+  stateLessVenueId: number | undefined,
+  venueTimezone: string | null | undefined
+) {
+  return z
+    .object({
+      ...showFormFields,
+      venue: venueFields.refine(
+        venue =>
+          venue.state !== '' ||
+          (stateLessVenueId !== undefined && venue.id === stateLessVenueId),
+        { message: 'State is required', path: ['state'] }
+      ),
+    })
+    // A wall clock inside the hour a spring-forward skips is not a time that
+    // happened, and every instant available to stand for it is a clock the
+    // submitter did not type: on America/Chicago's 2026-03-08, 2:30 AM resolves
+    // to the same instant 1:30 AM does. Nothing downstream can tell that
+    // instant from a correct one, so the save is refused here instead.
+    //
+    // On the whole object because the rule needs three fields plus the venue's
+    // zone. `path` puts the message on the time field, which is the one the
+    // user can act on: a blank time field is read as DEFAULT_EVENT_TIME, so the
+    // clock this judges is always the clock the submit would send. An ambiguous
+    // clock, the one a fall-back makes happen twice, is NOT refused: it
+    // happened, and either instant is defensible.
+    //
+    // Zod runs a whole-object rule even when a field rule has already failed,
+    // so this reaches a date field the user has not filled in. There is no
+    // clock to judge then, and `showFormFields.date` already reports it.
+    .superRefine((value, ctx) => {
+      const resolved = resolveFormEventDate(value, venueTimezone)
+      if (!resolved || resolved.clockExists) return
+      ctx.addIssue({
+        code: 'custom',
+        path: ['time'],
+        message:
+          "This time does not exist on this date: the clocks in this venue's timezone move forward through it. Pick a different time.",
+      })
+    })
 }
 
 /** Pre-filled venue data for locking venue selection */
@@ -337,8 +367,8 @@ export function ShowForm({
   })
 
   const formSchema = useMemo(
-    () => makeShowFormSchema(stateLessVenueId),
-    [stateLessVenueId]
+    () => makeShowFormSchema(stateLessVenueId, selectedVenue?.timezone),
+    [stateLessVenueId, selectedVenue?.timezone]
   )
 
   // Track venue name for showing/hiding the "new venue" warning. Seed it from
@@ -362,21 +392,29 @@ export function ShowForm({
     defaultValues: initialFormValues,
     onSubmit: async ({ value }) => {
       // Combine date and time into a UTC instant, read in the zone the show
-      // will be RENDERED in. resolveShowTimezone prefers the selected venue's
+      // will be RENDERED in. resolveFormEventDate prefers the selected venue's
       // own IANA zone and only falls back to the US state map, which answers
       // America/Phoenix for every non-US venue (PSY-1873): keying on the state
       // alone wrote a Leeds 8pm show as 03:00Z and the show page then rendered
-      // it at 4:00 AM the next day. The same resolver reads the instant back in
-      // showToFormValues, so an edit round-trips instead of shifting the row.
+      // it at 4:00 AM the next day. The same zone resolver reads the instant back
+      // in showToFormValues, so an edit round-trips instead of shifting the row.
       //
-      // makeShowFormSchema's venue rule depends on this expression: it decides
-      // when `value.venue.state` is allowed to be blank by reasoning about what
-      // this call would then return. Change one and read the other.
-      const venueTimezone = resolveShowTimezone(
-        value.venue.state,
-        selectedVenue?.timezone
-      )
-      const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00', venueTimezone)
+      // With ONE exception, pinned by "the form round trip across a DST
+      // transition" in lib/utils/timeUtils.test.ts: a fall-back overlap has two
+      // instants for one wall clock, and reading either one back gives that
+      // clock, so re-saving a row stored on the occurrence this resolver does
+      // not pick moves it by the transition's step.
+      //
+      // makeShowFormSchema calls this same function on the same values: its
+      // venue rule decides when `value.venue.state` may be blank by reasoning
+      // about the zone this returns, and its whole-object rule refuses a wall
+      // clock the zone does not have. This body is only reached once both have
+      // passed, so `clockExists` is true here and is not re-read, and
+      // `showFormFields.date` has already rejected every date that resolves to
+      // no clock at all.
+      const resolved = resolveFormEventDate(value, selectedVenue?.timezone)
+      if (!resolved) return
+      const eventDate = resolved.eventDate
 
       const price = parseCost(value.cost)
       // Independent of `price`: a blank door field leaves door_price absent on
