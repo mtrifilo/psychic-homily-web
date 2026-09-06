@@ -621,7 +621,8 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
-	if input.Body.Email == "" {
+	email := input.Body.Email
+	if email == "" {
 		resp.Body.Success = false
 		resp.Body.Message = "Email is required"
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
@@ -630,8 +631,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	// FinishSignupHandler writes the users row from the address this handler
 	// stores in the challenge, never from its own request body, so the guard
 	// belongs here.
-	email, errMsg, ok := validateEmailAddress(input.Body.Email)
-	if !ok {
+	if errMsg, ok := validateEmailAddress(email); !ok {
 		resp.Body.Success = false
 		resp.Body.Message = errMsg
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
@@ -657,14 +657,14 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	}
 
 	logger.AuthDebug(ctx, "passkey_signup_begin",
-		"email", email,
+		"email_hash", logger.HashEmail(email),
 	)
 
 	// Check if user already exists
 	existingUser, err := h.userService.GetUserByEmail(email)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_signup_check_failed", err,
-			"email", email,
+			"email_hash", logger.HashEmail(email),
 		)
 		resp.Body.Success = false
 		resp.Body.Message = "Failed to check email"
@@ -691,7 +691,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	options, session, err := h.webauthnService.BeginRegistrationForEmail(email)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_signup_begin_failed", err,
-			"email", email,
+			"email_hash", logger.HashEmail(email),
 		)
 		resp.Body.Success = false
 		resp.Body.Message = "Failed to start passkey registration"
@@ -703,7 +703,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	challengeID, err := h.webauthnService.StoreChallengeWithEmail(email, session, "signup")
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err,
-			"email", email,
+			"email_hash", logger.HashEmail(email),
 		)
 		resp.Body.Success = false
 		resp.Body.Message = "Failed to store challenge"
@@ -785,7 +785,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	)
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_response_parse_failed",
-			"email", email,
+			"email_hash", logger.HashEmail(email),
 			"error", err.Error(),
 		)
 		resp.Body.Success = false
@@ -834,7 +834,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_signup_finish_failed", err,
-			"email", email,
+			"email_hash", logger.HashEmail(email),
 		)
 		resp.Body.Success = false
 		resp.Body.Message = "Failed to complete signup"
@@ -862,7 +862,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 
 	logger.AuthInfo(ctx, "passkey_signup_success",
 		"user_id", user.ID,
-		"email", email,
+		"email_hash", logger.HashEmail(email),
 	)
 
 	// Same rationale as password registration: the account is created

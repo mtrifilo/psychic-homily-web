@@ -67,6 +67,34 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 		return resp, nil
 	}
 
+	// Names are request-body fields, not identity-token claims: the token
+	// authenticates the Apple account but says nothing about the names, so they
+	// are caller-controlled and take the same guard as the other two handlers
+	// that write these columns. Checked before the token, which is verified
+	// against Apple's remote JWKS.
+	firstName := ""
+	lastName := ""
+	if input.Body.FirstName != nil {
+		name, errMsg, ok := validateProfileName("First name", *input.Body.FirstName)
+		if !ok {
+			resp.Body.Success = false
+			resp.Body.Message = errMsg
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		firstName = name
+	}
+	if input.Body.LastName != nil {
+		name, errMsg, ok := validateProfileName("Last name", *input.Body.LastName)
+		if !ok {
+			resp.Body.Success = false
+			resp.Body.Message = errMsg
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		lastName = name
+	}
+
 	// Validate the Apple identity token
 	claims, err := h.appleAuthService.ValidateIdentityToken(input.Body.IdentityToken)
 	if err != nil {
@@ -83,16 +111,6 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 		"apple_sub", claims.Subject,
 		"has_email", claims.Email != "",
 	)
-
-	// Extract optional name (only available on first sign-in)
-	firstName := ""
-	lastName := ""
-	if input.Body.FirstName != nil {
-		firstName = *input.Body.FirstName
-	}
-	if input.Body.LastName != nil {
-		lastName = *input.Body.LastName
-	}
 
 	// Find or create user
 	user, err := h.appleAuthService.FindOrCreateAppleUser(claims, firstName, lastName)

@@ -4021,41 +4021,51 @@ func TestUpdateProfileHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
 // --- PSY-2026 input validation: shared email + identity-name guards ---
 
 // TestValidateEmailAddress pins the accept/refuse contract of the guard every
-// address-writing handler shares. The rule is a bare RFC 5322 address: the
-// parsed address must equal the trimmed input, so no display-name form, no
-// RFC comment, no second address, and no trailing CRLF survives into the
-// users row or an outbound To header.
+// address-writing handler shares. The rule is that the input must already BE a
+// bare RFC 5322 addr-spec: it parses, and the parsed address is byte-identical
+// to the input. Padding is refused rather than trimmed, because the guard
+// returns no rewritten value and every lookup matches the stored bytes exactly.
 func TestValidateEmailAddress(t *testing.T) {
 	cases := []struct {
-		name     string
-		input    string
-		wantOK   bool
-		wantAddr string
+		name   string
+		input  string
+		wantOK bool
 	}{
-		{"plain", "user@example.com", true, "user@example.com"},
-		{"dotless domain accepted", "a@b", true, "a@b"},
-		{"surrounding whitespace trimmed", "  user@example.com  ", true, "user@example.com"},
-		{"trailing CRLF trimmed away", "user@example.com\r\n", true, "user@example.com"},
-		{"unicode local part", "日本@example.com", true, "日本@example.com"},
-		{"display-name form", "Name <user@example.com>", false, ""},
-		{"angle-addr form", "<user@example.com>", false, ""},
-		{"rfc comment", "user@example.com (comment)", false, ""},
-		{"header injection", "user@example.com\r\nBcc: evil@example.com", false, ""},
-		{"second address", "user@example.com, evil@example.com", false, ""},
-		{"embedded NUL", "user@example.com\x00", false, ""},
-		{"no at sign", "not-an-email", false, ""},
-		{"empty", "", false, ""},
-		{"whitespace only", "   ", false, ""},
+		{"plain", "user@example.com", true},
+		{"dotless domain accepted", "a@b", true},
+		{"unicode local part", "日本@example.com", true},
+		{"at the byte bound", strings.Repeat("x", maxEmailBytes-len("@example.com")) + "@example.com", true},
+		{"over the byte bound", strings.Repeat("x", maxEmailBytes) + "@example.com", false},
+		{"leading whitespace", "  user@example.com", false},
+		{"trailing whitespace", "user@example.com  ", false},
+		{"trailing CRLF", "user@example.com\r\n", false},
+		// ParseAddress folds ASCII whitespace away, which is what makes the
+		// padded forms above fail the byte-identity check. It does NOT do that
+		// for non-ASCII invisibles, so these round-trip unchanged and are
+		// accepted, on the same "accept what ParseAddress accepts" rule as the
+		// dotless domain. Byte-identical storage is what keeps them harmless:
+		// the address is looked up as the same bytes it was stored as, so an
+		// account created this way is reachable rather than locked out. It is
+		// still undeliverable, which is the deliverability follow-up's problem,
+		// not this guard's.
+		{"non-breaking space tail accepted", "user@example.com\u00a0", true},
+		{"zero-width space tail accepted", "user@example.com\u200b", true},
+		{"display-name form", "Name <user@example.com>", false},
+		{"angle-addr form", "<user@example.com>", false},
+		{"rfc comment", "user@example.com (comment)", false},
+		{"crlf and second address", "user@example.com\r\nBcc: evil@example.com", false},
+		{"second address", "user@example.com, evil@example.com", false},
+		{"embedded NUL", "user@example.com\x00", false},
+		{"no at sign", "not-an-email", false},
+		{"empty", "", false},
+		{"whitespace only", "   ", false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, msg, ok := validateEmailAddress(tc.input)
+			msg, ok := validateEmailAddress(tc.input)
 			if ok != tc.wantOK {
 				t.Fatalf("ok=%v, want %v (message=%q)", ok, tc.wantOK, msg)
-			}
-			if got != tc.wantAddr {
-				t.Errorf("normalized=%q, want %q", got, tc.wantAddr)
 			}
 			if !ok && msg == "" {
 				t.Error("expected a user-facing refusal message")
@@ -4064,10 +4074,11 @@ func TestValidateEmailAddress(t *testing.T) {
 	}
 }
 
-// TestValidateProfileName_SharedAcrossIdentityFields proves display_name,
-// first_name and last_name run through one helper: the same input yields the
-// same verdict for all three, and only the field label differs in the message.
-func TestValidateProfileName_SharedAcrossIdentityFields(t *testing.T) {
+// TestValidateProfileName_Contract pins the helper's own accept/refuse rules.
+// It says nothing about which fields call it: the drift guard that walks the
+// three identity fields through a handler is
+// TestUpdateProfileHandler_IdentityNamesShareOneGuard.
+func TestValidateProfileName_Contract(t *testing.T) {
 	labels := []string{"Display name", "First name", "Last name"}
 
 	cases := []struct {
@@ -4078,6 +4089,9 @@ func TestValidateProfileName_SharedAcrossIdentityFields(t *testing.T) {
 	}{
 		{"plain", "Ada", true, "Ada"},
 		{"trimmed", "  Ada  ", true, "Ada"},
+		// Whitespace-only is the clear-the-field sentinel, not a refusal.
+		{"whitespace only clears", "   ", true, ""},
+		{"empty clears", "", true, ""},
 		{"at the bound", strings.Repeat("x", maxProfileNameRunes), true, strings.Repeat("x", maxProfileNameRunes)},
 		{"multibyte at the bound counts runes", strings.Repeat("é", maxProfileNameRunes), true, strings.Repeat("é", maxProfileNameRunes)},
 		{"over the bound", strings.Repeat("x", maxProfileNameRunes+1), false, ""},
@@ -4189,25 +4203,95 @@ func TestRegisterHandler_AcceptsDotlessDomain(t *testing.T) {
 	}
 }
 
-// TestRegisterHandler_StoresTrimmedEmail locks the normalization contract: the
-// value handed to the user service is the trimmed address, so a padded or
-// CRLF-terminated input cannot reach the users row or an outbound To header.
-func TestRegisterHandler_StoresTrimmedEmail(t *testing.T) {
-	var gotEmail string
+// TestRegisterHandler_StoresAddressUnchanged is the write/read symmetry guard.
+// Registration must hand the user service the exact bytes it was given, because
+// every later lookup (login, magic link, recovery) matches the stored value
+// exactly. A guard that rewrote the address would create accounts that cannot
+// subsequently be logged into, so padding is refused rather than trimmed.
+func TestRegisterHandler_StoresAddressUnchanged(t *testing.T) {
+	t.Run("exact bytes reach the user service", func(t *testing.T) {
+		const addr = "Mixed.Case@Example.com"
+		var gotEmail string
+		h := authHandler(func(ah *AuthHandler) {
+			ah.userService = &testhelpers.MockUserService{
+				CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+					gotEmail = email
+					return &authm.User{ID: 1, Email: strPtr(email)}, nil
+				},
+			}
+			ah.jwtService = &testhelpers.MockJWTService{
+				CreateTokenFn: func(u *authm.User) (string, error) { return "tok", nil },
+			}
+		})
+
+		input := &RegisterRequest{}
+		input.Body.Email = addr
+		input.Body.Password = "a-valid-password-123"
+		input.Body.TermsAccepted = true
+		input.Body.TermsVersion = "2026-01-31"
+		input.Body.AgeConfirmed = true
+		input.Body.MinAgeAttested = MinSignupAge
+
+		resp, err := h.RegisterHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Body.Success {
+			t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+		}
+		if gotEmail != addr {
+			t.Errorf("expected the address stored unchanged as %q, got %q", addr, gotEmail)
+		}
+	})
+
+	t.Run("padded input is refused, not silently trimmed", func(t *testing.T) {
+		var created bool
+		h := authHandler(func(ah *AuthHandler) {
+			ah.userService = &testhelpers.MockUserService{
+				CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+					created = true
+					return &authm.User{ID: 1}, nil
+				},
+			}
+		})
+
+		input := &RegisterRequest{}
+		input.Body.Email = "  padded@example.com\r\n"
+		input.Body.Password = "a-valid-password-123"
+		input.Body.TermsAccepted = true
+		input.Body.TermsVersion = "2026-01-31"
+		input.Body.AgeConfirmed = true
+		input.Body.MinAgeAttested = MinSignupAge
+
+		resp, err := h.RegisterHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+			t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+		}
+		if created {
+			t.Error("expected no user row for a padded address")
+		}
+	})
+}
+
+// TestRegisterHandler_RejectsOverlongEmail pins that an address too long for
+// users.email is refused as a validation error, not left to fail at the insert
+// and surface as a 5xx from an unauthenticated endpoint.
+func TestRegisterHandler_RejectsOverlongEmail(t *testing.T) {
+	var created bool
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
 			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
-				gotEmail = email
-				return &authm.User{ID: 1, Email: strPtr(email)}, nil
+				created = true
+				return &authm.User{ID: 1}, nil
 			},
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateTokenFn: func(u *authm.User) (string, error) { return "tok", nil },
 		}
 	})
 
 	input := &RegisterRequest{}
-	input.Body.Email = "  padded@example.com\r\n"
+	input.Body.Email = strings.Repeat("x", maxEmailBytes) + "@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
@@ -4218,11 +4302,11 @@ func TestRegisterHandler_StoresTrimmedEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !resp.Body.Success {
-		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
 	}
-	if gotEmail != "padded@example.com" {
-		t.Errorf("expected stored email=padded@example.com, got %q", gotEmail)
+	if created {
+		t.Error("expected no user row for an over-long address")
 	}
 }
 

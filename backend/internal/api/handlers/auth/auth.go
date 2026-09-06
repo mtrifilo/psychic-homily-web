@@ -47,42 +47,71 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 
 // maxProfileNameRunes bounds every user-supplied identity name (display name,
 // first name, last name) in RUNES, not bytes, matching the users table's
-// VARCHAR(100) on all three columns.
+// VARCHAR(100) on all three columns and the /profile form's maxLength=100 on
+// the one of them that form renders. The location column shares that width but
+// keeps its own length check: it takes no control-character refusal, so it does
+// not go through validateProfileName.
 const maxProfileNameRunes = 100
 
-// validateEmailAddress is the shared guard for every handler that stores a
-// user-supplied address. It requires a bare RFC 5322 address: parseable, and
-// with the parsed address equal to the trimmed input, so a display-name form
-// ("Name <a@b.com>"), an RFC comment, or a second address cannot reach the
-// users table or an outbound To header.
+// maxEmailBytes is RFC 5321's maximum path length for an address. It is a byte
+// count, which is the stricter reading of the users table's VARCHAR(255), so no
+// accepted address can overflow that column, multi-byte local parts included.
+const maxEmailBytes = 254
+
+// validateEmailAddress is the shared guard for the handlers that store a
+// user-supplied address: password registration and passkey signup. The OAuth
+// account-creation paths (services/auth/apple.go and the goth callback in
+// services/user/user.go) write the column from a provider-asserted address
+// rather than from a request body, and are trusted by design, not overlooked.
 //
-// The returned value, not the raw input, is what callers must store: trimming
-// is what removes a trailing CRLF from an address that parses either way.
+// The rule is that the input must ALREADY be a bare RFC 5322 addr-spec: it
+// parses, and the parsed address is byte-identical to the input. That refuses a
+// display-name form ("Name <a@b.com>"), an RFC comment, a second address, and
+// any surrounding whitespace or trailing CRLF.
+//
+// Byte-identical is deliberate, and is why this returns no rewritten value.
+// Every lookup by address (login, magic link, account recovery, passkey login)
+// matches the stored bytes exactly, so a guard that quietly rewrote the input
+// would store one string and authenticate against another. Refusing the padded
+// form reports the problem at signup instead of creating an account that cannot
+// afterwards be logged into. No case folding either: address comparison is
+// case-sensitive end to end, and this guard does not change that.
+//
 // Returns the user-facing message and ok=false on refusal.
-func validateEmailAddress(raw string) (normalized, message string, ok bool) {
-	trimmed := strings.TrimSpace(raw)
-	addr, err := mail.ParseAddress(trimmed)
-	if err != nil || addr.Address != trimmed {
-		return "", "Email must be a valid email address", false
+func validateEmailAddress(raw string) (message string, ok bool) {
+	if len(raw) > maxEmailBytes {
+		return fmt.Sprintf("Email must be %d characters or fewer", maxEmailBytes), false
 	}
-	return trimmed, "", true
+	addr, err := mail.ParseAddress(raw)
+	if err != nil || addr.Address != raw {
+		return "Email must be a valid email address", false
+	}
+	return "", true
 }
 
 // validateProfileName is the shared guard for the three identity-name fields.
-// It rejects control characters, because the value is interpolated into
-// notification subjects/bodies and attribution surfaces, and bounds the length
-// at maxProfileNameRunes. label names the field in the refusal message
-// ("Display name", "First name", "Last name"). Returns the trimmed value, and
-// the user-facing message with ok=false on refusal.
-func validateProfileName(label, raw string) (normalized, message string, ok bool) {
-	trimmed := strings.TrimSpace(raw)
-	if strings.ContainsFunc(trimmed, unicode.IsControl) {
+// It rejects control characters, because the value is rendered into notification
+// bodies and public attribution surfaces, and bounds the length at
+// maxProfileNameRunes. label names the field in the refusal message
+// ("Display name", "First name", "Last name").
+//
+// The predicate is unicode.IsControl, so category Cc only. A bidi override or a
+// zero-width space still passes: the format category that would catch them also
+// holds the joiners several scripts need in legitimate names. resolvePublicNameTiers
+// and headerSafeSubject document that same open edge.
+//
+// An all-whitespace value trims to "" and is ACCEPTED: that is how a caller
+// clears the field. Returns the trimmed value, and the user-facing message with
+// ok=false on refusal.
+func validateProfileName(label, raw string) (trimmed, message string, ok bool) {
+	name := strings.TrimSpace(raw)
+	if strings.ContainsFunc(name, unicode.IsControl) {
 		return "", fmt.Sprintf("%s contains unsupported characters", label), false
 	}
-	if utf8.RuneCountInString(trimmed) > maxProfileNameRunes {
+	if utf8.RuneCountInString(name) > maxProfileNameRunes {
 		return "", fmt.Sprintf("%s must be %d characters or fewer", label, maxProfileNameRunes), false
 	}
-	return trimmed, "", true
+	return name, "", true
 }
 
 // AuthHandler handles authentication requests
@@ -566,8 +595,9 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 
 type RegisterRequest struct {
 	Body struct {
-		// No `validate:"..."` tags: nothing reads them here. RegisterHandler
-		// enforces the address and name rules.
+		// No `validate:"..."` tags: they are inert repo-wide, because huma builds
+		// its schema from its own tags and no go-playground validator is
+		// registered anywhere. Enforcement lives in RegisterHandler.
 		Email          string  `json:"email" example:"test@example.com" doc:"User email"`
 		Password       string  `json:"password" example:"password" doc:"User password"`
 		FirstName      *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
@@ -613,8 +643,10 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
-	email, errMsg, ok := validateEmailAddress(input.Body.Email)
-	if !ok {
+	// Field-shape validation runs as one block ahead of the terms/age gates and
+	// the password validator, because ValidatePassword makes an outbound
+	// breach-check request and this endpoint is unauthenticated.
+	if errMsg, ok := validateEmailAddress(input.Body.Email); !ok {
 		logger.AuthWarn(ctx, "register_validation_failed",
 			"error", errMsg,
 		)
@@ -622,6 +654,33 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.Message = errMsg
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
+	}
+	var firstName, lastName string
+	if input.Body.FirstName != nil {
+		name, errMsg, ok := validateProfileName("First name", *input.Body.FirstName)
+		if !ok {
+			logger.AuthWarn(ctx, "register_validation_failed",
+				"error", errMsg,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = errMsg
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		firstName = name
+	}
+	if input.Body.LastName != nil {
+		name, errMsg, ok := validateProfileName("Last name", *input.Body.LastName)
+		if !ok {
+			logger.AuthWarn(ctx, "register_validation_failed",
+				"error", errMsg,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = errMsg
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		lastName = name
 	}
 	if !input.Body.TermsAccepted {
 		authErr := autherrors.ErrValidationFailed("You must accept the Terms of Service and Privacy Policy")
@@ -687,35 +746,8 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		return resp, nil
 	}
 
-	// Handle optional first and last names
-	var firstName, lastName string
-	if input.Body.FirstName != nil {
-		firstName, errMsg, ok = validateProfileName("First name", *input.Body.FirstName)
-		if !ok {
-			logger.AuthWarn(ctx, "register_validation_failed",
-				"error", errMsg,
-			)
-			resp.Body.Success = false
-			resp.Body.Message = errMsg
-			resp.Body.ErrorCode = autherrors.CodeValidationFailed
-			return resp, nil
-		}
-	}
-	if input.Body.LastName != nil {
-		lastName, errMsg, ok = validateProfileName("Last name", *input.Body.LastName)
-		if !ok {
-			logger.AuthWarn(ctx, "register_validation_failed",
-				"error", errMsg,
-			)
-			resp.Body.Success = false
-			resp.Body.Message = errMsg
-			resp.Body.ErrorCode = autherrors.CodeValidationFailed
-			return resp, nil
-		}
-	}
-
 	user, err := h.userService.CreateUserWithPasswordWithLegal(
-		email,
+		input.Body.Email,
 		input.Body.Password,
 		firstName,
 		lastName,
@@ -736,8 +768,9 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
 			logger.AuthWarn(ctx, "register_failed",
-				"email_hash", logger.HashEmail(email),
-				"error", err.Error(),
+				// Not err.Error(): ErrUserExists carries the raw address in its
+				// internal error, which would defeat the hash on the line above.
+				"email_hash", logger.HashEmail(input.Body.Email),
 				"error_code", autherrors.CodeUserExists,
 			)
 			resp.Body.Success = false
@@ -755,7 +788,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		// shape; only the transport status flips.
 		svcErr := autherrors.ErrServiceUnavailable("register_create_user", err)
 		logger.AuthError(ctx, "register_failed", err,
-			"email_hash", logger.HashEmail(email),
+			"email_hash", logger.HashEmail(input.Body.Email),
 			"error_code", autherrors.CodeServiceUnavailable,
 		)
 		resp.Body.Success = false
@@ -781,7 +814,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 
 	logger.AuthInfo(ctx, "register_success",
 		"user_id", user.ID,
-		"email_hash", logger.HashEmail(email),
+		"email_hash", logger.HashEmail(input.Body.Email),
 	)
 
 	// Send Discord notification for new user signup
@@ -2212,7 +2245,9 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 	}
 
 	// display_name, first_name and last_name all feed the attribution and
-	// notification chains, so the three share one guard.
+	// notification chains, so the three share one guard here. The Apple callback
+	// and RegisterHandler are the other two handlers that write these columns,
+	// and they call the same helper.
 	for _, field := range []struct {
 		column string
 		label  string
