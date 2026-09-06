@@ -373,7 +373,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_RefusesSt
 // with the submitter's unverified claim beside it.
 //
 // The unknown-COLUMN branch behind this one cannot be reached from any allowlist
-// today, which is what TestAllowedEditFieldsAreDerivable pins; it is the guard
+// today, which is what TestEveryDerivableFieldResolvesToAColumn pins; it is the guard
 // for an allowlist that gains a name no column answers to.
 func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_RefusesFieldOutsideTheAllowlist() {
 	user := s.createTestUser()

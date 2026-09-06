@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,33 +101,47 @@ func TestIsTimestampColumn(t *testing.T) {
 // =============================================================================
 
 // The rollback revision's old_value is what the ENTITY held, not what the
-// revision being undone claimed to have written. The two agree for a field
-// nothing touched, and the point of recording the observed one is the rows where
-// they do not: a legacy row's claim was never checked against anything.
+// revision being undone claimed to have written.
+//
+// The two are the same VALUE in the ordinary case, so this uses the one field
+// family where they are reliably the same value in two SPELLINGS: a legacy
+// founded_year is stored as text and the column holds an integer. Recording the
+// claim rather than the observation is therefore visible in the result, which is
+// what makes this test able to fail.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RecordsTheObservedOldValue() {
 	admin := s.createTestUser()
-	artist := s.createTestArtist(
-		fmt.Sprintf("Observed Value %d", time.Now().UnixNano()), "Phoenix", "AZ", "")
+	label := catalogm.Label{Name: "Observed Value Records", FoundedYear: nil}
+	s.Require().NoError(s.db.Create(&label).Error)
 
-	changes := []adminm.FieldChange{
-		{Field: "description", OldValue: "old blurb", NewValue: "new blurb"},
+	// Written directly: this is the shape of a row the drawer stored back when
+	// it submitted the year as a string. See NumericEditBounds.LegacyTextEncoding.
+	raw := json.RawMessage(`[{"field":"founded_year","old_value":"1990","new_value":"1985"}]`)
+	revision := &adminm.Revision{
+		EntityType: "label", EntityID: label.ID, UserID: admin.ID, FieldChanges: &raw,
 	}
-	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, admin.ID, changes, "one field"))
-	s.applyRecordedChanges("artist", artist.ID, changes)
-	revision := s.latestRevision("artist", artist.ID)
+	s.Require().NoError(s.db.Create(revision).Error)
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).Where("id = ?", label.ID).
+		Update("founded_year", 1985).Error)
 
 	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
-	s.Require().NoError(err)
-	s.Equal([]string{"description"}, result.AppliedFields)
+	s.Require().NoError(err,
+		"a year the column stores as an integer and the row spells as text is not a changed field")
+	s.Equal([]string{"founded_year"}, result.AppliedFields)
 
-	recorded := s.latestRevision("artist", artist.ID)
+	recorded := s.latestRevision("label", label.ID)
 	s.Require().NotEqual(revision.ID, recorded.ID)
 	var recordedChanges []adminm.FieldChange
 	s.Require().NoError(json.Unmarshal(*recorded.FieldChanges, &recordedChanges))
 	s.Require().Len(recordedChanges, 1)
-	s.Equal("new blurb", recordedChanges[0].OldValue,
-		"old_value is the value read off the entity under the lock")
-	s.Equal("old blurb", recordedChanges[0].NewValue)
+	s.EqualValues(1985, recordedChanges[0].OldValue,
+		"old_value is the integer read off the column, not the string the row claimed")
+	s.IsType(float64(0), recordedChanges[0].OldValue,
+		"a number round-tripped through JSONB, not the stored string")
+
+	var restored catalogm.Label
+	s.Require().NoError(s.db.First(&restored, label.ID).Error)
+	s.Require().NotNil(restored.FoundedYear)
+	s.Equal(1990, *restored.FoundedYear)
 }
 
 // Where the claim and the observation are the SAME state spelled two ways, the
@@ -409,6 +424,46 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_VanishedEntityIsRepor
 	s.Require().Error(err)
 	s.Nil(result)
 	s.Contains(err.Error(), "entity not found")
+}
+
+// The lock is only worth what the HANDLE carrying it is. Rollback must hand
+// observeRollbackValues the transaction that goes on to write, not the plain
+// connection: a FOR UPDATE taken on a second connection is a lock the write does
+// not hold, which is the PSY-1709 shape applyDerivedVenueLocation's doc names.
+//
+// Nothing in the emitted SQL says which handle issued it, so this reads the
+// statement's connection instead: inside a transaction gorm carries a *sql.Tx,
+// outside one it carries the pool.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_ObservesThroughTheWritingTransaction() {
+	admin := s.createTestUser()
+	artist := s.createTestArtist(
+		fmt.Sprintf("Locked Handle %d", time.Now().UnixNano()), "Phoenix", "AZ", "")
+
+	changes := []adminm.FieldChange{{Field: "description", OldValue: "old blurb", NewValue: "new blurb"}}
+	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, admin.ID, changes, "one field"))
+	s.applyRecordedChanges("artist", artist.ID, changes)
+	revision := s.latestRevision("artist", artist.ID)
+
+	var lockedReadsInTx, lockedReadsOutsideTx int
+	s.Require().NoError(s.db.Callback().Query().After("gorm:query").
+		Register("psy2032_capture_locked_read", func(tx *gorm.DB) {
+			if !strings.Contains(tx.Statement.SQL.String(), "FOR UPDATE") {
+				return
+			}
+			if _, inTx := tx.Statement.ConnPool.(gorm.TxCommitter); inTx {
+				lockedReadsInTx++
+				return
+			}
+			lockedReadsOutsideTx++
+		}))
+	defer func() {
+		s.Require().NoError(s.db.Callback().Query().Remove("psy2032_capture_locked_read"))
+	}()
+
+	_, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
+	s.Require().NoError(err)
+	s.Equal(1, lockedReadsInTx, "the locked read must run on the transaction that writes")
+	s.Zero(lockedReadsOutsideTx, "a locked read outside the transaction locks nothing the write holds")
 }
 
 // artistColumn reads one scalar column off an artist, for the assertions whose

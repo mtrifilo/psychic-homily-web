@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -53,8 +56,17 @@ import (
 // view and not the column: an unverified venue's address records "" while the
 // column holds a street address.
 //
-// Rollback derives through the same functions but reads such a column as the
-// column, because it answers for a different audience. See adminAudience.
+// Two separate things follow from that, and only one of them is settled.
+//
+// The OBSERVATION is settled: Rollback derives through the same functions but
+// reads such a column as the column, because it answers for a different
+// audience. See adminAudience.
+//
+// The WRITE is not. Rollback still writes OldValue back verbatim, so restoring a
+// contributor-originated revision on an unverified venue writes the recorded ""
+// over a real street address rather than restoring the address that preceded
+// the edit. Nothing here narrows that: the recorded value is the only record of
+// what the field held, and for a withheld field it never described the column.
 
 // entityModelsByType pairs each entity type with the GORM model whose columns a
 // derivation here may read.
@@ -280,6 +292,7 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 	out := make([]adminm.FieldChange, len(changes))
 	copy(out, changes)
 
+	numericBounds := contracts.NumericEditFieldBounds()
 	var stale []apperrors.StaleFieldValue
 	for i := range out {
 		field := out[i].Field
@@ -301,23 +314,19 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 		// what its reader is served, rather than from the column. See
 		// withheldEditFieldsReporter: a pending edit is read back by its
 		// submitter, so deriving from the column would publish the value the
-		// entity payload withholds. valueDerivation.storedView is the one
-		// audience this does not hold for.
+		// entity payload withholds. adminAudience is the one audience this does
+		// not hold for.
 		if withheld[field] && readFor.masksWithheldColumns() {
 			column = reflect.Zero(column.Type())
 		}
 		value, err := revisiondiff.EmitValue(column)
 		if err != nil {
-			// Unreachable for an allowlisted field: TestAllowedEditFieldsAreDerivable
-			// pins every one of them against this rule.
+			// Unreachable for a field either scope can name:
+			// TestEveryDerivableFieldResolvesToAColumn pins all of them against
+			// this rule.
 			return nil, nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
 		}
-		// The instant comparison is gated on the COLUMN, not on whether the two
-		// strings happen to parse: a free-text column holding an RFC3339-shaped
-		// value is text, and two spellings of one moment are two values there.
-		same := sameFieldValue(out[i].OldValue, value) ||
-			(isTimestampColumn(column.Type()) && sameInstant(out[i].OldValue, value))
-		if !same {
+		if !claimDescribes(readFor, field, column.Type(), out[i].OldValue, value, numericBounds) {
 			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
@@ -378,7 +387,7 @@ func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (column
 // the relations and the JSONB columns out of a map whose keys a pending edit may
 // name. The consequence worth knowing: a real column of an unsupported type goes
 // missing just as quietly, and what makes that loud is
-// TestAllowedEditFieldsAreDerivable, which reports any allowlisted field this
+// TestEveryDerivableFieldResolvesToAColumn, which reports any allowlisted field this
 // map does not hold.
 func modelColumns(db *gorm.DB, model interface{}) (map[string]reflect.Value, error) {
 	parsed, err := schema.Parse(model, &modelSchemaCache, db.NamingStrategy)
@@ -421,6 +430,63 @@ func sameFieldValue(claim, current interface{}) bool {
 	cs, claimIsString := claim.(string)
 	vs, currentIsString := current.(string)
 	return claimIsString && currentIsString && cs == vs
+}
+
+// claimDescribes reports whether a caller's claim about a field describes the
+// value the entity holds, across every encoding the two can reach this
+// comparison in.
+//
+// sameFieldValue answers for the encodings that are a property of the VALUE. The
+// two exceptions below are properties of the COLUMN and of the CALLER, which is
+// why they are decided here rather than inside it.
+func claimDescribes(
+	readFor audience,
+	field string,
+	columnType reflect.Type,
+	claim, current interface{},
+	numericBounds map[string]contracts.NumericEditBounds,
+) bool {
+	if sameFieldValue(claim, current) {
+		return true
+	}
+	// A timestamp is an instant, not the text of one offset of it. Gated on the
+	// column and not on whether the two strings happen to parse: a free-text
+	// column holding an RFC3339-shaped value is text, and two spellings of one
+	// moment are two values there.
+	if isTimestampColumn(columnType) {
+		return sameInstant(claim, current)
+	}
+	// A number a STORED row spells as text. Only the admin audience reads such a
+	// row, and only for the fields NumericEditBounds.LegacyTextEncoding marks:
+	// they were editable through this pipeline before they were registered, back
+	// when the drawer submitted them as strings, so a revision recorded then
+	// holds "1985" against a column holding 1985. NarrowNumericUpdates already
+	// parses those rather than refusing them on the write side; refusing them
+	// here would report the field as changed when nothing changed it, and strand
+	// exactly the history most likely to need undoing.
+	//
+	// The contributor audience keeps the strict comparison: a string reaching
+	// the submit path is a claim nothing stored, and the registry's doc records
+	// that submit-side behaviour is unaffected by the flag.
+	if readFor == adminAudience && numericBounds[field].LegacyTextEncoding {
+		return sameNumberAcrossText(claim, current)
+	}
+	return false
+}
+
+// sameNumberAcrossText reports whether a claim spelled as text names the same
+// number as a value emitted from a numeric column.
+func sameNumberAcrossText(claim, current interface{}) bool {
+	cs, claimIsString := claim.(string)
+	if !claimIsString {
+		return false
+	}
+	cn, err := strconv.ParseFloat(strings.TrimSpace(cs), 64)
+	if err != nil {
+		return false
+	}
+	vn, currentIsNumber := numericValue(current)
+	return currentIsNumber && cn == vn
 }
 
 // timeType is the one column type whose emitted value is text describing
