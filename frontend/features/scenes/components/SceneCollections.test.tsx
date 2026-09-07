@@ -71,7 +71,7 @@ function collection(
 
 function renderRail(collections: SceneCollectionSummary[]) {
   mockUseSceneCollections.mockReturnValue({ data: { collections } })
-  renderWithProviders(<SceneCollections scene={buildScene()} />)
+  return renderWithProviders(<SceneCollections scene={buildScene()} />)
 }
 
 beforeEach(() => {
@@ -82,11 +82,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/**
- * Only the two recency assertions need a frozen clock, and fake timers around
- * every mount in a file is the setup this repo's jsdom teardown flake comes
- * from.
- */
+/** Called by the tests that read the meta line, which prints a relative time. */
 function freezeClock() {
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
@@ -115,11 +111,25 @@ describe('SceneCollections', () => {
     expect(rows[1]).toHaveTextContent('Trunk Space Regulars')
   })
 
-  it('links each row to the collection', () => {
+  // The whole row is the target, so the link's accessible name is pinned
+  // exactly: without the explicit label it would be the row's full text, which
+  // puts a middot and a relative timestamp inside a link name.
+  it('links each row to the collection under the title as its name', () => {
+    freezeClock()
     renderRail([collection()])
+    const link = screen.getByRole('link', { name: 'Phoenix DIY Essentials' })
+    expect(link).toHaveAttribute('href', '/collections/phoenix-diy-essentials')
     expect(
-      screen.getByRole('link', { name: /Phoenix DIY Essentials/ })
-    ).toHaveAttribute('href', '/collections/phoenix-diy-essentials')
+      screen.queryByRole('link', { name: /Updated|·/ })
+    ).not.toBeInTheDocument()
+  })
+
+  // `/collections/..` walks back up to the browse index, the same wrong
+  // destination an empty slug produces.
+  it('does not link a dot-segment slug', () => {
+    renderRail([collection({ slug: '..' })])
+    expect(screen.getByText('Phoenix DIY Essentials')).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
   // A blank slug resolves `/collections/` to the browse index, not a 404, so an
@@ -137,6 +147,16 @@ describe('SceneCollections', () => {
       collection({ contributor_count: 4, updated_at: '2026-09-04T12:00:00Z' }),
     ])
     expect(screen.getByText('Built by 4 · Updated 3 days ago')).toBeInTheDocument()
+  })
+
+  // The weeks phrasing is the whole reason this module reads formatTimeAgo
+  // rather than the formatRelativeTime its sibling collections card uses: the
+  // other formatter jumps from days straight to an absolute date, which the
+  // mock's `UPDATED 1 WEEK AGO` is not.
+  it('words a fortnight-old edit in weeks, not as a date', () => {
+    freezeClock()
+    renderRail([collection({ updated_at: '2026-08-24T12:00:00Z' })])
+    expect(screen.getByText(/Updated 2 weeks ago/)).toBeInTheDocument()
   })
 
   // "Built by 0" is a claim about who assembled the collection that is false
@@ -159,32 +179,51 @@ describe('SceneCollections', () => {
     expect(img).toHaveAttribute('alt', '')
   })
 
-  it('renders no image when the collection has no cover', () => {
-    renderRail([collection({ cover_image_url: null })])
+  it('draws the fallback tile, not a broken image, when there is no cover', () => {
+    const { container } = renderRail([collection({ cover_image_url: null })])
     expect(document.querySelector('img')).toBeNull()
+    expect(container.querySelector('svg.lucide-library')).toBeInTheDocument()
     expect(screen.getByText('Phoenix DIY Essentials')).toBeInTheDocument()
   })
 
   // The rail does not draw the qualifying counts the payload carries; they
-  // audit the backend's ranking, they are not an offer to the reader.
+  // audit the backend's ranking, they are not an offer to the reader. The
+  // clock is frozen because the assertion is a substring search over the whole
+  // row, and a live clock could put a "12" into the recency clause.
   it('prints neither the scene-local count nor the item count', () => {
+    freezeClock()
     renderRail([collection({ scene_local_item_count: 12, item_count: 14 })])
     const row = screen.getByRole('listitem')
     expect(row).not.toHaveTextContent('12')
     expect(row).not.toHaveTextContent('14')
   })
 
+  // Sibling convention: no em dashes anywhere in rendered scene copy.
+  it('uses no em dashes', () => {
+    freezeClock()
+    const { container } = renderRail([collection()])
+    expect(container.textContent).not.toContain('—')
+  })
+
   it('renders nothing when no collection qualifies', () => {
-    mockUseSceneCollections.mockReturnValue({ data: { collections: [] } })
+    const { container } = renderRail([])
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // The handler substitutes an empty slice, so the wire should never carry a
+  // null. The generated response type still allows one, and a null must read
+  // as "nothing to show" rather than throw on `.length`.
+  it('renders nothing when the payload carries a null list', () => {
+    mockUseSceneCollections.mockReturnValue({ data: { collections: null } })
     const { container } = renderWithProviders(
       <SceneCollections scene={buildScene()} />
     )
     expect(container).toBeEmptyDOMElement()
   })
 
-  // Loading and a 404 (a place below the scene venue threshold) both arrive as
-  // absent data, and neither may flash a heading over empty space.
-  it('renders nothing while the request is in flight or has failed', () => {
+  // Loading and a 404 (a place below the scene venue threshold) both reach the
+  // component as absent data, and neither may flash a heading over empty space.
+  it('renders nothing when there is no data', () => {
     mockUseSceneCollections.mockReturnValue({ data: undefined })
     const { container } = renderWithProviders(
       <SceneCollections scene={buildScene()} />

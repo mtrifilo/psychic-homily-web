@@ -46,6 +46,20 @@ describe('entityHref', () => {
     expect(entityHref('/collections', '')).toBeNull()
     expect(entityHref('/collections', '   ')).toBeNull()
   })
+
+  // Dot segments are the one shape encoding leaves untouched, and they reach
+  // the same wrong destination the empty slug does: `/collections/..` walks
+  // back up to `/collections`.
+  it('returns null for a dot-segment slug', () => {
+    expect(entityHref('/collections', '.')).toBeNull()
+    expect(entityHref('/collections', '..')).toBeNull()
+    expect(entityHref('/collections', ' .. ')).toBeNull()
+  })
+
+  // A slug that merely CONTAINS dots is a real slug and still links.
+  it('links a slug that contains dots', () => {
+    expect(entityHref('/artists', 'r.e.m')).toBe('/artists/r.e.m')
+  })
 })
 
 // The nullable-slug href guard is a rule this codebase has learned the hard way

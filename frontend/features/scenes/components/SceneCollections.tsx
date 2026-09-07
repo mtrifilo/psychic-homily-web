@@ -11,18 +11,6 @@ import { entityHref, SceneSectionHeading } from './sceneChrome'
 import type { SceneCollectionSummary, SceneDetail } from '../types'
 
 /**
- * The collections that are about this city.
- *
- * The module HIDES COMPLETELY when nothing qualifies, which is most scenes. An
- * empty shelf under a heading would report a shortfall in the catalog as if it
- * were a fact about the city.
- *
- * The qualifying counts the payload carries are deliberately not drawn: they
- * audit the backend's ranking, and the reader is being offered a collection
- * rather than a ranking.
- */
-
-/**
  * `Built by 4 · Updated 3 days ago`, printed in mono micro-caps.
  *
  * `formatTimeAgo` rather than its `formatRelativeTime` sibling, which the
@@ -53,6 +41,11 @@ function collectionMeta(collection: SceneCollectionSummary): string {
  *
  * An unlinkable row is still NAMED: it is one of the collections that earned
  * the slot, and dropping it would misstate the list.
+ *
+ * The whole row is the target, so the link needs an explicit accessible name:
+ * without one it would be read as its full text content, which puts a middot
+ * and a relative timestamp inside the name of a link, and makes that name
+ * differ between two reads of the same page.
  */
 function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
   const href = entityHref('/collections', collection.slug)
@@ -78,7 +71,11 @@ function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
   return (
     <li className="border-b border-border/40 last:border-b-0">
       {href ? (
-        <Link href={href} className="block transition-colors hover:bg-muted/40">
+        <Link
+          href={href}
+          aria-label={collection.title}
+          className="block transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
           {content}
         </Link>
       ) : (
@@ -88,6 +85,17 @@ function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
   )
 }
 
+/**
+ * The collections that are about this city.
+ *
+ * The module HIDES COMPLETELY when nothing qualifies. An empty shelf under a
+ * heading would report a shortfall in the catalog as if it were a fact about
+ * the city.
+ *
+ * The qualifying counts the payload carries are deliberately not drawn: they
+ * audit the backend's ranking, and the reader is being offered a collection
+ * rather than a ranking.
+ */
 export function SceneCollections({ scene }: { scene: SceneDetail }) {
   const { data } = useSceneCollections({ slug: scene.slug })
 

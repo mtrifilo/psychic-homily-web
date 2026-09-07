@@ -161,9 +161,8 @@ export interface SceneNewArtistsResponse {
  * DERIVED from the generated schema, same rule as `SceneNewArtistRow`.
  *
  * There is no `is_public` field to read, and the rail must not invent a
- * client-side filter to stand in for one: the endpoint's query emits public
- * collections only, and the entity-visibility registry is what decides who may
- * see a collection at all.
+ * client-side filter to stand in for one: the endpoint's query asserts
+ * `is_public` in the single clause that emits a row.
  *
  * `scene_local_item_count` and `item_count` are the qualifying rule's numerator
  * and denominator. They are on the wire so the ranking is auditable from the
@@ -171,7 +170,8 @@ export interface SceneNewArtistsResponse {
  *
  * `updated_at` is the collection ROW's timestamp. Adding an item does not move
  * it, so it dates the collection's own metadata and is not a curation-activity
- * figure. It is also not the ranking tiebreak, which is `contributor_count`.
+ * figure. It ranks third, behind `scene_local_item_count` and
+ * `contributor_count`.
  */
 export type SceneCollectionSummary =
   components['schemas']['SceneCollectionSummary']
