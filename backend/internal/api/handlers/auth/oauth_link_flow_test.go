@@ -282,11 +282,14 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IdentityInUseCarriesItsO
 }
 
 // A callback with no intent is a sign-in, which is what keeps the two flows on
-// one registered redirect URI without either changing the other. An address no
-// account holds is the case where a sign-in ends in a session; the address that
-// already belongs to one is the same request refused, in
+// one registered redirect URI without either changing the other. These two
+// cover the sign-in branches that end in a session; the address that already
+// belongs to an account is the same request refused, in
 // TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntentStillSignsIn() {
+
+// An address no account holds is a signup, so the consent cookie is what lets
+// this one through rather than decoration.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_SignsUpAnUnheldAddress() {
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 		Provider: "google",
 		UserID:   "google-no-intent-subject",
@@ -298,14 +301,50 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntentStillSignsIn() 
 	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
+	s.assertSignedIn(w)
+}
+
+// The returning user: the provider identity is already in oauth_accounts, so
+// the callback resolves on it and never reaches the address comparison. This
+// is the branch every OAuth sign-in takes after the first, and the one the
+// e2e faux-provider fixture is seeded for.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_SignsInAKnownIdentity() {
+	existing := &authm.User{Email: strPtr("link-known-identity@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(existing).Error)
+	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
+		UserID: existing.ID, Provider: "google", ProviderUserID: "google-known-identity-subject",
+	}).Error)
+
+	// A different address from the one the account holds, and no verification
+	// claim: neither is consulted once the identity resolves.
+	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+		Provider: "google",
+		UserID:   "google-known-identity-subject",
+		Email:    "link-known-identity-changed@test.com",
+	}})
+
+	w, req := oauthCallbackRequest("google")
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.assertSignedIn(w)
+
+	var rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
+		Where("user_id = ?", existing.ID).Count(&rows).Error)
+	s.Equal(int64(1), rows, "a returning identity must not add a second row")
+}
+
+// assertSignedIn pins a completed sign-in: back to the frontend root, with a
+// session.
+func (s *OAuthHandlerIntegrationSuite) assertSignedIn(w *httptest.ResponseRecorder) {
+	s.T().Helper()
 	s.Equal("http://localhost:3000", w.Header().Get("Location"))
-	sessionIssued := false
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
-			sessionIssued = true
+			return
 		}
 	}
-	s.True(sessionIssued)
+	s.Fail("a completed sign-in must issue a session")
 }
 
 // --- store ---

@@ -24,13 +24,14 @@ func TestAuthLinkRouteRequiresASession(t *testing.T) {
 
 // Its sibling stays open, because it is how a caller gets a session at all.
 //
-// Registration is asserted against the BUILT tree rather than inferred from a
-// status, because a status cannot separate the two facts. This binary never
-// calls SetupGoth, so no goth provider is registered and the handler answers
-// gothic's own 400 for one it cannot resolve; that answer belongs to goth's
-// configuration, not to the routing contract this file owns. The served
-// request is left to carry the one claim it can carry alone: no credential,
-// no 401.
+// Registration is asserted against the BUILT tree, which is the only place the
+// parameter name and the single registration are observable at all.
+//
+// The served request then pins 400. Only cmd/server calls SetupGoth, so this
+// binary has no goth provider registered and gothic answers 400 for one it
+// cannot resolve. That exact status is what proves the request REACHED the
+// handler with no credential: 401 would mean the route gained a credential
+// requirement, and anything earlier would mean it never arrived.
 func TestAuthLoginRouteStaysUnauthenticated(t *testing.T) {
 	router := newTestRouter(t)
 
@@ -43,7 +44,8 @@ func TestAuthLoginRouteStaysUnauthenticated(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code == http.StatusUnauthorized {
-		t.Errorf("GET /auth/login/google with no credential = %d: the sign-in route must not require one", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("GET /auth/login/google with no credential = %d, want %d (gothic's answer for an unregistered provider, which is how far an uncredentialed request gets)",
+			w.Code, http.StatusBadRequest)
 	}
 }

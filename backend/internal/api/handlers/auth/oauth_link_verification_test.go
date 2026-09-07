@@ -13,25 +13,35 @@ import (
 
 // assertSignInRefusal pins the shape of a refused OAuth sign-in and returns the
 // redirect's query: back to the auth page, carrying the sign-in refusal's own
-// copy, with no session. Parsed rather than prefix-matched, because the query
-// is encoded from a map and parameter order is not part of the contract.
-func (s *OAuthHandlerIntegrationSuite) assertSignInRefusal(w *httptest.ResponseRecorder, email string) url.Values {
+// copy, with no session, and without the refused address. Parsed rather than
+// prefix-matched, because the query is encoded from a map and parameter order
+// is not part of the contract.
+//
+// refused is the address the caller presented. The message is a constant and
+// does not interpolate it, which is the property the last assertion holds in
+// place: this redirect becomes a browser URL, so an address interpolated into
+// the copy would land in history, referrers and access logs.
+func (s *OAuthHandlerIntegrationSuite) assertSignInRefusal(w *httptest.ResponseRecorder, refused string) url.Values {
 	s.T().Helper()
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
 
-	parsed, err := url.Parse(w.Header().Get("Location"))
+	location := w.Header().Get("Location")
+	parsed, err := url.Parse(location)
 	s.Require().NoError(err)
 	s.Equal("http://localhost:3000/auth", parsed.Scheme+"://"+parsed.Host+parsed.Path)
 	// UserMessage() is what the handler emits. ToExternalMessage is a separate
 	// table that happens to agree for this code, so asserting against it would
 	// point a maintainer at the wrong function.
-	s.Equal(autherrors.ErrOAuthLinkRefused(email).UserMessage(), parsed.Query().Get("error"))
+	s.Equal(autherrors.ErrOAuthLinkRefused(refused).UserMessage(), parsed.Query().Get("error"))
 
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
 			s.Fail("a refused sign-in must not issue a session")
 		}
 	}
+
+	s.NotContains(parsed.Query().Get("error"), refused)
+	s.NotContains(location, refused)
 	return parsed.Query()
 }
 
