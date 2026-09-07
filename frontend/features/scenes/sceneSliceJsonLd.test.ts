@@ -114,8 +114,8 @@ describe('buildSceneSliceJsonLd', () => {
     expect(jsonLd.itemList?.name).toBe('Phoenix, AZ shows, Fri, Jul 31 – Sat, Aug 1, 2026')
   })
 
-  // The leaf is the root, which is this page's canonical. A week or a night
-  // permalink there would name a page with different content.
+  // The trail terminates at the root. A week or a night permalink there would
+  // name a page with different content.
   it('anchors the breadcrumb leaf on the scene root', () => {
     const jsonLd = buildSceneSliceJsonLd(twoDaySlice()!, NOW)!
     const items = jsonLd.breadcrumb.itemListElement
@@ -123,18 +123,6 @@ describe('buildSceneSliceJsonLd', () => {
     expect(items).toHaveLength(3)
     expect(items[items.length - 1]).toMatchObject({
       name: 'Phoenix, AZ',
-      item: 'https://psychichomily.com/scenes/phoenix-az',
-    })
-  })
-
-  // `/scenes/mesa-az` renders the Phoenix scene. The payload's own slug is the
-  // canonical one, and it is what the rendered links already use.
-  it('describes the canonical scene the payload names', () => {
-    const slice = buildSceneSlice(day({ slug: 'phoenix-az' }), null)!
-    const jsonLd = buildSceneSliceJsonLd(slice, NOW)!
-    const items = jsonLd.breadcrumb.itemListElement
-
-    expect(items[items.length - 1]).toMatchObject({
       item: 'https://psychichomily.com/scenes/phoenix-az',
     })
   })
@@ -181,5 +169,14 @@ describe('buildSceneSliceJsonLd', () => {
   // Without a payload there is no scene name or canonical slug to describe.
   it('returns null when the slice named no day', () => {
     expect(buildSceneSliceJsonLd({ days: [] }, NOW)).toBeNull()
+  })
+
+  // `asPayload` only asserts that the wire fields are STRINGS, so an empty slug
+  // reaches here. Interpolated, it names the scenes index rather than a missing
+  // page, which is a live URL for a different page.
+  it('returns null rather than naming the index when the slug is empty', () => {
+    const slice = buildSceneSlice(day({ slug: '' }), null)!
+
+    expect(buildSceneSliceJsonLd(slice, NOW)).toBeNull()
   })
 })

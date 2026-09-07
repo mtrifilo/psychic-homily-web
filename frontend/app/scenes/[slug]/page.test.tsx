@@ -26,6 +26,7 @@ vi.mock('@/features/scenes/components/SceneCalendar', () => ({
 
 import { JsonLd } from '@/components/seo/JsonLd'
 import { countWindowShows } from '@/features/scenes/sceneWindow'
+import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import ScenePage, { generateMetadata } from './page'
 
 function buildScene(overrides: Record<string, unknown> = {}) {
@@ -111,6 +112,30 @@ describe('scenes/[slug] generateMetadata description', () => {
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az' }) })
 
     expect(meta.description).toBe(GENERATED_DESCRIPTION)
+  })
+
+  // The week fetch survives on this route for exactly one reason: the card the
+  // page advertises is the ARCHIVED week card, whose URL carries the week key.
+  // Without this the fetch reads as dead weight, and dropping it would fall the
+  // route back to its own rolling `opengraph-image`, whose URL never changes.
+  it('advertises the archived week card, from the week fetch', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    vi.mocked(fetchSceneWeek).mockResolvedValueOnce({
+      slug: 'phoenix-az',
+      iso_week: '2026-W34',
+    } as Awaited<ReturnType<typeof fetchSceneWeek>>)
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(meta.openGraph?.images).toEqual([
+      expect.objectContaining({
+        url: 'https://psychichomily.com/scenes/phoenix-az/2026-W34/opengraph-image',
+        alt: GENERATED_DESCRIPTION,
+      }),
+    ])
+    // Omitted deliberately: Next copies the openGraph descriptor across when
+    // Twitter has none, and a bare URL string here would drop the alt.
+    expect(meta.twitter?.images).toBeUndefined()
   })
 
   it('still returns the not-found metadata for a missing scene', async () => {
@@ -258,12 +283,23 @@ describe('scenes/[slug] calendar slice', () => {
     // through its own query), and that is exactly the pair being distinguished.
     const slot = findCalendarSlot(tree)
     expect(slot?.props?.scene?.slug).toBe('phoenix-az')
+
+    // The structured data resolves the same way, off the day payload's slug.
+    // The trail names a location, so it names the scene the request landed on,
+    // not the spelling that was typed. (`alternates.canonical` answers a
+    // different question and still carries the requested spelling.)
+    const breadcrumb = findJsonLd(tree).find(
+      (data: { '@type'?: string }) => data['@type'] === 'BreadcrumbList'
+    )
+    const leaf = breadcrumb.itemListElement[breadcrumb.itemListElement.length - 1]
+    expect(leaf.item).toBe('https://psychichomily.com/scenes/phoenix-az')
   })
 
-  // PSY-1889. The unit suite pins the builder; what this pins is the WIRING:
-  // the week fetch is mocked to null for the whole file, so an ItemList
-  // reaching the markup at all proves the slice is what feeds it.
-  it('describes exactly the shows the rendered slice holds', async () => {
+  // The unit suite pins the builder; what this pins is the WIRING. The week
+  // fetch is mocked to null for the whole file, so an ItemList reaching the
+  // markup at all proves the slice is what feeds it, and the counts below are
+  // taken from the one slice object both the markup and the calendar receive.
+  it('describes exactly the shows the slice it hands the calendar holds', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
     fetchMock.mockResolvedValueOnce(
       okResponse(
@@ -297,28 +333,17 @@ describe('scenes/[slug] calendar slice', () => {
 
     const blocks = findJsonLd(tree)
     // Counted through the helper the calendar's own quiet check goes through,
-    // so the rendered figure here is not a second spelling of it.
-    const renderedShows = countWindowShows(findCalendarSlot(tree).props.slice.days)
+    // so this figure is not a second spelling of it.
+    const slicedShows = countWindowShows(findCalendarSlot(tree).props.slice.days)
     const itemList = blocks.find((data: { '@type'?: string }) => data['@type'] === 'ItemList')
-    const events = blocks.find(Array.isArray)
+    // FILTERED, not `find`: a second array-valued block would make a positional
+    // pick silently assert about the wrong one.
+    const eventBlocks = blocks.filter(Array.isArray)
 
-    expect(renderedShows).toBe(3)
+    expect(slicedShows).toBe(3)
     expect(itemList?.numberOfItems).toBe(3)
-    expect(events).toHaveLength(3)
+    expect(eventBlocks).toHaveLength(1)
+    expect(eventBlocks[0]).toHaveLength(3)
   })
 
-  // The trail terminates at the page it describes. A week permalink there,
-  // which is where the week builder's leaf points, would name seven nights.
-  it('anchors the breadcrumb leaf on the root itself', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
-    fetchMock.mockResolvedValue(okResponse(buildDay({ shows: [buildShow()] })))
-
-    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
-
-    const breadcrumb = findJsonLd(tree).find(
-      (data: { '@type'?: string }) => data['@type'] === 'BreadcrumbList'
-    )
-    const leaf = breadcrumb.itemListElement[breadcrumb.itemListElement.length - 1]
-    expect(leaf.item).toBe('https://psychichomily.com/scenes/phoenix-az')
-  })
 })

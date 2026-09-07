@@ -92,9 +92,8 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
  *
  * Fetched through `sceneWeekApi` rather than `sceneWeekPage` so this route does
  * not pull the week view (or `next/og`) into its graph. `undefined` week = the
- * backend's current week, in the scene's own timezone. `cache()` is currently
- * redundant, `generateMetadata` being the only caller, and is kept to match its
- * two neighbours here.
+ * backend's current week, in the scene's own timezone. `cache()` bounds this to
+ * one trip per request however many callers it grows.
  */
 const getSceneWeek = cache((slug: string) =>
   fetchSceneWeek(slug, undefined, 'scene-week')
@@ -213,8 +212,9 @@ export default async function ScenePage({ params }: ScenePageProps) {
   }
 
   // CONCURRENT, because neither needs the other's answer, which leaves the
-  // slice's serial fetch chain (`sceneSliceApi` states why it is serial and how
-  // many calls deep it runs) as the only thing on the critical path.
+  // slice's serial fetch chain (`sceneSliceApi` states why it is serial,
+  // `sceneSlice` how many calls deep it runs) as the only thing on the
+  // critical path.
   //
   // `prefetchEntity` is a no-op cache write: `cache()` above guarantees the
   // scene fetch already happened, so this only seeds the entry `useSceneDetail`
@@ -225,7 +225,8 @@ export default async function ScenePage({ params }: ScenePageProps) {
   ])
 
   // ONE slice payload feeds both the structured data and the rows
-  // `SceneCalendar` draws, so they cannot describe different shows.
+  // `SceneCalendar` draws. The calendar neither caps nor filters those rows, so
+  // the two list the same shows.
   const jsonLd = slice ? buildSceneSliceJsonLd(slice) : null
 
   return (

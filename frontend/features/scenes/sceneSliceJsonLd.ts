@@ -37,9 +37,10 @@ export interface SceneSliceJsonLd {
  * param, so a metro member (`/scenes/mesa-az`) is described under the canonical
  * scene it resolves to, exactly as the rendered links are.
  *
- * Returns null when the slice named no day: without a payload there is no
- * scene name or canonical slug to describe, and a breadcrumb built from the
- * requested spelling would be a URL nothing else on the page points at.
+ * Returns null when the slice named no day, and when the day it named carries
+ * no slug: an empty slug interpolates to `/scenes/`, which is the scenes INDEX
+ * rather than a missing page, so a scene that cannot name its own URL publishes
+ * nothing instead of pointing a crawler at a different page.
  *
  * `now` is injected so the past-show rule is testable without a fake clock.
  */
@@ -48,13 +49,16 @@ export function buildSceneSliceJsonLd(
   now: Date = new Date()
 ): SceneSliceJsonLd | null {
   const [first] = slice.days
-  if (!first) return null
+  if (!first || !first.slug) return null
 
   const shows = slice.days.flatMap(dayShows)
 
-  // The leaf is the root itself, which is also this page's canonical. The trail
-  // terminates here because the root is not inside a window: pointing the leaf
-  // at a week or a night would name a page with different content.
+  // The trail terminates at the scene root because the root is not inside a
+  // window: a leaf naming a week or a night would name a page with different
+  // content. It names the scene the payload resolved to, which on a metro
+  // member URL is not the URL the reader typed, and it is not this route's
+  // `alternates.canonical` either. That is the same rule `buildSceneDayJsonLd`
+  // states: a breadcrumb trail is a location, not a canonical claim.
   const breadcrumb = generateBreadcrumbSchema([
     { name: 'Home', url: SITE_URL },
     { name: 'Scenes', url: `${SITE_URL}/scenes` },
