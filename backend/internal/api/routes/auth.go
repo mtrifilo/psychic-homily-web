@@ -16,7 +16,7 @@ import (
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
-	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.Cfg)
+	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.SC.JWT, rc.Cfg)
 
 	// Create rate limiter for auth endpoints: 10 requests per minute per IP
 	// This helps prevent:

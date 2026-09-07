@@ -59,6 +59,16 @@ const (
 	oauthLinkErrorParam  = "oauth_link_error"
 )
 
+// Codes the START refuses with. They travel the same way the callback's do,
+// because this route is reached by a top-level navigation: answering with a
+// plain-text body would leave the user on the backend origin, with no nav and
+// no way back to the page they started from.
+const (
+	oauthLinkErrorNotFromSettings = "OAUTH_LINK_NOT_FROM_SETTINGS"
+	oauthLinkErrorReauthRequired  = "OAUTH_LINK_REAUTH_REQUIRED"
+	oauthLinkErrorStartFailed     = "OAUTH_LINK_START_FAILED"
+)
+
 // oauthLinkIntent records which account a pending OAuth link belongs to, and
 // which handshake it was armed for.
 //
@@ -143,13 +153,16 @@ var oauthLinkTokenStore = struct {
 
 // mintOAuthLinkToken issues a token bound to userID.
 //
-// /auth/link/{provider} is a cookie-authenticated GET, and the auth cookie is
-// SameSite=Lax, which a browser DOES send on a cross-site top-level
-// navigation. Without this token any page on the internet could navigate a
-// signed-in user into the link flow, and a user with a live provider session
-// completes it with no interaction at all, attaching the attacker's identity
-// to their account. The token cannot be minted cross-site: it comes from an
-// authenticated same-origin request that CORS will not let another origin read.
+// /auth/link/{provider} is a cookie-authenticated GET. The auth cookie's
+// SameSite is SESSION_SAME_SITE, which defaults to lax, and a lax cookie IS
+// sent on a cross-site top-level navigation. Without this token any page could
+// navigate a signed-in user into the link flow, and a user with a live
+// provider session completes it with no interaction at all.
+//
+// The token is minted by an authenticated request whose RESPONSE another
+// origin cannot read. That rests on the CORS allowlist, which is exact-origin
+// in production but admits any *.vercel.app outside it, so on preview
+// environments this lock is weaker than in production.
 func mintOAuthLinkToken(userID uint) (string, error) {
 	token, err := randomHexID(oauthLinkIntentIDBytes)
 	if err != nil {
@@ -215,10 +228,16 @@ func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.C
 }
 
 // requestIsCrossSite reports whether the browser told us this navigation came
-// from another site. Fetch metadata is sent by every current browser and cannot
-// be set by page script, so a present "cross-site" is trustworthy. Absent is
-// not evidence either way, which is why it is only ever a second lock: the
-// one-time token is the one that holds on a browser that sends nothing.
+// from another site. Fetch metadata cannot be set by page script, so a present
+// "cross-site" is trustworthy; absent is not evidence either way, so the token
+// is what holds on a browser that sends nothing.
+//
+// This refuses outright, so it has to be true that the frontend and this API
+// are same-site. They are in production (psychichomily.com and
+// api.psychichomily.com) and in local development (both localhost; ports do
+// not affect same-site). A deployment that puts them on DIFFERENT registrable
+// domains, which NEXT_PUBLIC_OAUTH_BACKEND_URL permits, would see every
+// connect refused here.
 func requestIsCrossSite(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site")
 }
@@ -236,6 +255,8 @@ func requestIsCrossSite(r *http.Request) bool {
 // a new way to sign in.
 func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	frontendURL := h.frontendURL()
 
 	provider := chi.URLParam(r, "provider")
 	if !isGothOAuthProvider(provider) {
@@ -255,7 +276,27 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 			"provider", provider,
 			"user_id", user.ID,
 		)
-		http.Error(w, "Start the connection from Settings", http.StatusForbidden)
+		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorNotFromSettings)
+		return
+	}
+
+	// Re-authentication is checked BEFORE the one-time token is spent. A
+	// refusal here sends the user to sign in and come back, and burning the
+	// token on the way would make the return trip fail for a second reason.
+	//
+	// Re-authenticating is "sign in again", the one challenge every account
+	// shape already has: password, passkey, provider or magic link, whichever
+	// it holds. linkReauthFactorFor names the factor for the log so the rule
+	// stays legible and in one place.
+	sessionIssuedAt, _ := middleware.GetSessionIssuedAtFromContext(ctx)
+	// hasPasskey is false: see the KNOWN GAP on linkReauthFactorFor.
+	if factor := linkReauthFactorFor(accountHasPassword(user), false, sessionIssuedAt, time.Now()); factor != reauthAlreadySatisfied {
+		logger.AuthWarn(ctx, "oauth_link_refused_stale_session",
+			"provider", provider,
+			"user_id", user.ID,
+			"required_factor", string(factor),
+		)
+		redirectToReauth(w, r, frontendURL)
 		return
 	}
 
@@ -264,25 +305,14 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 			"provider", provider,
 			"user_id", user.ID,
 		)
-		http.Error(w, "Start the connection from Settings", http.StatusForbidden)
-		return
-	}
-
-	sessionIssuedAt, _ := middleware.GetSessionIssuedAtFromContext(ctx)
-	if factor := linkReauthFactorFor(user, sessionIssuedAt, time.Now()); factor != reauthAlreadySatisfied {
-		logger.AuthWarn(ctx, "oauth_link_refused_stale_session",
-			"provider", provider,
-			"user_id", user.ID,
-			"required_factor", string(factor),
-		)
-		http.Error(w, "Sign in again before connecting an account", http.StatusForbidden)
+		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorNotFromSettings)
 		return
 	}
 
 	intentID, err := randomHexID(oauthLinkIntentIDBytes)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_link_intent_id_failed", err, "provider", provider)
-		http.Error(w, "Failed to start account connection", http.StatusInternalServerError)
+		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorStartFailed)
 		return
 	}
 
@@ -292,7 +322,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	state, err := randomHexID(oauthLinkStateBytes)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_link_state_failed", err, "provider", provider)
-		http.Error(w, "Failed to start account connection", http.StatusInternalServerError)
+		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorStartFailed)
 		return
 	}
 
@@ -314,7 +344,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	// admits one, not because this call is expected to fail.
 	if err := beginOAuthHandshake(w, r, provider, state); err != nil {
 		logger.AuthError(ctx, "oauth_link_handshake_failed", err, "provider", provider)
-		http.Error(w, "Failed to start account connection", http.StatusInternalServerError)
+		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorStartFailed)
 		return
 	}
 }
@@ -331,6 +361,25 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 ) {
 	ctx := r.Context()
 
+	// The intent names the account, but only the LIVE session proves the
+	// person finishing this handshake is still the one who started it.
+	//
+	// Without this, an abandoned link stays resumable by whoever is at the
+	// browser next: the authorization URL still carries the state, so pressing
+	// Back and signing in with THEIR provider account attaches their identity
+	// to the account named by the intent. Signing out does not clear the
+	// intent cookie either, so it survives the obvious precaution.
+	sessionUserID, ok := middleware.SessionUserIDFromRequest(h.jwtService, r)
+	if !ok || sessionUserID != intent.userID {
+		logger.AuthWarn(ctx, "oauth_link_refused_session_mismatch",
+			"provider", provider,
+			"intent_user_id", intent.userID,
+			"session_present", ok,
+		)
+		redirectToReauth(w, r, h.frontendURL())
+		return
+	}
+
 	linked, err := h.authService.CompleteOAuthLink(w, r, provider, intent.userID)
 	if err != nil {
 		// A provider error can carry credentials in its URL or in an embedded
@@ -344,9 +393,7 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 		return
 	}
 
-	// The account gained a way to sign in. Nothing emails the owner about that
-	// yet; this line is what an operator has to correlate from until something
-	// does. Follow-up: an account-security email on link.
+	// The account gained a way to sign in. This line is the record of that.
 	logger.AuthInfo(ctx, "oauth_link_completed",
 		"provider", provider,
 		"user_id", linked.ID,
@@ -365,6 +412,31 @@ func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, c
 		query.Set(oauthLinkErrorParam, code)
 	}
 	http.Redirect(w, r, frontendURL+oauthLinkSettingsPath+"?"+query.Encode(), http.StatusTemporaryRedirect)
+}
+
+// redirectToReauth sends the browser to the sign-in page with a destination
+// that brings it back to the control it started from. Signing in mints a fresh
+// session, which is what satisfies linkReauthFactorFor on the next attempt.
+//
+// returnTo is the contract app/auth reads through sanitizeReturnTo, which
+// requires a same-origin path; the Settings tab qualifies.
+func redirectToReauth(w http.ResponseWriter, r *http.Request, frontendURL string) {
+	settings := oauthLinkSettingsPath + "?" + url.Values{
+		oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue},
+	}.Encode()
+	query := url.Values{
+		"returnTo": {settings},
+		"reason":   {oauthLinkErrorReauthRequired},
+	}
+	http.Redirect(w, r, frontendURL+"/auth?"+query.Encode(), http.StatusTemporaryRedirect)
+}
+
+// frontendURL is where every browser-facing redirect from this handler goes.
+func (h *OAuthHTTPHandler) frontendURL() string {
+	if h.config != nil && h.config.Email.FrontendURL != "" {
+		return h.config.Email.FrontendURL
+	}
+	return "http://localhost:3000"
 }
 
 // refusalCode picks the error code a link result reports: the refusal's own

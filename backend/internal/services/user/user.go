@@ -616,11 +616,19 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 	}
 
 	// Everything from the existence check to the write runs in ONE transaction.
-	// The checks below decide whether to attach an identity, and outside a
-	// transaction two concurrent link callbacks both read "no identity for this
-	// provider" and both write. oauth_accounts_user_provider_uniq is the
-	// backstop that makes the loser fail rather than land a second credential
-	// the unlink route cannot be relied on to remove.
+	//
+	// The transaction alone does not serialize check-then-write under READ
+	// COMMITTED: two concurrent callbacks can both read "unclaimed" and both
+	// insert. Two unique indexes are what actually decide the races, one per
+	// check below:
+	//
+	//   oauth_accounts (provider, provider_user_id)  one account per identity
+	//   oauth_accounts_user_provider_uniq            one identity per provider
+	//                                                per account
+	//
+	// Postgres reports either as the same duplicate-key error once GORM's
+	// TranslateError has collapsed it, so the loser's situation is established
+	// by asking which of the two now holds rather than by reading the error.
 	tx := s.db.Begin()
 	if tx.Error != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
@@ -703,10 +711,7 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		// check above reports, so it gets the same answer rather than a
 		// driver message.
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			logger.Default().Warn("oauth_link_refused_provider_already_linked_race",
-				"provider", provider,
-				"user_id", userID)
-			return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
+			return nil, s.refusalForLinkRace(userID, gothUser.UserID, provider)
 		}
 		return nil, fmt.Errorf("failed to create OAuth account: %w", err)
 	}
@@ -723,6 +728,30 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		"provider", provider,
 		"user_id", userID)
 	return linked, nil
+}
+
+// refusalForLinkRace names which of the two unique indexes the losing write of
+// a concurrent link hit, by reading back what is there now.
+//
+// The situations are different and so are the remedies: an identity claimed by
+// SOMEONE ELSE is the account-squat signal and must not be described as this
+// account already holding one. GORM reports both as a bare duplicate-key
+// error, so the error itself cannot tell them apart.
+func (s *UserService) refusalForLinkRace(userID uint, subject, provider string) error {
+	var bySubject authm.OAuthAccount
+	if err := s.db.
+		Where("provider = ? AND provider_user_id = ?", provider, subject).
+		First(&bySubject).Error; err == nil && bySubject.UserID != userID {
+		logger.Default().Warn("oauth_link_refused_identity_in_use_race",
+			"provider", provider,
+			"user_id", userID)
+		return apperrors.ErrOAuthIdentityInUse(provider)
+	}
+
+	logger.Default().Warn("oauth_link_refused_provider_already_linked_race",
+		"provider", provider,
+		"user_id", userID)
+	return apperrors.ErrOAuthProviderAlreadyLinked(provider)
 }
 
 // applyGothUserToOAuthAccount copies the provider's profile and tokens onto an

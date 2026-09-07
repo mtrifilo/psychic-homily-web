@@ -84,29 +84,58 @@ type OAuthLinkResult =
  *
  * Keys match the constants in backend/internal/errors/auth.go.
  */
-const OAUTH_LINK_ERROR_COPY: Record<string, string> = {
-  OAUTH_IDENTITY_IN_USE:
+const OAUTH_LINK_ERROR_COPY = new Map<string, string>([
+  [
+    'OAUTH_IDENTITY_IN_USE',
     'This provider account is already connected to another Psychic Homily account. Disconnect it there first.',
-  OAUTH_PROVIDER_ALREADY_LINKED:
+  ],
+  [
+    'OAUTH_PROVIDER_ALREADY_LINKED',
     'Your account is already connected to a different account from this provider. Disconnect it first, then connect this one.',
-  OAUTH_LINK_EXPIRED:
+  ],
+  [
+    'OAUTH_LINK_EXPIRED',
     'That connection request expired. Start it again from Settings.',
-  OAUTH_LINK_REFUSED: 'Could not connect that account.',
-}
+  ],
+  ['OAUTH_LINK_REFUSED', 'Could not connect that account.'],
+  [
+    'OAUTH_LINK_NOT_FROM_SETTINGS',
+    'Start the connection from this page rather than from a link.',
+  ],
+  ['OAUTH_LINK_START_FAILED', 'Could not start the connection. Try again.'],
+  [
+    'USER_EXISTS',
+    'An account already uses that email address. Sign in to it instead.',
+  ],
+  [
+    'TERMS_ACCEPTANCE_REQUIRED',
+    'Accept the Terms of Service and Privacy Policy first.',
+  ],
+])
 
 const OAUTH_LINK_GENERIC_ERROR = 'Could not connect that account.'
+
+/** The one value the backend sends for success. */
+const OAUTH_LINK_CONNECTED = 'connected'
 
 function readOAuthLinkResult(
   params: URLSearchParams
 ): OAuthLinkResult | null {
   const failed = params.get(OAUTH_LINK_ERROR_PARAM)
   if (failed) {
+    // A Map, not an object literal: a plain object inherits keys like
+    // __proto__ and constructor, so a lookup on an attacker-supplied value
+    // returns something that is not copy at all.
     return {
       status: 'error',
-      message: OAUTH_LINK_ERROR_COPY[failed] ?? OAUTH_LINK_GENERIC_ERROR,
+      message: OAUTH_LINK_ERROR_COPY.get(failed) ?? OAUTH_LINK_GENERIC_ERROR,
     }
   }
-  return params.get(OAUTH_LINK_RESULT_PARAM) ? { status: 'connected' } : null
+  // Exactly the success value, not any value: otherwise a link handed to the
+  // user renders a "connected" banner for a connection that never happened.
+  return params.get(OAUTH_LINK_RESULT_PARAM) === OAUTH_LINK_CONNECTED
+    ? { status: 'connected' }
+    : null
 }
 
 function withoutOAuthLinkResult(params: URLSearchParams): string {
@@ -141,8 +170,10 @@ export function OAuthAccounts() {
   }, [linkResult, searchParams, pathname, router])
 
   const startLink = useStartOAuthLink()
+  const [startLinkFailed, setStartLinkFailed] = useState(false)
 
   const handleConnectGoogle = async () => {
+    setStartLinkFailed(false)
     // The AUTHENTICATED link route, not /auth/login/google: the account the
     // identity attaches to comes from this session, never from the address
     // Google returns.
@@ -156,6 +187,9 @@ export function OAuthAccounts() {
       const { token } = await startLink.mutateAsync()
       window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google?t=${encodeURIComponent(token)}`
     } catch (err) {
+      // Surfaced, not only reported: the click navigates away when it works,
+      // so a swallowed failure looks like a button that does nothing.
+      setStartLinkFailed(true)
       Sentry.captureException(err, {
         level: 'warning',
         tags: { service: 'oauth-accounts' },
@@ -238,6 +272,13 @@ export function OAuthAccounts() {
               </Button>
             )}
           </div>
+
+          {startLinkFailed && (
+            <InlineErrorBanner className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Could not start the connection. Try again.</span>
+            </InlineErrorBanner>
+          )}
 
           {/* Result of a link attempt that redirected back to this page */}
           {linkResult?.status === 'error' && (

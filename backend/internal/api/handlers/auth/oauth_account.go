@@ -124,9 +124,10 @@ type StartOAuthLinkResponse struct {
 // SameSite=Lax, which browsers DO send on a cross-site top-level navigation,
 // so the route cannot make that distinction on its own.
 //
-// This endpoint can only be called same-origin with credentials, and CORS
-// stops another origin reading the response, so the token is something only
-// our own page can hold.
+// Another origin can SEND this request; what it cannot do is read the
+// response, because the CORS allowlist does not admit it. That is the property
+// the token rests on, and it is exact-origin only in production: outside it the
+// allowlist admits any *.vercel.app.
 func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *StartOAuthLinkRequest) (*StartOAuthLinkResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {

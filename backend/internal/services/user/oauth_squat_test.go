@@ -10,14 +10,11 @@ import (
 // The two squats, end to end, each ending in a refusal.
 //
 // Both work the same way: an attacker gets an account onto an address they do
-// not own, the real owner is pointed at the magic link, and the unauthenticated
-// resend mails a verification link for the ATTACKER'S row into the owner's own
-// inbox. Before link-by-address was retired, the owner clicking that link
-// flipped email_verified and their next provider sign-in joined the attacker's
-// account.
+// not own, and the real owner then proves the mailbox, which is what the
+// unauthenticated verification resend lets them do for a row they do not hold.
 //
-// These pin that the click changes nothing, because no amount of verification
-// makes an address a reason to attach an identity.
+// These pin that proving the address changes nothing here: a matching address
+// is never a reason to attach an identity, however verified it is.
 
 // Squat one: the account is created by an OAuth sign-in whose provider vouches
 // for nothing.
@@ -89,8 +86,8 @@ func (suite *UserServiceIntegrationTestSuite) TestSquat_PasswordRegistered_Verif
 }
 
 // A verified address on a verified account is still not a link reason. This is
-// the control that would have passed under the old two-half rule and fails
-// under the retirement, so it is what pins the retirement itself.
+// the case most likely to be re-admitted by someone reasoning that both sides
+// look trustworthy, so it is pinned on its own.
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedAccount_VerifiedProvider_StillRefused() {
 	existing := &authm.User{
 		Email:         stringPtr("fully.verified@example.com"),

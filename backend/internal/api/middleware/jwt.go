@@ -359,6 +359,26 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 }
 
 // GetUserFromContext extracts user from request context
+// SessionUserIDFromRequest resolves the signed-in user from a request that did
+// NOT pass through the JWT middleware, returning ok=false when there is no
+// usable session credential.
+//
+// The OAuth callback is such a request: it is a public route, because the
+// provider redirects the browser to it, yet the link path has to know whether
+// the person finishing a handshake is still the person who started it. Reading
+// the credential here rather than at the call site keeps every read of the
+// auth cookie in this file.
+func SessionUserIDFromRequest(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
+	if jwtService == nil || r == nil {
+		return 0, false
+	}
+	token, _ := credentialFromRequest(r)
+	if token == "" {
+		return 0, false
+	}
+	return jwtService.SessionUserID(token)
+}
+
 // GetSessionIssuedAtFromContext returns when the request's session credential
 // was issued. ok is false when the credential carries no issue time, which the
 // callers treat as "not recent" rather than as an error.

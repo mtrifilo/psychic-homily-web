@@ -17,6 +17,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
+	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 
@@ -128,13 +129,19 @@ func requestCookieNames(r *http.Request) []string {
 // OAuthHTTPHandler handles OAuth HTTP requests directly
 type OAuthHTTPHandler struct {
 	authService contracts.AuthServiceInterface
-	config      *config.Config
+	// jwtService resolves the session on the CALLBACK, which is a public route
+	// the provider redirects to and so never passes the JWT middleware. The
+	// link path needs it to check that the person finishing a handshake is
+	// still the one who started it.
+	jwtService *authsvc.JWTService
+	config     *config.Config
 }
 
 // NewOAuthHTTPHandler creates a new OAuth HTTP handler
-func NewOAuthHTTPHandler(authService contracts.AuthServiceInterface, cfg *config.Config) *OAuthHTTPHandler {
+func NewOAuthHTTPHandler(authService contracts.AuthServiceInterface, jwtService *authsvc.JWTService, cfg *config.Config) *OAuthHTTPHandler {
 	return &OAuthHTTPHandler{
 		authService: authService,
+		jwtService:  jwtService,
 		config:      cfg,
 	}
 }
@@ -397,16 +404,32 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
 		intent := peekOAuthLinkIntent(cookie.Value)
-		if intent != nil && intent.provider == provider && intent.state == r.URL.Query().Get("state") {
+		switch {
+		case intent == nil:
+			// The cookie names a link this process no longer holds: it timed
+			// out, or a restart or a second replica dropped it. That IS a link
+			// attempt, and the person is waiting for one, so it is refused as
+			// expired rather than quietly turning into a sign-in they did not
+			// ask for.
+			http.SetCookie(w, h.newLinkIntentCookie("", -1))
+			logger.AuthWarn(ctx, "oauth_link_intent_expired", "provider", provider)
+			redirectToLinkResult(w, r, frontendURL, autherrors.CodeOAuthLinkExpired)
+			return
+
+		case intent.provider == provider && intent.state == r.URL.Query().Get("state"):
 			consumeOAuthLinkIntent(cookie.Value)
 			http.SetCookie(w, h.newLinkIntentCookie("", -1))
 			h.completeOAuthLink(w, r, provider, intent, frontendURL)
 			return
+
+		default:
+			// An intent for a DIFFERENT handshake. This callback is not that
+			// link, so it is the sign-in it looks like, and the intent is left
+			// alone for the handshake it does belong to.
+			logger.AuthDebug(ctx, "oauth_callback_intent_for_another_handshake",
+				"provider", provider,
+			)
 		}
-		logger.AuthDebug(ctx, "oauth_callback_link_intent_not_for_this_handshake",
-			"provider", provider,
-			"intent_present", intent != nil,
-		)
 	}
 
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
