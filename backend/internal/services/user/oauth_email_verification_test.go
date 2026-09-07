@@ -82,7 +82,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 
 	var authErr *apperrors.AuthError
 	suite.Require().ErrorAs(err, &authErr)
-	suite.Equal(apperrors.CodeUserExists, authErr.Code)
+	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 
 	suite.assertNoOAuthAccountFor(existing.ID)
 	suite.assertSingleUserForEmail("unverified.link@example.com")
@@ -110,7 +110,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerific
 
 	var authErr *apperrors.AuthError
 	suite.Require().ErrorAs(err, &authErr)
-	suite.Equal(apperrors.CodeUserExists, authErr.Code)
+	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 
 	suite.assertNoOAuthAccountFor(existing.ID)
 	suite.assertSingleUserForEmail("absent.signal@example.com")
@@ -165,8 +165,9 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AlreadyLinked
 }
 
 // The other half of the blast radius: an address matching nobody is not a
-// takeover, so a first-time signup still creates an account.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_NoExistingAccount_StillCreates() {
+// takeover, so a first-time signup still creates an account. The account it
+// creates is UNVERIFIED, because nothing vouched for the address.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_NoExistingAccount_CreatesUnverified() {
 	created, err := suite.userService.FindOrCreateUser(goth.User{
 		UserID:  "goth-fresh-unverified-subject",
 		Email:   "fresh.unverified@example.com",
@@ -176,6 +177,124 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 	suite.Require().NoError(err)
 	suite.Require().NotNil(created)
 	suite.Equal("fresh.unverified@example.com", *created.Email)
+	suite.False(created.EmailVerified, "an address no provider vouched for must not be recorded as verified")
+	suite.assertStoredEmailVerified(created.ID, false)
+}
+
+// The RawData shape goth's github provider produces carries no signal at all,
+// which is not verification either.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentSignal_NoExistingAccount_CreatesUnverified() {
+	created, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "github-fresh-subject",
+		Email:   "fresh.github@example.com",
+		RawData: map[string]any{"login": "octocat", "id": 1},
+	}, "github")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(created)
+	suite.False(created.EmailVerified)
+	suite.assertStoredEmailVerified(created.ID, false)
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail_NoExistingAccount_CreatesVerified() {
+	created, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-fresh-verified-subject",
+		Email:   "fresh.verified@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(created)
+	suite.True(created.EmailVerified)
+	suite.assertStoredEmailVerified(created.ID, true)
+}
+
+// The faux "google" provider stamps its flag under the key it owns, so a
+// create driven by it lands on the same arm a real Google create would.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_FauxProviderShape_CreatesFromItsFlag() {
+	unverified, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "faux-unverified-subject",
+		Email:   "faux.unverified@example.com",
+		RawData: map[string]any{fauxauth.EmailVerifiedRawDataKey: false},
+	}, "google")
+	suite.Require().NoError(err)
+	suite.False(unverified.EmailVerified)
+
+	verified, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "faux-verified-subject",
+		Email:   "faux.verified@example.com",
+		RawData: map[string]any{fauxauth.EmailVerifiedRawDataKey: true},
+	}, "google")
+	suite.Require().NoError(err)
+	suite.True(verified.EmailVerified)
+}
+
+// The squat, end to end. An attacker signs in with a provider that will not
+// vouch for an address nobody holds yet, which creates an UNVERIFIED account
+// under it. The real owner then signs in with a provider that DOES vouch for
+// the same address. The owner must be refused rather than joined into the
+// account the attacker holds, and the attacker's account must be left exactly
+// as it was.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_SquattedUnverifiedAccount_RefusesVerifiedOwner() {
+	squatted, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-squatter-subject",
+		Email:   "squatted@example.com",
+		RawData: map[string]any{"verified_email": false},
+	}, "google")
+	suite.Require().NoError(err)
+	suite.Require().False(squatted.EmailVerified)
+
+	owner, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-real-owner-subject",
+		Email:   "squatted@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google")
+
+	suite.Require().Error(err)
+	suite.Require().Nil(owner)
+
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+	// The refusal has to name the way in, or a refused owner has nowhere to go.
+	suite.Contains(authErr.UserMessage(), "Settings")
+
+	// The squatter's account keeps its single identity and stays unverified,
+	// so nothing was captured and nothing was granted.
+	suite.assertSingleUserForEmail("squatted@example.com")
+	suite.assertStoredEmailVerified(squatted.ID, false)
+	var rows int64
+	suite.Require().NoError(
+		suite.db.Model(&authm.OAuthAccount{}).Where("user_id = ?", squatted.ID).Count(&rows).Error)
+	suite.Equal(int64(1), rows, "the refused owner must not have been added to the squatter's account")
+}
+
+// The same rule, reached from the ordinary direction: a password account whose
+// owner never clicked the verification link has not proven the mailbox either,
+// so a verified provider identity does not join it by address.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedExistingAccount_RefusesVerifiedProvider() {
+	existing := &authm.User{
+		Email:         stringPtr("never.verified@example.com"),
+		IsActive:      true,
+		EmailVerified: false,
+	}
+	suite.Require().NoError(suite.db.Create(existing).Error)
+
+	linked, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-into-unverified-subject",
+		Email:   "never.verified@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google")
+
+	suite.Require().Error(err)
+	suite.Require().Nil(linked)
+
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
+	suite.assertNoOAuthAccountFor(existing.ID)
+	suite.assertSingleUserForEmail("never.verified@example.com")
 }
 
 // provider_user_id permits the empty string, so a stored row with one would be
@@ -210,6 +329,16 @@ func (suite *UserServiceIntegrationTestSuite) assertNoOAuthAccountFor(userID uin
 	suite.Require().NoError(
 		suite.db.Model(&authm.OAuthAccount{}).Where("user_id = ?", userID).Count(&oauthRows).Error)
 	suite.Equal(int64(0), oauthRows, "a refused link must leave no oauth_accounts row")
+}
+
+// assertStoredEmailVerified reads the column back rather than trusting the
+// struct the service returned, which is what makes a create assertion about
+// the row rather than about the value in memory.
+func (suite *UserServiceIntegrationTestSuite) assertStoredEmailVerified(userID uint, want bool) {
+	suite.T().Helper()
+	var stored authm.User
+	suite.Require().NoError(suite.db.First(&stored, userID).Error)
+	suite.Equal(want, stored.EmailVerified)
 }
 
 func (suite *UserServiceIntegrationTestSuite) assertSingleUserForEmail(email string) {

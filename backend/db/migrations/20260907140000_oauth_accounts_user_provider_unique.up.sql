@@ -1,0 +1,22 @@
+-- One identity per provider per account.
+--
+-- LinkOAuthAccountToUser checks that no row exists for (user_id, provider) and
+-- then writes one, which two concurrent link callbacks both pass. Without this
+-- index the loser's subject is a second credential on the account, and
+-- UnlinkOAuthAccountHandler deletes by user_id + provider, so which of the two
+-- it removes is not something the user can see or choose.
+--
+-- CONCURRENTLY is not used: a failed CONCURRENTLY unique build leaves an
+-- INVALID index while letting the deploy proceed, which is the opposite of what
+-- a constraint the link path now relies on wants.
+--
+-- If this fails to build, an account already holds two identities for one
+-- provider. Find them with:
+--   SELECT user_id, provider, count(*) FROM oauth_accounts
+--   GROUP BY user_id, provider HAVING count(*) > 1;
+-- and decide per row which subject is current before re-running. Recovery
+-- after a failed deploy is `migrate force 20260906204500` once the duplicates
+-- are resolved, because the entrypoint runs `migrate up` before the server and
+-- a dirty pointer crash-loops the container.
+CREATE UNIQUE INDEX oauth_accounts_user_provider_uniq
+    ON oauth_accounts (user_id, provider);

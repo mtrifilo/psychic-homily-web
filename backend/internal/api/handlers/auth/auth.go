@@ -371,9 +371,9 @@ func (h *AuthHandler) OAuthLoginHandler(ctx context.Context, input *OAuthLoginRe
 	resp := &OAuthLoginResponse{}
 
 	// Validate provider
-	if input.Provider != "google" && input.Provider != "github" {
+	if !isGothOAuthProvider(input.Provider) {
 		resp.Body.Success = false
-		resp.Body.Message = "Invalid provider. Supported providers: google, github"
+		resp.Body.Message = "Invalid provider. Supported providers: " + strings.Join(gothOAuthProviders, ", ")
 		return resp, nil
 	}
 

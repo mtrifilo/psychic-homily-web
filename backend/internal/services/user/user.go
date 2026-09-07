@@ -234,17 +234,22 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	if gothUser.Email != "" {
 		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
-			// The address is the whole basis for treating this provider
-			// identity as the account's owner, so the provider has to vouch
-			// for it. Without that, anyone who can make a provider report a
-			// chosen address signs in as whoever already holds it.
-			if !providerAssertsEmailVerified(gothUser) {
-				logger.Default().Warn("oauth_link_refused_unverified_email",
-					"provider", provider,
-					"email_hash", logger.HashEmail(gothUser.Email))
-				return nil, apperrors.ErrUserExists(gothUser.Email)
-			}
-			return s.linkOAuthAccount(&existingUser, gothUser, provider)
+			// A matching address is not evidence that this provider identity
+			// belongs to the account holding it, and no verification signal
+			// makes it evidence. The provider's claim says who owns the
+			// MAILBOX; it says nothing about who owns the ACCOUNT, and those
+			// come apart the moment someone creates an account on an address
+			// they do not own. Attaching an identity by address alone is how
+			// the real owner of a squatted address gets joined into the
+			// squatter's account.
+			//
+			// So there is no by-address link at all. An identity is attached
+			// only from a session that already holds the account, at
+			// /auth/link/{provider}, which the refusal names.
+			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
+				"provider", provider,
+				"email_hash", logger.HashEmail(gothUser.Email))
+			return nil, apperrors.ErrOAuthLinkRefused(gothUser.Email)
 		}
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("database error: %w", result.Error)
@@ -483,10 +488,11 @@ func (s *UserService) createNewUserOauthWithConsent(
 		LastName:  &gothUser.LastName,
 		AvatarURL: &gothUser.AvatarURL,
 		IsActive:  true,
-		// Stamped for every OAuth-created account. Nothing here consults the
-		// provider's verification assertion, so an address the provider would
-		// not vouch for is recorded as verified.
-		EmailVerified: true,
+		// The column carries what the provider actually asserted. An account
+		// created from an address no provider vouched for stays unverified,
+		// which closes every capability gated on the flag until this system's
+		// own verification email opens them.
+		EmailVerified: providerAssertsEmailVerified(gothUser),
 	}
 	if gothUser.Email != "" {
 		user.Email = &gothUser.Email
@@ -584,6 +590,128 @@ func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 	return nil
 }
 
+// LinkOAuthAccountToUser attaches a provider identity to the account named by
+// userID, which the caller has already authenticated. The provider's address
+// plays no part: the session is the proof of ownership, so an address that
+// matches nothing, matches another account, or is absent entirely all link the
+// same way.
+//
+// It refuses three shapes rather than resolving them, because each one would
+// otherwise silently retarget who can sign in as whom:
+//
+//   - the identity is attached to a different account (CodeOAuthIdentityInUse)
+//   - this account already holds another identity from the same provider
+//     (CodeOAuthProviderAlreadyLinked)
+//   - the provider returned no subject, the value the identity resolves on
+//
+// It does not touch users.email or users.email_verified. A provider account is
+// not evidence about the mailbox on the account it is being attached to.
+func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if gothUser.UserID == "" {
+		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
+	}
+
+	// The account has to exist before an identity is attached to it. The
+	// oauth_accounts foreign key would refuse the write anyway, but a refusal
+	// by design keeps this correct if that constraint is ever relaxed, and it
+	// gives the caller an error naming the user rather than a driver message.
+	var exists authm.User
+	if err := s.db.Select("id").First(&exists, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	var bySubject authm.OAuthAccount
+	err := s.db.
+		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
+		First(&bySubject).Error
+	switch {
+	case err == nil:
+		if bySubject.UserID != userID {
+			logger.Default().Warn("oauth_link_refused_identity_in_use",
+				"provider", provider,
+				"user_id", userID)
+			return nil, apperrors.ErrOAuthIdentityInUse(provider)
+		}
+		// Already this user's identity. Refresh the stored profile and tokens
+		// so a repeat connect is idempotent rather than an error. The row is
+		// already in hand, so nothing is looked up again to write it.
+		applyGothUserToOAuthAccount(&bySubject, gothUser)
+		if err := s.db.Save(&bySubject).Error; err != nil {
+			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
+		}
+		return s.reloadUserWithRelations(userID)
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		// A failed lookup is not proof that the identity is unclaimed, so it
+		// must not fall through to attaching it.
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	var byProvider authm.OAuthAccount
+	err = s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
+	switch {
+	case err == nil:
+		logger.Default().Warn("oauth_link_refused_provider_already_linked",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// The account has no identity from this provider, established by the
+	// lookup just above, so this attaches rather than updates.
+	oauthAccount := &authm.OAuthAccount{
+		UserID:         userID,
+		Provider:       provider,
+		ProviderUserID: gothUser.UserID,
+	}
+	applyGothUserToOAuthAccount(oauthAccount, gothUser)
+	if err := s.db.Create(oauthAccount).Error; err != nil {
+		return nil, fmt.Errorf("failed to create OAuth account: %w", err)
+	}
+
+	linked, err := s.reloadUserWithRelations(userID)
+	if err != nil {
+		return nil, err
+	}
+	logger.Default().Info("oauth_link_succeeded",
+		"provider", provider,
+		"user_id", userID)
+	return linked, nil
+}
+
+// applyGothUserToOAuthAccount copies the provider's profile and tokens onto an
+// oauth_accounts row. It deliberately leaves ProviderUserID alone: the subject
+// is the identity a row is keyed on, and rewriting it retargets which provider
+// account signs in as the row's owner.
+//
+// ExpiresAt is written only when the provider supplied one, so a provider that
+// stops sending an expiry does not blank a stored value.
+func applyGothUserToOAuthAccount(account *authm.OAuthAccount, gothUser goth.User) {
+	account.ProviderEmail = &gothUser.Email
+	account.ProviderName = &gothUser.Name
+	account.ProviderAvatarURL = &gothUser.AvatarURL
+	account.AccessToken = &gothUser.AccessToken
+	account.RefreshToken = &gothUser.RefreshToken
+	if !gothUser.ExpiresAt.IsZero() {
+		account.ExpiresAt = &gothUser.ExpiresAt
+	}
+}
+
+// reloadUserWithRelations returns the user as callers of the OAuth paths
+// expect it: with the associations a session response renders.
+func (s *UserService) reloadUserWithRelations(userID uint) (*authm.User, error) {
+	var user authm.User
+	if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load user: %w", err)
+	}
+	return &user, nil
+}
+
 // linkOAuthAccount links OAuth account to existing user
 func (s *UserService) linkOAuthAccount(user *authm.User, gothUser goth.User, provider string) (*authm.User, error) {
 	if s.db == nil {
@@ -596,15 +724,7 @@ func (s *UserService) linkOAuthAccount(user *authm.User, gothUser goth.User, pro
 
 	if err == nil {
 		// Update existing OAuth account
-		existingOAuth.ProviderEmail = &gothUser.Email
-		existingOAuth.ProviderName = &gothUser.Name
-		existingOAuth.ProviderAvatarURL = &gothUser.AvatarURL
-		existingOAuth.AccessToken = &gothUser.AccessToken
-		existingOAuth.RefreshToken = &gothUser.RefreshToken
-		// Check if ExpiresAt is not zero time (which indicates it's set)
-		if !gothUser.ExpiresAt.IsZero() {
-			existingOAuth.ExpiresAt = &gothUser.ExpiresAt
-		}
+		applyGothUserToOAuthAccount(&existingOAuth, gothUser)
 
 		if err := s.db.Save(&existingOAuth).Error; err != nil {
 			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
@@ -612,20 +732,11 @@ func (s *UserService) linkOAuthAccount(user *authm.User, gothUser goth.User, pro
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Create new OAuth account
 		oauthAccount := &authm.OAuthAccount{
-			UserID:            user.ID,
-			Provider:          provider,
-			ProviderUserID:    gothUser.UserID,
-			ProviderEmail:     &gothUser.Email,
-			ProviderName:      &gothUser.Name,
-			ProviderAvatarURL: &gothUser.AvatarURL,
-			AccessToken:       &gothUser.AccessToken,
-			RefreshToken:      &gothUser.RefreshToken,
+			UserID:         user.ID,
+			Provider:       provider,
+			ProviderUserID: gothUser.UserID,
 		}
-
-		// Check if ExpiresAt is not zero time (which indicates it's set)
-		if !gothUser.ExpiresAt.IsZero() {
-			oauthAccount.ExpiresAt = &gothUser.ExpiresAt
-		}
+		applyGothUserToOAuthAccount(oauthAccount, gothUser)
 
 		if err := s.db.Create(oauthAccount).Error; err != nil {
 			return nil, fmt.Errorf("failed to create OAuth account: %w", err)

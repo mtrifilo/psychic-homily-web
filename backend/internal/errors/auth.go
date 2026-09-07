@@ -48,6 +48,20 @@ const (
 	CodeInvalidReplyPermission = "INVALID_REPLY_PERMISSION"
 	// CodeUsernameTaken indicates a username unique-constraint violation on profile update.
 	CodeUsernameTaken = "USERNAME_TAKEN"
+	// CodeOAuthLinkRefused indicates an OAuth sign-in whose address already
+	// belongs to an account was refused the link. Distinct from CodeUserExists,
+	// which means a signup collided: this refusal has a remediation path and
+	// says so, and retuning the signup copy must not retune this one.
+	CodeOAuthLinkRefused = "OAUTH_LINK_REFUSED"
+	// CodeOAuthIdentityInUse indicates the provider identity a signed-in user
+	// tried to attach is already attached to a different account.
+	CodeOAuthIdentityInUse = "OAUTH_IDENTITY_IN_USE"
+	// CodeOAuthProviderAlreadyLinked indicates the signed-in user's account
+	// already holds a different identity from the same provider.
+	CodeOAuthProviderAlreadyLinked = "OAUTH_PROVIDER_ALREADY_LINKED"
+	// CodeOAuthLinkExpired indicates a link attempt arrived at the callback
+	// without a live link intent, so the account to attach to is unknown.
+	CodeOAuthLinkExpired = "OAUTH_LINK_EXPIRED"
 	// CodeUnknownHomeMetro indicates a home-area metro code that does not resolve
 	// in the CBSA dataset venue and artist metros are drawn from. Typed so the
 	// handler can tell a rejected value from a failed write, which must not both
@@ -160,6 +174,95 @@ func ErrUserExists(email string) *AuthError {
 	return NewAuthError(CodeUserExists, "An account with this email already exists", fmt.Errorf("duplicate email: %s", logger.HashEmail(email)))
 }
 
+// The user-facing copy for the four OAuth-link refusals. Named constants so
+// the constructor and ToExternalMessage cannot drift apart: they are the same
+// string, and a caller that renders one where the other was expected must get
+// the same words.
+const (
+	// Deliberately does not say "the method YOU set up". The caller has not
+	// authenticated as this account and may not hold it at all, so asserting
+	// they created it is both possibly false and a hint about someone else's
+	// account. It states what the account has and what to do, nothing about
+	// who the caller is.
+	oauthLinkRefusedMessage = "An account already uses this email address. Sign in to that account first, then connect this provider in Settings under Connected accounts."
+	// Apple's refusal names no Settings control, because there is none: Apple
+	// arrives by a native-token POST rather than the goth handshake the link
+	// route drives.
+	appleSignInRefusedMessage         = "An account already uses this email address. Sign in to that account with the method it already has."
+	oauthIdentityInUseMessage         = "This provider account is already connected to another Psychic Homily account. Disconnect it there first."
+	oauthProviderAlreadyLinkedMessage = "Your account is already connected to a different account from this provider. Disconnect it first, then connect this one."
+	oauthLinkExpiredMessage           = "That connection request expired. Start it again from Settings."
+)
+
+// ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its
+// address already belongs to an account. Every such sign-in is refused; the
+// address is never a reason to attach an identity to an account.
+//
+// The message names the remediation (sign in, then connect from Settings)
+// without naming WHICH method the account uses. An unauthenticated caller
+// already learns from this refusal that the address is registered, which
+// /auth/register and passkey signup answer more cheaply; enumerating the
+// account's sign-in methods on top of that would be a new oracle, and it is
+// the half a real owner does not need told to them.
+//
+// The address is masked in the internal error for the reason ErrUserExists
+// documents: callers log the whole chain.
+func ErrOAuthLinkRefused(email string) *AuthError {
+	return NewAuthError(
+		CodeOAuthLinkRefused,
+		oauthLinkRefusedMessage,
+		fmt.Errorf("oauth sign-in refused, address belongs to an account: %s", logger.HashEmail(email)),
+	)
+}
+
+// ErrAppleSignInRefused is the same refusal for the Apple path, which needs
+// its own copy: /auth/link/{provider} drives the goth handshake, Apple does
+// not go through it, and Settings has no Apple control. Promising one there
+// would send a user looking for something that does not exist.
+func ErrAppleSignInRefused(email string) *AuthError {
+	return NewAuthError(
+		CodeOAuthLinkRefused,
+		appleSignInRefusedMessage,
+		fmt.Errorf("apple sign-in refused, address belongs to an account: %s", logger.HashEmail(email)),
+	)
+}
+
+// ErrOAuthIdentityInUse creates the refusal for an authenticated link whose
+// provider identity is already attached to a different account. The caller
+// just authenticated as that identity, so naming its state leaks nothing to
+// anyone who did not already hold it.
+func ErrOAuthIdentityInUse(provider string) *AuthError {
+	return NewAuthError(
+		CodeOAuthIdentityInUse,
+		oauthIdentityInUseMessage,
+		fmt.Errorf("oauth identity already linked elsewhere: provider %s", provider),
+	)
+}
+
+// ErrOAuthProviderAlreadyLinked creates the refusal for an authenticated link
+// into an account that already holds a different identity from the same
+// provider. Refused rather than overwritten: replacing the stored subject
+// silently retargets which provider account can sign in as this user.
+func ErrOAuthProviderAlreadyLinked(provider string) *AuthError {
+	return NewAuthError(
+		CodeOAuthProviderAlreadyLinked,
+		oauthProviderAlreadyLinkedMessage,
+		fmt.Errorf("account already holds another identity for provider %s", provider),
+	)
+}
+
+// ErrOAuthLinkExpired creates the refusal for a link callback that arrives
+// with no live intent, so the account to attach to is unknown. Fail-closed:
+// this must never fall through to the sign-in path, which resolves an account
+// from the provider's address instead of from the session that started it.
+func ErrOAuthLinkExpired() *AuthError {
+	return NewAuthError(
+		CodeOAuthLinkExpired,
+		oauthLinkExpiredMessage,
+		nil,
+	)
+}
+
 // ErrValidationFailed creates a validation error.
 func ErrValidationFailed(message string) *AuthError {
 	return NewAuthError(CodeValidationFailed, message, nil)
@@ -264,6 +367,14 @@ func ToExternalMessage(code string) string {
 		return "Service temporarily unavailable. Please try again."
 	case CodeUserExists:
 		return "An account with this email already exists"
+	case CodeOAuthLinkRefused:
+		return oauthLinkRefusedMessage
+	case CodeOAuthIdentityInUse:
+		return oauthIdentityInUseMessage
+	case CodeOAuthProviderAlreadyLinked:
+		return oauthProviderAlreadyLinkedMessage
+	case CodeOAuthLinkExpired:
+		return oauthLinkExpiredMessage
 	case CodeValidationFailed:
 		return "Validation failed"
 	case CodeAccountLocked:

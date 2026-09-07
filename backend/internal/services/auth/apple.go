@@ -116,10 +116,14 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 // FindOrCreateAppleUser finds or creates a user from Apple Sign In data.
 // claims must already be verified; the caller is responsible for that.
 //
-// Returns a typed *apperrors.AuthError with CodeUserExists when the address
-// already belongs to an account and the claims do not assert Apple verified
-// it. Callers that render a refusal differently from a fault must
+// Returns a typed *apperrors.AuthError with CodeOAuthLinkRefused whenever the
+// address already belongs to an account. There is no by-address link on any
+// path: a matching address says who owns the mailbox, never who owns the
+// account. Callers that render a refusal differently from a fault must
 // discriminate on that code.
+//
+// A created account carries email_verified from the token's own claim, so an
+// address Apple will not vouch for produces an unverified account.
 func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
 	appleUserID := claims.Subject
 
@@ -156,17 +160,16 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 		err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error
 		switch {
 		case err == nil:
-			// The address is the only thing tying this Apple identity to an
-			// account that already exists, so Apple has to assert it verified
-			// the address.
-			if !claims.IsEmailVerified() {
-				logger.Default().Warn("oauth_link_refused_unverified_email",
-					"provider", "apple",
-					"email_hash", logger.HashEmail(claims.Email))
-				return nil, apperrors.ErrUserExists(claims.Email)
-			}
-			// Link Apple account to existing user
-			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
+			// No by-address link, for the reason the goth path states: a
+			// matching address says who owns the mailbox, never who owns the
+			// account. Apple's refusal is its own, because Apple has no link
+			// path to send anyone to: its callback is a native-token POST, not
+			// the goth handshake /auth/link/{provider} drives, so there is no
+			// Apple control in Settings to name.
+			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
+				"provider", "apple",
+				"email_hash", logger.HashEmail(claims.Email))
+			return nil, apperrors.ErrAppleSignInRefused(claims.Email)
 		case !errors.Is(err, gorm.ErrRecordNotFound):
 			// A failed lookup is not proof that no account holds the address,
 			// so it must not fall through to creating one.
@@ -175,7 +178,7 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	}
 
 	// Create a new user
-	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName)
+	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName, claims.IsEmailVerified())
 }
 
 // GenerateToken creates a JWT for the user
@@ -206,7 +209,7 @@ func (s *AppleAuthService) linkAppleAccount(user *authm.User, appleUserID, email
 }
 
 // createAppleUser creates a new user from Apple Sign In data
-func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string) (*authm.User, error) {
+func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string, emailVerified bool) (*authm.User, error) {
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -218,10 +221,11 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 		FirstName: &firstName,
 		LastName:  &lastName,
 		IsActive:  true,
-		// Stamped for every Apple-created account. This path is reached with an
-		// unverified claim too, so the column records verification the token
-		// did not assert.
-		EmailVerified: true,
+		// The column carries what the identity token asserted. An account
+		// created from an address Apple would not vouch for stays unverified,
+		// which closes every capability gated on the flag until this system's
+		// own verification email opens them.
+		EmailVerified: emailVerified,
 	}
 	if email != "" {
 		user.Email = &email

@@ -33,7 +33,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmai
 
 	var authErr *apperrors.AuthError
 	s.Require().ErrorAs(err, &authErr)
-	s.Equal(apperrors.CodeUserExists, authErr.Code)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 
 	s.assertNoAppleAccountFor(existing.ID)
 }
@@ -60,7 +60,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AbsentVerifica
 
 	var authErr *apperrors.AuthError
 	s.Require().ErrorAs(err, &authErr)
-	s.Equal(apperrors.CodeUserExists, authErr.Code)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 
 	s.assertNoAppleAccountFor(existing.ID)
 }
@@ -115,8 +115,8 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleA
 
 // The gate guards the link branch. An address matching nobody is not a
 // takeover, so a first-time Apple signup still creates an account, and the row
-// it creates records email_verified whatever the claim said.
-func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmail_NoExistingAccount_StillCreates() {
+// it creates records what the claim actually said.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmail_NoExistingAccount_CreatesUnverified() {
 	svc := s.newService()
 	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
 		Email:         "apple-fresh-unverified@example.com",
@@ -129,7 +129,114 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmai
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
 	s.Equal("apple-fresh-unverified@example.com", *user.Email)
+	s.False(user.EmailVerified, "a claim Apple did not make must not be recorded as verification")
+	s.assertStoredEmailVerified(user.ID, false)
+}
+
+// A token with no claim at all says no more than a claim of false.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AbsentClaim_NoExistingAccount_CreatesUnverified() {
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email: "apple-fresh-absent@example.com",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-fresh-absent",
+		},
+	}, "Apple", "Name")
+
+	s.Require().NoError(err)
+	s.Require().NotNil(user)
+	s.False(user.EmailVerified)
+	s.assertStoredEmailVerified(user.ID, false)
+}
+
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_VerifiedClaim_NoExistingAccount_CreatesVerified() {
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-fresh-verified@example.com",
+		EmailVerified: true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-fresh-verified",
+		},
+	}, "Apple", "Name")
+
+	s.Require().NoError(err)
+	s.Require().NotNil(user)
 	s.True(user.EmailVerified)
+	s.assertStoredEmailVerified(user.ID, true)
+}
+
+// The squat, on the Apple path: an unvouched claim creates an unverified
+// account under an address nobody held, and the real owner arriving later with
+// a vouched claim is refused rather than joined into it.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_SquattedUnverifiedAccount_RefusesVerifiedOwner() {
+	svc := s.newService()
+	squatted, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-squatted@example.com",
+		EmailVerified: false,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-squatter",
+		},
+	}, "Apple", "Name")
+	s.Require().NoError(err)
+	s.Require().False(squatted.EmailVerified)
+
+	owner, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-squatted@example.com",
+		EmailVerified: true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-real-owner",
+		},
+	}, "Apple", "Name")
+
+	s.Require().Error(err)
+	s.Require().Nil(owner)
+
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+	s.Contains(authErr.UserMessage(), "Settings")
+
+	s.assertStoredEmailVerified(squatted.ID, false)
+	var rows int64
+	s.Require().NoError(
+		s.db.Model(&authm.OAuthAccount{}).Where("user_id = ?", squatted.ID).Count(&rows).Error)
+	s.Equal(int64(1), rows, "the refused owner must not have been added to the squatter's account")
+}
+
+// The account side of the rule, reached from the ordinary direction.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedExistingAccount_RefusesVerifiedClaim() {
+	existing := &authm.User{
+		Email:         stringPtr("apple-never-verified@example.com"),
+		IsActive:      true,
+		EmailVerified: false,
+	}
+	s.Require().NoError(s.db.Create(existing).Error)
+
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-never-verified@example.com",
+		EmailVerified: true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-into-unverified",
+		},
+	}, "Apple", "Name")
+
+	s.Require().Error(err)
+	s.Require().Nil(user)
+
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
+	s.assertNoAppleAccountFor(existing.ID)
+}
+
+// Reads the column back rather than trusting the struct the service returned.
+func (s *AppleAuthIntegrationTestSuite) assertStoredEmailVerified(userID uint, want bool) {
+	s.T().Helper()
+	var stored authm.User
+	s.Require().NoError(s.db.First(&stored, userID).Error)
+	s.Equal(want, stored.EmailVerified)
 }
 
 // provider_user_id permits the empty string, so a stored row with one would be

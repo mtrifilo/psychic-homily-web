@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -25,10 +26,43 @@ import (
 
 const oauthSignupConsentCookieName = "oauth_signup_consent"
 
-func generateRandomID() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+// gothOAuthProviders are the providers reachable through the chi goth
+// handshake: sign-in, link, and unlink all admit the same set.
+//
+// Apple is absent from all of them. Its callback is a Huma POST validated
+// against Apple's JWKS, not this handshake, so it never resolves through goth
+// and never carries these flows' cookies.
+var gothOAuthProviders = []string{"google", "github"}
+
+func isGothOAuthProvider(provider string) bool {
+	return slices.Contains(gothOAuthProviders, provider)
+}
+
+// randomHexID returns an unguessable hex id of n bytes, or an error rather
+// than a weak one. Every caller parks the result in a cookie as the only thing
+// standing between two concurrent flows, so a degraded value has to fail the
+// request instead of being used.
+func randomHexID(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// refusalMessage picks the copy an OAuth callback reports for err: the
+// refusal's own words when it is one a caller may act on, and fallback for
+// everything else, so a backend fault never reaches a caller.
+//
+// The two redirect surfaces use this. AppleCallbackHandler consults
+// authRefusalCarriesItsOwnCopy directly because its JSON body carries the
+// error CODE as well as the message, which this does not return.
+func refusalMessage(err error, fallback string) string {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		return authErr.UserMessage()
+	}
+	return fallback
 }
 
 // cliCallbackStore stores CLI callback URLs temporarily during OAuth flow
@@ -121,7 +155,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Validate provider
-	if provider != "google" && provider != "github" {
+	if !isGothOAuthProvider(provider) {
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
 		return
 	}
@@ -192,7 +226,12 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		cliCallback = validated
 
 		// Generate unique ID and store callback in memory
-		callbackID := generateRandomID()
+		callbackID, idErr := randomHexID(16)
+		if idErr != nil {
+			logger.AuthError(ctx, "oauth_cli_callback_id_failed", idErr, "provider", provider)
+			http.Error(w, "Failed to start authentication", http.StatusInternalServerError)
+			return
+		}
 		storeCLICallback(callbackID, cliCallback)
 
 		// Store only the ID in a cookie (not the full URL)
@@ -209,21 +248,54 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
 	}
 
-	// Add provider to query parameters for Goth (following Goth best practices)
-	q := r.URL.Query()
-	q.Add("provider", provider)
-	r.URL.RawQuery = q.Encode()
-
 	logger.AuthDebug(ctx, "oauth_login_request",
 		"provider", provider,
 		"path", r.URL.Path,
 		"cookie_names", requestCookieNames(r),
 	)
 
-	// Use Goth's standard BeginAuthHandler directly
-	gothic.BeginAuthHandler(w, r)
+	// The provider query parameter goth resolves on is set inside
+	// beginOAuthHandshake, which both this handler and the link share. No
+	// state of our own: it mints a fresh one for a sign-in.
+	if err := beginOAuthHandshake(w, r, provider, ""); err != nil {
+		logger.AuthError(ctx, "oauth_login_state_failed", err, "provider", provider)
+		http.Error(w, "Failed to start authentication", http.StatusInternalServerError)
+		return
+	}
 
 	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
+}
+
+// beginOAuthHandshake hands the request to goth. gothic resolves the provider
+// from the "provider" query parameter, so the path parameter both handlers
+// read has to be copied there first.
+//
+// Set, not Add, for both parameters, and the caller's state is dropped before
+// ours goes on. gothic reads the FIRST value of each: an attacker-supplied
+// ?provider= on the URL would otherwise win over the path parameter and
+// complete one provider's handshake while everything downstream believed it
+// was another's, and an attacker-supplied ?state= would fix the nonce that is
+// the handshake's only CSRF defence.
+//
+// state is always ours. A link supplies one it will recognize at the callback;
+// sign-in gets a fresh nonce here rather than leaving gothic to generate one,
+// so that neither flow can have its state chosen by the caller.
+func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state string) error {
+	if state == "" {
+		generated, err := randomHexID(oauthLinkStateBytes)
+		if err != nil {
+			return err
+		}
+		state = generated
+	}
+
+	q := r.URL.Query()
+	q.Set("provider", provider)
+	q.Set("state", state)
+	r.URL.RawQuery = q.Encode()
+
+	gothic.BeginAuthHandler(w, r)
+	return nil
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
@@ -299,15 +371,28 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		})
 	}
 
-	// Add provider to query parameters for Goth (following best practices)
+	// Set, not Add: gothic reads the first value, so a caller-supplied
+	// ?provider= on the callback URL would otherwise decide which provider
+	// completes the handshake while the path parameter decided what the
+	// resulting oauth_accounts row is labelled. The two must be the same
+	// provider or the row names an identity from somewhere else.
 	q := r.URL.Query()
-	q.Add("provider", provider)
+	q.Set("provider", provider)
 	r.URL.RawQuery = q.Encode()
 
 	// Get frontend URL for redirects
 	frontendURL := h.config.Email.FrontendURL
 	if frontendURL == "" {
 		frontendURL = "http://localhost:3000"
+	}
+
+	// A link intent makes this callback an account connection rather than a
+	// sign-in. The cookie is cleared either way, so an abandoned attempt does
+	// not arm the next callback on this browser.
+	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
+		http.SetCookie(w, h.newLinkIntentCookie("", -1))
+		h.completeOAuthLink(w, r, provider, takeOAuthLinkIntent(cookie.Value), frontendURL)
+		return
 	}
 
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
@@ -326,11 +411,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			errors.New(observability.ScrubText(utils.RedactErrorURL(err).Error())),
 			"provider", provider,
 		)
-		errorMessage := "authentication failed"
-		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-			errorMessage = authErr.UserMessage()
-		}
+		errorMessage := refusalMessage(err, "authentication failed")
 
 		// Handle CLI callback error
 		if cliCallback != "" {
@@ -368,17 +449,22 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 // their own words rather than as a generic failure. Every other code stays
 // generic, so a backend fault never reaches a caller.
 //
-// A code added here reaches three surfaces, all of them in this file and
-// AppleCallbackHandler: the browser redirect to the frontend auth page, the
-// loopback redirect to a CLI callback, and the Apple callback's JSON body. It
-// therefore also decides what an unauthenticated caller learns about why the
-// attempt failed.
+// A code added here reaches four surfaces, all of them in this package: the
+// browser redirect to the frontend auth page, the loopback redirect to a CLI
+// callback, the Apple callback's JSON body, and the redirect back to Settings
+// after a link attempt. It therefore also decides what an unauthenticated
+// caller learns about why the attempt failed.
 //
-// It governs only those two callbacks. Other handlers in this package answer
-// with a code of their own and do not consult it.
+// Handlers outside those surfaces answer with a code of their own and do not
+// consult it.
 func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
-	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:
+	case autherrors.CodeTermsAcceptanceRequired,
+		autherrors.CodeUserExists,
+		autherrors.CodeOAuthLinkRefused,
+		autherrors.CodeOAuthIdentityInUse,
+		autherrors.CodeOAuthProviderAlreadyLinked,
+		autherrors.CodeOAuthLinkExpired:
 		return true
 	default:
 		return false

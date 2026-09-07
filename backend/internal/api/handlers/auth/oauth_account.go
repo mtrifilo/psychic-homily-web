@@ -134,7 +134,7 @@ func (h *OAuthAccountHandler) UnlinkOAuthAccountHandler(ctx context.Context, req
 	)
 
 	// Validate provider
-	if req.Provider != "google" && req.Provider != "github" {
+	if !isGothOAuthProvider(req.Provider) {
 		return nil, huma.Error422UnprocessableEntity("Invalid provider")
 	}
 

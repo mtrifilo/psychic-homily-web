@@ -41,6 +41,40 @@ func TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault(t *testing.T) {
 	}
 }
 
+// The identity overrides, which is what lets a person drive by hand the
+// sequences that need a SECOND address or a SECOND subject: the constants
+// alone can produce neither.
+func TestTestProvider_FetchUser_IdentityOverrides(t *testing.T) {
+	t.Setenv(TestProviderEmailEnvVar, "squatter@example.com")
+	t.Setenv(TestProviderUserIDEnvVar, "squatter-subject")
+
+	user := authorizedFauxUser(t)
+
+	if user.Email != "squatter@example.com" {
+		t.Errorf("Email = %q, want the override", user.Email)
+	}
+	if user.UserID != "squatter-subject" {
+		t.Errorf("UserID = %q, want the override", user.UserID)
+	}
+}
+
+// Empty is unset. An empty address makes the find-or-create path key on "",
+// and an empty subject is refused outright, so neither is a value a caller
+// could have meant.
+func TestTestProvider_FetchUser_EmptyOverridesFallBackToTheConstants(t *testing.T) {
+	t.Setenv(TestProviderEmailEnvVar, "")
+	t.Setenv(TestProviderUserIDEnvVar, "")
+
+	user := authorizedFauxUser(t)
+
+	if user.Email != TestProviderEmail {
+		t.Errorf("Email = %q, want %q", user.Email, TestProviderEmail)
+	}
+	if user.UserID != TestProviderUserID {
+		t.Errorf("UserID = %q, want %q", user.UserID, TestProviderUserID)
+	}
+}
+
 // Under the flag the clone reports unverified. Nothing else in the tree sets
 // the flag; a person sets it and restarts the backend to reproduce a refusal.
 func TestTestProvider_FetchUser_ReportsUnverifiedEmailWhenFlagged(t *testing.T) {

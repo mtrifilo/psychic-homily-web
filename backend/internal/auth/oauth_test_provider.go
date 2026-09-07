@@ -56,6 +56,24 @@ const TestProviderUserID = "e2e-oauth-faux-user-id"
 // described at the top of this file.
 const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
 
+// TestProviderEmailEnvVar and TestProviderUserIDEnvVar override the identity
+// the clone reports, defaulting to the constants above.
+//
+// Read per request through os.Getenv, so a running backend has to be restarted
+// to change what the clone reports. The E2E harness sets neither; this file's
+// own tests set both through t.Setenv to pin the override and the fallback.
+//
+// They exist so a person can drive by hand the sequences whose whole point is a
+// SECOND identity or a SECOND address: an account created from an address
+// nothing else holds, and one provider subject squatting an address another
+// subject later presents. The constants alone can produce neither. They carry
+// no privilege of their own, because they are read only by a provider that
+// SetupGoth registers behind the double gate described at the top of this file.
+const (
+	TestProviderEmailEnvVar  = "OAUTH_TEST_PROVIDER_EMAIL"
+	TestProviderUserIDEnvVar = "OAUTH_TEST_PROVIDER_USER_ID"
+)
+
 // EmailVerifiedRawDataKey is the RawData key the clone carries its
 // verification flag under. It must be one the link-by-email path reads, which
 // is why it is exported: internal/services/user tests its own reader against
@@ -98,13 +116,24 @@ func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 		return user, err
 	}
 	user.Provider = TestProviderName
-	user.UserID = TestProviderUserID
-	user.Email = TestProviderEmail
+	user.UserID = testProviderValue(os.Getenv, TestProviderUserIDEnvVar, TestProviderUserID)
+	user.Email = testProviderValue(os.Getenv, TestProviderEmailEnvVar, TestProviderEmail)
 	user.Name = "E2E OAuth User"
 	user.RawData = map[string]any{
 		EmailVerifiedRawDataKey: !isOAuthTestProviderEmailUnverified(os.Getenv),
 	}
 	return user, nil
+}
+
+// testProviderValue returns the override for name, or fallback when it is
+// unset or empty. Empty is treated as unset: an empty address makes the
+// find-or-create path key on "", and an empty subject is refused outright, so
+// neither is a value a caller could have meant.
+func testProviderValue(getenv func(string) string, name, fallback string) string {
+	if value := getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // isOAuthTestProviderEmailUnverified reports whether the clone should present

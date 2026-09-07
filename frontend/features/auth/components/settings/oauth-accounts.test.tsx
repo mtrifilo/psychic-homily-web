@@ -45,6 +45,19 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: (...args: unknown[]) => mockCaptureException(...args),
 }))
 
+// The link result arrives as a query parameter on the redirect back here, so
+// the component reads the URL and rewrites it.
+let mockSearchParams = new URLSearchParams()
+const mockRouterReplace = vi.fn()
+// One router object for the whole file: the hook returns a stable reference,
+// and effects here list the router in their dependencies.
+const mockRouter = { replace: mockRouterReplace }
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => mockSearchParams,
+  usePathname: () => '/profile',
+  useRouter: () => mockRouter,
+}))
+
 // --- Tests ---
 
 describe('OAuthAccounts', () => {
@@ -60,6 +73,8 @@ describe('OAuthAccounts', () => {
       error: null,
     }
     mockCaptureException.mockReset()
+    mockSearchParams = new URLSearchParams()
+    mockRouterReplace.mockReset()
   })
 
   it('renders card title and description', () => {
@@ -324,7 +339,7 @@ describe('OAuthAccounts', () => {
     expect(screen.queryByText('Disconnect Google Account?')).not.toBeInTheDocument()
   })
 
-  it('redirects to Google OAuth when Connect is clicked', async () => {
+  it('sends Connect to the authenticated link route, not the sign-in route', async () => {
     mockOAuthData = { accounts: [] }
 
     // Mock window.location
@@ -346,6 +361,11 @@ describe('OAuthAccounts', () => {
     await user.click(screen.getByRole('button', { name: /Connect/ }))
 
     expect(mockAssign).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/link/google')
+    )
+    // The sign-in route resolves the account from the address the provider
+    // returns; sending Connect there is the defect this replaces.
+    expect(mockAssign).not.toHaveBeenCalledWith(
       expect.stringContaining('/auth/login/google')
     )
 
@@ -355,6 +375,55 @@ describe('OAuthAccounts', () => {
       writable: true,
       configurable: true,
     })
+  })
+
+  it('renders the refusal copy the backend redirected back with', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams(
+      'tab=settings&oauth_link_error=Your+account+is+already+connected+to+a+different+account+from+this+provider.'
+    )
+
+    renderWithProviders(<OAuthAccounts />)
+
+    expect(
+      await screen.findByText(
+        'Your account is already connected to a different account from this provider.'
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('renders a success banner after a completed link', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams('tab=settings&oauth_link=connected')
+
+    renderWithProviders(<OAuthAccounts />)
+
+    expect(
+      await screen.findByText('Account connected successfully')
+    ).toBeInTheDocument()
+  })
+
+  it('strips the one-shot link result from the URL, keeping the other params', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams('tab=settings&oauth_link=connected')
+
+    renderWithProviders(<OAuthAccounts />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith('/profile?tab=settings', {
+        scroll: false,
+      })
+    })
+  })
+
+  it('leaves the URL alone when no link result is present', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams('tab=settings')
+
+    renderWithProviders(<OAuthAccounts />)
+
+    await screen.findByText('Connected accounts')
+    expect(mockRouterReplace).not.toHaveBeenCalled()
   })
 
   it('shows error and success alerts using role="alert"', () => {

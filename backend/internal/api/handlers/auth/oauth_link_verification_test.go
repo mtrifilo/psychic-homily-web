@@ -45,7 +45,10 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	// UserMessage() is what the handler emits. ToExternalMessage is a separate
 	// table that happens to agree for this code, so asserting against it would
 	// point a maintainer at the wrong function.
-	s.Equal(autherrors.ErrUserExists("callback-unverified@test.com").UserMessage(), parsed.Query().Get("error"))
+	s.Equal(autherrors.ErrOAuthLinkRefused("callback-unverified@test.com").UserMessage(), parsed.Query().Get("error"))
+	// The remediation has to survive the trip into the URL, or the refusal
+	// tells a user nothing they can act on.
+	s.Contains(parsed.Query().Get("error"), "Settings")
 
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
@@ -101,11 +104,15 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndS
 }
 
 // The allowlist itself. A code absent from it is reported generically on all
-// three of the surfaces the predicate governs.
+// four of the surfaces the predicate governs.
 func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 	actionable := []string{
 		autherrors.CodeTermsAcceptanceRequired,
 		autherrors.CodeUserExists,
+		autherrors.CodeOAuthLinkRefused,
+		autherrors.CodeOAuthIdentityInUse,
+		autherrors.CodeOAuthProviderAlreadyLinked,
+		autherrors.CodeOAuthLinkExpired,
 	}
 	for _, code := range actionable {
 		s.True(authRefusalCarriesItsOwnCopy(code), "expected %s to carry its own copy", code)

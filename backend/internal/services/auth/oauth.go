@@ -79,6 +79,35 @@ func (s *AuthService) OAuthCallbackWithConsent(
 	return s.oauthCallbackInternal(w, r, provider, consent, true)
 }
 
+// CompleteOAuthLink finishes the provider handshake and attaches the resulting
+// identity to userID, which the caller has already authenticated. No session is
+// issued and no token is returned: the caller already holds one, and a link
+// must never be able to change who the browser is signed in as.
+//
+// Returns a typed *apperrors.AuthError for the refusals
+// UserServiceInterface.LinkOAuthAccountToUser documents.
+func (s *AuthService) CompleteOAuthLink(
+	w http.ResponseWriter,
+	r *http.Request,
+	provider string,
+	userID uint,
+) (*authm.User, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request cannot be nil")
+	}
+
+	gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
+	if err != nil {
+		return nil, fmt.Errorf("OAuth completion failed: %w", err)
+	}
+
+	linked, err := s.userService.LinkOAuthAccountToUser(userID, gothUser, provider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to link oauth account: %w", err)
+	}
+	return linked, nil
+}
+
 func (s *AuthService) oauthCallbackInternal(
 	w http.ResponseWriter,
 	r *http.Request,

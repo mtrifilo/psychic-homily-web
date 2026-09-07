@@ -455,15 +455,21 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_DifferentAppleID() {
 	svc := s.newService()
 
-	// Create first user with apple account
+	// Create first user with apple account. The claim is VERIFIED, so the
+	// account it creates holds a proven address, which is what makes it a
+	// link target below. The unverified version of this sequence is the
+	// squat, and it is refused: see
+	// TestFindOrCreateAppleUser_SquattedUnverifiedAccount_RefusesVerifiedOwner.
 	claims1 := &contracts.AppleIdentityTokenClaims{
-		Email: "shared-email@example.com",
+		Email:         "shared-email@example.com",
+		EmailVerified: true,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-first",
 		},
 	}
 	firstUser, err := svc.FindOrCreateAppleUser(claims1, "First", "User")
 	s.Require().NoError(err)
+	s.Require().True(firstUser.EmailVerified)
 
 	// Second call with different apple subject but same email
 	// Since first user already has an apple OAuth, this looks up by apple subject (not found),
@@ -542,7 +548,7 @@ func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_UserHasPreferences(
 func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_Success() {
 	svc := s.newService()
 
-	user, err := svc.createAppleUser("apple-create-id", "create@example.com", "Create", "User")
+	user, err := svc.createAppleUser("apple-create-id", "create@example.com", "Create", "User", true)
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -567,11 +573,14 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_Success() {
 func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_NoEmail() {
 	svc := s.newService()
 
-	user, err := svc.createAppleUser("apple-noemail-id", "", "No", "Email")
+	// An addressless Apple account has nothing to verify, which is why the
+	// caller passes false here.
+	user, err := svc.createAppleUser("apple-noemail-id", "", "No", "Email", false)
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
 	s.Nil(user.Email)
+	s.False(user.EmailVerified)
 
 	s.Require().Len(user.OAuthAccounts, 1)
 	s.Nil(user.OAuthAccounts[0].ProviderEmail)
@@ -593,7 +602,7 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 	// skips the pre-check FindOrCreateAppleUser does and lands on the index the
 	// way a lost race would. The service returns USER_EXISTS; AppleCallbackHandler
 	// still collapses it to its own generic shape, which this does not assert.
-	_, err := svc.createAppleUser("apple-dupe-id", "DUPE@Example.com", "Dupe", "User")
+	_, err := svc.createAppleUser("apple-dupe-id", "DUPE@Example.com", "Dupe", "User", true)
 
 	s.Require().Error(err)
 	var authErr *apperrors.AuthError
