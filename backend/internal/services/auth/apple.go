@@ -186,28 +186,6 @@ func (s *AppleAuthService) GenerateToken(user *authm.User) (string, error) {
 	return s.jwtService.CreateToken(user)
 }
 
-// linkAppleAccount links an Apple OAuth account to an existing user
-func (s *AppleAuthService) linkAppleAccount(user *authm.User, appleUserID, email string) (*authm.User, error) {
-	oauthAccount := &authm.OAuthAccount{
-		UserID:         user.ID,
-		Provider:       "apple",
-		ProviderUserID: appleUserID,
-		ProviderEmail:  &email,
-	}
-
-	if err := s.db.Create(oauthAccount).Error; err != nil {
-		return nil, fmt.Errorf("failed to link Apple account: %w", err)
-	}
-
-	// Reload user with relationships
-	var updatedUser authm.User
-	if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&updatedUser, user.ID).Error; err != nil {
-		return nil, fmt.Errorf("failed to reload user: %w", err)
-	}
-
-	return &updatedUser, nil
-}
-
 // createAppleUser creates a new user from Apple Sign In data
 func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string, emailVerified bool) (*authm.User, error) {
 	tx := s.db.Begin()

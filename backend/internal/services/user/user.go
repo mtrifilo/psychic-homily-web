@@ -615,22 +615,49 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
 	}
 
+	// Everything from the existence check to the write runs in ONE transaction.
+	//
+	// The transaction alone does not serialize check-then-write under READ
+	// COMMITTED: two concurrent callbacks can both read "unclaimed" and both
+	// insert. Two unique indexes are what actually decide the races, one per
+	// check below:
+	//
+	//   oauth_accounts (provider, provider_user_id)  one account per identity
+	//   oauth_accounts_user_provider_uniq            one identity per provider
+	//                                                per account
+	//
+	// Postgres reports either as the same duplicate-key error once GORM's
+	// TranslateError has collapsed it, so the loser's situation is established
+	// by asking which of the two now holds rather than by reading the error.
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
 	// The account has to exist before an identity is attached to it. The
 	// oauth_accounts foreign key would refuse the write anyway, but a refusal
 	// by design keeps this correct if that constraint is ever relaxed, and it
 	// gives the caller an error naming the user rather than a driver message.
 	var exists authm.User
-	if err := s.db.Select("id").First(&exists, userID).Error; err != nil {
+	if err := tx.Select("id").First(&exists, userID).Error; err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	var bySubject authm.OAuthAccount
-	err := s.db.
+	err := tx.
 		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
 		First(&bySubject).Error
 	switch {
 	case err == nil:
 		if bySubject.UserID != userID {
+			tx.Rollback()
 			logger.Default().Warn("oauth_link_refused_identity_in_use",
 				"provider", provider,
 				"user_id", userID)
@@ -640,25 +667,32 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		// so a repeat connect is idempotent rather than an error. The row is
 		// already in hand, so nothing is looked up again to write it.
 		applyGothUserToOAuthAccount(&bySubject, gothUser)
-		if err := s.db.Save(&bySubject).Error; err != nil {
+		if err := tx.Save(&bySubject).Error; err != nil {
+			tx.Rollback()
 			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
+		}
+		if err := tx.Commit().Error; err != nil {
+			return nil, fmt.Errorf("failed to commit: %w", err)
 		}
 		return s.reloadUserWithRelations(userID)
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		// A failed lookup is not proof that the identity is unclaimed, so it
 		// must not fall through to attaching it.
+		tx.Rollback()
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
 	var byProvider authm.OAuthAccount
-	err = s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
+	err = tx.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
 	switch {
 	case err == nil:
+		tx.Rollback()
 		logger.Default().Warn("oauth_link_refused_provider_already_linked",
 			"provider", provider,
 			"user_id", userID)
 		return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
 	case !errors.Is(err, gorm.ErrRecordNotFound):
+		tx.Rollback()
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
@@ -670,8 +704,20 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		ProviderUserID: gothUser.UserID,
 	}
 	applyGothUserToOAuthAccount(oauthAccount, gothUser)
-	if err := s.db.Create(oauthAccount).Error; err != nil {
+	if err := tx.Create(oauthAccount).Error; err != nil {
+		tx.Rollback()
+		// The loser of a concurrent link. The index says this account already
+		// holds an identity for this provider, which is the same situation the
+		// check above reports, so it gets the same answer rather than a
+		// driver message.
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return s.resolveLinkRace(userID, gothUser.UserID, provider)
+		}
 		return nil, fmt.Errorf("failed to create OAuth account: %w", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 
 	linked, err := s.reloadUserWithRelations(userID)
@@ -682,6 +728,41 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		"provider", provider,
 		"user_id", userID)
 	return linked, nil
+}
+
+// resolveLinkRace decides what the losing write of a concurrent link should
+// answer, by reading back what is there now. Three outcomes, because the
+// duplicate-key error itself cannot tell them apart:
+//
+//   - this user already holds this very identity: the winner did exactly what
+//     this call was asking for, so it succeeds. Two Connect clicks on one
+//     account are not an error, and the non-racing path already treats a
+//     repeat as idempotent.
+//   - the identity belongs to SOMEONE ELSE: the account-squat signal, and it
+//     must not be described as this account already holding one.
+//   - otherwise this account holds a different identity for the provider.
+func (s *UserService) resolveLinkRace(userID uint, subject, provider string) (*authm.User, error) {
+	var bySubject authm.OAuthAccount
+	err := s.db.
+		Where("provider = ? AND provider_user_id = ?", provider, subject).
+		First(&bySubject).Error
+	if err == nil {
+		if bySubject.UserID == userID {
+			logger.Default().Info("oauth_link_race_resolved_idempotent",
+				"provider", provider,
+				"user_id", userID)
+			return s.reloadUserWithRelations(userID)
+		}
+		logger.Default().Warn("oauth_link_refused_identity_in_use_race",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrOAuthIdentityInUse(provider)
+	}
+
+	logger.Default().Warn("oauth_link_refused_provider_already_linked_race",
+		"provider", provider,
+		"user_id", userID)
+	return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
 }
 
 // applyGothUserToOAuthAccount copies the provider's profile and tokens onto an
@@ -710,47 +791,6 @@ func (s *UserService) reloadUserWithRelations(userID uint) (*authm.User, error) 
 		return nil, fmt.Errorf("failed to load user: %w", err)
 	}
 	return &user, nil
-}
-
-// linkOAuthAccount links OAuth account to existing user
-func (s *UserService) linkOAuthAccount(user *authm.User, gothUser goth.User, provider string) (*authm.User, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	// Check if OAuth account already exists for this provider
-	var existingOAuth authm.OAuthAccount
-	err := s.db.Where("user_id = ? AND provider = ?", user.ID, provider).First(&existingOAuth).Error
-
-	if err == nil {
-		// Update existing OAuth account
-		applyGothUserToOAuthAccount(&existingOAuth, gothUser)
-
-		if err := s.db.Save(&existingOAuth).Error; err != nil {
-			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
-		}
-	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		// Create new OAuth account
-		oauthAccount := &authm.OAuthAccount{
-			UserID:         user.ID,
-			Provider:       provider,
-			ProviderUserID: gothUser.UserID,
-		}
-		applyGothUserToOAuthAccount(oauthAccount, gothUser)
-
-		if err := s.db.Create(oauthAccount).Error; err != nil {
-			return nil, fmt.Errorf("failed to create OAuth account: %w", err)
-		}
-	} else {
-		return nil, fmt.Errorf("database error: %w", err)
-	}
-
-	// Load updated user with relationships
-	if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(user, user.ID).Error; err != nil {
-		return nil, fmt.Errorf("failed to load user: %w", err)
-	}
-
-	return user, nil
 }
 
 // GetUserByID retrieves a user by ID

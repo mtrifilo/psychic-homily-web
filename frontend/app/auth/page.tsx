@@ -29,6 +29,7 @@ import {
   SignupIntentPanel,
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
+import { REAUTH_REASON_OAUTH_LINK } from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -633,6 +634,13 @@ function AuthPageContent() {
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
 
+  // A re-authentication, not a sign-in. The backend sends an ALREADY
+  // authenticated user here when a security-relevant change needs the account
+  // proved again, so the redirect below has to be held back: bouncing them
+  // straight to returnTo would return them to the control that just refused
+  // them, with nothing changed and no way to tell why.
+  const isReauth = searchParams.get('reason') === REAUTH_REASON_OAUTH_LINK
+
   // Redirect if already authenticated.
   //
   // A registering user becomes authenticated partway through the signup
@@ -641,10 +649,10 @@ function AuthPageContent() {
   // email is waiting. The claim is in-memory only: on a reload it is gone and
   // the redirect resumes, so it cannot strand anyone.
   useEffect(() => {
-    if (authStatus === 'authenticated' && !signupHandoff) {
+    if (authStatus === 'authenticated' && !signupHandoff && !isReauth) {
       router.push(returnTo)
     }
-  }, [authStatus, router, returnTo, signupHandoff])
+  }, [authStatus, router, returnTo, signupHandoff, isReauth])
 
   // `isLoading`, NOT `authStatus === 'pending'`, and this is the one page
   // where that is the right way round.
@@ -683,8 +691,12 @@ function AuthPageContent() {
     )
   }
 
-  // Don't render the form if authenticated (will redirect)
-  if (authStatus === 'authenticated') {
+  // Don't render the form if authenticated (will redirect).
+  //
+  // Except on a re-authentication, where the whole point is to show the form
+  // to someone who IS signed in. Completing any factor mints a fresh session,
+  // which is what the caller that sent them here was waiting for.
+  if (authStatus === 'authenticated' && !isReauth) {
     return null
   }
 
@@ -697,10 +709,12 @@ function AuthPageContent() {
             <User className="h-6 w-6 text-primary" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">
-            Welcome to Psychic Homily
+            {isReauth ? "Confirm it's you" : 'Welcome to Psychic Homily'}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            You&apos;re welcome to join our community.
+            {isReauth
+              ? 'Sign in again to connect a provider to your account.'
+              : "You're welcome to join our community."}
           </p>
         </div>
 
@@ -718,17 +732,28 @@ function AuthPageContent() {
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-4">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList
+                className={
+                  isReauth ? 'grid w-full grid-cols-1' : 'grid w-full grid-cols-2'
+                }
+              >
                 <TabsTrigger ref={signInTabRef} value="login">Sign in</TabsTrigger>
-                <TabsTrigger value="signup">Create account</TabsTrigger>
+                {/* Creating an account is not a way to prove you hold one. */}
+                {!isReauth && (
+                  <TabsTrigger value="signup">Create account</TabsTrigger>
+                )}
               </TabsList>
 
               <TabsContent value="login" className="mt-6">
                 <CardTitle className="text-lg">
-                  Sign in to your account
+                  {isReauth
+                    ? 'Confirm it\'s you to connect a provider'
+                    : 'Sign in to your account'}
                 </CardTitle>
                 <CardDescription className="mt-1">
-                  Enter your email and password to continue
+                  {isReauth
+                    ? 'Use whichever method this account already has.'
+                    : 'Enter your email and password to continue'}
                 </CardDescription>
                 <div className="mt-4">
                   <LoginForm returnTo={returnTo} />

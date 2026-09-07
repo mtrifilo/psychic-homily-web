@@ -88,11 +88,10 @@ export function buildSceneSlice(
 ): SceneSliceData | null {
   if (!tonight) return null
 
-  // SHAPE-checked as well as present. `asPayload` in `scenePeriodApi` only
-  // asserts that `date` is a STRING, and `sceneDayApi`'s own docstring notes
-  // that empty strings demonstrably get through it — while `parseCalendarDate`
-  // turns `""` into a perfectly valid Date in the year 1900 rather than failing.
-  // Without this the heading would read `MONDAY, JANUARY 1` in our own voice: a
+  // SHAPE-checked, not merely present: a date this function cannot parse is a
+  // date it must not print. `parseCalendarDate` turns a string it does not
+  // understand into a perfectly valid Date in the year 1900 rather than
+  // failing, so the heading would read `MONDAY, JANUARY 1` in our own voice: a
   // confident wrong date, which is the worst of the three outcomes. A slice
   // whose own night cannot be named is not a quiet slice, so the caller gets
   // null and renders "we could not load this" instead of an honest zero.

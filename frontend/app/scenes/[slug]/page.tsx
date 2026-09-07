@@ -12,7 +12,7 @@ import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
-import { buildSceneWeekJsonLd } from '@/features/scenes/sceneWeekJsonLd'
+import { buildSceneSliceJsonLd } from '@/features/scenes/sceneSliceJsonLd'
 import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
 // Deep-imported from the component FILE for the same reason SceneDetailView is:
 // the `@/features/scenes/components` barrel is a `'use client'` barrel, and
@@ -86,11 +86,14 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
 })
 
 /**
- * Current week for this scene, cached so `generateMetadata` and the JSON-LD
- * injection share one trip. Fetched through `sceneWeekApi` rather than
- * `sceneWeekPage` so this route does not pull the week view (or `next/og`)
- * into its graph. `undefined` week = the backend's current week, in the
- * scene's own timezone.
+ * Current week for this scene, read by `generateMetadata` alone: the OG card
+ * this route advertises is the week card, and its archived permalink carries
+ * the week key. Nothing the page BODY renders or describes comes from it.
+ *
+ * Fetched through `sceneWeekApi` rather than `sceneWeekPage` so this route does
+ * not pull the week view (or `next/og`) into its graph. `undefined` week = the
+ * backend's current week, in the scene's own timezone. `cache()` bounds this to
+ * one trip per request however many callers it grows.
  */
 const getSceneWeek = cache((slug: string) =>
   fetchSceneWeek(slug, undefined, 'scene-week')
@@ -208,38 +211,23 @@ export default async function ScenePage({ params }: ScenePageProps) {
     notFound()
   }
 
-  // CONCURRENT, because none of the three needs another's answer. Awaited in
-  // sequence they would stack the week fetch in front of the slice's own chain;
-  // this leaves that chain as the only thing on the critical path.
+  // CONCURRENT, because neither needs the other's answer, which leaves the
+  // slice's serial fetch chain (`sceneSliceApi` states why it is serial,
+  // `sceneSlice` how many calls deep it runs) as the only thing on the
+  // critical path.
   //
-  // That chain is THREE calls, not two, and the extra one is not ours: the
-  // next-day leg is fetched with a KEY, so `fetchScenePeriod` runs its
-  // two-phase freshness probe, and a future date is never `is_past_day`, so the
-  // fall-through fires every time. See the follow-up noted on the PR — the fix
-  // belongs in that shared caching layer, which `/next-4-weeks` already pays
-  // five times over.
-  //
-  //  - `prefetchEntity`: `cache()` above guarantees the scene fetch already
-  //    happened, so this is a no-op cache write seeding the entry
-  //    `useSceneDetail` picks up.
-  //  - the WEEK feeds the structured data only, and that is now a KNOWN
-  //    MISMATCH left deliberately in place. `buildSceneWeekJsonLd` emits an
-  //    ItemList plus MusicEvent[] for seven days while the page visibly renders
-  //    two, and because the week is Monday-anchored the slice's second day is
-  //    outside it every Sunday — so the markup can both over- and under-state
-  //    what a reader sees. Structured data is supposed to describe visible
-  //    content, so this wants re-scoping to the slice; doing it here would mean
-  //    reopening the scene-SEO decisions documented in `sceneDayPage.tsx`
-  //    (canonical-to-week, the sitemap families), which this ticket has no
-  //    mandate to change on a guess. Raised on the PR for its own ticket.
-  //  - the SLICE is what the page actually renders.
-  const [dehydratedState, week, slice] = await Promise.all([
+  // `prefetchEntity` is a no-op cache write: `cache()` above guarantees the
+  // scene fetch already happened, so this only seeds the entry `useSceneDetail`
+  // picks up.
+  const [dehydratedState, slice] = await Promise.all([
     prefetchEntity(queryKeys.scenes.detail(slug), scene),
-    getSceneWeek(slug),
     getSceneSlice(slug),
   ])
 
-  const jsonLd = week ? buildSceneWeekJsonLd(week) : null
+  // ONE slice payload feeds both the structured data and the rows
+  // `SceneCalendar` draws. The calendar neither caps nor filters those rows, so
+  // the two list the same shows.
+  const jsonLd = slice ? buildSceneSliceJsonLd(slice) : null
 
   return (
     <div className="flex min-h-screen items-start justify-center">

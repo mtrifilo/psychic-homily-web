@@ -14,12 +14,18 @@ import (
 // OAuthAccountHandler handles OAuth account management HTTP requests
 type OAuthAccountHandler struct {
 	userService contracts.UserServiceInterface
+	// jwtSecret signs the one-time link token this handler mints.
+	jwtSecret string
+	// frontendURL is the only origin allowed to ask for one.
+	frontendURL string
 }
 
 // NewOAuthAccountHandler creates a new OAuth account handler
-func NewOAuthAccountHandler(userService contracts.UserServiceInterface) *OAuthAccountHandler {
+func NewOAuthAccountHandler(userService contracts.UserServiceInterface, jwtSecret, frontendURL string) *OAuthAccountHandler {
 	return &OAuthAccountHandler{
 		userService: userService,
+		jwtSecret:   jwtSecret,
+		frontendURL: frontendURL,
 	}
 }
 
@@ -102,6 +108,75 @@ func (h *OAuthAccountHandler) GetOAuthAccountsHandler(ctx context.Context, req *
 			Accounts: responseAccounts,
 		},
 	}, nil
+}
+
+// StartOAuthLinkRequest carries the browser's own account of where the request
+// came from. Both are read only to bind the minted token to that origin; they
+// are never trusted as authorization on their own.
+type StartOAuthLinkRequest struct {
+	Origin  string `header:"Origin"`
+	Referer string `header:"Referer"`
+}
+
+// StartOAuthLinkResponse carries the one-time token Settings puts on the
+// /auth/link/{provider} URL it navigates to.
+type StartOAuthLinkResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token" doc:"One-time token for the /auth/link/{provider} start URL"`
+	}
+}
+
+// StartOAuthLinkHandler handles POST /auth/oauth/link-token.
+//
+// It exists so /auth/link/{provider} can tell a start that came from this
+// application's own Settings page from one an attacker's page navigated the
+// user into. That route is a cookie-authenticated GET and the auth cookie is
+// SameSite=Lax, which browsers DO send on a cross-site top-level navigation,
+// so the route cannot make that distinction on its own.
+//
+// Another origin can SEND this request; what it cannot do is read the
+// response, because the CORS allowlist does not admit it. That is the property
+// the token rests on, and it is exact-origin only in production: outside it the
+// allowlist admits any *.vercel.app.
+func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *StartOAuthLinkRequest) (*StartOAuthLinkResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// The mint is refused outright unless it came from the configured
+	// frontend. Outside production the CORS allowlist admits any *.vercel.app
+	// with credentials, so an attacker origin could otherwise call this and
+	// read the answer; refusing here means it never gets a token at all.
+	//
+	// Origin is what an XHR sends; Referer is the fallback for a client that
+	// sends none. A request naming neither is refused, because nothing then
+	// says where it came from.
+	origin := req.Origin
+	if origin == "" || origin == "null" {
+		origin = originOfURL(req.Referer)
+	}
+	if origin == "" || !sameOrigin(origin, h.frontendURL) {
+		logger.FromContext(ctx).Warn("oauth_link_token_refused_origin",
+			"user_id", user.ID,
+		)
+		return nil, huma.Error403Forbidden("Start the connection from Settings")
+	}
+
+	token, err := mintOAuthLinkToken(h.jwtSecret, user.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("oauth_link_token_mint_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error500InternalServerError("Failed to start account connection")
+	}
+
+	resp := &StartOAuthLinkResponse{}
+	resp.Body.Success = true
+	resp.Body.Token = token
+	return resp, nil
 }
 
 // UnlinkOAuthAccountRequest represents the request for unlinking an OAuth account

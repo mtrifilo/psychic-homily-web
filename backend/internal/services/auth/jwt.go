@@ -109,6 +109,26 @@ func (s *JWTService) SessionUserID(tokenString string) (uint, bool) {
 	return uint(uid), true
 }
 
+// SessionIssuedAt returns the issue time of a validly-signed, unexpired
+// session token. ok is false for any invalid token and for one carrying no
+// usable iat claim.
+//
+// Read by the OAuth link path, which refuses to attach a new sign-in method on
+// the strength of an old cookie alone. Age is taken from the token rather than
+// from a database column because it is the CREDENTIAL's freshness that matters,
+// not the account's.
+func (s *JWTService) SessionIssuedAt(tokenString string) (time.Time, bool) {
+	claims, err := s.parseSessionToken(tokenString)
+	if err != nil {
+		return time.Time{}, false
+	}
+	issued, ok := claims["iat"].(float64)
+	if !ok || issued <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(int64(issued), 0).UTC(), true
+}
+
 // ValidateToken validates and extracts user info from JWT
 // Fetches the full user from the database to ensure we have current admin status
 func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {

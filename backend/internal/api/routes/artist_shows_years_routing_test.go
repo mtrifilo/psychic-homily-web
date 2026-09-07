@@ -10,15 +10,15 @@ import (
 // handler-level test cannot see, because handler tests call the handler function
 // directly rather than going through the router.
 //
-// 1. The deeper path is registered at all. chi 404s an unregistered path before
-//    any handler runs, so a dropped registration surfaces as a 404 on the year
-//    picker's fetch.
-// 2. The routes listed below agree on the parameter NAME. chi v5 stores param
-//    keys per leaf, so a sibling spelled `/artists/{slug}/…` does resolve
-//    correctly at request time — this is not a correctness guard, it is a
-//    consistency one. What it protects is `chi.Walk` and anything built on the
-//    reported RoutePattern, which surfaces a shared prefix node under whichever
-//    spelling registered first (the reporting artifact behind PSY-1584).
+//  1. The deeper path is registered at all. chi 404s an unregistered path before
+//     any handler runs, so a dropped registration surfaces as a 404 on the year
+//     picker's fetch.
+//  2. The routes listed below agree on the parameter NAME. chi v5 stores param
+//     keys per leaf, so a sibling spelled `/artists/{slug}/…` does resolve
+//     correctly at request time — this is not a correctness guard, it is a
+//     consistency one. What it protects is `chi.Walk` and anything built on the
+//     reported RoutePattern, which surfaces a shared prefix node under whichever
+//     spelling registered first (the reporting artifact behind PSY-1584).
 //
 // The list is deliberately NOT every artist sub-route. `/artists/{slug}/radio-plays`
 // (routes/radio.go) already uses a different name, so an exhaustive sweep would

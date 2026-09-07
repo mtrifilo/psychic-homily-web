@@ -184,6 +184,44 @@ describe('fetchSceneWeek', () => {
     expect(captureMessage).not.toHaveBeenCalled()
   })
 
+  // Fields a consumer reads without a null guard: the dates go into date maths,
+  // `slug` and `iso_week` into the canonical and the share-image URL.
+  it.each(['start_date', 'end_date', 'city', 'slug', 'iso_week'])(
+    'rejects a body missing %s',
+    async field => {
+      const thin: Record<string, unknown> = { ...week() }
+      delete thin[field]
+      fetchMock.mockResolvedValue(jsonResponse(thin))
+
+      await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+    }
+  )
+
+  // An identity field that does not name something reaches a URL as `/scenes//`
+  // or as an address with a space in it, so it fails here rather than there.
+  it.each(
+    ['start_date', 'end_date', 'city', 'slug', 'iso_week'].flatMap(field =>
+      ['', '   ', ' 2026-W31', '2026-W31 '].map(bad => [field, bad] as const)
+    )
+  )('rejects a body whose %s is %j', async (field, bad) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: bad }))
+
+    await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // The week's navigation keys are outside this contract, so a payload that
+  // omits them is still served: the gap they leave belongs to the view.
+  it('serves a week that omits its navigation keys', async () => {
+    const thin: Record<string, unknown> = { ...week() }
+    delete thin.prev_week
+    delete thin.next_week
+    fetchMock.mockResolvedValue(jsonResponse(thin))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject({ iso_week: '2026-W31' })
+  })
+
   // Next decodes route params before this sees them, so an unescaped slug would
   // truncate the path at a `?` or `#` and hit a different backend endpoint.
   it('encodes both segments on every ask', async () => {

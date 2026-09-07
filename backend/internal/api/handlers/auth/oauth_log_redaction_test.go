@@ -40,7 +40,7 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	const sentinelConsentCookie = "SENTINEL-CONSENT-COOKIE-b0d419"
 	const loopbackCallback = "http://localhost:8765/cli-oauth-return"
 
-	handler := NewOAuthHTTPHandler(nil, &config.Config{})
+	handler := NewOAuthHTTPHandler(nil, nil, &config.Config{})
 
 	// The cli_callback branch writes to the package-global store.
 	t.Cleanup(cleanCLICallbackStore)
@@ -105,7 +105,7 @@ func TestOAuthCallbackHandlerNeverLogsTheMintedToken(t *testing.T) {
 			return &authm.User{ID: 9}, sentinelToken, nil
 		},
 	}
-	handler := NewOAuthHTTPHandler(authService, &config.Config{})
+	handler := NewOAuthHTTPHandler(authService, nil, &config.Config{})
 
 	req := httptest.NewRequest("GET", "/auth/callback/google?code=abc&state=xyz", nil)
 	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: sentinelCallbackID})
@@ -162,7 +162,7 @@ func TestOAuthCallbackHandlerRedactsTokenBearingErrorURL(t *testing.T) {
 			return nil, "", fmt.Errorf("OAuth completion failed: %w", transportErr)
 		},
 	}
-	handler := NewOAuthHTTPHandler(authService, &config.Config{})
+	handler := NewOAuthHTTPHandler(authService, nil, &config.Config{})
 
 	req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 	w := httptest.NewRecorder()
@@ -207,7 +207,7 @@ func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
 			return nil, "", fmt.Errorf("OAuth completion failed: %w", providerErr)
 		},
 	}
-	handler := NewOAuthHTTPHandler(authService, &config.Config{})
+	handler := NewOAuthHTTPHandler(authService, nil, &config.Config{})
 
 	req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 	w := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
 	t.Cleanup(cleanCLICallbackStore)
 
 	t.Run("initiation", func(t *testing.T) {
-		handler := NewOAuthHTTPHandler(nil, &config.Config{})
+		handler := NewOAuthHTTPHandler(nil, nil, &config.Config{})
 
 		w, req := oauthLoginRequest("google")
 		req.URL.RawQuery = "cli_callback=" + url.QueryEscape(attackerCallback)
@@ -274,7 +274,7 @@ func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
 				return &authm.User{ID: 9}, "unused-token", nil
 			},
 		}
-		handler := NewOAuthHTTPHandler(authService, &config.Config{})
+		handler := NewOAuthHTTPHandler(authService, nil, &config.Config{})
 
 		req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 		req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: storedID})
