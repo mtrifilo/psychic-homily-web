@@ -35,6 +35,35 @@ func TestErrOAuthLinkRefused_DoesNotEnumerateSignInMethods(t *testing.T) {
 	}
 }
 
+// Apple's refusal is the one place its exact words are pinned: the constant is
+// unexported, and every other suite asserts against this constructor rather
+// than against a copy of the string.
+func TestErrAppleSignInRefused_Copy(t *testing.T) {
+	err := ErrAppleSignInRefused("someone@example.com")
+
+	if err.Code != CodeOAuthLinkRefused {
+		t.Errorf("Code = %q, want %q", err.Code, CodeOAuthLinkRefused)
+	}
+	const want = "An account already uses this email address. Sign in to that account with the method it already has."
+	if err.UserMessage() != want {
+		t.Errorf("message = %q, want %q", err.UserMessage(), want)
+	}
+}
+
+// Apple arrives by a native-token POST rather than the goth handshake the link
+// route drives, so Settings has no Apple control. Naming one would send a
+// refused user looking for something that does not exist, which is why these
+// two refusals share a code and not their copy.
+func TestErrAppleSignInRefused_NamesNoSettingsControl(t *testing.T) {
+	apple := ErrAppleSignInRefused("someone@example.com").UserMessage()
+	if strings.Contains(apple, "Settings") {
+		t.Errorf("message %q points at a Settings control the Apple path has none of", apple)
+	}
+	if apple == ErrOAuthLinkRefused("someone@example.com").UserMessage() {
+		t.Error("the Apple and goth refusals must not share copy: they share a code and differ only here")
+	}
+}
+
 // Callers log the whole chain, so the address may not ride along in cleartext.
 func TestErrOAuthLinkRefused_MasksTheAddress(t *testing.T) {
 	err := ErrOAuthLinkRefused("Very.Distinct@example.com")

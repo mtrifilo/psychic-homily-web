@@ -33,27 +33,27 @@ const EnableOAuthTestProviderEnvVar = "ENABLE_OAUTH_TEST_PROVIDER"
 const TestProviderName = "google"
 
 // TestProviderEmail is the deterministic email the faux clone always returns.
-// The E2E seed pre-creates a user with this email so the first faux login
-// resolves to an EXISTING user (a login, via linkOAuthAccount), not a brand-new
-// signup (which would trigger the terms/consent flow). Stock goth/faux returns
-// an EMPTY email, which would make FindOrCreateUserWithConsent key on "" and
-// create a degenerate account — hence the clone.
+// Stock goth/faux returns an EMPTY email, which would make
+// FindOrCreateUserWithConsent key on "" and create a degenerate account — hence
+// the clone.
 const TestProviderEmail = "e2e-oauth@test.local"
 
 // TestProviderUserID is the deterministic provider_user_id the faux clone
-// returns. Fixed so repeat logins resolve to the same oauth_accounts row.
+// returns. It is the identity a sign-in resolves on, and the E2E seed writes an
+// oauth_accounts row carrying this exact value, which is what makes the faux
+// login a login rather than a signup or a refusal. Change it and
+// frontend/e2e/setup-db.sh has to change with it.
 const TestProviderUserID = "e2e-oauth-faux-user-id"
 
 // TestProviderUnverifiedEmailEnvVar makes the clone report its address as NOT
-// verified by the provider. Unset, the clone reports verified, which is what
-// the seeded account at TestProviderEmail needs to be linkable.
+// verified by the provider. Unset, the clone reports verified. The flag decides
+// email_verified on an account this clone's address CREATES; it decides nothing
+// about an address that already belongs to an account, which is refused either
+// way.
 //
-// No automated suite sets it. It is read at request time, so flipping it means
-// restarting the backend: it exists so a person can drive the link refusal
-// through the genuine gothic handshake by hand against a local stack. It is
-// read only by isOAuthTestProviderEmailUnverified, in a provider that
-// newTestProvider builds and SetupGoth registers only behind the double gate
-// described at the top of this file.
+// Read at request time, and only by isOAuthTestProviderEmailUnverified, in a
+// provider that newTestProvider builds and SetupGoth registers only behind the
+// double gate described at the top of this file.
 const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
 
 // TestProviderEmailEnvVar and TestProviderUserIDEnvVar override the identity
@@ -75,9 +75,9 @@ const (
 )
 
 // EmailVerifiedRawDataKey is the RawData key the clone carries its
-// verification flag under. It must be one the link-by-email path reads, which
-// is why it is exported: internal/services/user tests its own reader against
-// this constant rather than against a copy of the string.
+// verification flag under. It must be one providerAssertsEmailVerified reads,
+// which is why it is exported: internal/services/user tests its own reader
+// against this constant rather than against a copy of the string.
 const EmailVerifiedRawDataKey = "verified_email"
 
 // testProvider wraps goth's faux provider so it (a) registers/resolves under
@@ -108,8 +108,8 @@ func (p *testProvider) Name() string {
 // errors until the session has been Authorize()d, exactly as a real provider
 // would before the token exchange), then overwrites the identity fields with
 // the deterministic test values. Stock faux supplies neither an email nor any
-// RawData; the link-by-email path reads the address from the first and the
-// provider's verification assertion from the second.
+// RawData; find-or-create reads the address from the first and the provider's
+// verification assertion from the second.
 func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 	user, err := p.Provider.FetchUser(session)
 	if err != nil {

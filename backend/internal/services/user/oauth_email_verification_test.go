@@ -61,7 +61,11 @@ func TestProviderAssertsEmailVerified_ReadsTheFauxProvidersKey(t *testing.T) {
 	assert.True(t, got)
 }
 
-// --- integration: the link gate in findOrCreateOAuthUser ---
+// --- integration: the address rule in findOrCreateOAuthUser ---
+//
+// An address that already belongs to an account refuses the sign-in, whatever
+// the provider claims about it. providerAssertsEmailVerified still runs, but
+// only on the create path, where it decides the new row's email_verified.
 
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_RefusesLink() {
 	existing := &authm.User{
@@ -116,7 +120,10 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerific
 	suite.assertSingleUserForEmail("absent.signal@example.com")
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail_LinksAccount() {
+// The strongest verification claim a provider can make is still a claim about
+// the MAILBOX, so it refuses like the absent one. The copy names the one way
+// past the refusal, which is a session that already holds the account.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail_RefusesLink() {
 	existing := &authm.User{
 		Email:         stringPtr("verified.link@example.com"),
 		IsActive:      true,
@@ -130,17 +137,23 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail
 		RawData: map[string]any{"verified_email": true},
 	}, "google")
 
-	suite.Require().NoError(err)
-	suite.Require().NotNil(linked)
-	suite.Equal(existing.ID, linked.ID)
-	suite.Require().Len(linked.OAuthAccounts, 1)
-	suite.Equal("goth-verified-subject", linked.OAuthAccounts[0].ProviderUserID)
+	suite.Require().Error(err)
+	suite.Require().Nil(linked)
+
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+	// The sign-in refusal, not the Apple one. The two share a code and differ
+	// in copy, so the code alone would not catch the wrong constructor here.
+	suite.Equal(apperrors.ErrOAuthLinkRefused("verified.link@example.com").UserMessage(), authErr.UserMessage())
+
+	suite.assertNoOAuthAccountFor(existing.ID)
 }
 
-// The gate sits on the link-by-email branch only. A provider identity already
-// in oauth_accounts resolves by provider_user_id and never reaches the address
-// comparison, so a provider that stops sending the flag cannot break an
-// established sign-in.
+// The refusal sits on the address branch only. A provider identity already in
+// oauth_accounts resolves by provider_user_id and never reaches the address
+// comparison, so an established sign-in is unaffected by the address rule and
+// by whether the provider still sends a verification flag.
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AlreadyLinkedAccount_UnaffectedByVerification() {
 	existing := &authm.User{
 		Email:         stringPtr("already.linked@example.com"),
