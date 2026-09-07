@@ -2526,6 +2526,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oauth/link-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth oauth link token */
+        post: operations["post-auth-oauth-link-token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/passkey/credentials": {
         parameters: {
             query?: never;
@@ -16793,6 +16810,17 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        StartOAuthLinkResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/StartOAuthLinkResponseBody.json
+             */
+            readonly $schema?: string;
+            success: boolean;
+            /** @description One-time token for the /auth/link/{provider} start URL */
+            token: string;
+        };
         StreamingDiscoveryArtistResponse: {
             /**
              * Format: uri
@@ -24000,6 +24028,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnlinkOAuthAccountResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-oauth-link-token": {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string;
+                Referer?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartOAuthLinkResponseBody"];
                 };
             };
             /** @description Error */

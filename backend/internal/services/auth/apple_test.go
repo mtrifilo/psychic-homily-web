@@ -506,50 +506,6 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 // linkAppleAccount
 // ---------------------------------------------------------------------------
 
-func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_Success() {
-	// Pre-create user
-	user := &authm.User{
-		Email:     stringPtr("link-test@example.com"),
-		FirstName: stringPtr("Link"),
-		LastName:  stringPtr("Test"),
-		IsActive:  true,
-	}
-	s.Require().NoError(s.db.Create(user).Error)
-
-	svc := s.newService()
-	result, err := svc.linkAppleAccount(user, "apple-link-id", "link-test@example.com")
-
-	s.Require().NoError(err)
-	s.Require().NotNil(result)
-	s.Equal(user.ID, result.ID)
-
-	// OAuthAccount created and preloaded
-	s.Require().Len(result.OAuthAccounts, 1)
-	s.Equal("apple", result.OAuthAccounts[0].Provider)
-	s.Equal("apple-link-id", result.OAuthAccounts[0].ProviderUserID)
-	s.Equal("link-test@example.com", *result.OAuthAccounts[0].ProviderEmail)
-}
-
-func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_UserHasPreferences() {
-	// Pre-create user with preferences
-	user := &authm.User{
-		Email:     stringPtr("prefs-test@example.com"),
-		FirstName: stringPtr("Prefs"),
-		LastName:  stringPtr("Test"),
-		IsActive:  true,
-	}
-	s.Require().NoError(s.db.Create(user).Error)
-	prefs := &authm.UserPreferences{UserID: user.ID}
-	s.Require().NoError(s.db.Create(prefs).Error)
-
-	svc := s.newService()
-	result, err := svc.linkAppleAccount(user, "apple-prefs-id", "prefs-test@example.com")
-
-	s.Require().NoError(err)
-	s.Require().NotNil(result.Preferences)
-	s.Equal(user.ID, result.Preferences.UserID)
-}
-
 // ---------------------------------------------------------------------------
 // createAppleUser
 // ---------------------------------------------------------------------------

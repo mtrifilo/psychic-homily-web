@@ -18,11 +18,49 @@ vi.mock('next/link', () => ({
 }))
 
 import {
+  entityHref,
   EntityNameLink,
   EntityNameList,
   RoomList,
   SceneSectionHeading,
 } from './sceneChrome'
+
+// The guard itself, tested directly, because callers whose link body is not a
+// bare name reach for it instead of for EntityNameLink.
+describe('entityHref', () => {
+  it('builds a one-segment href from a slug', () => {
+    expect(entityHref('/collections', 'phoenix-diy')).toBe(
+      '/collections/phoenix-diy'
+    )
+  })
+
+  it('encodes a slug that would otherwise splice a second segment', () => {
+    expect(entityHref('/collections', 'a/b')).toBe('/collections/a%2Fb')
+  })
+
+  // Null means "do not link", never "link to the index": `/collections/` with
+  // an empty slug resolves to the browse page rather than 404ing (PSY-1754).
+  it('returns null for a missing, empty or whitespace slug', () => {
+    expect(entityHref('/collections', undefined)).toBeNull()
+    expect(entityHref('/collections', null)).toBeNull()
+    expect(entityHref('/collections', '')).toBeNull()
+    expect(entityHref('/collections', '   ')).toBeNull()
+  })
+
+  // Dot segments are the one shape encoding leaves untouched, and they reach
+  // the same wrong destination the empty slug does: `/collections/..` walks
+  // back up to `/collections`.
+  it('returns null for a dot-segment slug', () => {
+    expect(entityHref('/collections', '.')).toBeNull()
+    expect(entityHref('/collections', '..')).toBeNull()
+    expect(entityHref('/collections', ' .. ')).toBeNull()
+  })
+
+  // A slug that merely CONTAINS dots is a real slug and still links.
+  it('links a slug that contains dots', () => {
+    expect(entityHref('/artists', 'r.e.m')).toBe('/artists/r.e.m')
+  })
+})
 
 // The nullable-slug href guard is a rule this codebase has learned the hard way
 // (PSY-1754) and now has ONE implementation. These are its tests.

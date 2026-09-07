@@ -156,6 +156,35 @@ export interface SceneNewArtistsResponse {
 }
 
 /**
+ * One public collection on the scene's collections rail (PSY-1847).
+ *
+ * DERIVED from the generated schema, same rule as `SceneNewArtistRow`.
+ *
+ * There is no `is_public` field to read, and the rail must not invent a
+ * client-side filter to stand in for one: the endpoint's query asserts
+ * `is_public` in the single clause that emits a row.
+ *
+ * `scene_local_item_count` and `item_count` are the qualifying rule's numerator
+ * and denominator. They are on the wire so the ranking is auditable from the
+ * payload that produced it; the locked mock draws neither.
+ *
+ * `updated_at` is the collection ROW's timestamp. Adding an item does not move
+ * it, so it dates the collection's own metadata and is not a curation-activity
+ * figure. It ranks third, behind `scene_local_item_count` and
+ * `contributor_count`.
+ */
+export type SceneCollectionSummary =
+  components['schemas']['SceneCollectionSummary']
+
+/**
+ * `collections` is never null: the handler substitutes an empty slice, which is
+ * why this is narrower than the generated response body.
+ */
+export interface SceneCollectionsResponse {
+  collections: SceneCollectionSummary[]
+}
+
+/**
  * One upcoming show in the scene preview's "Next 7 days" row (PSY-1309).
  *
  * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written

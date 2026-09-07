@@ -14,6 +14,7 @@ export {
   useDeleteAccount,
   useExportData,
   useOAuthAccounts,
+  useStartOAuthLink,
   useUnlinkOAuthAccount,
   usePasskeyCredentials,
   useDeletePasskey,

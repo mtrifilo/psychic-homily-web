@@ -14,6 +14,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -74,7 +75,22 @@ func TestOAuthHandlerIntegration(t *testing.T) {
 func (s *OAuthHandlerIntegrationSuite) newHandler(completer contracts.OAuthCompleter) *OAuthHTTPHandler {
 	authService := auth.NewAuthService(s.deps.DB, s.cfg, s.deps.UserService)
 	authService.SetOAuthCompleter(completer)
-	return NewOAuthHTTPHandler(authService, s.cfg)
+	return NewOAuthHTTPHandler(authService, s.jwtService(), s.cfg)
+}
+
+func (s *OAuthHandlerIntegrationSuite) jwtService() *auth.JWTService {
+	return auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
+}
+
+// addSessionCookie puts a real session credential on a callback request. The
+// link path reads it to confirm the person finishing a handshake is the one
+// who started it, and the callback is a public route so nothing else supplies
+// a principal.
+func (s *OAuthHandlerIntegrationSuite) addSessionCookie(req *http.Request, user *authm.User) {
+	s.T().Helper()
+	token, err := s.jwtService().CreateToken(user)
+	s.Require().NoError(err)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 }
 
 func oauthCallbackRequest(provider string) (*httptest.ResponseRecorder, *http.Request) {
@@ -226,7 +242,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
 	}
 	authService := auth.NewAuthService(s.deps.DB, customCfg, s.deps.UserService)
 	authService.SetOAuthCompleter(&mockOAuthCompleter{err: http.ErrNoCookie})
-	handler := NewOAuthHTTPHandler(authService, customCfg)
+	handler := NewOAuthHTTPHandler(authService, s.jwtService(), customCfg)
 
 	w, req := oauthCallbackRequest("google")
 	s.addSignupConsentCookie(req)
@@ -245,7 +261,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 	}
 	authService := auth.NewAuthService(s.deps.DB, emptyCfg, s.deps.UserService)
 	authService.SetOAuthCompleter(&mockOAuthCompleter{err: http.ErrNoCookie})
-	handler := NewOAuthHTTPHandler(authService, emptyCfg)
+	handler := NewOAuthHTTPHandler(authService, s.jwtService(), emptyCfg)
 
 	w, req := oauthCallbackRequest("google")
 	s.addSignupConsentCookie(req)

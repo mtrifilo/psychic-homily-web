@@ -7,6 +7,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/markbates/goth"
+
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 )
@@ -51,22 +53,26 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnvouchedOAuthAccountAllowe
 	s.Equal("Verified Show", resp.Body.Title)
 }
 
-// createUnvouchedOAuthUser builds the row shape the OAuth create path produces
-// for an address no provider vouched for: unverified, with a provider identity
-// attached.
+// createUnvouchedOAuthUser builds the account through the REAL create path,
+// driven by a provider that vouches for nothing.
+//
+// Inserting the row directly would make both tests here pass with the
+// production stamp reverted to a hard-coded true, which is the whole thing
+// they exist to catch. Going through FindOrCreateUser means the account is
+// unverified because the code under test decided it was.
 func (s *ShowHandlerIntegrationSuite) createUnvouchedOAuthUser(email, subject string) *authm.User {
 	s.T().Helper()
-	user := &authm.User{
-		Email:         testhelpers.StringPtr(email),
-		IsActive:      true,
-		EmailVerified: false,
-	}
-	s.Require().NoError(s.deps.DB.Create(user).Error)
-	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
-		UserID:         user.ID,
-		Provider:       "google",
-		ProviderUserID: subject,
-	}).Error)
+	user, err := s.deps.UserService.FindOrCreateUser(goth.User{
+		UserID: subject,
+		Email:  email,
+		// No verification signal at all: the shape goth's github provider
+		// produces, and the one Google produces when it will not vouch.
+		RawData: map[string]any{"login": "octocat"},
+	}, "google")
+	s.Require().NoError(err)
+	s.Require().NotNil(user)
+	s.Require().False(user.EmailVerified,
+		"the create path must produce an unverified account for an unvouched address")
 	return user
 }
 

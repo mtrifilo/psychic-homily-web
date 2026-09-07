@@ -16,7 +16,7 @@ import (
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
-	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.Cfg)
+	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.SC.JWT, rc.Cfg)
 
 	// Create rate limiter for auth endpoints: 10 requests per minute per IP
 	// This helps prevent:
@@ -172,9 +172,18 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
 
 	// OAuth account management endpoints
-	oauthAccountHandler := authh.NewOAuthAccountHandler(rc.SC.User)
+	oauthAccountHandler := authh.NewOAuthAccountHandler(rc.SC.User, rc.Cfg.JWT.SecretKey, rc.Cfg.Email.FrontendURL)
 	huma.Get(rc.Protected, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
 	huma.Delete(rc.Protected, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
+	// Mints the one-time token /auth/link/{provider} requires. Same-origin and
+	// authenticated, which is what that route cannot verify for itself.
+	//
+	// Rate limited on the same per-IP budget as the rest of the auth surface:
+	// it is an unauthenticated-shaped primitive behind a session, and nothing
+	// else bounds how fast a client can ask for signed tokens.
+	linkTokenGroup := huma.NewGroup(rc.Protected, "")
+	linkTokenGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
+	huma.Post(linkTokenGroup, "/auth/oauth/link-token", oauthAccountHandler.StartOAuthLinkHandler)
 
 	// User preferences endpoints
 	userPrefsHandler := authh.NewUserPreferencesHandler(rc.SC.User, rc.Cfg.JWT.SecretKey)

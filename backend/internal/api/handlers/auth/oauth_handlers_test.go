@@ -151,7 +151,7 @@ func oauthLoginRequest(provider string) (*httptest.ResponseRecorder, *http.Reque
 }
 
 func TestOAuthLoginHTTPHandler_NoProvider(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 	// Build request with no chi context so URLParam("provider") returns "".
 	req := httptest.NewRequest("GET", "/auth/login", nil)
 	w := httptest.NewRecorder()
@@ -164,7 +164,7 @@ func TestOAuthLoginHTTPHandler_NoProvider(t *testing.T) {
 }
 
 func TestOAuthLoginHTTPHandler_InvalidProvider(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
 	for _, provider := range []string{"facebook", "twitter", "linkedin"} {
 		t.Run(provider, func(t *testing.T) {
@@ -181,7 +181,7 @@ func TestOAuthLoginHTTPHandler_InvalidProvider(t *testing.T) {
 func TestOAuthLoginHTTPHandler_CLICallbackStored(t *testing.T) {
 	defer cleanCLICallbackStore()
 
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/auth/login/google?cli_callback=http://localhost:8888/cli-cb", nil)
 	w := httptest.NewRecorder()
@@ -221,7 +221,7 @@ func TestOAuthLoginHTTPHandler_CLICallbackStored(t *testing.T) {
 func TestOAuthLoginHTTPHandler_CLICallbackRejected_400(t *testing.T) {
 	defer cleanCLICallbackStore()
 
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/auth/login/google?cli_callback=https://evil.com/steal", nil)
 	w := httptest.NewRecorder()
@@ -248,7 +248,7 @@ func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
 	// Verify that the handler adds the provider to query params for Goth
 	// (gothic.BeginAuthHandler will fail without registered providers, but
 	// we can verify the query param was added by checking the request URL)
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 	w, req := oauthLoginRequest("google")
 
 	handler.OAuthLoginHTTPHandler(w, req)
@@ -263,7 +263,7 @@ func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
 // accepted but no age confirmation must be rejected with a 400 before any OAuth
 // redirect, and no consent cookie may be set.
 func TestOAuthLoginHTTPHandler_SignupIntent_MissingAgeConfirmation(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&terms_version=2026-01-31", nil)
 	w := httptest.NewRecorder()
@@ -286,7 +286,7 @@ func TestOAuthLoginHTTPHandler_SignupIntent_MissingAgeConfirmation(t *testing.T)
 // TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum guards the server-side
 // age floor for the OAuth init path against a tampered min_age_attested.
 func TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&terms_version=2026-01-31&age_confirmed=true&min_age_attested=10", nil)
 	w := httptest.NewRecorder()
@@ -310,7 +310,7 @@ func TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum(t *testing.T) {
 // signup-intent init (terms + age confirmed) sets a consent cookie carrying the
 // age confirmation, so the callback path can persist it.
 func TestOAuthLoginHTTPHandler_SignupIntent_RecordsAgeConsent(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&terms_version=2026-01-31&age_confirmed=true&min_age_attested=16", nil)
 	w := httptest.NewRecorder()
