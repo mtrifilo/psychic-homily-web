@@ -246,8 +246,6 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
           anchorId={SCENE_ARTISTS_ANCHOR}
         />
 
-        {/* The collections about this city (PSY-1847). No key: the section
-            holds no state to reset across a scene-to-scene navigation. */}
         <SceneCollections scene={scene} />
 
         {/* Scene graph (PSY-367): read-only artist relationship map. Section

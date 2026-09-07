@@ -32,8 +32,8 @@ export const SCENE_NAV_CHIP_CLASS =
  * `/artists/` or `/venues/` with an empty slug resolves to the INDEX page
  * rather than 404ing (PSY-1754) — so the naive `href={`/artists/${slug}`}`
  * silently sends the reader to a directory that never mentions the thing they
- * clicked. That is a rule the codebase has now learned twice; it lives here
- * once.
+ * clicked. `entityHref` below is the single home of that rule; this component
+ * is the case where the link body is the name itself.
  *
  * A row is still NAMED when it cannot be linked. Dropping an unlinkable entity
  * would misstate the list it belongs to — the rooms list discloses which rooms
@@ -53,17 +53,35 @@ export function EntityNameLink({
   className?: string
   unlinkedClassName?: string
 }) {
-  const trimmed = slug?.trim()
-  if (!trimmed) return <span className={unlinkedClassName}>{name}</span>
-  // Encoded, so the slug can only ever be ONE path segment. Slugs are generated
-  // server-side and are `[a-z0-9-]` in practice, which survives encoding
-  // untouched — this costs nothing on every real row and stops a stored `/`
-  // from splicing a second segment onto a route the caller chose.
+  const href = entityHref(basePath, slug)
+  if (!href) return <span className={unlinkedClassName}>{name}</span>
   return (
-    <Link href={`${basePath}/${encodeURIComponent(trimmed)}`} className={className}>
+    <Link href={href} className={className}>
       {name}
     </Link>
   )
+}
+
+/**
+ * `/artists/gatecreeper`, or null when the entity has no usable slug.
+ *
+ * The one home for the guard `EntityNameLink` documents above, so a caller
+ * whose link body is not a bare name gets the same rule rather than a second
+ * copy of it. Null means "do not link this", never "link to the index".
+ *
+ * Encoded, so the slug can only ever be ONE path segment. Slugs are generated
+ * server-side and are `[a-z0-9-]` in practice, which survives encoding
+ * untouched — this costs nothing on every real row and stops a stored `/` from
+ * splicing a second segment onto a route the caller chose.
+ */
+export function entityHref(
+  /** Route prefix WITHOUT a trailing slash, e.g. `/artists`. */
+  basePath: string,
+  slug?: string | null
+): string | null {
+  const trimmed = slug?.trim()
+  if (!trimmed) return null
+  return `${basePath}/${encodeURIComponent(trimmed)}`
 }
 
 /**

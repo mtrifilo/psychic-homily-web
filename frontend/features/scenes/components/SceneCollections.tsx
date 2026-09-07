@@ -7,41 +7,37 @@ import { Library } from 'lucide-react'
 import { CollectionCoverImage } from '@/features/collections/components/CollectionCoverImage'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import { useSceneCollections } from '../hooks'
-import { SceneSectionHeading } from './sceneChrome'
+import { entityHref, SceneSectionHeading } from './sceneChrome'
 import type { SceneCollectionSummary, SceneDetail } from '../types'
 
 /**
  * The collections that are about this city.
  *
- * Community knowledge, so the row's second line is about the people and the
- * record rather than about size: who built it and when it was last edited. The
- * qualifying counts that earned the slot ride in the payload and are not drawn,
- * because the rule they audit is the backend's and the reader is being offered
- * a collection, not a ranking.
+ * The module HIDES COMPLETELY when nothing qualifies, which is most scenes. An
+ * empty shelf under a heading would report a shortfall in the catalog as if it
+ * were a fact about the city.
  *
- * The module HIDES COMPLETELY when nothing qualifies. Most scenes have no
- * qualifying collection, and an empty shelf under a heading would report a
- * shortfall in the catalog as if it were a fact about the city.
- *
- * Nothing here filters for visibility. Private collections are creator-only on
- * every read surface and the endpoint's query emits public rows only, so a
- * second client-side gate would be a second definition of a rule that must have
- * exactly one.
+ * The qualifying counts the payload carries are deliberately not drawn: they
+ * audit the backend's ranking, and the reader is being offered a collection
+ * rather than a ranking.
  */
-
-/** Row height for the cover tile, sized to the row's two lines of text. */
-const COVER_TILE_CLASS = 'h-9 w-9 shrink-0 rounded-sm border border-border bg-muted/50'
 
 /**
  * `Built by 4 · Updated 3 days ago`, printed in mono micro-caps.
  *
- * The builder clause DROPS at zero rather than printing `Built by 0`.
- * `contributor_count` counts distinct non-null `added_by_user_id` values, so a
- * collection assembled entirely by imports has none to name.
+ * `formatTimeAgo` rather than its `formatRelativeTime` sibling, which the
+ * collections browse card uses: only this one has the weeks and months
+ * phrasing the mock's `UPDATED 1 WEEK AGO` needs, where the other jumps from
+ * days straight to an absolute date.
  *
  * `updated_at` moves on collection-ROW edits only; adding an item does not
  * touch it. The clause therefore dates the collection's own record, which is
  * what it says, and is not a claim about curation activity.
+ *
+ * `collection_items.added_by_user_id` is NOT NULL, so a collection with any
+ * member has at least one contributor and the wire should never carry a zero.
+ * The clause drops at zero anyway: `Built by 0` is a claim about who assembled
+ * the collection that would be false however it arrived.
  */
 function collectionMeta(collection: SceneCollectionSummary): string {
   const clauses: string[] = []
@@ -52,19 +48,22 @@ function collectionMeta(collection: SceneCollectionSummary): string {
   return clauses.join(' · ')
 }
 
-function CollectionRowContent({
-  collection,
-}: {
-  collection: SceneCollectionSummary
-}) {
-  return (
+/**
+ * One row, linked to the collection when `entityHref` can build a link for it.
+ *
+ * An unlinkable row is still NAMED: it is one of the collections that earned
+ * the slot, and dropping it would misstate the list.
+ */
+function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
+  const href = entityHref('/collections', collection.slug)
+  const content = (
     <div className="flex items-center gap-3 py-2">
       {/* Empty alt: the title sits immediately beside the tile, so a described
           cover would make every row announce its name twice. */}
       <CollectionCoverImage
         url={collection.cover_image_url}
         alt=""
-        className={COVER_TILE_CLASS}
+        className="h-9 w-9 shrink-0 rounded-sm border border-border bg-muted/50"
         fallback={<Library className="h-4 w-4 text-muted-foreground/40" />}
       />
       <div className="min-w-0">
@@ -75,41 +74,21 @@ function CollectionRowContent({
       </div>
     </div>
   )
-}
 
-/**
- * One row, linked to the collection when it can be.
- *
- * A slug that is empty resolves `/collections/` to the browse INDEX rather than
- * to a 404, which would send a reader who clicked a named collection to a
- * directory that never mentions it (PSY-1754). Such a row is still NAMED: it is
- * one of the collections that earned the slot, and dropping it would misstate
- * the list. Encoded, so a stored `/` cannot splice a second path segment on.
- */
-function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
-  const slug = collection.slug?.trim()
-  if (!slug) {
-    return (
-      <li className="border-b border-border/40 last:border-b-0">
-        <CollectionRowContent collection={collection} />
-      </li>
-    )
-  }
   return (
     <li className="border-b border-border/40 last:border-b-0">
-      <Link
-        href={`/collections/${encodeURIComponent(slug)}`}
-        className="block transition-colors hover:bg-muted/40"
-      >
-        <CollectionRowContent collection={collection} />
-      </Link>
+      {href ? (
+        <Link href={href} className="block transition-colors hover:bg-muted/40">
+          {content}
+        </Link>
+      ) : (
+        content
+      )}
     </li>
   )
 }
 
 export function SceneCollections({ scene }: { scene: SceneDetail }) {
-  // No `limit`: the endpoint's own default owns the cap, the rule this hook
-  // documents and the sibling rails already follow.
   const { data } = useSceneCollections({ slug: scene.slug })
 
   const collections = data?.collections ?? []

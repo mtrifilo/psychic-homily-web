@@ -75,14 +75,22 @@ function renderRail(collections: SceneCollectionSummary[]) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers()
-  vi.setSystemTime(NOW)
   mockUseSceneCollections.mockReset()
 })
 
 afterEach(() => {
   vi.useRealTimers()
 })
+
+/**
+ * Only the two recency assertions need a frozen clock, and fake timers around
+ * every mount in a file is the setup this repo's jsdom teardown flake comes
+ * from.
+ */
+function freezeClock() {
+  vi.useFakeTimers()
+  vi.setSystemTime(NOW)
+}
 
 describe('SceneCollections', () => {
   it('heads the rail with the city', () => {
@@ -124,16 +132,17 @@ describe('SceneCollections', () => {
   })
 
   it('prints the builder count and the edit recency', () => {
+    freezeClock()
     renderRail([
       collection({ contributor_count: 4, updated_at: '2026-09-04T12:00:00Z' }),
     ])
     expect(screen.getByText('Built by 4 · Updated 3 days ago')).toBeInTheDocument()
   })
 
-  // `contributor_count` counts distinct non-null `added_by_user_id`, so an
-  // entirely imported collection has none. "Built by 0" would be a false claim
-  // about who assembled it.
+  // "Built by 0" is a claim about who assembled the collection that is false
+  // however it arrives, so the clause drops rather than printing the zero.
   it('drops the builder clause when nobody is named', () => {
+    freezeClock()
     renderRail([collection({ contributor_count: 0 })])
     expect(screen.getByText('Updated 3 days ago')).toBeInTheDocument()
     expect(screen.queryByText(/Built by/)).not.toBeInTheDocument()
@@ -166,12 +175,11 @@ describe('SceneCollections', () => {
   })
 
   it('renders nothing when no collection qualifies', () => {
-    const { container } = (() => {
-      mockUseSceneCollections.mockReturnValue({ data: { collections: [] } })
-      return renderWithProviders(<SceneCollections scene={buildScene()} />)
-    })()
+    mockUseSceneCollections.mockReturnValue({ data: { collections: [] } })
+    const { container } = renderWithProviders(
+      <SceneCollections scene={buildScene()} />
+    )
     expect(container).toBeEmptyDOMElement()
-    expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument()
   })
 
   // Loading and a 404 (a place below the scene venue threshold) both arrive as
