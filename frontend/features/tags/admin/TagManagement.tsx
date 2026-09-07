@@ -85,9 +85,21 @@ const EMPTY_TAG_LINKS: TagLinkDraft = { website: '', instagram: '', bandcamp: ''
  * Keyed on the category the form is ABOUT TO SAVE rather than the stored one,
  * so recategorizing a tag to crew and filling its links is one pass. The
  * canonical spelling is used because the stored column is unconstrained.
+ *
+ * A tag that already HOLDS a link keeps the inputs whatever its category:
+ * recategorizing a crew tag leaves its links stored and rendered, and without
+ * this the only surface that can clear them would have hidden them.
+ *
+ * hasStoredLink reads the SAVED row, never the draft. From the draft, emptying
+ * the last input would hide the inputs and drop the clear before it was sent.
  */
-function offersTagLinks(category: string): boolean {
-  return canonicalTagCategory(category) === TAG_CATEGORY_CREW
+function offersTagLinks(category: string, hasStoredLink: boolean): boolean {
+  return canonicalTagCategory(category) === TAG_CATEGORY_CREW || hasStoredLink
+}
+
+/** Whether the saved row holds any link. */
+function holdsStoredLink(social: TagDetailResponse['social']): boolean {
+  return Boolean(social?.website || social?.instagram || social?.bandcamp)
 }
 
 /**
@@ -99,9 +111,10 @@ function offersTagLinks(category: string): boolean {
  */
 function tagLinkPayload(
   category: string,
-  links: TagLinkDraft
+  links: TagLinkDraft,
+  hasStoredLink: boolean
 ): Partial<TagLinkDraft> {
-  if (!offersTagLinks(category)) return {}
+  if (!offersTagLinks(category, hasStoredLink)) return {}
   return {
     website: links.website.trim(),
     instagram: links.instagram.trim(),
@@ -317,7 +330,7 @@ function CreateTagForm({
           description: description.trim() || undefined,
           category,
           is_official: isOfficial,
-          ...tagLinkPayload(category, links),
+          ...tagLinkPayload(category, links, false),
         },
         {
           onSuccess: () => onSuccess(),
@@ -362,7 +375,7 @@ function CreateTagForm({
         </Select>
       </div>
 
-      {offersTagLinks(category) && (
+      {offersTagLinks(category, false) && (
         <TagLinkFields
           idPrefix="create"
           links={links}
@@ -491,6 +504,7 @@ export function EditTagFormFields({
     instagram: tag.social?.instagram ?? '',
     bandcamp: tag.social?.bandcamp ?? '',
   })
+  const hasStoredLink = holdsStoredLink(tag.social)
   const [error, setError] = useState<string | null>(null)
 
   // A Select whose value has no matching option renders an EMPTY trigger while
@@ -533,7 +547,7 @@ export function EditTagFormFields({
             description: description.trim() || null,
             category,
             is_official: isOfficial,
-            ...tagLinkPayload(category, links),
+            ...tagLinkPayload(category, links, hasStoredLink),
           },
         },
         {
@@ -552,6 +566,7 @@ export function EditTagFormFields({
       category,
       isOfficial,
       links,
+      hasStoredLink,
       tagId,
       updateMutation,
       onSuccess,
@@ -588,7 +603,7 @@ export function EditTagFormFields({
           </Select>
         </div>
 
-        {offersTagLinks(category) && (
+        {offersTagLinks(category, hasStoredLink) && (
           <TagLinkFields
             idPrefix="edit"
             links={links}

@@ -475,17 +475,12 @@ describe('TagManagement — crew outbound links (PSY-1888)', () => {
 
   // A form that does not show the inputs must not send them: stored links a
   // non-crew editor never saw would otherwise be cleared by saving a rename.
-  it('sends no link fields at all for a non-crew tag', async () => {
+  it('sends no link fields at all for a non-crew tag with no stored links', async () => {
     const user = userEvent.setup()
     renderWithProviders(
       <EditTagFormFields
         key={5}
-        tag={makeTagDetail({
-          id: 5,
-          name: 'shoegaze',
-          category: 'genre',
-          social: { website: 'https://zine.test', instagram: null, bandcamp: null },
-        })}
+        tag={makeTagDetail({ id: 5, name: 'shoegaze', category: 'genre' })}
         onSuccess={vi.fn()}
         onCancel={vi.fn()}
       />
@@ -498,5 +493,31 @@ describe('TagManagement — crew outbound links (PSY-1888)', () => {
     expect(payload.data).not.toHaveProperty('website')
     expect(payload.data).not.toHaveProperty('instagram')
     expect(payload.data).not.toHaveProperty('bandcamp')
+  })
+
+  // Recategorizing a crew tag leaves its links stored and rendered. If the
+  // only surface that can clear them hid them, they would be unremovable.
+  it('keeps the inputs for a non-crew tag that already holds a link', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={6}
+        tag={makeTagDetail({
+          id: 6,
+          name: 'shoegaze',
+          category: 'genre',
+          social: { website: 'https://zine.test', instagram: null, bandcamp: null },
+        })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Website')).toHaveValue('https://zine.test')
+    await user.clear(screen.getByLabelText('Website'))
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.data.website).toBe('')
   })
 })
