@@ -18,9 +18,11 @@ const (
 	TagCategoryCrew = "crew"
 )
 
-// TagCategories is the set of valid tag categories. It is the only category
-// allowlist: every write path validates through IsValidTagCategory, so a
-// category absent from this slice is unwritable.
+// TagCategories is the set of valid tag categories, enforced by
+// IsValidTagCategory in TagService's create, update, and inline-create paths.
+// Nothing below those enforces it: tags.category is a plain VARCHAR with no
+// CHECK constraint, so seeders and migrations that write the column directly
+// can store any string.
 var TagCategories = []string{
 	TagCategoryGenre,
 	TagCategoryLocale,

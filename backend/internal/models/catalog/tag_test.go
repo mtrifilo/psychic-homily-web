@@ -70,7 +70,6 @@ func TestTagCategoryConstants(t *testing.T) {
 	assert.Equal(t, "other", TagCategoryOther)
 	assert.Equal(t, "crew", TagCategoryCrew)
 	assert.Len(t, TagCategories, 4)
-	assert.Contains(t, TagCategories, TagCategoryCrew)
 }
 
 func TestTagEntityTypeConstants(t *testing.T) {

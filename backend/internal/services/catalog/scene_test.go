@@ -1974,6 +1974,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 
 	locals := suite.seedLocalTaggedCohort("Crew Local", venues, punkTag, user.ID, future)
 	suite.tagArtist(locals[0], crewTag, user.ID)
+	suite.Require().Equal(2, suite.countArtistTags(locals[0]), "the crew tag is applied, so its absence below is the filter's doing")
 
 	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
 	suite.Require().NoError(err)
@@ -1984,7 +1985,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 		suite.NotEqual("rubber-brother-records", g.Slug, "a crew tag must not appear as a genre")
 		total += g.Count
 	}
-	suite.Equal(30, total, "a crew tag must not inflate the tagged-artist mass")
+	suite.Equal(sceneGenreMinTaggedArtists, total, "a crew tag must not inflate the tagged-artist mass")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_RespectsLimit() {
@@ -2531,6 +2532,19 @@ func (suite *SceneServiceIntegrationTestSuite) seedLocalTaggedCohort(
 		ids = append(ids, a.ID)
 	}
 	return ids
+}
+
+// countArtistTags returns how many tags of any category are applied to an artist.
+func (suite *SceneServiceIntegrationTestSuite) countArtistTags(artistID uint) int {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var count int
+	err = sqlDB.QueryRow(
+		`SELECT COUNT(*) FROM entity_tags WHERE entity_type = 'artist' AND entity_id = $1`,
+		artistID,
+	).Scan(&count)
+	suite.Require().NoError(err)
+	return count
 }
 
 // createTagInCategory creates a tag in an arbitrary category for testing.

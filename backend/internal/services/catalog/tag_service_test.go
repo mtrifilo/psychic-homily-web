@@ -152,7 +152,7 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_CrewCategory() {
 // update path's category guard, which is a separate check from the create
 // path's.
 func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_ToCrewCategory() {
-	created := suite.createTag("Local Collective", "other")
+	created := suite.createTag("Local Collective", catalogm.TagCategoryOther)
 
 	crew := catalogm.TagCategoryCrew
 	updated, err := suite.tagService.UpdateTag(created.ID, nil, nil, nil, &crew, nil)
@@ -1148,6 +1148,25 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Wit
 	suite.Require().NoError(err)
 	suite.Require().NotNil(tag)
 	suite.Assert().Equal("genre", tag.Category)
+}
+
+// TestAddTagToEntity_InlineCreate_CrewCategory pins the crew category as
+// accepted by the inline-create guard, which is the path both the entity and
+// collection tag dialogs reach and a separate check from create and update.
+// A contributor tier reaches it, so this also records that inline crew
+// creation is not admin-scoped.
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_CrewCategory() {
+	user := suite.createTestUserWithTier("crew-contributor", "contributor")
+	artistID := suite.createArtist("Crew Booked Band")
+
+	et, err := suite.tagService.AddTagToEntity(0, "rubber-brother-records", "artist", artistID, user.ID, catalogm.TagCategoryCrew)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(et)
+
+	tag, err := suite.tagService.GetTagBySlug("rubber-brother-records")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, tag.Category)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_TooShortName() {
