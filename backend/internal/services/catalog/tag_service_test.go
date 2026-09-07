@@ -140,6 +140,31 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_Success() {
 	suite.Assert().Nil(tag.CreatedByUserID)
 }
 
+// TestCreateTag_CrewCategory pins the crew category as creatable through the
+// admin create path, alongside the unknown-category rejection below.
+func (suite *TagServiceIntegrationTestSuite) TestCreateTag_CrewCategory() {
+	tag, err := suite.tagService.CreateTag("Rubber Brother Records", nil, nil, catalogm.TagCategoryCrew, true, nil)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, tag.Category)
+
+	fetched, err := suite.tagService.GetTag(tag.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, fetched.Category)
+}
+
+// TestUpdateTag_ToCrewCategory covers the update-path category guard, the
+// second of the three IsValidTagCategory call sites.
+func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_ToCrewCategory() {
+	created := suite.createTag("Local Collective", "other")
+
+	crew := catalogm.TagCategoryCrew
+	updated, err := suite.tagService.UpdateTag(created.ID, nil, nil, nil, &crew, nil)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updated)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, updated.Category)
+}
+
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_InvalidCategory() {
 	tag, err := suite.tagService.CreateTag("Test", nil, nil, "invalid", false, nil)
 	suite.Assert().Error(err)

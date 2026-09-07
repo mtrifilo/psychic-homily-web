@@ -1961,6 +1961,44 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 	suite.NotContains(names, "jazz", "a touring act's genre must not pollute the scene")
 }
 
+// TestGetSceneGenreDistribution_ExcludesCrewCategoryTags pins the genre rails
+// against the crew category. The crew tag here rides a LOCAL artist that
+// already contributes to the distribution, so neither the locality predicate
+// nor the entity-type join can be what hides it: only the category filter can.
+// A crew tag also must not inflate the tagged-artist mass the threshold reads.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_ExcludesCrewCategoryTags() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("CX-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("CX-V2", "Phoenix", "AZ")
+	venues := []*catalogm.Venue{v1, v2}
+
+	punkTag := suite.createGenreTag("punk", "punk")
+	crewTag := suite.createTagInCategory("Rubber Brother Records", "rubber-brother-records", catalogm.TagCategoryCrew)
+	future := time.Now().UTC().AddDate(0, 0, 7)
+
+	var firstLocal uint
+	for i := 0; i < 30; i++ {
+		a := suite.createArtist(fmt.Sprintf("Crew Local %d", i)) // Phoenix-local (default)
+		suite.createApprovedShow(fmt.Sprintf("CL Show %d", i), venues[i%2].ID, a.ID, user.ID, future.AddDate(0, 0, i))
+		suite.tagArtist(a.ID, punkTag, user.ID)
+		if i == 0 {
+			firstLocal = a.ID
+		}
+	}
+	suite.tagArtist(firstLocal, crewTag, user.ID)
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(genres)
+
+	total := 0
+	for _, g := range genres {
+		suite.NotEqual("rubber-brother-records", g.Slug, "a crew tag must not appear as a genre")
+		total += g.Count
+	}
+	suite.Equal(30, total, "a crew tag must not inflate the tagged-artist mass")
+}
+
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_RespectsLimit() {
 	suite.seedSceneData()
 
@@ -2479,14 +2517,19 @@ func TestDiversityLabel(t *testing.T) {
 
 // createGenreTag creates a genre tag for testing
 func (suite *SceneServiceIntegrationTestSuite) createGenreTag(name, slug string) uint {
+	return suite.createTagInCategory(name, slug, catalogm.TagCategoryGenre)
+}
+
+// createTagInCategory creates a tag in an arbitrary category for testing.
+func (suite *SceneServiceIntegrationTestSuite) createTagInCategory(name, slug, category string) uint {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	var tagID uint
 	err = sqlDB.QueryRow(`
 		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
-		VALUES ($1, $2, 'genre', true, 0, NOW(), NOW())
+		VALUES ($1, $2, $3, true, 0, NOW(), NOW())
 		RETURNING id
-	`, name, slug).Scan(&tagID)
+	`, name, slug, category).Scan(&tagID)
 	suite.Require().NoError(err)
 	return tagID
 }
