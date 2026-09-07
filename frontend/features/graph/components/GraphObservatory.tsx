@@ -886,7 +886,6 @@ export function GraphObservatory() {
     if (rootLinkQuery.isError && isNotFound(rootLinkQuery.error)) void setRootSlug(null)
   }, [
     center,
-    centerOn,
     clearCenter,
     linkedSlug,
     rootSlug,
