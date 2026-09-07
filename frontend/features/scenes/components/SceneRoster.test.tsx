@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { SceneArtist, SceneDetail } from '../types'
+import type { SceneArtist, SceneDetail, SceneRepresentativeEmbed } from '../types'
 
 vi.mock('next/link', () => ({
   default: ({
@@ -40,6 +40,8 @@ vi.mock('../hooks', () => ({
 }))
 
 import { SceneRoster } from './SceneRoster'
+
+const EMBED_URL = 'https://gatecreeper.bandcamp.com/album/deserted'
 
 function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
   return {
@@ -80,9 +82,27 @@ function artist(overrides: Partial<SceneArtist> = {}): SceneArtist {
   }
 }
 
-/** The only thing that varies between these tests is the roster itself. */
-function givenRoster(artists: SceneArtist[], total = artists.length) {
-  mockUseSceneArtists.mockReturnValue({ data: { artists, total }, isLoading: false })
+function representativeEmbed(
+  overrides: Partial<SceneRepresentativeEmbed> = {}
+): SceneRepresentativeEmbed {
+  return {
+    embed_url: EMBED_URL,
+    artist_name: 'Gatecreeper',
+    artist_slug: 'gatecreeper',
+    ...overrides,
+  }
+}
+
+/** The only things that vary between these tests are the roster and the pick. */
+function givenRoster(
+  artists: SceneArtist[],
+  total = artists.length,
+  embed: SceneRepresentativeEmbed | null = null
+) {
+  mockUseSceneArtists.mockReturnValue({
+    data: { artists, total, representative_embed: embed },
+    isLoading: false,
+  })
 }
 
 function rosterOf(count: number): SceneArtist[] {
@@ -102,7 +122,7 @@ describe('SceneRoster', () => {
     renderWithProviders(<SceneRoster scene={buildScene()} />)
 
     expect(
-      screen.getByRole('heading', { name: /Bands \/ based in Phoenix · 17/i })
+      screen.getByRole('heading', { name: /Bands based here · 17/i })
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Gatecreeper' })).toHaveAttribute(
       'href',
@@ -110,65 +130,124 @@ describe('SceneRoster', () => {
     )
   })
 
-  it('names a slugless band without linking it to the artists index', () => {
-    givenRoster([artist({ slug: '' })], 1)
-    renderWithProviders(<SceneRoster scene={buildScene()} />)
-    expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
-  })
-
-  describe('players', () => {
-    it('renders an OPEN player for each band that has an embed', () => {
-      givenRoster([ artist({ bandcamp_embed_url: 'https://gatecreeper.bandcamp.com/album/deserted' }), artist({ id: 2, slug: 'diners', name: 'Diners', bandcamp_embed_url: null }), ], 2)
+  describe('the preview line', () => {
+    // The locked front page draws the roster as ONE line of names, not a row
+    // per band: the calendar above it owns the page's height.
+    it('separates the names with middots on a single line', () => {
+      givenRoster(
+        [
+          artist(),
+          artist({ id: 2, slug: 'diners', name: 'Diners' }),
+          artist({ id: 3, slug: 'playboy-manbaby', name: 'Playboy Manbaby' }),
+        ],
+        3
+      )
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
-      expect(screen.getByTestId('embed-Gatecreeper')).toBeInTheDocument()
-      expect(screen.queryByTestId('embed-Diners')).not.toBeInTheDocument()
+      const line = screen.getByText(/Gatecreeper/).closest('p')
+      expect(line?.textContent).toBe(
+        'Gatecreeper · Diners · Playboy Manbaby'
+      )
+    })
+
+    // `show_count` is every approved show all time, anywhere, and `is_active`
+    // is not an upcoming figure. Neither may be printed against a calendar.
+    it('prints no per-band show figure and no activity marker', () => {
+      givenRoster([artist({ show_count: 6, is_active: true })], 1)
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(container.textContent).not.toContain('6 shows')
+      expect(container.textContent).not.toMatch(/upcoming/i)
+      expect(screen.queryByText('Active')).not.toBeInTheDocument()
+    })
+
+    it('names a slugless band without linking it to the artists index', () => {
+      givenRoster([artist({ slug: '' })], 1)
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+      expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the scene player', () => {
+    it("plays the backend's representative pick, open", () => {
+      givenRoster(rosterOf(3), 3, representativeEmbed())
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+
       expect(embedProps).toEqual([
         {
           artistName: 'Gatecreeper',
-          bandcampAlbumUrl: 'https://gatecreeper.bandcamp.com/album/deserted',
+          bandcampAlbumUrl: EMBED_URL,
           compact: true,
         },
       ])
-    })
-
-    // Never behind a disclosure. There is no toggle, summary or details
-    // element to fail open on, which is the point of asserting it.
-    it('puts no expand control between the reader and the player', () => {
-      givenRoster([ artist({ bandcamp_embed_url: 'https://gatecreeper.bandcamp.com/album/deserted' }), ], 1)
-      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+      // Never behind a disclosure. There is no toggle, summary or details
+      // element to fail open on, which is the point of asserting it.
       expect(container.querySelector('details')).toBeNull()
       expect(screen.queryByRole('button', { name: /play|listen|expand/i })).toBeNull()
     })
 
-    it('renders a plain list when no band has music', () => {
-      givenRoster([artist({ bandcamp_embed_url: null })], 1)
+    // The pick is computed over the FULL roster, so it is regularly a band the
+    // preview line above does not name.
+    it('names and links the band whose player it is', () => {
+      givenRoster(rosterOf(3), 340, representativeEmbed({
+        artist_name: 'Deep Cut',
+        artist_slug: 'deep-cut',
+      }))
       renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(screen.getByRole('link', { name: 'Deep Cut' })).toHaveAttribute(
+        'href',
+        '/artists/deep-cut'
+      )
+      expect(screen.getByText(/Bandcamp/)).toBeInTheDocument()
+    })
+
+    // `bandcamp_embed_url` is fill-when-empty and can be manual or
+    // profile-resolved, so the field never establishes recency.
+    it('makes no claim about which release is playing', () => {
+      givenRoster(rosterOf(3), 3, representativeEmbed())
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+      expect(container.textContent).not.toMatch(/latest release|new release|newest/i)
+    })
+
+    it('renders one player, not one per band', () => {
+      givenRoster(
+        [
+          artist({ bandcamp_embed_url: EMBED_URL }),
+          artist({
+            id: 2,
+            slug: 'diners',
+            name: 'Diners',
+            bandcamp_embed_url: 'https://diners.bandcamp.com/album/four-wheels',
+          }),
+        ],
+        2,
+        representativeEmbed()
+      )
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+      expect(embedProps).toHaveLength(1)
+      expect(screen.queryByTestId('embed-Diners')).not.toBeInTheDocument()
+    })
+
+    it('renders nothing at all when no band based here has an embed', () => {
+      givenRoster([artist({ bandcamp_embed_url: null })], 1, null)
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(embedProps).toHaveLength(0)
-    })
-  })
-
-  describe('the shows figure', () => {
-    // The mock draws `6 upcoming · next Aug 8, Nile Theater`. The endpoint
-    // carries neither half — only a total, all-time approved count — so the row
-    // states what it has under the label that is true of it.
-    it('labels the count as LISTED shows, never as upcoming', () => {
-      givenRoster([ artist({ show_count: 6 }), artist({ id: 2, slug: 'latter', name: 'Latter', show_count: 1 }), ], 2)
-      renderWithProviders(<SceneRoster scene={buildScene()} />)
-
-      expect(screen.getByText('6 shows listed')).toBeInTheDocument()
-      expect(screen.getByText('1 show listed')).toBeInTheDocument()
-      expect(screen.queryByText(/upcoming/i)).not.toBeInTheDocument()
+      expect(container.textContent).not.toMatch(/Bandcamp/i)
     })
 
-    it('marks active bands and leaves the rest unmarked', () => {
-      givenRoster([ artist({ is_active: true }), artist({ id: 2, slug: 'latter', name: 'Latter', is_active: false }), ], 2)
-      renderWithProviders(<SceneRoster scene={buildScene()} />)
-
-      const rows = screen.getAllByRole('listitem')
-      expect(within(rows[0]).getByText('Active')).toBeInTheDocument()
-      expect(within(rows[1]).queryByText('Active')).not.toBeInTheDocument()
+    // A stored value the renderer would refuse must suppress the caption too,
+    // or the section carries a heading over nothing (PSY-1966).
+    it('renders nothing when the pick is not a renderable Bandcamp URL', () => {
+      givenRoster(
+        [artist()],
+        1,
+        representativeEmbed({ embed_url: 'https://example.com/not-bandcamp' })
+      )
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+      expect(embedProps).toHaveLength(0)
+      expect(container.textContent).not.toMatch(/Bandcamp/i)
     })
   })
 
@@ -180,7 +259,7 @@ describe('SceneRoster', () => {
       expect(mockUseSceneArtists).toHaveBeenCalledWith(
         expect.objectContaining({ slug: 'phoenix-az', limit: 10 })
       )
-      expect(screen.getByRole('button', { name: 'Show all 17' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Show all 17 →' })).toBeInTheDocument()
     })
 
     it('fetches the whole roster when the reader asks for it', async () => {
@@ -188,17 +267,18 @@ describe('SceneRoster', () => {
       givenRoster(rosterOf(10), 17)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
-      await user.click(screen.getByRole('button', { name: 'Show all 17' }))
+      await user.click(screen.getByRole('button', { name: 'Show all 17 →' }))
 
       expect(mockUseSceneArtists).toHaveBeenLastCalledWith(
         expect.objectContaining({ limit: 17 })
       )
     })
 
-    it('offers no control when the whole roster already fits', () => {
+    it('offers no control, and elides nothing, when the whole roster fits', () => {
       givenRoster(rosterOf(9), 9)
-      renderWithProviders(<SceneRoster scene={buildScene()} />)
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument()
+      expect(container.textContent).not.toContain('…')
     })
 
     // The endpoint caps `limit` at 100. A control labelled "Show all 340" that
@@ -209,8 +289,8 @@ describe('SceneRoster', () => {
       givenRoster(rosterOf(10), 340)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
-      expect(screen.queryByRole('button', { name: 'Show all 340' })).toBeNull()
-      await user.click(screen.getByRole('button', { name: 'Show 100 of 340' }))
+      expect(screen.queryByRole('button', { name: 'Show all 340 →' })).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Show 100 of 340 →' }))
       expect(mockUseSceneArtists).toHaveBeenLastCalledWith(
         expect.objectContaining({ limit: 100 })
       )
@@ -236,6 +316,14 @@ describe('SceneRoster', () => {
       expect(container).toBeEmptyDOMElement()
     })
 
+    // Not even the player, which would otherwise be a section with a caption
+    // and no list above it.
+    it('renders nothing when the roster is empty but a pick exists', () => {
+      givenRoster([], 0, representativeEmbed())
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+      expect(container).toBeEmptyDOMElement()
+    })
+
     it('renders nothing while the first page is in flight', () => {
       mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: true })
       const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
@@ -252,7 +340,7 @@ describe('SceneRoster', () => {
   })
 
   it('uses no em dashes', () => {
-    givenRoster(rosterOf(10), 17)
+    givenRoster(rosterOf(10), 17, representativeEmbed())
     const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
     expect(container.textContent).not.toContain('—')
   })

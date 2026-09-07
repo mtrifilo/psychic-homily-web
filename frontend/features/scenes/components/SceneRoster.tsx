@@ -7,17 +7,18 @@ import { BracketLink } from '@/components/shared/BracketLink'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { useSceneArtists } from '../hooks'
-import { plural } from '../sceneCalendar'
 import { EntityNameLink, SceneSectionHeading } from './sceneChrome'
-import type { SceneArtist, SceneDetail } from '../types'
+import type { SceneArtist, SceneDetail, SceneRepresentativeEmbed } from '../types'
 
 /**
- * The bands based here, with their music playing.
+ * The bands based here, named in one line, with one of them playing.
  *
- * The page already fetched `bandcamp_embed_url` on every roster call and threw
- * it away, so a scene page could play music at zero backend cost and did not.
- * Players render OPEN — never behind a disclosure — which is the standing rule
- * for every embed in this product.
+ * The roster is a NAMES list, not a row list. `GET /scenes/{slug}/artists`
+ * carries `show_count` (approved shows all time, anywhere) and `is_active`, and
+ * neither is an upcoming figure; the locked front-page frame spends its height
+ * on the calendar above and gives this module a preview line, so the names are
+ * what it prints and the per-band figures live on the artist pages the names
+ * link to.
  *
  * The roster lists every band BASED in the metro, which is a different set from
  * "bands playing here soon": London has 197 upcoming shows and zero based-here
@@ -33,74 +34,63 @@ const ROSTER_PAGE_SIZE = 10
 const ROSTER_MAX = 100
 
 /**
- * What we can honestly say about a band's shows, which is NOT what the mock
- * draws.
+ * `A · B · C`, each band linked when it has a slug.
  *
- * The locked frame prints `6 upcoming · next Aug 8, Nile Theater` on every row.
- * `GET /scenes/{slug}/artists` carries neither half: `SceneArtistResponse` has
- * `show_count` (TOTAL approved shows, all time, anywhere) and `is_active`, and
- * no upcoming count and no next show. Printing `show_count` under an "upcoming"
- * label would put a band's career total against a calendar that says one — the
- * exact defect PSY-1623 removed from two other surfaces — and deriving a count
- * from the calendar's four-week window would undercount every band with
- * anything further out.
- *
- * So the row states the figure it actually has, labelled as what it is, and the
- * mock's line waits for the field. Same call Wave 1A made about the status
- * band's `THIS WEEK` and `TONIGHT` clauses, for the same reason.
+ * The separator sits in its own muted span rather than inside the name, so a
+ * middot never lands inside a link's hit area or its accessible name.
  */
-function showsLabel(artist: SceneArtist): string {
-  return `${plural(artist.show_count, 'show')} listed`
+function RosterNames({ artists }: { artists: SceneArtist[] }) {
+  return (
+    <>
+      {artists.map((artist, i) => (
+        <span key={artist.id}>
+          {i > 0 && <span className="text-muted-foreground"> · </span>}
+          <EntityNameLink name={artist.name} slug={artist.slug} basePath="/artists" />
+        </span>
+      ))}
+    </>
+  )
 }
 
-function RosterRow({ artist }: { artist: SceneArtist }) {
+/**
+ * The scene's one open player.
+ *
+ * OPEN, never behind a disclosure, which is the standing rule for every embed
+ * in this product. ONE of them, not one per band: ten players is ten iframes
+ * and ten `/api/bandcamp/album-id` resolves on a page whose point is the
+ * calendar above it.
+ *
+ * The band is the backend's `representative_embed` pick (PSY-1294), computed
+ * over the FULL metro roster rather than the fetched page, so the scene's only
+ * embed-having band cannot fall below the preview above. That band is therefore
+ * often NOT one of the names in that line, which is why the caption names and
+ * links it rather than leaving the player to speak for itself.
+ *
+ * The caption states the platform and the band, and nothing about the release:
+ * `artists.bandcamp_embed_url` is fill-when-empty (a newer release never
+ * refreshes an already-set value) and can equally be a manual or
+ * profile-resolved value, so "latest release" is a claim the field does not
+ * support.
+ */
+function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
   return (
-    <li className="border-b border-border/40 py-3 last:border-b-0">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <EntityNameLink name={artist.name} slug={artist.slug} basePath="/artists" />
-
-        {/* The one-line descriptor slot sits HERE, and renders nothing.
-            Descriptors are a global per-artist field authored through the
-            trusted-tier inline edit (decision 8), and neither the field nor the
-            authoring exists yet — that is Wave 3. The mock's `[+ add a line]`
-            prompt is part of the authoring, not part of this slot: shown to
-            trusted contributors and to nobody else. Until then the absent state
-            is simply nothing, which is what the locked sparse frame draws for
-            every other unauthored slot on this page. */}
-
-        {/* One trailing group, so `sm:ml-auto` has a single owner regardless of
-            which of its two parts render. */}
-        <span className="flex items-baseline gap-x-3 sm:ml-auto">
-          {artist.is_active && (
-            <span
-              className="font-mono text-xs uppercase tracking-wide text-primary"
-              title="Has an upcoming show or one in the last ~6 months"
-            >
-              Active
-            </span>
-          )}
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {showsLabel(artist)}
-          </span>
-        </span>
-      </div>
-
-      {/* OPEN, never collapsed. `MusicEmbed` renders nothing at all when the
-          band has no embeddable URL, so a roster of bands without music stays a
-          plain list rather than a column of empty player frames.
-          Gated on what it will actually produce, not on the column being set:
-          otherwise an unrenderable value leaves this wrapper's margin behind as
-          a phantom gap between rows (PSY-1966). */}
-      {hasRenderableMusic({ bandcampAlbumUrl: artist.bandcamp_embed_url }) && (
-        <div className="mt-2 max-w-2xl">
-          <MusicEmbed
-            bandcampAlbumUrl={artist.bandcamp_embed_url}
-            artistName={artist.name}
-            compact
-          />
-        </div>
-      )}
-    </li>
+    <div className="mt-3 max-w-2xl">
+      <MusicEmbed
+        bandcampAlbumUrl={embed.embed_url}
+        artistName={embed.artist_name}
+        compact
+      />
+      <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+        Bandcamp{' · '}
+        <EntityNameLink
+          name={embed.artist_name}
+          slug={embed.artist_slug}
+          basePath="/artists"
+          className="hover:underline"
+          unlinkedClassName=""
+        />
+      </p>
+    </div>
   )
 }
 
@@ -133,28 +123,36 @@ export function SceneRoster({
   const expandTo = Math.min(total, ROSTER_MAX)
   const canExpand = withheld > 0 && artists.length < expandTo
 
+  // Populated on the first page only (offset 0), which is the only page this
+  // component asks for. Gated on what MusicEmbed will actually produce, not on
+  // the field existing: a stored value that the renderer refuses would
+  // otherwise leave a caption over nothing (PSY-1966).
+  const embed = data?.representative_embed
+
   return (
     <section id={anchorId} className="scroll-mt-20 border-t border-border pt-4">
-      <SceneSectionHeading
-        title={`Bands / based in ${scene.city}`}
-        note={total}
-        action={
-          canExpand ? (
+      <SceneSectionHeading title="Bands based here" note={total} />
+
+      <p className="mt-2 text-sm leading-relaxed">
+        <RosterNames artists={artists} />
+        {/* The ellipsis is the truncation, and the control is what resolves it,
+            so they travel together: without the control there is nothing for a
+            reader to do about the elision and the page should not imply there
+            is. */}
+        {canExpand && (
+          <>
+            <span className="text-muted-foreground">{' … '}</span>
             <BracketLink
               label={
-                expandTo === total ? `Show all ${total}` : `Show ${expandTo} of ${total}`
+                expandTo === total
+                  ? `Show all ${total} →`
+                  : `Show ${expandTo} of ${total} →`
               }
               onClick={() => setLimit(expandTo)}
             />
-          ) : undefined
-        }
-      />
-
-      <ul className="mt-2">
-        {artists.map(artist => (
-          <RosterRow key={artist.id} artist={artist} />
-        ))}
-      </ul>
+          </>
+        )}
+      </p>
 
       {/* Only reachable once the ceiling is the thing withholding bands, so it
           states that rather than offering a control that cannot deliver. */}
@@ -162,6 +160,10 @@ export function SceneRoster({
         <p className="mt-2 font-mono text-[11px] text-muted-foreground">
           Showing {artists.length} of {total} bands based in {scene.city}
         </p>
+      )}
+
+      {embed && hasRenderableMusic({ bandcampAlbumUrl: embed.embed_url }) && (
+        <RosterEmbed embed={embed} />
       )}
     </section>
   )
