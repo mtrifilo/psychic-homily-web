@@ -7,6 +7,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/utils"
 )
 
 // seedCrossSurfaceScenes builds the corpus every scene surface is asserted over
@@ -16,18 +17,22 @@ import (
 // The shapes are seeded together on purpose. Each one resolves through a
 // different branch of the slug/scope resolution, and a corpus holding one at a
 // time cannot catch a branch that answers for the wrong group.
-func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
+func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() string {
 	user := suite.createUser()
 	band := suite.createArtist("Local Band")
 
-	// Midweek of the CURRENT ISO week, at midday UTC. The week assertions read
-	// the current week, and the sitemap's week window ends at the current
-	// week's end, so a fixture anchored on "now plus a few days" covers them
-	// only early in the week. Midday UTC on Wednesday and Thursday is inside
-	// the same ISO week for every North American zone the corpus uses.
-	nowUTC := time.Now().UTC()
-	y, w := nowUTC.ISOWeek()
-	midweek := ISOWeekStart(y, w, time.UTC).AddDate(0, 0, 2).Add(12 * time.Hour)
+	// Every surface under test buckets weeks in the SCENE's zone, so the
+	// fixture is anchored there rather than in UTC. No corpus room carries a
+	// timezone and no corpus state is in StateTimezones, so every scene here
+	// resolves to this one location, and the key returned below is the week
+	// each of them serves.
+	//
+	// Anchored midweek because the sitemap's window ends at the current week's
+	// end: shows placed a few days from now spill into the next week for most
+	// of this one, and the document reads as empty.
+	loc := utils.EventLocation(nil, "AZ")
+	y, w := time.Now().In(loc).ISOWeek()
+	midweek := ISOWeekStart(y, w, loc).AddDate(0, 0, 2).Add(12 * time.Hour)
 
 	shows := func(prefix string, rooms ...*catalogm.Venue) {
 		for i := 0; i < sceneMinShows; i++ {
@@ -106,6 +111,8 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 	trois := suite.createVerifiedVenue("Trois A", "Trois Rivieres", "QC")
 	suite.Require().Nil(trois.Metro, "a non-US city must not pin a CBSA")
 	suite.createVerifiedVenue("Trois B", "Trois-Rivieres", "QC")
+
+	return ISOWeekKey(midweek)
 }
 
 // TestEveryListedSceneResolvesOnItsDetailRoute is the cross-surface property:
@@ -116,7 +123,7 @@ func (suite *SceneServiceIntegrationTestSuite) seedCrossSurfaceScenes() {
 // It asserts over whatever the directory returns rather than over a list of
 // expected slugs, so a shape added to the corpus is covered by construction.
 func (suite *SceneServiceIntegrationTestSuite) TestEveryListedSceneResolvesOnItsDetailRoute() {
-	suite.seedCrossSurfaceScenes()
+	weekKey := suite.seedCrossSurfaceScenes()
 	existence := NewEntityExistenceService(suite.db, suite.sceneService)
 
 	scenes, err := suite.sceneService.ListScenes()
@@ -149,7 +156,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestEveryListedSceneResolvesOnIts
 		suite.Require().NoError(err)
 		suite.True(exists, "the proxy existence gate soft-404s a scene the directory lists: %s", listed.Slug)
 
-		week, err := suite.sceneService.GetSceneWeek(city, state, ISOWeekKey(time.Now().UTC()))
+		week, err := suite.sceneService.GetSceneWeek(city, state, weekKey)
 		suite.Require().NoError(err, "the week permalink 404s for a scene the directory lists: %s", listed.Slug)
 		suite.Equal(listed.Slug, buildSceneSlug(week.City, week.State))
 
@@ -179,7 +186,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestEveryListedSceneResolvesOnIts
 // grouping, so a URL it announces that the detail route refuses is a first
 // party link into a 404.
 func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnTheDetailRoute() {
-	suite.seedCrossSurfaceScenes()
+	weekKey := suite.seedCrossSurfaceScenes()
 
 	entries, err := NewSitemapService(suite.db).Entries(context.Background(), "")
 	suite.Require().NoError(err)
@@ -219,7 +226,6 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 	// load-bearing: a scene whose page serves shows this week must have its
 	// week permalink announced. A week scoped to rooms the scene does not hold
 	// finds no shows and quietly announces nothing.
-	weekKey := ISOWeekKey(time.Now().UTC())
 	for _, entry := range entries.Scenes {
 		city, state, err := suite.sceneService.ParseSceneSlug(entry.Slug)
 		suite.Require().NoError(err)
@@ -245,7 +251,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestSitemapSceneEntriesResolveOnT
 // them name different spellings, and this fails rather than going quiet, which
 // is what the corpus's below-floor collision is seeded for.
 func (suite *SceneServiceIntegrationTestSuite) TestSceneSlugOrderByAgreesWithTheGroupMinima() {
-	suite.seedCrossSurfaceScenes()
+	_ = suite.seedCrossSurfaceScenes()
 
 	for _, slug := range []string{"trois-rivieres-qc", "val-dor-qc", "saint-jerome-qc"} {
 		var sqlPick struct {
@@ -302,7 +308,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSlugOrderByAgreesWithThe
 // fallback group. A spelling collision below the floor (trois-rivieres-qc)
 // matches two rooms by slug and one by scope.
 func (suite *SceneServiceIntegrationTestSuite) TestExistenceProbeAgreesWithTheDetailRoute() {
-	suite.seedCrossSurfaceScenes()
+	_ = suite.seedCrossSurfaceScenes()
 	existence := NewEntityExistenceService(suite.db, suite.sceneService)
 
 	agrees := func(slug string) bool {

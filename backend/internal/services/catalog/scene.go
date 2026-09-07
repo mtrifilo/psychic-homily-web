@@ -360,14 +360,18 @@ func sceneGroupSlug(grp sceneVenueGroup) string {
 // neither branch separates, so a collapse stays stable across calls rather than
 // reintroducing the reshuffling this function exists to remove.
 //
-// Besides the identity triple, VenueCount is the ONLY field of sceneVenueGroup
-// EVERY caller projects, and the only one safe to read unconditionally.
-// ShowCount reaches publishedSceneGroup zero; UpcomingCount, ThisWeekCount and
-// UpdatedAt are projected by one caller each. A tiebreak added on any of them
-// would compile, leave the caller that projects it correct, and pick a
-// different survivor on every other path: a different set of indexed URLs on
-// the sitemap path, and on the resolution path a page scoped to rooms the
-// directory counted for another group.
+// Besides the identity triple, VenueCount and ShowCount are the ONLY fields of
+// sceneVenueGroup this may read, and each of them arrives ZERO on some caller's
+// rows: publishedSceneGroup projects VenueCount alone, and the charts summary's
+// activeSceneCount projects neither. Both comparisons are therefore inert
+// wherever the field is unprojected, and the group key below is what keeps the
+// order total there.
+//
+// UpcomingCount, ThisWeekCount and UpdatedAt are projected by one caller each,
+// so a tiebreak added on any of them would compile, leave that caller correct,
+// and pick a different survivor on every other path: a different set of indexed
+// URLs on the sitemap path, and on the resolution path a page scoped to rooms
+// the directory counted for another group.
 func sceneGroupOutranks(a, b sceneVenueGroup, g geo.Geocoder) bool {
 	if am, bm := sceneGroupMatchesItsSlugScope(a, g), sceneGroupMatchesItsSlugScope(b, g); am != bm {
 		return am
@@ -1604,9 +1608,9 @@ const (
 // parseSceneSlugParts splits a scene slug "city-state" into its raw lowercase
 // city and 2-letter state. The LAST '-' separates the state; earlier '-' are
 // part of a multi-word city ("los-angeles-ca" → "los angeles", "ca"). Returns
-// ("","") for a slug with no usable separator. It answers what CBSA a slug
-// pins, which is the narrowing publishedSceneGroup and ParseSceneSlug both
-// resolve a metro through.
+// ("","") for a slug with no usable separator. ParseSceneSlug splits a slug
+// with it to ask the geocoder which CBSA the place pins, and hands that answer
+// to publishedSceneGroup as its metro candidate.
 func parseSceneSlugParts(slug string) (city, state string) {
 	slug = strings.TrimSpace(strings.ToLower(slug))
 	i := strings.LastIndex(slug, "-")
