@@ -697,6 +697,17 @@ export const queryKeys = {
     // (the PSY-1109 key-drift class).
     shows: (slug: string, days?: number, limit?: number) =>
       ['scenes', 'shows', slug, days, limit] as const,
+    // limit is part of the key for the same reason it is on `newArtists`: the
+    // cap changes WHICH collections come back, since the endpoint returns the
+    // head of a ranked list.
+    //
+    // No viewer segment, and that is load-bearing rather than an omission:
+    // `GET /scenes/{slug}/collections` takes no viewer and emits public rows
+    // only, so every viewer gets the same answer and may share one entry. An
+    // endpoint change that made the answer viewer-dependent would have to add
+    // the segment here and register the family in VIEWER_TIER_QUERY_KEYS.
+    collections: (slug: string, limit?: number) =>
+      ['scenes', 'collections', slug, limit] as const,
     // clusterBy is the literal union (not string) so a drifted value at an
     // invalidation/prefetch site is a compile error, not a silent key
     // mismatch (the PSY-1109 key-drift class).

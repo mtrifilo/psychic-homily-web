@@ -70,3 +70,15 @@ export function currentLocationReturnTo(pathname: string): string {
   const search = typeof window === 'undefined' ? '' : window.location.search
   return `${pathname}${search}`
 }
+
+/**
+ * The `reason` the backend puts on an `/auth` link when it is asking an
+ * already-signed-in reader to prove the account again before a
+ * security-relevant change, rather than asking a stranger to sign in.
+ *
+ * Written by redirectToReauth in
+ * backend/internal/api/handlers/auth/oauth_link.go. The auth page reads it to
+ * suppress its authenticated-reader bounce, which would otherwise return them
+ * to the control that just refused them with nothing changed.
+ */
+export const REAUTH_REASON_OAUTH_LINK = 'OAUTH_LINK_REAUTH_REQUIRED'

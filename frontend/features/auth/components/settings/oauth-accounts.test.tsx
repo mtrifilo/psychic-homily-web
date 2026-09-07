@@ -27,7 +27,10 @@ let mockUnlinkMutationState = {
   error: null as Error | null,
 }
 
+const mockStartLinkMutateAsync = vi.fn()
+
 vi.mock('@/features/auth', () => ({
+  useStartOAuthLink: () => ({ mutateAsync: mockStartLinkMutateAsync }),
   useOAuthAccounts: () => ({
     data: mockOAuthData,
     isLoading: mockOAuthLoading,
@@ -75,6 +78,8 @@ describe('OAuthAccounts', () => {
     mockCaptureException.mockReset()
     mockSearchParams = new URLSearchParams()
     mockRouterReplace.mockReset()
+    mockStartLinkMutateAsync.mockReset()
+    mockStartLinkMutateAsync.mockResolvedValue({ token: 'link-token-abc' })
   })
 
   it('renders card title and description', () => {
@@ -360,8 +365,12 @@ describe('OAuthAccounts', () => {
 
     await user.click(screen.getByRole('button', { name: /Connect/ }))
 
+    // The one-time token has to be minted first and ride on the URL: without
+    // it the route cannot tell this start from one an attacker's page pushed
+    // the user into.
+    expect(mockStartLinkMutateAsync).toHaveBeenCalled()
     expect(mockAssign).toHaveBeenCalledWith(
-      expect.stringContaining('/auth/link/google')
+      expect.stringContaining('/auth/link/google?t=link-token-abc')
     )
     // The sign-in route resolves the account from the address the provider
     // returns; sending Connect there is the defect this replaces.
@@ -377,19 +386,34 @@ describe('OAuthAccounts', () => {
     })
   })
 
-  it('renders the refusal copy the backend redirected back with', async () => {
+  it('maps a refusal code to this page\'s own copy', async () => {
     mockOAuthData = { accounts: [] }
     mockSearchParams = new URLSearchParams(
-      'tab=settings&oauth_link_error=Your+account+is+already+connected+to+a+different+account+from+this+provider.'
+      'tab=settings&oauth_link_error=OAUTH_PROVIDER_ALREADY_LINKED'
+    )
+
+    renderWithProviders(<OAuthAccounts />)
+
+    // The copy comes from the map keyed on the code, not from the URL.
+    expect(
+      await screen.findByText(/already connected to a different account/)
+    ).toBeInTheDocument()
+  })
+
+  it('renders the generic failure for an unknown error code', async () => {
+    mockOAuthData = { accounts: [] }
+    // Prose an attacker put in the URL must never reach the page: an
+    // unrecognized value renders the generic copy instead.
+    mockSearchParams = new URLSearchParams(
+      'tab=settings&oauth_link_error=Your+session+expired.+Call+555-0100+to+restore+it.'
     )
 
     renderWithProviders(<OAuthAccounts />)
 
     expect(
-      await screen.findByText(
-        'Your account is already connected to a different account from this provider.'
-      )
+      await screen.findByText('Could not connect that account.')
     ).toBeInTheDocument()
+    expect(screen.queryByText(/555-0100/)).not.toBeInTheDocument()
   })
 
   it('renders a success banner after a completed link', async () => {

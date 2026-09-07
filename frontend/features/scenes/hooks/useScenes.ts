@@ -15,6 +15,7 @@ import type {
   SceneArtistsResponse,
   SceneGraphResponse,
   SceneNewArtistsResponse,
+  SceneCollectionsResponse,
   SceneShowsResponse,
 } from '../types'
 
@@ -145,6 +146,45 @@ export function useSceneNewArtists(options: UseSceneNewArtistsOptions) {
     queryKey: queryKeys.scenes.newArtists(slug, limit),
     queryFn: async (): Promise<SceneNewArtistsResponse> => {
       return apiRequest<SceneNewArtistsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled: Boolean(slug),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+interface UseSceneCollectionsOptions {
+  slug: string
+  /** Collections to return, most scene-local members first. Backend default 5, max 20. */
+  limit?: number
+}
+
+/**
+ * Hook to fetch the public collections relevant to a scene (PSY-1847).
+ *
+ * Relevance is DERIVED: collections carry no scene column, so the backend ranks
+ * them by how many of their members are based in the scene. The caller receives
+ * the head of that ranking and has nothing to re-rank or re-filter with.
+ *
+ * `limit` is OMITTED when the caller does not pass it, so the backend's own
+ * default owns the cap, the same rule `useSceneNewArtists` and `useSceneShows`
+ * already follow.
+ *
+ * This endpoint 404s on a parseable place below the scene venue threshold,
+ * where the sibling new-artists endpoint answers 200 with an empty list. The
+ * caller renders nothing in either case, so the difference does not reach the
+ * page.
+ */
+export function useSceneCollections(options: UseSceneCollectionsOptions) {
+  const { slug, limit } = options
+
+  const endpoint = limit
+    ? `${API_ENDPOINTS.SCENES.COLLECTIONS(slug)}?limit=${limit}`
+    : API_ENDPOINTS.SCENES.COLLECTIONS(slug)
+
+  return useQuery({
+    queryKey: queryKeys.scenes.collections(slug, limit),
+    queryFn: async (): Promise<SceneCollectionsResponse> => {
+      return apiRequest<SceneCollectionsResponse>(endpoint, { method: 'GET' })
     },
     enabled: Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes

@@ -87,8 +87,8 @@ func (h *UserPreferencesHandler) UnsubscribeSceneDigestPageHandler(w http.Respon
 // — the recipient refused an email, not the product.
 func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.ResponseWriter, r *http.Request) {
 	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
-		scope:        engagement.UnsubscribeScopeArtistShowAlerts,
-		setPref:      func(uid uint) error { return h.userService.UnsubscribeArtistShowAlertEmails(uid) },
+		scope:   engagement.UnsubscribeScopeArtistShowAlerts,
+		setPref: func(uid uint) error { return h.userService.UnsubscribeArtistShowAlertEmails(uid) },
 		// The noun says "show-alert emails", not "artist show-alert emails",
 		// because the setter is genuinely that wide: alert_defaults carries ONE
 		// `shows` key covering artist and venue show alerts alike, so the account

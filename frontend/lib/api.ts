@@ -52,6 +52,10 @@ export const API_ENDPOINTS = {
     OAUTH_CALLBACK: (provider: string) =>
       `${API_BASE_URL}/auth/callback/${provider}`,
     OAUTH_ACCOUNTS: `${API_BASE_URL}/auth/oauth/accounts`,
+    // Mints the one-time token the /auth/link/{provider} start URL
+    // requires. Same-origin and authenticated, which is the property
+    // that route cannot establish for itself.
+    OAUTH_LINK_TOKEN: `${API_BASE_URL}/auth/oauth/link-token`,
     OAUTH_UNLINK: (provider: string) =>
       `${API_BASE_URL}/auth/oauth/accounts/${provider}`,
     // Passkey credential management (settings → security). Register / login
@@ -446,6 +450,12 @@ export const API_ENDPOINTS = {
     NEW_ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/new-artists`,
     SHOWS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/shows`,
     GRAPH: (slug: string) => `${API_BASE_URL}/scenes/${slug}/graph`,
+    /**
+     * Public collections whose members are substantially based in this scene
+     * (PSY-1847). 404s on a place that has not cleared the scene venue
+     * threshold, unlike NEW_ARTISTS, which answers 200 with an empty list.
+     */
+    COLLECTIONS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/collections`,
   },
 
   // Community endpoints (public)

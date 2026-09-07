@@ -17,6 +17,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
+	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 
@@ -128,13 +129,19 @@ func requestCookieNames(r *http.Request) []string {
 // OAuthHTTPHandler handles OAuth HTTP requests directly
 type OAuthHTTPHandler struct {
 	authService contracts.AuthServiceInterface
-	config      *config.Config
+	// jwtService resolves the session on the CALLBACK, which is a public route
+	// the provider redirects to and so never passes the JWT middleware. The
+	// link path needs it to check that the person finishing a handshake is
+	// still the one who started it.
+	jwtService *authsvc.JWTService
+	config     *config.Config
 }
 
 // NewOAuthHTTPHandler creates a new OAuth HTTP handler
-func NewOAuthHTTPHandler(authService contracts.AuthServiceInterface, cfg *config.Config) *OAuthHTTPHandler {
+func NewOAuthHTTPHandler(authService contracts.AuthServiceInterface, jwtService *authsvc.JWTService, cfg *config.Config) *OAuthHTTPHandler {
 	return &OAuthHTTPHandler{
 		authService: authService,
+		jwtService:  jwtService,
 		config:      cfg,
 	}
 }
@@ -387,12 +394,52 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	}
 
 	// A link intent makes this callback an account connection rather than a
-	// sign-in. The cookie is cleared either way, so an abandoned attempt does
-	// not arm the next callback on this browser.
+	// sign-in, but ONLY if the intent is for the handshake that just came
+	// back: same provider, same state.
+	//
+	// Read without consuming, and fall through to sign-in when it does not
+	// match. A user who starts a link, abandons it, and later signs in
+	// normally still carries the cookie, and burning their intent to refuse a
+	// sign-in they did ask for would strand them on Settings with no session.
+	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
-		http.SetCookie(w, h.newLinkIntentCookie("", -1))
-		h.completeOAuthLink(w, r, provider, takeOAuthLinkIntent(cookie.Value), frontendURL)
-		return
+		intent, found := peekOAuthLinkIntent(cookie.Value)
+		matchesThisHandshake := found &&
+			intent.provider == provider &&
+			intent.state == r.URL.Query().Get("state")
+
+		switch {
+		case matchesThisHandshake && time.Now().After(intent.expiresAt):
+			// Their link, and they ran out of time. Say so.
+			consumeOAuthLinkIntent(cookie.Value)
+			http.SetCookie(w, h.newLinkIntentCookie("", -1))
+			logger.AuthWarn(ctx, "oauth_link_intent_expired", "provider", provider)
+			redirectToLinkResult(w, r, frontendURL, autherrors.CodeOAuthLinkExpired)
+			return
+
+		case matchesThisHandshake:
+			consumeOAuthLinkIntent(cookie.Value)
+			http.SetCookie(w, h.newLinkIntentCookie("", -1))
+			h.completeOAuthLink(w, r, provider, &intent, frontendURL)
+			return
+
+		case !found:
+			// The cookie names a link this process never held: a restart, or
+			// another replica. That is not evidence the reader wanted a link
+			// rather than a sign-in, and refusing would strand an ordinary
+			// sign-in on a page it did not ask for. Clear the cookie so it
+			// cannot confuse the next callback, and carry on.
+			http.SetCookie(w, h.newLinkIntentCookie("", -1))
+			logger.AuthDebug(ctx, "oauth_callback_link_intent_unknown", "provider", provider)
+
+		default:
+			// An intent for a DIFFERENT handshake. This callback is not that
+			// link, so it is the sign-in it looks like, and the intent is left
+			// alone for the handshake it does belong to.
+			logger.AuthDebug(ctx, "oauth_callback_intent_for_another_handshake",
+				"provider", provider,
+			)
+		}
 	}
 
 	// Use AuthService to handle the complete OAuth flow. New users require consent.

@@ -72,7 +72,7 @@ func TestVenueListingRouteResolvesToTheListingHandler(t *testing.T) {
 //
 // "The ItemList covers every venue" survives only while no limit can be applied,
 // and a seeded end-to-end assertion cannot see the difference: adding
-// `Limit int \`query:"limit" default:"100"\`` to the request would still return
+// `Limit int \`query:"limit" default:"100"\“ to the request would still return
 // every venue in any fixture small enough to write down, and the frontend test
 // only inspects the URL WE send, so a server-side default is invisible there
 // too. Every signal would stay green while the defect came back.

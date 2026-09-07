@@ -8,6 +8,7 @@ describe('scenes hooks barrel', () => {
     expect(typeof hooks.useScenes).toBe('function')
     expect(typeof hooks.useSceneDetail).toBe('function')
     expect(typeof hooks.useSceneArtists).toBe('function')
+    expect(typeof hooks.useSceneCollections).toBe('function')
     expect(typeof hooks.useSceneGraph).toBe('function')
   })
 })

@@ -5,7 +5,12 @@ import { server } from '@/test/mocks/server'
 import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { createWrapper } from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
-import { useScenes, useSceneDetail, useSceneArtists } from './useScenes'
+import {
+  useScenes,
+  useSceneDetail,
+  useSceneArtists,
+  useSceneCollections,
+} from './useScenes'
 
 describe('useScenes', () => {
   it('fetches scene list', async () => {
@@ -129,5 +134,74 @@ describe('useSceneArtists', () => {
   // previous scene's bands. This is the assertion that catches that.
   it('keeps the slug where the retention rule reads it in the artists key', () => {
     expect(queryKeys.scenes.artists('phoenix-az', 180, 10)[2]).toBe('phoenix-az')
+  })
+})
+
+describe('useSceneCollections', () => {
+  function stubCollections() {
+    let capturedUrl = ''
+    server.use(
+      http.get(`${TEST_API_BASE}/scenes/:slug/collections`, ({ request }) => {
+        capturedUrl = request.url
+        return HttpResponse.json({ collections: [] })
+      })
+    )
+    return () => capturedUrl
+  }
+
+  // The backend's own default owns the cap, so a caller that asks for nothing
+  // must send nothing.
+  it('fetches the scene collections rail and sends no limit of its own', async () => {
+    const url = stubCollections()
+
+    const { result } = renderHook(
+      () => useSceneCollections({ slug: 'phoenix-az' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const requested = new URL(url())
+    expect(requested.pathname).toBe('/scenes/phoenix-az/collections')
+    expect(requested.searchParams.has('limit')).toBe(false)
+    expect(result.current.data?.collections).toEqual([])
+  })
+
+  it('sends the limit the caller asks for', async () => {
+    const url = stubCollections()
+
+    const { result } = renderHook(
+      () => useSceneCollections({ slug: 'phoenix-az', limit: 3 }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(new URL(url()).searchParams.get('limit')).toBe('3')
+  })
+
+  it('does not fetch when slug is empty', () => {
+    const { result } = renderHook(() => useSceneCollections({ slug: '' }), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  // The page caches every scene query by SLUG, never by the numeric scene id
+  // this endpoint's rows carry (the PSY-1109 key-drift class). The limit is in
+  // the key because it changes WHICH collections come back, and the leading
+  // 'scenes' is what prefix-matched invalidation reaches.
+  it('keys by slug and limit under the scenes prefix', () => {
+    expect(queryKeys.scenes.collections('phoenix-az')).toEqual([
+      'scenes',
+      'collections',
+      'phoenix-az',
+      undefined,
+    ])
+    expect(queryKeys.scenes.collections('phoenix-az', 3)).toEqual([
+      'scenes',
+      'collections',
+      'phoenix-az',
+      3,
+    ])
   })
 })

@@ -390,4 +390,74 @@ describe('AuthPage', () => {
       expect(mockPush).toHaveBeenCalledWith('/')
     })
   })
+
+  describe('re-authentication', () => {
+    // The backend sends an ALREADY authenticated reader here when a
+    // security-relevant change needs the account proved again. The page's
+    // ordinary behaviour, bouncing an authenticated reader to returnTo, would
+    // return them to the control that just refused them with nothing changed:
+    // a silent no-op with no way to tell what happened.
+    const reauthParams = new URLSearchParams({
+      returnTo: '/profile?tab=settings',
+      reason: 'OAUTH_LINK_REAUTH_REQUIRED',
+    })
+
+    it('renders the form for an authenticated reader instead of bouncing', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams(reauthParams)
+
+      renderWithProviders(<AuthPage />)
+
+      expect(await screen.findByText("Confirm it's you")).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('names the reason, so the reader knows why they are here', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams(reauthParams)
+
+      renderWithProviders(<AuthPage />)
+
+      expect(
+        await screen.findByText(/connect a provider to your account/i)
+      ).toBeInTheDocument()
+    })
+
+    it('offers no Create account tab, which proves nothing about holding one', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams(reauthParams)
+
+      renderWithProviders(<AuthPage />)
+
+      await screen.findByText("Confirm it's you")
+      expect(
+        screen.queryByRole('tab', { name: /create account/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('still bounces an authenticated reader when no reason is given', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams({ returnTo: '/profile?tab=settings' })
+
+      renderWithProviders(<AuthPage />)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/profile?tab=settings')
+      })
+    })
+
+    it('ignores a reason it does not recognise', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams({
+        returnTo: '/profile?tab=settings',
+        reason: 'SOMETHING_ELSE',
+      })
+
+      renderWithProviders(<AuthPage />)
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/profile?tab=settings')
+      })
+    })
+  })
 })
