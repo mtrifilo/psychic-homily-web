@@ -156,13 +156,15 @@ func IsValidTagCategory(category string) bool {
 }
 
 // IsAdminMintOnlyTagCategory reports whether CREATING a tag in this category
-// requires admin. Applying an existing tag of the category is not restricted by
-// this rule.
+// requires admin.
 //
-// Crew is restricted because a crew names a real booker in a real town and the
-// scene page publishes that list as curated editorial. The other categories are
-// descriptive rather than nominative, so a wrong one is noise a curator fixes,
-// not a claim about a named party.
+// The rule governs which NAMES may enter the tag vocabulary, and nothing else.
+// Applying an existing tag of the category, and removing an application, are
+// unrestricted by it, so what a crew tag is attached to is not admin-controlled
+// even though what a crew tag is called is.
+//
+// Crew is restricted because the value names a real party. The other categories
+// describe rather than name, so a wrong one is noise a curator fixes.
 func IsAdminMintOnlyTagCategory(category string) bool {
 	return category == TagCategoryCrew
 }

@@ -111,12 +111,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCrews_MultiRoomShowCo
 	suite.Equal(1, crews[0].ShowCount)
 }
 
-// Three exclusions the published number depends on, each seeded so that
-// dropping its predicate changes the answer: a non-crew category is not a crew,
-// an unapproved show is not a night anyone can read, and the edge is the show,
-// so a crew tag sitting on an artist or a venue contributes nothing.
+// Four exclusions the published number depends on, each seeded so that dropping
+// its predicate changes the answer: a non-crew category is not a crew, an
+// unapproved show is not a night anyone can read, and the edge is the show, so a
+// crew tag sitting on an artist or on a venue contributes nothing.
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCrews_ExcludesOtherCategoriesUnapprovedShowsAndOtherEdges() {
-	rebel, _ := suite.crewScene()
+	rebel, valley := suite.crewScene()
 	user := suite.createUser()
 	artist := suite.createArtist("Excluded Band")
 	when := time.Now().UTC().AddDate(0, 0, -15)
@@ -125,6 +125,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCrews_ExcludesOtherCa
 	genre := suite.createTagInCategory("Desert Rock", "desert-rock", catalogm.TagCategoryGenre)
 	pendingOnly := suite.createTagInCategory("Pending Crew", "pending-crew", catalogm.TagCategoryCrew)
 	artistOnly := suite.createTagInCategory("Artist Edge Crew", "artist-edge-crew", catalogm.TagCategoryCrew)
+	venueOnly := suite.createTagInCategory("Venue Edge Crew", "venue-edge-crew", catalogm.TagCategoryCrew)
 
 	approved := suite.createApprovedShow("counted night", rebel.ID, artist.ID, user.ID, when)
 	suite.tagShow(approved.ID, counted, user.ID)
@@ -133,13 +134,41 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCrews_ExcludesOtherCa
 	pending := suite.createPendingShow("pending night", rebel.ID, artist.ID, user.ID, when.AddDate(0, 0, 1))
 	suite.tagShow(pending.ID, pendingOnly, user.ID)
 
+	// The two non-show edges, on entities that ARE in the scene, so only the
+	// entity_type pin can be what excludes them. A room mis-tagged with its
+	// resident promoter is the likelier of the two in practice.
 	suite.tagArtist(artist.ID, artistOnly, user.ID)
+	suite.tagEntity(catalogm.TagEntityVenue, valley.ID, venueOnly, user.ID)
 
 	suite.Equal([]string{"counted-crew"}, suite.crewSlugs("Phoenix", "AZ"))
 }
 
-// A scene with no crew tag gets an empty slice, never an error and never nil:
-// the chip row hides itself, and the handler must not have to invent [].
+// The scene's rooms are every room in scope, NOT the verified ones the rooms
+// leaderboard publishes. A crew that books only unverified DIY spaces is
+// precisely what this list exists to surface, so swapping venuePredicate for
+// trackedVenuePredicate has to fail here.
+//
+// The scene still clears its existence gate on the two verified rooms, which is
+// what makes this an assertion about the bare predicate rather than a 404 test.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCrews_CountsUnverifiedRooms() {
+	suite.crewScene()
+	diy := suite.createUnverifiedVenue("The Trunk Space Basement", "Phoenix", "AZ")
+	user := suite.createUser()
+	artist := suite.createArtist("DIY Band")
+
+	crew := suite.createTagInCategory("Basement Bookings", "basement-bookings", catalogm.TagCategoryCrew)
+	show := suite.createApprovedShow("diy night", diy.ID, artist.ID, user.ID, time.Now().UTC().AddDate(0, 0, -8))
+	suite.tagShow(show.ID, crew, user.ID)
+
+	crews, err := suite.sceneService.GetSceneCrews("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(crews, 1)
+	suite.Equal("basement-bookings", crews[0].Slug)
+	suite.Equal(1, crews[0].ShowCount)
+}
+
+// A scene with no crew tag gets an empty slice, never an error and never nil,
+// so the handler is not the layer that has to invent [].
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCrews_EmptyWhenNoCrewTags() {
 	suite.crewScene()
 

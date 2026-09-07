@@ -30,11 +30,11 @@ type GetSceneCrewsResponse struct {
 // venues.
 //
 // A separate route off the blocking path, no HEAD sibling, and the same
-// existence gate as its neighbours: see GetSceneGapsHandler, whose three
-// arguments for that shape apply here unchanged.
+// existence gate as its neighbours. GetSceneGapsHandler argues that route shape
+// at length and the argument applies here unchanged.
 //
-// An empty list is a normal answer, not an error: most scenes have no crew tag
-// yet, and the row hides itself rather than rendering an empty shelf.
+// An empty list is a normal answer, not an error: most scenes carry no crew tag,
+// and that is a fact about the scene rather than a fault in the request.
 func (h *SceneHandler) GetSceneCrewsHandler(ctx context.Context, req *GetSceneCrewsRequest) (*GetSceneCrewsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {

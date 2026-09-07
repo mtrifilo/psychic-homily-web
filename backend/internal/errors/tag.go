@@ -99,12 +99,12 @@ func ErrTagCreationForbidden() *TagError {
 
 // ErrTagCategoryAdminOnly is returned when a non-admin caller's request would
 // MINT a tag in an admin-only category. Applying an existing tag of that
-// category is unaffected, and the message says so, because the two are one
-// request shape apart on the entity endpoint: the caller sent a name nothing
-// matched.
+// category is unaffected, and the message says so, because on the entity
+// endpoint the two are the same request shape: minting is what happens when the
+// name the caller sent matched nothing.
 //
-// Distinct from ErrTagCreationForbidden, which is about the caller's trust
-// tier: raising a tier clears that one and never clears this one.
+// Distinct from ErrTagCreationForbidden, which turns on the caller's trust tier.
+// Only admin clears this one.
 func ErrTagCategoryAdminOnly(category string) *TagError {
 	return &TagError{
 		Code:    CodeTagCategoryAdminOnly,

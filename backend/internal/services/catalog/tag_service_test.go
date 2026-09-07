@@ -1163,18 +1163,31 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Cre
 		artistID := suite.createArtist(fmt.Sprintf("Crew Booked Band %d", i))
 		name := fmt.Sprintf("unvetted-crew-%d", i)
 
+		before := suite.countTags()
+
 		_, err := suite.tagService.AddTagToEntity(0, name, "artist", artistID, user.ID, catalogm.TagCategoryCrew)
 		suite.Require().Error(err, tier)
 
 		var tagErr *apperrors.TagError
 		suite.Require().ErrorAs(err, &tagErr, tier)
 		suite.Assert().Equal(apperrors.CodeTagCategoryAdminOnly, tagErr.Code, tier)
+		// The message's second half is the whole point of the refusal: it tells
+		// a contributor the crew is still usable once an admin has named it.
+		suite.Assert().Contains(tagErr.Message, "apply an existing crew tag", tier)
 
-		// GetTagBySlug answers (nil, nil) for a slug that does not exist.
-		tag, err := suite.tagService.GetTagBySlug(name)
-		suite.Assert().NoError(err, tier)
-		suite.Assert().Nil(tag, tier)
+		// Counted, not looked up by slug: the slug is DERIVED from the name, so
+		// a slug miss would also be satisfied by a row written under a slug this
+		// test never guessed.
+		suite.Assert().Equal(before, suite.countTags(), tier)
 	}
+}
+
+// countTags is the non-vacuous form of "nothing was written": it cannot be
+// satisfied by a row landing under an unexpected name or slug.
+func (suite *TagServiceIntegrationTestSuite) countTags() int64 {
+	var n int64
+	suite.Require().NoError(suite.db.Model(&catalogm.Tag{}).Count(&n).Error)
+	return n
 }
 
 // The refusal is category-scoped, not a blanket block on the caller: the same

@@ -50,9 +50,9 @@ func TestGetSceneCrews_Success(t *testing.T) {
 	}
 }
 
-// A scene with no crews is a 200 with an empty list, not a 404: the chip row
-// hides itself, and a 404 here would contradict the scene the page just loaded.
-// The nil-to-empty conversion is asserted on the MARSHALLED body, because a nil
+// A scene with no crews is a 200 with an empty list, not a 404: the scene
+// exists, and a 404 would deny a place the sibling routes just served. The
+// nil-to-empty conversion is asserted on the MARSHALLED body, because a nil
 // slice and an empty one are indistinguishable in Go and the wire is where the
 // difference lands: `null` breaks a client that maps over the field.
 func TestGetSceneCrews_NoCrewsIsEmptyArrayNotNull(t *testing.T) {

@@ -2073,7 +2073,7 @@ type SceneCollectionSummary struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// SceneCrewSummary is one crew tag on a scene's crews chip row: a music booker
+// SceneCrewSummary is one crew tag in a scene's crew list: a music booker
 // (promoter, DIY crew or collective, named music series) that has booked in
 // this scene, with the number of the scene's shows carrying its tag.
 //

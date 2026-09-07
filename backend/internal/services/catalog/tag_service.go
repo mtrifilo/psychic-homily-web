@@ -515,7 +515,13 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 }
 
 // createTagInline creates a new tag as part of the AddTagToEntity flow.
-// Only contributor+ users can create tags inline; new_user gets a 403.
+//
+// Two refusals live here, on different terms and at different points. The TIER
+// refusal is first and applies to the whole call: a new_user reaching this
+// function is refused before the tag is even resolved. The CATEGORY refusal
+// sits after the duplicate lookup, so it refuses only an actual create: any
+// tier may apply an existing admin-mint-only tag, and only an admin may bring
+// a new one into existence.
 func (s *TagService) createTagInline(tagName string, category string, userID uint) (*catalogm.Tag, error) {
 	// Look up user to check trust tier
 	var user authm.User
