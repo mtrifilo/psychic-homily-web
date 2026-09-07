@@ -197,16 +197,29 @@ describe('fetchSceneWeek', () => {
     }
   )
 
-  // A blank identity field survives every truthiness check downstream and
-  // builds a URL naming a different page, so it fails here rather than there.
+  // An identity field that does not name something reaches a URL as `/scenes//`
+  // or as an address with a space in it, so it fails here rather than there.
   it.each(
     ['start_date', 'end_date', 'city', 'slug', 'iso_week'].flatMap(field =>
-      ['', '   '].map(blank => [field, blank] as const)
+      ['', '   ', ' 2026-W31', '2026-W31 '].map(bad => [field, bad] as const)
     )
-  )('rejects a body whose %s is %j', async (field, blank) => {
-    fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: blank }))
+  )('rejects a body whose %s is %j', async (field, bad) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: bad }))
 
     await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // The week's navigation keys are outside this contract, so a payload that
+  // omits them is still served: the gap they leave belongs to the view.
+  it('serves a week that omits its navigation keys', async () => {
+    const thin: Record<string, unknown> = { ...week() }
+    delete thin.prev_week
+    delete thin.next_week
+    fetchMock.mockResolvedValue(jsonResponse(thin))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject({ iso_week: '2026-W31' })
   })
 
   // Next decodes route params before this sees them, so an unescaped slug would

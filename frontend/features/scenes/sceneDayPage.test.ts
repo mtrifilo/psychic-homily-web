@@ -112,9 +112,8 @@ describe('buildSceneDayMetadata', () => {
     }
   })
 
-  // The day reaches this module through an injected fetch, so an empty
-  // `iso_week` is a shape it has to answer for itself. Unguarded, the canonical
-  // would collapse to `/scenes/phoenix-az/` for every scene at once, silently.
+  // Unguarded, an empty `iso_week` would collapse the canonical to
+  // `/scenes/phoenix-az/` for every scene at once, silently.
   it('falls back to the day permalink when iso_week is empty', async () => {
     fetchSceneDay.mockResolvedValue(day({ iso_week: '' }))
 

@@ -48,22 +48,36 @@ interface ScenePeriodSpec<T> {
   /** The API URL for this period key, or for the CURRENT period when omitted. */
   buildUrl: (key: string | undefined) => string
   /**
-   * Fields that NAME the period: a consumer reads each without a null guard and
-   * builds a URL, a title, or a permalink out of it. Each must be a non-blank
-   * string on the wire. A blank one is worse than an absent one, because it
-   * survives every truthiness check downstream and collapses `/scenes/x/y`
-   * shapes into `/scenes//`, which names a different page.
+   * Fields that NAME the period. Each must be a string that names something:
+   * present, not empty, and carrying no leading or trailing space. A blank one
+   * is worse than an absent one, because it survives every truthiness check
+   * downstream and collapses `/scenes/x/y` shapes into `/scenes//`, which names
+   * a different page; an untrimmed one names a different page outright.
+   *
+   * This is a check on emptiness, not on format. A value that names SOMETHING
+   * passes here even when it names the wrong thing.
    */
-  identityFields: readonly string[]
+  identityFields: readonly (keyof T & string)[]
   /**
-   * Fields a consumer reads without a null guard whose EMPTY value carries
-   * meaning. Each must be a string on the wire; `''` is a legitimate answer and
-   * says "there is no such neighbour", so it must not fail the payload.
+   * Fields whose EMPTY value is itself an answer. `''` passes; anything else
+   * must name something, on the same terms as an identity field. A body that
+   * omits one is not this payload.
    */
-  presenceFields: readonly string[]
+  presenceFields: readonly (keyof T & string)[]
   /** Reads the payload's "this period has ended" flag. */
   isFrozen: (payload: T) => boolean
   service: ScenePeriodService
+}
+
+/**
+ * Does this wire value name something?
+ *
+ * Trimmed rather than merely non-empty, because these values are interpolated
+ * into URLs: `" phoenix-az"` and `"phoenix-az"` are different addresses, and
+ * only one of them is a page.
+ */
+function namesSomething(value: unknown): value is string {
+  return typeof value === 'string' && value !== '' && value === value.trim()
 }
 
 /**
@@ -73,22 +87,35 @@ interface ScenePeriodSpec<T> {
  * future API change can all answer 200 with something else. Checking the fields
  * a consumer dereferences blindly turns a crash into the ordinary "no data"
  * path; the rest of the payload is already optional-safe.
- *
- * Takes the whole spec rather than its two field lists: they have the same
- * type, and passing them positionally would let a swap invert the rule with no
- * type error.
  */
-function asPayload<T>(body: unknown, spec: ScenePeriodSpec<T>): T | null {
+function asPayload<T>(
+  body: unknown,
+  spec: ScenePeriodSpec<T>,
+  key: string | undefined
+): T | null {
   if (!body || typeof body !== 'object') return null
   const record = body as Record<string, unknown>
-  for (const field of spec.identityFields) {
-    const value = record[field]
-    if (typeof value !== 'string' || value.trim() === '') return null
-  }
-  for (const field of spec.presenceFields) {
-    if (typeof record[field] !== 'string') return null
-  }
-  return body as T
+
+  // The two lists differ over one value: `''` is an answer for a presence field
+  // and no answer at all for an identity field.
+  const rejected =
+    spec.identityFields.find(field => !namesSomething(record[field])) ??
+    spec.presenceFields.find(
+      field => record[field] !== '' && !namesSomething(record[field])
+    )
+  if (rejected === undefined) return body as T
+
+  // Reported because nothing else can see this. The response was a 200, so no
+  // status check fires; Next stores it for the caller's whole window, so one
+  // bad body quietly takes out a period's page, its card and its slice until
+  // that window passes. The field name is enough to act on, so the body itself
+  // is not sent.
+  Sentry.captureMessage(`${spec.label}: rejected a payload on \`${rejected}\``, {
+    level: 'error',
+    tags: { service: spec.service },
+    extra: { slug: spec.slug, key, field: rejected },
+  })
+  return null
 }
 
 /**
@@ -109,7 +136,7 @@ async function fetchPayload<T>(
     // adopts the promise AFTER the block exits, so a malformed body would reject
     // past this catch and 500 the route instead of reaching the caller's
     // fallback.
-    if (res.ok) return asPayload<T>(await res.json(), spec)
+    if (res.ok) return asPayload<T>(await res.json(), spec, key)
     // 404 is the expected answer for an unknown slug, a below-threshold scene,
     // or a key that does not exist (2025-W53, 2026-02-30) — not an error worth
     // reporting.

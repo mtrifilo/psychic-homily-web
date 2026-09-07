@@ -170,8 +170,8 @@ describe('fetchSceneDay', () => {
     )
   })
 
-  // The required-field list is the guard between a thin payload and a 500:
-  // prev_date/next_date are split by parseCalendarDate for the nav chips.
+  // A body missing any of these is not this payload, whichever list the field
+  // belongs to.
   it.each(['date', 'prev_date', 'next_date', 'city', 'slug', 'iso_week'])(
     'rejects a body missing %s',
     async field => {
@@ -183,22 +183,23 @@ describe('fetchSceneDay', () => {
     }
   )
 
-  // A blank identity field survives every truthiness check downstream and
-  // builds a URL naming a different page, so it fails here rather than there.
+  // An identity field that does not name something reaches a URL as `/scenes//`
+  // or as an address with a space in it, so it fails here rather than there.
+  // The untrimmed cases matter as much as the blank ones: they are truthy at
+  // every consumer and name a page that does not exist.
   it.each(
     ['date', 'city', 'slug', 'iso_week'].flatMap(field =>
-      ['', '   '].map(blank => [field, blank] as const)
+      ['', '   ', ' 2026-07-31', '2026-07-31 '].map(bad => [field, bad] as const)
     )
-  )('rejects a body whose %s is %j', async (field, blank) => {
-    fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: blank }))
+  )('rejects a body whose %s is %j', async (field, bad) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: bad }))
 
     await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
   })
 
-  // THE CASE THAT KEEPS THE WINDOW EDGES SERVABLE. The backend sends an empty
-  // `prev_date` on the first servable day and an empty `next_date` on the last;
-  // the view reads that emptiness as "no neighbour this way". Rejecting it here
-  // would 404 both edge days of every scene.
+  // Emptiness is the answer at the edges of the servable window, so it must not
+  // fail the payload. This is the case that keeps the first and last servable
+  // days of every scene reachable.
   it.each([
     ['prev_date', { prev_date: '' }],
     ['next_date', { next_date: '' }],
@@ -207,6 +208,33 @@ describe('fetchSceneDay', () => {
     fetchMock.mockResolvedValue(jsonResponse(day(over)))
 
     await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject(over)
+  })
+
+  // Blank is not empty. A presence field carrying spaces is truthy at every
+  // consumer, so it would be read as "there IS a neighbour" and build a link to
+  // an address made of whitespace.
+  it.each([
+    ['prev_date', { prev_date: '   ' }],
+    ['next_date', { next_date: ' 2026-08-01' }],
+  ])('rejects a body whose %s is blank rather than empty', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(day(over)))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+  })
+
+  // A rejected 200 is otherwise invisible: no status check fires, and the body
+  // stays cached for the caller's whole window.
+  it('reports which field a rejected payload failed on', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...day(), slug: '' }))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+    expect(captureMessage).toHaveBeenCalledWith(
+      'Scene day: rejected a payload on `slug`',
+      expect.objectContaining({
+        tags: { service: 'scene-day' },
+        extra: expect.objectContaining({ slug: 'phoenix-az', field: 'slug' }),
+      })
+    )
   })
 
   // Next decodes route params before this sees them, so an unescaped slug would
