@@ -323,13 +323,18 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 }
 
 // authRefusalCarriesItsOwnCopy names the refusals an OAuth callback reports in
-// their own words rather than as a generic failure. Each names something the
-// caller can act on: accept the terms, or sign in the way this address is
-// already registered. Every other code stays generic, so a backend fault never
-// reaches a redirect query string or a client error body.
+// their own words rather than as a generic failure. Every other code stays
+// generic, so a backend fault never reaches a caller.
 //
-// Both OAuth callbacks in this package consult it, so a code added here is
-// surfaced on the web and iOS paths together.
+// A code added here reaches three surfaces, all of them in this file and
+// AppleCallbackHandler: the browser redirect to the frontend auth page, the
+// loopback redirect to a CLI callback, and the Apple callback's JSON body. It
+// therefore also decides what an unauthenticated caller learns about why the
+// attempt failed.
+//
+// The JSON auth endpoints that answer with a code directly (registration,
+// passkey signup) do not route through this; they have no generic arm to opt
+// out of.
 func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
 	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:

@@ -113,6 +113,25 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleA
 	s.Equal(first.ID, second.ID)
 }
 
+// The gate guards the link branch. An address matching nobody is not a
+// takeover, so a first-time Apple signup still creates an account, and the row
+// it creates records email_verified whatever the claim said.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmail_NoExistingAccount_StillCreates() {
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-fresh-unverified@example.com",
+		EmailVerified: false,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-fresh-unverified",
+		},
+	}, "Apple", "Name")
+
+	s.Require().NoError(err)
+	s.Require().NotNil(user)
+	s.Equal("apple-fresh-unverified@example.com", *user.Email)
+	s.True(user.EmailVerified)
+}
+
 func (s *AppleAuthIntegrationTestSuite) assertNoAppleAccountFor(userID uint) {
 	s.T().Helper()
 	var rows int64

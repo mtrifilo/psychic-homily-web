@@ -113,7 +113,13 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 	return claims, nil
 }
 
-// FindOrCreateAppleUser finds or creates a user from Apple Sign In data
+// FindOrCreateAppleUser finds or creates a user from Apple Sign In data.
+// claims must already be verified; the caller is responsible for that.
+//
+// Returns a typed *apperrors.AuthError with CodeUserExists when the address
+// already belongs to an account and the claims do not assert Apple verified
+// it. Callers that render a refusal differently from a fault must
+// discriminate on that code.
 func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
 	appleUserID := claims.Subject
 
@@ -142,8 +148,7 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 		if err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error; err == nil {
 			// The address is the only thing tying this Apple identity to an
 			// account that already exists, so Apple has to assert it verified
-			// the address. The claim rides the identity token
-			// ValidateIdentityToken checked against Apple's JWKS.
+			// the address.
 			if !claims.IsEmailVerified() {
 				logger.Default().Warn("oauth_link_refused_unverified_email",
 					"provider", "apple",
@@ -196,10 +201,13 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 	}()
 
 	user := &authm.User{
-		FirstName:     &firstName,
-		LastName:      &lastName,
-		IsActive:      true,
-		EmailVerified: true, // Apple-verified email
+		FirstName: &firstName,
+		LastName:  &lastName,
+		IsActive:  true,
+		// Stamped for every Apple-created account. This path is reached with an
+		// unverified claim too, so the column records verification the token
+		// did not assert.
+		EmailVerified: true,
 	}
 	if email != "" {
 		user.Email = &email

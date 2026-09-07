@@ -25,9 +25,8 @@ func authorizedFauxUser(t *testing.T) goth.User {
 	return user
 }
 
-// The seeded account at TestProviderEmail is linked by address, and the link
-// path only links an address the provider vouches for. Stock faux supplies no
-// RawData, so without the default the seeded account is unreachable.
+// The link-by-email path only links an address the provider vouches for, and
+// stock faux supplies no RawData, so the clone has to stamp the flag itself.
 func TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault(t *testing.T) {
 	t.Setenv(TestProviderUnverifiedEmailEnvVar, "")
 
@@ -42,7 +41,8 @@ func TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault(t *testing.T) {
 	}
 }
 
-// The flag gives the refusal path a driver that runs the real gothic machinery.
+// Under the flag the clone reports unverified, which is what drives the link
+// refusal through the real gothic begin-authorize-callback sequence.
 func TestTestProvider_FetchUser_ReportsUnverifiedEmailWhenFlagged(t *testing.T) {
 	t.Setenv(TestProviderUnverifiedEmailEnvVar, "1")
 

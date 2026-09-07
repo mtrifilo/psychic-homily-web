@@ -8,8 +8,8 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 )
 
-// A refused address names an account that exists, which the caller can act on.
-// The goth callback carries the same refusal to its redirect.
+// A refused address names an account that exists, so the handler answers with
+// that refusal's own code and copy rather than as a fault.
 func TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode(t *testing.T) {
 	svc := &mockAppleAuthService{findErr: autherrors.ErrUserExists("apple-refused@example.com")}
 	h := NewAppleAuthHandler(svc, &testhelpers.MockDiscordService{}, testConfig())
@@ -27,8 +27,10 @@ func TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode(t *testing.T) {
 	if resp.Body.ErrorCode != autherrors.CodeUserExists {
 		t.Errorf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeUserExists)
 	}
-	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeUserExists) {
-		t.Errorf("message = %q, want %q", resp.Body.Message, autherrors.ToExternalMessage(autherrors.CodeUserExists))
+	// UserMessage(), not ToExternalMessage(): the handler emits the former, and
+	// the two agree only for CodeUserExists.
+	if want := autherrors.ErrUserExists("apple-refused@example.com").UserMessage(); resp.Body.Message != want {
+		t.Errorf("message = %q, want %q", resp.Body.Message, want)
 	}
 	if resp.Body.Token != "" {
 		t.Error("a refused link must not issue a token")

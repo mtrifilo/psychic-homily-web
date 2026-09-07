@@ -47,14 +47,15 @@ const TestProviderUserID = "e2e-oauth-faux-user-id"
 // TestProviderUnverifiedEmailEnvVar makes the clone report its address as NOT
 // verified by the provider, which drives the link refusal. Unset, the clone
 // reports verified, which is what the seeded account at TestProviderEmail
-// needs to be linkable. Read only from inside a provider that cannot register
-// outside {test, ci, development}, so it adds no production surface.
+// needs to be linkable. It is read only by isOAuthTestProviderEmailUnverified
+// below, and only from a provider newTestProvider builds, so it is inert
+// wherever the double gate above keeps that provider unregistered.
 const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
 
 // EmailVerifiedRawDataKey is the RawData key the clone carries its
-// verification flag under. The clone answers as "google", and goth's google
-// provider reads Google's oauth2/v2/userinfo response, whose field is
-// verified_email rather than the OIDC email_verified.
+// verification flag under. It must be one the link-by-email path reads;
+// TestProviderAssertsEmailVerified_ReadsTheFauxProvidersKey in
+// internal/services/user is what holds the two together.
 const EmailVerifiedRawDataKey = "verified_email"
 
 // testProvider wraps goth's faux provider so it (a) registers/resolves under
@@ -97,14 +98,14 @@ func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 	user.Email = TestProviderEmail
 	user.Name = "E2E OAuth User"
 	user.RawData = map[string]any{
-		EmailVerifiedRawDataKey: !IsOAuthTestProviderEmailUnverified(os.Getenv),
+		EmailVerifiedRawDataKey: !isOAuthTestProviderEmailUnverified(os.Getenv),
 	}
 	return user, nil
 }
 
-// IsOAuthTestProviderEmailUnverified reports whether the faux clone should
-// present its address as unverified by the provider.
-func IsOAuthTestProviderEmailUnverified(getenv func(string) string) bool {
+// isOAuthTestProviderEmailUnverified reports whether the clone should present
+// its address as unverified by the provider.
+func isOAuthTestProviderEmailUnverified(getenv func(string) string) bool {
 	return testenv.IsFlagEnabled(TestProviderUnverifiedEmailEnvVar, getenv)
 }
 

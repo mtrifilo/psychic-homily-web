@@ -149,6 +149,9 @@ type JWTServiceInterface interface {
 // AppleAuthServiceInterface defines the contract for Apple authentication operations.
 type AppleAuthServiceInterface interface {
 	ValidateIdentityToken(identityToken string) (*AppleIdentityTokenClaims, error)
+	// Refuses with a typed AuthError carrying CodeUserExists when the claims'
+	// address already belongs to an account and they do not assert Apple
+	// verified it. claims must already be verified by the caller.
 	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error)
 	GenerateToken(user *authm.User) (string, error)
 }

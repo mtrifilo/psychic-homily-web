@@ -23,8 +23,6 @@ func TestProviderAssertsEmailVerified(t *testing.T) {
 		{"oidc email_verified false", map[string]any{"email_verified": false}, false},
 		{"string true", map[string]any{"email_verified": "true"}, true},
 		{"string false", map[string]any{"email_verified": "false"}, false},
-		// GitHub's /user response, the goth github provider's whole RawData,
-		// carries no verification field at all.
 		{"no signal in a populated payload", map[string]any{"login": "octocat", "id": 1}, false},
 		{"empty raw data", map[string]any{}, false},
 		{"nil raw data", nil, false},
@@ -53,9 +51,9 @@ func TestProviderAssertsEmailVerified_FallsThroughToSecondKey(t *testing.T) {
 	assert.True(t, got)
 }
 
-// The E2E faux "google" provider stamps its verification flag under a key of
-// its own. If the two spellings drift the seeded OAuth account stops being
-// linkable, and only the E2E suite would catch it.
+// The faux "google" provider stamps its verification flag under a key it owns.
+// This is what holds the two spellings together; without it a rename there
+// silently makes the seeded OAuth account unlinkable.
 func TestProviderAssertsEmailVerified_ReadsTheFauxProvidersKey(t *testing.T) {
 	got := providerAssertsEmailVerified(goth.User{RawData: map[string]any{
 		fauxauth.EmailVerifiedRawDataKey: true,
@@ -90,8 +88,9 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 	suite.assertSingleUserForEmail("unverified.link@example.com")
 }
 
-// A provider that says nothing about the address is refused the same way,
-// which is every provider goth exposes no verification field for.
+// The RawData shape goth's github provider produces: the GET /user body, with
+// no verification field under either key. Refused, like any other provider
+// that asserts nothing.
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerificationSignal_RefusesLink() {
 	existing := &authm.User{
 		Email:         stringPtr("absent.signal@example.com"),

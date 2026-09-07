@@ -42,7 +42,9 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 
 	parsed, err := url.Parse(location)
 	s.Require().NoError(err)
-	s.Equal(autherrors.ToExternalMessage(autherrors.CodeUserExists), parsed.Query().Get("error"))
+	// UserMessage(), not ToExternalMessage(): the handler emits the former, and
+	// the two agree only for CodeUserExists.
+	s.Equal(autherrors.ErrUserExists("callback-unverified@test.com").UserMessage(), parsed.Query().Get("error"))
 
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
@@ -97,8 +99,8 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndS
 	s.Equal(int64(1), oauthRows)
 }
 
-// A code absent from the allowlist reaches the query string as the generic
-// failure, which keeps a backend fault out of a URL the browser renders.
+// The allowlist itself. A code absent from it is reported generically on all
+// three of the surfaces the predicate governs.
 func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 	actionable := []string{
 		autherrors.CodeTermsAcceptanceRequired,

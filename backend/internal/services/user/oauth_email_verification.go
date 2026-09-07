@@ -17,6 +17,14 @@ var emailVerifiedRawDataKeys = []string{"verified_email", "email_verified"}
 // providerAssertsEmailVerified reports whether the OAuth provider asserted
 // that it verified gothUser.Email. Absence of a signal is not verification:
 // an address the provider will not vouch for is a caller-supplied string.
+//
+// GitHub, registered in internal/auth/goth.go whenever GITHUB_CLIENT_ID is
+// set, always lands on the false arm. goth's github provider fills RawData
+// from GET /user, which carries no verification field under either key. Its
+// one Primary-and-Verified filter sits in a private-email fallback that runs
+// only when the requested scopes include user or user:email, and that provider
+// is registered with no scopes at all. A GitHub sign-in therefore cannot link
+// to an account that already holds the address.
 func providerAssertsEmailVerified(gothUser goth.User) bool {
 	for _, key := range emailVerifiedRawDataKeys {
 		if verified, present := contracts.ParseEmailVerifiedClaim(gothUser.RawData[key]); present {

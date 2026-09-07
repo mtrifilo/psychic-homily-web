@@ -33,6 +33,11 @@ import { BACKEND_BASE_URL } from '../backend-url'
 // login resolves to an EXISTING user (a login via linkOAuthAccount), NOT a new
 // signup — keeping this spec off the terms/consent path. The signup-consent
 // flow is a separate follow-up.
+//
+// That link is conditional: the backend links by address only when the provider
+// asserts it verified the address, and the clone stamps that assertion into
+// RawData. Under OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL the clone reports
+// unverified and this login becomes a refusal instead.
 
 // PSY-1645: resolved, not hardcoded — this must be the backend global-setup
 // actually started, or the callback below lands on an unrelated process.
