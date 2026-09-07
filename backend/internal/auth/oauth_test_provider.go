@@ -51,12 +51,9 @@ const TestProviderUserID = "e2e-oauth-faux-user-id"
 // about an address that already belongs to an account, which is refused either
 // way.
 //
-// No automated suite sets it. It is read at request time, so flipping it means
-// restarting the backend: it exists so a person can drive the unverified create
-// path through the genuine gothic handshake by hand against a local stack. It is
-// read only by isOAuthTestProviderEmailUnverified, in a provider that
-// newTestProvider builds and SetupGoth registers only behind the double gate
-// described at the top of this file.
+// Read at request time, and only by isOAuthTestProviderEmailUnverified, in a
+// provider that newTestProvider builds and SetupGoth registers only behind the
+// double gate described at the top of this file.
 const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
 
 // TestProviderEmailEnvVar and TestProviderUserIDEnvVar override the identity

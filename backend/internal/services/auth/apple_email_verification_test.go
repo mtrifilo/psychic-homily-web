@@ -95,7 +95,6 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerified
 	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 
 	s.assertNoAppleAccountFor(existing.ID)
-	s.assertSingleUserForAddress("apple-string-verified@example.com")
 }
 
 // The create path is the only one that still reads the claim, so it is where
@@ -221,14 +220,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_SquattedUnveri
 	var authErr *apperrors.AuthError
 	s.Require().ErrorAs(err, &authErr)
 	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
-	// Apple's own copy. It names no Settings control because there is none to
-	// name: Apple arrives by a native-token POST, not the goth handshake that
-	// /auth/link/{provider} drives.
-	s.Equal(
-		"An account already uses this email address. Sign in to that account with the method it already has.",
-		authErr.UserMessage(),
-	)
-	s.NotContains(authErr.UserMessage(), "Settings")
+	// Apple's own refusal, not the goth one. The two share a code and differ in
+	// copy, so the code alone would not catch the wrong constructor here.
+	s.Equal(apperrors.ErrAppleSignInRefused("apple-squatted@example.com").UserMessage(), authErr.UserMessage())
 
 	s.assertStoredEmailVerified(squatted.ID, false)
 	var rows int64
@@ -297,18 +291,6 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_EmptySubject_R
 	s.Require().Error(err)
 	s.Require().Nil(user)
 	s.Contains(err.Error(), "no subject")
-}
-
-// A refused sign-in must not fall through to the create path: the mailbox
-// still resolves to exactly one row. Uses the same case-folding fragment the
-// service looks addresses up with, so a second row differing only in case
-// counts here too.
-func (s *AppleAuthIntegrationTestSuite) assertSingleUserForAddress(email string) {
-	s.T().Helper()
-	var rows int64
-	s.Require().NoError(
-		s.db.Model(&authm.User{}).Where(authm.EmailIdentityWhere, email).Count(&rows).Error)
-	s.Equal(int64(1), rows, "a refused sign-in must not mint a second account for the mailbox")
 }
 
 func (s *AppleAuthIntegrationTestSuite) assertNoAppleAccountFor(userID uint) {

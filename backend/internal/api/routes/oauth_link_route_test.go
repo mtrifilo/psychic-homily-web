@@ -24,22 +24,25 @@ func TestAuthLinkRouteRequiresASession(t *testing.T) {
 
 // Its sibling stays open, because it is how a caller gets a session at all.
 //
-// Two assertions rather than one: "not 401" alone would also hold for a route
-// that had been deleted, so the route's existence is checked separately. The
-// status is pinned no tighter than that. This binary never calls SetupGoth, so
-// no provider is registered and the handler answers with gothic's own 400
-// rather than the provider redirect a configured server sends. That answer
-// belongs to goth's configuration, not to the routing contract this file owns.
+// Registration is asserted against the BUILT tree rather than inferred from a
+// status, because a status cannot separate the two facts. This binary never
+// calls SetupGoth, so no goth provider is registered and the handler answers
+// gothic's own 400 for one it cannot resolve; that answer belongs to goth's
+// configuration, not to the routing contract this file owns. The served
+// request is left to carry the one claim it can carry alone: no credential,
+// no 401.
 func TestAuthLoginRouteStaysUnauthenticated(t *testing.T) {
 	router := newTestRouter(t)
+
+	registered := matching(chiRoutes(t, router), http.MethodGet, "/auth/login/{}")
+	if len(registered) != 1 || registered[0] != "/auth/login/{provider}" {
+		t.Fatalf("GET /auth/login/{provider} registrations = %v, want exactly [/auth/login/{provider}]", registered)
+	}
 
 	req := httptest.NewRequest("GET", "/auth/login/google", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
-		t.Fatalf("GET /auth/login/google = %d: the sign-in route is not registered", w.Code)
-	}
 	if w.Code == http.StatusUnauthorized {
 		t.Errorf("GET /auth/login/google with no credential = %d: the sign-in route must not require one", w.Code)
 	}

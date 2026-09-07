@@ -11,10 +11,9 @@ import (
 // TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_RefusesSignIn covers the
 // Apple Sign In lookup. Identity is case-insensitive, so an address differing
 // only in case from a stored one resolves to that account, and an address that
-// resolves to an account refuses the sign-in.
-//
-// The refusal is what proves the fold ran: a case-sensitive lookup would miss
-// the row and mint a second account for the same mailbox instead.
+// resolves to an account refuses the sign-in. The refusal is what proves the
+// fold ran: without it the address would resolve to nothing and the sign-in
+// would mint a second account for the mailbox, which the count below pins.
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_RefusesSignIn() {
 	existingUser := &authm.User{
 		Email:         stringPtr("Apple.Case@Example.com"),
@@ -42,5 +41,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 
 	s.assertNoAppleAccountFor(existingUser.ID)
-	s.assertSingleUserForAddress("apple.case@example.com")
+
+	var rows int64
+	s.Require().NoError(
+		s.db.Model(&authm.User{}).Where(authm.EmailIdentityWhere, "apple.case@example.com").Count(&rows).Error)
+	s.Equal(int64(1), rows, "a refused sign-in must not mint a second account for the mailbox")
 }

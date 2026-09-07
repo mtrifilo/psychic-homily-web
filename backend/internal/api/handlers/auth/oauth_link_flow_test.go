@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -284,7 +283,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IdentityInUseCarriesItsO
 
 // A callback with no intent is a sign-in, which is what keeps the two flows on
 // one registered redirect URI without either changing the other. An address no
-// account holds is the case where a sign-in still ends in a session.
+// account holds is the case where a sign-in ends in a session; the address that
+// already belongs to one is the same request refused, in
+// TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession.
 func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntentStillSignsIn() {
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 		Provider: "google",
@@ -305,49 +306,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntentStillSignsIn() 
 		}
 	}
 	s.True(sessionIssued)
-}
-
-// The other half of the no-intent case. An address an account already holds is
-// refused, and refused as a SIGN-IN: the redirect goes to the auth page with
-// the sign-in refusal's copy, not to the settings surface the link flow
-// reports on.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_RefusesMatchingAddress() {
-	existing := &authm.User{Email: strPtr("link-absent-intent-taken@test.com"), IsActive: true, EmailVerified: true}
-	s.Require().NoError(s.deps.DB.Create(existing).Error)
-
-	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
-		Provider: "google",
-		UserID:   "google-no-intent-taken-subject",
-		Email:    "link-absent-intent-taken@test.com",
-		RawData:  map[string]any{"verified_email": true},
-	}})
-
-	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
-	handler.OAuthCallbackHTTPHandler(w, req)
-
-	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
-		"expected the sign-in refusal redirect, got %s", location)
-
-	parsed, err := url.Parse(location)
-	s.Require().NoError(err)
-	s.Equal(
-		autherrors.ErrOAuthLinkRefused("link-absent-intent-taken@test.com").UserMessage(),
-		parsed.Query().Get("error"),
-	)
-
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "auth_token" && c.Value != "" {
-			s.Fail("a refused sign-in must not issue a session")
-		}
-	}
-
-	var rows int64
-	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
-		Where("user_id = ?", existing.ID).Count(&rows).Error)
-	s.Equal(int64(0), rows)
 }
 
 // --- store ---

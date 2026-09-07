@@ -109,10 +109,9 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Duplica
 // TestFindOrCreateUser_RefusesCaseVariantEmail covers the goth OAuth callback:
 // a provider returning the address in different casing than the row stores
 // resolves to that row, and an address that resolves to an account refuses the
-// sign-in.
-//
-// The refusal is what proves the fold ran: a case-sensitive lookup would miss
-// the row and mint a second account for the same mailbox instead.
+// sign-in. The refusal is what proves the fold ran: without it the address
+// would resolve to nothing and the sign-in would mint a second account for the
+// mailbox, which assertSingleUserForEmail pins.
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_RefusesCaseVariantEmail() {
 	existing := &authm.User{
 		Email:         stringPtr("Goth.Case@Example.com"),
@@ -131,7 +130,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_RefusesCaseVa
 	suite.Require().Nil(linked)
 
 	var refusal *apperrors.AuthError
-	suite.Require().True(errors.As(err, &refusal))
+	suite.Require().ErrorAs(err, &refusal)
 	suite.Equal(apperrors.CodeOAuthLinkRefused, refusal.Code)
 
 	suite.assertNoOAuthAccountFor(existing.ID)

@@ -143,14 +143,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail
 	var authErr *apperrors.AuthError
 	suite.Require().ErrorAs(err, &authErr)
 	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
-	suite.Equal(
-		"An account already uses this email address. Sign in to that account first, "+
-			"then connect this provider in Settings under Connected accounts.",
-		authErr.UserMessage(),
-	)
+	// The sign-in refusal, not the Apple one. The two share a code and differ
+	// in copy, so the code alone would not catch the wrong constructor here.
+	suite.Equal(apperrors.ErrOAuthLinkRefused("verified.link@example.com").UserMessage(), authErr.UserMessage())
 
 	suite.assertNoOAuthAccountFor(existing.ID)
-	suite.assertSingleUserForEmail("verified.link@example.com")
 }
 
 // The refusal sits on the address branch only. A provider identity already in

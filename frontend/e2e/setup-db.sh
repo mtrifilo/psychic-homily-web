@@ -602,17 +602,17 @@ ON CONFLICT (email) DO NOTHING;
 
 -- OAuth login fixture (PSY-914). The faux "google" provider
 -- (ENABLE_OAUTH_TEST_PROVIDER=1, backend/internal/auth/oauth_test_provider.go)
--- returns a fixed identity: email e2e-oauth@test.local, provider_user_id
--- e2e-oauth-faux-user-id. Pre-seeding both rows below means the faux login
--- resolves to an EXISTING user, NOT a new signup, so oauth-google.spec.ts never
--- hits the terms/consent flow.
+-- returns a fixed identity, and both rows below carry it, so oauth-google.spec.ts
+-- gets a login rather than a new signup and never hits the terms/consent flow.
 --
--- The oauth_accounts row is what makes it a login. An OAuth sign-in resolves on
--- provider + provider_user_id; an address that merely MATCHES an account is
--- refused, because a matching address says who holds the mailbox and never who
--- holds the account. So provider_user_id below must stay equal to
--- internal/auth.TestProviderUserID, or the callback falls through to the
--- address branch and the spec gets the refusal instead of a session.
+-- An OAuth sign-in resolves on provider + provider_user_id; an address that
+-- merely MATCHES an account is refused. So the values below must stay equal to
+-- internal/auth.TestProviderUserID and TestProviderEmail, or the callback falls
+-- through to the address branch and the spec gets the refusal instead of a
+-- session. DO UPDATE rather than DO NOTHING for the same reason: on a re-run
+-- against a database already holding a google identity for this user, DO NOTHING
+-- would keep a stale subject and produce exactly that refusal, with nothing to
+-- point at.
 --
 -- Dedicated user (not a worker login) so this identity can't disturb the
 -- parallel worker auth state. No password login is expected (OAuth only); the
@@ -624,7 +624,10 @@ ON CONFLICT (email) DO NOTHING;
 INSERT INTO oauth_accounts (user_id, provider, provider_user_id, provider_email, provider_name, created_at, updated_at)
 SELECT id, 'google', 'e2e-oauth-faux-user-id', 'e2e-oauth@test.local', 'E2E OAuth User', NOW(), NOW()
 FROM users WHERE email = 'e2e-oauth@test.local'
-ON CONFLICT DO NOTHING;
+ON CONFLICT (user_id, provider) DO UPDATE
+  SET provider_user_id = EXCLUDED.provider_user_id,
+      provider_email   = EXCLUDED.provider_email,
+      updated_at       = NOW();
 
 -- Create user_preferences for all seeded test users (regular worker users + admin + unverified + recovery + oauth)
 INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)
