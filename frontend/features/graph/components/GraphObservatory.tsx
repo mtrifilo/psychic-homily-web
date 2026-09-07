@@ -471,16 +471,24 @@ function EmptyGraphEscapeHatches({
  *  - `map`         — a snapshot we can draw.
  */
 export function resolveZeroStateView({
+  isRootLinkPending,
   isPending,
   isError,
   error,
   hasMap,
 }: {
+  /** A `?artist=` slug from the URL is still being resolved. */
+  isRootLinkPending: boolean
   isPending: boolean
   isError: boolean
   error: unknown
   hasMap: boolean
 }): 'loading' | 'unavailable' | 'hero' | 'map' {
+  // A PENDING DEEP LINK OUTRANKS EVERYTHING, the drawable map included: the
+  // visitor named an artist, and the map arm is about to be replaced by that
+  // artist's ego graph. Drawing it first flashes a surface nobody asked for and
+  // starts a growth replay against a canvas that is leaving.
+  if (isRootLinkPending) return 'loading'
   // A MAP WE ALREADY HAVE ALWAYS WINS. React Query keeps `data` when a
   // background refetch fails, so testing `isError` first would tear a
   // perfectly good on-screen map down and replace it with an error card —
@@ -645,7 +653,11 @@ const OBSERVATORY_PAGE_CLASS = 'mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 
 const OBSERVATORY_CARD_CLASS =
   'overflow-visible rounded-xl border border-border/60 bg-card shadow-sm'
 
-/** Static page chrome. A component, not duplicated markup, for the same reason. */
+/** The card's first row, which the search box and the status line share. */
+const OBSERVATORY_SEARCH_ROW_CLASS =
+  'relative z-50 flex flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center'
+
+/** Static page chrome, shared by the surface and its Suspense fallback. */
 function ObservatoryHeader() {
   return (
     <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -666,14 +678,21 @@ function ObservatoryHeader() {
  *
  * The Observatory reads `?artist=` through nuqs, which reads `useSearchParams`,
  * so it renders inside a Suspense boundary and cannot be part of the prerender.
- * The chrome around it can, and this is that chrome: the same header and card
- * frame, over the loading box the surface's own first frame shows anyway.
+ * The chrome around it can, and this is that chrome: header, card frame and the
+ * search row's height, over the loading box the surface's own first frame shows
+ * anyway.
  */
 export function GraphObservatorySkeleton() {
   return (
     <div className={OBSERVATORY_PAGE_CLASS}>
       <ObservatoryHeader />
       <section className={OBSERVATORY_CARD_CLASS}>
+        {/* The search row is RESERVED, not rendered: an input the shell cannot
+            wire up is a control that swallows what a visitor types into it.
+            The shared class is what keeps the reservation the right size. */}
+        <div className={OBSERVATORY_SEARCH_ROW_CLASS} aria-hidden="true">
+          <div className="h-9 max-w-2xl flex-1 rounded-md bg-muted/50" />
+        </div>
         <GraphLoadingBox>Mapping the scene…</GraphLoadingBox>
       </section>
     </div>
@@ -936,19 +955,13 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
-  // A deep link's lookup is a loading state for the WHOLE zero state, not a
-  // silent wait behind it. Every arm downstream reads this one decision: the
-  // map is not drawn, no growth replay starts against a surface that is about
-  // to be replaced by an ego graph, and the hero does not flash a search-first
-  // pitch at a visitor who already named an artist in the URL.
-  const zeroStateView = !hasResolvedArrival
-    ? 'loading'
-    : resolveZeroStateView({
-        isPending: overviewQuery.isPending,
-        isError: overviewQuery.isError,
-        error: overviewQuery.error,
-        hasMap: sceneMap !== null,
-      })
+  const zeroStateView = resolveZeroStateView({
+    isRootLinkPending: !hasResolvedArrival,
+    isPending: overviewQuery.isPending,
+    isError: overviewQuery.isError,
+    error: overviewQuery.error,
+    hasMap: sceneMap !== null,
+  })
   const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   // The growth replay's transport (PSY-1737). Owned HERE rather than inside the
@@ -1003,16 +1016,15 @@ export function GraphObservatory() {
       <ObservatoryHeader />
 
       <section className={OBSERVATORY_CARD_CLASS}>
-        <div className="relative z-50 flex flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center">
+        <div className={OBSERVATORY_SEARCH_ROW_CLASS}>
           <ArtistSearch
             ref={searchInputRef}
             onSelect={handleArtistSelect}
             placeholder="Search an artist to begin, or start anywhere on the map"
             className="max-w-2xl flex-1"
           />
-          {/* Nothing is claimed about the centre while a deep link is still
-              resolving: "The whole map" is the wrong caption over a box that
-              is about to draw one artist's neighborhood. */}
+          {/* "The whole map" is the wrong caption over a box that is about to
+              draw one artist's neighborhood. */}
           {(center || (sceneMap && hasResolvedArrival)) && (
             <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               {center ? (

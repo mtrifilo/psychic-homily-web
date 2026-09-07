@@ -22,10 +22,9 @@ export const metadata: Metadata = {
 }
 
 export default function GraphPage() {
-  // Suspense, not decoration: the Observatory reads `?artist=` through nuqs,
-  // which reads `useSearchParams`, and under `cacheComponents` a client
-  // component that does so has to sit behind a boundary. The fallback is what
-  // the route's static shell paints.
+  // The Observatory reads `?artist=` through nuqs, which reads
+  // `useSearchParams`; under `cacheComponents` a client component that does so
+  // has to sit behind a boundary. The fallback is the route's static shell.
   return (
     <Suspense fallback={<GraphObservatorySkeleton />}>
       <GraphObservatory />

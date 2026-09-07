@@ -956,40 +956,57 @@ describe('GraphObservatory', () => {
   describe('resolveZeroStateView', () => {
     const notBuilt = Object.assign(new Error('not built'), { status: 503 })
     const broken = Object.assign(new Error('boom'), { status: 500 })
+    // Every case below is a visitor who named no artist; the deep-link arm has
+    // its own case at the end.
+    const settledLink = { isRootLinkPending: false }
 
     it('keeps a map it already has through a FAILED background refetch', () => {
       // React Query keeps `data` when a refetch fails, and refetches fire on
       // window focus and reconnect. Ordering the error test first would tear a
       // good on-screen map down and replace it with an error card.
       expect(
-        resolveZeroStateView({ isPending: false, isError: true, error: broken, hasMap: true }),
+        resolveZeroStateView({ ...settledLink, isPending: false, isError: true, error: broken, hasMap: true }),
       ).toBe('map')
       expect(
-        resolveZeroStateView({ isPending: false, isError: true, error: notBuilt, hasMap: true }),
+        resolveZeroStateView({ ...settledLink, isPending: false, isError: true, error: notBuilt, hasMap: true }),
       ).toBe('map')
     })
 
     it('falls back to the hero when the snapshot has never been built', () => {
       expect(
-        resolveZeroStateView({ isPending: false, isError: true, error: notBuilt, hasMap: false }),
+        resolveZeroStateView({ ...settledLink, isPending: false, isError: true, error: notBuilt, hasMap: false }),
       ).toBe('hero')
     })
 
     it('falls back to the hero when a payload arrived but could not be decoded', () => {
       expect(
-        resolveZeroStateView({ isPending: false, isError: false, error: null, hasMap: false }),
+        resolveZeroStateView({ ...settledLink, isPending: false, isError: false, error: null, hasMap: false }),
       ).toBe('hero')
     })
 
     it('offers a retry only for a real failure with nothing to show', () => {
       expect(
-        resolveZeroStateView({ isPending: false, isError: true, error: broken, hasMap: false }),
+        resolveZeroStateView({ ...settledLink, isPending: false, isError: true, error: broken, hasMap: false }),
       ).toBe('unavailable')
     })
 
     it('reports loading only before anything has arrived', () => {
       expect(
-        resolveZeroStateView({ isPending: true, isError: false, error: null, hasMap: false }),
+        resolveZeroStateView({ ...settledLink, isPending: true, isError: false, error: null, hasMap: false }),
+      ).toBe('loading')
+    })
+
+    // PSY-1890: a `?artist=` slug still resolving outranks a drawable map —
+    // the map arm is about to be replaced by that artist's ego graph.
+    it('waits for a pending deep link even when a map is ready to draw', () => {
+      expect(
+        resolveZeroStateView({
+          isRootLinkPending: true,
+          isPending: false,
+          isError: false,
+          error: null,
+          hasMap: true,
+        }),
       ).toBe('loading')
     })
   })

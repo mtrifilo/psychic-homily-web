@@ -58,7 +58,7 @@ import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useCo
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
-import { pickSceneGraphRootArtist } from './sceneGraphRootArtist'
+import { pickSceneGraphRootSlug } from './sceneGraphRootArtist'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 import { sceneArtistCountPhrase, sceneIsolateHookCopy, sceneLabelCountPhrase } from './sceneGraphCopy'
 import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
@@ -141,7 +141,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
    * and the sub-640px teaser cannot drift onto different targets.
    */
   const wholeMapHref = useMemo(
-    () => graphRootHref(pickSceneGraphRootArtist(data?.nodes)?.slug),
+    () => graphRootHref(pickSceneGraphRootSlug(data?.nodes)),
     [data],
   )
 
