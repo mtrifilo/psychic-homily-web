@@ -1,10 +1,10 @@
 /**
- * Wording for the named new-bands module (PSY-1784).
+ * Wording for the latest-additions module.
  *
- * The module replaced Scene Pulse, whose defect was not its layout but its
- * arithmetic: numbers whose definition nobody could state. Every string here
- * therefore states the fact the payload actually selected on, which is why the
- * date helpers below are so fussy about which clock they read.
+ * Every string here states a fact the payload carries, and no string states a
+ * quantity or a period the payload does not. That rule is why the date helpers
+ * below are so fussy about which clock they read and about which of a show's
+ * two possible tenses they are wording.
  */
 
 import { isCalendarDate, parseCalendarDate } from './sceneWeek'
@@ -29,10 +29,10 @@ function formatCalendarMonthDay(iso: string): string | null {
  * `first listed Jul 14` — the catalog bookkeeping timestamp, read in UTC.
  *
  * `first_listed_at` is an INSTANT (`created_at`), not a calendar date, and it is
- * the field the window selected on. Rendering it in the reader's own zone would
+ * the field the list is ordered on. Rendering it in the reader's own zone would
  * put a band "first listed Jul 13" for anyone west of UTC, which contradicts the
- * cutoff that put it in the list at all. UTC is the clock the backend counted
- * in, so UTC is the clock we print.
+ * order it appears in. UTC is the clock the backend sorted in, so UTC is the
+ * clock we print.
  */
 export function formatFirstListed(isoInstant: string): string | null {
   const at = new Date(isoInstant)
@@ -57,9 +57,9 @@ export function formatFirstListed(isoInstant: string): string | null {
  *   - past     → `last played Mar 2, Valley Bar`
  *   - absent   → `no show listed yet`
  *
- * "first" is the one word not used, in either branch. A band added three weeks
- * ago may already have played twice; the payload carries no ordinal, and
- * inventing one would be the same class of unsourced claim the pulse shipped.
+ * "first" is the one word not used, in either branch. A band listed three weeks
+ * ago may already have played twice, and the payload carries no ordinal to say
+ * otherwise.
  *
  * The venue clause drops when the show carries no venue name — a real state for
  * an intent-only listing — rather than printing a dangling comma.

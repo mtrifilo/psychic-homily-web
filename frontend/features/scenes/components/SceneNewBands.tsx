@@ -6,19 +6,18 @@ import { EntityNameLink, SceneSectionHeading } from './sceneChrome'
 import type { SceneDetail, SceneNewArtistRow } from '../types'
 
 /**
- * Named new bands — Scene Pulse's replacement, not its restyling.
+ * The roster's most recently listed bands, named and linked.
  *
- * The pulse's `new_artists_30d` was a bare integer with no names, answering a
- * question participants do ask. This is names instead of a number, and nothing
- * else: no tile, no sparkline, no trend arrow, and no `0`.
+ * Names, never a number: no tile, no sparkline, no trend arrow, and no `0`. The
+ * module HIDES COMPLETELY when there is nothing to name, because a scene with
+ * no bands based in it is a normal scene, not a scene with a zero to report.
  *
- * The module HIDES COMPLETELY when there is nothing to name. A scene with no
- * bands based in it is a normal scene, not a scene with a zero to report.
- *
- * The rows are the roster's most recently listed bands — PSY-1844 removed the
- * endpoint's trailing window, so nothing here may describe the list as covering
- * a period. The section's wording is PSY-1851's to write; this component only
- * stopped saying what had become untrue.
+ * The heading carries NO period claim. `GET /scenes/{slug}/new-artists` is
+ * unwindowed: it returns the newest-first head of the roster with no cutoff, so
+ * any trailing-period wording ("this month") is false on a scene whose newest
+ * band was listed months ago. Per-row `first_listed_at` states when the band's
+ * catalog row was created, which is a date the rows can print exactly, and it
+ * is worded as a listing date rather than as anything about the band.
  */
 
 function NewBandRow({ band }: { band: SceneNewArtistRow }) {
@@ -53,9 +52,7 @@ export function SceneNewBands({ scene }: { scene: SceneDetail }) {
 
   return (
     <section className="border-t border-border pt-4">
-      {/* No period qualifier. This read "last 30 days" until PSY-1844 removed
-          the window; the payload can no longer support any such claim. */}
-      <SceneSectionHeading title={`New / first listed in ${scene.city}`} />
+      <SceneSectionHeading title="Latest additions" />
 
       <ul className="mt-2">
         {bands.map(band => (

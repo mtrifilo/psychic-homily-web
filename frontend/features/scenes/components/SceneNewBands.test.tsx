@@ -83,7 +83,7 @@ describe('SceneNewBands', () => {
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
 
     expect(
-      screen.getByRole('heading', { name: /New \/ first listed in Phoenix/i })
+      screen.getByRole('heading', { name: /Latest additions/i })
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Saguaro Teeth' })).toHaveAttribute(
       'href',
@@ -115,6 +115,18 @@ describe('SceneNewBands', () => {
     expect(
       screen.queryByRole('link', { name: 'Saguaro Teeth' })
     ).not.toBeInTheDocument()
+  })
+
+  // The endpoint is unwindowed, so a heading claiming any trailing period is
+  // false on a scene whose newest band was listed months ago. Anchored, not a
+  // blocklist: a blocklist passes on the next spelling nobody thought of.
+  it('makes no period claim in the heading', () => {
+    givenNewBands([band()])
+    renderWithProviders(<SceneNewBands scene={buildScene()} />)
+
+    expect(
+      screen.getByRole('heading', { name: /Latest additions/i })
+    ).toHaveTextContent(/^Latest additions$/)
   })
 
   // The endpoint's own default owns the cap (PSY-1844), so the module must not
