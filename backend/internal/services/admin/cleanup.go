@@ -14,6 +14,7 @@ import (
 	"psychic-homily-backend/db"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -256,6 +257,12 @@ func (s *CleanupService) pruneDownvotedEntityTags(ctx context.Context) (int64, e
 	}
 
 	// Strict `v.downs > v.ups` so ties stay; `v.downs >= ?` enforces the minimum.
+	//
+	// Tier-gated categories are exempt. A vote threshold that could delete a
+	// crew application would be a second, lower door to the write
+	// TagService.RemoveTagFromEntity refuses below the trusted tier, and two
+	// downvotes is a lower bar than that gate. Folded, because tags.category is
+	// unconstrained.
 	selectSQL := `
 		SELECT et.id
 		FROM entity_tags et
@@ -269,12 +276,17 @@ func (s *CleanupService) pruneDownvotedEntityTags(ctx context.Context) (int64, e
 		   AND v.entity_type = et.entity_type
 		   AND v.entity_id = et.entity_id
 		WHERE v.downs > v.ups AND v.downs >= ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM tags t
+			WHERE t.id = et.tag_id
+			  AND LOWER(TRIM(t.category)) = ?
+		  )
 	`
 
 	if s.tagPruneDryRun {
 		var count int64
 		if err := s.db.WithContext(ctx).
-			Raw("SELECT COUNT(*) FROM ("+selectSQL+") sub", MinDownvotesToPrune).
+			Raw("SELECT COUNT(*) FROM ("+selectSQL+") sub", MinDownvotesToPrune, catalogm.TagCategoryCrew).
 			Scan(&count).Error; err != nil {
 			return 0, err
 		}
@@ -283,7 +295,7 @@ func (s *CleanupService) pruneDownvotedEntityTags(ctx context.Context) (int64, e
 
 	result := s.db.WithContext(ctx).Exec(
 		"DELETE FROM entity_tags WHERE id IN ("+selectSQL+")",
-		MinDownvotesToPrune,
+		MinDownvotesToPrune, catalogm.TagCategoryCrew,
 	)
 	if result.Error != nil {
 		return 0, result.Error

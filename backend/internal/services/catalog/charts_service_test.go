@@ -3796,3 +3796,69 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTopTags_PaginationRanks()
 	suite.Equal([]string{"Alpha Tag", "Bravo Tag"}, []string{page1[0].Name, page1[1].Name})
 	suite.Equal("Charlie Tag", page2[0].Name)
 }
+
+// The chart ranks what shows SOUND like, so a tag naming the booker is not a
+// competitor in it. The crew tag here carries more weight than the genre and
+// would otherwise take rank 1, and the odd-cased row is here because
+// tags.category has no CHECK constraint behind it.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTopTags_ExcludesCrewCategory() {
+	user := suite.createUser("top-tags-crew@test.com")
+	savers := make([]*authm.User, 6)
+	for i := range savers {
+		savers[i] = suite.createUser(fmt.Sprintf("tag-crew-saver-%d@test.com", i))
+	}
+	venue := suite.createVenue("Crew Tag Hall", "Phoenix", "AZ")
+	past := time.Now().UTC().AddDate(0, 0, -6)
+
+	crew := suite.createTag("Rubber Brother Records", "rubber-brother-records", catalogm.TagCategoryCrew)
+	oddCase := suite.createTag("Ascetic House", "ascetic-house", "Crew")
+	genre := suite.createTag("Desert Rock", "desert-rock", catalogm.TagCategoryGenre)
+
+	billed := suite.createArtist("Crew Booked Band")
+	oddBilled := suite.createArtist("Odd Case Booked Band")
+	crewOnly := suite.createArtist("Crew Only Band")
+	suite.applyArtistTag(crew.ID, billed.ID, user.ID)
+	suite.applyArtistTag(genre.ID, billed.ID, user.ID)
+	suite.applyArtistTag(oddCase.ID, oddBilled.ID, user.ID)
+	suite.applyArtistTag(crew.ID, crewOnly.ID, user.ID)
+
+	night := suite.createApprovedShow("Crew night", venue.ID, billed.ID, user.ID, past)
+	suite.addArtistToShow(night.ID, oddBilled.ID, 1, "support")
+	suite.createSaves(night.ID, savers, 6)
+
+	second := suite.createApprovedShow("Second crew night", venue.ID, crewOnly.ID, user.ID, past.AddDate(0, 0, -1))
+	suite.createSaves(second.ID, savers, 4)
+
+	tags, total, err := suite.chartsService.GetTopTags(contracts.ChartWindowQuarter, "", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(1, total, "the total counts what the page can show, not what the filter removed")
+	suite.Require().Len(tags, 1)
+	suite.Equal("Desert Rock", tags[0].Name)
+	suite.Equal(1, tags[0].Rank, "the excluded crew tag leaves no gap in the ranking")
+}
+
+// /library reads the same ranking per user. The filter is in the query rather
+// than over the result because the LIMIT belongs to the database: five
+// descriptive tags, not five rows with the crew ones knocked out afterwards.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetPersonalChartsStats_TopTagsExcludeCrew() {
+	user := suite.createUser("personal-crew-tags@test.com")
+	venue := suite.createVenue("Personal Crew Hall", "Phoenix", "AZ")
+
+	crew := suite.createTag("Personal Crew Booker", "personal-crew-booker", catalogm.TagCategoryCrew)
+	genre := suite.createTag("Personal Desert Rock", "personal-desert-rock", catalogm.TagCategoryGenre)
+	artist := suite.createArtist("Personal Crew Band")
+	suite.applyArtistTag(crew.ID, artist.ID, user.ID)
+	suite.applyArtistTag(genre.ID, artist.ID, user.ID)
+
+	show := suite.createApprovedShow("Personal crew night", venue.ID, artist.ID, user.ID, time.Now().UTC().AddDate(0, 0, -3))
+	// Both arms of the union: a saved show reaches tags through its bill, and a
+	// followed artist reaches them directly.
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
+
+	stats, err := suite.chartsService.GetPersonalChartsStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stats)
+	suite.Require().Len(stats.TopTags, 1)
+	suite.Equal("Personal Desert Rock", stats.TopTags[0].Name)
+}

@@ -386,3 +386,50 @@ func TestNewCleanupService_TagPruneInvalidEnvIgnored(t *testing.T) {
 		t.Error("expected dry-run disabled on invalid bool env")
 	}
 }
+
+// createTagWithCategory is createTag for a category other than genre, so the
+// exemption below can be exercised against a real crew row and against an
+// odd-cased one the column permits.
+func (s *CleanupTagPruneTestSuite) createTagWithCategory(name, category string) *catalogm.Tag {
+	tag := s.createTag(name)
+	s.Require().NoError(s.db.Model(tag).Update("category", category).Error)
+	tag.Category = category
+	return tag
+}
+
+// PSY-2045. Crew membership takes the trusted tier, and two downvotes is a
+// lower bar than that gate: without the exemption, any two accounts could
+// delete through this loop the row TagService.RemoveTagFromEntity refuses them.
+//
+// A genre application under the identical vote shape runs beside it, so the
+// survival is the category rule and not the prune having stopped working.
+func (s *CleanupTagPruneTestSuite) TestPrune_TierGatedCategory_NotPruned() {
+	crew := s.createTagWithCategory("rubber-brother-records", catalogm.TagCategoryCrew)
+	oddCase := s.createTagWithCategory("ascetic-house", "Crew")
+	genre := s.createTag("control-genre")
+
+	crewEdge := s.applyTag(crew, "artist", 71, 0, 2)
+	oddEdge := s.applyTag(oddCase, "artist", 72, 0, 2)
+	genreEdge := s.applyTag(genre, "artist", 73, 0, 2)
+
+	deleted, err := s.service.pruneDownvotedEntityTags(context.Background())
+	s.Require().NoError(err)
+	s.Equal(int64(1), deleted, "only the genre application is prunable")
+	s.True(s.entityTagExists(crewEdge.ID), "a crew application survives a downvote majority")
+	s.True(s.entityTagExists(oddEdge.ID), "the exemption folds case, as every rule reading a stored category does")
+	s.False(s.entityTagExists(genreEdge.ID))
+}
+
+// The dry run counts what the delete would remove, so the exemption has to be
+// in both spellings of the query or the audit log overstates the cycle.
+func (s *CleanupTagPruneTestSuite) TestPrune_DryRun_ExcludesTierGatedCategory() {
+	crew := s.createTagWithCategory("dry-run-crew", catalogm.TagCategoryCrew)
+	genre := s.createTag("dry-run-genre")
+	s.applyTag(crew, "artist", 81, 0, 2)
+	s.applyTag(genre, "artist", 82, 0, 2)
+
+	s.service.tagPruneDryRun = true
+	count, err := s.service.pruneDownvotedEntityTags(context.Background())
+	s.Require().NoError(err)
+	s.Equal(int64(1), count, "the crew application is not counted either")
+}

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"strings"
 	"time"
 
 	"psychic-homily-backend/internal/models/auth"
@@ -70,6 +71,11 @@ var TagEntityTypes = []string{
 	TagEntityFestival,
 	TagEntityCollection,
 }
+
+// MaxTagNameLength is the width of the tags.name column. Stated here because
+// the gorm tag below cannot reference a constant, and a writer that bounds the
+// value it stores has to read the bound from somewhere.
+const MaxTagNameLength = 100
 
 // Tag represents a user-facing tag for categorizing entities.
 type Tag struct {
@@ -167,6 +173,44 @@ func IsValidTagCategory(category string) bool {
 // describe rather than name, so a wrong one is noise a curator fixes.
 func IsAdminMintOnlyTagCategory(category string) bool {
 	return category == TagCategoryCrew
+}
+
+// normalizeTagCategory folds a STORED tags.category value, which the column
+// does not constrain, to the spelling the constants use.
+//
+// IsAdminMintOnlyTagCategory does not fold: its input is the category on the
+// REQUEST, already matched exactly against TagCategories.
+func normalizeTagCategory(category string) string {
+	return strings.ToLower(strings.TrimSpace(category))
+}
+
+// IsTierGatedTagCategory reports whether APPLYING a tag of this category to an
+// entity, or REMOVING one, requires the trusted contributor tier.
+//
+// Crew is gated because the value names a real party, so an application is a
+// claim that a named booker put on a show.
+//
+// Answers a different question from IsAdminMintOnlyTagCategory (who may bring a
+// NAME into the vocabulary) and IsDescriptiveTagCategory (where a tag may be
+// ranked). The three agree on crew.
+func IsTierGatedTagCategory(category string) bool {
+	return normalizeTagCategory(category) == TagCategoryCrew
+}
+
+// IsDescriptiveTagCategory reports whether a category describes its subject
+// rather than naming a party.
+//
+// A ranking that mixes the two reads a booker's name as a genre, so the readers
+// that rank tags against each other keep to the descriptive ones.
+//
+// An unrecognized category counts as descriptive, so a category this build has
+// not heard of is ranked rather than silently dropped.
+//
+// MIRRORS isDescriptiveTagCategory in frontend/features/tags/types.ts, down to
+// the normalization and the unrecognized-category answer;
+// TestDescriptiveTagCategoriesMatchFrontend fails when the two disagree.
+func IsDescriptiveTagCategory(category string) bool {
+	return normalizeTagCategory(category) != TagCategoryCrew
 }
 
 // IsValidTagEntityType returns true if the given entity type is valid for tagging.

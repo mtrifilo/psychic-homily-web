@@ -346,7 +346,7 @@ type TagServiceInterface interface {
 
 	// Entity tagging
 	AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*catalogm.EntityTag, error)
-	RemoveTagFromEntity(tagID uint, entityType string, entityID uint) error
+	RemoveTagFromEntity(tagID uint, entityType string, entityID uint, userID uint) error
 	ListEntityTags(entityType string, entityID uint, userID uint) ([]EntityTagResponse, error)
 
 	// Voting

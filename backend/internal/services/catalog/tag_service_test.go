@@ -541,7 +541,7 @@ func (suite *TagServiceIntegrationTestSuite) TestRemoveTagFromEntity_Success() {
 	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.Require().NoError(err)
 
-	err = suite.tagService.RemoveTagFromEntity(tag.ID, "artist", artistID)
+	err = suite.tagService.RemoveTagFromEntity(tag.ID, "artist", artistID, user.ID)
 	suite.Assert().NoError(err)
 
 	// Verify usage count decremented
@@ -550,7 +550,7 @@ func (suite *TagServiceIntegrationTestSuite) TestRemoveTagFromEntity_Success() {
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestRemoveTagFromEntity_NotFound() {
-	err := suite.tagService.RemoveTagFromEntity(99999, "artist", 99999)
+	err := suite.tagService.RemoveTagFromEntity(99999, "artist", 99999, suite.createTestUser("remover-missing-tag").ID)
 	suite.Assert().Error(err)
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
@@ -1150,15 +1150,28 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Wit
 	suite.Assert().Equal("genre", tag.Category)
 }
 
-// Crew is admin-mint, anyone-apply. The inline-create path is the only tag
+// Crew is admin-mint, trusted-apply. The inline-create path is the only tag
 // creation a non-admin can reach (POST /tags carries the admin middleware), so
-// these four tests are the whole enforcement surface of that rule.
+// these tests are the whole enforcement surface of the mint half.
 
 // No contributor tier mints a crew tag, and the refusal leaves nothing behind:
 // a gate that returned an error after writing the row would still have handed
 // the scene page an unvetted crew.
+//
+// WHICH refusal depends on the caller, and each message is true for the caller
+// that receives it: below the trusted tier the membership rule answers, because
+// the mint refusal ends by telling the caller to apply an existing crew tag
+// instead and that caller may not.
 func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_CrewCategoryRefusedForNonAdmin() {
-	for i, tier := range []string{"contributor", "trusted_contributor"} {
+	for i, tc := range []struct {
+		tier      string
+		code      string
+		saysSoFor string
+	}{
+		{tier: "contributor", code: apperrors.CodeTagCategoryTierOnly, saysSoFor: "trusted contributors"},
+		{tier: "trusted_contributor", code: apperrors.CodeTagCategoryAdminOnly, saysSoFor: "apply an existing crew tag"},
+	} {
+		tier := tc.tier
 		user := suite.createTestUserWithTier(fmt.Sprintf("crew-minter-%d", i), tier)
 		artistID := suite.createArtist(fmt.Sprintf("Crew Booked Band %d", i))
 		name := fmt.Sprintf("unvetted-crew-%d", i)
@@ -1170,10 +1183,9 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Cre
 
 		var tagErr *apperrors.TagError
 		suite.Require().ErrorAs(err, &tagErr, tier)
-		suite.Assert().Equal(apperrors.CodeTagCategoryAdminOnly, tagErr.Code, tier)
-		// The message's second half is the whole point of the refusal: it tells
-		// a contributor the crew is still usable once an admin has named it.
-		suite.Assert().Contains(tagErr.Message, "apply an existing crew tag", tier)
+		suite.Assert().Equal(tc.code, tagErr.Code, tier)
+		// The refusal has to tell this caller what it can do about it.
+		suite.Assert().Contains(tagErr.Message, tc.saysSoFor, tier)
 
 		// Counted, not looked up by slug: the slug is DERIVED from the name, so
 		// a slug miss would also be satisfied by a row written under a slug this
@@ -1223,12 +1235,13 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Cre
 	suite.Assert().Equal(catalogm.TagCategoryCrew, tag.Category)
 }
 
-// The anyone-apply half. Both request shapes a contributor can send for an
-// EXISTING crew tag still succeed: by id, and by a name that only matches after
-// normalization (which is what routes past the outer lookup into the
-// inline-create path where the gate sits).
-func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_ExistingCrewTagAttachesForNonAdmin() {
-	user := suite.createTestUserWithTier("crew-applier", "contributor")
+// The trusted-apply half. Both request shapes a non-admin can send for an
+// EXISTING crew tag still succeed at the trusted tier: by id, and by a name
+// that only matches after normalization (which is what routes past the outer
+// lookup into the inline-create path where the mint gate sits). Which tiers
+// reach this at all is TestCrewMembershipRequiresTrustedTier's subject.
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_ExistingCrewTagAttachesForTrustedNonAdmin() {
+	user := suite.createTestUserWithTier("crew-applier", "trusted_contributor")
 	crew := suite.createTag("rubber-brother-records", catalogm.TagCategoryCrew)
 
 	byID := suite.createArtist("Crew Applied By ID")

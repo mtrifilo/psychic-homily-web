@@ -7408,7 +7408,7 @@ export interface components {
              * @example https://example.com/schemas/AddTagToEntityRequestBody.json
              */
             readonly $schema?: string;
-            /** @description Tag category for new tags (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying an existing crew tag does not. */
+            /** @description Tag category for new tags (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying or removing one requires the trusted contributor tier. */
             category?: string;
             /**
              * Format: int64

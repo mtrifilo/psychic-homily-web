@@ -1223,6 +1223,7 @@ func (s *ChartsService) getTopTagsUncached(window contracts.ChartWindow, scene s
 				AND et.entity_id = sa.artist_id
 		) show_tags ON show_tags.show_id = show_saves.show_id
 		JOIN tags t ON t.id = show_tags.tag_id
+			AND ` + descriptiveTagCategorySQL("t") + `
 		GROUP BY t.id, t.name, t.slug, t.category
 		HAVING SUM(show_saves.save_count) >= ?`
 	coreArgs := append(append([]any{}, showSavesArgs...), catalogm.TagEntityArtist, tagChartActivityFloor)
@@ -2556,6 +2557,7 @@ func (s *ChartsService) personalTopTags(userID uint, limit int) ([]contracts.Per
 			SUM(tagged.cnt)::int AS count
 		FROM tagged
 		JOIN tags t ON t.id = tagged.tag_id
+			AND `+descriptiveTagCategorySQL("t")+`
 		GROUP BY t.id, t.name, t.slug, t.category
 		ORDER BY count DESC, t.name ASC, t.id ASC
 		LIMIT ?

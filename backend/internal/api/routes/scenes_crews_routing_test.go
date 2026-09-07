@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -115,5 +116,77 @@ func TestEntityTagEndpointRefusesNonAdminCrewMint(t *testing.T) {
 	if code, body := doRequest(t, router, http.MethodPost, path, token,
 		[]byte(`{"tag_name":"desert rock","category":"genre"}`)); code != http.StatusNoContent {
 		t.Errorf("minting a genre tag answered %d, want 204; body: %s", code, body)
+	}
+}
+
+// PSY-2045, at the HTTP layer, on the two endpoints the decision names. Who may
+// APPLY an existing crew tag and who may take one off is pinned in the service;
+// this is the assertion that the gate, the error mapping and the routes compose
+// into a 403 on a real request, in both directions.
+//
+// Both tiers run the same requests, so a refusal cannot be a route that answers
+// 403 to everyone, and a genre tag runs beside the crew tag on the same caller,
+// so a refusal cannot be the caller being unable to tag at all.
+func TestEntityTagEndpointGatesCrewMembershipOnTier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	sc := services.NewServiceContainer(td.DB, cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	crew := &catalogm.Tag{Name: "Rubber Brother Records", Slug: "rubber-brother-records", Category: catalogm.TagCategoryCrew}
+	if err := td.DB.Create(crew).Error; err != nil {
+		t.Fatalf("seed crew tag: %v", err)
+	}
+	genre := &catalogm.Tag{Name: "Desert Rock", Slug: "desert-rock-membership", Category: catalogm.TagCategoryGenre}
+	if err := td.DB.Create(genre).Error; err != nil {
+		t.Fatalf("seed genre tag: %v", err)
+	}
+
+	seeder := testhelpers.CreateAdminUser(td.DB)
+
+	for _, tc := range []struct {
+		tier     string
+		wantCrew int
+	}{
+		{tier: "contributor", wantCrew: http.StatusForbidden},
+		{tier: "trusted_contributor", wantCrew: http.StatusNoContent},
+	} {
+		t.Run(tc.tier, func(t *testing.T) {
+			token := mintToken(t, sc, testhelpers.CreateUserWithTier(td.DB, tc.tier))
+			artist := testhelpers.CreateArtist(td.DB, "Crew Membership Band "+tc.tier)
+			tagsPath := fmt.Sprintf("/entities/artist/%d/tags", artist.ID)
+
+			// The control, first, so the caller is known to be able to tag.
+			if code, body := doRequest(t, router, http.MethodPost, tagsPath, token,
+				[]byte(fmt.Sprintf(`{"tag_id":%d}`, genre.ID))); code != http.StatusNoContent {
+				t.Fatalf("applying a genre tag answered %d, want 204; body: %s", code, body)
+			}
+
+			if code, body := doRequest(t, router, http.MethodPost, tagsPath, token,
+				[]byte(fmt.Sprintf(`{"tag_id":%d}`, crew.ID))); code != tc.wantCrew {
+				t.Errorf("applying a crew tag answered %d, want %d; body: %s", code, tc.wantCrew, body)
+			}
+
+			// Removal runs against an edge this caller did not make, which is the
+			// case the rule exists for. Its own entity, so the seeded edge cannot
+			// collide with whatever the apply above did.
+			target := testhelpers.CreateArtist(td.DB, "Crew Removal Band "+tc.tier)
+			if err := td.DB.Create(&catalogm.EntityTag{
+				TagID: crew.ID, EntityType: catalogm.TagEntityArtist, EntityID: target.ID, AddedByUserID: seeder.ID,
+			}).Error; err != nil {
+				t.Fatalf("seed crew edge: %v", err)
+			}
+
+			removePath := fmt.Sprintf("/entities/artist/%d/tags/%d", target.ID, crew.ID)
+			if code, body := doRequest(t, router, http.MethodDelete, removePath, token, nil); code != tc.wantCrew {
+				t.Errorf("removing a crew tag answered %d, want %d; body: %s", code, tc.wantCrew, body)
+			}
+		})
 	}
 }
