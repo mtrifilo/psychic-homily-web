@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -25,14 +26,16 @@ import (
 
 const oauthSignupConsentCookieName = "oauth_signup_consent"
 
-// isGothOAuthProvider names the providers reachable through the chi goth
+// gothOAuthProviders are the providers reachable through the chi goth
 // handshake: sign-in, link, and unlink all admit the same set.
 //
 // Apple is absent from all of them. Its callback is a Huma POST validated
 // against Apple's JWKS, not this handshake, so it never resolves through goth
 // and never carries these flows' cookies.
+var gothOAuthProviders = []string{"google", "github"}
+
 func isGothOAuthProvider(provider string) bool {
-	return provider == "google" || provider == "github"
+	return slices.Contains(gothOAuthProviders, provider)
 }
 
 // randomHexID returns an unguessable hex id of n bytes, or an error rather
@@ -49,9 +52,11 @@ func randomHexID(n int) (string, error) {
 
 // refusalMessage picks the copy an OAuth callback reports for err: the
 // refusal's own words when it is one a caller may act on, and fallback for
-// everything else, so a backend fault never reaches a caller. All three
-// callback surfaces route through here so they cannot disagree about which
-// errors speak for themselves.
+// everything else, so a backend fault never reaches a caller.
+//
+// The two redirect surfaces use this. AppleCallbackHandler consults
+// authRefusalCarriesItsOwnCopy directly because its JSON body carries the
+// error CODE as well as the message, which this does not return.
 func refusalMessage(err error, fallback string) string {
 	var authErr *autherrors.AuthError
 	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
@@ -251,18 +256,26 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 
 	// The provider query parameter goth resolves on is set inside
 	// beginOAuthHandshake, which both this handler and the link share.
-	beginOAuthHandshake(w, r, provider)
+	// No state of our own: gothic generates the nonce for a sign-in.
+	beginOAuthHandshake(w, r, provider, "")
 
 	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
 }
 
 // beginOAuthHandshake hands the request to goth. gothic resolves the provider
 // from the "provider" query parameter, so the path parameter both handlers
-// read has to be copied there first. Shared by sign-in and link so the two
-// start the same handshake and differ only in what the callback finds.
-func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider string) {
+// read has to be copied there first.
+//
+// An empty state leaves gothic to generate its own unguessable nonce, which is
+// what sign-in does. A caller that supplies one is naming a handshake it wants
+// to recognize when the callback comes back; gothic.SetState prefers the
+// request's state over generating one.
+func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state string) {
 	q := r.URL.Query()
 	q.Add("provider", provider)
+	if state != "" {
+		q.Set("state", state)
+	}
 	r.URL.RawQuery = q.Encode()
 
 	gothic.BeginAuthHandler(w, r)

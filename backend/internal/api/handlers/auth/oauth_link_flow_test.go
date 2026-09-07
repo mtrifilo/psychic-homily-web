@@ -115,7 +115,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AttachesIdentityAndIssue
 	}})
 
 	w, req := oauthCallbackRequest("google")
-	req.AddCookie(s.armLinkIntent(user.ID, "google"))
+	s.armLinkIntentOn(req, user.ID, "google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -151,15 +151,18 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IntentIsSingleUse() {
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 		Provider: "google", UserID: "google-replay-subject", Email: "link-replay@test.com",
 	}})
-	cookie := s.armLinkIntent(user.ID, "google")
+	cookie, state := s.armLinkIntent(user.ID, "google")
 
 	w, req := oauthCallbackRequest("google")
 	req.AddCookie(cookie)
+	setCallbackState(req, state)
 	handler.OAuthCallbackHTTPHandler(w, req)
 	s.Contains(w.Header().Get("Location"), "oauth_link=connected")
 
+	// Byte-identical replay: same cookie, same state.
 	replayW, replayReq := oauthCallbackRequest("google")
 	replayReq.AddCookie(cookie)
+	setCallbackState(replayReq, state)
 	handler.OAuthCallbackHTTPHandler(replayW, replayReq)
 
 	s.assertLinkRefusal(replayW, autherrors.ErrOAuthLinkExpired().UserMessage())
@@ -198,6 +201,39 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_UnknownIntentDoesNotFall
 	s.Equal(int64(0), rows)
 }
 
+// An abandoned link leaves its cookie live for the whole TTL. The next
+// callback on this browser is an ORDINARY SIGN-IN, carrying the state gothic
+// minted for it, and it must not be diverted into the link path: on a shared
+// machine that would attach the next person's provider identity to the account
+// whose owner walked away.
+func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StaleIntentDoesNotDivertADifferentHandshake() {
+	abandoner := &authm.User{Email: strPtr("link-abandoner@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(abandoner).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+		Provider: "google",
+		UserID:   "google-next-person-subject",
+		Email:    "next.person@test.com",
+		RawData:  map[string]any{"verified_email": true},
+	}})
+
+	// Armed and abandoned: the cookie survives, its state was never used.
+	cookie, _ := s.armLinkIntent(abandoner.ID, "google")
+
+	// A separate sign-in handshake comes back with its own state.
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(cookie)
+	setCallbackState(req, "a-different-handshakes-state")
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.assertLinkRefusal(w, autherrors.ErrOAuthLinkExpired().UserMessage())
+
+	var rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
+		Where("user_id = ?", abandoner.ID).Count(&rows).Error)
+	s.Equal(int64(0), rows, "a stale intent must not capture another handshake's identity")
+}
+
 // An intent authorizes one provider's handshake, not any handshake.
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ProviderMismatchRefused() {
 	user := &authm.User{Email: strPtr("link-mismatch@test.com"), IsActive: true, EmailVerified: true}
@@ -208,7 +244,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ProviderMismatchRefused(
 	}})
 
 	w, req := oauthCallbackRequest("google")
-	req.AddCookie(s.armLinkIntent(user.ID, "github"))
+	s.armLinkIntentOn(req, user.ID, "github")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.assertLinkRefusal(w, autherrors.ErrOAuthLinkExpired().UserMessage())
@@ -235,7 +271,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IdentityInUseCarriesItsO
 	}})
 
 	w, req := oauthCallbackRequest("google")
-	req.AddCookie(s.armLinkIntent(claimant.ID, "google"))
+	s.armLinkIntentOn(req, claimant.ID, "google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.assertLinkRefusal(w, autherrors.ErrOAuthIdentityInUse("google").UserMessage())
@@ -286,19 +322,41 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkIntent_ExpiredIsNotUsable() {
 	s.Nil(takeOAuthLinkIntent(id))
 }
 
-// armLinkIntent stores an intent and returns the cookie a browser would carry
-// back from the provider.
-func (s *OAuthHandlerIntegrationSuite) armLinkIntent(userID uint, provider string) *http.Cookie {
+// armLinkIntent stores an intent and returns the two things a browser carries
+// back from the provider for it: the cookie, and the state the initiation put
+// on the authorization URL.
+func (s *OAuthHandlerIntegrationSuite) armLinkIntent(userID uint, provider string) (*http.Cookie, string) {
 	s.T().Helper()
 	id, err := randomHexID(oauthLinkIntentIDBytes)
 	s.Require().NoError(err)
 	s.Require().Len(id, 2*oauthLinkIntentIDBytes)
+	state, err := randomHexID(oauthLinkStateBytes)
+	s.Require().NoError(err)
 	storeOAuthLinkIntent(id, oauthLinkIntent{
 		userID:    userID,
 		provider:  provider,
+		state:     state,
 		expiresAt: time.Now().Add(oauthLinkIntentTTL),
 	})
-	return &http.Cookie{Name: oauthLinkIntentCookieName, Value: id}
+	return &http.Cookie{Name: oauthLinkIntentCookieName, Value: id}, state
+}
+
+// armLinkIntentOn puts a pending link on req the way a real handshake would:
+// the cookie the initiation set, and the state it sent to the provider.
+func (s *OAuthHandlerIntegrationSuite) armLinkIntentOn(req *http.Request, userID uint, provider string) (*http.Cookie, string) {
+	s.T().Helper()
+	cookie, state := s.armLinkIntent(userID, provider)
+	req.AddCookie(cookie)
+	setCallbackState(req, state)
+	return cookie, state
+}
+
+// setCallbackState puts the OAuth state the provider echoes back on a callback
+// request. gothic reads it from the query; so does the link intent check.
+func setCallbackState(req *http.Request, state string) {
+	q := req.URL.Query()
+	q.Set("state", state)
+	req.URL.RawQuery = q.Encode()
 }
 
 func (s *OAuthHandlerIntegrationSuite) assertLinkRefusal(w *httptest.ResponseRecorder, wantMessage string) {

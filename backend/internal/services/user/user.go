@@ -489,10 +489,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 		// The column records whether the address was proven, so it can only
 		// carry what the provider actually asserted. An account created from
 		// an address no provider vouched for stays unverified, which closes
-		// every capability gated on the flag until this system's own
-		// verification email flips it. Nothing else may flip it: linking a
-		// provider later does not, because a link proves possession of the
-		// provider account, not of the mailbox.
+		// every capability gated on the flag.
 		EmailVerified: providerAssertsEmailVerified(gothUser),
 	}
 	if gothUser.Email != "" {
@@ -614,6 +611,15 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 
 	if gothUser.UserID == "" {
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
+	}
+
+	// The account has to exist before an identity is attached to it. The
+	// oauth_accounts foreign key would refuse the write anyway, but a refusal
+	// by design keeps this correct if that constraint is ever relaxed, and it
+	// gives the caller an error naming the user rather than a driver message.
+	var exists authm.User
+	if err := s.db.Select("id").First(&exists, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	var bySubject authm.OAuthAccount

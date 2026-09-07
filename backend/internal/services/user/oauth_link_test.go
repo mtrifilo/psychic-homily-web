@@ -231,4 +231,13 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Unknown
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)
+
+	// Refused before the write, not by the write failing: an orphan row keyed
+	// on a user id nothing holds would be an identity nobody can unlink.
+	var rows int64
+	suite.Require().NoError(
+		suite.db.Model(&authm.OAuthAccount{}).
+			Where("provider_user_id = ?", "link-unknown-user-subject").
+			Count(&rows).Error)
+	suite.Equal(int64(0), rows)
 }

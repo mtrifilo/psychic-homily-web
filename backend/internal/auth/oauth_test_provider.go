@@ -59,14 +59,16 @@ const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
 // TestProviderEmailEnvVar and TestProviderUserIDEnvVar override the identity
 // the clone reports, defaulting to the constants above.
 //
-// Unset by every automated suite, and read per request, so flipping either one
-// means restarting the backend. They exist so a person can drive by hand the
-// sequences whose whole point is a SECOND identity or a SECOND address: an
-// account created from an address nothing else holds, and one provider subject
-// squatting an address another subject later presents. The constants alone can
-// produce neither. They carry no privilege of their own, because they are read
-// only by a provider that SetupGoth registers behind the double gate described
-// at the top of this file.
+// Read per request through os.Getenv, so a running backend has to be restarted
+// to change what the clone reports. The E2E harness sets neither; this file's
+// own tests set both through t.Setenv to pin the override and the fallback.
+//
+// They exist so a person can drive by hand the sequences whose whole point is a
+// SECOND identity or a SECOND address: an account created from an address
+// nothing else holds, and one provider subject squatting an address another
+// subject later presents. The constants alone can produce neither. They carry
+// no privilege of their own, because they are read only by a provider that
+// SetupGoth registers behind the double gate described at the top of this file.
 const (
 	TestProviderEmailEnvVar  = "OAUTH_TEST_PROVIDER_EMAIL"
 	TestProviderUserIDEnvVar = "OAUTH_TEST_PROVIDER_USER_ID"

@@ -41,10 +41,20 @@ const (
 	oauthLinkErrorParam  = "oauth_link_error"
 )
 
-// oauthLinkIntent records which account a pending OAuth link belongs to.
+// oauthLinkIntent records which account a pending OAuth link belongs to, and
+// which handshake it was armed for.
+//
+// state is the OAuth state parameter this intent's initiation put on the
+// provider's authorization URL. Binding to it is what keeps an intent from
+// being spent by a DIFFERENT handshake: without it, an abandoned link leaves
+// the cookie live for its whole TTL, and the next callback on this browser,
+// including an ordinary sign-in, is diverted into the link path. On a shared
+// machine that would attach the next person's provider identity to the
+// account whose owner started the abandoned link.
 type oauthLinkIntent struct {
 	userID    uint
 	provider  string
+	state     string
 	expiresAt time.Time
 }
 
@@ -88,8 +98,12 @@ func takeOAuthLinkIntent(id string) *oauthLinkIntent {
 	return &intent
 }
 
-// oauthLinkIntentIDBytes sizes the intent id.
-const oauthLinkIntentIDBytes = 32
+// oauthLinkIntentIDBytes sizes the intent id, oauthLinkStateBytes the OAuth
+// state a link initiation supplies.
+const (
+	oauthLinkIntentIDBytes = 32
+	oauthLinkStateBytes    = 32
+)
 
 func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.Cookie {
 	secure := false
@@ -142,9 +156,20 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// gothic generates its own state when the request carries none. Supplying
+	// one here is what lets the callback check that the intent it found was
+	// armed for the handshake that just came back.
+	state, err := randomHexID(oauthLinkStateBytes)
+	if err != nil {
+		logger.AuthError(ctx, "oauth_link_state_failed", err, "provider", provider)
+		http.Error(w, "Failed to start account connection", http.StatusInternalServerError)
+		return
+	}
+
 	storeOAuthLinkIntent(intentID, oauthLinkIntent{
 		userID:    user.ID,
 		provider:  provider,
+		state:     state,
 		expiresAt: time.Now().Add(oauthLinkIntentTTL),
 	})
 	http.SetCookie(w, h.newLinkIntentCookie(intentID, int(oauthLinkIntentTTL.Seconds())))
@@ -154,7 +179,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		"user_id", user.ID,
 	)
 
-	beginOAuthHandshake(w, r, provider)
+	beginOAuthHandshake(w, r, provider, state)
 }
 
 // completeOAuthLink finishes a callback that carried a link intent. It never
@@ -177,12 +202,16 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 		return
 	}
 
-	// The intent names the provider it was started for. A callback for any
-	// other provider is not the handshake this intent authorized.
-	if intent.provider != provider {
-		logger.AuthWarn(ctx, "oauth_link_provider_mismatch",
+	// An intent authorizes ONE handshake: the provider it was started for, and
+	// the state its initiation put on that provider's authorization URL. A
+	// callback that matches neither is a different flow, and diverting it into
+	// the link path would attach whoever just authenticated to the account the
+	// intent names.
+	if intent.provider != provider || intent.state != r.URL.Query().Get("state") {
+		logger.AuthWarn(ctx, "oauth_link_intent_not_for_this_handshake",
 			"intent_provider", intent.provider,
 			"callback_provider", provider,
+			"state_matches", intent.state == r.URL.Query().Get("state"),
 			"user_id", intent.userID,
 		)
 		redirectToLinkResult(w, r, frontendURL, autherrors.ErrOAuthLinkExpired().UserMessage())
