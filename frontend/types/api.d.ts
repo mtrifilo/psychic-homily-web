@@ -5818,6 +5818,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/crews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug crews */
+        get: operations["get-scenes-by-slug-crews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scenes/{slug}/day": {
         parameters: {
             query?: never;
@@ -7242,7 +7259,7 @@ export interface components {
              * @example https://example.com/schemas/AddCollectionTagHandlerRequestBody.json
              */
             readonly $schema?: string;
-            /** @description Tag category for inline creation (genre, locale, other; default: other) */
+            /** @description Tag category for inline creation (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying an existing crew tag does not. */
             category?: string;
             /**
              * Format: int64
@@ -7391,7 +7408,7 @@ export interface components {
              * @example https://example.com/schemas/AddTagToEntityRequestBody.json
              */
             readonly $schema?: string;
-            /** @description Tag category for new tags (genre, locale, other; default: other) */
+            /** @description Tag category for new tags (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying an existing crew tag does not. */
             category?: string;
             /**
              * Format: int64
@@ -10293,7 +10310,7 @@ export interface components {
              */
             readonly $schema?: string;
             /**
-             * @description Tag category (genre, locale, other)
+             * @description Tag category (genre, locale, other, crew)
              * @example genre
              */
             category: string;
@@ -12719,6 +12736,16 @@ export interface components {
             readonly $schema?: string;
             /** @description Public collections relevant to this scene, most scene-local members first */
             collections: components["schemas"]["SceneCollectionSummary"][] | null;
+        };
+        GetSceneCrewsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetSceneCrewsResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Crew tags booking in this scene, most scene shows first */
+            crews: components["schemas"]["SceneCrewSummary"][] | null;
         };
         GetSceneNewArtistsResponseBody: {
             /**
@@ -15669,6 +15696,12 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        SceneCrewSummary: {
+            name: string;
+            /** Format: int64 */
+            show_count: number;
+            slug: string;
         };
         SceneDayResponse: {
             /**
@@ -32612,6 +32645,41 @@ export interface operations {
             };
         };
     };
+    "get-scenes-by-slug-crews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetSceneCrewsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-scenes-by-slug-day": {
         parameters: {
             query?: never;
@@ -34144,7 +34212,7 @@ export interface operations {
     "get-tags": {
         parameters: {
             query?: {
-                /** @description Filter by category (genre, locale, other) */
+                /** @description Filter by category (genre, locale, other, crew) */
                 category?: string;
                 /** @description Search tags by name */
                 search?: string;
@@ -34285,7 +34353,7 @@ export interface operations {
                  */
                 limit?: number;
                 /**
-                 * @description Filter by category (genre, locale, descriptor, era, mood, instrument, technique, origin, status, other)
+                 * @description Filter by category (genre, locale, other, crew)
                  * @example genre
                  */
                 category?: string;

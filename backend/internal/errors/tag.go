@@ -12,6 +12,7 @@ const (
 	CodeEntityTagExists       = "ENTITY_TAG_EXISTS"
 	CodeEntityTagNotFound     = "ENTITY_TAG_NOT_FOUND"
 	CodeTagCreationForbidden  = "TAG_CREATION_FORBIDDEN"
+	CodeTagCategoryAdminOnly  = "TAG_CATEGORY_ADMIN_ONLY"
 	CodeTagNameInvalid        = "TAG_NAME_INVALID"
 	CodeTagMergeInvalid       = "TAG_MERGE_INVALID"
 	CodeTagMergeAliasConflict = "TAG_MERGE_ALIAS_CONFLICT"
@@ -93,6 +94,21 @@ func ErrTagCreationForbidden() *TagError {
 	return &TagError{
 		Code:    CodeTagCreationForbidden,
 		Message: "New users can only apply existing tags. Reach Contributor tier to create new tags.",
+	}
+}
+
+// ErrTagCategoryAdminOnly is returned when a non-admin caller's request would
+// MINT a tag in an admin-only category. Applying an existing tag of that
+// category is unaffected, and the message says so, because on the entity
+// endpoint the two are the same request shape: minting is what happens when the
+// name the caller sent matched nothing.
+//
+// Distinct from ErrTagCreationForbidden, which turns on the caller's trust tier.
+// Only admin clears this one.
+func ErrTagCategoryAdminOnly(category string) *TagError {
+	return &TagError{
+		Code:    CodeTagCategoryAdminOnly,
+		Message: fmt.Sprintf("Only admins can create %s tags. You can still apply an existing %s tag.", category, category),
 	}
 }
 

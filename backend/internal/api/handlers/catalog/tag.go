@@ -64,7 +64,7 @@ func NewTagHandler(
 // ============================================================================
 
 type ListTagsRequest struct {
-	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, other)"`
+	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, other, crew)"`
 	Search   string `query:"search" required:"false" maxLength:"200" doc:"Search tags by name"`
 	ParentID uint   `query:"parent_id" required:"false" doc:"Filter by parent tag ID"`
 	Sort     string `query:"sort" required:"false" doc:"Sort by: usage, name, created (default: usage)"`
@@ -289,7 +289,7 @@ func (h *TagHandler) ListTagEntitiesHandler(ctx context.Context, req *ListTagEnt
 type SearchTagsRequest struct {
 	Query    string `query:"q" maxLength:"200" doc:"Search query" example:"post"`
 	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 10)" example:"10"`
-	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, descriptor, era, mood, instrument, technique, origin, status, other)" example:"genre"`
+	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, other, crew)" example:"genre"`
 }
 
 type SearchTagsResponse struct {
@@ -389,7 +389,7 @@ type AddTagToEntityRequest struct {
 	Body       struct {
 		TagID    uint   `json:"tag_id" required:"false" doc:"Tag ID (provide tag_id or tag_name)"`
 		TagName  string `json:"tag_name" required:"false" doc:"Tag name (with alias resolution; creates tag if not found)"`
-		Category string `json:"category" required:"false" doc:"Tag category for new tags (genre, locale, other; default: other)"`
+		Category string `json:"category" required:"false" doc:"Tag category for new tags (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying an existing crew tag does not."`
 	}
 }
 
@@ -576,7 +576,7 @@ type CreateTagRequest struct {
 		Name        string  `json:"name" doc:"Tag name" example:"post-punk"`
 		Description *string `json:"description" required:"false" doc:"Tag description"`
 		ParentID    *uint   `json:"parent_id" required:"false" doc:"Parent tag ID for hierarchy"`
-		Category    string  `json:"category" doc:"Tag category (genre, locale, other)" example:"genre"`
+		Category    string  `json:"category" doc:"Tag category (genre, locale, other, crew)" example:"genre"`
 		IsOfficial  bool    `json:"is_official" required:"false" doc:"Whether this is an official/canonical tag"`
 	}
 }

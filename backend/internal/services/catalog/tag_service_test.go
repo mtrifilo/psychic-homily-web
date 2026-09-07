@@ -140,6 +140,27 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_Success() {
 	suite.Assert().Nil(tag.CreatedByUserID)
 }
 
+// TestCreateTag_CrewCategory pins the crew category as accepted by the create
+// path's category guard.
+func (suite *TagServiceIntegrationTestSuite) TestCreateTag_CrewCategory() {
+	tag := suite.createTag("Rubber Brother Records", catalogm.TagCategoryCrew)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, tag.Category)
+}
+
+// TestUpdateTag_ToCrewCategory pins the crew category as accepted by the
+// update path's category guard, which is a separate check from the create
+// path's.
+func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_ToCrewCategory() {
+	created := suite.createTag("Local Collective", catalogm.TagCategoryOther)
+
+	crew := catalogm.TagCategoryCrew
+	updated, err := suite.tagService.UpdateTag(created.ID, nil, nil, nil, &crew, nil)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updated)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, updated.Category)
+}
+
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_InvalidCategory() {
 	tag, err := suite.tagService.CreateTag("Test", nil, nil, "invalid", false, nil)
 	suite.Assert().Error(err)
@@ -1127,6 +1148,98 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Wit
 	suite.Require().NoError(err)
 	suite.Require().NotNil(tag)
 	suite.Assert().Equal("genre", tag.Category)
+}
+
+// Crew is admin-mint, anyone-apply. The inline-create path is the only tag
+// creation a non-admin can reach (POST /tags carries the admin middleware), so
+// these four tests are the whole enforcement surface of that rule.
+
+// No contributor tier mints a crew tag, and the refusal leaves nothing behind:
+// a gate that returned an error after writing the row would still have handed
+// the scene page an unvetted crew.
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_CrewCategoryRefusedForNonAdmin() {
+	for i, tier := range []string{"contributor", "trusted_contributor"} {
+		user := suite.createTestUserWithTier(fmt.Sprintf("crew-minter-%d", i), tier)
+		artistID := suite.createArtist(fmt.Sprintf("Crew Booked Band %d", i))
+		name := fmt.Sprintf("unvetted-crew-%d", i)
+
+		before := suite.countTags()
+
+		_, err := suite.tagService.AddTagToEntity(0, name, "artist", artistID, user.ID, catalogm.TagCategoryCrew)
+		suite.Require().Error(err, tier)
+
+		var tagErr *apperrors.TagError
+		suite.Require().ErrorAs(err, &tagErr, tier)
+		suite.Assert().Equal(apperrors.CodeTagCategoryAdminOnly, tagErr.Code, tier)
+		// The message's second half is the whole point of the refusal: it tells
+		// a contributor the crew is still usable once an admin has named it.
+		suite.Assert().Contains(tagErr.Message, "apply an existing crew tag", tier)
+
+		// Counted, not looked up by slug: the slug is DERIVED from the name, so
+		// a slug miss would also be satisfied by a row written under a slug this
+		// test never guessed.
+		suite.Assert().Equal(before, suite.countTags(), tier)
+	}
+}
+
+// countTags is the non-vacuous form of "nothing was written": it cannot be
+// satisfied by a row landing under an unexpected name or slug.
+func (suite *TagServiceIntegrationTestSuite) countTags() int64 {
+	var n int64
+	suite.Require().NoError(suite.db.Model(&catalogm.Tag{}).Count(&n).Error)
+	return n
+}
+
+// The refusal is category-scoped, not a blanket block on the caller: the same
+// contributor still mints in every other category.
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_NonCrewCategoriesStillMint() {
+	user := suite.createTestUserWithTier("open-category-minter", "contributor")
+
+	for i, category := range []string{catalogm.TagCategoryGenre, catalogm.TagCategoryLocale, catalogm.TagCategoryOther} {
+		artistID := suite.createArtist(fmt.Sprintf("Open Category Band %d", i))
+		name := fmt.Sprintf("open-category-%s", category)
+
+		_, err := suite.tagService.AddTagToEntity(0, name, "artist", artistID, user.ID, category)
+		suite.Require().NoError(err, category)
+
+		tag, err := suite.tagService.GetTagBySlug(name)
+		suite.Require().NoError(err, category)
+		suite.Require().NotNil(tag, category)
+		suite.Assert().Equal(category, tag.Category, category)
+	}
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_CrewCategoryAdminMints() {
+	admin := suite.createAdminUser("crew-admin")
+	artistID := suite.createArtist("Admin Crew Booked Band")
+
+	et, err := suite.tagService.AddTagToEntity(0, "rubber-brother-records", "artist", artistID, admin.ID, catalogm.TagCategoryCrew)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(et)
+
+	tag, err := suite.tagService.GetTagBySlug("rubber-brother-records")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal(catalogm.TagCategoryCrew, tag.Category)
+}
+
+// The anyone-apply half. Both request shapes a contributor can send for an
+// EXISTING crew tag still succeed: by id, and by a name that only matches after
+// normalization (which is what routes past the outer lookup into the
+// inline-create path where the gate sits).
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_ExistingCrewTagAttachesForNonAdmin() {
+	user := suite.createTestUserWithTier("crew-applier", "contributor")
+	crew := suite.createTag("rubber-brother-records", catalogm.TagCategoryCrew)
+
+	byID := suite.createArtist("Crew Applied By ID")
+	et, err := suite.tagService.AddTagToEntity(crew.ID, "", "artist", byID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Assert().Equal(crew.ID, et.TagID)
+
+	byName := suite.createArtist("Crew Applied By Name")
+	et, err = suite.tagService.AddTagToEntity(0, "Rubber Brother Records", "artist", byName, user.ID, catalogm.TagCategoryCrew)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(crew.ID, et.TagID)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_TooShortName() {
