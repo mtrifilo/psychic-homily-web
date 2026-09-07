@@ -209,21 +209,29 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
 	}
 
-	// Add provider to query parameters for Goth (following Goth best practices)
-	q := r.URL.Query()
-	q.Add("provider", provider)
-	r.URL.RawQuery = q.Encode()
-
 	logger.AuthDebug(ctx, "oauth_login_request",
 		"provider", provider,
 		"path", r.URL.Path,
 		"cookie_names", requestCookieNames(r),
 	)
 
-	// Use Goth's standard BeginAuthHandler directly
-	gothic.BeginAuthHandler(w, r)
+	// The provider query parameter goth resolves on is set inside
+	// beginOAuthHandshake, which both this handler and the link share.
+	beginOAuthHandshake(w, r, provider)
 
 	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
+}
+
+// beginOAuthHandshake hands the request to goth. gothic resolves the provider
+// from the "provider" query parameter, so the path parameter both handlers
+// read has to be copied there first. Shared by sign-in and link so the two
+// start the same handshake and differ only in what the callback finds.
+func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider string) {
+	q := r.URL.Query()
+	q.Add("provider", provider)
+	r.URL.RawQuery = q.Encode()
+
+	gothic.BeginAuthHandler(w, r)
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
@@ -310,6 +318,16 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		frontendURL = "http://localhost:3000"
 	}
 
+	// A link intent makes this callback an account connection rather than a
+	// sign-in. The cookie is cleared either way, so an abandoned attempt does
+	// not arm the next callback on this browser.
+	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
+		http.SetCookie(w, h.newLinkIntentCookie("", -1))
+		intent, usable := takeOAuthLinkIntent(cookie.Value)
+		h.completeOAuthLink(w, r, provider, intent, usable, frontendURL)
+		return
+	}
+
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
 	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
 	if err != nil {
@@ -368,17 +386,22 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 // their own words rather than as a generic failure. Every other code stays
 // generic, so a backend fault never reaches a caller.
 //
-// A code added here reaches three surfaces, all of them in this file and
-// AppleCallbackHandler: the browser redirect to the frontend auth page, the
-// loopback redirect to a CLI callback, and the Apple callback's JSON body. It
-// therefore also decides what an unauthenticated caller learns about why the
-// attempt failed.
+// A code added here reaches four surfaces, all of them in this package: the
+// browser redirect to the frontend auth page, the loopback redirect to a CLI
+// callback, the Apple callback's JSON body, and the redirect back to Settings
+// after a link attempt. It therefore also decides what an unauthenticated
+// caller learns about why the attempt failed.
 //
 // It governs only those two callbacks. Other handlers in this package answer
 // with a code of their own and do not consult it.
 func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
-	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:
+	case autherrors.CodeTermsAcceptanceRequired,
+		autherrors.CodeUserExists,
+		autherrors.CodeOAuthLinkRefused,
+		autherrors.CodeOAuthIdentityInUse,
+		autherrors.CodeOAuthProviderAlreadyLinked,
+		autherrors.CodeOAuthLinkExpired:
 		return true
 	default:
 		return false

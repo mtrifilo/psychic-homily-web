@@ -117,7 +117,13 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnverifiedEmailBlocked() {
 	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("Some Artist")}}
 
 	_, err := s.handler.CreateShowHandler(ctx, req)
-	s.Error(err)
+	s.Require().Error(err)
+	// The specific status, not just any error: this request also names an
+	// unverified venue, so a bare s.Error would pass on a later refusal and
+	// stop proving that the verification gate fired at all.
+	var se huma.StatusError
+	s.Require().True(errors.As(err, &se))
+	s.Equal(http.StatusForbidden, se.GetStatus())
 }
 
 // TestUpdateShow_RejectsTooManyArtists: PSY-1267 — the update path (no Resolve) caps

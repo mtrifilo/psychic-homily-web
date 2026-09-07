@@ -235,14 +235,17 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
 			// The address is the whole basis for treating this provider
-			// identity as the account's owner, so the provider has to vouch
-			// for it. Without that, anyone who can make a provider report a
-			// chosen address signs in as whoever already holds it.
-			if !providerAssertsEmailVerified(gothUser) {
-				logger.Default().Warn("oauth_link_refused_unverified_email",
+			// identity as the account's owner, so both sides have to have
+			// proven the mailbox. See authm.OAuthLinkByEmailAllowed for what
+			// each half closes. The authenticated link from Settings, named in
+			// the refusal, is how a user gets past this.
+			if !authm.OAuthLinkByEmailAllowed(providerAssertsEmailVerified(gothUser), &existingUser) {
+				logger.Default().Warn("oauth_link_refused_unproven_email",
 					"provider", provider,
+					"provider_asserts_verified", providerAssertsEmailVerified(gothUser),
+					"account_email_verified", existingUser.EmailVerified,
 					"email_hash", logger.HashEmail(gothUser.Email))
-				return nil, apperrors.ErrUserExists(gothUser.Email)
+				return nil, apperrors.ErrOAuthLinkRefused(gothUser.Email)
 			}
 			return s.linkOAuthAccount(&existingUser, gothUser, provider)
 		}
@@ -483,10 +486,14 @@ func (s *UserService) createNewUserOauthWithConsent(
 		LastName:  &gothUser.LastName,
 		AvatarURL: &gothUser.AvatarURL,
 		IsActive:  true,
-		// Stamped for every OAuth-created account. Nothing here consults the
-		// provider's verification assertion, so an address the provider would
-		// not vouch for is recorded as verified.
-		EmailVerified: true,
+		// The column records whether the address was proven, so it can only
+		// carry what the provider actually asserted. An account created from
+		// an address no provider vouched for stays unverified, which closes
+		// every capability gated on the flag until this system's own
+		// verification email flips it. Nothing else may flip it: linking a
+		// provider later does not, because a link proves possession of the
+		// provider account, not of the mailbox.
+		EmailVerified: providerAssertsEmailVerified(gothUser),
 	}
 	if gothUser.Email != "" {
 		user.Email = &gothUser.Email
@@ -582,6 +589,79 @@ func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 		return apperrors.ErrAgeConfirmationRequired("attested age below minimum for OAuth signup")
 	}
 	return nil
+}
+
+// LinkOAuthAccountToUser attaches a provider identity to the account named by
+// userID, which the caller has already authenticated. The provider's address
+// plays no part: the session is the proof of ownership, so an address that
+// matches nothing, matches another account, or is absent entirely all link the
+// same way.
+//
+// It refuses three shapes rather than resolving them, because each one would
+// otherwise silently retarget who can sign in as whom:
+//
+//   - the identity is attached to a different account (CodeOAuthIdentityInUse)
+//   - this account already holds another identity from the same provider
+//     (CodeOAuthProviderAlreadyLinked)
+//   - the provider returned no subject, the value the identity resolves on
+//
+// It does not touch users.email or users.email_verified. A provider account is
+// not evidence about the mailbox on the account it is being attached to.
+func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if gothUser.UserID == "" {
+		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
+	}
+
+	var user authm.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	var bySubject authm.OAuthAccount
+	err := s.db.
+		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
+		First(&bySubject).Error
+	switch {
+	case err == nil:
+		if bySubject.UserID != userID {
+			logger.Default().Warn("oauth_link_refused_identity_in_use",
+				"provider", provider,
+				"user_id", userID)
+			return nil, apperrors.ErrOAuthIdentityInUse(provider)
+		}
+		// Already this user's identity. Refresh the stored profile and tokens
+		// so a repeat connect is idempotent rather than an error.
+		return s.linkOAuthAccount(&user, gothUser, provider)
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		// A failed lookup is not proof that the identity is unclaimed, so it
+		// must not fall through to attaching it.
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	var byProvider authm.OAuthAccount
+	err = s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
+	switch {
+	case err == nil:
+		logger.Default().Warn("oauth_link_refused_provider_already_linked",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	linked, err := s.linkOAuthAccount(&user, gothUser, provider)
+	if err != nil {
+		return nil, err
+	}
+	logger.Default().Info("oauth_link_succeeded",
+		"provider", provider,
+		"user_id", userID)
+	return linked, nil
 }
 
 // linkOAuthAccount links OAuth account to existing user

@@ -288,7 +288,9 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_NewUser() {
 	assert.Equal(suite.T(), "New", *user.FirstName)
 	assert.Equal(suite.T(), "User", *user.LastName)
 	assert.True(suite.T(), user.IsActive)
-	assert.True(suite.T(), user.EmailVerified)
+	// This gothUser carries no RawData, so no provider vouched for the
+	// address and the account it creates is unverified.
+	assert.False(suite.T(), user.EmailVerified)
 
 	var oauthCount int64
 	err = suite.db.Model(&authm.OAuthAccount{}).Where("user_id = ? AND provider = ?", user.ID, "google").Count(&oauthCount).Error

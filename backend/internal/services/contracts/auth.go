@@ -118,6 +118,10 @@ type AuthServiceInterface interface {
 	OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error
 	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error)
 	OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *OAuthSignupConsent) (*authm.User, string, error)
+	// CompleteOAuthLink attaches the handshake's identity to an already
+	// authenticated userID and issues no session. Refuses with the typed
+	// AuthErrors UserServiceInterface.LinkOAuthAccountToUser documents.
+	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
 	RefreshUserToken(user *authm.User) (string, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
@@ -149,9 +153,11 @@ type JWTServiceInterface interface {
 // AppleAuthServiceInterface defines the contract for Apple authentication operations.
 type AppleAuthServiceInterface interface {
 	ValidateIdentityToken(identityToken string) (*AppleIdentityTokenClaims, error)
-	// Refuses with a typed AuthError carrying CodeUserExists when the claims'
-	// address already belongs to an account and they do not assert Apple
-	// verified it. claims must already be verified by the caller.
+	// Refuses with a typed AuthError carrying CodeOAuthLinkRefused when the
+	// claims' address already belongs to an account this identity may not join
+	// on the address alone. Creates with email_verified from the claim, so an
+	// address Apple will not vouch for produces an unverified account. claims
+	// must already be verified by the caller.
 	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error)
 	GenerateToken(user *authm.User) (string, error)
 }

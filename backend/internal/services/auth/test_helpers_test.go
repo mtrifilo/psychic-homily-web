@@ -27,6 +27,10 @@ func (n *nilDBUserService) FindOrCreateUserWithConsent(gothUser goth.User, provi
 	return nil, fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) AuthenticateUserWithPassword(email, password string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }

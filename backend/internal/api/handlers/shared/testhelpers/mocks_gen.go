@@ -478,6 +478,7 @@ type MockAuthService struct {
 	OAuthLoginFn               func(http.ResponseWriter, *http.Request, string) error
 	OAuthCallbackFn            func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error)
 	OAuthCallbackWithConsentFn func(http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent) (*authm.User, string, error)
+	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
 	GetUserProfileFn           func(uint) (*authm.User, error)
 	RefreshUserTokenFn         func(*authm.User) (string, error)
 	LogoutFn                   func(http.ResponseWriter, *http.Request) error
@@ -501,6 +502,12 @@ func (m *MockAuthService) OAuthCallbackWithConsent(w http.ResponseWriter, r *htt
 		return m.OAuthCallbackWithConsentFn(w, r, provider, consent)
 	}
 	return nil, "", nil
+}
+func (m *MockAuthService) CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error) {
+	if m.CompleteOAuthLinkFn != nil {
+		return m.CompleteOAuthLinkFn(w, r, provider, userID)
+	}
+	return nil, nil
 }
 func (m *MockAuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	if m.GetUserProfileFn != nil {
@@ -4063,6 +4070,7 @@ type MockUserService struct {
 	ListUsersFn                        func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
 	FindOrCreateUserFn                 func(goth.User, string) (*authm.User, error)
 	FindOrCreateUserWithConsentFn      func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
+	LinkOAuthAccountToUserFn           func(uint, goth.User, string) (*authm.User, error)
 	AuthenticateUserWithPasswordFn     func(string, string) (*authm.User, error)
 	CreateUserWithPasswordFn           func(string, string, string, string) (*authm.User, error)
 	CreateUserWithPasswordWithLegalFn  func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
@@ -4124,6 +4132,12 @@ func (m *MockUserService) FindOrCreateUser(gothUser goth.User, provider string) 
 func (m *MockUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if m.FindOrCreateUserWithConsentFn != nil {
 		return m.FindOrCreateUserWithConsentFn(gothUser, provider, consent)
+	}
+	return nil, nil
+}
+func (m *MockUserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+	if m.LinkOAuthAccountToUserFn != nil {
+		return m.LinkOAuthAccountToUserFn(userID, gothUser, provider)
 	}
 	return nil, nil
 }

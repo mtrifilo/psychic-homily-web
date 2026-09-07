@@ -49,6 +49,20 @@ func setupAuthRoutes(rc RouteContext) {
 		r.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
 	})
 
+	// Connecting a provider to an account you are already signed in to. A raw
+	// chi route rather than a Huma operation for the same reason login and
+	// callback are: it answers with a redirect into the provider's consent
+	// screen, not a JSON body.
+	//
+	// JWTMiddleware is what makes this the authenticated path. The account the
+	// identity attaches to comes from the session, never from the address the
+	// provider returns, which is the whole difference from /auth/login.
+	rc.Router.Group(func(r chi.Router) {
+		r.Use(authRateLimiter)
+		r.Use(middleware.JWTMiddleware(rc.SC.JWT))
+		r.Get("/auth/link/{provider}", oauthHTTPHandler.OAuthLinkHTTPHandler)
+	})
+
 	// Rate-limited auth API endpoints.
 	//
 	// PSY-1598: on the MAIN api via a Huma group rather than its own humachi.New —

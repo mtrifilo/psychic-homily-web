@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/features/auth'
 // Direct backend origin, never the Next.js /api proxy: connecting an account
@@ -52,13 +53,64 @@ function GoogleIcon({ className }: { className?: string }) {
   )
 }
 
+/** How the backend reports a finished link attempt on the redirect back here. */
+export const OAUTH_LINK_RESULT_PARAM = 'oauth_link'
+export const OAUTH_LINK_ERROR_PARAM = 'oauth_link_error'
+
+type OAuthLinkResult =
+  | { status: 'connected' }
+  | { status: 'error'; message: string }
+
+function readOAuthLinkResult(
+  params: URLSearchParams
+): OAuthLinkResult | null {
+  const failed = params.get(OAUTH_LINK_ERROR_PARAM)
+  if (failed) return { status: 'error', message: failed }
+  return params.get(OAUTH_LINK_RESULT_PARAM) ? { status: 'connected' } : null
+}
+
+function withoutOAuthLinkResult(params: URLSearchParams): string {
+  const next = new URLSearchParams(params.toString())
+  next.delete(OAUTH_LINK_RESULT_PARAM)
+  next.delete(OAUTH_LINK_ERROR_PARAM)
+  return next.toString()
+}
+
 export function OAuthAccounts() {
   const { data, isLoading, error } = useOAuthAccounts()
   const unlinkMutation = useUnlinkOAuthAccount()
   const [unlinkProvider, setUnlinkProvider] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const router = useRouter()
+
+  // The link result arrives as a query parameter because the backend returns
+  // the browser here by redirect, a fresh page load with no other channel to
+  // it.
+  //
+  // Captured at mount rather than derived on every render, so the banner
+  // survives the rewrite below that takes the parameters back out of the URL.
+  // The rewrite is what stops a reload from replaying a result the user has
+  // already seen, and the ref is what keeps it to one rewrite: the effect
+  // depends on the router, whose identity is not guaranteed stable.
+  const [linkResult] = useState<OAuthLinkResult | null>(() =>
+    readOAuthLinkResult(searchParams)
+  )
+  const linkResultStripped = useRef(false)
+  useEffect(() => {
+    if (!linkResult || linkResultStripped.current) return
+    linkResultStripped.current = true
+
+    const query = withoutOAuthLinkResult(searchParams)
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }, [linkResult, searchParams, pathname, router])
 
   const handleConnectGoogle = () => {
-    window.location.href = `${OAUTH_BACKEND_URL}/auth/login/google`
+    // The AUTHENTICATED link route, not /auth/login/google. The account the
+    // identity attaches to comes from this session; the sign-in route resolves
+    // it from the address Google returns, which is what refuses a user whose
+    // address it cannot match to a verified account.
+    window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google`
   }
 
   const handleUnlink = async () => {
@@ -135,6 +187,21 @@ export function OAuthAccounts() {
               </Button>
             )}
           </div>
+
+          {/* Result of a link attempt that redirected back to this page */}
+          {linkResult?.status === 'error' && (
+            <div role="alert" className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{linkResult.message}</span>
+            </div>
+          )}
+
+          {linkResult?.status === 'connected' && (
+            <div role="status" className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>Account connected successfully</span>
+            </div>
+          )}
 
           {/* Error display */}
           {error && (

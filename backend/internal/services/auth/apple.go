@@ -116,10 +116,13 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 // FindOrCreateAppleUser finds or creates a user from Apple Sign In data.
 // claims must already be verified; the caller is responsible for that.
 //
-// Returns a typed *apperrors.AuthError with CodeUserExists when the address
-// already belongs to an account and the claims do not assert Apple verified
-// it. Callers that render a refusal differently from a fault must
-// discriminate on that code.
+// Returns a typed *apperrors.AuthError with CodeOAuthLinkRefused when the
+// address already belongs to an account that this identity may not join on the
+// strength of the address alone (authm.OAuthLinkByEmailAllowed). Callers that
+// render a refusal differently from a fault must discriminate on that code.
+//
+// A created account carries email_verified from the token's own claim, so an
+// address Apple will not vouch for produces an unverified account.
 func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
 	appleUserID := claims.Subject
 
@@ -157,13 +160,17 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 		switch {
 		case err == nil:
 			// The address is the only thing tying this Apple identity to an
-			// account that already exists, so Apple has to assert it verified
-			// the address.
-			if !claims.IsEmailVerified() {
-				logger.Default().Warn("oauth_link_refused_unverified_email",
+			// account that already exists, so both sides have to have proven
+			// the mailbox. See authm.OAuthLinkByEmailAllowed for what each
+			// half closes. The authenticated link from Settings, named in the
+			// refusal, is how a user gets past this.
+			if !authm.OAuthLinkByEmailAllowed(claims.IsEmailVerified(), &existingUser) {
+				logger.Default().Warn("oauth_link_refused_unproven_email",
 					"provider", "apple",
+					"provider_asserts_verified", claims.IsEmailVerified(),
+					"account_email_verified", existingUser.EmailVerified,
 					"email_hash", logger.HashEmail(claims.Email))
-				return nil, apperrors.ErrUserExists(claims.Email)
+				return nil, apperrors.ErrOAuthLinkRefused(claims.Email)
 			}
 			// Link Apple account to existing user
 			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
@@ -175,7 +182,7 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	}
 
 	// Create a new user
-	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName)
+	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName, claims.IsEmailVerified())
 }
 
 // GenerateToken creates a JWT for the user
@@ -206,7 +213,7 @@ func (s *AppleAuthService) linkAppleAccount(user *authm.User, appleUserID, email
 }
 
 // createAppleUser creates a new user from Apple Sign In data
-func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string) (*authm.User, error) {
+func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string, emailVerified bool) (*authm.User, error) {
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -218,10 +225,12 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 		FirstName: &firstName,
 		LastName:  &lastName,
 		IsActive:  true,
-		// Stamped for every Apple-created account. This path is reached with an
-		// unverified claim too, so the column records verification the token
-		// did not assert.
-		EmailVerified: true,
+		// The column records whether the address was proven, so it carries
+		// only what the identity token asserted. An account created from an
+		// address Apple would not vouch for stays unverified, which closes
+		// every capability gated on the flag until this system's own
+		// verification email flips it.
+		EmailVerified: emailVerified,
 	}
 	if email != "" {
 		user.Email = &email
