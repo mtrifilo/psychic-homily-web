@@ -23,17 +23,29 @@ func TestAuthLinkRouteRequiresASession(t *testing.T) {
 }
 
 // Its sibling stays open, because it is how a caller gets a session at all.
-// Asserting the redirect rather than "not 401": a deleted route answers 404,
-// which is also not 401, so the weaker check would pass on a missing route.
+//
+// Registration is asserted against the BUILT tree, which is the only place the
+// parameter name and the single registration are observable at all.
+//
+// The served request then pins 400. Only cmd/server calls SetupGoth, so this
+// binary has no goth provider registered and gothic answers 400 for one it
+// cannot resolve. That exact status is what proves the request REACHED the
+// handler with no credential: 401 would mean the route gained a credential
+// requirement, and anything earlier would mean it never arrived.
 func TestAuthLoginRouteStaysUnauthenticated(t *testing.T) {
 	router := newTestRouter(t)
+
+	registered := matching(chiRoutes(t, router), http.MethodGet, "/auth/login/{}")
+	if len(registered) != 1 || registered[0] != "/auth/login/{provider}" {
+		t.Fatalf("GET /auth/login/{provider} registrations = %v, want exactly [/auth/login/{provider}]", registered)
+	}
 
 	req := httptest.NewRequest("GET", "/auth/login/google", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Errorf("GET /auth/login/google with no credential = %d, want %d (the provider redirect)",
-			w.Code, http.StatusTemporaryRedirect)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("GET /auth/login/google with no credential = %d, want %d (gothic's answer for an unregistered provider, which is how far an uncredentialed request gets)",
+			w.Code, http.StatusBadRequest)
 	}
 }

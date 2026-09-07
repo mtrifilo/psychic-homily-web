@@ -25,8 +25,9 @@ func authorizedFauxUser(t *testing.T) goth.User {
 	return user
 }
 
-// The link-by-email path only links an address the provider vouches for, and
-// stock faux supplies no RawData, so the clone has to stamp the flag itself.
+// The create path records email_verified from what the provider vouches for,
+// and stock faux supplies no RawData, so the clone has to stamp the flag
+// itself.
 func TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault(t *testing.T) {
 	t.Setenv(TestProviderUnverifiedEmailEnvVar, "")
 
