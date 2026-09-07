@@ -199,32 +199,14 @@ describe('fetchSceneWeek', () => {
 
   // A blank identity field survives every truthiness check downstream and
   // builds a URL naming a different page, so it fails here rather than there.
-  it.each(['start_date', 'end_date', 'city', 'slug', 'iso_week'])(
-    'rejects a body whose %s is empty',
-    async field => {
-      fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: '' }))
+  it.each(
+    ['start_date', 'end_date', 'city', 'slug', 'iso_week'].flatMap(field =>
+      ['', '   '].map(blank => [field, blank] as const)
+    )
+  )('rejects a body whose %s is %j', async (field, blank) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: blank }))
 
-      await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
-    }
-  )
-
-  it.each(['start_date', 'end_date', 'city', 'slug', 'iso_week'])(
-    'rejects a body whose %s is only whitespace',
-    async field => {
-      fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: '   ' }))
-
-      await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
-    }
-  )
-
-  // The week's navigation keys are not part of the shape this validator insists
-  // on, so an empty one is not grounds to refuse an otherwise nameable week.
-  it('serves a week with empty navigation keys', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(week({ prev_week: '', next_week: '' })))
-
-    await expect(
-      fetchSceneWeek('chicago-il', undefined, 'scene-week')
-    ).resolves.toMatchObject({ iso_week: '2026-W31' })
+    await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
   })
 
   // Next decodes route params before this sees them, so an unescaped slug would

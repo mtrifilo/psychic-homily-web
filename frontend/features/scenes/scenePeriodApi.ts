@@ -74,23 +74,18 @@ interface ScenePeriodSpec<T> {
  * a consumer dereferences blindly turns a crash into the ordinary "no data"
  * path; the rest of the payload is already optional-safe.
  *
- * The two field lists differ only in how they treat `''`. Blankness is a
- * content check rather than a shape check, and it is applied to exactly the
- * fields whose blank value has no meaning; a period whose own name is missing
- * cannot be served, while a period with no neighbour is ordinary.
+ * Takes the whole spec rather than its two field lists: they have the same
+ * type, and passing them positionally would let a swap invert the rule with no
+ * type error.
  */
-function asPayload<T>(
-  body: unknown,
-  identityFields: readonly string[],
-  presenceFields: readonly string[]
-): T | null {
+function asPayload<T>(body: unknown, spec: ScenePeriodSpec<T>): T | null {
   if (!body || typeof body !== 'object') return null
   const record = body as Record<string, unknown>
-  for (const field of identityFields) {
+  for (const field of spec.identityFields) {
     const value = record[field]
     if (typeof value !== 'string' || value.trim() === '') return null
   }
-  for (const field of presenceFields) {
+  for (const field of spec.presenceFields) {
     if (typeof record[field] !== 'string') return null
   }
   return body as T
@@ -114,8 +109,7 @@ async function fetchPayload<T>(
     // adopts the promise AFTER the block exits, so a malformed body would reject
     // past this catch and 500 the route instead of reaching the caller's
     // fallback.
-    if (res.ok)
-      return asPayload<T>(await res.json(), spec.identityFields, spec.presenceFields)
+    if (res.ok) return asPayload<T>(await res.json(), spec)
     // 404 is the expected answer for an unknown slug, a below-threshold scene,
     // or a key that does not exist (2025-W53, 2026-02-30) — not an error worth
     // reporting.

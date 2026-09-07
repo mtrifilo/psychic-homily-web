@@ -185,23 +185,15 @@ describe('fetchSceneDay', () => {
 
   // A blank identity field survives every truthiness check downstream and
   // builds a URL naming a different page, so it fails here rather than there.
-  it.each(['date', 'city', 'slug', 'iso_week'])(
-    'rejects a body whose %s is empty',
-    async field => {
-      fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: '' }))
+  it.each(
+    ['date', 'city', 'slug', 'iso_week'].flatMap(field =>
+      ['', '   '].map(blank => [field, blank] as const)
+    )
+  )('rejects a body whose %s is %j', async (field, blank) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: blank }))
 
-      await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
-    }
-  )
-
-  it.each(['date', 'city', 'slug', 'iso_week'])(
-    'rejects a body whose %s is only whitespace',
-    async field => {
-      fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: '   ' }))
-
-      await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
-    }
-  )
+    await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+  })
 
   // THE CASE THAT KEEPS THE WINDOW EDGES SERVABLE. The backend sends an empty
   // `prev_date` on the first servable day and an empty `next_date` on the last;

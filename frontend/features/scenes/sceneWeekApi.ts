@@ -32,7 +32,9 @@ function weekSpec(slug: string, service: SceneWeekService) {
     // would survive every truthiness check and produce a URL naming a different
     // page, so blank is rejected alongside absent.
     identityFields: ['start_date', 'end_date', 'city', 'slug', 'iso_week'] as const,
-    // Empty: every field this validator insists on names the week itself.
+    // Empty by decision, not by oversight. `prev_week`/`next_week` are
+    // navigation rather than identity, and this contract deliberately does not
+    // cover them at all.
     presenceFields: [] as const,
     // `=== true` rather than a truthy test, because this reads an untrusted
     // wire payload. The type says boolean; a body that says anything else must
