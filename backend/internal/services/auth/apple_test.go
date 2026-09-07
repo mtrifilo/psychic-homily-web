@@ -436,7 +436,8 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 
 	svc := s.newService()
 	claims := &contracts.AppleIdentityTokenClaims{
-		Email: "link-apple@example.com",
+		Email:         "link-apple@example.com",
+		EmailVerified: true,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-link",
 		},
@@ -468,7 +469,8 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	// Since first user already has an apple OAuth, this looks up by apple subject (not found),
 	// then finds user by email and links the new apple ID
 	claims2 := &contracts.AppleIdentityTokenClaims{
-		Email: "shared-email@example.com",
+		Email:         "shared-email@example.com",
+		EmailVerified: true,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-second",
 		},

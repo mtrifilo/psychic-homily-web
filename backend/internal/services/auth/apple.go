@@ -16,6 +16,8 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -111,9 +113,23 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 	return claims, nil
 }
 
-// FindOrCreateAppleUser finds or creates a user from Apple Sign In data
+// FindOrCreateAppleUser finds or creates a user from Apple Sign In data.
+// claims must already be verified; the caller is responsible for that.
+//
+// Returns a typed *apperrors.AuthError with CodeUserExists when the address
+// already belongs to an account and the claims do not assert Apple verified
+// it. Callers that render a refusal differently from a fault must
+// discriminate on that code.
 func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
 	appleUserID := claims.Subject
+
+	// The subject is the identity this whole function resolves on, and
+	// provider_user_id permits the empty string. Without this, a token with no
+	// subject would match any row stored with an empty one and sign in as its
+	// owner, ahead of every check below.
+	if appleUserID == "" {
+		return nil, fmt.Errorf("apple identity token has no subject")
+	}
 
 	// Look for existing OAuth account with provider=apple
 	var oauthAccount authm.OAuthAccount
@@ -137,9 +153,24 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	// No existing Apple account. Check if a user exists with the same email.
 	if claims.Email != "" {
 		var existingUser authm.User
-		if err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error; err == nil {
+		err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error
+		switch {
+		case err == nil:
+			// The address is the only thing tying this Apple identity to an
+			// account that already exists, so Apple has to assert it verified
+			// the address.
+			if !claims.IsEmailVerified() {
+				logger.Default().Warn("oauth_link_refused_unverified_email",
+					"provider", "apple",
+					"email_hash", logger.HashEmail(claims.Email))
+				return nil, apperrors.ErrUserExists(claims.Email)
+			}
 			// Link Apple account to existing user
 			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			// A failed lookup is not proof that no account holds the address,
+			// so it must not fall through to creating one.
+			return nil, fmt.Errorf("database error: %w", err)
 		}
 	}
 
@@ -184,10 +215,13 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 	}()
 
 	user := &authm.User{
-		FirstName:     &firstName,
-		LastName:      &lastName,
-		IsActive:      true,
-		EmailVerified: true, // Apple-verified email
+		FirstName: &firstName,
+		LastName:  &lastName,
+		IsActive:  true,
+		// Stamped for every Apple-created account. This path is reached with an
+		// unverified claim too, so the column records verification the token
+		// did not assert.
+		EmailVerified: true,
 	}
 	if email != "" {
 		user.Email = &email

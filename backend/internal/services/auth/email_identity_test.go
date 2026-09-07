@@ -24,7 +24,8 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 
 	svc := s.newService()
 	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
-		Email: "apple.case@example.com",
+		Email:         "apple.case@example.com",
+		EmailVerified: true,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-case-variant",
 		},

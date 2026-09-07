@@ -181,11 +181,17 @@ func NewUserService(database *gorm.DB) *UserService {
 
 // FindOrCreateUser finds existing user or creates new one from OAuth data.
 // This legacy path does not enforce signup consent for new OAuth users.
+//
+// Returns a typed *apperrors.AuthError with CodeUserExists when the address
+// already belongs to an account and the provider did not assert it verified
+// the address. Callers that render a refusal differently from a fault must
+// discriminate on that code.
 func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, nil, false)
 }
 
-// FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth users.
+// FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth
+// users. It refuses an unverified address the same way FindOrCreateUser does.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, consent, true)
 }
@@ -193,6 +199,14 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent, enforceConsent bool) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// provider_user_id is the identity this whole function resolves on, and the
+	// column permits the empty string. Without this, a provider returning no
+	// subject would match any row stored with an empty one and sign in as its
+	// owner, ahead of every check below.
+	if gothUser.UserID == "" {
+		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
 	}
 
 	// First, try to find existing OAuth account
@@ -220,7 +234,16 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	if gothUser.Email != "" {
 		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
-			// User exists, link OAuth account
+			// The address is the whole basis for treating this provider
+			// identity as the account's owner, so the provider has to vouch
+			// for it. Without that, anyone who can make a provider report a
+			// chosen address signs in as whoever already holds it.
+			if !providerAssertsEmailVerified(gothUser) {
+				logger.Default().Warn("oauth_link_refused_unverified_email",
+					"provider", provider,
+					"email_hash", logger.HashEmail(gothUser.Email))
+				return nil, apperrors.ErrUserExists(gothUser.Email)
+			}
 			return s.linkOAuthAccount(&existingUser, gothUser, provider)
 		}
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -456,11 +479,14 @@ func (s *UserService) createNewUserOauthWithConsent(
 	// under the users_lower_email_uniq index, while NULLs do not collide.
 	// GitHub returns no address for a user with none public.
 	user := &authm.User{
-		FirstName:     &gothUser.FirstName,
-		LastName:      &gothUser.LastName,
-		AvatarURL:     &gothUser.AvatarURL,
-		IsActive:      true,
-		EmailVerified: true, // OAuth users are email verified
+		FirstName: &gothUser.FirstName,
+		LastName:  &gothUser.LastName,
+		AvatarURL: &gothUser.AvatarURL,
+		IsActive:  true,
+		// Stamped for every OAuth-created account. Nothing here consults the
+		// provider's verification assertion, so an address the provider would
+		// not vouch for is recorded as verified.
+		EmailVerified: true,
 	}
 	if gothUser.Email != "" {
 		user.Email = &gothUser.Email

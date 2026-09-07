@@ -605,6 +605,11 @@ ON CONFLICT (email) DO NOTHING;
 -- always returns email e2e-oauth@test.local. Pre-seeding that user means the
 -- first faux login resolves to an EXISTING user (linkOAuthAccount = a login),
 -- NOT a new signup — so oauth-google.spec.ts never hits the terms/consent flow.
+-- That link only happens because the faux provider reports the address as
+-- verified; the backend refuses to link an address a provider will not vouch
+-- for. No spec exercises the refusal: OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL is
+-- read at request time by a backend the harness starts once, so it is a manual
+-- lever, not something a spec can flip.
 -- Dedicated user (not a worker login) so linking an oauth_accounts row to it
 -- can't disturb the parallel worker auth state. No password login is expected
 -- (OAuth only); the shared hash is set just for parity with the other fixtures.

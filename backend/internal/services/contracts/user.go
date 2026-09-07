@@ -309,6 +309,9 @@ type ContributionEntry struct {
 // UserServiceInterface defines the contract for user operations.
 type UserServiceInterface interface {
 	ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error)
+	// Both refuse with a typed AuthError carrying CodeUserExists when the
+	// provider's address already belongs to an account and the provider did
+	// not assert it verified the address.
 	FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error)
 	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
 	AuthenticateUserWithPassword(email, password string) (*authm.User, error)
