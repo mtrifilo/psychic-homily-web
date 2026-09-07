@@ -19,11 +19,17 @@ function daySpec(slug: string) {
       date
         ? `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/day/${encodeURIComponent(date)}`
         : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/day`,
-    // Fields a consumer reads WITHOUT a null guard. `date`, `prev_date` and
-    // `next_date` all go straight into `parseCalendarDate`, which splits the
-    // string — `undefined.split` throws from a server component, turning a
-    // thin payload into a 500 for the whole page instead of the "no data" path.
-    requiredFields: ['date', 'prev_date', 'next_date', 'city', 'slug', 'iso_week'] as const,
+    // Fields a consumer reads WITHOUT a null guard, split by what a blank one
+    // would mean. `date` goes straight into `parseCalendarDate`, which splits
+    // the string, and into the day permalink; `slug` and `iso_week` build the
+    // canonical and the share-image URL; `city` is printed. None of them has a
+    // blank form this surface can serve.
+    identityFields: ['date', 'city', 'slug', 'iso_week'] as const,
+    // `prev_date` and `next_date` name the adjacent days, and they are EMPTY at
+    // the edges of the servable window: there, emptiness IS the answer "no
+    // neighbour in this direction", so it must not fail the payload. Absence is
+    // a different answer, and a body that omits them is not this payload.
+    presenceFields: ['prev_date', 'next_date'] as const,
     // `=== true` rather than truthy: a wire value of anything else must not
     // freeze tonight's page in the CDN for a day. The backend guarantees this
     // is never true while `is_tonight` is (see dayHasEnded), which is what lets

@@ -110,9 +110,8 @@ describe('buildSceneSlice', () => {
     expect(slice?.timezone).toBeUndefined()
   })
 
-  // `asPayload` only asserts `date` is a STRING, and empty strings demonstrably
-  // get through it — while `parseCalendarDate('')` yields a valid Date in 1900.
-  // An unnameable night must reach the error path, never a 1900 heading.
+  // `parseCalendarDate('')` yields a valid Date in 1900, so a night this
+  // function cannot name must reach the error path, never a 1900 heading.
   it('refuses a night whose date is not a calendar date', () => {
     expect(buildSceneSlice(buildDay({ date: '' }), null)).toBeNull()
     expect(buildSceneSlice(buildDay({ date: 'tonight' }), null)).toBeNull()

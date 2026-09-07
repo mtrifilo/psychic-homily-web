@@ -28,8 +28,14 @@ function weekSpec(slug: string, service: SceneWeekService) {
         : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`,
     // Every field here is one a consumer reads WITHOUT a null guard: the dates
     // go straight into date maths, `city` into string measurement, and
-    // `slug`/`iso_week` into the canonical and share-image URLs.
-    requiredFields: ['start_date', 'end_date', 'city', 'slug', 'iso_week'] as const,
+    // `slug`/`iso_week` into the canonical and share-image URLs. A blank one
+    // would survive every truthiness check and produce a URL naming a different
+    // page, so blank is rejected alongside absent.
+    identityFields: ['start_date', 'end_date', 'city', 'slug', 'iso_week'] as const,
+    // Empty. `prev_week`/`next_week` are outside this contract: the week view
+    // interpolates them into hrefs unguarded, so refusing the payload would
+    // trade a broken chip for a dead page. That gap belongs to the view.
+    presenceFields: [] as const,
     // `=== true` rather than a truthy test, because this reads an untrusted
     // wire payload. The type says boolean; a body that says anything else must
     // not be allowed to freeze a live week for a day.
