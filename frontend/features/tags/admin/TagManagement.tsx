@@ -45,6 +45,7 @@ import { LowQualityTagQueue } from './LowQualityTagQueue'
 import { MergeTagDialog } from './MergeTagDialog'
 import { TagHierarchyEditor } from './TagHierarchyEditor'
 import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
+import type { TagLinkInput } from './useAdminTags'
 import {
   useCreateTag,
   useUpdateTag,
@@ -54,14 +55,17 @@ import {
   useDeleteAlias,
   useLowQualityTagQueue,
 } from './useAdminTags'
+import { SOCIAL_LINK_PLATFORMS } from '@/lib/socialLinks'
 import {
   TAG_CATEGORIES,
   TAG_CATEGORY_CREW,
+  TAG_LINK_PLATFORMS,
   canonicalTagCategory,
   getCategoryChipClasses,
   getCategoryLabel,
   type TagCategory,
   type TagDetailResponse,
+  type TagLinkPlatform,
 } from '../types'
 
 type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
@@ -70,21 +74,26 @@ type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
 // Outbound links (crew tags)
 // ============================================================================
 
-/** The three link inputs as edited, before they are trimmed and submitted. */
-interface TagLinkDraft {
-  website: string
-  instagram: string
-  bandcamp: string
-}
+/** The link inputs as edited, before they are trimmed and submitted. */
+type TagLinkDraft = Record<TagLinkPlatform, string>
 
-const EMPTY_TAG_LINKS: TagLinkDraft = { website: '', instagram: '', bandcamp: '' }
+const EMPTY_TAG_LINKS: TagLinkDraft = Object.fromEntries(
+  TAG_LINK_PLATFORMS.map((platform) => [platform, ''])
+) as TagLinkDraft
+
+/** The placeholder each input shows. The label comes from the shared registry. */
+const TAG_LINK_PLACEHOLDERS: Record<TagLinkPlatform, string> = {
+  website: 'https://example.com',
+  instagram: 'https://instagram.com/handle',
+  bandcamp: 'https://name.bandcamp.com',
+}
 
 /**
  * Whether the form should offer the link inputs.
  *
- * Keyed on the category the form is ABOUT TO SAVE rather than the stored one,
- * so recategorizing a tag to crew and filling its links is one pass. The
- * canonical spelling is used because the stored column is unconstrained.
+ * Keyed on the category the form is ABOUT TO SAVE, so recategorizing a tag to
+ * crew and filling its links is one pass. The canonical spelling is used
+ * because the stored column is unconstrained.
  *
  * A tag that already HOLDS a link keeps the inputs whatever its category:
  * recategorizing a crew tag leaves its links stored and rendered, and without
@@ -92,6 +101,9 @@ const EMPTY_TAG_LINKS: TagLinkDraft = { website: '', instagram: '', bandcamp: ''
  *
  * hasStoredLink reads the SAVED row, never the draft. From the draft, emptying
  * the last input would hide the inputs and drop the clear before it was sent.
+ *
+ * This is an affordance, not a policy: the API takes links on any category and
+ * the tag page renders them for any category.
  */
 function offersTagLinks(category: string, hasStoredLink: boolean): boolean {
   return canonicalTagCategory(category) === TAG_CATEGORY_CREW || hasStoredLink
@@ -99,7 +111,7 @@ function offersTagLinks(category: string, hasStoredLink: boolean): boolean {
 
 /** Whether the saved row holds any link. */
 function holdsStoredLink(social: TagDetailResponse['social']): boolean {
-  return Boolean(social?.website || social?.instagram || social?.bandcamp)
+  return TAG_LINK_PLATFORMS.some((platform) => Boolean(social?.[platform]))
 }
 
 /**
@@ -113,17 +125,15 @@ function tagLinkPayload(
   category: string,
   links: TagLinkDraft,
   hasStoredLink: boolean
-): Partial<TagLinkDraft> {
+): TagLinkInput {
   if (!offersTagLinks(category, hasStoredLink)) return {}
-  return {
-    website: links.website.trim(),
-    instagram: links.instagram.trim(),
-    bandcamp: links.bandcamp.trim(),
-  }
+  return Object.fromEntries(
+    TAG_LINK_PLATFORMS.map((platform) => [platform, links[platform].trim()])
+  )
 }
 
 /**
- * The three outbound-link inputs.
+ * The outbound-link inputs.
  *
  * Free text, not validated here: the host rule is the API's, and duplicating
  * it in the browser would be a second rule to keep in step. A refused value
@@ -141,25 +151,23 @@ function TagLinkFields({
   onChange: (next: TagLinkDraft) => void
   disabled?: boolean
 }) {
-  const fields: { key: keyof TagLinkDraft; label: string; placeholder: string }[] = [
-    { key: 'website', label: 'Website', placeholder: 'https://example.com' },
-    { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/handle' },
-    { key: 'bandcamp', label: 'Bandcamp', placeholder: 'https://name.bandcamp.com' },
-  ]
-
   return (
     <div className="space-y-3 rounded-md border border-dashed p-3">
       <p className="text-xs text-muted-foreground">
         Links shown on the tag page. Leave blank to remove.
       </p>
-      {fields.map(({ key, label, placeholder }) => (
-        <div key={key} className="space-y-2">
-          <Label htmlFor={`${idPrefix}-${key}`}>{label}</Label>
+      {TAG_LINK_PLATFORMS.map((platform) => (
+        <div key={platform} className="space-y-2">
+          <Label htmlFor={`${idPrefix}-${platform}`}>
+            {SOCIAL_LINK_PLATFORMS[platform].label}
+          </Label>
           <Input
-            id={`${idPrefix}-${key}`}
-            value={links[key]}
-            onChange={(e) => onChange({ ...links, [key]: e.target.value })}
-            placeholder={placeholder}
+            id={`${idPrefix}-${platform}`}
+            value={links[platform]}
+            onChange={(e) =>
+              onChange({ ...links, [platform]: e.target.value })
+            }
+            placeholder={TAG_LINK_PLACEHOLDERS[platform]}
             disabled={disabled}
           />
         </div>

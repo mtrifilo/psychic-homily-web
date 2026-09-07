@@ -138,6 +138,22 @@ func URLFieldDisplayName(field string) (string, bool) {
 	return spec.displayName, true
 }
 
+// URLFieldMaxLength returns the cap this registry enforces on a URL field, and
+// whether it knows the field at all.
+//
+// Exported for the same reason URLFieldDisplayName is: a request struct's
+// maxLength tag is a second spelling of this number, and a boundary that
+// accepts a longer value than the column holds turns into a Postgres 22001 at
+// write time. A test in the handler package reads this so the two spellings
+// cannot drift silently.
+func URLFieldMaxLength(field string) (int, bool) {
+	spec, ok := urlFieldSpecs[field]
+	if !ok {
+		return 0, false
+	}
+	return spec.maxLength, true
+}
+
 // ShapeRuledURLFieldNames returns the field names carrying a `shape` rule: the
 // URL fields whose stored value must take a particular FORM, beyond being a URL.
 //

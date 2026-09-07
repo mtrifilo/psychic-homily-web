@@ -1,6 +1,9 @@
 package catalog
 
 import (
+	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
@@ -47,59 +50,54 @@ func TestTagLinkGateMatchesTheArtistGate(t *testing.T) {
 	}
 }
 
-func TestCreateTagHandlerRefusesRefusedLinks(t *testing.T) {
-	for _, tc := range refusedTagLinkValues {
-		t.Run(tc.name, func(t *testing.T) {
-			called := false
-			mock := &testhelpers.MockTagService{
-				CreateTagFn: func(string, *string, *uint, string, bool, *uint, catalogm.TagLinks) (*catalogm.Tag, error) {
-					called = true
-					return &catalogm.Tag{ID: 1}, nil
-				},
-			}
-			h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
-			req := &CreateTagRequest{}
-			req.Body.Name = "Rubber Brother Records"
-			req.Body.Category = catalogm.TagCategoryCrew
-			req.Body.Website = tc.links.Website
-			req.Body.Instagram = tc.links.Instagram
-			req.Body.Bandcamp = tc.links.Bandcamp
+// refusedTagLinkExample is one shape from the table above. The handler tests
+// use a single case: the table proves the RULE, these prove each handler runs
+// it before the service sees anything.
+var refusedTagLinkExample = catalogm.TagLinks{
+	Instagram: tagLinkPtr("https://instagram.com.evil.test/psychichomily"),
+}
 
-			ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
-			if _, err := h.CreateTagHandler(ctx, req); err == nil {
-				t.Fatal("expected a refusal")
-			}
-			if called {
-				t.Error("a refused link reached the service")
-			}
-		})
+func TestCreateTagHandlerRefusesBeforeTheService(t *testing.T) {
+	called := false
+	mock := &testhelpers.MockTagService{
+		CreateTagFn: func(string, *string, *uint, string, bool, *uint, catalogm.TagLinks) (*catalogm.Tag, error) {
+			called = true
+			return &catalogm.Tag{ID: 1}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
+	req := &CreateTagRequest{}
+	req.Body.Name = "Rubber Brother Records"
+	req.Body.Category = catalogm.TagCategoryCrew
+	req.Body.Instagram = refusedTagLinkExample.Instagram
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
+	if _, err := h.CreateTagHandler(ctx, req); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if called {
+		t.Error("a refused link reached the service")
 	}
 }
 
-func TestUpdateTagHandlerRefusesRefusedLinks(t *testing.T) {
-	for _, tc := range refusedTagLinkValues {
-		t.Run(tc.name, func(t *testing.T) {
-			called := false
-			mock := &testhelpers.MockTagService{
-				UpdateTagFn: func(uint, *string, *string, *uint, *string, *bool, catalogm.TagLinks) (*catalogm.Tag, error) {
-					called = true
-					return &catalogm.Tag{ID: 1}, nil
-				},
-			}
-			h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
-			req := &UpdateTagRequest{TagID: "1"}
-			req.Body.Website = tc.links.Website
-			req.Body.Instagram = tc.links.Instagram
-			req.Body.Bandcamp = tc.links.Bandcamp
+func TestUpdateTagHandlerRefusesBeforeTheService(t *testing.T) {
+	called := false
+	mock := &testhelpers.MockTagService{
+		UpdateTagFn: func(uint, *string, *string, *uint, *string, *bool, catalogm.TagLinks) (*catalogm.Tag, error) {
+			called = true
+			return &catalogm.Tag{ID: 1}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
+	req := &UpdateTagRequest{TagID: "1"}
+	req.Body.Instagram = refusedTagLinkExample.Instagram
 
-			ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
-			if _, err := h.UpdateTagHandler(ctx, req); err == nil {
-				t.Fatal("expected a refusal")
-			}
-			if called {
-				t.Error("a refused link reached the service")
-			}
-		})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
+	if _, err := h.UpdateTagHandler(ctx, req); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if called {
+		t.Error("a refused link reached the service")
 	}
 }
 
@@ -200,4 +198,45 @@ func TestCreateTagHandlerAcceptsNoLinks(t *testing.T) {
 	if _, err := h.CreateTagHandler(ctx, req); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+// TestTagLinkCapsMatchTheURLRegistry holds the request structs' maxLength tags
+// to urlFieldSpecs. A boundary that accepts more than the registry does would
+// let an over-length value reach a column that is exactly this wide, where it
+// fails as a Postgres 22001 rather than as a 422 the caller can act on.
+//
+// It does NOT reach the DDL: the column widths in the migration are a third
+// spelling of these numbers and nothing here reads them.
+func TestTagLinkCapsMatchTheURLRegistry(t *testing.T) {
+	bodies := map[string]reflect.Type{
+		"CreateTagRequest": reflect.TypeOf(CreateTagRequest{}.Body),
+		"UpdateTagRequest": reflect.TypeOf(UpdateTagRequest{}.Body),
+	}
+	for _, field := range []string{"website", "instagram", "bandcamp"} {
+		want, ok := shared.URLFieldMaxLength(field)
+		if !ok {
+			t.Fatalf("urlFieldSpecs does not know %q", field)
+		}
+		for name, body := range bodies {
+			tag, found := jsonFieldTag(body, field)
+			if !found {
+				t.Errorf("%s has no %q field", name, field)
+				continue
+			}
+			if got := tag.Get("maxLength"); got != strconv.Itoa(want) {
+				t.Errorf("%s.%s maxLength=%q, registry says %d", name, field, got, want)
+			}
+		}
+	}
+}
+
+// jsonFieldTag finds the struct field whose json name is the given one.
+func jsonFieldTag(body reflect.Type, jsonName string) (reflect.StructTag, bool) {
+	for i := 0; i < body.NumField(); i++ {
+		f := body.Field(i)
+		if strings.Split(f.Tag.Get("json"), ",")[0] == jsonName {
+			return f.Tag, true
+		}
+	}
+	return "", false
 }

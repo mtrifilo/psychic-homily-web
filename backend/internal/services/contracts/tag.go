@@ -9,12 +9,10 @@ import (
 // Tag types
 // ──────────────────────────────────────────────
 
-// TagSocialResponse is a tag's outbound links.
-//
-// Three fields, not the eight of SocialResponse: a tag carries three columns,
-// and publishing five permanently-null keys would describe a schema that does
-// not exist. The key names match the other entities' so one read gate answers
-// for all of them.
+// TagSocialResponse is a tag's outbound links. It is not SocialResponse: that
+// shape has eight keys, and five of them would be permanently null here,
+// describing a schema that does not exist. The key names match the other
+// entities' so one read gate answers for all of them.
 type TagSocialResponse struct {
 	Website   *string `json:"website"`
 	Instagram *string `json:"instagram"`

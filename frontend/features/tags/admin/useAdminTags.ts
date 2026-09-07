@@ -43,7 +43,7 @@ export function useTagAliases(tagId: number, options?: { enabled?: boolean }) {
  * crew-category controls send these, which is why they are optional rather
  * than part of every write.
  */
-interface TagLinkInput {
+export interface TagLinkInput {
   website?: string
   instagram?: string
   bandcamp?: string

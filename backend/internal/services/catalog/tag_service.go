@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"strings"
@@ -385,9 +386,7 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 	if isOfficial != nil {
 		updates["is_official"] = *isOfficial
 	}
-	for column, value := range links.Columns() {
-		updates[column] = value
-	}
+	maps.Copy(updates, links.Columns())
 
 	if len(updates) > 0 {
 		if err := s.db.Model(&tag).Updates(updates).Error; err != nil {

@@ -578,9 +578,10 @@ type CreateTagRequest struct {
 		ParentID    *uint   `json:"parent_id" required:"false" doc:"Parent tag ID for hierarchy"`
 		Category    string  `json:"category" doc:"Tag category (genre, locale, other, crew)" example:"genre"`
 		IsOfficial  bool    `json:"is_official" required:"false" doc:"Whether this is an official/canonical tag"`
-		// Outbound links. Flat fields, matching the venue/label/artist request
-		// bodies; the maxLength caps are the ones urlFieldSpecs enforces for
-		// the columns of the same name, and the columns are that wide.
+		// Outbound links, flat like the venue/label/artist request bodies. The
+		// caps are urlFieldSpecs' for the columns of these names, and the
+		// columns are that wide; TestTagLinkCapsMatchTheURLRegistry holds the
+		// first half of that to the registry.
 		Website   *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
 		Instagram *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
 		Bandcamp  *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
@@ -1212,14 +1213,9 @@ func (h *TagHandler) SetTagParentHandler(ctx context.Context, req *SetTagParentR
 // Helpers
 // ============================================================================
 
-// validateTagLinks runs a tag's outbound links through the same scheme check
-// and per-platform host allowlist every other entity's columns of these names
-// go through, so a refused host is refused here with the same wording.
-//
-// The nil arguments are the five social columns a tag does not carry. Passing
-// them explicitly rather than reaching for a narrower helper keeps ONE
-// implementation of the host rule: a second entry point into it would be a
-// second place to forget a platform.
+// validateTagLinks runs a tag's outbound links through the gate that judges the
+// artist, venue, label and festival columns of these names. The nil arguments
+// are the five social columns a tag does not carry.
 func validateTagLinks(links catalogm.TagLinks) error {
 	return shared.ValidateSocialURLs(
 		links.Instagram, nil, nil, nil, nil, nil, links.Bandcamp, links.Website,

@@ -1,5 +1,7 @@
 // Tag types — aligned with backend contracts/tag.go response types.
 
+import type { SocialLinkPlatform, SocialLinkValues } from '@/lib/socialLinks'
+
 export const TAG_CATEGORIES = [
   'genre', 'locale', 'other', 'crew'
 ] as const
@@ -91,17 +93,20 @@ export interface TagListItem {
 }
 
 /**
- * A tag's outbound links, as stored.
- *
- * Three columns, not the eight an artist or venue carries, and the key names
- * are the same ones so `SocialLinkValues` accepts this shape and the shared
- * read gate decides what becomes an href.
+ * The social columns a tag carries: three, not the eight an artist or venue
+ * has. Named against the shared read registry rather than restated, so a
+ * platform key renamed there fails to compile here.
  */
-export interface TagSocial {
-  website?: string | null
-  instagram?: string | null
-  bandcamp?: string | null
-}
+export const TAG_LINK_PLATFORMS = [
+  'website',
+  'instagram',
+  'bandcamp',
+] as const satisfies readonly SocialLinkPlatform[]
+
+export type TagLinkPlatform = (typeof TAG_LINK_PLATFORMS)[number]
+
+/** A tag's outbound links, as stored. Accepted by the shared read gate. */
+export type TagSocial = Pick<SocialLinkValues, TagLinkPlatform>
 
 export interface TagDetailResponse extends TagListItem {
   description?: string

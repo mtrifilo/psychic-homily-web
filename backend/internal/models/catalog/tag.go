@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/utils"
 )
 
 // Tag category constants
@@ -92,59 +93,60 @@ type TagLinks struct {
 	Bandcamp  *string
 }
 
-// Columns maps each supplied link onto its column name and the value to store,
-// with an empty value normalized to NULL. Fields that were not supplied are
-// absent from the map, so an update writes only what the caller sent.
+// tagLinkColumns is the one enumeration of the three columns: the name each
+// one carries, where a supplied value comes from, and where a stored value
+// goes. Columns and Apply both walk it, so the update path and the create path
+// cannot come to disagree about a column or the rule applied to it.
+//
+// The names are the field names urlFieldSpecs validates by, so what is
+// validated and what is stored are the same three things.
+var tagLinkColumns = []struct {
+	name  string
+	value func(TagLinks) *string
+	store func(*Tag, *string)
+}{
+	{"website", func(l TagLinks) *string { return l.Website }, func(t *Tag, v *string) { t.Website = v }},
+	{"instagram", func(l TagLinks) *string { return l.Instagram }, func(t *Tag, v *string) { t.Instagram = v }},
+	{"bandcamp", func(l TagLinks) *string { return l.Bandcamp }, func(t *Tag, v *string) { t.Bandcamp = v }},
+}
+
+// Columns maps each supplied link onto its column name and the value to store.
+// A column the caller did not supply is absent, so an update writes only what
+// it was sent.
 //
 // A cleared column is an untyped nil rather than a nil *string, which is what a
 // map-driven GORM Updates writes as SQL NULL without depending on how it
 // unwraps a typed nil.
-//
-// The keys are also the field names urlFieldSpecs validates by, so a caller
-// that validates and a caller that stores name the same three things.
 func (l TagLinks) Columns() map[string]any {
-	cols := map[string]any{}
-	for name, value := range map[string]*string{
-		"website":   l.Website,
-		"instagram": l.Instagram,
-		"bandcamp":  l.Bandcamp,
-	} {
-		if value == nil {
+	cols := make(map[string]any, len(tagLinkColumns))
+	for _, col := range tagLinkColumns {
+		supplied := col.value(l)
+		if supplied == nil {
 			continue
 		}
-		if stored := normalizeTagLink(*value); stored != nil {
-			cols[name] = *stored
+		if stored := utils.NilIfBlank(*supplied); stored != nil {
+			cols[col.name] = *stored
 		} else {
-			cols[name] = nil
+			cols[col.name] = nil
 		}
 	}
 	return cols
 }
 
 // Apply writes the supplied links onto a tag, leaving unsupplied ones alone.
-func (l TagLinks) Apply(tag *Tag) {
-	if l.Website != nil {
-		tag.Website = normalizeTagLink(*l.Website)
-	}
-	if l.Instagram != nil {
-		tag.Instagram = normalizeTagLink(*l.Instagram)
-	}
-	if l.Bandcamp != nil {
-		tag.Bandcamp = normalizeTagLink(*l.Bandcamp)
-	}
-}
-
-// normalizeTagLink trims a supplied link and turns an empty one into NULL.
 //
-// The trim is strings.TrimSpace, which is what utils.ValidateHTTPURL and
-// utils.ValidateSocialHost parse after, so what is stored is the string the
-// host anchor judged rather than a padded spelling of it.
-func normalizeTagLink(value string) *string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return nil
+// utils.NilIfBlank trims with strings.TrimSpace, which is what
+// utils.ValidateHTTPURL and utils.ValidateSocialHost parse after, so what is
+// stored is the string the host anchor judged rather than a padded spelling
+// of it.
+func (l TagLinks) Apply(tag *Tag) {
+	for _, col := range tagLinkColumns {
+		supplied := col.value(l)
+		if supplied == nil {
+			continue
+		}
+		col.store(tag, utils.NilIfBlank(*supplied))
 	}
-	return &trimmed
 }
 
 // Tag represents a user-facing tag for categorizing entities.
@@ -162,8 +164,7 @@ type Tag struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 
-	// Outbound links. NULL means no link; the write paths clear an empty value
-	// to NULL so an unset link has one spelling. Instagram and Bandcamp are
+	// Outbound links, written through TagLinks above. Instagram and Bandcamp are
 	// anchored to their platform's host at the write boundary and again at
 	// render; Website makes no platform claim and takes any host.
 	Website   *string `json:"website,omitempty" gorm:"column:website"`
