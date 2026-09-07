@@ -8,6 +8,7 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"net/http"
 	"sync"
 	"testing"
 
@@ -104,6 +105,14 @@ func Capture(t *testing.T, fn func()) string {
 // records go wherever that one writes. The positive-marker assertion every
 // Capture caller makes is what turns that mistake into a failure rather than a
 // vacuous pass.
-func Context(ctx context.Context) context.Context {
+func Context(t *testing.T, ctx context.Context) context.Context {
+	t.Helper()
 	return logger.NewContext(ctx, slog.Default())
+}
+
+// Request returns r with a context built by Context. It is the form nearly
+// every caller wants, since the subject under capture is an http.Handler.
+func Request(t *testing.T, r *http.Request) *http.Request {
+	t.Helper()
+	return r.WithContext(Context(t, r.Context()))
 }

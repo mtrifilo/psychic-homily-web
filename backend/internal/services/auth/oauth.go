@@ -98,7 +98,7 @@ func (s *AuthService) oauthCallbackInternal(
 	logger.AuthDebug(ctx, "oauth_callback_received", "provider", provider, "path", r.URL.Path)
 
 	// Use the OAuth completer interface (can be mocked for testing)
-	logger.AuthDebug(ctx, "oauth_completer_start", "provider", provider)
+	logger.AuthDebug(ctx, "oauth_completer_attempt", "provider", provider)
 	gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
 	if err != nil {
 		return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
@@ -106,7 +106,7 @@ func (s *AuthService) oauthCallbackInternal(
 
 	// goth.User carries live credentials; never log it as a value. The provider
 	// user id is the opaque provider subject, not an address.
-	logger.AuthDebug(ctx, "oauth_completer_succeeded",
+	logger.AuthDebug(ctx, "oauth_completer_success",
 		"provider", provider,
 		"provider_user_id", gothUser.UserID,
 	)

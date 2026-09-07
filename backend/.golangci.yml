@@ -109,10 +109,10 @@ linters:
 
   settings:
     forbidigo:
-      # Scoped to the auth packages by the exclusion rule below, NOT repo-wide:
-      # the rest of the tree still prints through the standard logger in places.
+      # The exclusion rule below is what confines these patterns to the auth
+      # packages; they are written as if repo-wide.
       #
-      # These packages handle provider tokens, session JWTs, cookie values, and
+      # Those packages handle provider tokens, session JWTs, cookie values, and
       # addresses. The standard logger writes whatever it is handed, at no level
       # and with no redaction, so a %v on a goth.User, a cookie, or an error
       # carrying a token URL ships the credential to the log stream. The
@@ -151,14 +151,16 @@ linters:
           - forbidigo
         path-except: '^internal/(services/auth|api/handlers/auth|services/user)/'
 
-  # The PSY-760 placeholder. Un-comment + extend after that ticket ships.
+  # The PSY-760 placeholder. `settings.forbidigo.forbid` and
+  # `exclusions.rules` are live blocks above, so this appends to them; a second
+  # copy of either key would silently replace the auth guard. The pattern goes
+  # in the forbid list:
   #
-  # exclusions:
-  #   rules:
-  #     - path: internal/services/shared/.*
-  #       linters: [forbidigo]
-  # settings:
-  #   forbidigo:
-  #     forbid:
   #       - pattern: 'user\.(Username|FirstName|Email)'
   #         msg: "use services/shared.Resolve* helpers, not direct field deref (PSY-760)"
+  #
+  # Its scope is the inverse of the auth guard's: repo-wide except
+  # services/shared, rather than auth-only. The auth rule's path-except drops
+  # every forbidigo issue outside the three auth trees, this one included, so
+  # the two cannot share that single exclusion. Resolving that is part of
+  # PSY-760, not a detail to discover at merge time.

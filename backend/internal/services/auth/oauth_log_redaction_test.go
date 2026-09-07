@@ -2,7 +2,6 @@ package auth
 
 import (
 	"errors"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -112,13 +111,6 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 
 	callbackURL := "/auth/callback/google?code=" + sentinelAuthzCode + "&state=" + sentinelState
 
-	// The subject logs through logger.Auth*, which resolves its logger from the
-	// request context, so every request below is built inside the capture.
-	newCallbackRequest := func() *http.Request {
-		req := httptest.NewRequest("GET", callbackURL, nil)
-		return req.WithContext(testlog.Context(req.Context()))
-	}
-
 	// OAuthCallbackWithConsent is the entry point the HTTP handler calls.
 	t.Run("completed_login", func(t *testing.T) {
 		userService := &oauthUserServiceStub{user: &authm.User{ID: 42}}
@@ -134,7 +126,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 		output := testlog.Capture(t, func() {
 			_, token, err = authService.OAuthCallbackWithConsent(
 				httptest.NewRecorder(),
-				newCallbackRequest(),
+				testlog.Request(t, httptest.NewRequest("GET", callbackURL, nil)),
 				"google",
 				nil,
 			)
@@ -170,7 +162,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 		output := testlog.Capture(t, func() {
 			_, _, err = authService.OAuthCallbackWithConsent(
 				httptest.NewRecorder(),
-				newCallbackRequest(),
+				testlog.Request(t, httptest.NewRequest("GET", callbackURL, nil)),
 				"google",
 				nil,
 			)

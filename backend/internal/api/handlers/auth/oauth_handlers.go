@@ -223,7 +223,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	// Use Goth's standard BeginAuthHandler directly
 	gothic.BeginAuthHandler(w, r)
 
-	logger.AuthDebug(ctx, "oauth_login_begin_returned", "provider", provider)
+	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
@@ -318,7 +318,10 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		// embeds the token endpoint's raw response body. RedactErrorURL keeps
 		// scheme and host and drops path and query, which also drops the
 		// wrapper text; ScrubText then covers the shapes that are not a
-		// *url.Error and caps an unbounded body.
+		// *url.Error and caps an unbounded body. The wrapped value carries the
+		// scrubbed text and not the original chain, because AuthError renders
+		// whatever error it is handed; the chain is still read below for
+		// errors.As.
 		logger.AuthError(ctx, "oauth_callback_failed",
 			errors.New(observability.ScrubText(utils.RedactErrorURL(err).Error())),
 			"provider", provider,

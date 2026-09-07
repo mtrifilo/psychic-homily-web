@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,7 +52,7 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: oauthSignupConsentCookieName, Value: sentinelConsentCookie})
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthLoginHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+		handler.OAuthLoginHTTPHandler(w, testlog.Request(t, req))
 	})
 
 	mintedCallbackID := cliCallbackID(t, w)
@@ -78,7 +77,8 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 		"cookie_names=",
 		config.AuthCookieName,
 		"path=/auth/login/google",
-		"msg=oauth_cli_callback_stored callback=" + loopbackCallback,
+		"msg=oauth_cli_callback_stored",
+		"callback=" + loopbackCallback,
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("expected %q in the log; captured log:\n%s", want, output)
@@ -112,7 +112,7 @@ func TestOAuthCallbackHandlerNeverLogsTheMintedToken(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+		handler.OAuthCallbackHTTPHandler(w, testlog.Request(t, req))
 	})
 
 	if got := w.Result().StatusCode; got != http.StatusTemporaryRedirect {
@@ -168,7 +168,7 @@ func TestOAuthCallbackHandlerRedactsTokenBearingErrorURL(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+		handler.OAuthCallbackHTTPHandler(w, testlog.Request(t, req))
 	})
 
 	const marker = "msg=oauth_callback_failed"
@@ -213,7 +213,7 @@ func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+		handler.OAuthCallbackHTTPHandler(w, testlog.Request(t, req))
 	})
 
 	const marker = "msg=oauth_callback_failed"
@@ -238,7 +238,8 @@ func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
 // infrastructure rather than a client while still being an address in the log;
 // internal/api/routes/public_read_rate_limit.go records that measurement.
 func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
-	const sentinelRemoteAddr = "203.0.113.77:51423"
+	const sentinelHost = "203.0.113.77"
+	const sentinelRemoteAddr = sentinelHost + ":51423"
 	const attackerCallback = "https://evil.example.invalid/steal"
 
 	t.Cleanup(cleanCLICallbackStore)
@@ -251,13 +252,13 @@ func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
 		req.RemoteAddr = sentinelRemoteAddr
 
 		output := testlog.Capture(t, func() {
-			handler.OAuthLoginHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+			handler.OAuthLoginHTTPHandler(w, testlog.Request(t, req))
 		})
 
 		if got := w.Result().StatusCode; got != http.StatusBadRequest {
 			t.Fatalf("expected the rejection branch, got status %d", got)
 		}
-		assertRejectionLogged(t, output, "initiation", sentinelRemoteAddr)
+		assertRejectionLogged(t, output, "initiation", sentinelRemoteAddr, sentinelHost)
 	})
 
 	t.Run("callback", func(t *testing.T) {
@@ -281,16 +282,16 @@ func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		output := testlog.Capture(t, func() {
-			handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+			handler.OAuthCallbackHTTPHandler(w, testlog.Request(t, req))
 		})
 
-		assertRejectionLogged(t, output, "callback", sentinelRemoteAddr)
+		assertRejectionLogged(t, output, "callback", sentinelRemoteAddr, sentinelHost)
 	})
 }
 
 // assertRejectionLogged pins the rejection event and the stage that produced
 // it, then fails when the connecting address rode along.
-func assertRejectionLogged(t *testing.T, output, stage, remoteAddr string) {
+func assertRejectionLogged(t *testing.T, output, stage string, forbiddenAddrs ...string) {
 	t.Helper()
 
 	for _, want := range []string{"msg=oauth_cli_callback_rejected", "stage=" + stage} {
@@ -301,13 +302,9 @@ func assertRejectionLogged(t *testing.T, output, stage, remoteAddr string) {
 		}
 	}
 
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		t.Fatalf("net.SplitHostPort(%q): %v", remoteAddr, err)
-	}
-	// The bare host too: a masking scheme that kept the IP and dropped the port
-	// would still be logging the address.
-	for _, forbidden := range []string{remoteAddr, host} {
+	// Callers pass the bare host as well as host:port: a masking scheme that
+	// kept the IP and dropped the port would still be logging the address.
+	for _, forbidden := range forbiddenAddrs {
 		if strings.Contains(output, forbidden) {
 			t.Errorf("the OAuth CLI callback rejection logged the connecting address %q; "+
 				"captured log:\n%s", forbidden, output)
