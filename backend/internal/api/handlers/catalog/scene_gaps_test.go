@@ -72,7 +72,7 @@ func TestGetSceneGaps_ZeroGapsIsSuccessNotNotFound(t *testing.T) {
 func TestGetSceneGaps_UnknownSlugIsNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("invalid scene slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("invalid scene slug: %s", slug))
 		},
 		GetSceneGapsFn: func(string, string) (*contracts.SceneGapsResponse, error) {
 			t.Fatal("service must not be called for an unparseable slug")

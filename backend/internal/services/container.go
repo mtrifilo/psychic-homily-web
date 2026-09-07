@@ -324,7 +324,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AuditLog:               adminsvc.NewAuditLogService(database),
 		Explore:                exploreService,
 		GraphOverview:          catalog.NewGraphOverviewService(database),
-		EntityExistence:        catalog.NewEntityExistenceService(database),
+		EntityExistence:        catalog.NewEntityExistenceService(database, sceneSvc),
 		Sitemap:                catalog.NewSitemapService(database),
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),

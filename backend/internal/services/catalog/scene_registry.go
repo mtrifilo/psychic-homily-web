@@ -112,7 +112,10 @@ func (s *SceneService) canonicalScope(slug string) (sceneScope, string, error) {
 	if err != nil {
 		return sceneScope{}, "", err
 	}
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return sceneScope{}, "", err
+	}
 	return scope, buildSceneSlug(scope.city, scope.state), nil
 }
 

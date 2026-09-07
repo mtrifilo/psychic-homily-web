@@ -128,7 +128,7 @@ func TestGetSceneNewArtists_EmptyIsOKNotNotFound(t *testing.T) {
 func TestGetSceneNewArtists_UnknownSlugIsNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("invalid scene slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("invalid scene slug: %s", slug))
 		},
 		GetSceneLatestArtistsFn: func(string, string, time.Time, int) ([]contracts.SceneNewArtistRow, error) {
 			t.Fatal("service must not be called for an unparseable slug")

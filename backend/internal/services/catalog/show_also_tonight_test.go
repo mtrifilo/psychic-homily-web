@@ -750,9 +750,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_DisplayIde
 	suite.Equal([]uint{sibling.ID}, suite.showIDs(fmt.Sprint(subject.ID)))
 }
 
-// The subject's scope comes from the GEOCODER (city, state), but the rail's rows
-// come from the metro PREDICATE (`v.metro = ?`). The two read different sources,
-// and this pins what that means in both directions:
+// The subject's scope is the scene its room belongs to, and the rail's rows come
+// from that scene's predicate. With ONE room of a member city missing its metro,
+// no group publishes that city's slug, so the scope is the metro's and this pins
+// what that means in both directions:
 //
 //   - A subject at a room the metro backfill never reached still gets its metro's
 //     rail. This is the case the literal reading of "venue with no metro => empty"
@@ -761,6 +762,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_DisplayIde
 //     a column read. That is inherited from GetSceneShowsInRange and is therefore
 //     identical to what /scenes/{slug}/day shows. Pinned so it stays a shared
 //     property of the scene query rather than becoming a quiet divergence.
+//
+// Seeding a SECOND no-metro room in one of those cities changes the answer, and
+// correctly: that city then publishes its own scene, which is the scene the rail
+// must name and link to.
 func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_NullMetroColumnScopesBySubjectCityButRowsFollowTheColumn() {
 	phx, err := time.LoadLocation("America/Phoenix")
 	suite.Require().NoError(err)
