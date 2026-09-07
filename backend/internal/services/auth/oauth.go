@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/markbates/goth"
@@ -13,6 +12,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -54,11 +54,12 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 
 	// Use Goth's recommended way to set the provider in context
 	r = gothic.GetContextWithProvider(r, provider)
+	ctx := r.Context()
 
 	// Begin OAuth flow - this will redirect to the OAuth provider
-	log.Printf("DEBUG: About to call gothic.BeginAuthHandler with provider: %s", provider)
+	logger.AuthDebug(ctx, "oauth_login_begin", "provider", provider)
 	gothic.BeginAuthHandler(w, r)
-	log.Printf("DEBUG: After gothic.BeginAuthHandler call")
+	logger.AuthDebug(ctx, "oauth_login_begin_returned", "provider", provider)
 	return nil
 }
 
@@ -90,20 +91,25 @@ func (s *AuthService) oauthCallbackInternal(
 		return nil, "", fmt.Errorf("request cannot be nil")
 	}
 
+	ctx := r.Context()
+
 	// The callback query string carries the provider authorization code and the
 	// state nonce, both single-use credentials, so only the path is loggable.
-	log.Printf("DEBUG: OAuth callback path: %s", r.URL.Path)
-	log.Printf("DEBUG: Using provider: '%s'", provider)
+	logger.AuthDebug(ctx, "oauth_callback_received", "provider", provider, "path", r.URL.Path)
 
 	// Use the OAuth completer interface (can be mocked for testing)
-	log.Printf("DEBUG: About to call OAuth completer")
+	logger.AuthDebug(ctx, "oauth_completer_start", "provider", provider)
 	gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
 	if err != nil {
 		return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
 	}
 
-	// goth.User carries live credentials; never log it as a value.
-	log.Printf("DEBUG: OAuth completion succeeded: provider=%s provider_user_id=%s", provider, gothUser.UserID)
+	// goth.User carries live credentials; never log it as a value. The provider
+	// user id is the opaque provider subject, not an address.
+	logger.AuthDebug(ctx, "oauth_completer_succeeded",
+		"provider", provider,
+		"provider_user_id", gothUser.UserID,
+	)
 
 	// Find or create user using user service
 	var user *authm.User

@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -52,7 +53,7 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: oauthSignupConsentCookieName, Value: sentinelConsentCookie})
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthLoginHTTPHandler(w, req)
+		handler.OAuthLoginHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
 	})
 
 	mintedCallbackID := cliCallbackID(t, w)
@@ -73,10 +74,11 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	// Pin the rendered fragments so an unrelated line cannot satisfy these.
 	for _, want := range []string{
 		// Not pinned to a position: cookie order is not the invariant.
-		"Login - Request cookie names BEFORE: [",
+		"msg=oauth_login_request",
+		"cookie_names=",
 		config.AuthCookieName,
-		"Login - Request path: /auth/login/google",
-		"CLI callback stored: " + loopbackCallback,
+		"path=/auth/login/google",
+		"msg=oauth_cli_callback_stored callback=" + loopbackCallback,
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("expected %q in the log; captured log:\n%s", want, output)
@@ -110,7 +112,7 @@ func TestOAuthCallbackHandlerNeverLogsTheMintedToken(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthCallbackHTTPHandler(w, req)
+		handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
 	})
 
 	if got := w.Result().StatusCode; got != http.StatusTemporaryRedirect {
@@ -120,7 +122,7 @@ func TestOAuthCallbackHandlerNeverLogsTheMintedToken(t *testing.T) {
 		t.Fatalf("expected the minted token in the redirect, got %q", loc)
 	}
 
-	const marker = "CLI callback found:"
+	const marker = "msg=oauth_cli_callback_found"
 	if !strings.Contains(output, marker) {
 		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this "+
 			"path and the assertions below are vacuous; captured log:\n%s", marker, output)
@@ -166,10 +168,10 @@ func TestOAuthCallbackHandlerRedactsTokenBearingErrorURL(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthCallbackHTTPHandler(w, req)
+		handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
 	})
 
-	const marker = "OAuth callback failed:"
+	const marker = "msg=oauth_callback_failed"
 	if !strings.Contains(output, marker) {
 		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this "+
 			"path and the assertion below is vacuous; captured log:\n%s", marker, output)
@@ -211,10 +213,10 @@ func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	output := testlog.Capture(t, func() {
-		handler.OAuthCallbackHTTPHandler(w, req)
+		handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
 	})
 
-	const marker = "OAuth callback failed:"
+	const marker = "msg=oauth_callback_failed"
 	if !strings.Contains(output, marker) {
 		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this "+
 			"path and the assertions below are vacuous; captured log:\n%s", marker, output)
@@ -226,5 +228,89 @@ func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
 	// An unbounded provider body must not reach the log stream in full.
 	if len(output) > 4000 {
 		t.Errorf("expected the provider error to be capped, got %d bytes of log", len(output))
+	}
+}
+
+// TestOAuthCLICallbackRejectionNeverLogsTheClientAddress asserts the invariant
+// that the open-redirect rejection on both OAuth stages records the event
+// without the connecting address. Behind the production proxy r.RemoteAddr is
+// the edge node's address rather than the caller's, so it identifies
+// infrastructure rather than a client while still being an address in the log;
+// internal/api/routes/public_read_rate_limit.go records that measurement.
+func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
+	const sentinelRemoteAddr = "203.0.113.77:51423"
+	const attackerCallback = "https://evil.example.invalid/steal"
+
+	t.Cleanup(cleanCLICallbackStore)
+
+	t.Run("initiation", func(t *testing.T) {
+		handler := NewOAuthHTTPHandler(nil, &config.Config{})
+
+		w, req := oauthLoginRequest("google")
+		req.URL.RawQuery = "cli_callback=" + url.QueryEscape(attackerCallback)
+		req.RemoteAddr = sentinelRemoteAddr
+
+		output := testlog.Capture(t, func() {
+			handler.OAuthLoginHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+		})
+
+		if got := w.Result().StatusCode; got != http.StatusBadRequest {
+			t.Fatalf("expected the rejection branch, got status %d", got)
+		}
+		assertRejectionLogged(t, output, "initiation", sentinelRemoteAddr)
+	})
+
+	t.Run("callback", func(t *testing.T) {
+		// The store is the only way to reach the callback-stage validator: the
+		// initiation stage refuses to store a non-loopback value.
+		const storedID = "SENTINEL-STORED-CALLBACK-ID-3f7e"
+		storeCLICallback(storedID, attackerCallback)
+
+		authService := &testhelpers.MockAuthService{
+			OAuthCallbackWithConsentFn: func(
+				http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+			) (*authm.User, string, error) {
+				return &authm.User{ID: 9}, "unused-token", nil
+			},
+		}
+		handler := NewOAuthHTTPHandler(authService, &config.Config{})
+
+		req := httptest.NewRequest("GET", "/auth/callback/google", nil)
+		req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: storedID})
+		req.RemoteAddr = sentinelRemoteAddr
+		w := httptest.NewRecorder()
+
+		output := testlog.Capture(t, func() {
+			handler.OAuthCallbackHTTPHandler(w, req.WithContext(testlog.Context(req.Context())))
+		})
+
+		assertRejectionLogged(t, output, "callback", sentinelRemoteAddr)
+	})
+}
+
+// assertRejectionLogged pins the rejection event and the stage that produced
+// it, then fails when the connecting address rode along.
+func assertRejectionLogged(t *testing.T, output, stage, remoteAddr string) {
+	t.Helper()
+
+	for _, want := range []string{"msg=oauth_cli_callback_rejected", "stage=" + stage} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("captured log is missing %q, so the rejection diagnostic was dropped or "+
+				"testlog.Capture no longer intercepts this path and the assertion below is "+
+				"vacuous; captured log:\n%s", want, output)
+		}
+	}
+
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		t.Fatalf("net.SplitHostPort(%q): %v", remoteAddr, err)
+	}
+	// The bare host too: a masking scheme that kept the IP and dropped the port
+	// would still be logging the address.
+	for _, forbidden := range []string{remoteAddr, host} {
+		if strings.Contains(output, forbidden) {
+			t.Errorf("the OAuth CLI callback rejection logged the connecting address %q; "+
+				"captured log:\n%s", forbidden, output)
+		}
 	}
 }
