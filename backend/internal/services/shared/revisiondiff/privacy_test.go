@@ -108,30 +108,6 @@ func TestRedactVenueChanges_DoesNotMutateInput(t *testing.T) {
 	}
 }
 
-// The OldValueWithheld stamp describes the old value, so it goes when the value
-// does. Left behind it would describe nothing on the served row while still
-// reporting whether the venue published its address at the time of the edit,
-// which this view does not serve.
-func TestRedactVenueChanges_DropsTheWithheldStamp(t *testing.T) {
-	in := []adminm.FieldChange{
-		adminm.FieldChange{Field: "address", OldValue: "", NewValue: "1234 Secret St"}.
-			WithOldValueWithheld(true),
-		adminm.FieldChange{Field: "name", OldValue: "Old Room", NewValue: "The Basement"}.
-			WithOldValueWithheld(false),
-	}
-
-	out := RedactVenueChanges(in)
-	if !out[0].OldValueUnstamped() {
-		t.Error("a masked field must not carry a stamp for a value that is no longer shown")
-	}
-	if out[1].OldValueUnstamped() {
-		t.Error("an unmasked field keeps its stamp; its value was not replaced")
-	}
-	if in[0].OldValueUnstamped() {
-		t.Error("input mutated: the stored row's stamp is what rollback reads")
-	}
-}
-
 // A masked field name that either writing vocabulary can no longer produce
 // turns the gate into a silent no-op. ValidateAll must reject that at init, and
 // it must reject it for BOTH vocabularies: the contributor edit path, not the

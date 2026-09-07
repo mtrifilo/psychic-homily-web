@@ -94,3 +94,22 @@ func (c FieldChange) OldValueIsWithheld() bool {
 // OldValueUnstamped reports whether the change records nothing about where its
 // OldValue came from.
 func (c FieldChange) OldValueUnstamped() bool { return c.OldValueWithheld == nil }
+
+// ForServing returns the changes with the stamp cleared, and never mutates the
+// input, which is unmarshalled from a stored row other code paths read raw.
+//
+// THE STAMP IS STORAGE, NOT PAYLOAD, and serving it would publish the one bit
+// the gate behind it exists to hide. A field is stamped withheld only when its
+// column is SET, so `true` on an unverified venue's address says "this house
+// has a street address on record" to anyone who asks to edit it, which is
+// exactly what deriving the mask rather than the column was for: the derived
+// value is the same whatever the column holds. Every path that serves a
+// FieldChange to a client goes through here.
+func ForServing(changes []FieldChange) []FieldChange {
+	out := make([]FieldChange, len(changes))
+	copy(out, changes)
+	for i := range out {
+		out[i].OldValueWithheld = nil
+	}
+	return out
+}

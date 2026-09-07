@@ -67,9 +67,9 @@ import (
 // column's value or the mask over it. See that field for why nothing else can
 // say.
 //
-// The WRITE: Rollback refuses to put a withheld blank into a column. See
-// restoreWithheldBlanks. It restores the value an earlier revision recorded
-// writing there when history holds one, and otherwise skips the field.
+// The WRITE: Rollback never puts a withheld value into a column. It skips the
+// field, with a reason, in the report it already carries. See
+// refuseWithheldOldValues for why it does not try to recover the real one.
 
 // entityModelsByType pairs each entity type with the GORM model whose columns a
 // derivation here may read.
@@ -123,16 +123,8 @@ var modelSchemaCache sync.Map
 // where the gate that does the withholding lives and the two would otherwise
 // drift apart silently: a field withheld by a new accessor but absent from a list
 // over here would be published by this path the day the accessor was added.
-// The second method answers the same gate's other question, and it is here
-// rather than in a list because the answers must come from one place. A reader
-// of an ALREADY-RECORDED value cannot ask "does this venue withhold its address
-// today": the row it is reading may predate the column's current contents. It
-// asks whether the gate reaches the field at all, which is a fact about the type
-// and about which a zero-valued model can be asked. See
-// catalog.Venue.GatedEditFieldNames.
 type withheldEditFieldsReporter interface {
 	WithheldEditFields() []string
-	GatedEditFieldNames() []string
 }
 
 // The venue address gate is the one that exists, and it is asserted rather than
@@ -142,36 +134,6 @@ type withheldEditFieldsReporter interface {
 // TestWithheldFieldsAreEditable checks that whatever a reporter names is a field
 // a submission can actually carry.
 var _ withheldEditFieldsReporter = (*catalogm.Venue)(nil)
-
-// gatedFieldNames names, per entity type, every field a withholding gate can
-// reach, whether or not it withholds one on any particular row. Rollback reads
-// it to decide whether a recorded blank carrying no stamp could have been a
-// withholding.
-//
-// DERIVED, not listed: every entity type this package can read is asked whether
-// it has a gate, so a model that gains one is covered by the same change that
-// gives it the accessor, and a list here cannot fall behind the gate it
-// describes. That is the same argument withheldEditFieldsReporter makes, applied
-// to the other question the gate answers.
-var gatedFieldNames = func() map[string]map[string]bool {
-	out := make(map[string]map[string]bool, len(entityModelsByType))
-	for entityType, newModel := range entityModelsByType {
-		reporter, gated := newModel().(withheldEditFieldsReporter)
-		if !gated {
-			continue
-		}
-		out[entityType] = namesAsSet(reporter.GatedEditFieldNames())
-	}
-	return out
-}()
-
-func namesAsSet(names []string) map[string]bool {
-	set := make(map[string]bool, len(names))
-	for _, name := range names {
-		set[name] = true
-	}
-	return set
-}
 
 // deriveOldValues replaces every OldValue in changes with the value the entity
 // currently holds, and reports a conflict when the submitter claimed something
@@ -413,7 +375,9 @@ func currentEntityColumns(db *gorm.DB, entityType string, entityID uint) (column
 
 	withheld = map[string]bool{}
 	if reporter, ok := model.(withheldEditFieldsReporter); ok {
-		withheld = namesAsSet(reporter.WithheldEditFields())
+		for _, f := range reporter.WithheldEditFields() {
+			withheld[f] = true
+		}
 	}
 	return columns, withheld, nil
 }

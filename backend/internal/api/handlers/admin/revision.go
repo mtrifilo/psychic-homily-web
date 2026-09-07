@@ -212,11 +212,13 @@ func mapRevisionToResponse(r adminm.Revision, viewer contracts.RevisionViewer) R
 
 	item.Summary = shared.Deref(r.Summary)
 
-	// Unmarshal field changes from JSONB
+	// Unmarshal field changes from JSONB. Served through ForServing, which drops
+	// the storage-only OldValueWithheld stamp; see that function for what the
+	// stamp would publish.
 	if r.FieldChanges != nil {
 		var changes []adminm.FieldChange
 		if err := json.Unmarshal(*r.FieldChanges, &changes); err == nil {
-			item.Changes = changes
+			item.Changes = adminm.ForServing(changes)
 		}
 	}
 	if item.Changes == nil {

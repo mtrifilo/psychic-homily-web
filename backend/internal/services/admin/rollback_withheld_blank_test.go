@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -14,46 +15,9 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-// Every entity type with a gate has to reach gatedFieldNames, or a recorded
-// blank carrying no stamp goes on being read as an honest one and the rollback
-// goes on emptying the column.
-func TestGatedFieldNamesCoverEveryReporter(t *testing.T) {
-	for entityType, newModel := range entityModelsByType {
-		if _, gated := newModel().(withheldEditFieldsReporter); !gated {
-			continue
-		}
-		if len(gatedFieldNames[entityType]) == 0 {
-			t.Errorf("%s has a withholding gate but names no gated field", entityType)
-		}
-	}
-}
-
-// The per-TYPE list has to cover everything the per-ROW gate can actually
-// withhold. A name the gate withholds but the list omits is a blank the rollback
-// trusts, which is the defect this whole rule exists to stop.
-//
-// Venue is the one gated model, so its two columns are populated here to make
-// the gate report them; a second gated model belongs beside it.
-func TestGatedFieldNamesCoverEverythingTheGateWithholds(t *testing.T) {
-	unverified := &catalogm.Venue{
-		Address: stringPtr("1 Old St"),
-		Zipcode: stringPtr("85003"),
-	}
-	withheld := unverified.WithheldEditFields()
-	if len(withheld) == 0 {
-		t.Fatal("fixture withholds nothing, so this test asserts nothing")
-	}
-	gated := gatedFieldNames[adminm.PendingEditEntityVenue]
-	for _, name := range withheld {
-		if !gated[name] {
-			t.Errorf("venue withholds %q but the gated-name list omits it", name)
-		}
-	}
-}
-
-// The stamp is three-state, and the third state is the whole point: an
-// unstamped change must not read as "observed", or every row written before the
-// stamp existed is trusted to say its blank came off the column.
+// The stamp is three-state, and the third state is why it is a pointer: a
+// change that records nothing must not read as one that recorded "observed",
+// because the two cannot be told apart again once a row is written.
 func TestOldValueWithheldStampStates(t *testing.T) {
 	unstamped := adminm.FieldChange{Field: "address", OldValue: ""}
 	if unstamped.OldValueIsWithheld() {
@@ -80,6 +44,65 @@ func TestOldValueWithheldStampStates(t *testing.T) {
 	}
 }
 
+// The refusal keys on the STAMP, not on the value's shape. A mask is whatever
+// the unset value of the column's type renders as, so a gated int column would
+// be masked as 0 and a gated timestamp as year 1; keying on blankness would
+// write both of those into the column.
+func TestRefuseWithheldOldValues(t *testing.T) {
+	fieldOrder := []string{"address", "capacity", "founded_year", "name"}
+	byField := map[string]adminm.FieldChange{
+		"address":      stampedChange("address", "", "1234 Secret St", true),
+		"capacity":     stampedChange("capacity", 0, 350, true),
+		"founded_year": stampedChange("founded_year", "", 1985, false),
+		"name":         {Field: "name", OldValue: "", NewValue: "The Basement"},
+	}
+
+	refusals := refuseWithheldOldValues(fieldOrder, byField)
+	if _, refused := refusals["address"]; !refused {
+		t.Error("a stamped withheld value must be refused")
+	}
+	if _, refused := refusals["capacity"]; !refused {
+		t.Error("a withheld mask that is not blank must be refused too")
+	}
+	if _, refused := refusals["founded_year"]; refused {
+		t.Error("a blank the stamp calls observed is the column's own value")
+	}
+	if _, refused := refusals["name"]; refused {
+		t.Error("an unstamped change records nothing, so nothing here refuses it")
+	}
+	if got := refusals["address"]; got != withheldOldValueReason {
+		t.Errorf("refusal reason = %q, want the withheld reason", got)
+	}
+}
+
+// The stamp is storage. Serving it publishes the bit the withholding exists to
+// refuse: a field is stamped withheld only when its column is set, so `true`
+// tells the reader the venue has a street address on record.
+func TestForServingDropsTheStamp(t *testing.T) {
+	in := []adminm.FieldChange{
+		stampedChange("address", "", "1234 Secret St", true),
+		stampedChange("name", "Old Room", "The Basement", false),
+	}
+
+	out := adminm.ForServing(in)
+	for _, c := range out {
+		if !c.OldValueUnstamped() {
+			t.Errorf("%s: the served payload must carry no stamp", c.Field)
+		}
+	}
+	if in[0].OldValueUnstamped() {
+		t.Error("input mutated: the stored row's stamp is what rollback reads")
+	}
+
+	encoded, err := json.Marshal(out[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if body := string(encoded); strings.Contains(body, "old_value_withheld") {
+		t.Errorf("the served JSON must not name the stamp: %s", body)
+	}
+}
+
 // =============================================================================
 // INTEGRATION TESTS
 // =============================================================================
@@ -93,11 +116,9 @@ func stampedChange(field string, oldValue, newValue interface{}, withheld bool) 
 
 // withheldAddressRevision records an approved contributor address edit on an
 // unverified venue the way the submit path records one: the previous value is
-// the blank the contributor was served, stamped as such.
+// the placeholder the contributor was served, stamped as such.
 func (s *RevisionServiceIntegrationTestSuite) withheldAddressRevision(venueID, userID uint, newValue string) {
-	changes := []adminm.FieldChange{
-		stampedChange("address", "", newValue, true),
-	}
+	changes := []adminm.FieldChange{stampedChange("address", "", newValue, true)}
 	s.Require().NoError(s.svc.RecordRevision("venue", venueID, userID, changes, "corrected"))
 	s.applyRecordedChanges("venue", venueID, changes)
 }
@@ -108,55 +129,15 @@ func (s *RevisionServiceIntegrationTestSuite) venueAddress(venueID uint) *string
 	return venue.Address
 }
 
-// THE DEFECT. An unverified venue's address is withheld from the contributor
-// editing it, so the pending edit records "" as the previous value and the undo
-// wrote that blank over a real street address.
-//
-// The value the field held is in the history: the revision that put it there.
-// Restoring THAT is an undo; writing the blank is data loss dressed as one.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresTheAddressHistoryRecordsRatherThanTheWithheldBlank() {
+// THE INVARIANT. An unverified venue's address is withheld from the contributor
+// editing it, so the pending edit records "" as the previous value. Writing that
+// back on undo empties a column holding a real address, so the field is refused
+// instead. A revision recording ONE field has no siblings to carry, so the
+// refusal is the whole rollback.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesAWithheldAddress() {
 	admin := s.createTestUser()
 	venue := s.createTestVenue("Somebodys House")
 	s.Require().False(venue.Verified)
-
-	// The edit that put the real address there, back when the column was empty
-	// and the blank previous value was honest.
-	first := []adminm.FieldChange{
-		stampedChange("address", "", "1 Old St", false),
-	}
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, admin.ID, first, "added"))
-	s.applyRecordedChanges("venue", venue.ID, first)
-
-	s.withheldAddressRevision(venue.ID, admin.ID, secretAddress)
-	s.Require().Equal(secretAddress, *s.venueAddress(venue.ID))
-
-	revision := s.latestRevision("venue", venue.ID)
-	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
-	s.Require().NoError(err)
-	s.Equal([]string{"address"}, result.AppliedFields)
-	s.Empty(result.SkippedFields)
-
-	s.Require().NotNil(s.venueAddress(venue.ID))
-	s.Equal("1 Old St", *s.venueAddress(venue.ID),
-		"the undo must restore the address the history records, never the withheld blank")
-
-	recorded := s.latestRevision("venue", venue.ID)
-	var recordedChanges []adminm.FieldChange
-	s.Require().NoError(json.Unmarshal(*recorded.FieldChanges, &recordedChanges))
-	s.Require().Len(recordedChanges, 1)
-	s.Equal(secretAddress, recordedChanges[0].OldValue, "history records what the column held")
-	s.Equal("1 Old St", recordedChanges[0].NewValue,
-		"history records the value this rollback WROTE, not the blank the revision carried")
-	s.False(recordedChanges[0].OldValueIsWithheld(),
-		"the observation reads a withheld column as the column, so its value is observed")
-}
-
-// With nothing in the history to restore, the field is refused rather than
-// blanked. A revision recording ONE field has no siblings to carry, so the
-// refusal is the whole rollback.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesAWithheldBlankWithNoHistory() {
-	admin := s.createTestUser()
-	venue := s.createTestVenue("No History House")
 	s.Require().NoError(s.db.Model(venue).Update("address", "1 Old St").Error)
 
 	s.withheldAddressRevision(venue.ID, admin.ID, secretAddress)
@@ -164,16 +145,16 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesAWithheldBlank
 	revision := s.latestRevision("venue", venue.ID)
 	_, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
 	s.Require().Error(err)
-	s.Contains(err.Error(), withheldBlankReason)
+	s.Contains(err.Error(), withheldOldValueReason)
 
 	s.Require().NotNil(s.venueAddress(venue.ID))
 	s.Equal(secretAddress, *s.venueAddress(venue.ID),
-		"a refused rollback writes nothing, least of all the blank it refused")
+		"a refused rollback writes nothing, least of all the placeholder it refused")
 }
 
 // The refusal is per FIELD, like every other rollback refusal: an address
 // nothing can restore must not strand the undo of the fields recorded beside it.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusedWithheldBlankLeavesItsSiblingsRestorable() {
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusedWithheldAddressLeavesItsSiblingsRestorable() {
 	admin := s.createTestUser()
 	venue := s.createTestVenue("Mixed Revision House")
 	s.Require().NoError(s.db.Model(venue).Updates(map[string]interface{}{
@@ -193,7 +174,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusedWithheldBlankL
 	s.Equal([]string{"capacity"}, result.AppliedFields)
 	s.Require().Len(result.SkippedFields, 1)
 	s.Equal("address", result.SkippedFields[0].Field)
-	s.Equal(withheldBlankReason, result.SkippedFields[0].Reason)
+	s.Equal(withheldOldValueReason, result.SkippedFields[0].Reason)
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
@@ -201,6 +182,13 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusedWithheldBlankL
 	s.Equal(120, *restored.Capacity)
 	s.Require().NotNil(restored.Address)
 	s.Equal(secretAddress, *restored.Address, "the refused field keeps the value it had")
+
+	recorded := s.latestRevision("venue", venue.ID)
+	var recordedChanges []adminm.FieldChange
+	s.Require().NoError(json.Unmarshal(*recorded.FieldChanges, &recordedChanges))
+	s.Require().Len(recordedChanges, 1)
+	s.Equal("capacity", recordedChanges[0].Field,
+		"history records what was restored and nothing else")
 }
 
 // The ordinary undo of "a contributor filled in an empty address" still empties
@@ -211,9 +199,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_WritesABlankTheStampC
 	venue := s.createTestVenue("Empty Address House")
 	s.Require().Nil(s.venueAddress(venue.ID))
 
-	changes := []adminm.FieldChange{
-		stampedChange("address", "", secretAddress, false),
-	}
+	changes := []adminm.FieldChange{stampedChange("address", "", secretAddress, false)}
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, admin.ID, changes, "added"))
 	s.applyRecordedChanges("venue", venue.ID, changes)
 
@@ -227,37 +213,13 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_WritesABlankTheStampC
 	s.Equal("", *address, "an observed blank is the column's own value and is restored")
 }
 
-// A row written before the stamp existed says nothing about its blank, and the
-// history says everything: a revision that recorded writing a real value proves
-// the column was not empty, so the blank beside it was the mask.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_UnstampedBlankIsResolvedFromHistory() {
+// A row carrying no stamp records nothing about where its blank came from, and
+// keeps the behaviour it has: the blank is written. Refusing it would refuse the
+// undo of every genuinely empty field recorded before the stamp existed, and
+// nothing available here can tell the two apart.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_WritesAnUnstampedBlank() {
 	admin := s.createTestUser()
-	venue := s.createTestVenue("Legacy History House")
-
-	first := []adminm.FieldChange{{Field: "address", OldValue: "", NewValue: "1 Old St"}}
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, admin.ID, first, "added"))
-	s.applyRecordedChanges("venue", venue.ID, first)
-
-	second := []adminm.FieldChange{{Field: "address", OldValue: "", NewValue: secretAddress}}
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, admin.ID, second, "corrected"))
-	s.applyRecordedChanges("venue", venue.ID, second)
-
-	revision := s.latestRevision("venue", venue.ID)
-	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
-	s.Require().NoError(err)
-	s.Equal([]string{"address"}, result.AppliedFields)
-
-	s.Require().NotNil(s.venueAddress(venue.ID))
-	s.Equal("1 Old St", *s.venueAddress(venue.ID))
-}
-
-// The one case nothing can answer: an unstamped blank with no history behind it.
-// It is written, which is what the rollback did before any of this existed. The
-// alternative is refusing every legacy undo of a genuinely-empty address, which
-// is the more common of the two shapes it could be.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_UnstampedBlankWithNoHistoryKeepsThePriorBehaviour() {
-	admin := s.createTestUser()
-	venue := s.createTestVenue("Legacy Blank House")
+	venue := s.createTestVenue("Unstamped House")
 	s.Require().NoError(s.db.Model(venue).Update("address", "1 Old St").Error)
 
 	changes := []adminm.FieldChange{{Field: "address", OldValue: "", NewValue: secretAddress}}
@@ -272,30 +234,6 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_UnstampedBlankWithNoH
 	address := s.venueAddress(venue.ID)
 	s.Require().NotNil(address)
 	s.Equal("", *address)
-}
-
-// The history probe reads the entity's OWN revisions. A second venue's history
-// must not answer for this one, and neither must a revision recorded after the
-// one being undone.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_HistoryProbeIsScopedToTheEntityAndToEarlierRevisions() {
-	admin := s.createTestUser()
-	neighbour := s.createTestVenue("Neighbour House")
-	neighbourChanges := []adminm.FieldChange{{Field: "address", OldValue: "", NewValue: "9 Neighbour Ln"}}
-	s.Require().NoError(s.svc.RecordRevision("venue", neighbour.ID, admin.ID, neighbourChanges, "added"))
-
-	venue := s.createTestVenue("Scoped House")
-	s.Require().NoError(s.db.Model(venue).Update("address", "1 Old St").Error)
-	s.withheldAddressRevision(venue.ID, admin.ID, secretAddress)
-	subject := s.latestRevision("venue", venue.ID)
-
-	// Recorded AFTER the revision being undone, so it describes a later state
-	// and cannot be the value that preceded it.
-	later := []adminm.FieldChange{{Field: "address", OldValue: secretAddress, NewValue: "3 Later Rd"}}
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, admin.ID, later, "later"))
-
-	_, err := s.svc.Rollback(context.Background(), subject.ID, admin.ID)
-	s.Require().Error(err, "neither another venue's history nor a later revision may answer")
-	s.Contains(err.Error(), withheldBlankReason)
 }
 
 // =============================================================================
@@ -331,6 +269,13 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_StampsWha
 	s.False(stored["name"].OldValueIsWithheld(),
 		"a submitter's claim about the stamp must not survive the derivation")
 	s.False(stored["name"].OldValueUnstamped())
+
+	// The response goes back to the submitter, so it carries no stamp at all:
+	// `true` there would say the venue has an address on record, which is the
+	// bit the withholding refuses.
+	for _, c := range resp.FieldChanges {
+		s.True(c.OldValueUnstamped(), "%s: the served payload must carry no stamp", c.Field)
+	}
 }
 
 // A verified venue publishes its address, so the derived previous value is the
@@ -360,30 +305,20 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_VerifiedV
 // SUBMIT, APPROVE, ROLL BACK, the whole journey the ticket describes, through
 // the real services rather than a hand-written revision row.
 func (s *PendingEditServiceIntegrationTestSuite) TestSubmitApproveRollback_LeavesTheRealAddressInPlace() {
-	first := s.createTestUser()
-	second := s.createTestUser()
+	contributor := s.createTestUser()
 	reviewer := s.createTestUser()
 	venue := s.createTestVenue("Journey House")
 	s.Require().False(venue.Verified)
+	s.Require().NoError(s.db.Model(venue).Update("address", "1 Old St").Error)
 
-	// The address arrives through the pipeline, so history records it.
-	added, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
-		EntityType: "venue", EntityID: venue.ID, UserID: first.ID,
-		Changes: makeChanges("address", "", "1 Old St"), Summary: "adding the address",
-	})
-	s.Require().NoError(err)
-	_, err = s.svc.ApprovePendingEdit(context.Background(), added.ID, reviewer.ID)
-	s.Require().NoError(err)
-
-	// A second contributor edits it. The address is withheld from them now, so
-	// the recorded previous value is the blank.
-	corrected, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
-		EntityType: "venue", EntityID: venue.ID, UserID: second.ID,
+	edit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: contributor.ID,
 		Changes: makeChanges("address", "", secretAddress), Summary: "correcting the address",
 	})
 	s.Require().NoError(err)
-	s.True(s.storedChanges(corrected.ID)["address"].OldValueIsWithheld())
-	_, err = s.svc.ApprovePendingEdit(context.Background(), corrected.ID, reviewer.ID)
+	s.True(s.storedChanges(edit.ID)["address"].OldValueIsWithheld())
+
+	_, err = s.svc.ApprovePendingEdit(context.Background(), edit.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	var applied catalogm.Venue
@@ -394,13 +329,27 @@ func (s *PendingEditServiceIntegrationTestSuite) TestSubmitApproveRollback_Leave
 	var revision adminm.Revision
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&revision).Error)
+	stored := s.revisionChanges(&revision)
+	s.True(stored["address"].OldValueIsWithheld(),
+		"approve copies the stored change verbatim, so the stamp reaches history")
 
-	result, err := s.revisionSvc.Rollback(context.Background(), revision.ID, reviewer.ID)
-	s.Require().NoError(err)
-	s.Equal([]string{"address"}, result.AppliedFields)
+	_, err = s.revisionSvc.Rollback(context.Background(), revision.ID, reviewer.ID)
+	s.Require().Error(err, "the recorded previous value is a placeholder, so there is nothing to restore")
+	s.Contains(err.Error(), withheldOldValueReason)
 
-	var restored catalogm.Venue
-	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
-	s.Require().NotNil(restored.Address)
-	s.Equal("1 Old St", *restored.Address, "the undo restores the address, it does not erase it")
+	var afterRollback catalogm.Venue
+	s.Require().NoError(s.db.First(&afterRollback, venue.ID).Error)
+	s.Require().NotNil(afterRollback.Address)
+	s.Equal(secretAddress, *afterRollback.Address,
+		"the undo writes nothing, so the address the venue holds survives it")
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) revisionChanges(r *adminm.Revision) map[string]adminm.FieldChange {
+	var changes []adminm.FieldChange
+	s.Require().NoError(json.Unmarshal(*r.FieldChanges, &changes))
+	out := make(map[string]adminm.FieldChange, len(changes))
+	for _, c := range changes {
+		out[c.Field] = c
+	}
+	return out
 }
