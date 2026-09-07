@@ -46,6 +46,7 @@ func TestSceneSubRoutesShareOneParameterName(t *testing.T) {
 		"/scenes/{}/shows",
 		"/scenes/{}/genres",
 		"/scenes/{}/graph",
+		"/scenes/{}/crews",
 		"/scenes/{}/week",
 		"/scenes/{}/day",
 		"/scenes/{}/calendar.ics",

@@ -36,6 +36,7 @@ func TestMapTagError_CodeToStatus(t *testing.T) {
 		{"entity tag exists", apperrors.ErrEntityTagExists(1, "artist", 2), 409},
 		{"entity tag not found", apperrors.ErrEntityTagNotFound(1, "artist", 2), 404},
 		{"creation forbidden", apperrors.ErrTagCreationForbidden(), 403},
+		{"category admin only", apperrors.ErrTagCategoryAdminOnly("crew"), 403},
 		{"name invalid", apperrors.ErrTagNameInvalid("too long"), 422},
 		{"merge invalid", apperrors.ErrTagMergeInvalid("self-merge"), 422},
 		{"merge alias conflict", apperrors.ErrTagMergeAliasConflict("hc", 3), 409},

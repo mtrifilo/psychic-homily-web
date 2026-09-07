@@ -155,6 +155,20 @@ func IsValidTagCategory(category string) bool {
 	return false
 }
 
+// IsAdminMintOnlyTagCategory reports whether CREATING a tag in this category
+// requires admin.
+//
+// The rule governs which NAMES may enter the tag vocabulary, and nothing else.
+// Applying an existing tag of the category, and removing an application, are
+// unrestricted by it, so what a crew tag is attached to is not admin-controlled
+// even though what a crew tag is called is.
+//
+// Crew is restricted because the value names a real party. The other categories
+// describe rather than name, so a wrong one is noise a curator fixes.
+func IsAdminMintOnlyTagCategory(category string) bool {
+	return category == TagCategoryCrew
+}
+
 // IsValidTagEntityType returns true if the given entity type is valid for tagging.
 func IsValidTagEntityType(entityType string) bool {
 	for _, t := range TagEntityTypes {
