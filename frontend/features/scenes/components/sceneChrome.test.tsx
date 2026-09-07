@@ -76,8 +76,7 @@ describe('EntityNameLink', () => {
   })
 })
 
-// Two surfaces print dot-separated entity names and one component draws both,
-// which is the arrangement these tests exist to hold.
+// The dot-separated names line has one implementation, and these are its tests.
 describe('EntityNameList', () => {
   it('joins the names with middots and links each one', () => {
     const { container } = renderWithProviders(
@@ -130,7 +129,7 @@ describe('EntityNameList', () => {
     expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
   })
 
-  // The id-less caller is RoomList, whose items key on slug-or-name.
+  // Items without an id key on slug-or-name.
   it('renders every row when the caller has no ids and no slugs', () => {
     const { container } = renderWithProviders(
       <EntityNameList
@@ -143,9 +142,10 @@ describe('EntityNameList', () => {
 
   // The key collision the doc block names: no id, no slug, same name twice.
   // Both rows still have to reach the DOM, because a name repeating is a fact
-  // about the data and never a reason to drop one of them. React warns on the
-  // duplicate key, which is the expected output here rather than a failure, so
-  // the warning is captured instead of printed.
+  // about the data and never a reason to drop one of them. React's duplicate-key
+  // complaint is expected here rather than a failure, so it is captured to keep
+  // it out of the suite's output; the test below asserts its absence where the
+  // key IS unique.
   it('renders both rows when two id-less, slugless items share a name', () => {
     const warned = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
@@ -161,19 +161,26 @@ describe('EntityNameList', () => {
     }
   })
 
-  // Distinct ids keep distinct keys even when name and slug are identical,
-  // which is the case the `id` field exists for.
-  it('keys on the id when the caller has one', () => {
-    const { container } = renderWithProviders(
-      <EntityNameList
-        items={[
-          { id: 1, name: 'Repeat', slug: '' },
-          { id: 2, name: 'Repeat', slug: '' },
-        ]}
-        basePath="/artists"
-      />
-    )
-    expect(container.textContent).toBe('Repeat · Repeat')
+  // The `id` branch is what makes the previous case collision-free, and the
+  // only observable difference is React's duplicate-key complaint, so that is
+  // what this asserts the absence of.
+  it('keys on the id, so identical names and slugs do not collide', () => {
+    const complained = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { container } = renderWithProviders(
+        <EntityNameList
+          items={[
+            { id: 1, name: 'Repeat', slug: '' },
+            { id: 2, name: 'Repeat', slug: '' },
+          ]}
+          basePath="/artists"
+        />
+      )
+      expect(container.textContent).toBe('Repeat · Repeat')
+      expect(complained).not.toHaveBeenCalled()
+    } finally {
+      complained.mockRestore()
+    }
   })
 })
 

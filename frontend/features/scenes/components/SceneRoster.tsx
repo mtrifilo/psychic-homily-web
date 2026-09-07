@@ -46,9 +46,9 @@ const ROSTER_MAX = 100
  * profile-resolved writers use the same column, so the field establishes no
  * release recency.
  *
- * The link carries its own underline: the caption's type is mono micro-caps in
- * the muted tone, so an unstyled link inside it is indistinguishable from the
- * label beside it until a pointer hovers, which a touch reader never does.
+ * The link carries its own underline. The caption's type is mono micro-caps in
+ * the muted tone, where `EntityNameLink`'s default weight bump is nearly
+ * invisible and its underline waits for a hover a touch reader never performs.
  */
 function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
   return (
@@ -83,35 +83,51 @@ export function SceneRoster({
   const [limit, setLimit] = useState(ROSTER_PAGE_SIZE)
   // The hook retains the previous page across a limit change on its own, so the
   // reader keeps looking at the list while the rest of it arrives.
-  const { data, isLoading } = useSceneArtists({ slug: scene.slug, limit })
-  // The player is read from the FIRST page's answer, never the current one.
-  // `representative_embed` is derived from the rows the response carries, so a
-  // wider page can nominate a different band; taking it from the live response
+  const { data, isLoading, isError } = useSceneArtists({ slug: scene.slug, limit })
+  // The first page is read separately, and is what the player and the failed
+  // widening both fall back on.
+  //
+  // `representative_embed` is derived from the rows the response carries. A
+  // wider page usually nominates the same band, because it extends the same
+  // ordering, but not when the narrow page held no usable embed and the pick
+  // came from the roster-wide fallback: a wider page can then answer for
+  // itself and name someone else. Reading the player off the live response
   // would swap the iframe's src under a reader who had pressed play, purely
-  // because they asked for more names. At the first page size this is the same
-  // cache entry as the query above, so it costs no extra request.
+  // because they asked for more names. Until the reader widens, this is the
+  // same cache entry as the query above and costs no request; after, it is a
+  // second entry with a live observer, so the page holds two.
   const { data: firstPage } = useSceneArtists({
     slug: scene.slug,
     limit: ROSTER_PAGE_SIZE,
   })
 
-  const artists = data?.artists ?? []
+  // A wider fetch that FAILS falls back to the page already on screen rather
+  // than emptying the section. `placeholderData` cannot cover this: it applies
+  // only while a query is pending, so an errored widening leaves `data`
+  // undefined, and the guard below would unmount a section the reader is
+  // reading, along with an embed that may be playing.
+  const page = data ?? (isError ? firstPage : undefined)
+  const artists = page?.artists ?? []
 
   // Loading and empty both render nothing. A heading that appears, empties and
   // disappears is worse than one that arrives once, and a scene with no
   // based-here bands has no section to draw.
   if (isLoading || artists.length === 0) return null
 
-  const total = data?.total ?? artists.length
+  const total = page?.total ?? artists.length
   const withheld = Math.max(total - artists.length, 0)
   // What one more fetch could actually put on the page — capped, because the
   // endpoint is. The control is LABELLED from this rather than from `total`:
   // a 340-band roster offering "Show all 340" and then delivering 100 breaks
   // its promise on the click, which is worse than naming the ceiling up front.
   const expandTo = Math.min(total, ROSTER_MAX)
-  const canExpand = withheld > 0 && artists.length < expandTo
+  // Withdrawn while the widening is failing: `limit` already holds the value
+  // the control would set, so pressing it again would change no state and fetch
+  // nothing. The disclosure line below takes over and states the shortfall.
+  const canExpand = !isError && withheld > 0 && artists.length < expandTo
 
   const embed = firstPage?.representative_embed
+
 
   return (
     <section id={anchorId} className="scroll-mt-20 border-t border-border pt-4">
@@ -149,17 +165,15 @@ export function SceneRoster({
         </p>
       )}
 
-      {/* One gate for the player and its caption, so the two cannot disagree
-          about whether there is anything here.
+      {/* One gate, so the caption and the player are never rendered apart.
 
           `hasRenderableMusic` is NECESSARY, not sufficient: it host-anchors the
-          stored URL, which is every check that can be made before MusicEmbed
-          mounts and asks the resolver. A value that clears it and then resolves
-          to no player degrades to MusicEmbed's Bandcamp link when the URL names
-          a release, and to nothing when it does not, in which case the caption
-          is left over blank space. Closing that needs the caption to live inside
-          MusicEmbed, which is where the same residual sits on the atlas
-          preview's Listen heading. */}
+          stored URL, which is every check available before MusicEmbed mounts
+          and asks the resolver. A value that clears it and then resolves to no
+          player degrades to MusicEmbed's Bandcamp link when the URL names a
+          release, and to nothing when it does not, and in that last case the
+          caption stands over blank space. Closing that needs the caption inside
+          MusicEmbed, where it could see the resolve. */}
       {embed && hasRenderableMusic({ bandcampAlbumUrl: embed.embed_url }) && (
         <RosterEmbed embed={embed} />
       )}

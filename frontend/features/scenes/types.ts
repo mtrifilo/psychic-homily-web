@@ -110,8 +110,8 @@ export interface SceneArtist {
   is_active: boolean
   // The artist's embeddable Bandcamp /album|/track URL, null when the artist has
   // none. It is on the wire because the backend derives `representative_embed`
-  // from the rows it returns; a player reads that field rather than scanning
-  // this one, which is what keeps a page to one embed instead of one per band.
+  // from the rows it returns. Rendering a player per row is what that field
+  // exists to replace, so reach for it rather than for this column.
   bandcamp_embed_url?: string | null
 }
 

@@ -116,10 +116,13 @@ type RosterPage = {
  * hook calls apart: the component asks for the current page and, separately,
  * for the first one.
  */
-function givenRosterByLimit(byLimit: Record<number, RosterPage>) {
+function givenRosterByLimit(byLimit: Record<number, RosterPage | 'error'>) {
   mockUseSceneArtists.mockImplementation((options: { limit: number }) => {
     const page = byLimit[options.limit]
-    if (!page) return { data: undefined, isLoading: true }
+    if (!page) return { data: undefined, isLoading: true, isError: false }
+    if (page === 'error') {
+      return { data: undefined, isLoading: false, isError: true }
+    }
     return {
       data: {
         artists: page.artists,
@@ -127,6 +130,7 @@ function givenRosterByLimit(byLimit: Record<number, RosterPage>) {
         representative_embed: page.embed,
       },
       isLoading: false,
+      isError: false,
     }
   })
 }
@@ -294,7 +298,8 @@ describe('SceneRoster', () => {
 
       await user.click(screen.getByRole('button', { name: 'Show all 40 →' }))
 
-      // One URL across every render, so the iframe is never re-sourced.
+      // One URL across every render. MusicEmbed is stubbed here, so this pins
+      // the prop it would build its iframe src from, not the iframe itself.
       expect(new Set(embedProps.map(props => props.bandcampAlbumUrl))).toEqual(
         new Set([EMBED_URL])
       )
@@ -303,7 +308,7 @@ describe('SceneRoster', () => {
       )
     })
 
-    it('renders nothing at all when no band based here has an embed', () => {
+    it('draws no player and no caption when no band based here has an embed', () => {
       givenRoster([artist()], 1, null)
       const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(embedProps).toHaveLength(0)
@@ -323,9 +328,9 @@ describe('SceneRoster', () => {
     })
 
     // The host anchor is the half of the strand guard this component owns: a
-    // value it rejects suppresses the caption as well as the player, so the two
-    // never disagree about whether there is anything here.
-    it('renders nothing when the pick is not a renderable Bandcamp URL', () => {
+    // value it rejects suppresses the caption as well as the player, so neither
+    // is ever drawn without the other.
+    it('draws neither when the pick is not a renderable Bandcamp URL', () => {
       givenRoster(
         [artist()],
         1,
@@ -392,6 +397,62 @@ describe('SceneRoster', () => {
       expect(
         screen.getByText('Showing 100 of 340 bands based in Phoenix')
       ).toBeInTheDocument()
+    })
+  })
+
+  // A read that fails after the reader has widened the list must not be
+  // mistaken for a scene with no bands: the anonymous per-IP limiter makes a
+  // 429 on that click ordinary traffic, and the section holds a player that may
+  // be sounding.
+  describe('a failed widening', () => {
+    function givenFailedExpansion() {
+      givenRosterByLimit({
+        10: {
+          artists: rosterOf(10),
+          total: 340,
+          embed: representativeEmbed(),
+        },
+        100: 'error',
+      })
+    }
+
+    it('falls back to the page already on screen instead of emptying', async () => {
+      const user = userEvent.setup()
+      givenFailedExpansion()
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show 100 of 340 →' }))
+
+      expect(
+        screen.getByRole('heading', { name: /Bands based here · 340/i })
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Band 1' })).toBeInTheDocument()
+      expect(
+        screen.getByText('Showing 10 of 340 bands based in Phoenix')
+      ).toBeInTheDocument()
+    })
+
+    it('keeps the player mounted', async () => {
+      const user = userEvent.setup()
+      givenFailedExpansion()
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show 100 of 340 →' }))
+
+      expect(screen.getByTestId('embed-Gatecreeper')).toBeInTheDocument()
+    })
+
+    // `limit` already holds the value the control would set, so a second press
+    // would change no state and fetch nothing.
+    it('withdraws the control rather than offering an inert one', async () => {
+      const user = userEvent.setup()
+      givenFailedExpansion()
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show 100 of 340 →' }))
+
+      expect(screen.queryByRole('button', { name: /Show/ })).toBeNull()
+      expect(container.textContent).not.toContain('…')
     })
   })
 
