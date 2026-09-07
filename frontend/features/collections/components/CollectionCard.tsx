@@ -20,7 +20,9 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-import { TAG_CATEGORY_CREW } from '@/features/tags'
+// Imported from the leaf module, not the feature barrel: the barrel pulls in
+// features/tags/hooks, which reaches nuqs at module scope.
+import { isDescriptiveTagCategory } from '@/features/tags/types'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { CollectionCoverImage } from './CollectionCoverImage'
@@ -102,8 +104,8 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   // top-4 slice stays.
   const mosaicTypes = entityTypeBreakdown.slice(0, 4).map(([type]) => type)
 
-  const visibleTags = (collection.tags ?? []).filter(
-    tag => tag.category !== TAG_CATEGORY_CREW
+  const visibleTags = (collection.tags ?? []).filter(tag =>
+    isDescriptiveTagCategory(tag.category)
   )
 
   return (
@@ -220,12 +222,10 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               cards behave like a "show me other collections like this"
               shortcut rather than a deep-dive into the tag's full corpus.
 
-              Every chip here is the same neutral pill whatever the tag's
-              category, so the row carries no category signal and a booker's
-              name would read as a sound. Crew is filtered before the cap, so
-              the "+N" remainder counts only chips this row can show; the
-              collection's detail page still lists the full set. Any other
-              category, including one this build does not know, renders. */}
+              Every chip is the same neutral pill whatever the tag's
+              category, so the row carries no category signal at all and only
+              descriptive categories belong in it. The filter runs before the
+              cap, so the "+N" remainder counts only chips this row shows. */}
           {visibleTags.length > 0 && (
             <div
               className="mt-1.5 flex flex-wrap gap-1"

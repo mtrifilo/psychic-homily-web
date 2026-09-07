@@ -7,6 +7,7 @@ import {
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
   FACET_TAG_CATEGORIES,
+  isDescriptiveTagCategory,
   getCategoryChipClasses,
   getCategoryTint,
   getTagChipClasses,
@@ -16,13 +17,37 @@ import {
 } from './types'
 
 describe('tag constants', () => {
-  it('exposes the tag categories the backend allowlist accepts', () => {
+  it('lists the four tag categories the UI knows', () => {
     expect(TAG_CATEGORIES).toEqual(['genre', 'locale', 'other', 'crew'])
   })
 
   it('keeps crew out of the facet vocabulary and everything else in', () => {
     expect(FACET_TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
     expect(FACET_TAG_CATEGORIES).not.toContain('crew')
+  })
+})
+
+describe('isDescriptiveTagCategory', () => {
+  it('admits every category except crew', () => {
+    expect(isDescriptiveTagCategory('genre')).toBe(true)
+    expect(isDescriptiveTagCategory('locale')).toBe(true)
+    expect(isDescriptiveTagCategory('other')).toBe(true)
+    expect(isDescriptiveTagCategory('crew')).toBe(false)
+  })
+
+  it('admits a category this build does not know', () => {
+    // A category the server adds before the frontend ships must render,
+    // not vanish from every row that consults this.
+    expect(isDescriptiveTagCategory('era')).toBe(true)
+    expect(isDescriptiveTagCategory('')).toBe(true)
+  })
+
+  it('excludes crew whatever its casing or padding', () => {
+    // tags.category is an unconstrained column: a guard that only knows the
+    // exact lowercase spelling is one seeder away from leaking.
+    for (const variant of ['Crew', 'CREW', ' crew ', 'cReW']) {
+      expect(isDescriptiveTagCategory(variant)).toBe(false)
+    }
   })
 
   it('maps each sort option to a backend slug', () => {
@@ -116,6 +141,14 @@ describe('getCategoryChipClasses', () => {
   it('falls back to the "other" styling for an unknown category', () => {
     expect(getCategoryChipClasses('mystery')).toBe(getCategoryChipClasses('other'))
   })
+
+  it('falls back for a category name that collides with an object member', () => {
+    // The category is read straight out of the database, so it can be any
+    // string; an object-index lookup would answer these from the prototype.
+    for (const key of ['toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+      expect(getCategoryChipClasses(key)).toBe(getCategoryChipClasses('other'))
+    }
+  })
 })
 
 describe('getCategoryTint', () => {
@@ -135,6 +168,7 @@ describe('getCategoryTint', () => {
 
   it('falls back to the "other" tint for an unknown category', () => {
     expect(getCategoryTint('mystery')).toBe(getCategoryTint('other'))
+    expect(getCategoryTint('toString')).toBe('text-muted-foreground')
   })
 })
 
@@ -157,11 +191,20 @@ describe('getTagChipClasses', () => {
   })
 
   it('uses the category classes for any unofficial tag', () => {
+    expect(getTagChipClasses({ category: 'genre', is_official: false })).toBe(
+      'bg-chart-6/10 text-chart-6 border-chart-6/20'
+    )
     for (const cat of TAG_CATEGORIES) {
       expect(getTagChipClasses({ category: cat, is_official: false })).toBe(
         getCategoryChipClasses(cat)
       )
     }
+  })
+
+  it('gives an unknown official category the accent, like the "other" it falls back to', () => {
+    expect(getTagChipClasses({ category: 'era', is_official: true })).toBe(
+      getTagChipClasses({ category: 'other', is_official: true })
+    )
   })
 })
 

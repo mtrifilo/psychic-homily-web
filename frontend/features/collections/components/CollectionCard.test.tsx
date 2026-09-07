@@ -624,6 +624,39 @@ describe('CollectionCard', () => {
       expect(screen.getByText('+1')).toBeInTheDocument()
     })
 
+    it('shows no overflow when crew is what pushed the list past the cap', () => {
+      // Five descriptive tags plus a crew tag: the old code printed "+1"
+      // promising a chip the row would never render.
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          ...Array.from({ length: 5 }, (_, i) => ({
+            id: i + 1,
+            name: `tag-${i + 1}`,
+            slug: `tag-${i + 1}`,
+            category: 'other',
+            is_official: false,
+            usage_count: 1,
+          })),
+          crewTag,
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(screen.getAllByRole('link', { name: /^tag-\d$/ })).toHaveLength(5)
+      expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    })
+
+    it('drops a crew chip whose category arrives differently cased', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [{ ...crewTag, category: 'Crew' }],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(
+        screen.queryByTestId('collection-card-tags')
+      ).not.toBeInTheDocument()
+    })
+
     it('keeps a tag whose category this build does not know', () => {
       const collection: Collection = {
         ...baseCollection,

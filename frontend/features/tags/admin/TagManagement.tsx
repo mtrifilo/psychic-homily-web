@@ -384,6 +384,17 @@ export function EditTagFormFields({
   const [isOfficial, setIsOfficial] = useState(tag.is_official)
   const [error, setError] = useState<string | null>(null)
 
+  // A Select whose value has no matching option renders an EMPTY trigger,
+  // and the form still submits the value behind it: an admin who "fixes" the
+  // blank field silently re-categorizes the tag. `tags.category` is an
+  // unconstrained column that seeders, migrations and a newer server can all
+  // write, so the tag's own category is offered whatever it is.
+  const categoryOptions: string[] = (TAG_CATEGORIES as readonly string[]).includes(
+    category
+  )
+    ? [...TAG_CATEGORIES]
+    : [...TAG_CATEGORIES, category]
+
   const tagId = tag.id
 
   const handleSubmit = useCallback(
@@ -440,7 +451,7 @@ export function EditTagFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TAG_CATEGORIES.map((cat) => (
+              {categoryOptions.map((cat) => (
                 <SelectItem key={cat} value={cat}>
                   {getCategoryLabel(cat)}
                 </SelectItem>

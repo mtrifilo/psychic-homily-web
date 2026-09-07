@@ -124,10 +124,11 @@ vi.mock('../hooks', () => ({
   }),
 }))
 
-// Only the chip classes are stubbed, so class assertions stay legible.
-// TAG_CATEGORIES and getCategoryLabel come from the real module: a hardcoded
-// category list here would let the dialog's filter row drift from the
-// vocabulary the app actually ships.
+// The category tint is stubbed so the dialog's class assertions stay legible.
+// Everything else comes from the real module: a hardcoded category list here
+// would let the dialog's filter row drift from the vocabulary the app ships.
+// Note the stub does NOT reach the tag pill, which styles itself through
+// `getTagChipClasses` and so is asserted against real class strings.
 vi.mock('../types', async importOriginal => ({
   ...(await importOriginal<typeof import('../types')>()),
   getCategoryChipClasses: () => '',
@@ -707,6 +708,67 @@ describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
       .map(o => o.textContent)
     expect(optionLabels).toEqual(chipLabels)
     expect(optionLabels).not.toContain('Crew')
+  })
+})
+
+describe('EntityTagList add-tag dialog crew search result (PSY-1883)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // EntityTagList hides itself (and its Add affordance) on a tagless
+    // entity, so the dialog needs an existing tag to be reachable at all.
+    currentMockTags = mockEntityTags
+    mockAuthUser = { user_tier: 'contributor' }
+    currentMockSearchTags = {
+      tags: [
+        { id: 9, name: 'Rubber Brother Records', slug: 'rubber-brother-records', category: 'crew', is_official: true, usage_count: 31, created_at: '' },
+      ],
+    }
+  })
+
+  async function searchDialog(queryText: string) {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    await user.type(
+      screen.getByPlaceholderText('Search tags or type a new one...'),
+      queryText
+    )
+    return user
+  }
+
+  it('offers a crew tag from the unfiltered results even with no crew chip', async () => {
+    // Dropping the Crew filter chip must not cost a contributor the ability
+    // to apply a crew tag someone else minted.
+    const user = await searchDialog('Rubber')
+
+    const result = await screen.findByRole(
+      'button',
+      { name: /Rubber Brother Records/ },
+      DEBOUNCE_TIMEOUT
+    )
+    await user.click(result)
+    expect(mockAddMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ tag_id: 9 }),
+      expect.anything()
+    )
+  })
+
+  it('labels the crew result the same way every other surface does', async () => {
+    await searchDialog('Rubber')
+
+    const result = await screen.findByRole(
+      'button',
+      { name: /Rubber Brother Records/ },
+      DEBOUNCE_TIMEOUT
+    )
+    // The category badge prints through getCategoryLabel, so it reads "Crew"
+    // rather than the raw column value.
+    expect(within(result).getByText('Crew')).toBeInTheDocument()
   })
 })
 

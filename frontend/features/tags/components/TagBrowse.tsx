@@ -13,6 +13,7 @@ import { DenseTable } from '@/components/shared'
 import { useTags } from '../hooks'
 import {
   TAG_CATEGORIES,
+  TAG_CATEGORY_CREW,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
   getCategoryChipClasses,
@@ -36,32 +37,30 @@ function sortToBackend(sort: TagSortOption): string {
 
 /**
  * Per-category total counts for the facet chips, scoped to the active search
- * term but NOT to the selected category — each chip reports how many tags
- * that facet would surface, so a chip can be disabled when it has none.
- * One `useTags({category, limit:1})` per category, one call per entry in
- * TAG_CATEGORIES, so every chip this page renders has a count behind it.
- * `all` is the cross-category sum.
+ * term but NOT to the selected category, so each chip reports how many tags
+ * that facet would surface and a chip with none can be disabled. `all` sums
+ * exactly the counts the chips read.
  *
- * The calls are written out rather than mapped because they are hooks: a
- * `.map` over the constant would put a hook inside a callback. A category
- * added to TAG_CATEGORIES without a line here renders a 0 count, so the
- * pairing is pinned by a test.
+ * The queries are written out rather than mapped over TAG_CATEGORIES because
+ * they are hooks, and a `.map` would put a hook inside a callback. That makes
+ * this the one place a new category has to be added by hand; the counts are
+ * derived from these results so there is only one such list, and a test
+ * asserts a query exists for every category the page renders a chip for.
  */
 function useCategoryCounts(search: string | undefined): {
   counts: Record<string, number>
   all: number
 } {
-  const genre = useTags({ category: 'genre', search, limit: 1 })
-  const locale = useTags({ category: 'locale', search, limit: 1 })
-  const other = useTags({ category: 'other', search, limit: 1 })
-  const crew = useTags({ category: 'crew', search, limit: 1 })
-
-  const counts: Record<string, number> = {
-    genre: genre.data?.total ?? 0,
-    locale: locale.data?.total ?? 0,
-    other: other.data?.total ?? 0,
-    crew: crew.data?.total ?? 0,
+  const results = {
+    genre: useTags({ category: 'genre', search, limit: 1 }),
+    locale: useTags({ category: 'locale', search, limit: 1 }),
+    other: useTags({ category: 'other', search, limit: 1 }),
+    [TAG_CATEGORY_CREW]: useTags({ category: TAG_CATEGORY_CREW, search, limit: 1 }),
   }
+
+  const counts: Record<string, number> = Object.fromEntries(
+    Object.entries(results).map(([category, r]) => [category, r.data?.total ?? 0])
+  )
   return { counts, all: Object.values(counts).reduce((sum, n) => sum + n, 0) }
 }
 
@@ -193,7 +192,7 @@ export function TagBrowse() {
             label={getCategoryLabel(cat)}
             count={counts[cat] ?? 0}
             active={category === cat}
-            categoryTint={getCategoryChipClasses(cat)}
+            activeCategoryClasses={getCategoryChipClasses(cat)}
             onClick={() => handleCategoryChange(cat)}
           />
         ))}
@@ -265,21 +264,21 @@ export function TagBrowse() {
 }
 
 // ──────────────────────────────────────────────
-// Facet chip (All / Genre / Locale / Other)
+// Facet chip: All, plus one per TAG_CATEGORIES entry
 // ──────────────────────────────────────────────
 
 function FacetChip({
   label,
   count,
   active,
-  categoryTint,
+  activeCategoryClasses,
   onClick,
 }: {
   label: string
   count: number
   active: boolean
-  /** Category chip classes applied when the chip is active. */
-  categoryTint?: string
+  /** The category's own chip classes, worn only while the chip is active. */
+  activeCategoryClasses?: string
   onClick: () => void
 }) {
   // Zero-result facets are disabled — clicking them would only show an empty
@@ -295,8 +294,8 @@ function FacetChip({
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
         active
-          ? categoryTint
-            ? categoryTint
+          ? activeCategoryClasses
+            ? activeCategoryClasses
             : 'border-foreground bg-foreground text-background'
           : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
         disabled && 'cursor-not-allowed opacity-40 hover:bg-muted/40 hover:text-muted-foreground'
@@ -380,5 +379,3 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
     </DenseTable>
   )
 }
-
-

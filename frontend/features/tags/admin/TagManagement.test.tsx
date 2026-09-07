@@ -215,7 +215,7 @@ describe('TagManagement — category filter (PSY-924)', () => {
   })
 })
 
-describe('TagManagement — crew category (PSY-1883)', () => {
+describe('TagManagement: crew category (PSY-1883)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseTags.mockReturnValue({
@@ -238,6 +238,22 @@ describe('TagManagement — crew category (PSY-1883)', () => {
     )
 
     expect(screen.getByLabelText('Category *')).toHaveTextContent('Crew')
+  })
+
+  it('shows a stored category the UI has never heard of rather than a blank trigger', async () => {
+    // tags.category is an unconstrained column, so a seeder or a newer server
+    // can store a value this build does not list. Blanking the trigger would
+    // make the next Save silently rewrite it.
+    renderWithProviders(
+      <EditTagFormFields
+        key={8}
+        tag={makeTagDetail({ id: 8, name: 'nineties', category: 'era' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Category *')).toHaveTextContent('Era')
   })
 
   it('offers Crew when filtering the admin tag list', async () => {

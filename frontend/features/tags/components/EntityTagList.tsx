@@ -905,7 +905,7 @@ function AddTagForm({
                   getCategoryChipClasses(tag.category)
                 )}
               >
-                {tag.category}
+                {getCategoryLabel(tag.category)}
               </span>
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{tag.name}</span>

@@ -7,36 +7,49 @@ export type TagCategory = typeof TAG_CATEGORIES[number]
 
 /**
  * A tag naming a MUSIC BOOKER: a promoter, a DIY crew or collective, or a
- * named series or residency that books live music. Minting one is admin-only
- * (backend `IsAdminMintOnlyTagCategory`); applying an existing one is not.
+ * named series or residency that books live music.
  *
- * Crew is the one category that is not a description of sound. Every rule
- * below that treats it differently follows from that.
+ * Crew is the one category that is not a description of sound, and it is the
+ * one the server will not let a non-admin mint. Every rule below that treats
+ * it differently follows from the first fact.
  */
 export const TAG_CATEGORY_CREW = 'crew' as const satisfies TagCategory
 
-/** A category a contributor-facing chip row may offer. */
+/** A category that describes the sound. */
 export type FacetTagCategory = Exclude<TagCategory, typeof TAG_CATEGORY_CREW>
 
 /**
- * The categories a tag-facet chip row offers: the browse-page facet panels
- * and the add-tag dialog's filter row. `crew` is absent from both. A crew
- * chip standing among genre chips reads as a genre and dilutes the filter it
- * sits in, and a booker's tag fans out across a whole roster, so it would
- * outrank real genres while answering a different question.
+ * Whether a category describes the SOUND of the music. `crew` names the party
+ * that booked it instead, which is the one fact every rule below turns on: a
+ * surface that cannot say which kind of tag it is showing reads a booker's
+ * name as a genre.
+ *
+ * An unrecognized category counts as descriptive, so a category this build
+ * has not heard of renders rather than silently vanishing. The comparison is
+ * normalized because `tags.category` is an unconstrained column: `Crew` must
+ * not slip past a guard that only knows `crew`.
+ */
+export function isDescriptiveTagCategory(category: string): boolean {
+  return category.trim().toLowerCase() !== TAG_CATEGORY_CREW
+}
+
+/**
+ * The known descriptive categories: the vocabulary of a chip row that prints
+ * no category of its own, which is the browse-page facet panels and the
+ * add-tag dialog's filter row. A non-descriptive chip standing among genre
+ * chips dilutes the filter it sits in.
  *
  * The add-tag dialog's create-category control reads this same list, because
  * that dialog copies the chosen filter chip into the category it would mint:
- * a chip with no matching option there is a value the control cannot show but
- * still submits. Crew is admin-minted (backend `IsAdminMintOnlyTagCategory`),
- * so a contributor has nothing to lose by its absence, and an existing crew
- * tag stays applicable from the unfiltered search results.
+ * a chip with no matching option there is a value the control cannot show yet
+ * still submits.
  *
- * Tag browse (`/tags`) offers the full `TAG_CATEGORIES` set instead, and
- * `/admin/tags` mints from it, so crew tags stay reachable and creatable.
+ * This enumerates the categories this build knows. To judge an arbitrary
+ * category string, use `isDescriptiveTagCategory`, which admits an
+ * unrecognized one rather than dropping it.
  */
 export const FACET_TAG_CATEGORIES: readonly FacetTagCategory[] =
-  TAG_CATEGORIES.filter((c): c is FacetTagCategory => c !== TAG_CATEGORY_CREW)
+  TAG_CATEGORIES.filter((c): c is FacetTagCategory => isDescriptiveTagCategory(c))
 
 // Sort options for the tag browse page. Values are the URL-facing slugs;
 // `backend` is the value passed to the /tags `sort` query param.
@@ -495,18 +508,33 @@ const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
   },
 }
 
-const CATEGORY_CHIP_CLASSES: Record<string, string> = Object.fromEntries(
+/** Classes an unrecognized category falls back to. */
+const FALLBACK_CATEGORY = 'other' as const satisfies TagCategory
+
+function composeChipClasses(t: CategoryChipTokens): string {
+  return [t.bg, t.text, t.border, t.shape].filter(Boolean).join(' ')
+}
+
+/**
+ * Both maps are keyed by a value read straight out of an unconstrained
+ * database column, so lookups go through a Map rather than an object index:
+ * an object would answer `toString` with a prototype member instead of
+ * missing, and the fallback would never fire.
+ */
+const CATEGORY_CHIP_TOKEN_MAP = new Map<string, CategoryChipTokens>(
+  Object.entries(CATEGORY_CHIP_TOKENS)
+)
+const CATEGORY_CHIP_CLASS_MAP = new Map<string, string>(
   Object.entries(CATEGORY_CHIP_TOKENS).map(([category, t]) => [
     category,
-    [t.bg, t.text, t.border, t.shape].filter(Boolean).join(' '),
+    composeChipClasses(t),
   ])
 )
-
-/** Classes an unrecognized category falls back to. */
-const FALLBACK_CATEGORY: TagCategory = 'other'
+const FALLBACK_CHIP_TOKENS = CATEGORY_CHIP_TOKENS[FALLBACK_CATEGORY]
+const FALLBACK_CHIP_CLASSES = composeChipClasses(FALLBACK_CHIP_TOKENS)
 
 function categoryTokens(category: string): CategoryChipTokens {
-  return CATEGORY_CHIP_TOKENS[category as TagCategory] ?? CATEGORY_CHIP_TOKENS[FALLBACK_CATEGORY]
+  return CATEGORY_CHIP_TOKEN_MAP.get(category) ?? FALLBACK_CHIP_TOKENS
 }
 
 /**
@@ -515,7 +543,7 @@ function categoryTokens(category: string): CategoryChipTokens {
  * overrides shape utilities the caller sets first.
  */
 export function getCategoryChipClasses(category: string): string {
-  return CATEGORY_CHIP_CLASSES[category] ?? CATEGORY_CHIP_CLASSES[FALLBACK_CATEGORY]
+  return CATEGORY_CHIP_CLASS_MAP.get(category) ?? FALLBACK_CHIP_CLASSES
 }
 
 /**
@@ -534,17 +562,17 @@ const OFFICIAL_TAG_CHIP_CLASSES = 'border-primary/40 bg-primary/10 text-foregrou
 
 /**
  * Classes for one applied tag's chip. The official accent replaces a
- * category whose identity is a tint, because one colour swapped for another
- * loses nothing. A category whose identity is its SHAPE keeps its own
- * classes: the accent is the same pill an official genre tag wears, so it
- * would erase the only thing that tells the two apart. The official
- * indicator rendered beside the name still says the tag is curated.
+ * descriptive category's tint, because one colour swapped for another loses
+ * nothing. A non-descriptive category keeps its own classes: the accent is
+ * the same pill an official genre tag wears, so it would erase the only
+ * thing that tells the two apart. The official indicator rendered beside the
+ * name still says the tag is curated.
  */
 export function getTagChipClasses(tag: {
   category: string
   is_official: boolean
 }): string {
-  if (tag.is_official && !categoryTokens(tag.category).shape) {
+  if (tag.is_official && isDescriptiveTagCategory(tag.category)) {
     return OFFICIAL_TAG_CHIP_CLASSES
   }
   return getCategoryChipClasses(tag.category)
