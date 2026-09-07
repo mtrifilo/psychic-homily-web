@@ -7391,7 +7391,7 @@ export interface components {
              * @example https://example.com/schemas/AddTagToEntityRequestBody.json
              */
             readonly $schema?: string;
-            /** @description Tag category for new tags (genre, locale, other; default: other) */
+            /** @description Tag category for new tags (genre, locale, other, crew; default: other) */
             category?: string;
             /**
              * Format: int64
@@ -10293,7 +10293,7 @@ export interface components {
              */
             readonly $schema?: string;
             /**
-             * @description Tag category (genre, locale, other)
+             * @description Tag category (genre, locale, other, crew)
              * @example genre
              */
             category: string;
@@ -34143,7 +34143,7 @@ export interface operations {
     "get-tags": {
         parameters: {
             query?: {
-                /** @description Filter by category (genre, locale, other) */
+                /** @description Filter by category (genre, locale, other, crew) */
                 category?: string;
                 /** @description Search tags by name */
                 search?: string;
@@ -34284,7 +34284,7 @@ export interface operations {
                  */
                 limit?: number;
                 /**
-                 * @description Filter by category (genre, locale, descriptor, era, mood, instrument, technique, origin, status, other)
+                 * @description Filter by category (genre, locale, other, crew)
                  * @example genre
                  */
                 category?: string;
