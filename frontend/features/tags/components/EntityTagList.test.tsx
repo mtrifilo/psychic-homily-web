@@ -610,6 +610,51 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 // button that already looks dead. PSY-483 replaces the disabled button with
 // inline explanatory prose that's always visible, and removes the
 // silently-disabled affordance entirely.
+describe('EntityTagList crew pill treatment (PSY-1883)', () => {
+  const officialAccent = 'bg-primary/10'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockSearchTags = { tags: [] }
+    currentMockTags = {
+      tags: [
+        { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: true, upvotes: 3, downvotes: 0, wilson_score: 0.56, user_vote: 0 },
+        { tag_id: 9, name: 'Rubber Brother Records', slug: 'rubber-brother-records', category: 'crew', is_official: true, upvotes: 0, downvotes: 0, wilson_score: 0, user_vote: 0 },
+      ],
+    }
+  })
+
+  function pillFor(name: string) {
+    return within(desktopRow())
+      .getByRole('group', { name: `${name} tag details` })
+  }
+
+  it('keeps the crew treatment on an official crew tag', () => {
+    // Crew tags are admin-minted, so nearly every one is official. If the
+    // official accent won, the treatment would never actually render.
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(pillFor('rock').className).toContain(officialAccent)
+    expect(pillFor('Rubber Brother Records').className).not.toContain(
+      officialAccent
+    )
+  })
+
+  it('still marks the crew tag as official beside its name', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(
+      within(pillFor('Rubber Brother Records')).getByRole('img', {
+        name: 'Official tag',
+      })
+    ).toBeInTheDocument()
+  })
+})
+
 describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

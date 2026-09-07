@@ -32,7 +32,12 @@ import {
   useRemoveTagVote,
   useSearchTags,
 } from '../hooks'
-import { getCategoryChipClasses, FACET_TAG_CATEGORIES, getCategoryLabel } from '../types'
+import {
+  getCategoryChipClasses,
+  FACET_TAG_CATEGORIES,
+  TAG_CATEGORY_CREW,
+  getCategoryLabel,
+} from '../types'
 import type { EntityTag, TagListItem } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -479,7 +484,12 @@ function TagWithVotes({
             // Official tags get a distinct primary-accent background that
             // overrides the per-category color, making curated tags visibly
             // different at a glance (ISSUE-004 from tags-audit-2).
-            tag.is_official
+            //
+            // Crew is the exception, because that accent is the same pill an
+            // official genre tag wears and crew tags are admin-minted, so the
+            // accent would erase the one treatment that tells a booker from a
+            // sound. The indicator beside the name still says it is curated.
+            tag.is_official && tag.category !== TAG_CATEGORY_CREW
               ? 'border-primary/40 bg-primary/10 text-foreground'
               : getCategoryChipClasses(tag.category)
           )}
