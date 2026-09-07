@@ -552,6 +552,14 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 		return &existing, nil
 	}
 
+	// Admin-mint gate, placed AFTER the duplicate lookup above so it refuses
+	// only an actual CREATE. A caller naming a crew tag that already exists
+	// returns through that lookup and is applied like any other tag, which is
+	// what "admin-mint, anyone-apply" means at this call site.
+	if catalogm.IsAdminMintOnlyTagCategory(category) && !user.IsAdmin {
+		return nil, apperrors.ErrTagCategoryAdminOnly(category)
+	}
+
 	// Generate slug
 	baseSlug := utils.GenerateSlug(normalized)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {

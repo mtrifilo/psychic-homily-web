@@ -389,7 +389,7 @@ type AddTagToEntityRequest struct {
 	Body       struct {
 		TagID    uint   `json:"tag_id" required:"false" doc:"Tag ID (provide tag_id or tag_name)"`
 		TagName  string `json:"tag_name" required:"false" doc:"Tag name (with alias resolution; creates tag if not found)"`
-		Category string `json:"category" required:"false" doc:"Tag category for new tags (genre, locale, other, crew; default: other)"`
+		Category string `json:"category" required:"false" doc:"Tag category for new tags (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying an existing crew tag does not."`
 	}
 }
 

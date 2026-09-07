@@ -155,6 +155,31 @@ func IsValidTagCategory(category string) bool {
 	return false
 }
 
+// AdminMintOnlyTagCategories is the set of categories only an admin may create
+// a tag IN. Applying an existing tag of one of these categories is not
+// restricted by this set; it governs minting alone.
+//
+// TagCategoryCrew is here because a crew names a real booker in a real town and
+// the scene page publishes that list as curated editorial. The categories left
+// out are descriptive rather than nominative, so a wrong one is noise a curator
+// fixes, not a claim about a named party.
+var AdminMintOnlyTagCategories = []string{
+	TagCategoryCrew,
+}
+
+// IsAdminMintOnlyTagCategory reports whether creating a tag in this category
+// requires admin. Enforced by TagService's inline-create path, which is the
+// only tag-creation path reachable by a non-admin: POST /tags carries the admin
+// middleware, so its own category check would be unreachable.
+func IsAdminMintOnlyTagCategory(category string) bool {
+	for _, c := range AdminMintOnlyTagCategories {
+		if c == category {
+			return true
+		}
+	}
+	return false
+}
+
 // IsValidTagEntityType returns true if the given entity type is valid for tagging.
 func IsValidTagEntityType(entityType string) bool {
 	for _, t := range TagEntityTypes {

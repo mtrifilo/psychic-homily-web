@@ -29,6 +29,13 @@ func setupSceneRoutes(rc RouteContext) {
 	// a data sub-resource of the scene page, not a reader-facing path — no HEAD
 	// sibling, because frontend/proxy.ts never existence-checks it.
 	huma.Get(rc.API, "/scenes/{slug}/gaps", sceneHandler.GetSceneGapsHandler)
+	// Crew tags booking in the scene (PSY-1884). A data sub-resource of the
+	// scene page like /gaps and /collections, not a reader-facing path — no HEAD
+	// sibling, because frontend/proxy.ts never existence-checks it. The
+	// parameter is spelled `slug` to match every sibling above: chi keys its
+	// tree on path SHAPE, so a differently spelled parameter here would not
+	// create a second route, it would corrupt what chi.Walk reports for this one.
+	huma.Get(rc.API, "/scenes/{slug}/crews", sceneHandler.GetSceneCrewsHandler)
 	// Named new bands (PSY-1781). A data sub-resource of the scene page, not a
 	// reader-facing path — no HEAD sibling, unlike the week/day families below,
 	// because frontend/proxy.ts never existence-checks it.
