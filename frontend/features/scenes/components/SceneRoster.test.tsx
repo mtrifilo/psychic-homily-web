@@ -105,6 +105,32 @@ function givenRoster(
   })
 }
 
+type RosterPage = {
+  artists: SceneArtist[]
+  total: number
+  embed: SceneRepresentativeEmbed | null
+}
+
+/**
+ * A different answer per page size, which is the only way to tell the two
+ * hook calls apart: the component asks for the current page and, separately,
+ * for the first one.
+ */
+function givenRosterByLimit(byLimit: Record<number, RosterPage>) {
+  mockUseSceneArtists.mockImplementation((options: { limit: number }) => {
+    const page = byLimit[options.limit]
+    if (!page) return { data: undefined, isLoading: true }
+    return {
+      data: {
+        artists: page.artists,
+        total: page.total,
+        representative_embed: page.embed,
+      },
+      isLoading: false,
+    }
+  })
+}
+
 function rosterOf(count: number): SceneArtist[] {
   return Array.from({ length: count }, (_, i) =>
     artist({ id: i + 1, slug: `band-${i + 1}`, name: `Band ${i + 1}` })
@@ -114,6 +140,9 @@ function rosterOf(count: number): SceneArtist[] {
 describe('SceneRoster', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset, not just clear: `givenRosterByLimit` installs an implementation,
+    // and `clearAllMocks` leaves implementations in place.
+    mockUseSceneArtists.mockReset()
     embedProps.length = 0
   })
 
@@ -150,15 +179,16 @@ describe('SceneRoster', () => {
       )
     })
 
-    // `show_count` is every approved show all time, anywhere, and `is_active`
-    // is not an upcoming figure. Neither may be printed against a calendar.
-    it('prints no per-band show figure and no activity marker', () => {
+    // The payload's per-band figures are all-time or derived, so none of them
+    // may sit under the calendar. Anchored to the whole line rather than
+    // blocklisting spellings: a blocklist passes on the next one.
+    it('prints the names and nothing else about each band', () => {
       givenRoster([artist({ show_count: 6, is_active: true })], 1)
-      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
 
-      expect(container.textContent).not.toContain('6 shows')
-      expect(container.textContent).not.toMatch(/upcoming/i)
-      expect(screen.queryByText('Active')).not.toBeInTheDocument()
+      expect(screen.getByText('Gatecreeper').closest('p')).toHaveTextContent(
+        /^Gatecreeper$/
+      )
     })
 
     it('names a slugless band without linking it to the artists index', () => {
@@ -187,8 +217,8 @@ describe('SceneRoster', () => {
       expect(screen.queryByRole('button', { name: /play|listen|expand/i })).toBeNull()
     })
 
-    // The pick is computed over the FULL roster, so it is regularly a band the
-    // preview line above does not name.
+    // The pick is scoped to the whole roster while the line above is one page
+    // of it, so the player's band can be one the line never names.
     it('names and links the band whose player it is', () => {
       givenRoster(rosterOf(3), 340, representativeEmbed({
         artist_name: 'Deep Cut',
@@ -236,6 +266,43 @@ describe('SceneRoster', () => {
       expect(screen.queryByTestId('embed-Diners')).not.toBeInTheDocument()
     })
 
+    // The pick is derived from the rows the response carries, so a wider page
+    // can nominate a different band. Expanding the names must not swap the
+    // player under a reader who has pressed play.
+    it('keeps the first page pick after the reader expands', async () => {
+      const user = userEvent.setup()
+      givenRosterByLimit({
+        10: {
+          artists: rosterOf(10),
+          total: 40,
+          embed: representativeEmbed({
+            artist_name: 'Deep Cut',
+            artist_slug: 'deep-cut',
+          }),
+        },
+        40: {
+          artists: rosterOf(40),
+          total: 40,
+          embed: representativeEmbed({
+            embed_url: 'https://someoneelse.bandcamp.com/album/other',
+            artist_name: 'Someone Else',
+            artist_slug: 'someone-else',
+          }),
+        },
+      })
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show all 40 →' }))
+
+      // One URL across every render, so the iframe is never re-sourced.
+      expect(new Set(embedProps.map(props => props.bandcampAlbumUrl))).toEqual(
+        new Set([EMBED_URL])
+      )
+      expect(screen.getByText(/Bandcamp/).closest('p')).toHaveTextContent(
+        /^Bandcamp · Deep Cut$/
+      )
+    })
+
     it('renders nothing at all when no band based here has an embed', () => {
       givenRoster([artist()], 1, null)
       const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
@@ -257,7 +324,7 @@ describe('SceneRoster', () => {
 
     // The host anchor is the half of the strand guard this component owns: a
     // value it rejects suppresses the caption as well as the player, so the two
-    // never disagree about whether there is anything here (PSY-1966).
+    // never disagree about whether there is anything here.
     it('renders nothing when the pick is not a renderable Bandcamp URL', () => {
       givenRoster(
         [artist()],
@@ -288,7 +355,9 @@ describe('SceneRoster', () => {
 
       await user.click(screen.getByRole('button', { name: 'Show all 17 →' }))
 
-      expect(mockUseSceneArtists).toHaveBeenLastCalledWith(
+      // Not the LAST call: every render also asks for the first page, which is
+      // where the player comes from.
+      expect(mockUseSceneArtists).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 17 })
       )
     })
@@ -310,7 +379,7 @@ describe('SceneRoster', () => {
 
       expect(screen.queryByRole('button', { name: 'Show all 340 →' })).toBeNull()
       await user.click(screen.getByRole('button', { name: 'Show 100 of 340 →' }))
-      expect(mockUseSceneArtists).toHaveBeenLastCalledWith(
+      expect(mockUseSceneArtists).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 100 })
       )
     })

@@ -109,10 +109,9 @@ export interface SceneArtist {
   // band BASED in the metro; the UI highlights the active ones.
   is_active: boolean
   // The artist's embeddable Bandcamp /album|/track URL, null when the artist has
-  // none. NO frontend surface reads it: both consumers of this payload play the
-  // scene-level `representative_embed` instead. The backend still needs the
-  // column on the page to derive that pick without a second query, which is why
-  // it stays on the wire.
+  // none. It is on the wire because the backend derives `representative_embed`
+  // from the rows it returns; a player reads that field rather than scanning
+  // this one, which is what keeps a page to one embed instead of one per band.
   bandcamp_embed_url?: string | null
 }
 

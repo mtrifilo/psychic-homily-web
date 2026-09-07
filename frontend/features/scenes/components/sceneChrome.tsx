@@ -160,19 +160,6 @@ export type TrackedRoom = {
 /** Rooms read as prose links, unlike the medium-weight entity names elsewhere. */
 const ROOM_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
 
-/** One tracked room → `/venues/{slug}` when we have a slug, else plain text. */
-export function RoomLink({ venue }: { venue: TrackedRoom }) {
-  return (
-    <EntityNameLink
-      name={venue.name}
-      slug={venue.slug}
-      basePath="/venues"
-      className={ROOM_LINK_CLASS}
-      unlinkedClassName=""
-    />
-  )
-}
-
 /** Enough to name an entity and, when it has a slug, link to its own page. */
 export type NamedEntity = {
   name: string

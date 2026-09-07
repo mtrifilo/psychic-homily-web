@@ -13,10 +13,9 @@ import type { SceneDetail, SceneRepresentativeEmbed } from '../types'
 /**
  * The bands based here, named in one line, with one of them playing.
  *
- * The roster is a NAMES line, not a row list. `GET /scenes/{slug}/artists`
- * carries `show_count` (approved shows all time, anywhere) and `is_active`, and
- * neither is an upcoming figure, so neither may be printed against the calendar
- * this module sits under. Names are what the line prints.
+ * Names and nothing else. The payload's other per-band fields are all-time or
+ * derived figures, and this module sits under a calendar, where any of them
+ * would read as a count of what is coming up.
  *
  * The roster lists every band BASED in the metro, which is a different set from
  * "bands playing here soon": London has 197 upcoming shows and zero based-here
@@ -39,11 +38,17 @@ const ROSTER_MAX = 100
  * and ten `/api/bandcamp/album-id` resolves on a page whose point is the
  * calendar above it.
  *
- * The caption names and links the band because the pick is chosen over the whole
- * roster and the line above shows a page of it, so the two regularly disagree.
- * It says nothing about the release: `artists.bandcamp_embed_url` is
- * fill-when-empty, and the manual and profile-resolved writers use the same
- * column, so the field establishes no release recency.
+ * The caption names the band so the player is attributed without waiting on a
+ * third-party iframe to paint, and links it because the pick can come from
+ * outside the names line above, which is a page of the roster while the pick is
+ * scoped to all of it. It says nothing about the release:
+ * `artists.bandcamp_embed_url` is fill-when-empty, and the manual and
+ * profile-resolved writers use the same column, so the field establishes no
+ * release recency.
+ *
+ * The link carries its own underline: the caption's type is mono micro-caps in
+ * the muted tone, so an unstyled link inside it is indistinguishable from the
+ * label beside it until a pointer hovers, which a touch reader never does.
  */
 function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
   return (
@@ -53,13 +58,13 @@ function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
         artistName={embed.artist_name}
         compact
       />
-      <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+      <p className="mt-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
         Bandcamp{' · '}
         <EntityNameLink
           name={embed.artist_name}
           slug={embed.artist_slug}
           basePath="/artists"
-          className="hover:underline"
+          className="underline underline-offset-4 hover:text-primary"
           unlinkedClassName=""
         />
       </p>
@@ -79,6 +84,16 @@ export function SceneRoster({
   // The hook retains the previous page across a limit change on its own, so the
   // reader keeps looking at the list while the rest of it arrives.
   const { data, isLoading } = useSceneArtists({ slug: scene.slug, limit })
+  // The player is read from the FIRST page's answer, never the current one.
+  // `representative_embed` is derived from the rows the response carries, so a
+  // wider page can nominate a different band; taking it from the live response
+  // would swap the iframe's src under a reader who had pressed play, purely
+  // because they asked for more names. At the first page size this is the same
+  // cache entry as the query above, so it costs no extra request.
+  const { data: firstPage } = useSceneArtists({
+    slug: scene.slug,
+    limit: ROSTER_PAGE_SIZE,
+  })
 
   const artists = data?.artists ?? []
 
@@ -96,9 +111,7 @@ export function SceneRoster({
   const expandTo = Math.min(total, ROSTER_MAX)
   const canExpand = withheld > 0 && artists.length < expandTo
 
-  // Populated on the first page only (offset 0), which is the only page this
-  // component asks for.
-  const embed = data?.representative_embed
+  const embed = firstPage?.representative_embed
 
   return (
     <section id={anchorId} className="scroll-mt-20 border-t border-border pt-4">
@@ -108,9 +121,9 @@ export function SceneRoster({
         <EntityNameList items={artists} basePath="/artists" />
         {/* The ellipsis rides with the CONTROL, not with the elision: it marks
             names one click away. Names withheld by the endpoint's ceiling are
-            past any control, and the line below states that count in words
-            instead. Decorative either way, so it is hidden from assistive tech,
-            which reads the control's own label. */}
+            past any control, and the line below names the shown count and the
+            total instead. Decorative either way, so it is hidden from assistive
+            tech, which reads the control's own label. */}
         {canExpand && (
           <>
             <span aria-hidden="true" className="text-muted-foreground">

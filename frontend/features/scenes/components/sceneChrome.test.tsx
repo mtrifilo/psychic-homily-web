@@ -20,7 +20,6 @@ vi.mock('next/link', () => ({
 import {
   EntityNameLink,
   EntityNameList,
-  RoomLink,
   RoomList,
   SceneSectionHeading,
 } from './sceneChrome'
@@ -74,24 +73,6 @@ describe('EntityNameLink', () => {
       'href',
       '/venues/valley-bar'
     )
-  })
-})
-
-describe('RoomLink', () => {
-  // The day and week pages' rooms footer rides on the same guard. Its own
-  // styling is deliberately different, which is the whole reason the guard is
-  // parameterised rather than duplicated.
-  it('keeps its own underline treatment while delegating the guard', () => {
-    renderWithProviders(<RoomLink venue={{ name: 'Valley Bar', slug: 'valley-bar' }} />)
-    const link = screen.getByRole('link', { name: 'Valley Bar' })
-    expect(link).toHaveAttribute('href', '/venues/valley-bar')
-    expect(link.className).toContain('underline-offset-4')
-  })
-
-  it('names a slugless room unlinked', () => {
-    renderWithProviders(<RoomLink venue={{ name: 'Turn! Turn! Turn!' }} />)
-    expect(screen.getByText('Turn! Turn! Turn!')).toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 })
 
@@ -149,8 +130,7 @@ describe('EntityNameList', () => {
     expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
   })
 
-  // The id-less caller is RoomList, whose items key on slug-or-name. Two
-  // slugless rows must still both render rather than collapsing into one.
+  // The id-less caller is RoomList, whose items key on slug-or-name.
   it('renders every row when the caller has no ids and no slugs', () => {
     const { container } = renderWithProviders(
       <EntityNameList
@@ -159,6 +139,41 @@ describe('EntityNameList', () => {
       />
     )
     expect(container.textContent).toBe('The Rebel Lounge · Valley Bar')
+  })
+
+  // The key collision the doc block names: no id, no slug, same name twice.
+  // Both rows still have to reach the DOM, because a name repeating is a fact
+  // about the data and never a reason to drop one of them. React warns on the
+  // duplicate key, which is the expected output here rather than a failure, so
+  // the warning is captured instead of printed.
+  it('renders both rows when two id-less, slugless items share a name', () => {
+    const warned = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { container } = renderWithProviders(
+        <EntityNameList
+          items={[{ name: 'The Lounge' }, { name: 'The Lounge' }]}
+          basePath="/venues"
+        />
+      )
+      expect(container.textContent).toBe('The Lounge · The Lounge')
+    } finally {
+      warned.mockRestore()
+    }
+  })
+
+  // Distinct ids keep distinct keys even when name and slug are identical,
+  // which is the case the `id` field exists for.
+  it('keys on the id when the caller has one', () => {
+    const { container } = renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Repeat', slug: '' },
+          { id: 2, name: 'Repeat', slug: '' },
+        ]}
+        basePath="/artists"
+      />
+    )
+    expect(container.textContent).toBe('Repeat · Repeat')
   })
 })
 

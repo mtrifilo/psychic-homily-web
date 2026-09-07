@@ -13,10 +13,11 @@ import type { SceneDetail, SceneNewArtistRow } from '../types'
  * no bands based in it is a normal scene, not a scene with a zero to report.
  *
  * The heading carries NO period claim. `GET /scenes/{slug}/new-artists` is
- * unwindowed: it returns the roster ordered by `first_listed_at` DESC, so any
- * trailing-period wording ("this month") is false on a scene whose newest band
- * was listed months ago. Per-row `first_listed_at` IS an exact fact, and the
- * rows print it as one.
+ * unwindowed: it returns the newest-first head of the roster with no cutoff, so
+ * any trailing-period wording ("this month") is false on a scene whose newest
+ * band was listed months ago. Per-row `first_listed_at` states when the band's
+ * catalog row was created, which is a date the rows can print exactly, and it
+ * is worded as a listing date rather than as anything about the band.
  */
 
 function NewBandRow({ band }: { band: SceneNewArtistRow }) {
