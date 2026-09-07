@@ -17,7 +17,13 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-import { EntityNameLink, RoomLink, SceneSectionHeading } from './sceneChrome'
+import {
+  EntityNameLink,
+  EntityNameList,
+  RoomLink,
+  RoomList,
+  SceneSectionHeading,
+} from './sceneChrome'
 
 // The nullable-slug href guard is a rule this codebase has learned the hard way
 // (PSY-1754) and now has ONE implementation. These are its tests.
@@ -86,6 +92,100 @@ describe('RoomLink', () => {
     renderWithProviders(<RoomLink venue={{ name: 'Turn! Turn! Turn!' }} />)
     expect(screen.getByText('Turn! Turn! Turn!')).toBeInTheDocument()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+})
+
+// Two surfaces print dot-separated entity names and one component draws both,
+// which is the arrangement these tests exist to hold.
+describe('EntityNameList', () => {
+  it('joins the names with middots and links each one', () => {
+    const { container } = renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Gatecreeper', slug: 'gatecreeper' },
+          { id: 2, name: 'Diners', slug: 'diners' },
+          { id: 3, name: 'Playboy Manbaby', slug: 'playboy-manbaby' },
+        ]}
+        basePath="/artists"
+      />
+    )
+
+    expect(container.textContent).toBe('Gatecreeper · Diners · Playboy Manbaby')
+    expect(screen.getByRole('link', { name: 'Diners' })).toHaveAttribute(
+      'href',
+      '/artists/diners'
+    )
+  })
+
+  // The separator lives OUTSIDE the anchor. Asserting the joined text would
+  // pass just as well with the middot inside a link, which is the edit this
+  // guards against.
+  it('keeps the separator out of every link', () => {
+    renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Gatecreeper', slug: 'gatecreeper' },
+          { id: 2, name: 'Diners', slug: 'diners' },
+        ]}
+        basePath="/artists"
+      />
+    )
+    for (const link of screen.getAllByRole('link')) {
+      expect(link.textContent).not.toContain('·')
+    }
+  })
+
+  it('names a slugless entity without linking it', () => {
+    renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Gatecreeper', slug: '' },
+          { id: 2, name: 'Diners', slug: 'diners' },
+        ]}
+        basePath="/artists"
+      />
+    )
+    expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
+  })
+
+  // The id-less caller is RoomList, whose items key on slug-or-name. Two
+  // slugless rows must still both render rather than collapsing into one.
+  it('renders every row when the caller has no ids and no slugs', () => {
+    const { container } = renderWithProviders(
+      <EntityNameList
+        items={[{ name: 'The Rebel Lounge' }, { name: 'Valley Bar' }]}
+        basePath="/venues"
+      />
+    )
+    expect(container.textContent).toBe('The Rebel Lounge · Valley Bar')
+  })
+})
+
+describe('RoomList', () => {
+  it('prints the rooms as one middot-separated line, each linked when it can be', () => {
+    const { container } = renderWithProviders(
+      <RoomList
+        venues={[
+          { name: 'Valley Bar', slug: 'valley-bar' },
+          { name: 'Turn! Turn! Turn!' },
+        ]}
+      />
+    )
+
+    expect(container.textContent).toBe('Valley Bar · Turn! Turn! Turn!')
+    expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveAttribute(
+      'href',
+      '/venues/valley-bar'
+    )
+    expect(screen.queryByRole('link', { name: 'Turn! Turn! Turn!' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the rooms footer underline treatment', () => {
+    renderWithProviders(<RoomList venues={[{ name: 'Valley Bar', slug: 'valley-bar' }]} />)
+    expect(screen.getByRole('link', { name: 'Valley Bar' }).className).toContain(
+      'underline-offset-4'
+    )
   })
 })
 

@@ -109,9 +109,10 @@ export interface SceneArtist {
   // band BASED in the metro; the UI highlights the active ones.
   is_active: boolean
   // The artist's embeddable Bandcamp /album|/track URL, null when the artist has
-  // none. (The /atlas preview's player now uses the scene-level
-  // `representative_embed` — PSY-1294 — so the preview no longer reads this
-  // per-artist field, but it stays on the roster payload.)
+  // none. NO frontend surface reads it: both consumers of this payload play the
+  // scene-level `representative_embed` instead. The backend still needs the
+  // column on the page to derive that pick without a second query, which is why
+  // it stays on the wire.
   bandcamp_embed_url?: string | null
 }
 

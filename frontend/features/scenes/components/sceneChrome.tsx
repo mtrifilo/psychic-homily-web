@@ -189,10 +189,12 @@ export type NamedEntity = {
  * flowing line. The separator sits in its own muted span rather than inside a
  * name, so a middot never lands in a link's hit area or its accessible name.
  *
- * The key falls back to the name only when the caller has neither an id nor a
- * usable slug. Slugs are NULLABLE and can generate as `""`, which is why the
- * fallback tests truthiness rather than nullishness: an empty slug on two rows
- * would otherwise be the same key twice.
+ * An `id` is the only key that is unique by construction, so it wins where the
+ * caller has one. Slugs are NULLABLE and can generate as `""`, which is why the
+ * fallback tests truthiness rather than nullishness. The name is the last
+ * resort and can still repeat: an id-less caller with two identically named,
+ * slugless items keys them the same, which is a real state for venue and band
+ * names and the reason `id` is on the type at all.
  */
 export function EntityNameList({
   items,

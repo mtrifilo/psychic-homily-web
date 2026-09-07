@@ -214,6 +214,9 @@ describe('SceneRoster', () => {
       )
     })
 
+    // A fence against reintroducing the per-row scan, not evidence the pick
+    // works: the component no longer reads `bandcamp_embed_url`, so these two
+    // rows can only produce a player if someone puts that scan back.
     it('renders one player, not one per band', () => {
       givenRoster(
         [
@@ -240,8 +243,21 @@ describe('SceneRoster', () => {
       expect(container.textContent).not.toMatch(/Bandcamp/i)
     })
 
-    // A stored value the renderer would refuse must suppress the caption too,
-    // or the section carries a heading over nothing (PSY-1966).
+    // Artist slugs are nullable and can generate as "", and the caption is the
+    // only place this component links the pick.
+    it('names an unlinkable pick without linking it', () => {
+      givenRoster(rosterOf(3), 3, representativeEmbed({ artist_slug: '' }))
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(screen.getByText(/Bandcamp/).closest('p')).toHaveTextContent(
+        /^Bandcamp · Gatecreeper$/
+      )
+      expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
+    })
+
+    // The host anchor is the half of the strand guard this component owns: a
+    // value it rejects suppresses the caption as well as the player, so the two
+    // never disagree about whether there is anything here (PSY-1966).
     it('renders nothing when the pick is not a renderable Bandcamp URL', () => {
       givenRoster(
         [artist()],

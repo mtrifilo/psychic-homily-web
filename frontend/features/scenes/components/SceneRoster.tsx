@@ -13,12 +13,10 @@ import type { SceneDetail, SceneRepresentativeEmbed } from '../types'
 /**
  * The bands based here, named in one line, with one of them playing.
  *
- * The roster is a NAMES list, not a row list. `GET /scenes/{slug}/artists`
+ * The roster is a NAMES line, not a row list. `GET /scenes/{slug}/artists`
  * carries `show_count` (approved shows all time, anywhere) and `is_active`, and
- * neither is an upcoming figure; the locked front-page frame spends its height
- * on the calendar above and gives this module a preview line, so the names are
- * what it prints and the per-band figures live on the artist pages the names
- * link to.
+ * neither is an upcoming figure, so neither may be printed against the calendar
+ * this module sits under. Names are what the line prints.
  *
  * The roster lists every band BASED in the metro, which is a different set from
  * "bands playing here soon": London has 197 upcoming shows and zero based-here
@@ -41,12 +39,11 @@ const ROSTER_MAX = 100
  * and ten `/api/bandcamp/album-id` resolves on a page whose point is the
  * calendar above it.
  *
- * The caption names and links the band because the pick is regularly NOT one of
- * the names in the preview line above (see `SceneRepresentativeEmbed` in
- * ../types for the scope it is chosen over). It says nothing about the release:
- * `artists.bandcamp_embed_url` is fill-when-empty, and the manual and
- * profile-resolved writers use the same column, so the field establishes no
- * release recency.
+ * The caption names and links the band because the pick is chosen over the whole
+ * roster and the line above shows a page of it, so the two regularly disagree.
+ * It says nothing about the release: `artists.bandcamp_embed_url` is
+ * fill-when-empty, and the manual and profile-resolved writers use the same
+ * column, so the field establishes no release recency.
  */
 function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
   return (
@@ -109,13 +106,16 @@ export function SceneRoster({
 
       <p className="mt-2 text-sm leading-relaxed">
         <EntityNameList items={artists} basePath="/artists" />
-        {/* The ellipsis is the truncation, and the control is what resolves it,
-            so they travel together: without the control there is nothing for a
-            reader to do about the elision and the page should not imply there
-            is. */}
+        {/* The ellipsis rides with the CONTROL, not with the elision: it marks
+            names one click away. Names withheld by the endpoint's ceiling are
+            past any control, and the line below states that count in words
+            instead. Decorative either way, so it is hidden from assistive tech,
+            which reads the control's own label. */}
         {canExpand && (
           <>
-            <span className="text-muted-foreground">{' … '}</span>
+            <span aria-hidden="true" className="text-muted-foreground">
+              {' … '}
+            </span>
             <BracketLink
               label={
                 expandTo === total
@@ -136,9 +136,17 @@ export function SceneRoster({
         </p>
       )}
 
-      {/* Gated on what MusicEmbed will actually produce, not on the field being
-          set: a stored value the renderer refuses leaves the caption standing
-          over nothing (PSY-1966). */}
+      {/* One gate for the player and its caption, so the two cannot disagree
+          about whether there is anything here.
+
+          `hasRenderableMusic` is NECESSARY, not sufficient: it host-anchors the
+          stored URL, which is every check that can be made before MusicEmbed
+          mounts and asks the resolver. A value that clears it and then resolves
+          to no player degrades to MusicEmbed's Bandcamp link when the URL names
+          a release, and to nothing when it does not, in which case the caption
+          is left over blank space. Closing that needs the caption to live inside
+          MusicEmbed, which is where the same residual sits on the atlas
+          preview's Listen heading. */}
       {embed && hasRenderableMusic({ bandcampAlbumUrl: embed.embed_url }) && (
         <RosterEmbed embed={embed} />
       )}

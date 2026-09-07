@@ -164,11 +164,10 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 // (mirrors the non-fatal secondary lookups in artist_graph_card.go). Returned
 // only for the first page (offset 0) — it's a scene-level field, not per-page.
 //
-// This runs for EVERY consumer of GET /scenes/{slug}/artists, and both of them
-// render the field: the /atlas preview and the scene page's roster module. The
-// common case is free (the embed comes from `page`); the full-roster fallback
-// fires only when the first page holds no renderable embed but the roster is
-// larger, which is the case to watch if this ever shows up as measurable load.
+// This runs for EVERY consumer of GET /scenes/{slug}/artists. The common case
+// is free (the embed comes from `page`); the full-roster fallback fires only
+// when the first page holds no embed this function accepts but the roster is
+// larger, which is the case to watch if it ever shows up as measurable load.
 func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state string, activeWindowDays, offset int, page []*contracts.SceneArtistResponse, total int64) *contracts.SceneRepresentativeEmbed {
 	if offset != 0 {
 		return nil
