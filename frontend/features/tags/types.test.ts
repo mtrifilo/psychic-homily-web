@@ -6,7 +6,7 @@ import {
   TAG_ENTITY_TYPES,
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
-  FACET_TAG_CATEGORIES,
+  DESCRIPTIVE_TAG_CATEGORIES,
   isDescriptiveTagCategory,
   getCategoryChipClasses,
   getCategoryTint,
@@ -22,8 +22,8 @@ describe('tag constants', () => {
   })
 
   it('keeps crew out of the facet vocabulary and everything else in', () => {
-    expect(FACET_TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
-    expect(FACET_TAG_CATEGORIES).not.toContain('crew')
+    expect(DESCRIPTIVE_TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
+    expect(DESCRIPTIVE_TAG_CATEGORIES).not.toContain('crew')
   })
 })
 
@@ -142,6 +142,19 @@ describe('getCategoryChipClasses', () => {
     expect(getCategoryChipClasses('mystery')).toBe(getCategoryChipClasses('other'))
   })
 
+  it('styles a crew tag stored with odd casing as crew, not as the fallback', () => {
+    // The predicate normalizes, so the lookups must too: otherwise a `Crew`
+    // row is dropped from a card as crew while an entity page paints it the
+    // neutral catch-all pill, which is the misreading this all exists to stop.
+    for (const variant of ['Crew', 'CREW', ' crew ']) {
+      expect(getCategoryChipClasses(variant)).toBe(getCategoryChipClasses('crew'))
+      expect(getCategoryTint(variant)).toBe(getCategoryTint('crew'))
+      expect(getTagChipClasses({ category: variant, is_official: true })).toBe(
+        getCategoryChipClasses('crew')
+      )
+    }
+  })
+
   it('falls back for a category name that collides with an object member', () => {
     // The category is read straight out of the database, so it can be any
     // string; an object-index lookup would answer these from the prototype.
@@ -213,6 +226,12 @@ describe('getCategoryLabel', () => {
     expect(getCategoryLabel('genre')).toBe('Genre')
     expect(getCategoryLabel('locale')).toBe('Locale')
     expect(getCategoryLabel('crew')).toBe('Crew')
+  })
+
+  it('reads a stored value with odd casing or padding as one label', () => {
+    for (const variant of ['Crew', 'CREW', ' crew ']) {
+      expect(getCategoryLabel(variant)).toBe('Crew')
+    }
   })
 
   it('returns an empty string for empty input', () => {

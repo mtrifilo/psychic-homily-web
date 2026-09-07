@@ -35,7 +35,7 @@ import {
 import {
   getCategoryChipClasses,
   getTagChipClasses,
-  FACET_TAG_CATEGORIES,
+  DESCRIPTIVE_TAG_CATEGORIES,
   getCategoryLabel,
 } from '../types'
 import type { EntityTag, TagListItem } from '../types'
@@ -745,7 +745,7 @@ function AddTagForm({
   //
   // The mirror is only sound while both controls read one vocabulary: a chip
   // with no matching option sets a create category the select cannot show and
-  // submits it anyway. Both read FACET_TAG_CATEGORIES.
+  // submits it anyway. Both read DESCRIPTIVE_TAG_CATEGORIES.
   const handleSelectFilterCategory = (cat: string) => {
     setFilterCategory(cat)
     if (cat) {
@@ -848,7 +848,7 @@ function AddTagForm({
         >
           All
         </button>
-        {FACET_TAG_CATEGORIES.map(cat => (
+        {DESCRIPTIVE_TAG_CATEGORIES.map(cat => (
           <button
             key={cat}
             onClick={() => handleSelectFilterCategory(filterCategory === cat ? '' : cat)}
@@ -958,7 +958,7 @@ function AddTagForm({
                       onChange={e => setCreateCategory(e.target.value)}
                       className="text-xs rounded border border-input bg-background px-2 py-1"
                     >
-                      {FACET_TAG_CATEGORIES.map(cat => (
+                      {DESCRIPTIVE_TAG_CATEGORIES.map(cat => (
                         <option key={cat} value={cat}>
                           {getCategoryLabel(cat)}
                         </option>

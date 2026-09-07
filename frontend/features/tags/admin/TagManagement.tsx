@@ -389,11 +389,19 @@ export function EditTagFormFields({
   // blank field silently re-categorizes the tag. `tags.category` is an
   // unconstrained column that seeders, migrations and a newer server can all
   // write, so the tag's own category is offered whatever it is.
-  const categoryOptions: string[] = (TAG_CATEGORIES as readonly string[]).includes(
-    category
-  )
-    ? [...TAG_CATEGORIES]
-    : [...TAG_CATEGORIES, category]
+  //
+  // The empty string is the exception: Radix throws on a SelectItem with an
+  // empty value, so a tag stored with no category falls back to a blank
+  // trigger rather than crashing the dialog it is being edited in.
+  //
+  // It reads the tag's stored category, not the edit state: derived from
+  // state, picking a listed option would drop the stored one from the list
+  // and leave no way back to it without closing the dialog.
+  const categoryOptions: string[] =
+    tag.category === '' ||
+    (TAG_CATEGORIES as readonly string[]).includes(tag.category)
+      ? [...TAG_CATEGORIES]
+      : [...TAG_CATEGORIES, tag.category]
 
   const tagId = tag.id
 

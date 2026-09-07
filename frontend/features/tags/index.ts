@@ -22,7 +22,7 @@ export type {
 
 export {
   TAG_CATEGORIES,
-  FACET_TAG_CATEGORIES,
+  DESCRIPTIVE_TAG_CATEGORIES,
   TAG_CATEGORY_CREW,
   isDescriptiveTagCategory,
   TAG_ENTITY_TYPES,

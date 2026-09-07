@@ -225,9 +225,7 @@ describe('TagManagement: crew category (PSY-1883)', () => {
     })
   })
 
-  it('shows the tag\'s own category in the edit select for a crew tag', async () => {
-    // A category the select has no option for renders an EMPTY trigger, and
-    // an admin who "fixes" the blank field silently re-categorizes the tag.
+  it('offers Crew in the edit select', async () => {
     renderWithProviders(
       <EditTagFormFields
         key={7}
@@ -241,9 +239,10 @@ describe('TagManagement: crew category (PSY-1883)', () => {
   })
 
   it('shows a stored category the UI has never heard of rather than a blank trigger', async () => {
-    // tags.category is an unconstrained column, so a seeder or a newer server
-    // can store a value this build does not list. Blanking the trigger would
-    // make the next Save silently rewrite it.
+    // A Select whose value has no option renders an EMPTY trigger while the
+    // form still holds the value, so an admin who "fixes" the blank field
+    // silently re-categorizes the tag. tags.category is an unconstrained
+    // column, so a seeder or a newer server can store a value not listed here.
     renderWithProviders(
       <EditTagFormFields
         key={8}
@@ -254,6 +253,22 @@ describe('TagManagement: crew category (PSY-1883)', () => {
     )
 
     expect(screen.getByLabelText('Category *')).toHaveTextContent('Era')
+  })
+
+  it('renders rather than crashing for a tag stored with no category', async () => {
+    // Radix rejects a SelectItem whose value is the empty string, so the
+    // unknown-category option has to skip that one case.
+    expect(() =>
+      renderWithProviders(
+        <EditTagFormFields
+          key={9}
+          tag={makeTagDetail({ id: 9, name: 'orphan', category: '' })}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+    ).not.toThrow()
+    expect(screen.getByLabelText('Name *')).toHaveValue('orphan')
   })
 
   it('offers Crew when filtering the admin tag list', async () => {

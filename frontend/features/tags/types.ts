@@ -7,49 +7,55 @@ export type TagCategory = typeof TAG_CATEGORIES[number]
 
 /**
  * A tag naming a MUSIC BOOKER: a promoter, a DIY crew or collective, or a
- * named series or residency that books live music.
- *
- * Crew is the one category that is not a description of sound, and it is the
- * one the server will not let a non-admin mint. Every rule below that treats
- * it differently follows from the first fact.
+ * named series or residency that books live music. The server will not let a
+ * non-admin mint one.
  */
 export const TAG_CATEGORY_CREW = 'crew' as const satisfies TagCategory
 
-/** A category that describes the sound. */
-export type FacetTagCategory = Exclude<TagCategory, typeof TAG_CATEGORY_CREW>
+/** A category that describes a tag's subject rather than naming a party. */
+export type DescriptiveTagCategory = Exclude<
+  TagCategory,
+  typeof TAG_CATEGORY_CREW
+>
 
 /**
- * Whether a category describes the SOUND of the music. `crew` names the party
- * that booked it instead, which is the one fact every rule below turns on: a
- * surface that cannot say which kind of tag it is showing reads a booker's
- * name as a genre.
- *
- * An unrecognized category counts as descriptive, so a category this build
- * has not heard of renders rather than silently vanishing. The comparison is
- * normalized because `tags.category` is an unconstrained column: `Crew` must
- * not slip past a guard that only knows `crew`.
+ * `tags.category` is an unconstrained column, so any comparison against it
+ * normalizes first: `Crew` must not slip past a guard that knows only `crew`.
  */
-export function isDescriptiveTagCategory(category: string): boolean {
-  return category.trim().toLowerCase() !== TAG_CATEGORY_CREW
+function normalizeCategory(category: string): string {
+  return category.trim().toLowerCase()
 }
 
 /**
- * The known descriptive categories: the vocabulary of a chip row that prints
- * no category of its own, which is the browse-page facet panels and the
- * add-tag dialog's filter row. A non-descriptive chip standing among genre
- * chips dilutes the filter it sits in.
+ * True for every category except `crew`, which names the party that booked
+ * the show rather than describing the music. A surface that cannot say which
+ * kind of tag it is showing reads a booker's name as a genre, so that is the
+ * distinction every rule here turns on.
  *
- * The add-tag dialog's create-category control reads this same list, because
- * that dialog copies the chosen filter chip into the category it would mint:
- * a chip with no matching option there is a value the control cannot show yet
- * still submits.
- *
- * This enumerates the categories this build knows. To judge an arbitrary
- * category string, use `isDescriptiveTagCategory`, which admits an
- * unrecognized one rather than dropping it.
+ * An unrecognized category counts as descriptive, so a category this build
+ * has not heard of renders rather than silently vanishing.
  */
-export const FACET_TAG_CATEGORIES: readonly FacetTagCategory[] =
-  TAG_CATEGORIES.filter((c): c is FacetTagCategory => isDescriptiveTagCategory(c))
+export function isDescriptiveTagCategory(category: string): boolean {
+  return normalizeCategory(category) !== TAG_CATEGORY_CREW
+}
+
+/**
+ * The closed list of descriptive categories this build knows, for building a
+ * control that has to ENUMERATE them: the browse-page facet chip rows, the
+ * add-tag dialog's filter row, and that dialog's create-category select. Crew
+ * is absent, so none of those offers a booker's name beside genre chips.
+ *
+ * The create select reads the same list as the filter row because the dialog
+ * copies the chosen filter chip into the category it would mint: a chip with
+ * no matching option there is a value the control cannot show yet submits.
+ *
+ * To TEST an arbitrary stored category, use `isDescriptiveTagCategory`, which
+ * admits an unrecognized one instead of dropping it.
+ */
+export const DESCRIPTIVE_TAG_CATEGORIES: readonly DescriptiveTagCategory[] =
+  TAG_CATEGORIES.filter((c): c is DescriptiveTagCategory =>
+    isDescriptiveTagCategory(c)
+  )
 
 // Sort options for the tag browse page. Values are the URL-facing slugs;
 // `backend` is the value passed to the /tags `sort` query param.
@@ -481,10 +487,9 @@ export interface GenreHierarchyNode extends GenreHierarchyTag {
  * (PSY-943): genre = chart-6 (denim), locale = chart-8 (teal), other = muted
  * (the neutral catch-all). The tokens track light/dark via the CSS cascade.
  *
- * `shape` is set only for a category whose identity is not a colour, which
- * is why it is a separate field rather than more classes on the tint: a
- * text-only surface can take the tint alone, and the official accent (below)
- * can tell the two kinds of category apart without parsing a class string.
+ * `shape` is set only for a category whose identity is not a colour. It is a
+ * separate field so `getCategoryTint` can hand a text-only surface the colour
+ * token without the chip geometry coming along.
  */
 interface CategoryChipTokens {
   bg: string
@@ -516,10 +521,11 @@ function composeChipClasses(t: CategoryChipTokens): string {
 }
 
 /**
- * Both maps are keyed by a value read straight out of an unconstrained
- * database column, so lookups go through a Map rather than an object index:
- * an object would answer `toString` with a prototype member instead of
- * missing, and the fallback would never fire.
+ * Lookups go through a Map, and through `normalizeCategory` first, for the
+ * same reason the predicate does: the key is a raw column value. An object
+ * index would answer `toString` with a prototype member instead of missing,
+ * so the fallback would never fire, and an exact match would style `Crew` as
+ * the neutral catch-all while the predicate treats it as a crew tag.
  */
 const CATEGORY_CHIP_TOKEN_MAP = new Map<string, CategoryChipTokens>(
   Object.entries(CATEGORY_CHIP_TOKENS)
@@ -534,7 +540,10 @@ const FALLBACK_CHIP_TOKENS = CATEGORY_CHIP_TOKENS[FALLBACK_CATEGORY]
 const FALLBACK_CHIP_CLASSES = composeChipClasses(FALLBACK_CHIP_TOKENS)
 
 function categoryTokens(category: string): CategoryChipTokens {
-  return CATEGORY_CHIP_TOKEN_MAP.get(category) ?? FALLBACK_CHIP_TOKENS
+  return (
+    CATEGORY_CHIP_TOKEN_MAP.get(normalizeCategory(category)) ??
+    FALLBACK_CHIP_TOKENS
+  )
 }
 
 /**
@@ -543,7 +552,10 @@ function categoryTokens(category: string): CategoryChipTokens {
  * overrides shape utilities the caller sets first.
  */
 export function getCategoryChipClasses(category: string): string {
-  return CATEGORY_CHIP_CLASS_MAP.get(category) ?? FALLBACK_CHIP_CLASSES
+  return (
+    CATEGORY_CHIP_CLASS_MAP.get(normalizeCategory(category)) ??
+    FALLBACK_CHIP_CLASSES
+  )
 }
 
 /**
@@ -562,11 +574,10 @@ const OFFICIAL_TAG_CHIP_CLASSES = 'border-primary/40 bg-primary/10 text-foregrou
 
 /**
  * Classes for one applied tag's chip. The official accent replaces a
- * descriptive category's tint, because one colour swapped for another loses
- * nothing. A non-descriptive category keeps its own classes: the accent is
- * the same pill an official genre tag wears, so it would erase the only
- * thing that tells the two apart. The official indicator rendered beside the
- * name still says the tag is curated.
+ * descriptive category's classes but never a non-descriptive one's: the
+ * accent is the same pill an official genre tag wears, so it would erase the
+ * only thing telling the two apart. The official indicator rendered beside
+ * the name still marks the tag as curated.
  */
 export function getTagChipClasses(tag: {
   category: string
@@ -579,7 +590,8 @@ export function getTagChipClasses(tag: {
 }
 
 export function getCategoryLabel(category: string): string {
-  return category.charAt(0).toUpperCase() + category.slice(1)
+  const normalized = normalizeCategory(category)
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 /** Build entity URL from entity type and slug */

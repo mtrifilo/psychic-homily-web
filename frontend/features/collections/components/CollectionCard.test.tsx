@@ -625,8 +625,8 @@ describe('CollectionCard', () => {
     })
 
     it('shows no overflow when crew is what pushed the list past the cap', () => {
-      // Five descriptive tags plus a crew tag: the old code printed "+1"
-      // promising a chip the row would never render.
+      // The overflow count is taken off the filtered list, so "+N" never
+      // promises a chip this row drops.
       const collection: Collection = {
         ...baseCollection,
         tags: [

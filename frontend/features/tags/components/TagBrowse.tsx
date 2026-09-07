@@ -18,6 +18,7 @@ import {
   DEFAULT_TAG_SORT,
   getCategoryChipClasses,
   getCategoryTint,
+  isDescriptiveTagCategory,
   getCategoryLabel,
 } from '../types'
 import type { TagListItem, TagSortOption } from '../types'
@@ -43,9 +44,9 @@ function sortToBackend(sort: TagSortOption): string {
  *
  * The queries are written out rather than mapped over TAG_CATEGORIES because
  * they are hooks, and a `.map` would put a hook inside a callback. That makes
- * this the one place a new category has to be added by hand; the counts are
- * derived from these results so there is only one such list, and a test
- * asserts a query exists for every category the page renders a chip for.
+ * this the one place a missing category fails silently rather than at compile
+ * time, so the counts derive from these results (one list, not two) and a
+ * test asserts a query exists for every category the page renders a chip for.
  */
 function useCategoryCounts(search: string | undefined): {
   counts: Record<string, number>
@@ -192,7 +193,11 @@ export function TagBrowse() {
             label={getCategoryLabel(cat)}
             count={counts[cat] ?? 0}
             active={category === cat}
-            activeCategoryClasses={getCategoryChipClasses(cat)}
+            activeCategoryClasses={
+              isDescriptiveTagCategory(cat)
+                ? getCategoryChipClasses(cat)
+                : undefined
+            }
             onClick={() => handleCategoryChange(cat)}
           />
         ))}
@@ -277,7 +282,13 @@ function FacetChip({
   label: string
   count: number
   active: boolean
-  /** The category's own chip classes, worn only while the chip is active. */
+  /**
+   * The category's own chip classes, worn only while the chip is active.
+   * Omitted for a category whose treatment is a shape rather than a tint:
+   * those classes are an unfilled square built for a tag pill, and on a
+   * facet control they make the selected state quieter than the resting one.
+   * The generic selected style below is used instead.
+   */
   activeCategoryClasses?: string
   onClick: () => void
 }) {

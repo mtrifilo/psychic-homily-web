@@ -25,8 +25,9 @@ import {
   getReleaseTypeLabel,
   useReleaseSaveCountBatch,
 } from '@/features/releases'
-// Imported from the leaf module, not the feature barrel: the barrel pulls in
-// features/tags/hooks, which reaches nuqs at module scope.
+// The tags LEAF module, not the feature barrel: the barrel re-exports
+// features/tags/hooks, which evaluates a nuqs parser at module scope, and a
+// test here that partially mocks nuqs then fails to load this file at all.
 import { getCategoryLabel } from '@/features/tags/types'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { cn } from '@/lib/utils'

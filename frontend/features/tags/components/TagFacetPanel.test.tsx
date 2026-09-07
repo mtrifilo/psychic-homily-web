@@ -121,6 +121,40 @@ describe('TagFacetPanel', () => {
   })
 
   it.each(['rail', 'bar'] as const)(
+    'renders a selected crew chip so the filter can be switched back off in %s layout',
+    layout => {
+      // A tag page links to /shows?tags={slug} for every tag, so a crew slug
+      // can be applied to a panel that offers no crew chip. Without a chip,
+      // only "Clear all" undoes it, and that drops every other selection.
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={['rubber-brother']}
+          onToggle={() => {}}
+          onClear={() => {}}
+          layout={layout}
+        />
+      )
+      expect(
+        screen.getByTestId('tag-facet-chip-rubber-brother')
+      ).toBeInTheDocument()
+    }
+  )
+
+  it('shows only the SELECTED crew chip, never the rest of the category', () => {
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={['post-punk']}
+        onToggle={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByTestId('tag-facet-chip-post-punk')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-facet-chip-rubber-brother')
+    ).not.toBeInTheDocument()
+  })
+
+  it.each(['rail', 'bar'] as const)(
     'leaves crew out of the %s layout, chips and queries alike',
     layout => {
       renderWithProviders(

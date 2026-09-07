@@ -153,7 +153,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 import { EntityTagList, AddTagDialog } from './EntityTagList'
-import { FACET_TAG_CATEGORIES, getCategoryLabel } from '../types'
+import { DESCRIPTIVE_TAG_CATEGORIES, getCategoryLabel } from '../types'
 
 describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
@@ -638,9 +638,14 @@ describe('EntityTagList crew pill treatment (PSY-1883)', () => {
     )
 
     expect(pillFor('rock').className).toContain(officialAccent)
-    expect(pillFor('Rubber Brother Records').className).not.toContain(
-      officialAccent
-    )
+
+    const crewPill = pillFor('Rubber Brother Records').className
+    expect(crewPill).not.toContain(officialAccent)
+    // Asserting the absence alone would also pass for the neutral fallback,
+    // which is the shape of the bug this guards.
+    expect(crewPill).toContain('font-mono')
+    expect(crewPill).toContain('rounded-[2px]')
+    expect(crewPill).toContain('bg-transparent')
   })
 
   it('still marks the crew tag as official beside its name', () => {
@@ -683,7 +688,7 @@ describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('offers the same categories in the create select as in the filter row', async () => {
+  it('offers the same categories in the create select as the filter row renders', async () => {
     // The dialog copies the chosen filter chip into the category it would
     // mint. A chip with no matching option leaves the select showing one
     // value while the form submits another.
@@ -702,10 +707,15 @@ describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
     ).toBeInTheDocument()
 
     const dialog = screen.getByRole('dialog')
-    const chipLabels = FACET_TAG_CATEGORIES.map(getCategoryLabel)
+    // Read the chips out of the DOM rather than off the constant, so this
+    // compares the two controls to each other and not both to one source.
+    const chipLabels = DESCRIPTIVE_TAG_CATEGORIES.map(getCategoryLabel).filter(
+      label => within(dialog).queryByRole('button', { name: label }) !== null
+    )
     const optionLabels = within(dialog)
       .getAllByRole('option')
       .map(o => o.textContent)
+    expect(chipLabels).toHaveLength(DESCRIPTIVE_TAG_CATEGORIES.length)
     expect(optionLabels).toEqual(chipLabels)
     expect(optionLabels).not.toContain('Crew')
   })

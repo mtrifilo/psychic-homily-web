@@ -278,7 +278,9 @@ describe('TagBrowse', () => {
   })
 
   it('shows live per-category counts (and All = sum) on the facet chips', () => {
-    mockTags({ list: [makeTag()], total: 27, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
+    // The list total differs from the facet sum on purpose: an All chip
+    // reading the list total instead of the sum would otherwise pass.
+    mockTags({ list: [makeTag()], total: 5, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
 
     renderWithProviders(<TagBrowse />)
 
