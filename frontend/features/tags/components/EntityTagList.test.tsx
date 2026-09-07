@@ -124,10 +124,13 @@ vi.mock('../hooks', () => ({
   }),
 }))
 
-vi.mock('../types', () => ({
-  getCategoryColor: () => '',
-  getCategoryLabel: (cat: string) => cat.charAt(0).toUpperCase() + cat.slice(1),
-  TAG_CATEGORIES: ['genre', 'locale', 'other'],
+// Only the chip classes are stubbed, so class assertions stay legible.
+// TAG_CATEGORIES and getCategoryLabel come from the real module: a hardcoded
+// category list here would let the dialog's filter row drift from the
+// vocabulary the app actually ships.
+vi.mock('../types', async importOriginal => ({
+  ...(await importOriginal<typeof import('../types')>()),
+  getCategoryChipClasses: () => '',
 }))
 
 // Default auth context: a contributor (can create tags). Individual tests
@@ -149,6 +152,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 import { EntityTagList, AddTagDialog } from './EntityTagList'
+import { FACET_TAG_CATEGORIES } from '../types'
 
 describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
@@ -606,6 +610,63 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 // button that already looks dead. PSY-483 replaces the disabled button with
 // inline explanatory prose that's always visible, and removes the
 // silently-disabled affordance entirely.
+describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockEntityTags
+    currentMockSearchTags = { tags: [] }
+    mockAuthUser = { user_tier: 'contributor' }
+  })
+
+  it('offers no Crew filter chip: minting crew is admin-only', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    const dialog = screen.getByRole('dialog')
+    for (const label of ['Genre', 'Locale', 'Other']) {
+      expect(within(dialog).getByRole('button', { name: label })).toBeInTheDocument()
+    }
+    expect(
+      within(dialog).queryByRole('button', { name: 'Crew' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers the same categories in the create select as in the filter row', async () => {
+    // The dialog copies the chosen filter chip into the category it would
+    // mint. A chip with no matching option leaves the select showing one
+    // value while the form submits another.
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, 'brand-new-tag')
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
+
+    const dialog = screen.getByRole('dialog')
+    const chipLabels = FACET_TAG_CATEGORIES.map(
+      cat => cat.charAt(0).toUpperCase() + cat.slice(1)
+    )
+    const optionLabels = within(dialog)
+      .getAllByRole('option')
+      .map(o => o.textContent)
+    expect(optionLabels).toEqual(chipLabels)
+    expect(optionLabels).not.toContain('Crew')
+  })
+})
+
 describe('EntityTagList add-tag dialog create-tag tier gating', () => {
   beforeEach(() => {
     vi.clearAllMocks()

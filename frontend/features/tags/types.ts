@@ -1,9 +1,45 @@
 // Tag types — aligned with backend contracts/tag.go response types.
 
 export const TAG_CATEGORIES = [
-  'genre', 'locale', 'other'
+  'genre', 'locale', 'other', 'crew'
 ] as const
 export type TagCategory = typeof TAG_CATEGORIES[number]
+
+/**
+ * A tag naming a MUSIC BOOKER: a promoter, a DIY crew or collective, or a
+ * named series or residency that books live music. Minting one is admin-only
+ * (backend `IsAdminMintOnlyTagCategory`); applying an existing one is not.
+ */
+export const TAG_CATEGORY_CREW: TagCategory = 'crew'
+
+/**
+ * The categories a tag-facet chip row offers: the browse-page facet panels
+ * and the add-tag dialog's filter row. `crew` is absent from both. A crew
+ * chip standing among genre chips reads as a genre and dilutes the filter it
+ * sits in, and a booker's tag fans out across a whole roster, so it would
+ * outrank real genres while answering a different question.
+ *
+ * The add-tag dialog's create-category control reads this same list, because
+ * that dialog copies the chosen filter chip into the category it would mint:
+ * a chip with no matching option there is a value the control cannot show but
+ * still submits. Crew is admin-minted (backend `IsAdminMintOnlyTagCategory`),
+ * so a contributor has nothing to lose by its absence, and an existing crew
+ * tag stays applicable from the unfiltered search results.
+ *
+ * Tag browse (`/tags`) offers the full `TAG_CATEGORIES` set instead, and
+ * `/admin/tags` mints from it, so crew tags stay reachable and creatable.
+ */
+export const FACET_TAG_CATEGORIES: readonly TagCategory[] =
+  TAG_CATEGORIES.filter(c => c !== TAG_CATEGORY_CREW)
+
+/**
+ * Whether a tag belongs in a chip row that shows no category of its own.
+ * The rule names what it excludes, so a category this build has not heard of
+ * still renders instead of silently vanishing.
+ */
+export function isFacetTagCategory(category: string): boolean {
+  return category !== TAG_CATEGORY_CREW
+}
 
 // Sort options for the tag browse page. Values are the URL-facing slugs;
 // `backend` is the value passed to the /tags `sort` query param.
@@ -431,19 +467,31 @@ export interface GenreHierarchyNode extends GenreHierarchyTag {
 }
 
 /**
- * Tag-category tint, bound to the DS categorical palette (PSY-943). Replaces
- * the raw blue/cyan/zinc hues that drifted off the newsprint/vinyl theme.
- * Three categories → three distinct-but-muted tokens: genre = chart-6 (denim),
- * locale = chart-8 (teal), other = muted (the neutral catch-all). The token
- * tints track light/dark automatically via the CSS cascade.
+ * Per-category chip classes, bound to the DS categorical palette (PSY-943).
+ * genre = chart-6 (denim), locale = chart-8 (teal), other = muted (the
+ * neutral catch-all). The token tints track light/dark via the CSS cascade.
+ *
+ * `crew` is the one category whose treatment is not a tint. It carries shape
+ * and typography too: an unfilled hairline square on the border token, mono
+ * uppercase on muted-foreground (Figma `1402:789`). A crew tag names a party
+ * rather than a sound, and the coloured pill is the genre vocabulary's
+ * signature, so crew is deliberately outside it. Font SIZE stays with the
+ * calling surface, which owns its own density.
+ *
+ * Callers must compose this through `cn` (or a component that does), because
+ * the crew string overrides shape utilities the caller sets first.
+ *
+ * The colour token is the FIRST `text-*` class in every string:
+ * TagBrowse.categoryTextTint reads it positionally.
  */
-export function getCategoryColor(category: string): string {
-  const colors: Record<string, string> = {
+export function getCategoryChipClasses(category: string): string {
+  const classes: Record<string, string> = {
     genre: 'bg-chart-6/10 text-chart-6 border-chart-6/20',
     locale: 'bg-chart-8/10 text-chart-8 border-chart-8/20',
     other: 'bg-muted text-muted-foreground border-border',
+    crew: 'bg-transparent text-muted-foreground border-border rounded-[2px] font-mono uppercase tracking-[0.04em]',
   }
-  return colors[category] || colors.other
+  return classes[category] || classes.other
 }
 
 export function getCategoryLabel(category: string): string {

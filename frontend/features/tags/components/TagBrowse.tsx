@@ -15,7 +15,7 @@ import {
   TAG_CATEGORIES,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
-  getCategoryColor,
+  getCategoryChipClasses,
   getCategoryLabel,
 } from '../types'
 import type { TagListItem, TagSortOption } from '../types'
@@ -37,8 +37,14 @@ function sortToBackend(sort: TagSortOption): string {
  * Per-category total counts for the facet chips, scoped to the active search
  * term but NOT to the selected category — each chip reports how many tags
  * that facet would surface, so a chip can be disabled when it has none.
- * One `useTags({category, limit:1})` per category (3 categories ⇒ 3 bounded
- * requests, same approach as TagFacetPanel). `all` is the cross-category sum.
+ * One `useTags({category, limit:1})` per category, one call per entry in
+ * TAG_CATEGORIES, so every chip this page renders has a count behind it.
+ * `all` is the cross-category sum.
+ *
+ * The calls are written out rather than mapped because they are hooks: a
+ * `.map` over the constant would put a hook inside a callback. A category
+ * added to TAG_CATEGORIES without a line here renders a 0 count, so the
+ * pairing is pinned by a test.
  */
 function useCategoryCounts(search: string | undefined): {
   counts: Record<string, number>
@@ -47,13 +53,18 @@ function useCategoryCounts(search: string | undefined): {
   const genre = useTags({ category: 'genre', search, limit: 1 })
   const locale = useTags({ category: 'locale', search, limit: 1 })
   const other = useTags({ category: 'other', search, limit: 1 })
+  const crew = useTags({ category: 'crew', search, limit: 1 })
 
   const counts: Record<string, number> = {
     genre: genre.data?.total ?? 0,
     locale: locale.data?.total ?? 0,
     other: other.data?.total ?? 0,
+    crew: crew.data?.total ?? 0,
   }
-  return { counts, all: counts.genre + counts.locale + counts.other }
+  return {
+    counts,
+    all: TAG_CATEGORIES.reduce((sum, cat) => sum + (counts[cat] ?? 0), 0),
+  }
 }
 
 export function TagBrowse() {
@@ -184,7 +195,7 @@ export function TagBrowse() {
             label={getCategoryLabel(cat)}
             count={counts[cat] ?? 0}
             active={category === cat}
-            categoryTint={getCategoryColor(cat)}
+            categoryTint={getCategoryChipClasses(cat)}
             onClick={() => handleCategoryChange(cat)}
           />
         ))}
@@ -269,7 +280,7 @@ function FacetChip({
   label: string
   count: number
   active: boolean
-  /** Category tint classes (from getCategoryColor) applied when active. */
+  /** Category tint classes (from getCategoryChipClasses) applied when active. */
   categoryTint?: string
   onClick: () => void
 }) {
@@ -374,16 +385,16 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
 
 /**
  * Category as a tinted TEXT label (not a pill). Derives the foreground tint
- * from `getCategoryColor` — the single source of truth for the genre→chart-6 /
+ * from `getCategoryChipClasses` — the single source of truth for the genre→chart-6 /
  * locale→chart-8 / other→muted mapping — by keeping only its `text-*` token and
  * dropping the bg/border classes. Deriving (rather than re-hardcoding the map)
- * keeps the two surfaces from drifting. Contract: `getCategoryColor` must return
+ * keeps the two surfaces from drifting. Contract: `getCategoryChipClasses` must return
  * exactly one `text-*` token; if that ever stops holding, this falls back to
  * `text-muted-foreground` (and TagBrowse.test.tsx asserts the genre tint, so a
  * regression surfaces in CI rather than silently).
  */
 function categoryTextTint(category: string): string {
-  const text = getCategoryColor(category)
+  const text = getCategoryChipClasses(category)
     .split(' ')
     .find(c => c.startsWith('text-'))
   return text ?? 'text-muted-foreground'

@@ -6,15 +6,21 @@ import {
   TAG_ENTITY_TYPES,
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
-  getCategoryColor,
+  FACET_TAG_CATEGORIES,
+  getCategoryChipClasses,
   getCategoryLabel,
   getEntityUrl,
   getEntityTypePluralLabel,
 } from './types'
 
 describe('tag constants', () => {
-  it('exposes the three tag categories', () => {
-    expect(TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
+  it('exposes the tag categories the backend allowlist accepts', () => {
+    expect(TAG_CATEGORIES).toEqual(['genre', 'locale', 'other', 'crew'])
+  })
+
+  it('keeps crew out of the facet vocabulary and everything else in', () => {
+    expect(FACET_TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
+    expect(FACET_TAG_CATEGORIES).not.toContain('crew')
   })
 
   it('maps each sort option to a backend slug', () => {
@@ -71,23 +77,57 @@ describe('low-quality signal chips', () => {
   })
 })
 
-describe('getCategoryColor', () => {
+describe('getCategoryChipClasses', () => {
   it('binds each known category to a distinct DS chart token (PSY-943)', () => {
-    expect(getCategoryColor('genre')).toContain('text-chart-6')
-    expect(getCategoryColor('locale')).toContain('text-chart-8')
-    expect(getCategoryColor('other')).toContain('text-muted-foreground')
+    expect(getCategoryChipClasses('genre')).toContain('text-chart-6')
+    expect(getCategoryChipClasses('locale')).toContain('text-chart-8')
+    expect(getCategoryChipClasses('other')).toContain('text-muted-foreground')
   })
 
   it('uses no raw off-palette Tailwind hue', () => {
-    for (const cat of ['genre', 'locale', 'other']) {
-      expect(getCategoryColor(cat)).not.toMatch(
+    for (const cat of TAG_CATEGORIES) {
+      expect(getCategoryChipClasses(cat)).not.toMatch(
         /(?:bg|text|border)-(?:blue|cyan|zinc)-\d/
       )
     }
   })
 
+  it('gives crew an unfilled hairline square in mono uppercase (Figma 1402:789)', () => {
+    const crew = getCategoryChipClasses('crew')
+    expect(crew).toContain('bg-transparent')
+    expect(crew).toContain('border-border')
+    expect(crew).toContain('rounded-[2px]')
+    expect(crew).toContain('font-mono')
+    expect(crew).toContain('uppercase')
+    expect(crew).toContain('tracking-[0.04em]')
+    expect(crew).toContain('text-muted-foreground')
+  })
+
+  it('gives crew no colour fill, unlike every other category', () => {
+    expect(getCategoryChipClasses('crew')).not.toMatch(/bg-(?:chart|muted|primary)/)
+    expect(getCategoryChipClasses('crew')).not.toBe(getCategoryChipClasses('other'))
+  })
+
+  it('leads every category with its colour token so text-only callers can read it', () => {
+    // TagBrowse.categoryTextTint takes the FIRST `text-*` class as the tint.
+    for (const cat of TAG_CATEGORIES) {
+      const first = getCategoryChipClasses(cat)
+        .split(' ')
+        .find(c => c.startsWith('text-'))
+      expect(first).toMatch(/^text-(?:chart-\d|muted-foreground|foreground)$/)
+    }
+  })
+
+  it('sets no font size, leaving density to the calling surface', () => {
+    for (const cat of TAG_CATEGORIES) {
+      expect(getCategoryChipClasses(cat)).not.toMatch(
+        /\btext-(?:xs|sm|base|lg|\[\d)/
+      )
+    }
+  })
+
   it('falls back to the "other" styling for an unknown category', () => {
-    expect(getCategoryColor('mystery')).toBe(getCategoryColor('other'))
+    expect(getCategoryChipClasses('mystery')).toBe(getCategoryChipClasses('other'))
   })
 })
 
@@ -95,6 +135,7 @@ describe('getCategoryLabel', () => {
   it('capitalizes the first letter', () => {
     expect(getCategoryLabel('genre')).toBe('Genre')
     expect(getCategoryLabel('locale')).toBe('Locale')
+    expect(getCategoryLabel('crew')).toBe('Crew')
   })
 
   it('returns an empty string for empty input', () => {

@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
+import { isFacetTagCategory } from '@/features/tags'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { CollectionCoverImage } from './CollectionCoverImage'
@@ -100,6 +101,12 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   // Mosaic placeholder is space-bounded by the 2x2 fallback tile, so its
   // top-4 slice stays.
   const mosaicTypes = entityTypeBreakdown.slice(0, 4).map(([type]) => type)
+
+  // The chip row below shows no category, so it only carries categories that
+  // read as a descriptor of the collection. See the comment on the row.
+  const visibleTags = (collection.tags ?? []).filter(tag =>
+    isFacetTagCategory(tag.category)
+  )
 
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
@@ -213,13 +220,19 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               tag-filtered collections browse — the ticket explicitly
               chose this over the global /tags/{slug} target so chips on
               cards behave like a "show me other collections like this"
-              shortcut rather than a deep-dive into the tag's full corpus. */}
-          {collection.tags && collection.tags.length > 0 && (
+              shortcut rather than a deep-dive into the tag's full corpus.
+
+              Every chip here is the same neutral pill regardless of
+              category, so the row carries no category signal and a booker's
+              name would read as a sound. Crew tags are dropped before the
+              cap, which keeps the "+N" remainder consistent with what the
+              row shows; the collection's detail page still lists them. */}
+          {visibleTags.length > 0 && (
             <div
               className="mt-1.5 flex flex-wrap gap-1"
               data-testid="collection-card-tags"
             >
-              {collection.tags.slice(0, 5).map((tag) => (
+              {visibleTags.slice(0, 5).map((tag) => (
                 <Link
                   key={tag.id}
                   href={`/collections?tag=${encodeURIComponent(tag.slug)}`}
@@ -235,9 +248,9 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                   {tag.name}
                 </Link>
               ))}
-              {collection.tags.length > 5 && (
+              {visibleTags.length > 5 && (
                 <span className="text-[10px] text-muted-foreground self-center">
-                  +{collection.tags.length - 5}
+                  +{visibleTags.length - 5}
                 </span>
               )}
             </div>

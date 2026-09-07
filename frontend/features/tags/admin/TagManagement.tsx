@@ -56,7 +56,7 @@ import {
 } from './useAdminTags'
 import {
   TAG_CATEGORIES,
-  getCategoryColor,
+  getCategoryChipClasses,
   getCategoryLabel,
   type TagCategory,
   type TagDetailResponse,
@@ -765,7 +765,7 @@ export function TagManagement() {
                     </span>
                     <Badge
                       variant="outline"
-                      className={`text-xs flex-shrink-0 ${getCategoryColor(tag.category)}`}
+                      className={`text-xs flex-shrink-0 ${getCategoryChipClasses(tag.category)}`}
                     >
                       {getCategoryLabel(tag.category)}
                     </Badge>

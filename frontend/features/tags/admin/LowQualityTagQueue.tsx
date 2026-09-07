@@ -35,7 +35,7 @@ import { MergeTagDialog } from './MergeTagDialog'
 import {
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
-  getCategoryColor,
+  getCategoryChipClasses,
   getCategoryLabel,
   type BulkLowQualityAction,
   type LowQualityReason,
@@ -481,7 +481,7 @@ export function LowQualityTagQueue() {
                         </span>
                         <Badge
                           variant="outline"
-                          className={`text-xs flex-shrink-0 ${getCategoryColor(tag.category)}`}
+                          className={`text-xs flex-shrink-0 ${getCategoryChipClasses(tag.category)}`}
                         >
                           {getCategoryLabel(tag.category)}
                         </Badge>

@@ -215,6 +215,46 @@ describe('TagManagement — category filter (PSY-924)', () => {
   })
 })
 
+describe('TagManagement — crew category (PSY-1883)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseTags.mockReturnValue({
+      data: { tags: [], total: 0 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  it('shows the tag\'s own category in the edit select for a crew tag', async () => {
+    // A category the select has no option for renders an EMPTY trigger, and
+    // an admin who "fixes" the blank field silently re-categorizes the tag.
+    renderWithProviders(
+      <EditTagFormFields
+        key={7}
+        tag={makeTagDetail({ id: 7, name: 'Rubber Brother Records', category: 'crew' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Category *')).toHaveTextContent('Crew')
+  })
+
+  it('offers Crew when filtering the admin tag list', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TagManagement />)
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Filter by category' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'Crew' }))
+
+    expect(mockUseTags).toHaveBeenLastCalledWith(
+      expect.objectContaining({ category: 'crew' })
+    )
+  })
+})
+
 describe('EditTagFormFields: tag switch resets fields via key prop', () => {
   // Pins PSY-768: the inner form initializes local state from the tag prop
   // on mount, with no useEffect and no `initialized` ratchet. Callers pass

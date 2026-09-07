@@ -22,10 +22,13 @@ export type {
 
 export {
   TAG_CATEGORIES,
+  FACET_TAG_CATEGORIES,
+  TAG_CATEGORY_CREW,
+  isFacetTagCategory,
   TAG_ENTITY_TYPES,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
-  getCategoryColor,
+  getCategoryChipClasses,
   getCategoryLabel,
 } from './types'
 
