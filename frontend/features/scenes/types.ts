@@ -306,3 +306,19 @@ export interface SceneGraphResponse {
   nodes: SceneGraphNode[]
   links: SceneGraphLink[]
 }
+
+/**
+ * A scene's completeness gap counts (PSY-1845).
+ *
+ * DERIVED from the generated schema, the same rule as `SceneCollectionSummary`.
+ *
+ * `artists_missing_listen_link` counts bands based here with NO music-platform
+ * link at all: spotify, bandcamp, youtube and soundcloud are every one of them
+ * blank. A band carrying a Spotify link and no Bandcamp is NOT in this number,
+ * which is why the line that draws it says "listen link" rather than naming one
+ * platform.
+ *
+ * The two counts are over DIFFERENT populations, based-here against
+ * played-here, so they can overlap or not at all and are never summed.
+ */
+export type SceneGapsResponse = components['schemas']['SceneGapsResponse']

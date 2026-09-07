@@ -452,6 +452,12 @@ export const API_ENDPOINTS = {
      * threshold, unlike NEW_ARTISTS, which answers 200 with an empty list.
      */
     COLLECTIONS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/collections`,
+    /**
+     * The scene's completeness gap counts (PSY-1845). A SEPARATE route from
+     * DETAIL, so a degraded gap count hides one line instead of taking down the
+     * scene page. 404s below the scene venue threshold, like COLLECTIONS.
+     */
+    GAPS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/gaps`,
   },
 
   // Community endpoints (public)

@@ -16,6 +16,7 @@ import type {
   SceneGraphResponse,
   SceneNewArtistsResponse,
   SceneCollectionsResponse,
+  SceneGapsResponse,
   SceneShowsResponse,
 } from '../types'
 
@@ -188,6 +189,37 @@ export function useSceneCollections(options: UseSceneCollectionsOptions) {
     },
     enabled: Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch a scene's completeness gap counts (PSY-1845).
+ *
+ * Keyed by SLUG, never by the city and state the payload echoes back: the slug
+ * is what the request is made with, and the pair is a derived spelling of it.
+ *
+ * There is no parameter to put in the key. The endpoint takes none, and it
+ * takes no viewer either, so the counts are one answer about the place that
+ * every caller and every viewer share.
+ *
+ * Held longer than its siblings' five minutes. These counts move when someone
+ * edits an artist, not when a show is booked, and the line they feed is a
+ * backlog figure that reads the same at ten minutes stale.
+ *
+ * This endpoint 404s on a parseable place below the scene venue threshold. The
+ * caller renders nothing on an error and nothing at zero, so the difference
+ * between a 404 and an honest zero never reaches the page.
+ */
+export function useSceneGaps(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.scenes.gaps(slug),
+    queryFn: async (): Promise<SceneGapsResponse> => {
+      return apiRequest<SceneGapsResponse>(API_ENDPOINTS.SCENES.GAPS(slug), {
+        method: 'GET',
+      })
+    },
+    enabled: Boolean(slug),
+    staleTime: 10 * 60 * 1000, // 10 minutes
   })
 }
 
