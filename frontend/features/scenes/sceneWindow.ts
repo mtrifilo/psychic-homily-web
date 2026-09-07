@@ -104,7 +104,16 @@ export interface SceneWindowData {
  * `components/filters/cityParams`, whose module pulls `nuqs` in for a parser
  * these server-rendered pages never use. The format is one pair, `City,ST`.
  *
- * @param basePath Route prefix WITHOUT a trailing slash, e.g. `/shows`.
+ * Encoding is transport hygiene only. `parseCitiesParam` reads the value after
+ * the URL layer has decoded it, so it splits on a `|` or a `,` that came out of
+ * a city name exactly as it splits on the ones written here. One pair in means
+ * one pair out only for city names that carry neither character.
+ *
+ * @param basePath A LITERAL in-app route prefix that parses `?cities=` in this
+ *   wire format (`/shows`, `/artists`, `/venues`), with no trailing slash and
+ *   no query string of its own. Never a computed or caller-supplied value: it
+ *   is interpolated unencoded, so an absolute URL here would build an off-site
+ *   link.
  */
 export function sceneCityListHref(
   basePath: string,
@@ -115,8 +124,9 @@ export function sceneCityListHref(
 }
 
 /**
- * The city's whole upcoming listing — the way out of a window that could not
- * hold everything, and of the widest window when it is empty.
+ * The city's whole upcoming listing, `/shows?cities=City%2CST` — the way out of
+ * a window that could not hold everything, and of the widest window when it is
+ * empty.
  */
 export function allUpcomingHref(city: string, state: string): string {
   return sceneCityListHref('/shows', city, state)

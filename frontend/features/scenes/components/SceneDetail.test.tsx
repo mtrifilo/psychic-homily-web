@@ -67,11 +67,11 @@ vi.mock('./SceneGraph', async importOriginal => ({
   SceneGraph: () => <div data-testid="scene-graph" />,
 }))
 
-// The five identity sections each own a request and a suite (SceneRooms /
-// SceneNewBands / SceneRoster / SceneCollections / SceneGapLine). Stub them
-// here, same rule as the calendar and the graph above: this file is about the
-// view's COMPOSITION — what renders, in what order, and what the anchor hangs
-// off.
+// The five identity sections each own a suite (SceneRooms / SceneNewBands /
+// SceneRoster / SceneCollections / SceneGapLine), and all but SceneRooms own a
+// request; SceneRooms draws off the detail payload. Stub them here, same rule
+// as the calendar and the graph above: this file is about the view's
+// COMPOSITION — what renders, in what order, and what the anchor hangs off.
 vi.mock('./SceneRooms', () => ({
   SceneRooms: () => <div data-testid="scene-rooms" />,
 }))

@@ -195,9 +195,10 @@ export function useSceneCollections(options: UseSceneCollectionsOptions) {
 /**
  * Hook to fetch a scene's completeness gap counts (PSY-1845).
  *
- * Held longer than its siblings' five minutes. These counts move when someone
- * edits an artist, not when a show is booked, and the line they feed is a
- * backlog figure that reads the same at ten minutes stale.
+ * Ten minutes. These counts move when someone edits an artist, not when a show
+ * is booked, and the line they feed is a backlog figure that reads the same at
+ * ten minutes stale. Nothing invalidates the key, so a reader who follows the
+ * line and fills a link in sees the old count until it expires.
  *
  * This endpoint 404s on a parseable place below the scene venue threshold. The
  * caller renders nothing on an error and nothing at zero, so the difference

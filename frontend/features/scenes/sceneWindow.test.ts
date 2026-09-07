@@ -197,16 +197,18 @@ describe('sceneCityListHref', () => {
     )
   })
 
-  // The comma between the halves is the wire format's own separator and must
-  // survive as an encoded character inside the single pair, not as a delimiter.
+  // Percent-encoding is transport hygiene, not separation: `parseCitiesParam`
+  // reads the value already decoded, so `%2C` and `,` are the same character
+  // by the time the pair is split. What this pins is the space, which must not
+  // arrive as a raw space or a `+`.
   it('keeps a multi-word city in one pair', () => {
     expect(sceneCityListHref('/artists', 'San Francisco', 'CA')).toBe(
       '/artists?cities=San%20Francisco%2CCA'
     )
   })
 
-  // Every scene destination spells the param through this one function, so the
-  // shows link and the artists link can never disagree about the format.
+  // The shows link and the artists link agree about the format because both go
+  // through this one function.
   it('is what allUpcomingHref points at /shows with', () => {
     expect(allUpcomingHref('Phoenix', 'AZ')).toBe(
       sceneCityListHref('/shows', 'Phoenix', 'AZ')

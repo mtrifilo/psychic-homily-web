@@ -22,6 +22,7 @@ import {
   EntityNameLink,
   EntityNameList,
   RoomList,
+  SCENE_ACCENT_LINK_CLASS,
   SceneSectionHeading,
 } from './sceneChrome'
 
@@ -278,5 +279,28 @@ describe('SceneSectionHeading', () => {
       <SceneSectionHeading title="Bands / based in Phoenix" note={17} action={<button>Show all</button>} />
     )
     expect(screen.getByRole('button', { name: 'Show all' })).toBeInTheDocument()
+  })
+})
+
+// Two components render this constant, and neither asserts a class of its own.
+// Without this, dropping the focus ring or the accent tone changes both
+// rendered surfaces and fails nothing.
+describe('SCENE_ACCENT_LINK_CLASS', () => {
+  it('carries a visible focus indicator', () => {
+    expect(SCENE_ACCENT_LINK_CLASS).toContain('focus-visible:outline-2')
+    expect(SCENE_ACCENT_LINK_CLASS).toContain('focus-visible:outline-ring')
+  })
+
+  it('is the accent tone in the section headings type', () => {
+    expect(SCENE_ACCENT_LINK_CLASS).toContain('text-primary')
+    expect(SCENE_ACCENT_LINK_CLASS).toContain(
+      'font-mono text-[11px] uppercase tracking-widest'
+    )
+  })
+
+  // Hover must not recolour: against the primary base that reads as receding.
+  it('signals hover by underlining', () => {
+    expect(SCENE_ACCENT_LINK_CLASS).toContain('hover:underline')
+    expect(SCENE_ACCENT_LINK_CLASS).not.toContain('hover:text-')
   })
 })
