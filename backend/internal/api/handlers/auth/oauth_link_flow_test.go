@@ -11,6 +11,7 @@ import (
 	"github.com/markbates/goth"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
@@ -27,14 +28,34 @@ func (s *OAuthHandlerIntegrationSuite) parseLinkRedirect(location string) url.Va
 	return parsed.Query()
 }
 
+// oauthLinkRequest builds a start request the way a real one arrives from
+// Settings: a session, a session age recent enough to satisfy re-auth, and the
+// one-time token Settings mints. Each is a separate gate, and the tests below
+// that exercise one of them drop it explicitly.
 func oauthLinkRequest(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
+	w, req := oauthLinkRequestWithoutToken(provider, user)
+	if user != nil {
+		token, err := mintOAuthLinkToken(user.ID)
+		if err != nil {
+			panic(err)
+		}
+		q := req.URL.Query()
+		q.Set(oauthLinkTokenParam, token)
+		req.URL.RawQuery = q.Encode()
+	}
+	return w, req
+}
+
+// oauthLinkRequestWithoutToken is the same request with no link token on it.
+func oauthLinkRequestWithoutToken(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
 	req := httptest.NewRequest("GET", "/auth/link/"+provider, nil)
 
-	// The principal goes in the way the JWT middleware puts it there, so this
-	// exercises the same read the handler makes in production.
+	// The principal and the credential's age go in the way the JWT middleware
+	// puts them there, so this exercises the same reads the handler makes.
 	ctx := context.Background()
 	if user != nil {
 		ctx = testhelpers.CtxWithUser(user)
+		ctx = context.WithValue(ctx, middleware.SessionIssuedAtContextKey, time.Now())
 	}
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", provider)
@@ -71,10 +92,112 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_ArmsAnIntentForTheSessionsAccoun
 	// The cookie names nothing on its own: the account lives in the store.
 	s.NotContains(cookie.Value, "link-start@test.com")
 
-	intent := takeOAuthLinkIntent(cookie.Value)
+	intent := peekOAuthLinkIntent(cookie.Value)
 	s.Require().NotNil(intent)
 	s.Equal(user.ID, intent.userID)
 	s.Equal("google", intent.provider)
+}
+
+// The CSRF gate. /auth/link/{provider} is a cookie-authenticated GET and the
+// auth cookie is SameSite=Lax, which a browser DOES send on a cross-site
+// top-level navigation. Without the token, any page on the internet could push
+// a signed-in user through the connect flow, and a user with a live provider
+// session completes it with no interaction at all.
+func (s *OAuthHandlerIntegrationSuite) TestLink_WithoutTokenRefused() {
+	user := &authm.User{Email: strPtr("link-no-token@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := oauthLinkRequestWithoutToken("google", user)
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Equal(http.StatusForbidden, w.Code)
+	s.Nil(linkIntentCookie(w), "a refused start must arm nothing")
+}
+
+// The token is bound to the account, not merely to existing: one user's token
+// must not start a link on another's session.
+func (s *OAuthHandlerIntegrationSuite) TestLink_TokenFromAnotherAccountRefused() {
+	owner := &authm.User{Email: strPtr("link-token-owner@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(owner).Error)
+	other := &authm.User{Email: strPtr("link-token-other@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(other).Error)
+
+	othersToken, err := mintOAuthLinkToken(other.ID)
+	s.Require().NoError(err)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := oauthLinkRequestWithoutToken("google", owner)
+	q := req.URL.Query()
+	q.Set(oauthLinkTokenParam, othersToken)
+	req.URL.RawQuery = q.Encode()
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Equal(http.StatusForbidden, w.Code)
+	s.Nil(linkIntentCookie(w))
+}
+
+// One use. A replayed start URL, which is the shape a shared or leaked link
+// takes, arms nothing the second time.
+func (s *OAuthHandlerIntegrationSuite) TestLink_TokenIsSingleUse() {
+	user := &authm.User{Email: strPtr("link-token-once@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := oauthLinkRequest("google", user)
+	handler.OAuthLinkHTTPHandler(w, req)
+	s.Require().NotNil(linkIntentCookie(w))
+
+	replayW, replayReq := oauthLinkRequestWithoutToken("google", user)
+	replayReq.URL.RawQuery = req.URL.RawQuery
+	handler.OAuthLinkHTTPHandler(replayW, replayReq)
+
+	s.Equal(http.StatusForbidden, replayW.Code)
+	s.Nil(linkIntentCookie(replayW))
+}
+
+// Fetch metadata is set by the browser and cannot be forged by page script, so
+// a declared cross-site navigation is refused before the token is even spent.
+func (s *OAuthHandlerIntegrationSuite) TestLink_CrossSiteNavigationRefused() {
+	user := &authm.User{Email: strPtr("link-cross-site@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := oauthLinkRequest("google", user)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Equal(http.StatusForbidden, w.Code)
+	s.Nil(linkIntentCookie(w))
+}
+
+// The re-auth gate. Adding a way to sign in is not something an old cookie
+// found in a shared browser may do on its own.
+func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
+	hash := "$2a$not-a-real-hash"
+	user := &authm.User{
+		Email:        strPtr("link-stale-session@test.com"),
+		IsActive:     true,
+		PasswordHash: &hash,
+	}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := oauthLinkRequestWithoutToken("google", user)
+	token, err := mintOAuthLinkToken(user.ID)
+	s.Require().NoError(err)
+	q := req.URL.Query()
+	q.Set(oauthLinkTokenParam, token)
+	req.URL.RawQuery = q.Encode()
+	// Older than recentSessionWindow: the account has a password, so the rule
+	// asks for that rather than accepting the cookie.
+	req = req.WithContext(context.WithValue(req.Context(),
+		middleware.SessionIssuedAtContextKey, time.Now().Add(-2*time.Hour)))
+
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Equal(http.StatusForbidden, w.Code)
+	s.Nil(linkIntentCookie(w))
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestLink_UnknownProviderRefused() {
@@ -159,46 +282,57 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IntentIsSingleUse() {
 	handler.OAuthCallbackHTTPHandler(w, req)
 	s.Contains(w.Header().Get("Location"), "oauth_link=connected")
 
-	// Byte-identical replay: same cookie, same state.
+	// The intent is spent, so nothing is armed for a second link.
+	s.Nil(peekOAuthLinkIntent(cookie.Value), "a completed link must consume its intent")
+
+	// Byte-identical replay: same cookie, same state. With the intent gone this
+	// is no longer a link, so it is handled as the sign-in it looks like. The
+	// identity the first pass attached now resolves by provider_user_id, so
+	// the replay signs that account in rather than linking a second time,
+	// which is the correct outcome and the one that proves single use.
 	replayW, replayReq := oauthCallbackRequest("google")
 	replayReq.AddCookie(cookie)
 	setCallbackState(replayReq, state)
 	handler.OAuthCallbackHTTPHandler(replayW, replayReq)
 
-	s.assertLinkRefusal(replayW, autherrors.ErrOAuthLinkExpired().UserMessage())
+	s.Equal("http://localhost:3000", replayW.Header().Get("Location"))
+
+	var rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
+		Where("user_id = ?", user.ID).Count(&rows).Error)
+	s.Equal(int64(1), rows, "the replay must not attach a second identity")
 }
 
-// The fail-closed rule: an intent cookie with nothing behind it must NOT fall
-// through to the sign-in path, which would resolve an account from the address
-// the provider returned instead of from the session that started the attempt.
-func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_UnknownIntentDoesNotFallThroughToSignIn() {
-	owner := &authm.User{Email: strPtr("link-no-fallthrough@test.com"), IsActive: true, EmailVerified: true}
-	s.Require().NoError(s.deps.DB.Create(owner).Error)
-
+// An intent cookie with nothing behind it is not about this callback, so the
+// callback is an ordinary sign-in. Burning it to refuse instead would strand a
+// user who abandoned a link and later signed in normally: they would land on
+// Settings with no session and no way to tell why.
+//
+// This is safe only because the sign-in path itself no longer links by
+// address. It resolves the provider subject or creates an account; it never
+// joins an account it merely shares an address with.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_UnknownIntentFallsThroughToSignIn() {
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 		Provider: "google",
 		UserID:   "google-fallthrough-subject",
-		Email:    "link-no-fallthrough@test.com",
+		Email:    "fallthrough.newcomer@test.com",
 		RawData:  map[string]any{"verified_email": true},
 	}})
 
 	w, req := oauthCallbackRequest("google")
 	req.AddCookie(&http.Cookie{Name: oauthLinkIntentCookieName, Value: "an-id-nothing-armed"})
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.assertLinkRefusal(w, autherrors.ErrOAuthLinkExpired().UserMessage())
-
-	// Had it fallen through, this address plus a vouching provider would have
-	// linked and issued a session.
+	// The sign-in destination, not the Settings one.
+	s.Equal("http://localhost:3000", w.Header().Get("Location"))
+	sessionIssued := false
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
-			s.Fail("an expired link must not issue a session")
+			sessionIssued = true
 		}
 	}
-	var rows int64
-	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
-		Where("user_id = ?", owner.ID).Count(&rows).Error)
-	s.Equal(int64(0), rows)
+	s.True(sessionIssued, "an unmatched intent must leave a real sign-in working")
 }
 
 // An abandoned link leaves its cookie live for the whole TTL. The next
@@ -224,34 +358,42 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StaleIntentDoesNotDivert
 	w, req := oauthCallbackRequest("google")
 	req.AddCookie(cookie)
 	setCallbackState(req, "a-different-handshakes-state")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.assertLinkRefusal(w, autherrors.ErrOAuthLinkExpired().UserMessage())
+	// Not diverted: this is the sign-in it actually was.
+	s.Equal("http://localhost:3000", w.Header().Get("Location"))
 
 	var rows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
 		Where("user_id = ?", abandoner.ID).Count(&rows).Error)
 	s.Equal(int64(0), rows, "a stale intent must not capture another handshake's identity")
+
+	// And the intent survives the look, so the abandoner can still finish the
+	// link they started.
+	s.NotNil(peekOAuthLinkIntent(cookie.Value), "a mismatched callback must not burn the intent")
 }
 
-// An intent authorizes one provider's handshake, not any handshake.
-func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ProviderMismatchRefused() {
+// An intent authorizes one provider's handshake, not any handshake. A github
+// intent does not make a google callback a link.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_ProviderMismatchIsNotThisLink() {
 	user := &authm.User{Email: strPtr("link-mismatch@test.com"), IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
-		Provider: "google", UserID: "google-mismatch-subject", Email: "link-mismatch@test.com",
+		Provider: "google", UserID: "google-mismatch-subject", Email: "mismatch.newcomer@test.com",
 	}})
 
 	w, req := oauthCallbackRequest("google")
 	s.armLinkIntentOn(req, user.ID, "github")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.assertLinkRefusal(w, autherrors.ErrOAuthLinkExpired().UserMessage())
+	s.Equal("http://localhost:3000", w.Header().Get("Location"))
 	var rows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
 		Where("user_id = ?", user.ID).Count(&rows).Error)
-	s.Equal(int64(0), rows)
+	s.Equal(int64(0), rows, "a github intent must not absorb a google callback")
 }
 
 // A refusal from the service reaches the user in its own words, because it is
@@ -274,7 +416,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IdentityInUseCarriesItsO
 	s.armLinkIntentOn(req, claimant.ID, "google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.assertLinkRefusal(w, autherrors.ErrOAuthIdentityInUse("google").UserMessage())
+	s.assertLinkRefusal(w, autherrors.CodeOAuthIdentityInUse)
 	var rows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
 		Where("user_id = ?", claimant.ID).Count(&rows).Error)
@@ -293,7 +435,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_SignsUpAnUnhel
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 		Provider: "google",
 		UserID:   "google-no-intent-subject",
-		Email:    "link-absent-intent@test.com",
+		Email:    "no.intent.newcomer@test.com",
 		RawData:  map[string]any{"verified_email": true},
 	}})
 
@@ -358,7 +500,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkIntent_ExpiredIsNotUsable() {
 		expiresAt: time.Now().Add(-time.Second),
 	})
 
-	s.Nil(takeOAuthLinkIntent(id))
+	s.Nil(peekOAuthLinkIntent(id))
 }
 
 // armLinkIntent stores an intent and returns the two things a browser carries
@@ -398,10 +540,14 @@ func setCallbackState(req *http.Request, state string) {
 	req.URL.RawQuery = q.Encode()
 }
 
-func (s *OAuthHandlerIntegrationSuite) assertLinkRefusal(w *httptest.ResponseRecorder, wantMessage string) {
+// assertLinkRefusal checks the refusal CODE, not prose. The redirect carries a
+// code precisely so the settings page never renders a sentence taken from a
+// URL, and asserting on prose here would let that regress unnoticed.
+func (s *OAuthHandlerIntegrationSuite) assertLinkRefusal(w *httptest.ResponseRecorder, wantCode string) {
 	s.T().Helper()
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
 	query := s.parseLinkRedirect(w.Header().Get("Location"))
-	s.Equal(wantMessage, query.Get(oauthLinkErrorParam))
+	s.Equal(wantCode, query.Get(oauthLinkErrorParam))
+	s.NotContains(query.Get(oauthLinkErrorParam), " ", "the error parameter carries a code, never a sentence")
 	s.Empty(query.Get(oauthLinkResultParam))
 }

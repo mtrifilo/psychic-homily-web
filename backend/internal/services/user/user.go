@@ -615,22 +615,41 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
 	}
 
+	// Everything from the existence check to the write runs in ONE transaction.
+	// The checks below decide whether to attach an identity, and outside a
+	// transaction two concurrent link callbacks both read "no identity for this
+	// provider" and both write. oauth_accounts_user_provider_uniq is the
+	// backstop that makes the loser fail rather than land a second credential
+	// the unlink route cannot be relied on to remove.
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
 	// The account has to exist before an identity is attached to it. The
 	// oauth_accounts foreign key would refuse the write anyway, but a refusal
 	// by design keeps this correct if that constraint is ever relaxed, and it
 	// gives the caller an error naming the user rather than a driver message.
 	var exists authm.User
-	if err := s.db.Select("id").First(&exists, userID).Error; err != nil {
+	if err := tx.Select("id").First(&exists, userID).Error; err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	var bySubject authm.OAuthAccount
-	err := s.db.
+	err := tx.
 		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
 		First(&bySubject).Error
 	switch {
 	case err == nil:
 		if bySubject.UserID != userID {
+			tx.Rollback()
 			logger.Default().Warn("oauth_link_refused_identity_in_use",
 				"provider", provider,
 				"user_id", userID)
@@ -640,25 +659,32 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		// so a repeat connect is idempotent rather than an error. The row is
 		// already in hand, so nothing is looked up again to write it.
 		applyGothUserToOAuthAccount(&bySubject, gothUser)
-		if err := s.db.Save(&bySubject).Error; err != nil {
+		if err := tx.Save(&bySubject).Error; err != nil {
+			tx.Rollback()
 			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
+		}
+		if err := tx.Commit().Error; err != nil {
+			return nil, fmt.Errorf("failed to commit: %w", err)
 		}
 		return s.reloadUserWithRelations(userID)
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		// A failed lookup is not proof that the identity is unclaimed, so it
 		// must not fall through to attaching it.
+		tx.Rollback()
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
 	var byProvider authm.OAuthAccount
-	err = s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
+	err = tx.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
 	switch {
 	case err == nil:
+		tx.Rollback()
 		logger.Default().Warn("oauth_link_refused_provider_already_linked",
 			"provider", provider,
 			"user_id", userID)
 		return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
 	case !errors.Is(err, gorm.ErrRecordNotFound):
+		tx.Rollback()
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
@@ -670,8 +696,23 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		ProviderUserID: gothUser.UserID,
 	}
 	applyGothUserToOAuthAccount(oauthAccount, gothUser)
-	if err := s.db.Create(oauthAccount).Error; err != nil {
+	if err := tx.Create(oauthAccount).Error; err != nil {
+		tx.Rollback()
+		// The loser of a concurrent link. The index says this account already
+		// holds an identity for this provider, which is the same situation the
+		// check above reports, so it gets the same answer rather than a
+		// driver message.
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			logger.Default().Warn("oauth_link_refused_provider_already_linked_race",
+				"provider", provider,
+				"user_id", userID)
+			return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
+		}
 		return nil, fmt.Errorf("failed to create OAuth account: %w", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 
 	linked, err := s.reloadUserWithRelations(userID)

@@ -104,6 +104,50 @@ func (h *OAuthAccountHandler) GetOAuthAccountsHandler(ctx context.Context, req *
 	}, nil
 }
 
+// StartOAuthLinkRequest represents the request for minting a link token.
+type StartOAuthLinkRequest struct{}
+
+// StartOAuthLinkResponse carries the one-time token Settings puts on the
+// /auth/link/{provider} URL it navigates to.
+type StartOAuthLinkResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token" doc:"One-time token for the /auth/link/{provider} start URL"`
+	}
+}
+
+// StartOAuthLinkHandler handles POST /auth/oauth/link-token.
+//
+// It exists so /auth/link/{provider} can tell a start that came from this
+// application's own Settings page from one an attacker's page navigated the
+// user into. That route is a cookie-authenticated GET and the auth cookie is
+// SameSite=Lax, which browsers DO send on a cross-site top-level navigation,
+// so the route cannot make that distinction on its own.
+//
+// This endpoint can only be called same-origin with credentials, and CORS
+// stops another origin reading the response, so the token is something only
+// our own page can hold.
+func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *StartOAuthLinkRequest) (*StartOAuthLinkResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	token, err := mintOAuthLinkToken(user.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("oauth_link_token_mint_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error500InternalServerError("Failed to start account connection")
+	}
+
+	resp := &StartOAuthLinkResponse{}
+	resp.Body.Success = true
+	resp.Body.Token = token
+	return resp, nil
+}
+
 // UnlinkOAuthAccountRequest represents the request for unlinking an OAuth account
 type UnlinkOAuthAccountRequest struct {
 	Provider string `path:"provider" validate:"required" doc:"OAuth provider to unlink (e.g., google)"`

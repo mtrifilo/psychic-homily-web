@@ -175,6 +175,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	oauthAccountHandler := authh.NewOAuthAccountHandler(rc.SC.User)
 	huma.Get(rc.Protected, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
 	huma.Delete(rc.Protected, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
+	// Mints the one-time token /auth/link/{provider} requires. Same-origin and
+	// authenticated, which is what that route cannot verify for itself.
+	huma.Post(rc.Protected, "/auth/oauth/link-token", oauthAccountHandler.StartOAuthLinkHandler)
 
 	// User preferences endpoints
 	userPrefsHandler := authh.NewUserPreferencesHandler(rc.SC.User, rc.Cfg.JWT.SecretKey)

@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/observability"
+	"psychic-homily-backend/internal/utils"
 )
 
 // oauthLinkIntentCookieName holds an opaque id for the pending link. The
@@ -22,6 +26,13 @@ const oauthLinkIntentCookieName = "oauth_link_intent"
 // and a second factor at the provider, short enough that an abandoned attempt
 // does not stay armed on a shared machine. Matches the signup consent cookie.
 const oauthLinkIntentTTL = 10 * time.Minute
+
+// oauthLinkTokenTTL bounds the one-time token Settings mints before starting a
+// link. It only has to survive the click that follows minting it.
+const oauthLinkTokenTTL = 5 * time.Minute
+
+// oauthLinkTokenParam carries that token on the start URL.
+const oauthLinkTokenParam = "t"
 
 // Where a finished link attempt returns the browser: the surface that started
 // it, so the result is read where the control is. Split into path and query
@@ -36,6 +47,13 @@ const (
 
 // The query keys the result travels back under. The Settings panel reads the
 // same two names.
+//
+// The error parameter carries a CODE, never prose. The panel renders whatever
+// it finds there into the page, so server-authored copy travelling in the URL
+// is copy an attacker can rewrite by handing the user a link: a redirect to
+// Settings with any sentence they like, displayed inside the signed-in account
+// as if this application had said it. A code that does not map to known copy
+// renders the generic failure.
 const (
 	oauthLinkResultParam = "oauth_link"
 	oauthLinkErrorParam  = "oauth_link_error"
@@ -83,23 +101,95 @@ func storeOAuthLinkIntent(id string, intent oauthLinkIntent) {
 	oauthLinkIntentStore.intents[id] = intent
 }
 
-// takeOAuthLinkIntent consumes an intent, returning nil when nothing usable
-// stands behind id. Single use: a completed or refused handshake must not
-// leave the next callback on this browser armed to link.
-func takeOAuthLinkIntent(id string) *oauthLinkIntent {
+// peekOAuthLinkIntent reads an intent WITHOUT consuming it, so the callback can
+// decide whether the intent is even for this handshake before spending it. A
+// stale intent belonging to some other flow has to survive the look, or an
+// ordinary sign-in that happens to carry the cookie would burn it and then be
+// refused instead of signing the user in.
+func peekOAuthLinkIntent(id string) *oauthLinkIntent {
 	oauthLinkIntentStore.Lock()
 	defer oauthLinkIntentStore.Unlock()
 
 	intent, ok := oauthLinkIntentStore.intents[id]
-	delete(oauthLinkIntentStore.intents, id)
 	if !ok || time.Now().After(intent.expiresAt) {
 		return nil
 	}
 	return &intent
 }
 
-// oauthLinkIntentIDBytes sizes the intent id, oauthLinkStateBytes the OAuth
-// state a link initiation supplies.
+// consumeOAuthLinkIntent removes an intent once it has been matched to the
+// handshake in hand. Single use: a completed or refused link must not leave the
+// next callback on this browser armed.
+func consumeOAuthLinkIntent(id string) {
+	oauthLinkIntentStore.Lock()
+	defer oauthLinkIntentStore.Unlock()
+	delete(oauthLinkIntentStore.intents, id)
+}
+
+// oauthLinkToken is the one-time proof that a link was started from this
+// application's own Settings page rather than from a page an attacker
+// controls. See mintOAuthLinkToken for why the route needs one.
+type oauthLinkToken struct {
+	userID    uint
+	expiresAt time.Time
+}
+
+var oauthLinkTokenStore = struct {
+	sync.Mutex
+	tokens map[string]oauthLinkToken
+}{
+	tokens: make(map[string]oauthLinkToken),
+}
+
+// mintOAuthLinkToken issues a token bound to userID.
+//
+// /auth/link/{provider} is a cookie-authenticated GET, and the auth cookie is
+// SameSite=Lax, which a browser DOES send on a cross-site top-level
+// navigation. Without this token any page on the internet could navigate a
+// signed-in user into the link flow, and a user with a live provider session
+// completes it with no interaction at all, attaching the attacker's identity
+// to their account. The token cannot be minted cross-site: it comes from an
+// authenticated same-origin request that CORS will not let another origin read.
+func mintOAuthLinkToken(userID uint) (string, error) {
+	token, err := randomHexID(oauthLinkIntentIDBytes)
+	if err != nil {
+		return "", err
+	}
+
+	oauthLinkTokenStore.Lock()
+	defer oauthLinkTokenStore.Unlock()
+
+	now := time.Now()
+	for k, v := range oauthLinkTokenStore.tokens {
+		if now.After(v.expiresAt) {
+			delete(oauthLinkTokenStore.tokens, k)
+		}
+	}
+	oauthLinkTokenStore.tokens[token] = oauthLinkToken{
+		userID:    userID,
+		expiresAt: now.Add(oauthLinkTokenTTL),
+	}
+	return token, nil
+}
+
+// consumeOAuthLinkToken spends a token and reports whether it was live and
+// belonged to userID. Bound to the user, not just to existence, so one
+// account's token cannot start a link on another's session.
+func consumeOAuthLinkToken(token string, userID uint) bool {
+	if token == "" {
+		return false
+	}
+
+	oauthLinkTokenStore.Lock()
+	defer oauthLinkTokenStore.Unlock()
+
+	stored, ok := oauthLinkTokenStore.tokens[token]
+	delete(oauthLinkTokenStore.tokens, token)
+	return ok && stored.userID == userID && time.Now().Before(stored.expiresAt)
+}
+
+// oauthLinkIntentIDBytes sizes the intent id and the link token,
+// oauthLinkStateBytes the OAuth state a link initiation supplies.
 const (
 	oauthLinkIntentIDBytes = 32
 	oauthLinkStateBytes    = 32
@@ -124,6 +214,15 @@ func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.C
 	}
 }
 
+// requestIsCrossSite reports whether the browser told us this navigation came
+// from another site. Fetch metadata is sent by every current browser and cannot
+// be set by page script, so a present "cross-site" is trustworthy. Absent is
+// not evidence either way, which is why it is only ever a second lock: the
+// one-time token is the one that holds on a browser that sends nothing.
+func requestIsCrossSite(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site")
+}
+
 // OAuthLinkHTTPHandler begins an OAuth link for the authenticated caller.
 //
 // It is the authenticated counterpart to OAuthLoginHTTPHandler and shares its
@@ -131,8 +230,10 @@ func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.C
 // vary per flow. What distinguishes the two at the callback is the intent
 // cookie this handler sets.
 //
-// The session is read by the JWT middleware this route is registered behind,
-// so an unauthenticated caller never reaches here.
+// Three things have to hold before the handshake starts: a session (the JWT
+// middleware this route sits behind), a one-time token minted to this account
+// from Settings, and a re-authentication recent enough to stand behind adding
+// a new way to sign in.
 func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -146,6 +247,35 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	if user == nil {
 		logger.AuthWarn(ctx, "oauth_link_no_session", "provider", provider)
 		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
+	if requestIsCrossSite(r) {
+		logger.AuthWarn(ctx, "oauth_link_refused_cross_site",
+			"provider", provider,
+			"user_id", user.ID,
+		)
+		http.Error(w, "Start the connection from Settings", http.StatusForbidden)
+		return
+	}
+
+	if !consumeOAuthLinkToken(r.URL.Query().Get(oauthLinkTokenParam), user.ID) {
+		logger.AuthWarn(ctx, "oauth_link_refused_missing_token",
+			"provider", provider,
+			"user_id", user.ID,
+		)
+		http.Error(w, "Start the connection from Settings", http.StatusForbidden)
+		return
+	}
+
+	sessionIssuedAt, _ := middleware.GetSessionIssuedAtFromContext(ctx)
+	if factor := linkReauthFactorFor(user, sessionIssuedAt, time.Now()); factor != reauthAlreadySatisfied {
+		logger.AuthWarn(ctx, "oauth_link_refused_stale_session",
+			"provider", provider,
+			"user_id", user.ID,
+			"required_factor", string(factor),
+		)
+		http.Error(w, "Sign in again before connecting an account", http.StatusForbidden)
 		return
 	}
 
@@ -189,11 +319,9 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	}
 }
 
-// completeOAuthLink finishes a callback that carried a link intent. It never
-// falls through to the sign-in path: that path resolves an account from the
-// provider's address, and a link resolves it from the session that started the
-// attempt. Reaching here with no usable intent means the account to attach to
-// is unknown, which is a refusal rather than a sign-in.
+// completeOAuthLink finishes a callback whose intent matched this handshake.
+// The caller has already established the match, so reaching here means the
+// account to attach to is known.
 func (h *OAuthHTTPHandler) completeOAuthLink(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -203,57 +331,49 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 ) {
 	ctx := r.Context()
 
-	if intent == nil {
-		logger.AuthWarn(ctx, "oauth_link_intent_expired", "provider", provider)
-		redirectToLinkResult(w, r, frontendURL, autherrors.ErrOAuthLinkExpired().UserMessage())
-		return
-	}
-
-	// An intent authorizes ONE handshake: the provider it was started for, and
-	// the state its initiation put on that provider's authorization URL. A
-	// callback that matches neither is a different flow, and diverting it into
-	// the link path would attach whoever just authenticated to the account the
-	// intent names.
-	if intent.provider != provider || intent.state != r.URL.Query().Get("state") {
-		logger.AuthWarn(ctx, "oauth_link_intent_not_for_this_handshake",
-			"intent_provider", intent.provider,
-			"callback_provider", provider,
-			"state_matches", intent.state == r.URL.Query().Get("state"),
-			"user_id", intent.userID,
-		)
-		redirectToLinkResult(w, r, frontendURL, autherrors.ErrOAuthLinkExpired().UserMessage())
-		return
-	}
-
 	linked, err := h.authService.CompleteOAuthLink(w, r, provider, intent.userID)
 	if err != nil {
-		message := refusalMessage(err, "Could not connect that account")
+		// A provider error can carry credentials in its URL or in an embedded
+		// response body, the same hazard the sign-in callback scrubs for.
 		logger.AuthWarn(ctx, "oauth_link_failed",
 			"provider", provider,
 			"user_id", intent.userID,
-			"error", err.Error(),
+			"error", observability.ScrubText(utils.RedactErrorURL(err).Error()),
 		)
-		redirectToLinkResult(w, r, frontendURL, message)
+		redirectToLinkResult(w, r, frontendURL, refusalCode(err, autherrors.CodeUnknown))
 		return
 	}
 
-	logger.AuthInfo(ctx, "oauth_link_connected",
+	// The account gained a way to sign in. Nothing emails the owner about that
+	// yet; this line is what an operator has to correlate from until something
+	// does. Follow-up: an account-security email on link.
+	logger.AuthInfo(ctx, "oauth_link_completed",
 		"provider", provider,
 		"user_id", linked.ID,
 	)
 	redirectToLinkResult(w, r, frontendURL, "")
 }
 
-// redirectToLinkResult returns the browser to Settings. An empty message is
-// the success case. The message travels in the URL because the destination is
-// a fresh page load with no other channel to it, and it is server-authored
-// copy, never caller-supplied text.
-func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, message string) {
+// redirectToLinkResult returns the browser to Settings. An empty code is the
+// success case; any other value is an error code the panel maps to its own
+// copy. Codes, not sentences: see the parameter's own comment.
+func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, code string) {
 	query := url.Values{oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue}}
-	if message == "" {
+	if code == "" {
 		query.Set(oauthLinkResultParam, "connected")
 	} else {
-		query.Set(oauthLinkErrorParam, message)
+		query.Set(oauthLinkErrorParam, code)
 	}
 	http.Redirect(w, r, frontendURL+oauthLinkSettingsPath+"?"+query.Encode(), http.StatusTemporaryRedirect)
+}
+
+// refusalCode picks the error code a link result reports: the refusal's own
+// code when it is one a caller may act on, and fallback for everything else,
+// so a backend fault is never described to a caller in its own terms.
+func refusalCode(err error, fallback string) string {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		return authErr.Code
+	}
+	return fallback
 }

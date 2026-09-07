@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
-import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/features/auth'
+import {
+  useOAuthAccounts,
+  useStartOAuthLink,
+  useUnlinkOAuthAccount,
+} from '@/features/auth'
 // Direct backend origin, never the Next.js /api proxy: connecting an account
 // is the same full-page OAuth redirect the login button performs. See
 // lib/api-base.ts (PSY-1649).
@@ -68,11 +72,40 @@ type OAuthLinkResult =
   | { status: 'connected' }
   | { status: 'error'; message: string }
 
+/**
+ * Copy for each refusal the backend can report, keyed by its error code.
+ *
+ * The parameter carries a CODE, never a sentence, and this map is why. This
+ * banner renders into a signed-in settings page, so prose taken from the URL
+ * is prose an attacker can choose: hand the user a link to
+ * /profile?tab=settings&oauth_link_error=<anything> and the application
+ * appears to say it. A code that is not in this map renders the generic
+ * failure, so a value the attacker invents says nothing.
+ *
+ * Keys match the constants in backend/internal/errors/auth.go.
+ */
+const OAUTH_LINK_ERROR_COPY: Record<string, string> = {
+  OAUTH_IDENTITY_IN_USE:
+    'This provider account is already connected to another Psychic Homily account. Disconnect it there first.',
+  OAUTH_PROVIDER_ALREADY_LINKED:
+    'Your account is already connected to a different account from this provider. Disconnect it first, then connect this one.',
+  OAUTH_LINK_EXPIRED:
+    'That connection request expired. Start it again from Settings.',
+  OAUTH_LINK_REFUSED: 'Could not connect that account.',
+}
+
+const OAUTH_LINK_GENERIC_ERROR = 'Could not connect that account.'
+
 function readOAuthLinkResult(
   params: URLSearchParams
 ): OAuthLinkResult | null {
   const failed = params.get(OAUTH_LINK_ERROR_PARAM)
-  if (failed) return { status: 'error', message: failed }
+  if (failed) {
+    return {
+      status: 'error',
+      message: OAUTH_LINK_ERROR_COPY[failed] ?? OAUTH_LINK_GENERIC_ERROR,
+    }
+  }
   return params.get(OAUTH_LINK_RESULT_PARAM) ? { status: 'connected' } : null
 }
 
@@ -107,12 +140,28 @@ export function OAuthAccounts() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }, [linkResult, searchParams, pathname, router])
 
-  const handleConnectGoogle = () => {
-    // The AUTHENTICATED link route, not /auth/login/google. The account the
-    // identity attaches to comes from this session; the sign-in route resolves
-    // it from the address Google returns, which is what refuses a user whose
-    // address it cannot match to a verified account.
-    window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google`
+  const startLink = useStartOAuthLink()
+
+  const handleConnectGoogle = async () => {
+    // The AUTHENTICATED link route, not /auth/login/google: the account the
+    // identity attaches to comes from this session, never from the address
+    // Google returns.
+    //
+    // The token is minted by a same-origin authenticated request first. That
+    // route is a plain GET, and the auth cookie is SameSite=Lax, which a
+    // browser sends on a cross-site top-level navigation, so without a token
+    // only our own page can hold, any site could push a signed-in user through
+    // the connect flow.
+    try {
+      const { token } = await startLink.mutateAsync()
+      window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google?t=${encodeURIComponent(token)}`
+    } catch (err) {
+      Sentry.captureException(err, {
+        level: 'warning',
+        tags: { service: 'oauth-accounts' },
+        extra: { step: 'start-link' },
+      })
+    }
   }
 
   const handleUnlink = async () => {

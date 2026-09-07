@@ -387,12 +387,26 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	}
 
 	// A link intent makes this callback an account connection rather than a
-	// sign-in. The cookie is cleared either way, so an abandoned attempt does
-	// not arm the next callback on this browser.
+	// sign-in, but ONLY if the intent is for the handshake that just came
+	// back: same provider, same state.
+	//
+	// Read without consuming, and fall through to sign-in when it does not
+	// match. A user who starts a link, abandons it, and later signs in
+	// normally still carries the cookie, and burning their intent to refuse a
+	// sign-in they did ask for would strand them on Settings with no session.
+	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
-		http.SetCookie(w, h.newLinkIntentCookie("", -1))
-		h.completeOAuthLink(w, r, provider, takeOAuthLinkIntent(cookie.Value), frontendURL)
-		return
+		intent := peekOAuthLinkIntent(cookie.Value)
+		if intent != nil && intent.provider == provider && intent.state == r.URL.Query().Get("state") {
+			consumeOAuthLinkIntent(cookie.Value)
+			http.SetCookie(w, h.newLinkIntentCookie("", -1))
+			h.completeOAuthLink(w, r, provider, intent, frontendURL)
+			return
+		}
+		logger.AuthDebug(ctx, "oauth_callback_link_intent_not_for_this_handshake",
+			"provider", provider,
+			"intent_present", intent != nil,
+		)
 	}
 
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
