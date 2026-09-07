@@ -9,6 +9,7 @@ import {
   type Ref,
 } from 'react'
 import Link from 'next/link'
+import { useQueryState } from 'nuqs'
 import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
@@ -26,6 +27,7 @@ import {
 import {
   ArtistSearch,
   ArtistGraphVisualization,
+  useArtist,
   useArtistGraph,
   useArtistGraphCard,
   useFetchArtistGraph,
@@ -52,6 +54,7 @@ import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { useGraphStartingPoints } from '../hooks/useGraphStartingPoints'
 import { anchorFromCatalogTarget, type GraphAnchor } from '../graphAnchor'
+import { GRAPH_ROOT_PARAM } from '../graphRootLink'
 import { pickRotationSuggestions } from '../startingSuggestions'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
@@ -635,6 +638,48 @@ function TonightShowsLink() {
   )
 }
 
+/** The page's outer gutters, shared by the surface and its Suspense fallback. */
+const OBSERVATORY_PAGE_CLASS = 'mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8'
+
+/** The card that holds the search row and the canvas, on both of the above. */
+const OBSERVATORY_CARD_CLASS =
+  'overflow-visible rounded-xl border border-border/60 bg-card shadow-sm'
+
+/** Static page chrome. A component, not duplicated markup, for the same reason. */
+function ObservatoryHeader() {
+  return (
+    <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+          Music Knowledge Graph
+        </h1>
+      </div>
+      <p className="max-w-xl text-sm text-muted-foreground sm:text-right">
+        Search for an artist, inspect their connections, and hop outward without losing your trail.
+      </p>
+    </header>
+  )
+}
+
+/**
+ * What `/graph`'s static shell paints while the surface itself streams in.
+ *
+ * The Observatory reads `?artist=` through nuqs, which reads `useSearchParams`,
+ * so it renders inside a Suspense boundary and cannot be part of the prerender.
+ * The chrome around it can, and this is that chrome: the same header and card
+ * frame, over the loading box the surface's own first frame shows anyway.
+ */
+export function GraphObservatorySkeleton() {
+  return (
+    <div className={OBSERVATORY_PAGE_CLASS}>
+      <ObservatoryHeader />
+      <section className={OBSERVATORY_CARD_CLASS}>
+        <GraphLoadingBox>Mapping the scene…</GraphLoadingBox>
+      </section>
+    </div>
+  )
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -699,6 +744,23 @@ export function GraphObservatory() {
     listTriggerRef.current = null
   }, [updateTrail])
 
+  // `?artist=<slug>` — the URL's name for what the map is centred on.
+  //
+  // `history: 'replace'` deliberately: the trail above the canvas is this
+  // surface's back affordance, and a history entry per hop would put the
+  // browser's Back button in competition with it.
+  const [rootSlug, setRootSlug] = useQueryState(GRAPH_ROOT_PARAM, { history: 'replace' })
+
+  // The slug the visitor ARRIVED with, captured once. Every later value of the
+  // param is this component's own mirror of `center` (the effect below), so
+  // reading the live param here would re-enter resolution on every hop.
+  const [arrivalSlug] = useState(rootSlug)
+  const [hasResolvedArrival, setHasResolvedArrival] = useState(arrivalSlug === null)
+  const arrivalQuery = useArtist({
+    artistId: arrivalSlug ?? '',
+    enabled: !hasResolvedArrival,
+  })
+
   const handleArtistSelect = useCallback(
     (artist: Artist) => {
       cancelPendingLookup()
@@ -706,6 +768,35 @@ export function GraphObservatory() {
     },
     [cancelPendingLookup, startAt],
   )
+
+  // Root the map on the arrival slug, once, or give up on it.
+  //
+  // An unknown slug settles to the overview rather than an error: a link that
+  // names an artist this catalog does not have is still a link to the map, and
+  // the mirror below then drops the param so the URL says what is on screen.
+  useEffect(() => {
+    if (hasResolvedArrival) return
+    if (arrivalQuery.data) {
+      startAt(anchorFromArtist(arrivalQuery.data))
+      setHasResolvedArrival(true)
+      return
+    }
+    if (arrivalQuery.isError) setHasResolvedArrival(true)
+  }, [arrivalQuery.data, arrivalQuery.isError, hasResolvedArrival, startAt])
+
+  // The URL mirrors the centre: `?artist=<slug>` names the artist on screen,
+  // and an absent param is the overview. That is what makes a re-rooted view
+  // shareable — every hop, search, jump and reset rewrites the link.
+  //
+  // Held until the arrival slug has settled so a deep link is not cleared out
+  // from under its own lookup. A slug-less centre writes no param: an empty
+  // one names nothing this component could resolve on the way back in.
+  useEffect(() => {
+    if (!hasResolvedArrival) return
+    const next = center?.slug || null
+    if (next === rootSlug) return
+    void setRootSlug(next)
+  }, [center, hasResolvedArrival, rootSlug, setRootSlug])
 
   const handleCenterHere = useCallback(() => {
     if (!center || !selectedNode || selectedNode.id === center.id) return
@@ -845,12 +936,19 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
-  const zeroStateView = resolveZeroStateView({
-    isPending: overviewQuery.isPending,
-    isError: overviewQuery.isError,
-    error: overviewQuery.error,
-    hasMap: sceneMap !== null,
-  })
+  // A deep link's lookup is a loading state for the WHOLE zero state, not a
+  // silent wait behind it. Every arm downstream reads this one decision: the
+  // map is not drawn, no growth replay starts against a surface that is about
+  // to be replaced by an ego graph, and the hero does not flash a search-first
+  // pitch at a visitor who already named an artist in the URL.
+  const zeroStateView = !hasResolvedArrival
+    ? 'loading'
+    : resolveZeroStateView({
+        isPending: overviewQuery.isPending,
+        isError: overviewQuery.isError,
+        error: overviewQuery.error,
+        hasMap: sceneMap !== null,
+      })
   const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   // The growth replay's transport (PSY-1737). Owned HERE rather than inside the
@@ -901,19 +999,10 @@ export function GraphObservatory() {
   )
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
-            Music Knowledge Graph
-          </h1>
-        </div>
-        <p className="max-w-xl text-sm text-muted-foreground sm:text-right">
-          Search for an artist, inspect their connections, and hop outward without losing your trail.
-        </p>
-      </header>
+    <div className={OBSERVATORY_PAGE_CLASS}>
+      <ObservatoryHeader />
 
-      <section className="overflow-visible rounded-xl border border-border/60 bg-card shadow-sm">
+      <section className={OBSERVATORY_CARD_CLASS}>
         <div className="relative z-50 flex flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center">
           <ArtistSearch
             ref={searchInputRef}
@@ -921,7 +1010,10 @@ export function GraphObservatory() {
             placeholder="Search an artist to begin, or start anywhere on the map"
             className="max-w-2xl flex-1"
           />
-          {(center || sceneMap) && (
+          {/* Nothing is claimed about the centre while a deep link is still
+              resolving: "The whole map" is the wrong caption over a box that
+              is about to draw one artist's neighborhood. */}
+          {(center || (sceneMap && hasResolvedArrival)) && (
             <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               {center ? (
                 <>

@@ -56,24 +56,14 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
+import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
+import { pickSceneGraphRootArtist } from './sceneGraphRootArtist'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 import { sceneArtistCountPhrase, sceneIsolateHookCopy, sceneLabelCountPhrase } from './sceneGraphCopy'
 import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
 
 const MIN_GRAPH_EDGES = 8
-
-/**
- * The one knowledge-graph cross-link this section offers, at either width.
- *
- * Locked P4: plain `/graph`, not a URL re-rooted on a scene artist. The
- * Observatory's centre is in-session state (`startAt`) and `/graph` reads no
- * searchParams, so there is no re-rooted URL shape to link to — the same
- * degradation this link has taken since PSY-1472. Single-sourced so the
- * desktop foot link and the sub-640px teaser can't drift onto different
- * targets.
- */
-const WHOLE_MAP_HREF = '/graph'
 
 /**
  * The whole-map link, as both widths render it: same target, same treatment,
@@ -82,12 +72,9 @@ const WHOLE_MAP_HREF = '/graph'
  * same link are two things to keep in step, and this section has exactly one
  * cross-link to offer either way.
  */
-function WholeMapLink({ children }: { children: string }) {
+function WholeMapLink({ href, children }: { href: string; children: string }) {
   return (
-    <Link
-      href={WHOLE_MAP_HREF}
-      className="underline underline-offset-4 hover:text-foreground"
-    >
+    <Link href={href} className="underline underline-offset-4 hover:text-foreground">
       {children}
     </Link>
   )
@@ -144,6 +131,19 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     if (!data) return 0
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
+
+  /**
+   * The one knowledge-graph cross-link this section offers, at either width.
+   *
+   * Rooted on the scene's most active artist so the map opens on this scene's
+   * neighborhood rather than the whole-catalog overview; plain `/graph` when no
+   * artist here has an upcoming show. Single-sourced so the desktop foot link
+   * and the sub-640px teaser cannot drift onto different targets.
+   */
+  const wholeMapHref = useMemo(
+    () => graphRootHref(pickSceneGraphRootArtist(data?.nodes)?.slug),
+    [data],
+  )
 
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.scene.edge_count ?? 0
@@ -365,7 +365,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
              cross-link into the knowledge graph, so that is all this renders,
              and it renders as a line of text rather than a module. */
           <p className="text-xs text-muted-foreground">
-            <WholeMapLink>{`See how ${city} artists connect on the music map →`}</WholeMapLink>
+            <WholeMapLink href={wholeMapHref}>{`See how ${city} artists connect on the music map →`}</WholeMapLink>
           </p>
         ) : (
           <>
@@ -419,7 +419,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             )}
 
             <p className="mt-3 text-xs text-muted-foreground">
-              <WholeMapLink>View this scene on the whole map →</WholeMapLink>
+              <WholeMapLink href={wholeMapHref}>View this scene on the whole map →</WholeMapLink>
             </p>
           </>
         )}

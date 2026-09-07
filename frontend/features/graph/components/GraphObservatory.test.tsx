@@ -324,6 +324,53 @@ vi.mock('./SceneMapCanvas', () => ({
   ),
 }))
 
+// The `?artist=` deep link (PSY-1890). `rootParam.initial` is what the visitor
+// arrived with; `setRootParam` records every write the surface makes back to
+// the URL. The mock keeps nuqs's own shape — a stateful [value, setter] pair —
+// so a write is visible to the component on the next render, exactly as the
+// real hook behaves.
+const { rootParam, setRootParam, artistBySlug, lookupState } = vi.hoisted(() => ({
+  rootParam: { initial: null as string | null },
+  setRootParam: vi.fn(),
+  artistBySlug: new Map<string, { id: number; name: string; slug: string }>([
+    ['diners', { id: 1, name: 'Diners', slug: 'diners' }],
+    ['playboy-manbaby', { id: 2, name: 'Playboy Manbaby', slug: 'playboy-manbaby' }],
+  ]),
+  lookupState: { isPending: false },
+}))
+
+vi.mock('nuqs', async importOriginal => {
+  const actual = await importOriginal<typeof import('nuqs')>()
+  const { useCallback, useState } = await import('react')
+  return {
+    ...actual,
+    useQueryState: (key: string) => {
+      const [value, setValue] = useState<string | null>(
+        key === 'artist' ? rootParam.initial : null,
+      )
+      const set = useCallback((next: string | null) => {
+        setRootParam(next)
+        setValue(next)
+        return Promise.resolve(new URLSearchParams())
+      }, [])
+      return [value, set]
+    },
+  }
+})
+
+vi.mock('@/features/artists/hooks/useArtists', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/features/artists/hooks/useArtists')>()
+  return {
+    ...actual,
+    useArtist: ({ artistId, enabled }: { artistId: string | number; enabled?: boolean }) => {
+      if (enabled === false) return { data: undefined, isError: false, isPending: false }
+      if (lookupState.isPending) return { data: undefined, isError: false, isPending: true }
+      const artist = artistBySlug.get(String(artistId))
+      return { data: artist, isError: artist === undefined, isPending: false }
+    },
+  }
+})
+
 import { GraphObservatory, resolveZeroStateView } from './GraphObservatory'
 import { pickRotationSuggestions } from '../startingSuggestions'
 
@@ -360,12 +407,69 @@ describe('GraphObservatory', () => {
     ]
     startingPointsState.isPending = false
     startingPointsState.hasFailed = false
+    rootParam.initial = null
+    setRootParam.mockReset()
+    lookupState.isPending = false
     searchRequest.mockReset()
     searchRequest.mockResolvedValue({
       artists: [
         { id: 1, name: 'Diners', slug: 'diners', city: 'Phoenix', state: 'AZ' },
       ],
       count: 1,
+    })
+  })
+
+  // PSY-1890: `/graph?artist=<slug>` — the deep link scene surfaces build.
+  describe('the ?artist= deep link', () => {
+    it('opens rooted on the artist the URL names', async () => {
+      rootParam.initial = 'diners'
+      renderWithProviders(<GraphObservatory />)
+
+      expect(await screen.findByLabelText('Graph centered on Diners')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Explore the graph.' })).not.toBeInTheDocument()
+    })
+
+    it('falls back to the overview and drops the param for a slug the catalog has no artist for', async () => {
+      rootParam.initial = 'a-band-that-does-not-exist'
+      renderWithProviders(<GraphObservatory />)
+
+      expect(await screen.findByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+      // The URL says what is on screen: an unresolvable name is not left in it.
+      await waitFor(() => expect(setRootParam).toHaveBeenCalledWith(null))
+    })
+
+    it('holds the zero state closed while the lookup is in flight', () => {
+      rootParam.initial = 'diners'
+      lookupState.isPending = true
+      renderWithProviders(<GraphObservatory />)
+
+      // Neither arm of the zero state may flash before the deep link lands:
+      // not the search-first hero, and not the whole-map caption.
+      expect(screen.queryByRole('heading', { name: 'Explore the graph.' })).not.toBeInTheDocument()
+      expect(screen.queryByText(/The whole map/)).not.toBeInTheDocument()
+      expect(screen.getByText('Mapping the scene…')).toBeInTheDocument()
+    })
+
+    it('rewrites the URL as the visitor re-roots, hops and resets', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<GraphObservatory />)
+
+      await user.click(screen.getByRole('button', { name: 'Search Diners' }))
+      await waitFor(() => expect(setRootParam).toHaveBeenLastCalledWith('diners'))
+
+      await user.click(screen.getByRole('button', { name: 'Select Playboy Manbaby' }))
+      await user.click(screen.getByRole('button', { name: /Center here/i }))
+      await waitFor(() => expect(setRootParam).toHaveBeenLastCalledWith('playboy-manbaby'))
+
+      await user.click(screen.getByRole('button', { name: 'Reset' }))
+      await waitFor(() => expect(setRootParam).toHaveBeenLastCalledWith(null))
+    })
+
+    it('writes no param on a bare visit', async () => {
+      renderWithProviders(<GraphObservatory />)
+
+      expect(await screen.findByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+      expect(setRootParam).not.toHaveBeenCalled()
     })
   })
 
