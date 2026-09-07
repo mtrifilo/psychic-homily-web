@@ -12,6 +12,7 @@ import { SceneGraph, SCENE_ARTISTS_ANCHOR } from './SceneGraph'
 import { SceneRooms } from './SceneRooms'
 import { SceneNewBands } from './SceneNewBands'
 import { SceneRoster } from './SceneRoster'
+import { SceneCollections } from './SceneCollections'
 import { formatTimeZoneLabel, sceneStatParts } from '../sceneCalendar'
 import type { SceneDetail } from '../types'
 
@@ -211,7 +212,7 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
 
       {/* The identity around the calendar, in the mock's order: the rooms this
           page speaks for, the bands that just appeared, the bands that live
-          here, then the map.
+          here, the collections about the place, then the map.
 
           Every one of them is empty-capable and every one of them HIDES or
           SUBSTITUTES rather than scaffolding (decision 11). Wave 1A left the
@@ -244,6 +245,10 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
           scene={scene}
           anchorId={SCENE_ARTISTS_ANCHOR}
         />
+
+        {/* The collections about this city (PSY-1847). No key: the section
+            holds no state to reset across a scene-to-scene navigation. */}
+        <SceneCollections scene={scene} />
 
         {/* Scene graph (PSY-367): read-only artist relationship map. Section
             self-hides when edge_count < 8 (locked decision 14) or the

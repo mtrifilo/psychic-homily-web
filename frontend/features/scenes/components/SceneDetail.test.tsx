@@ -67,10 +67,10 @@ vi.mock('./SceneGraph', async importOriginal => ({
   SceneGraph: () => <div data-testid="scene-graph" />,
 }))
 
-// The three identity sections each own a request and a suite (SceneRooms /
-// SceneNewBands / SceneRoster). Stub them here, same rule as the calendar and
-// the graph above: this file is about the view's COMPOSITION — what renders,
-// in what order, and what the anchor hangs off.
+// The four identity sections each own a request and a suite (SceneRooms /
+// SceneNewBands / SceneRoster / SceneCollections). Stub them here, same rule as
+// the calendar and the graph above: this file is about the view's COMPOSITION —
+// what renders, in what order, and what the anchor hangs off.
 vi.mock('./SceneRooms', () => ({
   SceneRooms: () => <div data-testid="scene-rooms" />,
 }))
@@ -81,6 +81,9 @@ vi.mock('./SceneRoster', () => ({
   SceneRoster: ({ anchorId }: { anchorId?: string }) => (
     <div data-testid="scene-roster" id={anchorId} />
   ),
+}))
+vi.mock('./SceneCollections', () => ({
+  SceneCollections: () => <div data-testid="scene-collections" />,
 }))
 
 const mockUseSceneDetail = vi.fn()
@@ -307,8 +310,8 @@ describe('SceneDetailView', () => {
     // AC1 is about ORDER, and the whole page order proves it in one pass: the
     // calendar is the page's object, and the identity that used to outrank it
     // sits underneath in the mock's sequence — the rooms this page speaks for
-    // (its coverage disclosure), then who is new, then who lives here, with the
-    // graph demoted below all three.
+    // (its coverage disclosure), then who is new, then who lives here, then the
+    // collections about the place, with the graph demoted below all four.
     it('renders the calendar first, then the identity sections in the mock order', () => {
       renderScene({ slug: 'phoenix-az' })
       const order = [
@@ -316,6 +319,7 @@ describe('SceneDetailView', () => {
         'scene-rooms',
         'scene-new-bands',
         'scene-roster',
+        'scene-collections',
         'scene-graph',
       ]
       for (let i = 0; i < order.length - 1; i++) {
