@@ -15,7 +15,9 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/markbates/goth/gothic"
@@ -76,6 +78,17 @@ func deleteCLICallback(id string) {
 	cliCallbackStore.Lock()
 	defer cliCallbackStore.Unlock()
 	delete(cliCallbackStore.callbacks, id)
+}
+
+// requestCookieNames returns the names of the request's cookies. Cookie values
+// are credentials; only names are loggable.
+func requestCookieNames(r *http.Request) []string {
+	cookies := r.Cookies()
+	names := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		names = append(names, c.Name)
+	}
+	return names
 }
 
 // OAuthHTTPHandler handles OAuth HTTP requests directly
@@ -186,7 +199,9 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
-		log.Printf("DEBUG: CLI callback stored with ID %s: %s", callbackID, cliCallback)
+		// callbackID is the cli_callback_id cookie value: the correlation key
+		// that gates the token-bearing redirect, so it is never logged.
+		log.Printf("DEBUG: CLI callback stored: %s", cliCallback)
 	}
 
 	// Add provider to query parameters for Goth (following Goth best practices)
@@ -195,8 +210,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	r.URL.RawQuery = q.Encode()
 
 	// DEBUG: Check session before OAuth
-	log.Printf("DEBUG: Login - Request URL: %s", r.URL.String())
-	log.Printf("DEBUG: Login - Request cookies BEFORE: %+v", r.Cookies())
+	log.Printf("DEBUG: Login - Request path: %s", r.URL.Path)
+	log.Printf("DEBUG: Login - Request cookie names BEFORE: %v", requestCookieNames(r))
 
 	// Use Goth's standard BeginAuthHandler directly
 	gothic.BeginAuthHandler(w, r)
@@ -232,7 +247,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			// falls back to the standard web flow (no token leaked).
 			if validated, verr := validateCLICallback(callback); verr == nil {
 				cliCallback = validated
-				log.Printf("DEBUG: CLI callback found for ID %s: %s", callbackID, cliCallback)
+				log.Printf("DEBUG: CLI callback found: %s", cliCallback)
 			} else {
 				log.Printf("WARN: rejected non-loopback cli_callback at callback from %s: %v", r.RemoteAddr, verr)
 			}
@@ -283,7 +298,14 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
 	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
 	if err != nil {
-		log.Printf("OAuth callback failed: %v", err)
+		// A provider error can carry credentials two ways: a *url.Error whose
+		// URL holds an access token in the query, and an error whose text
+		// embeds the token endpoint's raw response body. RedactErrorURL keeps
+		// scheme and host and drops path and query, which also drops the
+		// wrapper text; ScrubText then covers the shapes that are not a
+		// *url.Error and caps an unbounded body.
+		log.Printf("OAuth callback failed: %v",
+			observability.ScrubText(utils.RedactErrorURL(err).Error()))
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {

@@ -90,7 +90,9 @@ func (s *AuthService) oauthCallbackInternal(
 		return nil, "", fmt.Errorf("request cannot be nil")
 	}
 
-	log.Printf("DEBUG: Request URL: %s", r.URL.String())
+	// The callback query string carries the provider authorization code and the
+	// state nonce, both single-use credentials, so only the path is loggable.
+	log.Printf("DEBUG: OAuth callback path: %s", r.URL.Path)
 	log.Printf("DEBUG: Using provider: '%s'", provider)
 
 	// Use the OAuth completer interface (can be mocked for testing)
@@ -100,7 +102,8 @@ func (s *AuthService) oauthCallbackInternal(
 		return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
 	}
 
-	log.Printf("DEBUG: Successfully completed OAuth! gothUser: %+v", gothUser)
+	// goth.User carries live credentials; never log it as a value.
+	log.Printf("DEBUG: OAuth completion succeeded: provider=%s provider_user_id=%s", provider, gothUser.UserID)
 
 	// Find or create user using user service
 	var user *authm.User

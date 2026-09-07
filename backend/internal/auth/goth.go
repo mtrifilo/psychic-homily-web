@@ -21,9 +21,8 @@ var (
 
 // SetupGoth configures Goth with OAuth providers
 func SetupGoth(cfg *config.Config) error {
-	// Debug: Check the secret key being used
-	log.Printf("DEBUG: Setting up Goth with SecretKey: %s (length: %d)",
-		cfg.OAuth.SecretKey, len(cfg.OAuth.SecretKey))
+	// The OAuth secret key is the gothic cookie store's HMAC key.
+	log.Printf("DEBUG: Setting up Goth (OAuth secret key length: %d)", len(cfg.OAuth.SecretKey))
 
 	// Configure session store
 	SessionStore = sessions.NewCookieStore([]byte(cfg.OAuth.SecretKey))
@@ -97,7 +96,7 @@ func GetSession(r *http.Request) (*sessions.Session, error) {
 	if err != nil {
 		log.Printf("DEBUG: SessionStore.Get error: %v", err)
 	} else {
-		log.Printf("DEBUG: SessionStore.Get successful, session ID: %s", session.ID)
+		log.Printf("DEBUG: SessionStore.Get successful")
 	}
 	return session, err
 }
