@@ -78,6 +78,18 @@ func deleteCLICallback(id string) {
 	delete(cliCallbackStore.callbacks, id)
 }
 
+// requestCookieNames returns the names of the request's cookies. Cookie VALUES
+// carry the session JWT (config.AuthCookieName) and the gothic OAuth session,
+// so only names are loggable.
+func requestCookieNames(r *http.Request) []string {
+	cookies := r.Cookies()
+	names := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		names = append(names, c.Name)
+	}
+	return names
+}
+
 // OAuthHTTPHandler handles OAuth HTTP requests directly
 type OAuthHTTPHandler struct {
 	authService contracts.AuthServiceInterface
@@ -196,7 +208,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 
 	// DEBUG: Check session before OAuth
 	log.Printf("DEBUG: Login - Request URL: %s", r.URL.String())
-	log.Printf("DEBUG: Login - Request cookies BEFORE: %+v", r.Cookies())
+	log.Printf("DEBUG: Login - Request cookie names BEFORE: %v", requestCookieNames(r))
 
 	// Use Goth's standard BeginAuthHandler directly
 	gothic.BeginAuthHandler(w, r)
