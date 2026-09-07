@@ -51,8 +51,6 @@ export function SceneNewBands({ scene }: { scene: SceneDetail }) {
 
   return (
     <section className="border-t border-border pt-4">
-      {/* Unqualified by period, and unqualified by place: the page's H1 names
-          the city, and the payload backs no window claim. */}
       <SceneSectionHeading title="Latest additions" />
 
       <ul className="mt-2">

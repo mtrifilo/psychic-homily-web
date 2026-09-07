@@ -204,11 +204,14 @@ describe('SceneRoster', () => {
     })
 
     // `bandcamp_embed_url` is fill-when-empty and can be manual or
-    // profile-resolved, so the field never establishes recency.
+    // profile-resolved, so the field never establishes recency. Anchored to the
+    // whole caption, not a blocklist of phrasings.
     it('makes no claim about which release is playing', () => {
       givenRoster(rosterOf(3), 3, representativeEmbed())
-      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
-      expect(container.textContent).not.toMatch(/latest release|new release|newest/i)
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+      expect(screen.getByText(/Bandcamp/).closest('p')).toHaveTextContent(
+        /^Bandcamp · Gatecreeper$/
+      )
     })
 
     it('renders one player, not one per band', () => {
@@ -231,7 +234,7 @@ describe('SceneRoster', () => {
     })
 
     it('renders nothing at all when no band based here has an embed', () => {
-      givenRoster([artist({ bandcamp_embed_url: null })], 1, null)
+      givenRoster([artist()], 1, null)
       const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(embedProps).toHaveLength(0)
       expect(container.textContent).not.toMatch(/Bandcamp/i)

@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import Link from 'next/link'
 
 /**
@@ -156,6 +157,9 @@ export type TrackedRoom = {
   slug?: string
 }
 
+/** Rooms read as prose links, unlike the medium-weight entity names elsewhere. */
+const ROOM_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
+
 /** One tracked room → `/venues/{slug}` when we have a slug, else plain text. */
 export function RoomLink({ venue }: { venue: TrackedRoom }) {
   return (
@@ -163,9 +167,60 @@ export function RoomLink({ venue }: { venue: TrackedRoom }) {
       name={venue.name}
       slug={venue.slug}
       basePath="/venues"
-      className="underline underline-offset-4 hover:text-primary"
+      className={ROOM_LINK_CLASS}
       unlinkedClassName=""
     />
+  )
+}
+
+/** Enough to name an entity and, when it has a slug, link to its own page. */
+export type NamedEntity = {
+  name: string
+  slug?: string | null
+  /** Preferred over the name for the React key when the caller has one. */
+  id?: number | string
+}
+
+/**
+ * `A · B · C`, with each entity linked when it has a slug.
+ *
+ * Returns a FRAGMENT rather than owning a block element, because a caller that
+ * follows the names with an elision and a control needs all three inside one
+ * flowing line. The separator sits in its own muted span rather than inside a
+ * name, so a middot never lands in a link's hit area or its accessible name.
+ *
+ * The key falls back to the name only when the caller has neither an id nor a
+ * usable slug. Slugs are NULLABLE and can generate as `""`, which is why the
+ * fallback tests truthiness rather than nullishness: an empty slug on two rows
+ * would otherwise be the same key twice.
+ */
+export function EntityNameList({
+  items,
+  basePath,
+  className,
+  unlinkedClassName,
+}: {
+  items: NamedEntity[]
+  /** Route prefix WITHOUT a trailing slash, e.g. `/artists`. */
+  basePath: string
+  className?: string
+  unlinkedClassName?: string
+}) {
+  return (
+    <>
+      {items.map((item, i) => (
+        <Fragment key={item.id ?? (item.slug || item.name)}>
+          {i > 0 && <span className="text-muted-foreground"> · </span>}
+          <EntityNameLink
+            name={item.name}
+            slug={item.slug}
+            basePath={basePath}
+            className={className}
+            unlinkedClassName={unlinkedClassName}
+          />
+        </Fragment>
+      ))}
+    </>
   )
 }
 
@@ -173,12 +228,12 @@ export function RoomLink({ venue }: { venue: TrackedRoom }) {
 export function RoomList({ venues }: { venues: TrackedRoom[] }) {
   return (
     <p className="mt-2 text-sm leading-relaxed">
-      {venues.map((venue, i) => (
-        <span key={venue.slug || venue.name}>
-          {i > 0 && <span className="text-muted-foreground"> · </span>}
-          <RoomLink venue={venue} />
-        </span>
-      ))}
+      <EntityNameList
+        items={venues}
+        basePath="/venues"
+        className={ROOM_LINK_CLASS}
+        unlinkedClassName=""
+      />
     </p>
   )
 }

@@ -118,15 +118,15 @@ describe('SceneNewBands', () => {
   })
 
   // The endpoint is unwindowed, so a heading claiming any trailing period is
-  // false on a scene whose newest band was listed months ago.
+  // false on a scene whose newest band was listed months ago. Anchored, not a
+  // blocklist: a blocklist passes on the next spelling nobody thought of.
   it('makes no period claim in the heading', () => {
     givenNewBands([band()])
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
 
-    const heading = screen.getByRole('heading', { name: /Latest additions/i })
-    expect(heading.textContent).not.toMatch(
-      /this month|last \d+ days|this week|this year|recently/i
-    )
+    expect(
+      screen.getByRole('heading', { name: /Latest additions/i })
+    ).toHaveTextContent(/^Latest additions$/)
   })
 
   // The endpoint's own default owns the cap (PSY-1844), so the module must not
