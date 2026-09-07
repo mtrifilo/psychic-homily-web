@@ -213,8 +213,8 @@ describe('SceneGraph', () => {
     expect(links[0]).toHaveTextContent(
       'See how Phoenix artists connect on the music map →',
     )
-    // PSY-1890: rooted on Sundressed, the only fixture node with an upcoming
-    // show. The teaser and the desktop foot link share one href.
+    // Rooted on Sundressed, the only fixture node with an upcoming show. The
+    // teaser and the desktop foot link share one href.
     expect(links[0]).toHaveAttribute('href', '/graph?artist=sundressed')
   })
 
@@ -313,8 +313,8 @@ describe('SceneGraph', () => {
     expect(screen.queryByText('Scene graph')).not.toBeInTheDocument()
   })
 
-  // PSY-1890: the section foot re-roots the map on the scene's most active
-  // artist so the map opens on this scene's neighborhood.
+  // The section foot re-roots the map on the scene artist with the most
+  // upcoming shows, so the map opens on this scene's neighborhood.
   it('roots the section foot on the scene artist with the most upcoming shows', () => {
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     expect(
@@ -322,8 +322,8 @@ describe('SceneGraph', () => {
     ).toHaveAttribute('href', '/graph?artist=sundressed')
   })
 
-  // The fallback the locked decision names: a scene whose bands have nothing
-  // booked links to the plain map rather than rooting on an arbitrary name.
+  // A scene whose bands have nothing booked links to the plain map rather than
+  // rooting on an arbitrary name.
   it('links the section foot to plain /graph when no artist has an upcoming show', () => {
     vi.mocked(useSceneGraph).mockImplementation(
       () =>

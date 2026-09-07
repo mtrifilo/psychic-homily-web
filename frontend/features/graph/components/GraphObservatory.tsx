@@ -62,6 +62,14 @@ import { pickVisitorScene, sceneSlugFromPlace } from './visitorScene'
 
 const RANDOM_GRAPH_ATTEMPTS = 3
 
+/**
+ * The shape of a backend slug: lowercase alphanumerics joined by single
+ * hyphens (`utils.GenerateSlug`). The `?artist=` value is attacker-authorable
+ * and the artist endpoint interpolates it into a request path, so this is the
+ * gate that keeps a path or a query string out of that request.
+ */
+const ARTIST_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 // Refinement-board pill for "A random rabbit hole" (PSY-1474 F2): primary-
 // tinted border/fill, pill radius, 13px medium. Shared by the serendipity
 // footer and the empty-state escape hatch so the affordance reads the same.
@@ -754,30 +762,43 @@ export function GraphObservatory() {
     setIsShuffleLookupPending(false)
   }, [])
 
-  const startAt = useCallback((next: GraphAnchor) => {
+  // `?artist=<slug>` — the URL's name for what the map is centred on.
+  //
+  // `history: 'replace'`: the trail above the canvas is this surface's back
+  // affordance, and one history entry per hop would put the browser's Back
+  // button in competition with it.
+  const [rootSlug, setRootSlug] = useQueryState(GRAPH_ROOT_PARAM, { history: 'replace' })
+
+  // The centre and the URL move together, and every re-root goes through here.
+  // Publishing at the moment the centre changes, rather than mirroring it from
+  // an effect, is what lets the read below treat any disagreement between the
+  // two as the URL having moved on its own. A slug-less anchor publishes no
+  // param: `?artist=` names nobody.
+  const centerOn = useCallback((next: GraphAnchor | null) => {
     setCenter(next)
+    void setRootSlug(next?.slug || null)
+  }, [setRootSlug])
+
+  const startAt = useCallback((next: GraphAnchor) => {
+    centerOn(next)
     updateTrail(resetTrail())
     setSelectedNode(null)
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
-  }, [updateTrail])
+  }, [centerOn, updateTrail])
 
-  // `?artist=<slug>` — the URL's name for what the map is centred on.
-  //
-  // `history: 'replace'` deliberately: the trail above the canvas is this
-  // surface's back affordance, and a history entry per hop would put the
-  // browser's Back button in competition with it.
-  const [rootSlug, setRootSlug] = useQueryState(GRAPH_ROOT_PARAM, { history: 'replace' })
-
-  // The slug the visitor ARRIVED with, captured once. Every later value of the
-  // param is this component's own mirror of `center` (the effect below), so
-  // reading the live param here would re-enter resolution on every hop.
-  const [arrivalSlug] = useState(rootSlug)
-  const [hasResolvedArrival, setHasResolvedArrival] = useState(arrivalSlug === null)
-  const arrivalQuery = useArtist({
-    artistId: arrivalSlug ?? '',
-    enabled: !hasResolvedArrival,
+  // Who the URL names, or null when it names nobody. A blank `?artist=` and a
+  // value that is not slug-shaped both name nobody: backend slugs are lowercase
+  // alphanumerics joined by single hyphens, and the artist endpoint
+  // interpolates this value straight into a request path, so anything else is
+  // refused at this boundary rather than sent.
+  const linkedSlug = rootSlug !== null && ARTIST_SLUG_PATTERN.test(rootSlug) ? rootSlug : null
+  // What the URL names and the surface is not already showing.
+  const wantedSlug = linkedSlug !== null && linkedSlug !== center?.slug ? linkedSlug : null
+  const rootLinkQuery = useArtist({
+    artistId: wantedSlug ?? '',
+    enabled: wantedSlug !== null,
   })
 
   const handleArtistSelect = useCallback(
@@ -788,69 +809,70 @@ export function GraphObservatory() {
     [cancelPendingLookup, startAt],
   )
 
-  // Root the map on the arrival slug, once, or give up on it.
+  // Follow the URL. `?artist=<slug>` names the artist on screen and an absent
+  // param is the overview, in both directions: `centerOn` above keeps the URL
+  // current as the visitor re-roots, and this keeps the surface current when
+  // the URL moves on its own — an arrival, the nav's own bare `/graph` link,
+  // the address bar, a history move.
   //
-  // An unknown slug settles to the overview rather than an error: a link that
-  // names an artist this catalog does not have is still a link to the map, and
-  // the mirror below then drops the param so the URL says what is on screen.
+  // A slug this catalog has no artist for settles to the overview rather than
+  // an error: it is still a link to the map. Dropping the param leaves the URL
+  // saying what is on screen.
   useEffect(() => {
-    if (hasResolvedArrival) return
-    if (arrivalQuery.data) {
-      startAt(anchorFromArtist(arrivalQuery.data))
-      setHasResolvedArrival(true)
+    if (wantedSlug === null) {
+      if (linkedSlug === null && center !== null) centerOn(null)
       return
     }
-    if (arrivalQuery.isError) setHasResolvedArrival(true)
-  }, [arrivalQuery.data, arrivalQuery.isError, hasResolvedArrival, startAt])
-
-  // The URL mirrors the centre: `?artist=<slug>` names the artist on screen,
-  // and an absent param is the overview. That is what makes a re-rooted view
-  // shareable — every hop, search, jump and reset rewrites the link.
-  //
-  // Held until the arrival slug has settled so a deep link is not cleared out
-  // from under its own lookup. A slug-less centre writes no param: an empty
-  // one names nothing this component could resolve on the way back in.
-  useEffect(() => {
-    if (!hasResolvedArrival) return
-    const next = center?.slug || null
-    if (next === rootSlug) return
-    void setRootSlug(next)
-  }, [center, hasResolvedArrival, rootSlug, setRootSlug])
+    if (rootLinkQuery.data) {
+      startAt(anchorFromArtist(rootLinkQuery.data))
+      return
+    }
+    if (rootLinkQuery.isError) void setRootSlug(null)
+  }, [
+    center,
+    centerOn,
+    linkedSlug,
+    rootLinkQuery.data,
+    rootLinkQuery.isError,
+    setRootSlug,
+    startAt,
+    wantedSlug,
+  ])
 
   const handleCenterHere = useCallback(() => {
     if (!center || !selectedNode || selectedNode.id === center.id) return
     cancelPendingLookup()
     const shouldRestoreFocus = selectionSource === 'list'
     updateTrail(previous => pushTrail(previous, center))
-    setCenter(anchorFromNode(selectedNode))
+    centerOn(anchorFromNode(selectedNode))
     setSelectedNode(null)
     setSelectionSource(null)
     listTriggerRef.current = null
     if (shouldRestoreFocus) {
       window.requestAnimationFrame(() => resetButtonRef.current?.focus())
     }
-  }, [cancelPendingLookup, center, selectedNode, selectionSource, updateTrail])
+  }, [cancelPendingLookup, center, centerOn, selectedNode, selectionSource, updateTrail])
 
   const handleTrailJump = useCallback((entry: TraversalEntry, index: number) => {
     cancelPendingLookup()
     updateTrail(previous => truncateTrail(previous, index))
-    setCenter(entry)
+    centerOn(entry)
     setSelectedNode(null)
     setSelectionSource(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => resetButtonRef.current?.focus())
-  }, [cancelPendingLookup, updateTrail])
+  }, [cancelPendingLookup, centerOn, updateTrail])
 
   const handleReset = useCallback(() => {
     cancelPendingLookup()
-    setCenter(null)
+    centerOn(null)
     updateTrail(resetTrail())
     setSelectedNode(null)
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => searchInputRef.current?.focus())
-  }, [cancelPendingLookup, updateTrail])
+  }, [cancelPendingLookup, centerOn, updateTrail])
 
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
     cancelPendingLookup()
@@ -955,8 +977,16 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
+  // Derived, not latched, and it must end the moment an answer exists or the
+  // surface can be pinned on a spinner it cannot leave. A settled failure hands
+  // the visitor the overview; so does a query React Query has PAUSED (offline),
+  // which never reports an error and would otherwise withhold a map that is
+  // already in cache.
+  const isRootLinkPending =
+    wantedSlug !== null && !rootLinkQuery.isError && rootLinkQuery.fetchStatus !== 'paused'
+
   const zeroStateView = resolveZeroStateView({
-    isRootLinkPending: !hasResolvedArrival,
+    isRootLinkPending,
     isPending: overviewQuery.isPending,
     isError: overviewQuery.isError,
     error: overviewQuery.error,
@@ -1025,7 +1055,7 @@ export function GraphObservatory() {
           />
           {/* "The whole map" is the wrong caption over a box that is about to
               draw one artist's neighborhood. */}
-          {(center || (sceneMap && hasResolvedArrival)) && (
+          {(center || (sceneMap && !isRootLinkPending)) && (
             <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               {center ? (
                 <>

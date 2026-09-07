@@ -179,6 +179,18 @@ vi.mock('@/features/artists/components/ArtistSearch', () => ({
       >
         Search Diners
       </button>
+      <button
+        type="button"
+        onClick={() => onSelect({
+          id: 2,
+          name: 'Playboy Manbaby',
+          slug: 'playboy-manbaby',
+          city: 'Phoenix',
+          state: 'AZ',
+        })}
+      >
+        Search Playboy Manbaby
+      </button>
     </>
   ),
 }))
@@ -329,14 +341,22 @@ vi.mock('./SceneMapCanvas', () => ({
 // the URL. The mock keeps nuqs's own shape — a stateful [value, setter] pair —
 // so a write is visible to the component on the next render, exactly as the
 // real hook behaves.
-const { rootParam, setRootParam, artistBySlug, lookupState } = vi.hoisted(() => ({
-  rootParam: { initial: null as string | null },
+const { rootParam, setRootParam, artistLookups, artistBySlug, lookupState } = vi.hoisted(() => ({
+  // `setExternally` stands in for everything that changes the param without
+  // this surface asking: the nav's own /graph link, the address bar, a history
+  // move. It is the mounted hook's own setter, so a call goes through the same
+  // state the real adapter would have updated.
+  rootParam: {
+    initial: null as string | null,
+    setExternally: null as ((next: string | null) => void) | null,
+  },
   setRootParam: vi.fn(),
+  artistLookups: [] as string[],
   artistBySlug: new Map<string, { id: number; name: string; slug: string }>([
     ['diners', { id: 1, name: 'Diners', slug: 'diners' }],
     ['playboy-manbaby', { id: 2, name: 'Playboy Manbaby', slug: 'playboy-manbaby' }],
   ]),
-  lookupState: { isPending: false },
+  lookupState: { isPending: false, fetchStatus: 'fetching' as 'fetching' | 'paused' },
 }))
 
 vi.mock('nuqs', async importOriginal => {
@@ -344,7 +364,13 @@ vi.mock('nuqs', async importOriginal => {
   const { useCallback, useState } = await import('react')
   return {
     ...actual,
-    useQueryState: (key: string) => {
+    useQueryState: (key: string, options?: { history?: string }) => {
+      // The surface's own comment says a history entry per hop would fight the
+      // trail. Pin it here so flipping it to 'push' fails a test rather than
+      // silently changing what the Back button does.
+      if (key === 'artist' && options?.history !== 'replace') {
+        throw new Error(`the artist param must use history: 'replace', got ${options?.history}`)
+      }
       const [value, setValue] = useState<string | null>(
         key === 'artist' ? rootParam.initial : null,
       )
@@ -353,25 +379,52 @@ vi.mock('nuqs', async importOriginal => {
         setValue(next)
         return Promise.resolve(new URLSearchParams())
       }, [])
+      if (key === 'artist') rootParam.setExternally = setValue
       return [value, set]
     },
   }
 })
 
+// Shaped like React Query, not like convenience: a DISABLED query reports
+// `isPending: true` with `fetchStatus: 'idle'`, and an offline one reports
+// `isPending: true` with `fetchStatus: 'paused'` and never an error. A mock
+// that settles those states hides exactly the hangs this surface can suffer.
 vi.mock('@/features/artists/hooks/useArtists', async importOriginal => {
   const actual = await importOriginal<typeof import('@/features/artists/hooks/useArtists')>()
   return {
     ...actual,
     useArtist: ({ artistId, enabled }: { artistId: string | number; enabled?: boolean }) => {
-      if (enabled === false) return { data: undefined, isError: false, isPending: false }
-      if (lookupState.isPending) return { data: undefined, isError: false, isPending: true }
+      if (enabled === false) {
+        return { data: undefined, isError: false, isPending: true, fetchStatus: 'idle' }
+      }
+      artistLookups.push(String(artistId))
+      if (lookupState.fetchStatus !== 'fetching') {
+        return {
+          data: undefined,
+          isError: false,
+          isPending: true,
+          fetchStatus: lookupState.fetchStatus,
+        }
+      }
+      if (lookupState.isPending) {
+        return { data: undefined, isError: false, isPending: true, fetchStatus: 'fetching' }
+      }
       const artist = artistBySlug.get(String(artistId))
-      return { data: artist, isError: artist === undefined, isPending: false }
+      return {
+        data: artist,
+        isError: artist === undefined,
+        isPending: false,
+        fetchStatus: 'idle',
+      }
     },
   }
 })
 
-import { GraphObservatory, resolveZeroStateView } from './GraphObservatory'
+import {
+  GraphObservatory,
+  GraphObservatorySkeleton,
+  resolveZeroStateView,
+} from './GraphObservatory'
 import { pickRotationSuggestions } from '../startingSuggestions'
 
 // The seed the component draws is `Math.floor(Math.random() * 0x7fffffff)`.
@@ -408,8 +461,11 @@ describe('GraphObservatory', () => {
     startingPointsState.isPending = false
     startingPointsState.hasFailed = false
     rootParam.initial = null
+    rootParam.setExternally = null
     setRootParam.mockReset()
+    artistLookups.length = 0
     lookupState.isPending = false
+    lookupState.fetchStatus = 'fetching'
     searchRequest.mockReset()
     searchRequest.mockResolvedValue({
       artists: [
@@ -463,6 +519,84 @@ describe('GraphObservatory', () => {
 
       await user.click(screen.getByRole('button', { name: 'Reset' }))
       await waitFor(() => expect(setRootParam).toHaveBeenLastCalledWith(null))
+    })
+
+    // The nav's own "Graph" link is the bare path, and the surface stays mounted
+    // across that navigation, so clearing the param has to mean "go back to the
+    // overview" rather than being a stale value for the surface to overwrite.
+    it('returns to the overview when the param is cleared from outside', async () => {
+      rootParam.initial = 'diners'
+      renderWithProviders(<GraphObservatory />)
+      expect(await screen.findByLabelText('Graph centered on Diners')).toBeInTheDocument()
+
+      act(() => rootParam.setExternally!(null))
+
+      expect(await screen.findByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+      expect(screen.queryByLabelText('Graph centered on Diners')).not.toBeInTheDocument()
+    })
+
+    it('re-roots when the param names a different artist without a remount', async () => {
+      rootParam.initial = 'diners'
+      renderWithProviders(<GraphObservatory />)
+      expect(await screen.findByLabelText('Graph centered on Diners')).toBeInTheDocument()
+
+      act(() => rootParam.setExternally!('playboy-manbaby'))
+
+      expect(await screen.findByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+    })
+
+    // A truncated or hand-edited link. The search box that would rescue the
+    // visitor sits above the zero state, so a surface pinned on a spinner here
+    // is a dead page.
+    it('shows the zero state for a blank param rather than waiting on a lookup', () => {
+      rootParam.initial = ''
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+      expect(screen.queryByText('Mapping the scene…')).not.toBeInTheDocument()
+    })
+
+    // The value is attacker-authorable and the artist endpoint interpolates it
+    // straight into a request path.
+    it.each(['../../auth/profile', 'a/b', 'Bad Slug', 'x?limit=1'])(
+      'never looks up a param that is not slug-shaped (%s)',
+      value => {
+        rootParam.initial = value
+        renderWithProviders(<GraphObservatory />)
+
+        expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+        expect(artistLookups).not.toContain(value)
+      },
+    )
+
+    // The visitor's own choice outranks a link they have already moved past.
+    it('does not yank a visitor who searches while the link is still resolving', async () => {
+      const user = userEvent.setup()
+      rootParam.initial = 'diners'
+      lookupState.isPending = true
+      renderWithProviders(<GraphObservatory />)
+
+      await user.click(screen.getByRole('button', { name: 'Search Playboy Manbaby' }))
+      expect(await screen.findByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+
+      // The deep link's own lookup settles afterwards and must not re-root.
+      lookupState.isPending = false
+      expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+    })
+
+    // React Query pauses rather than failing when the browser is offline, so a
+    // wait keyed on "no error yet" would withhold a cached map forever.
+    it('hands over the map rather than waiting when the lookup is paused offline', () => {
+      overviewState.data = {} as never
+      overviewState.isPending = false
+      overviewState.isError = false
+      overviewState.error = null
+      rootParam.initial = 'diners'
+      lookupState.fetchStatus = 'paused'
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.queryByText('Mapping the scene…')).not.toBeInTheDocument()
+      expect(screen.getByText(/The whole map/)).toBeInTheDocument()
     })
 
     it('writes no param on a bare visit', async () => {
@@ -1181,5 +1315,20 @@ describe('GraphObservatory', () => {
 
       expect(tonightLink()).toHaveAttribute('href', '/shows')
     })
+  })
+})
+
+// The route's static shell, which the surface itself cannot be part of because
+// it reads searchParams.
+describe('GraphObservatorySkeleton', () => {
+  it('paints the chrome and the loading box, with no control to type into', () => {
+    const { container } = renderWithProviders(<GraphObservatorySkeleton />)
+
+    expect(screen.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeInTheDocument()
+    expect(screen.getByText('Mapping the scene…')).toBeInTheDocument()
+    // The search row is reserved for its height only: an input the shell cannot
+    // wire up swallows what a visitor types into it before hydration.
+    expect(container.querySelector('input')).toBeNull()
+    expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull()
   })
 })
