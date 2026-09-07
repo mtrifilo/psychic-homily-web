@@ -9,7 +9,10 @@ import (
 )
 
 // Apple's email_verified claim arrives as a JSON bool or as the string "true".
-// Both spellings open the link; every other value refuses it.
+// Both spellings record a verified address on an account this path creates;
+// every other value records an unverified one. The claim opens nothing: an
+// address that already belongs to an account refuses the sign-in whatever the
+// claim says.
 
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmail_RefusesLink() {
 	existing := &authm.User{
@@ -65,7 +68,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AbsentVerifica
 	s.assertNoAppleAccountFor(existing.ID)
 }
 
-func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerifiedClaim_LinksAccount() {
+// The strongest spelling of the claim is still not evidence about who holds
+// the account, so it refuses like the weakest one.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerifiedClaim_RefusesAddressMatch() {
 	existing := &authm.User{
 		Email:         stringPtr("apple-string-verified@example.com"),
 		IsActive:      true,
@@ -82,11 +87,32 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerified
 		},
 	}, "Apple", "Name")
 
+	s.Require().Error(err)
+	s.Require().Nil(user)
+
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
+	s.assertNoAppleAccountFor(existing.ID)
+}
+
+// The create path is the only one that still reads the claim, so it is where
+// the string spelling has to be honoured end to end.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerifiedClaim_NoExistingAccount_CreatesVerified() {
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-fresh-string-verified@example.com",
+		EmailVerified: "true",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-fresh-string-verified",
+		},
+	}, "Apple", "Name")
+
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
-	s.Equal(existing.ID, user.ID)
-	s.Require().Len(user.OAuthAccounts, 1)
-	s.Equal("apple-sub-string-verified", user.OAuthAccounts[0].ProviderUserID)
+	s.True(user.EmailVerified)
+	s.assertStoredEmailVerified(user.ID, true)
 }
 
 // A returning Apple user resolves by subject before the address is consulted,
@@ -194,7 +220,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_SquattedUnveri
 	var authErr *apperrors.AuthError
 	s.Require().ErrorAs(err, &authErr)
 	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
-	s.Contains(authErr.UserMessage(), "Settings")
+	// Apple's own refusal, not the goth one. The two share a code and differ in
+	// copy, so the code alone would not catch the wrong constructor here.
+	s.Equal(apperrors.ErrAppleSignInRefused("apple-squatted@example.com").UserMessage(), authErr.UserMessage())
 
 	s.assertStoredEmailVerified(squatted.ID, false)
 	var rows int64

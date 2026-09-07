@@ -2,14 +2,48 @@ package auth
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
-	"strings"
 
 	"github.com/markbates/goth"
 
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
+
+// assertSignInRefusal pins the shape of a refused OAuth sign-in and returns the
+// redirect's query: back to the auth page, carrying the sign-in refusal's own
+// copy, with no session, and without the refused address. Parsed rather than
+// prefix-matched, because the query is encoded from a map and parameter order
+// is not part of the contract.
+//
+// refused is the address the caller presented. The message is a constant and
+// does not interpolate it, which is the property the last assertion holds in
+// place: this redirect becomes a browser URL, so an address interpolated into
+// the copy would land in history, referrers and access logs.
+func (s *OAuthHandlerIntegrationSuite) assertSignInRefusal(w *httptest.ResponseRecorder, refused string) url.Values {
+	s.T().Helper()
+	s.Equal(http.StatusTemporaryRedirect, w.Code)
+
+	location := w.Header().Get("Location")
+	parsed, err := url.Parse(location)
+	s.Require().NoError(err)
+	s.Equal("http://localhost:3000/auth", parsed.Scheme+"://"+parsed.Host+parsed.Path)
+	// UserMessage() is what the handler emits. ToExternalMessage is a separate
+	// table that happens to agree for this code, so asserting against it would
+	// point a maintainer at the wrong function.
+	s.Equal(autherrors.ErrOAuthLinkRefused(refused).UserMessage(), parsed.Query().Get("error"))
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "auth_token" && c.Value != "" {
+			s.Fail("a refused sign-in must not issue a session")
+		}
+	}
+
+	s.NotContains(parsed.Query().Get("error"), refused)
+	s.NotContains(location, refused)
+	return parsed.Query()
+}
 
 // The refusal over HTTP: no auth cookie, and the refusal's own copy in the
 // redirect rather than the generic failure.
@@ -35,26 +69,10 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
-		"expected redirect to the frontend auth page, got %s", location)
-
-	parsed, err := url.Parse(location)
-	s.Require().NoError(err)
-	// UserMessage() is what the handler emits. ToExternalMessage is a separate
-	// table that happens to agree for this code, so asserting against it would
-	// point a maintainer at the wrong function.
-	s.Equal(autherrors.ErrOAuthLinkRefused("callback-unverified@test.com").UserMessage(), parsed.Query().Get("error"))
+	query := s.assertSignInRefusal(w, "callback-unverified@test.com")
 	// The remediation has to survive the trip into the URL, or the refusal
 	// tells a user nothing they can act on.
-	s.Contains(parsed.Query().Get("error"), "Settings")
-
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "auth_token" && c.Value != "" {
-			s.Fail("a refused link must not issue a session")
-		}
-	}
+	s.Contains(query.Get("error"), "Settings")
 
 	var oauthRows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
@@ -62,8 +80,10 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	s.Equal(int64(0), oauthRows)
 }
 
-// The same request with the provider vouching for the address.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndSetsCookie() {
+// The same request with the provider vouching for the address. A vouched
+// address is still only evidence about the mailbox, so the callback refuses it
+// on the same terms and by the same route.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession() {
 	existing := &authm.User{
 		Email:         strPtr("callback-verified@test.com"),
 		IsActive:      true,
@@ -85,22 +105,12 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndS
 	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	s.Equal("http://localhost:3000", w.Header().Get("Location"))
-
-	sessionIssued := false
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "auth_token" && c.Value != "" {
-			sessionIssued = true
-		}
-	}
-	s.True(sessionIssued, "a verified link must issue a session")
+	s.assertSignInRefusal(w, "callback-verified@test.com")
 
 	var oauthRows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
-		Where("user_id = ? AND provider_user_id = ?", existing.ID, "google-verified-callback").
-		Count(&oauthRows).Error)
-	s.Equal(int64(1), oauthRows)
+		Where("user_id = ?", existing.ID).Count(&oauthRows).Error)
+	s.Equal(int64(0), oauthRows, "a refused sign-in must attach no identity to the account")
 }
 
 // The allowlist itself. A code absent from it is reported generically on all
