@@ -88,6 +88,10 @@ type RadioServiceIntegrationTestSuite struct {
 	testDB       *testutil.TestDatabase
 	db           *gorm.DB
 	radioService *RadioService
+
+	// anchor is the instant airDateDaysAgo renders air_dates against, so every
+	// fixture one test seeds reads from a single clock.
+	anchor time.Time
 }
 
 func (suite *RadioServiceIntegrationTestSuite) SetupSuite() {
@@ -106,6 +110,7 @@ func (suite *RadioServiceIntegrationTestSuite) TearDownSuite() {
 // SetupTest, the first test would inherit those rows.
 func (suite *RadioServiceIntegrationTestSuite) SetupTest() {
 	suite.cleanupRadioTables()
+	suite.anchor = time.Now()
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TearDownTest() {
@@ -152,6 +157,30 @@ func (suite *RadioServiceIntegrationTestSuite) createShow(stationID uint, name s
 	})
 	suite.Require().NoError(err)
 	return resp
+}
+
+// airDateLayout renders radio_episodes.air_date, a DATE column, for the
+// relative fixtures below. The file's remaining literal air dates spell the
+// same layout inline.
+const airDateLayout = "2006-01-02"
+
+// airDateDaysBefore renders an air_date that many days before an instant, in
+// that instant's zone. A fixture that has to land on a known side of a lookback
+// window (topArtists and topLabels, whenever periodDays is above 0) is an
+// offset like this one, never a literal calendar date that the clock eventually
+// passes. A literal is safe only where no lookback applies: periodDays 0, or a
+// bound of the air_date <= today shape, which a past date satisfies forever.
+func airDateDaysBefore(from time.Time, days int) string {
+	return from.AddDate(0, 0, -days).Format(airDateLayout)
+}
+
+// airDateDaysAgo offsets from the anchor this test was given. The anchor is
+// captured before the test body, so it is behind the clock the service reads by
+// however long the body takes: use it only for fixtures whole days clear of the
+// bound they are checked against. A fixture ON a bound re-anchors per attempt,
+// as TestGetTopArtistsAndLabelsForShow_PeriodWindowEdge does.
+func (suite *RadioServiceIntegrationTestSuite) airDateDaysAgo(days int) string {
+	return airDateDaysBefore(suite.anchor, days)
 }
 
 func (suite *RadioServiceIntegrationTestSuite) createEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
@@ -772,13 +801,11 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForShow_WithPeri
 	show := suite.createShow(station.ID, "Morning Show")
 
 	// Recent episode
-	recentDate := time.Now().AddDate(0, 0, -10).Format("2006-01-02")
-	ep1 := suite.createEpisode(show.ID, recentDate)
+	ep1 := suite.createEpisode(show.ID, suite.airDateDaysAgo(10))
 	suite.createPlay(ep1.ID, 0, "NewBand")
 
 	// Old episode (>90 days)
-	oldDate := time.Now().AddDate(0, 0, -100).Format("2006-01-02")
-	ep2 := suite.createEpisode(show.ID, oldDate)
+	ep2 := suite.createEpisode(show.ID, suite.airDateDaysAgo(100))
 	suite.createPlay(ep2.ID, 0, "OldBand")
 
 	resp, err := suite.radioService.GetTopArtistsForShow(show.ID, 90, 10)
@@ -2076,9 +2103,9 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_Stric
 	flagShow := suite.createShow(flagship.ID, "Flag Show")
 	sibShow := suite.createShow(sibling.ID, "Sib Show")
 	aloneShow := suite.createShow(standalone.ID, "Alone Show")
-	flagEp := suite.createEpisode(flagShow.ID, "2026-06-08")
-	sibEp := suite.createEpisode(sibShow.ID, "2026-06-09")
-	aloneEp := suite.createEpisode(aloneShow.ID, "2026-06-07")
+	flagEp := suite.createEpisode(flagShow.ID, suite.airDateDaysAgo(3))
+	sibEp := suite.createEpisode(sibShow.ID, suite.airDateDaysAgo(2))
+	aloneEp := suite.createEpisode(aloneShow.ID, suite.airDateDaysAgo(4))
 
 	suite.createPlay(flagEp.ID, 1, "Shared Artist")
 	suite.createPlay(sibEp.ID, 1, "Shared Artist")
@@ -2111,8 +2138,8 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForStation_Strict
 	flagship, sibling, _ := suite.createNetworkFamily()
 	flagShow := suite.createShow(flagship.ID, "Flag Show")
 	sibShow := suite.createShow(sibling.ID, "Sib Show")
-	flagEp := suite.createEpisode(flagShow.ID, "2026-06-08")
-	sibEp := suite.createEpisode(sibShow.ID, "2026-06-09")
+	flagEp := suite.createEpisode(flagShow.ID, suite.airDateDaysAgo(3))
+	sibEp := suite.createEpisode(sibShow.ID, suite.airDateDaysAgo(2))
 
 	label := "Family Label"
 	other := "Channel Label"
@@ -2140,6 +2167,59 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForStation_Strict
 	// Unknown station -> not found error.
 	_, err = suite.radioService.GetTopLabelsForStation(99999, 90, 10)
 	suite.Require().Error(err)
+}
+
+// TestGetTopArtistsAndLabelsForShow_PeriodWindowEdge pins where the period
+// window cuts: the episode exactly periodDays back is inside it, the one a day
+// further back is outside. Both aggregations are asserted, so the two apply the
+// bound identically or this fails.
+func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsAndLabelsForShow_PeriodWindowEdge() {
+	const periodDays = 90
+
+	// These fixtures straddle the bound with no slack, and the service derives
+	// the bound from its own clock, so the run only means anything while the
+	// cutoff the service would render holds still across it. Re-anchor per
+	// attempt and re-seed when it moves.
+	for range 2 {
+		anchor := time.Now()
+		station := suite.createStation("KEXP")
+		show := suite.createShow(station.ID, "Morning Show")
+
+		onEdge := suite.createEpisode(show.ID, airDateDaysBefore(anchor, periodDays))
+		outside := suite.createEpisode(show.ID, airDateDaysBefore(anchor, periodDays+1))
+
+		insideLabel := "Inside Label"
+		outsideLabel := "Outside Label"
+		plays := []catalogm.RadioPlay{
+			{EpisodeID: onEdge.ID, Position: 1, ArtistName: "Edge Band", LabelName: &insideLabel},
+			{EpisodeID: outside.ID, Position: 1, ArtistName: "Expired Band", LabelName: &outsideLabel},
+		}
+		for i := range plays {
+			suite.Require().NoError(suite.db.Create(&plays[i]).Error)
+		}
+
+		unwindowed, err := suite.radioService.GetTopArtistsForShow(show.ID, 0, 10)
+		suite.Require().NoError(err)
+		suite.Require().Len(unwindowed, 2, "both plays are seeded, so only the window can separate them")
+
+		artists, err := suite.radioService.GetTopArtistsForShow(show.ID, periodDays, 10)
+		suite.Require().NoError(err)
+		labels, err := suite.radioService.GetTopLabelsForShow(show.ID, periodDays, 10)
+		suite.Require().NoError(err)
+
+		if airDateDaysBefore(time.Now(), periodDays) != airDateDaysBefore(anchor, periodDays) {
+			suite.cleanupRadioTables()
+			continue
+		}
+
+		suite.Require().Len(artists, 1, "the artist aggregation keeps only the on-edge episode")
+		suite.Equal("Edge Band", artists[0].ArtistName)
+
+		suite.Require().Len(labels, 1, "the label aggregation keeps only the on-edge episode")
+		suite.Equal("Inside Label", labels[0].LabelName)
+		return
+	}
+	suite.Fail("the period cutoff moved on both attempts")
 }
 
 func TestRadioService_NilDB_ResolveStationID(t *testing.T) {
