@@ -119,6 +119,12 @@ linters:
       # logger.Auth* helpers are level-gated and carry the request id, and their
       # call sites pass projections (logger.HashEmail, utils.RedactErrorURL,
       # observability.ScrubText) rather than whole values.
+      #
+      # analyze-types resolves the package a call belongs to instead of matching
+      # the rendered source text, so `import stdlog "log"` followed by
+      # `stdlog.Printf` is caught. Without it the patterns below match only the
+      # literal spelling and an aliased import walks straight through.
+      analyze-types: true
       forbid:
         - pattern: '^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$'
           msg: "auth packages log through logger.Auth{Debug,Info,Warn,Error}, which is level-gated and redaction-aware; the standard logger writes credentials verbatim"
@@ -152,9 +158,10 @@ linters:
         path-except: '^internal/(services/auth|api/handlers/auth|services/user)/'
 
   # The PSY-760 placeholder. `settings.forbidigo.forbid` and
-  # `exclusions.rules` are live blocks above, so this appends to them; a second
-  # copy of either key would silently replace the auth guard. The pattern goes
-  # in the forbid list:
+  # `exclusions.rules` are live blocks above, so this appends to them. A second
+  # copy of either key aborts the whole lint run with `mapping key "settings"
+  # already defined`, and the tempting repair is to delete one copy, which is
+  # how the auth patterns get dropped. The pattern goes in the forbid list:
   #
   #       - pattern: 'user\.(Username|FirstName|Email)'
   #         msg: "use services/shared.Resolve* helpers, not direct field deref (PSY-760)"
