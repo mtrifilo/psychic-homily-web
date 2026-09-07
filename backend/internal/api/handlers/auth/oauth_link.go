@@ -214,7 +214,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if !consumeOAuthLinkToken(h.jwtSecret(), r.URL.Query().Get(oauthLinkTokenParam), user.ID, requestOrigin(r)) {
+	if !consumeOAuthLinkToken(h.jwtSecret(), r.URL.Query().Get(oauthLinkTokenParam), user.ID) {
 		logger.AuthWarn(ctx, "oauth_link_refused_missing_token",
 			"provider", provider,
 			"user_id", user.ID,

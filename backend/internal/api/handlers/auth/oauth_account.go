@@ -16,13 +16,16 @@ type OAuthAccountHandler struct {
 	userService contracts.UserServiceInterface
 	// jwtSecret signs the one-time link token this handler mints.
 	jwtSecret string
+	// frontendURL is the only origin allowed to ask for one.
+	frontendURL string
 }
 
 // NewOAuthAccountHandler creates a new OAuth account handler
-func NewOAuthAccountHandler(userService contracts.UserServiceInterface, jwtSecret string) *OAuthAccountHandler {
+func NewOAuthAccountHandler(userService contracts.UserServiceInterface, jwtSecret, frontendURL string) *OAuthAccountHandler {
 	return &OAuthAccountHandler{
 		userService: userService,
 		jwtSecret:   jwtSecret,
+		frontendURL: frontendURL,
 	}
 }
 
@@ -142,16 +145,26 @@ func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *St
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	// Bound to the origin that asked. Outside production the CORS allowlist
-	// admits any *.vercel.app with credentials, so an attacker origin can call
-	// this and read the answer; a token spendable only from the origin that
-	// minted it is worth nothing to them.
+	// The mint is refused outright unless it came from the configured
+	// frontend. Outside production the CORS allowlist admits any *.vercel.app
+	// with credentials, so an attacker origin could otherwise call this and
+	// read the answer; refusing here means it never gets a token at all.
+	//
+	// Origin is what an XHR sends; Referer is the fallback for a client that
+	// sends none. A request naming neither is refused, because nothing then
+	// says where it came from.
 	origin := req.Origin
-	if origin == "" && req.Referer != "" {
+	if origin == "" || origin == "null" {
 		origin = originOfURL(req.Referer)
 	}
+	if origin == "" || !sameOrigin(origin, h.frontendURL) {
+		logger.FromContext(ctx).Warn("oauth_link_token_refused_origin",
+			"user_id", user.ID,
+		)
+		return nil, huma.Error403Forbidden("Start the connection from Settings")
+	}
 
-	token, err := mintOAuthLinkToken(h.jwtSecret, user.ID, origin)
+	token, err := mintOAuthLinkToken(h.jwtSecret, user.ID)
 	if err != nil {
 		logger.FromContext(ctx).Error("oauth_link_token_mint_failed",
 			"user_id", user.ID,

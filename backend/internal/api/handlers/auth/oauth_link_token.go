@@ -40,9 +40,14 @@ const (
 )
 
 // oauthLinkTokenClaims is what the signature covers.
+//
+// No origin. An earlier cut stored the browser's reported origin here and
+// compared it at spend against the browser's reported origin then: two values
+// from the same untrusted source, which proves only that they agree. The
+// origin check that means something compares against the CONFIGURED frontend,
+// and it lives in requestIsFromOurFrontend, which both legs already run.
 type oauthLinkTokenClaims struct {
 	userID uint
-	origin string
 	expiry time.Time
 	nonce  string
 }
@@ -57,22 +62,20 @@ var spentOAuthLinkTokens = struct {
 	nonces: make(map[string]time.Time),
 }
 
-// mintOAuthLinkToken issues a token bound to userID AND to the origin that
-// asked for it.
+// mintOAuthLinkToken issues a token bound to userID.
 //
-// The origin binding is what survives a CORS allowlist wider than production's.
-// Outside production the allowlist admits any *.vercel.app with credentials, so
-// an attacker origin can call the mint endpoint and read the answer. Binding
-// the token to the origin that minted it means the token it gets back is only
-// spendable from that origin, and the spend requires our own frontend.
-func mintOAuthLinkToken(secret string, userID uint, origin string) (string, error) {
+// What keeps an attacker origin from obtaining one is the caller: the mint
+// endpoint refuses a request whose origin is not the configured frontend. That
+// matters outside production, where the CORS allowlist admits any
+// *.vercel.app with credentials and so would let such an origin read the
+// answer.
+func mintOAuthLinkToken(secret string, userID uint) (string, error) {
 	nonce, err := randomHexID(16)
 	if err != nil {
 		return "", err
 	}
 	claims := oauthLinkTokenClaims{
 		userID: userID,
-		origin: origin,
 		expiry: time.Now().Add(oauthLinkTokenTTL),
 		nonce:  nonce,
 	}
@@ -81,27 +84,31 @@ func mintOAuthLinkToken(secret string, userID uint, origin string) (string, erro
 }
 
 func encodeOAuthLinkTokenPayload(claims oauthLinkTokenClaims) string {
-	// The origin is escaped so a value containing the separator cannot shift
-	// the field boundaries and present as a different set of claims.
 	return strings.Join([]string{
 		strconv.FormatUint(uint64(claims.userID), 10),
 		strconv.FormatInt(claims.expiry.Unix(), 10),
 		claims.nonce,
-		url.QueryEscape(claims.origin),
 	}, "|")
 }
 
+// oauthLinkTokenDomain separates this MAC from every other use of the JWT
+// secret, so a value signed for some other purpose can never be presented here
+// as a link token.
+const oauthLinkTokenDomain = "oauthlink|"
+
 func signOAuthLinkToken(secret, payload string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(oauthLinkTokenDomain))
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // consumeOAuthLinkToken spends a token and reports whether it was valid for
-// userID and for the origin this request actually came from.
+// userID. Where the request came from is requestIsFromOurFrontend's job, and
+// the caller runs it first.
 //
 // Every check is a refusal, and none of them tell the caller which one failed.
-func consumeOAuthLinkToken(secret, token string, userID uint, requestOrigin string) bool {
+func consumeOAuthLinkToken(secret, token string, userID uint) bool {
 	// Split at the LAST dot, not the first: the payload carries a
 	// percent-escaped origin, and "." is unreserved so it survives escaping.
 	// base64url has no dots, so the final one is always the separator.
@@ -124,15 +131,12 @@ func consumeOAuthLinkToken(secret, token string, userID uint, requestOrigin stri
 	if claims.userID != userID || time.Now().After(claims.expiry) {
 		return false
 	}
-	if claims.origin != requestOrigin {
-		return false
-	}
 	return spendOAuthLinkNonce(claims.nonce, claims.expiry)
 }
 
 func decodeOAuthLinkTokenPayload(payload string) (oauthLinkTokenClaims, error) {
 	parts := strings.Split(payload, "|")
-	if len(parts) != 4 {
+	if len(parts) != 3 {
 		return oauthLinkTokenClaims{}, fmt.Errorf("malformed link token payload")
 	}
 	userID, err := strconv.ParseUint(parts[0], 10, 64)
@@ -143,13 +147,8 @@ func decodeOAuthLinkTokenPayload(payload string) (oauthLinkTokenClaims, error) {
 	if err != nil {
 		return oauthLinkTokenClaims{}, fmt.Errorf("malformed link token expiry")
 	}
-	origin, err := url.QueryUnescape(parts[3])
-	if err != nil {
-		return oauthLinkTokenClaims{}, fmt.Errorf("malformed link token origin")
-	}
 	return oauthLinkTokenClaims{
 		userID: uint(userID),
-		origin: origin,
 		expiry: time.Unix(expiry, 0),
 		nonce:  parts[2],
 	}, nil
@@ -195,33 +194,46 @@ func originOfURL(raw string) string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
-// requestIsFromOurFrontend reports whether this request may start a link.
+// requestIsFromOurFrontend reports whether this request came from our own
+// frontend, for both legs of the link: the mint (an XHR, which sends Origin)
+// and the spend (a top-level GET, which does not, and so relies on Referer).
 //
-// Fail CLOSED, which is the difference from a check that only refuses a
-// declared "cross-site": fetch metadata is absent on older browsers and on
-// some navigation shapes, and treating absence as permission leaves the whole
-// defence to a header the attacker's victim may simply not send.
+// The CONFIGURED frontend is the primary test, not fetch metadata. Metadata
+// answers "same site as this API", and on stage and every preview the frontend
+// is on *.vercel.app while the API is on Railway, a different registrable
+// domain: genuinely cross-site, so a check that stopped at the metadata would
+// refuse every Connect there. Only production happens to be same-site.
 //
-//   - Sec-Fetch-Site present: it must say same-origin or same-site. Page
-//     script cannot set it, so a present value is trustworthy.
-//   - absent: fall back to Origin, then Referer, which must match the
-//     configured frontend's origin.
-//   - neither: refused.
+//	Origin or Referer matches frontendURL  -> accept, whatever metadata says
+//	otherwise, metadata says cross-site    -> refuse
+//	otherwise, no Origin and no Referer    -> refuse
+//
+// Referer is present on the spend because next.config.ts:203 sets
+// Referrer-Policy: strict-origin-when-cross-origin, which keeps the origin on
+// a cross-origin navigation. A stricter policy there, or a browser that strips
+// it, drops the spend to the metadata branch: a same-site deployment still
+// works, a cross-site one would not. That coupling is why the policy is named
+// here.
 func requestIsFromOurFrontend(r *http.Request, frontendURL string) bool {
-	switch strings.ToLower(r.Header.Get("Sec-Fetch-Site")) {
-	case "same-origin", "same-site", "none":
-		// "none" is a user-initiated navigation: typed, bookmarked, or opened
-		// from outside a page. No other site drove it.
+	if origin := requestOrigin(r); origin != "" && sameOrigin(origin, frontendURL) {
 		return true
-	case "cross-site", "cross-origin":
-		return false
 	}
 
-	origin := requestOrigin(r)
-	if origin == "" {
+	switch strings.ToLower(r.Header.Get("Sec-Fetch-Site")) {
+	case "cross-site", "cross-origin":
+		// Another site drove this, and it did not name ours.
 		return false
+	case "same-origin", "same-site":
+		// This API's own origin, or its registrable domain. In a same-site
+		// deployment this is the ordinary path when Referer is stripped.
+		return true
+	case "none":
+		// User-initiated: typed, bookmarked, or opened from outside a page.
+		return true
 	}
-	return sameOrigin(origin, frontendURL)
+
+	// Nothing says where this came from, so it does not get to start a link.
+	return false
 }
 
 // sameOrigin compares two URLs by scheme and host.

@@ -40,7 +40,7 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequest(provider string, user *a
 	s.T().Helper()
 	w, req := s.oauthLinkRequestWithoutToken(provider, user)
 	if user != nil {
-		token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID, testFrontendOrigin)
+		token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 		s.Require().NoError(err)
 		q := req.URL.Query()
 		q.Set(oauthLinkTokenParam, token)
@@ -131,7 +131,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_TokenFromAnotherAccountRefused()
 	other := &authm.User{Email: strPtr("link-token-other@test.com"), IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.deps.DB.Create(other).Error)
 
-	othersToken, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, other.ID, testFrontendOrigin)
+	othersToken, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, other.ID)
 	s.Require().NoError(err)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
@@ -173,6 +173,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_CrossSiteNavigationRefused() {
 	handler := s.newHandler(&mockOAuthCompleter{})
 	w, req := s.oauthLinkRequest("google", user)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	// And an origin that is not ours: a cross-site deployment naming our own
+	// frontend is the ordinary case on stage, and must still be admitted.
+	req.Header.Set("Origin", "https://evil.example")
 	handler.OAuthLinkHTTPHandler(w, req)
 
 	s.assertLinkRefusal(w, oauthLinkErrorNotFromSettings)
@@ -192,7 +195,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 
 	handler := s.newHandler(&mockOAuthCompleter{})
 	w, req := s.oauthLinkRequestWithoutToken("google", user)
-	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID, testFrontendOrigin)
+	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 	s.Require().NoError(err)
 	q := req.URL.Query()
 	q.Set(oauthLinkTokenParam, token)
@@ -215,7 +218,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 
 	// The token is checked AFTER re-auth, so a refusal here leaves it usable
 	// for the trip back.
-	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID, testFrontendOrigin),
+	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
 		"a stale-session refusal must not burn the token")
 }
 

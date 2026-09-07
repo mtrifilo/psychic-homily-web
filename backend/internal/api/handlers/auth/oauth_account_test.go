@@ -10,7 +10,7 @@ import (
 )
 
 func testOAuthAccountHandler() *OAuthAccountHandler {
-	return NewOAuthAccountHandler(nil, "test-secret")
+	return NewOAuthAccountHandler(nil, "test-secret", "http://localhost:3000")
 }
 
 // --- GetOAuthAccountsHandler ---
@@ -52,7 +52,7 @@ func TestGetOAuthAccountsHandler_ConnectedAtIsUTC(t *testing.T) {
 		},
 	}
 
-	h := NewOAuthAccountHandler(mockUserService, "test-secret")
+	h := NewOAuthAccountHandler(mockUserService, "test-secret", "http://localhost:3000")
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetOAuthAccountsHandler(ctx, &GetOAuthAccountsRequest{})

@@ -172,7 +172,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
 
 	// OAuth account management endpoints
-	oauthAccountHandler := authh.NewOAuthAccountHandler(rc.SC.User, rc.Cfg.JWT.SecretKey)
+	oauthAccountHandler := authh.NewOAuthAccountHandler(rc.SC.User, rc.Cfg.JWT.SecretKey, rc.Cfg.Email.FrontendURL)
 	huma.Get(rc.Protected, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
 	huma.Delete(rc.Protected, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
 	// Mints the one-time token /auth/link/{provider} requires. Same-origin and
