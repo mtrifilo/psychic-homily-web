@@ -25,16 +25,13 @@ export interface SceneSliceJsonLd {
  *
  * The root's structured data lists exactly the shows the root renders: this
  * builder reads the same slice payload `SceneCalendar` draws its rows from, so
- * the ItemList and the visible rows are one membership. The wider windows are
- * described by their own routes. `/tonight`, `/this-weekend`, `/week` and
- * `/next-4-weeks` each publish an ItemList plus `MusicEvent[]` for the window
- * they render, so a crawler reaches every window through a page that shows it.
+ * the ItemList and the visible rows are one membership. `/tonight`,
+ * `/this-weekend`, `/week` and `/next-4-weeks` each describe their own window,
+ * so a crawler reaches every window through a page that shows it.
  *
  * Shows are taken in CLOCK order (`dayShows`), not the reader's live-night
- * order (`orderNightShows`): an `ItemList` position is a durable claim about a
- * cached and crawled page, while the live-night promotion changes with the
- * hour. The URLs and the membership are identical either way, and `/tonight`
- * publishes the same night under the same rule.
+ * order (`orderNightShows`), for the reason `buildSceneDayJsonLd` states about
+ * the same night: an `ItemList` position outlives the hour that promoted a row.
  *
  * The scene's name and slug come from the day payload rather than the route
  * param, so a metro member (`/scenes/mesa-az`) is described under the canonical

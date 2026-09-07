@@ -92,8 +92,9 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
  *
  * Fetched through `sceneWeekApi` rather than `sceneWeekPage` so this route does
  * not pull the week view (or `next/og`) into its graph. `undefined` week = the
- * backend's current week, in the scene's own timezone. `cache()` keeps a second
- * caller from paying a second trip.
+ * backend's current week, in the scene's own timezone. `cache()` is currently
+ * redundant, `generateMetadata` being the only caller, and is kept to match its
+ * two neighbours here.
  */
 const getSceneWeek = cache((slug: string) =>
   fetchSceneWeek(slug, undefined, 'scene-week')
@@ -211,28 +212,20 @@ export default async function ScenePage({ params }: ScenePageProps) {
     notFound()
   }
 
-  // CONCURRENT, because neither needs the other's answer. That leaves the
-  // slice's own chain as the only thing on the critical path.
+  // CONCURRENT, because neither needs the other's answer, which leaves the
+  // slice's serial fetch chain (`sceneSliceApi` states why it is serial and how
+  // many calls deep it runs) as the only thing on the critical path.
   //
-  // That chain is THREE calls, not two, and the extra one is not ours: the
-  // next-day leg is fetched with a KEY, so `fetchScenePeriod` runs its
-  // two-phase freshness probe, and a future date is never `is_past_day`, so the
-  // fall-through fires every time. See the follow-up noted on the PR — the fix
-  // belongs in that shared caching layer, which `/next-4-weeks` already pays
-  // five times over.
-  //
-  //  - `prefetchEntity`: `cache()` above guarantees the scene fetch already
-  //    happened, so this is a no-op cache write seeding the entry
-  //    `useSceneDetail` picks up.
-  //  - the SLICE is what the page renders, and the only thing it describes.
+  // `prefetchEntity` is a no-op cache write: `cache()` above guarantees the
+  // scene fetch already happened, so this only seeds the entry `useSceneDetail`
+  // picks up.
   const [dehydratedState, slice] = await Promise.all([
     prefetchEntity(queryKeys.scenes.detail(slug), scene),
     getSceneSlice(slug),
   ])
 
-  // The root's structured data lists exactly the shows the root renders: one
-  // slice payload feeds both the markup below and the rows `SceneCalendar`
-  // draws. Every wider window is described by the route that renders it.
+  // ONE slice payload feeds both the structured data and the rows
+  // `SceneCalendar` draws, so they cannot describe different shows.
   const jsonLd = slice ? buildSceneSliceJsonLd(slice) : null
 
   return (

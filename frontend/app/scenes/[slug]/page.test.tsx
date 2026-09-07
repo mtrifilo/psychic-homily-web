@@ -25,6 +25,7 @@ vi.mock('@/features/scenes/components/SceneCalendar', () => ({
 }))
 
 import { JsonLd } from '@/components/seo/JsonLd'
+import { countWindowShows } from '@/features/scenes/sceneWindow'
 import ScenePage, { generateMetadata } from './page'
 
 function buildScene(overrides: Record<string, unknown> = {}) {
@@ -192,13 +193,7 @@ describe('scenes/[slug] calendar slice', () => {
     return props ? findCalendarSlot(props.children) : undefined
   }
 
-  /**
-   * Every payload handed to a `<JsonLd>` in the returned tree.
-   *
-   * Matched on the component identity rather than on a `data` prop, so a
-   * neighbour that happens to take a prop of that name cannot be counted as
-   * structured data.
-   */
+  /** Every payload handed to a `<JsonLd>` in the returned tree. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function findJsonLd(node: any): any[] {
     if (!node || typeof node !== 'object') return []
@@ -265,9 +260,9 @@ describe('scenes/[slug] calendar slice', () => {
     expect(slot?.props?.scene?.slug).toBe('phoenix-az')
   })
 
-  // PSY-1889: the root's structured data lists exactly the shows the root
-  // renders. The week fetch is mocked to null for this whole suite, so an
-  // ItemList reaching the markup at all proves the slice is what feeds it.
+  // PSY-1889. The unit suite pins the builder; what this pins is the WIRING:
+  // the week fetch is mocked to null for the whole file, so an ItemList
+  // reaching the markup at all proves the slice is what feeds it.
   it('describes exactly the shows the rendered slice holds', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
     fetchMock.mockResolvedValueOnce(
@@ -300,24 +295,21 @@ describe('scenes/[slug] calendar slice', () => {
 
     const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
 
-    const slot = findCalendarSlot(tree)
-    const renderedShows = slot.props.slice.days.reduce(
-      (n: number, day: { shows?: unknown[] }) => n + (day.shows?.length ?? 0),
-      0
-    )
-    const itemList = findJsonLd(tree).find(
-      (data: { '@type'?: string }) => data['@type'] === 'ItemList'
-    )
-    const events = findJsonLd(tree).find(Array.isArray)
+    const blocks = findJsonLd(tree)
+    // Counted through the helper the calendar's own quiet check goes through,
+    // so the rendered figure here is not a second spelling of it.
+    const renderedShows = countWindowShows(findCalendarSlot(tree).props.slice.days)
+    const itemList = blocks.find((data: { '@type'?: string }) => data['@type'] === 'ItemList')
+    const events = blocks.find(Array.isArray)
 
     expect(renderedShows).toBe(3)
     expect(itemList?.numberOfItems).toBe(3)
     expect(events).toHaveLength(3)
   })
 
-  // The week is Monday-anchored, so a root describing it both over- and
-  // under-stated the two nights it draws. It now feeds the OG card only.
-  it('publishes no seven-day list when the slice is two days', async () => {
+  // The trail terminates at the page it describes. A week permalink there,
+  // which is where the week builder's leaf points, would name seven nights.
+  it('anchors the breadcrumb leaf on the root itself', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
     fetchMock.mockResolvedValue(okResponse(buildDay({ shows: [buildShow()] })))
 
