@@ -336,7 +336,7 @@ vi.mock('./SceneMapCanvas', () => ({
   ),
 }))
 
-// The `?artist=` deep link (PSY-1890). `rootParam.initial` is what the visitor
+// The `?artist=` deep link. `rootParam.initial` is what the visitor
 // arrived with; `setRootParam` records every write the surface makes back to
 // the URL. The mock keeps nuqs's own shape — a stateful [value, setter] pair —
 // so a write is visible to the component on the next render, exactly as the
@@ -475,7 +475,7 @@ describe('GraphObservatory', () => {
     })
   })
 
-  // PSY-1890: `/graph?artist=<slug>` — the deep link scene surfaces build.
+  // `/graph?artist=<slug>` — the deep link scene surfaces build.
   describe('the ?artist= deep link', () => {
     it('opens rooted on the artist the URL names', async () => {
       rootParam.initial = 'diners'
@@ -1130,7 +1130,7 @@ describe('GraphObservatory', () => {
       ).toBe('loading')
     })
 
-    // PSY-1890: a `?artist=` slug still resolving outranks a drawable map —
+    // A `?artist=` slug still resolving outranks a drawable map —
     // the map arm is about to be replaced by that artist's ego graph.
     it('waits for a pending deep link even when a map is ready to draw', () => {
       expect(
