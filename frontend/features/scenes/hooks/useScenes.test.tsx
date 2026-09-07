@@ -10,6 +10,7 @@ import {
   useSceneDetail,
   useSceneArtists,
   useSceneCollections,
+  useSceneGaps,
 } from './useScenes'
 
 describe('useScenes', () => {
@@ -203,5 +204,69 @@ describe('useSceneCollections', () => {
       'phoenix-az',
       3,
     ])
+  })
+})
+
+describe('useSceneGaps', () => {
+  function stubGaps() {
+    let capturedUrl = ''
+    server.use(
+      http.get(`${TEST_API_BASE}/scenes/:slug/gaps`, ({ request }) => {
+        capturedUrl = request.url
+        return HttpResponse.json({
+          city: 'Phoenix',
+          state: 'AZ',
+          slug: 'phoenix-az',
+          artists_missing_listen_link: 11,
+          artists_on_bills_missing_location: 4,
+        })
+      })
+    )
+    return () => capturedUrl
+  }
+
+  it('fetches the scene gap counts with no parameters of its own', async () => {
+    const url = stubGaps()
+
+    const { result } = renderHook(() => useSceneGaps('phoenix-az'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const requested = new URL(url())
+    expect(requested.pathname).toBe('/scenes/phoenix-az/gaps')
+    expect(requested.search).toBe('')
+    expect(result.current.data?.artists_missing_listen_link).toBe(11)
+  })
+
+  it('does not fetch when slug is empty', () => {
+    const { result } = renderHook(() => useSceneGaps(''), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  it('keys by slug alone under the scenes prefix', () => {
+    expect(queryKeys.scenes.gaps('phoenix-az')).toEqual([
+      'scenes',
+      'gaps',
+      'phoenix-az',
+    ])
+  })
+
+  it('surfaces a 404 as an error rather than a zeroed payload', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE}/scenes/:slug/gaps`, () =>
+        HttpResponse.json({ message: 'scene not found' }, { status: 404 })
+      )
+    )
+
+    const { result } = renderHook(() => useSceneGaps('nowhere-zz'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
   })
 })

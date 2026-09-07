@@ -67,10 +67,11 @@ vi.mock('./SceneGraph', async importOriginal => ({
   SceneGraph: () => <div data-testid="scene-graph" />,
 }))
 
-// The four identity sections each own a request and a suite (SceneRooms /
-// SceneNewBands / SceneRoster / SceneCollections). Stub them here, same rule as
-// the calendar and the graph above: this file is about the view's COMPOSITION —
-// what renders, in what order, and what the anchor hangs off.
+// The five identity sections each own a suite (SceneRooms / SceneNewBands /
+// SceneRoster / SceneCollections / SceneGapLine), and all but SceneRooms own a
+// request; SceneRooms draws off the detail payload. Stub them here, same rule
+// as the calendar and the graph above: this file is about the view's
+// COMPOSITION — what renders, in what order, and what the anchor hangs off.
 vi.mock('./SceneRooms', () => ({
   SceneRooms: () => <div data-testid="scene-rooms" />,
 }))
@@ -84,6 +85,9 @@ vi.mock('./SceneRoster', () => ({
 }))
 vi.mock('./SceneCollections', () => ({
   SceneCollections: () => <div data-testid="scene-collections" />,
+}))
+vi.mock('./SceneGapLine', () => ({
+  SceneGapLine: () => <div data-testid="scene-gap-line" />,
 }))
 
 const mockUseSceneDetail = vi.fn()
@@ -311,7 +315,8 @@ describe('SceneDetailView', () => {
     // calendar is the page's object, and the identity that used to outrank it
     // sits underneath in the mock's sequence — the rooms this page speaks for
     // (its coverage disclosure), then who is new, then who lives here, then the
-    // collections about the place, with the graph demoted below all four.
+    // collections about the place, then the gap line asking for what the place
+    // is missing, with the graph demoted below all five.
     it('renders the calendar first, then the identity sections in the mock order', () => {
       renderScene({ slug: 'phoenix-az' })
       const order = [
@@ -320,6 +325,7 @@ describe('SceneDetailView', () => {
         'scene-new-bands',
         'scene-roster',
         'scene-collections',
+        'scene-gap-line',
         'scene-graph',
       ]
       for (let i = 0; i < order.length - 1; i++) {

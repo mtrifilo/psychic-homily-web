@@ -708,6 +708,10 @@ export const queryKeys = {
     // the segment here and register the family in VIEWER_TIER_QUERY_KEYS.
     collections: (slug: string, limit?: number) =>
       ['scenes', 'collections', slug, limit] as const,
+    // Keyed by SLUG and nothing else. `GET /scenes/{slug}/gaps` takes no
+    // parameter and no viewer: the counts are a fact about the place, so every
+    // caller and every viewer share one entry.
+    gaps: (slug: string) => ['scenes', 'gaps', slug] as const,
     // clusterBy is the literal union (not string) so a drifted value at an
     // invalidation/prefetch site is a compile error, not a silent key
     // mismatch (the PSY-1109 key-drift class).
