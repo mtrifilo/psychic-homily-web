@@ -140,11 +140,10 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	if claims.Email != "" {
 		var existingUser authm.User
 		if err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error; err == nil {
-			// Same rule as the goth callback: the address is the only thing
-			// tying this Apple identity to an account that already exists, so
-			// Apple has to assert it verified the address. The email_verified
-			// claim comes from the identity token this service already
-			// verified against Apple's JWKS.
+			// The address is the only thing tying this Apple identity to an
+			// account that already exists, so Apple has to assert it verified
+			// the address. The claim rides the identity token
+			// ValidateIdentityToken checked against Apple's JWKS.
 			if !claims.IsEmailVerified() {
 				logger.Default().Warn("oauth_link_refused_unverified_email",
 					"provider", "apple",

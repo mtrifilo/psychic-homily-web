@@ -11,10 +11,8 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
-// TestCallback_UnverifiedEmailMatch_RedirectsWithRefusalAndNoSession is the
-// end-to-end shape of the refusal over HTTP: no auth cookie is set, and the
-// person is told why rather than being handed the generic failure, which reads
-// as a transient fault and offers nothing to do about it.
+// The refusal over HTTP: no auth cookie, and the refusal's own copy in the
+// redirect rather than the generic failure.
 func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_RedirectsWithRefusalAndNoSession() {
 	existing := &authm.User{
 		Email:         strPtr("callback-unverified@test.com"),
@@ -58,8 +56,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	s.Equal(int64(0), oauthRows)
 }
 
-// TestCallback_VerifiedEmailMatch_LinksAndSetsCookie is the same request with
-// the provider vouching for the address.
+// The same request with the provider vouching for the address.
 func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndSetsCookie() {
 	existing := &authm.User{
 		Email:         strPtr("callback-verified@test.com"),
@@ -100,16 +97,15 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndS
 	s.Equal(int64(1), oauthRows)
 }
 
-// TestOAuthCallbackErrorIsUserActionable pins the allowlist itself. Anything
-// not named here reaches the query string as the generic failure, which is what
-// keeps a backend fault out of a URL the browser will render.
-func (s *OAuthHandlerIntegrationSuite) TestOAuthCallbackErrorIsUserActionable() {
+// A code absent from the allowlist reaches the query string as the generic
+// failure, which keeps a backend fault out of a URL the browser renders.
+func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 	actionable := []string{
 		autherrors.CodeTermsAcceptanceRequired,
 		autherrors.CodeUserExists,
 	}
 	for _, code := range actionable {
-		s.True(oauthCallbackErrorIsUserActionable(code), "expected %s to carry its own copy", code)
+		s.True(authRefusalCarriesItsOwnCopy(code), "expected %s to carry its own copy", code)
 	}
 
 	generic := []string{
@@ -120,6 +116,6 @@ func (s *OAuthHandlerIntegrationSuite) TestOAuthCallbackErrorIsUserActionable() 
 		"",
 	}
 	for _, code := range generic {
-		s.False(oauthCallbackErrorIsUserActionable(code), "expected %s to stay generic", code)
+		s.False(authRefusalCarriesItsOwnCopy(code), "expected %s to stay generic", code)
 	}
 }

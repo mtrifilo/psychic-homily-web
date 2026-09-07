@@ -286,7 +286,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		log.Printf("OAuth callback failed: %v", err)
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && oauthCallbackErrorIsUserActionable(authErr.Code) {
+		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
 			errorMessage = authErr.UserMessage()
 		}
 
@@ -322,17 +322,15 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
 }
 
-// oauthCallbackErrorIsUserActionable names the refusals whose own copy the
-// callback redirect carries to the frontend instead of the generic
-// "authentication failed". Both name something the person can act on: accept
-// the terms, or sign in the way this address is already registered. Every
-// other failure stays generic, so a backend fault never reaches the query
-// string.
+// authRefusalCarriesItsOwnCopy names the refusals an OAuth callback reports in
+// their own words rather than as a generic failure. Each names something the
+// caller can act on: accept the terms, or sign in the way this address is
+// already registered. Every other code stays generic, so a backend fault never
+// reaches a redirect query string or a client error body.
 //
-// USER_EXISTS is not an enumeration disclosure this endpoint opens: /auth/register
-// answers with the same code for any address, at a fraction of the cost of a
-// completed OAuth round trip.
-func oauthCallbackErrorIsUserActionable(code string) bool {
+// Both OAuth callbacks in this package consult it, so a code added here is
+// surfaced on the web and iOS paths together.
+func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
 	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:
 		return true

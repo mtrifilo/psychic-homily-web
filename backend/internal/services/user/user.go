@@ -223,10 +223,8 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 			// The address is the whole basis for treating this provider
 			// identity as the account's owner, so the provider has to vouch
 			// for it. Without that, anyone who can make a provider report a
-			// chosen address signs in as whoever already holds it. Refusing
-			// here also stops the fall-through to account creation, which the
-			// users_lower_email_uniq index would reject anyway.
-			if !ProviderAssertsEmailVerified(gothUser) {
+			// chosen address signs in as whoever already holds it.
+			if !providerAssertsEmailVerified(gothUser) {
 				logger.Default().Warn("oauth_link_refused_unverified_email",
 					"provider", provider,
 					"email_hash", logger.HashEmail(gothUser.Email))

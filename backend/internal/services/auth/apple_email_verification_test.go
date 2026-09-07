@@ -8,9 +8,8 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// Apple's email_verified claim arrives as a JSON bool or as the string "true",
-// which is why AppleIdentityTokenClaims.EmailVerified is typed any. Both
-// spellings have to open the link, and every other value has to refuse it.
+// Apple's email_verified claim arrives as a JSON bool or as the string "true".
+// Both spellings open the link; every other value refuses it.
 
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmail_RefusesLink() {
 	existing := &authm.User{
@@ -91,7 +90,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerified
 }
 
 // A returning Apple user resolves by subject before the address is consulted,
-// so an established sign-in survives a token that stops carrying the claim.
+// so a token that stops carrying the claim cannot break an established sign-in.
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleAccount_UnaffectedByVerification() {
 	svc := s.newService()
 	first, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{

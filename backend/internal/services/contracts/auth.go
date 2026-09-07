@@ -49,16 +49,33 @@ type AppleIdentityTokenClaims struct {
 	jwt.RegisteredClaims
 }
 
-// IsEmailVerified returns whether the email is verified, handling both string and bool types
+// IsEmailVerified reports whether Apple asserted it verified the address.
 func (c *AppleIdentityTokenClaims) IsEmailVerified() bool {
-	switch v := c.EmailVerified.(type) {
+	verified, _ := ParseEmailVerifiedClaim(c.EmailVerified)
+	return verified
+}
+
+// ParseEmailVerifiedClaim reads one provider's email-verification flag. It
+// arrives as a JSON bool from an OIDC userinfo response and as the string
+// "true"/"false" from an Apple identity token, so both shapes decode here.
+//
+// present is false for a nil claim and for any other shape, which keeps an
+// unreadable value from being mistaken for an assertion in either direction.
+// Callers that treat "the provider said nothing" the same as "the provider
+// said no" can ignore it.
+func ParseEmailVerifiedClaim(raw any) (verified bool, present bool) {
+	switch v := raw.(type) {
 	case bool:
-		return v
+		return v, true
 	case string:
-		return v == "true"
-	default:
-		return false
+		switch v {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		}
 	}
+	return false, false
 }
 
 // PasswordValidationResult contains the result of password validation

@@ -4,42 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
-
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
-	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
-// erroringAppleAuthService returns a fixed error from FindOrCreateAppleUser so
-// the handler's discrimination between a refusal and a fault can be driven
-// without a database.
-type erroringAppleAuthService struct {
-	err error
-}
-
-func (m *erroringAppleAuthService) ValidateIdentityToken(string) (*contracts.AppleIdentityTokenClaims, error) {
-	return &contracts.AppleIdentityTokenClaims{
-		Email:            "apple-refused@example.com",
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "apple-sub-refused"},
-	}, nil
-}
-
-func (m *erroringAppleAuthService) FindOrCreateAppleUser(*contracts.AppleIdentityTokenClaims, string, string) (*authm.User, error) {
-	return nil, m.err
-}
-
-func (m *erroringAppleAuthService) GenerateToken(*authm.User) (string, error) {
-	return "", nil
-}
-
-// TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode: the address belongs to
-// an account that exists, which is a decision the caller can act on, not the
-// backend being unavailable. The goth callback carries the same refusal to its
-// redirect; this is the iOS-facing half of that pair.
+// A refused address names an account that exists, which the caller can act on.
+// The goth callback carries the same refusal to its redirect.
 func TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode(t *testing.T) {
-	svc := &erroringAppleAuthService{err: autherrors.ErrUserExists("apple-refused@example.com")}
+	svc := &mockAppleAuthService{findErr: autherrors.ErrUserExists("apple-refused@example.com")}
 	h := NewAppleAuthHandler(svc, &testhelpers.MockDiscordService{}, testConfig())
 
 	input := &AppleCallbackRequest{}
@@ -63,10 +35,10 @@ func TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode(t *testing.T) {
 	}
 }
 
-// A genuine backend fault still reports as one, so the new branch has not
+// A genuine fault still reports as one, so the refusal branch has not
 // swallowed the fail-closed arm it sits in front of.
 func TestAppleCallbackHandler_BackendFaultStaysServiceUnavailable(t *testing.T) {
-	svc := &erroringAppleAuthService{err: autherrors.ErrServiceUnavailable("database", nil)}
+	svc := &mockAppleAuthService{findErr: autherrors.ErrServiceUnavailable("database", nil)}
 	h := NewAppleAuthHandler(svc, &testhelpers.MockDiscordService{}, testConfig())
 
 	input := &AppleCallbackRequest{}

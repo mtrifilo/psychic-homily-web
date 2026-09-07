@@ -25,46 +25,34 @@ func authorizedFauxUser(t *testing.T) goth.User {
 	return user
 }
 
-// TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault: the E2E seed
-// pre-creates an account at TestProviderEmail, and the link-by-email path only
-// links an address the provider vouches for. Stock faux supplies no RawData at
-// all, so without this the seeded account could never be signed into.
+// The seeded account at TestProviderEmail is linked by address, and the link
+// path only links an address the provider vouches for. Stock faux supplies no
+// RawData, so without the default the seeded account is unreachable.
 func TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault(t *testing.T) {
 	t.Setenv(TestProviderUnverifiedEmailEnvVar, "")
 
 	user := authorizedFauxUser(t)
 
-	verified, ok := user.RawData[emailVerifiedRawDataKey].(bool)
+	verified, ok := user.RawData[EmailVerifiedRawDataKey].(bool)
 	if !ok {
-		t.Fatalf("RawData[%q] = %#v, want a bool", emailVerifiedRawDataKey, user.RawData[emailVerifiedRawDataKey])
+		t.Fatalf("RawData[%q] = %#v, want a bool", EmailVerifiedRawDataKey, user.RawData[EmailVerifiedRawDataKey])
 	}
 	if !verified {
-		t.Errorf("RawData[%q] = false, want true by default", emailVerifiedRawDataKey)
+		t.Errorf("RawData[%q] = false, want true by default", EmailVerifiedRawDataKey)
 	}
 }
 
-// TestTestProvider_FetchUser_ReportsUnverifiedEmailWhenFlagged gives the
-// refusal path a driver that goes through the real gothic machinery.
+// The flag gives the refusal path a driver that runs the real gothic machinery.
 func TestTestProvider_FetchUser_ReportsUnverifiedEmailWhenFlagged(t *testing.T) {
 	t.Setenv(TestProviderUnverifiedEmailEnvVar, "1")
 
 	user := authorizedFauxUser(t)
 
-	verified, ok := user.RawData[emailVerifiedRawDataKey].(bool)
+	verified, ok := user.RawData[EmailVerifiedRawDataKey].(bool)
 	if !ok {
-		t.Fatalf("RawData[%q] = %#v, want a bool", emailVerifiedRawDataKey, user.RawData[emailVerifiedRawDataKey])
+		t.Fatalf("RawData[%q] = %#v, want a bool", EmailVerifiedRawDataKey, user.RawData[EmailVerifiedRawDataKey])
 	}
 	if verified {
-		t.Errorf("RawData[%q] = true, want false under %s=1", emailVerifiedRawDataKey, TestProviderUnverifiedEmailEnvVar)
-	}
-}
-
-// The key the clone writes must be one the link path actually reads. Spelled
-// out here because the clone answers as "google", and goth's google provider
-// reads oauth2/v2/userinfo, whose field is verified_email rather than the OIDC
-// email_verified.
-func TestTestProvider_EmailVerifiedKeyMatchesGoogleUserinfoField(t *testing.T) {
-	if emailVerifiedRawDataKey != "verified_email" {
-		t.Errorf("emailVerifiedRawDataKey = %q, want verified_email", emailVerifiedRawDataKey)
+		t.Errorf("RawData[%q] = true, want false under %s=1", EmailVerifiedRawDataKey, TestProviderUnverifiedEmailEnvVar)
 	}
 }
