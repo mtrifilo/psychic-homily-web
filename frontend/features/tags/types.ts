@@ -9,8 +9,14 @@ export type TagCategory = typeof TAG_CATEGORIES[number]
  * A tag naming a MUSIC BOOKER: a promoter, a DIY crew or collective, or a
  * named series or residency that books live music. Minting one is admin-only
  * (backend `IsAdminMintOnlyTagCategory`); applying an existing one is not.
+ *
+ * Crew is the one category that is not a description of sound. Every rule
+ * below that treats it differently follows from that.
  */
-export const TAG_CATEGORY_CREW: TagCategory = 'crew'
+export const TAG_CATEGORY_CREW = 'crew' as const satisfies TagCategory
+
+/** A category a contributor-facing chip row may offer. */
+export type FacetTagCategory = Exclude<TagCategory, typeof TAG_CATEGORY_CREW>
 
 /**
  * The categories a tag-facet chip row offers: the browse-page facet panels
@@ -29,17 +35,8 @@ export const TAG_CATEGORY_CREW: TagCategory = 'crew'
  * Tag browse (`/tags`) offers the full `TAG_CATEGORIES` set instead, and
  * `/admin/tags` mints from it, so crew tags stay reachable and creatable.
  */
-export const FACET_TAG_CATEGORIES: readonly TagCategory[] =
-  TAG_CATEGORIES.filter(c => c !== TAG_CATEGORY_CREW)
-
-/**
- * Whether a tag belongs in a chip row that shows no category of its own.
- * The rule names what it excludes, so a category this build has not heard of
- * still renders instead of silently vanishing.
- */
-export function isFacetTagCategory(category: string): boolean {
-  return category !== TAG_CATEGORY_CREW
-}
+export const FACET_TAG_CATEGORIES: readonly FacetTagCategory[] =
+  TAG_CATEGORIES.filter((c): c is FacetTagCategory => c !== TAG_CATEGORY_CREW)
 
 // Sort options for the tag browse page. Values are the URL-facing slugs;
 // `backend` is the value passed to the /tags `sort` query param.
@@ -467,31 +464,90 @@ export interface GenreHierarchyNode extends GenreHierarchyTag {
 }
 
 /**
- * Per-category chip classes, bound to the DS categorical palette (PSY-943).
- * genre = chart-6 (denim), locale = chart-8 (teal), other = muted (the
- * neutral catch-all). The token tints track light/dark via the CSS cascade.
+ * One category's chip vocabulary, bound to the DS categorical palette
+ * (PSY-943): genre = chart-6 (denim), locale = chart-8 (teal), other = muted
+ * (the neutral catch-all). The tokens track light/dark via the CSS cascade.
  *
- * `crew` is the one category whose treatment is not a tint. It carries shape
- * and typography too: an unfilled hairline square on the border token, mono
- * uppercase on muted-foreground (Figma `1402:789`). A crew tag names a party
- * rather than a sound, and the coloured pill is the genre vocabulary's
- * signature, so crew is deliberately outside it. Font SIZE stays with the
- * calling surface, which owns its own density.
- *
- * Callers must compose this through `cn` (or a component that does), because
- * the crew string overrides shape utilities the caller sets first.
- *
- * The colour token is the FIRST `text-*` class in every string:
- * TagBrowse.categoryTextTint reads it positionally.
+ * `shape` is set only for a category whose identity is not a colour, which
+ * is why it is a separate field rather than more classes on the tint: a
+ * text-only surface can take the tint alone, and the official accent (below)
+ * can tell the two kinds of category apart without parsing a class string.
+ */
+interface CategoryChipTokens {
+  bg: string
+  text: string
+  border: string
+  shape?: string
+}
+
+const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
+  genre: { bg: 'bg-chart-6/10', text: 'text-chart-6', border: 'border-chart-6/20' },
+  locale: { bg: 'bg-chart-8/10', text: 'text-chart-8', border: 'border-chart-8/20' },
+  other: { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' },
+  // Figma `1402:789`: an unfilled hairline square on the border token, mono
+  // uppercase on muted-foreground. Font SIZE is absent on purpose, so each
+  // surface keeps its own density.
+  crew: {
+    bg: 'bg-transparent',
+    text: 'text-muted-foreground',
+    border: 'border-border',
+    shape: 'rounded-[2px] font-mono uppercase tracking-[0.04em]',
+  },
+}
+
+const CATEGORY_CHIP_CLASSES: Record<string, string> = Object.fromEntries(
+  Object.entries(CATEGORY_CHIP_TOKENS).map(([category, t]) => [
+    category,
+    [t.bg, t.text, t.border, t.shape].filter(Boolean).join(' '),
+  ])
+)
+
+/** Classes an unrecognized category falls back to. */
+const FALLBACK_CATEGORY: TagCategory = 'other'
+
+function categoryTokens(category: string): CategoryChipTokens {
+  return CATEGORY_CHIP_TOKENS[category as TagCategory] ?? CATEGORY_CHIP_TOKENS[FALLBACK_CATEGORY]
+}
+
+/**
+ * Every class a category's chip wears. Callers must compose this through
+ * `cn` (or a component that does), because a category carrying `shape`
+ * overrides shape utilities the caller sets first.
  */
 export function getCategoryChipClasses(category: string): string {
-  const classes: Record<string, string> = {
-    genre: 'bg-chart-6/10 text-chart-6 border-chart-6/20',
-    locale: 'bg-chart-8/10 text-chart-8 border-chart-8/20',
-    other: 'bg-muted text-muted-foreground border-border',
-    crew: 'bg-transparent text-muted-foreground border-border rounded-[2px] font-mono uppercase tracking-[0.04em]',
+  return CATEGORY_CHIP_CLASSES[category] ?? CATEGORY_CHIP_CLASSES[FALLBACK_CATEGORY]
+}
+
+/**
+ * The foreground tint alone, for a surface that prints the category as text
+ * rather than as a chip and so must not inherit a chip's shape.
+ */
+export function getCategoryTint(category: string): string {
+  return categoryTokens(category).text
+}
+
+/**
+ * The accent an official tag wears in place of its category tint, so curated
+ * tags read as curated at a glance (ISSUE-004 from tags-audit-2).
+ */
+const OFFICIAL_TAG_CHIP_CLASSES = 'border-primary/40 bg-primary/10 text-foreground'
+
+/**
+ * Classes for one applied tag's chip. The official accent replaces a
+ * category whose identity is a tint, because one colour swapped for another
+ * loses nothing. A category whose identity is its SHAPE keeps its own
+ * classes: the accent is the same pill an official genre tag wears, so it
+ * would erase the only thing that tells the two apart. The official
+ * indicator rendered beside the name still says the tag is curated.
+ */
+export function getTagChipClasses(tag: {
+  category: string
+  is_official: boolean
+}): string {
+  if (tag.is_official && !categoryTokens(tag.category).shape) {
+    return OFFICIAL_TAG_CHIP_CLASSES
   }
-  return classes[category] || classes.other
+  return getCategoryChipClasses(tag.category)
 }
 
 export function getCategoryLabel(category: string): string {

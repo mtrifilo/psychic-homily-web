@@ -34,8 +34,8 @@ import {
 } from '../hooks'
 import {
   getCategoryChipClasses,
+  getTagChipClasses,
   FACET_TAG_CATEGORIES,
-  TAG_CATEGORY_CREW,
   getCategoryLabel,
 } from '../types'
 import type { EntityTag, TagListItem } from '../types'
@@ -481,17 +481,7 @@ function TagWithVotes({
           onKeyDown={handleTriggerKeyDown}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
-            // Official tags get a distinct primary-accent background that
-            // overrides the per-category color, making curated tags visibly
-            // different at a glance (ISSUE-004 from tags-audit-2).
-            //
-            // Crew is the exception, because that accent is the same pill an
-            // official genre tag wears and crew tags are admin-minted, so the
-            // accent would erase the one treatment that tells a booker from a
-            // sound. The indicator beside the name still says it is curated.
-            tag.is_official && tag.category !== TAG_CATEGORY_CREW
-              ? 'border-primary/40 bg-primary/10 text-foreground'
-              : getCategoryChipClasses(tag.category)
+            getTagChipClasses(tag)
           )}
         >
           {tag.is_official && (
@@ -753,9 +743,9 @@ function AddTagForm({
   // createCategory untouched, matching the prior effect's `if (filterCategory)`
   // guard.
   //
-  // The mirror is only sound while both controls read the same vocabulary:
-  // a chip with no matching option would set a create category the select
-  // cannot display, and submit it anyway. Both read FACET_TAG_CATEGORIES.
+  // The mirror is only sound while both controls read one vocabulary: a chip
+  // with no matching option sets a create category the select cannot show and
+  // submits it anyway. Both read FACET_TAG_CATEGORIES.
   const handleSelectFilterCategory = (cat: string) => {
     setFilterCategory(cat)
     if (cat) {

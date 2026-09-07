@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-import { isFacetTagCategory } from '@/features/tags'
+import { TAG_CATEGORY_CREW } from '@/features/tags'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { CollectionCoverImage } from './CollectionCoverImage'
@@ -102,10 +102,8 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   // top-4 slice stays.
   const mosaicTypes = entityTypeBreakdown.slice(0, 4).map(([type]) => type)
 
-  // The chip row below shows no category, so it only carries categories that
-  // read as a descriptor of the collection. See the comment on the row.
-  const visibleTags = (collection.tags ?? []).filter(tag =>
-    isFacetTagCategory(tag.category)
+  const visibleTags = (collection.tags ?? []).filter(
+    tag => tag.category !== TAG_CATEGORY_CREW
   )
 
   return (
@@ -222,11 +220,12 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               cards behave like a "show me other collections like this"
               shortcut rather than a deep-dive into the tag's full corpus.
 
-              Every chip here is the same neutral pill regardless of
+              Every chip here is the same neutral pill whatever the tag's
               category, so the row carries no category signal and a booker's
-              name would read as a sound. Crew tags are dropped before the
-              cap, which keeps the "+N" remainder consistent with what the
-              row shows; the collection's detail page still lists them. */}
+              name would read as a sound. Crew is filtered before the cap, so
+              the "+N" remainder counts only chips this row can show; the
+              collection's detail page still lists the full set. Any other
+              category, including one this build does not know, renders. */}
           {visibleTags.length > 0 && (
             <div
               className="mt-1.5 flex flex-wrap gap-1"

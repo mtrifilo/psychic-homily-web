@@ -152,7 +152,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 import { EntityTagList, AddTagDialog } from './EntityTagList'
-import { FACET_TAG_CATEGORIES } from '../types'
+import { FACET_TAG_CATEGORIES, getCategoryLabel } from '../types'
 
 describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
@@ -701,9 +701,7 @@ describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
     ).toBeInTheDocument()
 
     const dialog = screen.getByRole('dialog')
-    const chipLabels = FACET_TAG_CATEGORIES.map(
-      cat => cat.charAt(0).toUpperCase() + cat.slice(1)
-    )
+    const chipLabels = FACET_TAG_CATEGORIES.map(getCategoryLabel)
     const optionLabels = within(dialog)
       .getAllByRole('option')
       .map(o => o.textContent)

@@ -289,18 +289,19 @@ describe('TagBrowse', () => {
     expect(within(screen.getByTestId('facet-crew')).getByText('3')).toBeInTheDocument()
   })
 
-  it('counts crew tags inside All, so the sum matches the chips beside it', () => {
-    // A category with no count query behind it would silently drop out of the
-    // All total while still rendering a chip: All would contradict its row.
+  it('issues a count query for every category it renders a chip for', () => {
+    // useCategoryCounts writes its useTags calls out by hand (they are hooks),
+    // so a category added to TAG_CATEGORIES without a line there would render
+    // a chip reading 0 and drop out of the All total.
     mockTags({ list: [makeTag()], total: 27, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
 
     renderWithProviders(<TagBrowse />)
 
-    const chipTotal = TAG_CATEGORIES.reduce((sum, cat) => {
-      const chip = screen.getByTestId(`facet-${cat}`)
-      return sum + Number(within(chip).getByText(/^\d+$/).textContent)
-    }, 0)
-    expect(within(screen.getByTestId('facet-all')).getByText(String(chipTotal))).toBeInTheDocument()
+    for (const cat of TAG_CATEGORIES) {
+      expect(mockUseTags).toHaveBeenCalledWith(
+        expect.objectContaining({ category: cat, limit: 1 })
+      )
+    }
   })
 
   it('filters the list to crew when the crew facet chip is clicked', async () => {

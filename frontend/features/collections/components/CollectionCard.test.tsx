@@ -558,6 +558,16 @@ describe('CollectionCard', () => {
       )
     })
 
+    // PSY-1883: a booker's tag on a card whose chips print no category.
+    const crewTag = {
+      id: 99,
+      name: 'Rubber Brother Records',
+      slug: 'rubber-brother-records',
+      category: 'crew',
+      is_official: true,
+      usage_count: 31,
+    }
+
     it('drops crew chips: the row shows no category, so a booker reads as a genre', () => {
       const collection: Collection = {
         ...baseCollection,
@@ -570,14 +580,7 @@ describe('CollectionCard', () => {
             is_official: false,
             usage_count: 9,
           },
-          {
-            id: 2,
-            name: 'Rubber Brother Records',
-            slug: 'rubber-brother-records',
-            category: 'crew',
-            is_official: true,
-            usage_count: 31,
-          },
+          crewTag,
         ],
       }
       render(<CollectionCard collection={collection} />)
@@ -591,14 +594,7 @@ describe('CollectionCard', () => {
       const collection: Collection = {
         ...baseCollection,
         tags: [
-          {
-            id: 2,
-            name: 'Rubber Brother Records',
-            slug: 'rubber-brother-records',
-            category: 'crew',
-            is_official: true,
-            usage_count: 31,
-          },
+          crewTag,
         ],
       }
       render(<CollectionCard collection={collection} />)
@@ -621,14 +617,7 @@ describe('CollectionCard', () => {
             is_official: false,
             usage_count: 1,
           })),
-          {
-            id: 99,
-            name: 'Rubber Brother Records',
-            slug: 'rubber-brother-records',
-            category: 'crew',
-            is_official: true,
-            usage_count: 31,
-          },
+          crewTag,
         ],
       }
       render(<CollectionCard collection={collection} />)

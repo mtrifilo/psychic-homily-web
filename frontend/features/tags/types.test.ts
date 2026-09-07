@@ -8,6 +8,8 @@ import {
   LOW_QUALITY_SIGNAL_CHIPS,
   FACET_TAG_CATEGORIES,
   getCategoryChipClasses,
+  getCategoryTint,
+  getTagChipClasses,
   getCategoryLabel,
   getEntityUrl,
   getEntityTypePluralLabel,
@@ -93,29 +95,14 @@ describe('getCategoryChipClasses', () => {
   })
 
   it('gives crew an unfilled hairline square in mono uppercase (Figma 1402:789)', () => {
-    const crew = getCategoryChipClasses('crew')
-    expect(crew).toContain('bg-transparent')
-    expect(crew).toContain('border-border')
-    expect(crew).toContain('rounded-[2px]')
-    expect(crew).toContain('font-mono')
-    expect(crew).toContain('uppercase')
-    expect(crew).toContain('tracking-[0.04em]')
-    expect(crew).toContain('text-muted-foreground')
+    expect(getCategoryChipClasses('crew')).toBe(
+      'bg-transparent text-muted-foreground border-border rounded-[2px] font-mono uppercase tracking-[0.04em]'
+    )
   })
 
-  it('gives crew no colour fill, unlike every other category', () => {
+  it('gives crew no colour fill, so it is not another tint among the tints', () => {
     expect(getCategoryChipClasses('crew')).not.toMatch(/bg-(?:chart|muted|primary)/)
     expect(getCategoryChipClasses('crew')).not.toBe(getCategoryChipClasses('other'))
-  })
-
-  it('leads every category with its colour token so text-only callers can read it', () => {
-    // TagBrowse.categoryTextTint takes the FIRST `text-*` class as the tint.
-    for (const cat of TAG_CATEGORIES) {
-      const first = getCategoryChipClasses(cat)
-        .split(' ')
-        .find(c => c.startsWith('text-'))
-      expect(first).toMatch(/^text-(?:chart-\d|muted-foreground|foreground)$/)
-    }
   })
 
   it('sets no font size, leaving density to the calling surface', () => {
@@ -128,6 +115,53 @@ describe('getCategoryChipClasses', () => {
 
   it('falls back to the "other" styling for an unknown category', () => {
     expect(getCategoryChipClasses('mystery')).toBe(getCategoryChipClasses('other'))
+  })
+})
+
+describe('getCategoryTint', () => {
+  it('returns the colour token alone, with no chip shape attached', () => {
+    expect(getCategoryTint('genre')).toBe('text-chart-6')
+    expect(getCategoryTint('locale')).toBe('text-chart-8')
+    expect(getCategoryTint('other')).toBe('text-muted-foreground')
+    // Crew's identity is its shape; a text-only surface takes the tint only.
+    expect(getCategoryTint('crew')).toBe('text-muted-foreground')
+  })
+
+  it('never returns a shape or layout class', () => {
+    for (const cat of TAG_CATEGORIES) {
+      expect(getCategoryTint(cat)).toMatch(/^text-\S+$/)
+    }
+  })
+
+  it('falls back to the "other" tint for an unknown category', () => {
+    expect(getCategoryTint('mystery')).toBe(getCategoryTint('other'))
+  })
+})
+
+describe('getTagChipClasses', () => {
+  it('swaps a tint-only category for the official accent', () => {
+    for (const cat of ['genre', 'locale', 'other']) {
+      expect(getTagChipClasses({ category: cat, is_official: true })).toBe(
+        'border-primary/40 bg-primary/10 text-foreground'
+      )
+    }
+  })
+
+  it('keeps crew classes on an official crew tag', () => {
+    // Crew is admin-minted, so nearly every crew tag is official. The accent
+    // is the same pill an official genre tag wears, so taking it would erase
+    // the only thing that tells a booker from a sound.
+    expect(getTagChipClasses({ category: 'crew', is_official: true })).toBe(
+      getCategoryChipClasses('crew')
+    )
+  })
+
+  it('uses the category classes for any unofficial tag', () => {
+    for (const cat of TAG_CATEGORIES) {
+      expect(getTagChipClasses({ category: cat, is_official: false })).toBe(
+        getCategoryChipClasses(cat)
+      )
+    }
   })
 })
 

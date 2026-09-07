@@ -16,6 +16,7 @@ import {
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
   getCategoryChipClasses,
+  getCategoryTint,
   getCategoryLabel,
 } from '../types'
 import type { TagListItem, TagSortOption } from '../types'
@@ -61,10 +62,7 @@ function useCategoryCounts(search: string | undefined): {
     other: other.data?.total ?? 0,
     crew: crew.data?.total ?? 0,
   }
-  return {
-    counts,
-    all: TAG_CATEGORIES.reduce((sum, cat) => sum + (counts[cat] ?? 0), 0),
-  }
+  return { counts, all: Object.values(counts).reduce((sum, n) => sum + n, 0) }
 }
 
 export function TagBrowse() {
@@ -280,7 +278,7 @@ function FacetChip({
   label: string
   count: number
   active: boolean
-  /** Category tint classes (from getCategoryChipClasses) applied when active. */
+  /** Category chip classes applied when the chip is active. */
   categoryTint?: string
   onClick: () => void
 }) {
@@ -369,7 +367,7 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
               </Link>
             </td>
             <td>
-              <span className={cn('text-xs font-medium', categoryTextTint(tag.category))}>
+              <span className={cn('text-xs font-medium', getCategoryTint(tag.category))}>
                 {getCategoryLabel(tag.category)}
               </span>
             </td>
@@ -383,19 +381,4 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
   )
 }
 
-/**
- * Category as a tinted TEXT label (not a pill). Derives the foreground tint
- * from `getCategoryChipClasses` — the single source of truth for the genre→chart-6 /
- * locale→chart-8 / other→muted mapping — by keeping only its `text-*` token and
- * dropping the bg/border classes. Deriving (rather than re-hardcoding the map)
- * keeps the two surfaces from drifting. Contract: `getCategoryChipClasses` must return
- * exactly one `text-*` token; if that ever stops holding, this falls back to
- * `text-muted-foreground` (and TagBrowse.test.tsx asserts the genre tint, so a
- * regression surfaces in CI rather than silently).
- */
-function categoryTextTint(category: string): string {
-  const text = getCategoryChipClasses(category)
-    .split(' ')
-    .find(c => c.startsWith('text-'))
-  return text ?? 'text-muted-foreground'
-}
+

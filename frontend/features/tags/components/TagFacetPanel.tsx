@@ -89,10 +89,8 @@ export interface TagFacetPanelProps {
  * Sidebar/drawer used by the six browse pages (PSY-309). Groups tags by
  * category and lets the user toggle chips to combine tags with AND semantics.
  *
- * The vocabulary is FACET_TAG_CATEGORIES, not TAG_CATEGORIES: this panel is
- * the genre-facing filter, and crew tags are excluded from it by that
- * constant. A booker's tag fans out across a whole roster, so it would
- * outrank real genres here while answering a different question.
+ * The vocabulary is FACET_TAG_CATEGORIES, not TAG_CATEGORIES; that constant
+ * documents what it leaves out and why.
  *
  * Data source: `/tags?category={cat}&sort=usage&limit=N&entity_type=…` —
  * one query per category via `useTags`. The small category count keeps the
@@ -361,7 +359,7 @@ interface TagChipProps {
 }
 
 function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
-  const catColors = getCategoryChipClasses(tag.category)
+  const catClasses = getCategoryChipClasses(tag.category)
   return (
     <button
       type="button"
@@ -378,7 +376,7 @@ function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
           : 'cursor-pointer',
         selected
           ? 'bg-primary text-primary-foreground border-primary shadow-sm ring-1 ring-primary/40'
-          : `${catColors} ${disabled ? '' : 'hover:bg-muted/60'}`
+          : `${catClasses} ${disabled ? '' : 'hover:bg-muted/60'}`
       )}
     >
       <span>{tag.name}</span>
