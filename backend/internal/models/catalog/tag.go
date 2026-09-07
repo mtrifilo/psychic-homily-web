@@ -175,14 +175,11 @@ func IsAdminMintOnlyTagCategory(category string) bool {
 	return category == TagCategoryCrew
 }
 
-// normalizeTagCategory folds a STORED tags.category value to the spelling the
-// constants use. The column is a plain VARCHAR with no CHECK constraint, so a
-// row can hold "Crew" or " crew ", and a rule that reads a stored value has to
-// see those as crew.
+// normalizeTagCategory folds a STORED tags.category value, which the column
+// does not constrain, to the spelling the constants use.
 //
-// IsAdminMintOnlyTagCategory deliberately does not fold: its input is the
-// category on the REQUEST, which IsValidTagCategory has already matched exactly
-// against TagCategories.
+// IsAdminMintOnlyTagCategory does not fold: its input is the category on the
+// REQUEST, already matched exactly against TagCategories.
 func normalizeTagCategory(category string) string {
 	return strings.ToLower(strings.TrimSpace(category))
 }
@@ -191,13 +188,11 @@ func normalizeTagCategory(category string) string {
 // entity, or REMOVING one, requires the trusted contributor tier.
 //
 // Crew is gated because the value names a real party, so an application is a
-// claim that a named booker put on a show. The other categories describe rather
-// than name, so a wrong one is noise a curator fixes.
+// claim that a named booker put on a show.
 //
-// Separate from IsAdminMintOnlyTagCategory, which governs who may bring a NAME
-// into the vocabulary, and from IsDescriptiveTagCategory, which governs where a
-// tag may be ranked. The three agree on crew today and answer different
-// questions.
+// Answers a different question from IsAdminMintOnlyTagCategory (who may bring a
+// NAME into the vocabulary) and IsDescriptiveTagCategory (where a tag may be
+// ranked). The three agree on crew.
 func IsTierGatedTagCategory(category string) bool {
 	return normalizeTagCategory(category) == TagCategoryCrew
 }

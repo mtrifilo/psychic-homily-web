@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -257,7 +259,7 @@ func (suite *TagServiceIntegrationTestSuite) TestDescriptiveTagCategoryPredicate
 
 	var descriptiveIDs []uint
 	suite.Require().NoError(suite.db.Model(&catalogm.Tag{}).
-		Where("id IN ?", keysOf(ids)).
+		Where("id IN ?", slices.Collect(maps.Keys(ids))).
 		Where(descriptiveTagCategorySQL("tags")).
 		Pluck("id", &descriptiveIDs).Error)
 
@@ -272,12 +274,4 @@ func (suite *TagServiceIntegrationTestSuite) TestDescriptiveTagCategoryPredicate
 			"category %q is judged differently in Go and in SQL", category,
 		)
 	}
-}
-
-func keysOf(m map[uint]string) []uint {
-	ids := make([]uint, 0, len(m))
-	for id := range m {
-		ids = append(ids, id)
-	}
-	return ids
 }

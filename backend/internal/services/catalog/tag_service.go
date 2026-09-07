@@ -435,6 +435,8 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	// Resolve tag by ID or name
 	var tag *catalogm.Tag
 	var createdInline bool
+	// Loaded at most once, by the paths that need the caller's standing.
+	var caller *authm.User
 	if tagID > 0 {
 		var t catalogm.Tag
 		if err := s.db.First(&t, tagID).Error; err != nil {
@@ -458,7 +460,12 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 			if err := s.db.Where("LOWER(name) = LOWER(?)", tagName).First(&t).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// Tag not found — create inline if user has permission
-					newTag, createErr := s.createTagInline(tagName, category, userID)
+					loaded, loadErr := s.loadCallerTier(userID)
+					if loadErr != nil {
+						return nil, loadErr
+					}
+					caller = loaded
+					newTag, createErr := s.createTagInline(tagName, category, caller)
 					if createErr != nil {
 						return nil, createErr
 					}
@@ -475,13 +482,23 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 		return nil, fmt.Errorf("tag_id or tag_name is required")
 	}
 
-	// Membership in a tier-gated category is a claim about a named party, so
-	// applying one takes the trusted tier. The RESOLVED tag's STORED category
-	// governs, not the category on the request: the request's category is a hint
-	// for inline creation, and a caller naming an existing tag may send any
-	// category or none.
+	// The RESOLVED tag's STORED category governs, not the category on the
+	// request: the request's category is a hint for inline creation, and a
+	// caller naming an existing tag may send any category or none. Naming an
+	// existing tag reaches here through createTagInline's duplicate lookup, so
+	// this gate is the one that governs every application.
+	//
+	// The caller's row is read only when the category can refuse, so an
+	// ungated application stays the write it was.
 	if catalogm.IsTierGatedTagCategory(tag.Category) {
-		if err := s.requireTrustedTier(userID, tag.Category); err != nil {
+		if caller == nil {
+			loaded, loadErr := s.loadCallerTier(userID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			caller = loaded
+		}
+		if err := requireMembershipTier(caller, tag.Category); err != nil {
 			return nil, err
 		}
 	}
@@ -525,36 +542,35 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	return entityTag, nil
 }
 
-// requireTrustedTier refuses a caller whose standing is below trusted
-// contributor. category is the tag's own stored category and appears in the
-// refusal, so the caller is told which rule it hit.
-func (s *TagService) requireTrustedTier(userID uint, category string) error {
-	var user authm.User
-	if err := s.db.First(&user, userID).Error; err != nil {
-		return fmt.Errorf("failed to look up user: %w", err)
+// requireMembershipTier is the membership rule, spelled once. category is the
+// tag's own category and appears in the refusal, so the caller is told which
+// rule it hit.
+func requireMembershipTier(caller *authm.User, category string) error {
+	if !catalogm.IsTierGatedTagCategory(category) {
+		return nil
 	}
-	if !user.HasTrustedTier() {
+	if !caller.HasTrustedTier() {
 		return apperrors.ErrTagCategoryTierOnly(category)
 	}
 	return nil
 }
 
-// createTagInline creates a new tag as part of the AddTagToEntity flow.
-//
-// Three refusals live here, on different terms and at different points. The
-// CREATION-tier refusal is first and applies to the whole call: a new_user
-// reaching this function is refused before the tag is even resolved. The other
-// two sit after the duplicate lookup, so they refuse only an actual create: the
-// MEMBERSHIP-tier refusal, because the mint refusal points the caller at
-// applying an existing tag instead, and then the ADMIN-MINT refusal, so only an
-// admin brings a new name in the category into existence.
-func (s *TagService) createTagInline(tagName string, category string, userID uint) (*catalogm.Tag, error) {
-	// Look up user to check trust tier
+// loadCallerTier reads the columns the tag write gates decide on, and nothing
+// else: the row also carries a password hash and a profile.
+func (s *TagService) loadCallerTier(userID uint) (*authm.User, error) {
 	var user authm.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if err := s.db.Select("id", "user_tier", "is_admin").First(&user, userID).Error; err != nil {
 		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
+	return &user, nil
+}
 
+// createTagInline creates a new tag as part of the AddTagToEntity flow, or
+// returns the existing tag the name resolves to.
+//
+// The creation-tier refusal applies to the whole call. The two below it sit
+// after the duplicate lookup, so they refuse only an actual create.
+func (s *TagService) createTagInline(tagName string, category string, user *authm.User) (*catalogm.Tag, error) {
 	// Gate on trust tier: new_user cannot create tags
 	if user.UserTier == "new_user" && !user.IsAdmin {
 		return nil, apperrors.ErrTagCreationForbidden()
@@ -598,11 +614,11 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 		return &existing, nil
 	}
 
-	// The membership gate reaches the mint path too, and precedes the mint gate,
-	// because the mint refusal tells the caller to apply an existing tag of the
-	// category instead. A caller who may not apply one must not be sent there.
-	if catalogm.IsTierGatedTagCategory(category) && !user.HasTrustedTier() {
-		return nil, apperrors.ErrTagCategoryTierOnly(category)
+	// The membership gate precedes the mint gate because the mint refusal tells
+	// the caller to apply an existing tag of the category instead, and a caller
+	// who may not apply one must not be sent there.
+	if err := requireMembershipTier(user, category); err != nil {
+		return nil, err
 	}
 
 	// Admin-mint gate, placed AFTER the duplicate lookup above so it refuses
@@ -663,20 +679,21 @@ func (s *TagService) RemoveTagFromEntity(tagID uint, entityType string, entityID
 	// put on a show is the same claim about a named party as attaching one that
 	// did not.
 	//
-	// A tag id matching no row skips the gate and falls through to the delete,
-	// which answers "not applied" as it always has. Nothing that does not exist
-	// carries a category.
+	// A tag id matching no row falls through to the delete, which answers "not
+	// applied" as it always has. Nothing that does not exist carries a category.
 	var tag catalogm.Tag
-	switch err := s.db.Select("id", "category").First(&tag, tagID).Error; {
-	case err == nil:
-		if catalogm.IsTierGatedTagCategory(tag.Category) {
-			if gateErr := s.requireTrustedTier(userID, tag.Category); gateErr != nil {
-				return gateErr
-			}
-		}
-	case errors.Is(err, gorm.ErrRecordNotFound):
-	default:
+	err := s.db.Select("id", "category").First(&tag, tagID).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("failed to get tag: %w", err)
+	}
+	if err == nil && catalogm.IsTierGatedTagCategory(tag.Category) {
+		caller, loadErr := s.loadCallerTier(userID)
+		if loadErr != nil {
+			return loadErr
+		}
+		if gateErr := requireMembershipTier(caller, tag.Category); gateErr != nil {
+			return gateErr
+		}
 	}
 
 	result := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tagID, entityType, entityID).

@@ -3,7 +3,7 @@ package catalog
 import (
 	"os"
 	"regexp"
-	"sort"
+	"slices"
 	"testing"
 )
 
@@ -53,7 +53,7 @@ func TestDescriptiveTagCategoriesMatchFrontend(t *testing.T) {
 	}
 	frontendCrew := string(crewMatch[1])
 
-	if got, want := sorted(frontendCategories), sorted(TagCategories); !equal(got, want) {
+	if got, want := slices.Sorted(slices.Values(frontendCategories)), slices.Sorted(slices.Values(TagCategories)); !slices.Equal(got, want) {
 		t.Errorf("tag category vocabulary differs: frontend %v, backend %v", got, want)
 	}
 
@@ -74,28 +74,10 @@ func TestDescriptiveTagCategoriesMatchFrontend(t *testing.T) {
 			backendDescriptive = append(backendDescriptive, category)
 		}
 	}
-	if got, want := sorted(frontendDescriptive), sorted(backendDescriptive); !equal(got, want) {
+	if got, want := slices.Sorted(slices.Values(frontendDescriptive)), slices.Sorted(slices.Values(backendDescriptive)); !slices.Equal(got, want) {
 		t.Errorf("descriptive categories differ: frontend %v, backend %v", got, want)
 	}
 	if len(backendDescriptive) == len(TagCategories) {
 		t.Error("every category is descriptive, so the two lists agree vacuously")
 	}
-}
-
-func sorted(values []string) []string {
-	out := append([]string(nil), values...)
-	sort.Strings(out)
-	return out
-}
-
-func equal(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

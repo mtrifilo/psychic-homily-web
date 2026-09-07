@@ -115,8 +115,7 @@ func ErrTagCategoryAdminOnly(category string) *TagError {
 
 // ErrTagCategoryTierOnly is returned when a caller below the trusted
 // contributor tier APPLIES a tag of a tier-gated category to an entity, or
-// REMOVES one. Both directions carry it: attaching a booker to a show it never
-// played and stripping the booker that did are the same claim.
+// REMOVES one.
 //
 // Distinct from ErrTagCategoryAdminOnly, which turns on who may bring the NAME
 // into the vocabulary. This one turns on who may say what the name is attached

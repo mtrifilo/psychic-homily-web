@@ -1736,6 +1736,48 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveCollectionTag_Success() {
 	s.Empty(getResp.Body.Tags)
 }
 
+// PSY-2045: the collection tag endpoints reach the same TagService as the
+// entity ones, so they inherit the crew-membership gate rather than carrying
+// their own. Pinned here because the gate lives two layers away: nothing in
+// this package would notice a refactor that moved it into the entity handler.
+//
+// The rule wins over collection ownership: the caller owns the collection and
+// is still refused.
+func (s *CollectionHandlerIntegrationSuite) TestCollectionTagEndpointsInheritCrewMembershipGate() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Crew Tagged Coll", false)
+	ctx := testhelpers.CtxWithUser(user)
+
+	crew := &catalogm.Tag{Name: "Rubber Brother Records", Slug: "rubber-brother-records", Category: catalogm.TagCategoryCrew}
+	s.Require().NoError(s.deps.DB.Create(crew).Error)
+
+	// The control: the same caller applies and removes a descriptive tag.
+	addReq := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	addReq.Body.TagName = "desert-rock"
+	addResp, err := s.handler.AddCollectionTagHandler(ctx, addReq)
+	s.Require().NoError(err)
+	s.Require().Len(addResp.Body.Tags, 1)
+
+	crewReq := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	crewReq.Body.TagID = crew.ID
+	_, err = s.handler.AddCollectionTagHandler(ctx, crewReq)
+	testhelpers.AssertHumaError(s.T(), err, 403)
+
+	// Removal, against an edge the caller did not make.
+	s.Require().NoError(s.deps.DB.Create(&catalogm.EntityTag{
+		TagID:         crew.ID,
+		EntityType:    catalogm.TagEntityCollection,
+		EntityID:      coll.ID,
+		AddedByUserID: user.ID,
+	}).Error)
+	_, err = s.handler.RemoveCollectionTagHandler(ctx, &RemoveCollectionTagHandlerRequest{
+		Slug:  coll.Slug,
+		TagID: fmt.Sprintf("%d", crew.ID),
+	})
+	testhelpers.AssertHumaError(s.T(), err, 403)
+}
+
 func (s *CollectionHandlerIntegrationSuite) TestRemoveCollectionTag_NoAuth() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.promoteContributorForTags(user)
