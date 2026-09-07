@@ -320,3 +320,28 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Slu
 	suite.Assert().Equal(catalogm.TagCategoryLocale, created.Category)
 	suite.Assert().NotEqual(crew.Slug, created.Slug)
 }
+
+// The stored value is the trimmed typed name, so the duplicate lookup must key
+// on that value too: a padded spelling of an existing tag, sent with no
+// category, must resolve to the existing row instead of tripping the unique
+// index on LOWER(name).
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_PaddedNameResolvesToExistingRow() {
+	contributor := suite.createTestUserWithTier("padded-name-contributor", "contributor")
+
+	first := suite.createArtist("Padded Name Band One")
+	_, err := suite.tagService.AddTagToEntity(0, "Desert Rock", "artist", first, contributor.ID, catalogm.TagCategoryGenre)
+	suite.Require().NoError(err)
+	existing, err := suite.tagService.GetTagBySlug("desert-rock")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(existing)
+	before := suite.countTags()
+
+	second := suite.createArtist("Padded Name Band Two")
+	_, err = suite.tagService.AddTagToEntity(0, "  Desert Rock  ", "artist", second, contributor.ID, "")
+	suite.Require().NoError(err, "a padded spelling with no category must resolve, not 500")
+	suite.Assert().Equal(before, suite.countTags(), "no new tag row for a padded spelling")
+
+	var applied int64
+	suite.db.Model(&catalogm.EntityTag{}).Where("tag_id = ? AND entity_type = ? AND entity_id = ?", existing.ID, "artist", second).Count(&applied)
+	suite.Assert().Equal(int64(1), applied, "the existing tag is what got applied")
+}

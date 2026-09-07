@@ -84,7 +84,7 @@ func (s *SceneService) GetSceneCrews(city, state string) ([]contracts.SceneCrewS
 		       COUNT(*) AS show_count
 		FROM tags t
 		JOIN entity_tags et ON et.tag_id = t.id AND et.entity_type = ?
-		WHERE t.category = ?
+		WHERE LOWER(TRIM(t.category)) = ?
 		  AND `+shared.PublicEntityTagsSQL("et")+`
 		  AND EXISTS (
 		      SELECT 1

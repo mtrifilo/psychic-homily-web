@@ -75,6 +75,14 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 	}
 
 	if err := s.db.Create(tag).Error; err != nil {
+		// A duplicate key here means a row the lookups above could not see was
+		// inserted between them and this write, or matches on a fold the lookups
+		// do not apply; re-resolve on the stored key rather than surface a 500.
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			if err2 := s.db.Where("LOWER(name) = LOWER(?)", name).Order("id ASC").First(&existing).Error; err2 == nil {
+				return &existing, nil
+			}
+		}
 		return nil, fmt.Errorf("failed to create tag: %w", err)
 	}
 
@@ -603,28 +611,24 @@ func (s *TagService) createTagInline(tagName string, category string, user *auth
 		return nil, fmt.Errorf("invalid tag category: %s", category)
 	}
 
-	// Duplicate lookup, on two keys because one name reaches an existing tag two
-	// ways: the NORMALIZED form matches a row already stored slug-shaped, and
-	// the derived SLUG matches the same party stored with different spacing or
-	// punctuation. Both are needed once the stored name is the typed one, since
-	// neither key alone sees both spellings.
-	//
-	// The slug key is scoped to the REQUESTED category. Slugs are globally
-	// unique, so an unscoped slug key would answer a locale request with a crew
-	// tag that happens to derive the same slug, and the caller would never be
-	// told: this endpoint returns no body. Out of category, the create below
-	// falls back to a suffixed slug, which is what it did before this key
-	// existed. The name key is unscoped and stays that way.
-	//
-	// Ordered because the two keys can match different rows, and a First over an
-	// unordered OR picks arbitrarily. The name match wins; ties go to the older
-	// row.
+	// Duplicate lookup, in priority order, one key per query because the keys
+	// can match different rows and a single ordered OR is not something GORM's
+	// Order accepts as an expression. The stored NAME wins (the unique index on
+	// LOWER(name) is what the insert below would trip), then the NORMALIZED form
+	// (rows stored slug-shaped before names were kept as typed), then the derived
+	// SLUG scoped to the REQUESTED category: slugs are globally unique, so an
+	// unscoped slug key would answer a locale request with a crew tag that derives
+	// the same slug, and this endpoint returns no body to say so. Out of category
+	// the create below falls back to a suffixed slug.
 	baseSlug := utils.GenerateSlug(normalized)
 	var existing catalogm.Tag
-	if err := s.db.
-		Where("LOWER(name) = LOWER(?) OR (slug = ? AND category = ?)", normalized, baseSlug, category).
-		Order(gorm.Expr("(LOWER(name) = LOWER(?)) DESC, id ASC", normalized)).
-		First(&existing).Error; err == nil {
+	if err := s.db.Where("LOWER(name) = LOWER(?)", name).Order("id ASC").First(&existing).Error; err == nil {
+		return &existing, nil
+	}
+	if err := s.db.Where("LOWER(name) = LOWER(?)", normalized).Order("id ASC").First(&existing).Error; err == nil {
+		return &existing, nil
+	}
+	if err := s.db.Where("slug = ? AND category = ?", baseSlug, category).Order("id ASC").First(&existing).Error; err == nil {
 		return &existing, nil
 	}
 
