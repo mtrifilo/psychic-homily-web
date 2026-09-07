@@ -184,6 +184,49 @@ describe('fetchSceneWeek', () => {
     expect(captureMessage).not.toHaveBeenCalled()
   })
 
+  // Fields a consumer reads without a null guard: the dates go into date maths,
+  // `slug` and `iso_week` into the canonical and the share-image URL.
+  it.each(['start_date', 'end_date', 'city', 'slug', 'iso_week'])(
+    'rejects a body missing %s',
+    async field => {
+      const thin: Record<string, unknown> = { ...week() }
+      delete thin[field]
+      fetchMock.mockResolvedValue(jsonResponse(thin))
+
+      await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+    }
+  )
+
+  // A blank identity field survives every truthiness check downstream and
+  // builds a URL naming a different page, so it fails here rather than there.
+  it.each(['start_date', 'end_date', 'city', 'slug', 'iso_week'])(
+    'rejects a body whose %s is empty',
+    async field => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: '' }))
+
+      await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+    }
+  )
+
+  it.each(['start_date', 'end_date', 'city', 'slug', 'iso_week'])(
+    'rejects a body whose %s is only whitespace',
+    async field => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: '   ' }))
+
+      await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+    }
+  )
+
+  // The week's navigation keys are not part of the shape this validator insists
+  // on, so an empty one is not grounds to refuse an otherwise nameable week.
+  it('serves a week with empty navigation keys', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(week({ prev_week: '', next_week: '' })))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject({ iso_week: '2026-W31' })
+  })
+
   // Next decodes route params before this sees them, so an unescaped slug would
   // truncate the path at a `?` or `#` and hit a different backend endpoint.
   it('encodes both segments on every ask', async () => {

@@ -112,10 +112,9 @@ describe('buildSceneDayMetadata', () => {
     }
   })
 
-  // An empty `iso_week` passes the payload guard (`asPayload` accepts any
-  // string, and prev_date/next_date in that same required list are empty by
-  // design at the window edges). Unguarded, the canonical would collapse to
-  // `/scenes/phoenix-az/` for every scene at once, silently.
+  // The day reaches this module through an injected fetch, so an empty
+  // `iso_week` is a shape it has to answer for itself. Unguarded, the canonical
+  // would collapse to `/scenes/phoenix-az/` for every scene at once, silently.
   it('falls back to the day permalink when iso_week is empty', async () => {
     fetchSceneDay.mockResolvedValue(day({ iso_week: '' }))
 
@@ -137,9 +136,9 @@ describe('buildSceneDayMetadata', () => {
   })
 
   // The fallback above is only worth anything if the URL it falls back TO is
-  // itself well formed. `slug` and `date` come through the same guard that lets
-  // an empty string past, so a payload missing them must produce NO canonical
-  // rather than a `/scenes//` shape offered to crawlers as this page's identity.
+  // itself well formed, so a day that cannot name its own slug or date must
+  // produce NO canonical rather than a `/scenes//` shape offered to crawlers as
+  // this page's identity.
   it.each([
     ['slug', { slug: '' }],
     ['date', { date: '' }],

@@ -57,16 +57,11 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   const title = dayTitle(day)
   const description = dayDescription(day)
 
-  // A payload that cannot name its own page. `asPayload` in scenePeriodApi.ts
-  // only checks that each required field is a STRING, and `prev_date`/`next_date`
-  // in that same list are empty BY DESIGN at the window edges, so an empty
-  // string is a shape this guard demonstrably lets through. With an empty slug
-  // or date the URLs below would collapse to `/scenes//` shapes and be offered
-  // to crawlers as this page's identity, which is worse than offering nothing.
-  //
-  // (The narrow fix would be to reject empty strings at the boundary itself,
-  // for the fields that are never legitimately empty. That validator is shared
-  // with the week and OG-image surfaces, so it is left for its own change.)
+  // A payload that cannot name its own page. With an empty slug or date the
+  // URLs below would collapse to `/scenes//` shapes and be offered to crawlers
+  // as this page's identity, which is worse than offering nothing. The day
+  // arrives here through an injected fetch, so this module states the condition
+  // its own output depends on rather than inheriting it.
   if (!day.slug || !day.date) {
     return { title, description, robots: { index: false, follow: false } }
   }

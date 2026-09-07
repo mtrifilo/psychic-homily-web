@@ -183,6 +183,40 @@ describe('fetchSceneDay', () => {
     }
   )
 
+  // A blank identity field survives every truthiness check downstream and
+  // builds a URL naming a different page, so it fails here rather than there.
+  it.each(['date', 'city', 'slug', 'iso_week'])(
+    'rejects a body whose %s is empty',
+    async field => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: '' }))
+
+      await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+    }
+  )
+
+  it.each(['date', 'city', 'slug', 'iso_week'])(
+    'rejects a body whose %s is only whitespace',
+    async field => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: '   ' }))
+
+      await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+    }
+  )
+
+  // THE CASE THAT KEEPS THE WINDOW EDGES SERVABLE. The backend sends an empty
+  // `prev_date` on the first servable day and an empty `next_date` on the last;
+  // the view reads that emptiness as "no neighbour this way". Rejecting it here
+  // would 404 both edge days of every scene.
+  it.each([
+    ['prev_date', { prev_date: '' }],
+    ['next_date', { next_date: '' }],
+    ['both', { prev_date: '', next_date: '' }],
+  ])('serves a day with an empty %s', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(day(over)))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject(over)
+  })
+
   // Next decodes route params before this sees them, so an unescaped slug would
   // truncate the path at a `?` or `#` and hit a different backend endpoint.
   it('encodes both segments on every ask', async () => {

@@ -48,10 +48,19 @@ interface ScenePeriodSpec<T> {
   /** The API URL for this period key, or for the CURRENT period when omitted. */
   buildUrl: (key: string | undefined) => string
   /**
-   * Fields a consumer reads WITHOUT a null guard. Each must be a string on the
-   * wire or the body is not this payload at all.
+   * Fields that NAME the period: a consumer reads each without a null guard and
+   * builds a URL, a title, or a permalink out of it. Each must be a non-blank
+   * string on the wire. A blank one is worse than an absent one, because it
+   * survives every truthiness check downstream and collapses `/scenes/x/y`
+   * shapes into `/scenes//`, which names a different page.
    */
-  requiredFields: readonly string[]
+  identityFields: readonly string[]
+  /**
+   * Fields a consumer reads without a null guard whose EMPTY value carries
+   * meaning. Each must be a string on the wire; `''` is a legitimate answer and
+   * says "there is no such neighbour", so it must not fail the payload.
+   */
+  presenceFields: readonly string[]
   /** Reads the payload's "this period has ended" flag. */
   isFrozen: (payload: T) => boolean
   service: ScenePeriodService
@@ -64,11 +73,24 @@ interface ScenePeriodSpec<T> {
  * future API change can all answer 200 with something else. Checking the fields
  * a consumer dereferences blindly turns a crash into the ordinary "no data"
  * path; the rest of the payload is already optional-safe.
+ *
+ * The two field lists differ only in how they treat `''`. Blankness is a
+ * content check rather than a shape check, and it is applied to exactly the
+ * fields whose blank value has no meaning; a period whose own name is missing
+ * cannot be served, while a period with no neighbour is ordinary.
  */
-function asPayload<T>(body: unknown, requiredFields: readonly string[]): T | null {
+function asPayload<T>(
+  body: unknown,
+  identityFields: readonly string[],
+  presenceFields: readonly string[]
+): T | null {
   if (!body || typeof body !== 'object') return null
   const record = body as Record<string, unknown>
-  for (const field of requiredFields) {
+  for (const field of identityFields) {
+    const value = record[field]
+    if (typeof value !== 'string' || value.trim() === '') return null
+  }
+  for (const field of presenceFields) {
     if (typeof record[field] !== 'string') return null
   }
   return body as T
@@ -92,7 +114,8 @@ async function fetchPayload<T>(
     // adopts the promise AFTER the block exits, so a malformed body would reject
     // past this catch and 500 the route instead of reaching the caller's
     // fallback.
-    if (res.ok) return asPayload<T>(await res.json(), spec.requiredFields)
+    if (res.ok)
+      return asPayload<T>(await res.json(), spec.identityFields, spec.presenceFields)
     // 404 is the expected answer for an unknown slug, a below-threshold scene,
     // or a key that does not exist (2025-W53, 2026-02-30) — not an error worth
     // reporting.
