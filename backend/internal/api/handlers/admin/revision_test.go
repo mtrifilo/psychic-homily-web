@@ -509,6 +509,44 @@ func hiddenContributionsSettings(t *testing.T) *json.RawMessage {
 	return &raw
 }
 
+// FieldChange.OldValueWithheld is storage, not payload. It is set only when the
+// column it describes is SET, so serving it would tell a reader that an
+// unverified venue has a street address on record, which is the fact the
+// withholding refuses. Asserted on the JSON and for BOTH tiers, because the
+// admin tier is the one that unmasks everything else on this row.
+func TestMapRevisionToResponse_DropsTheWithheldStamp(t *testing.T) {
+	raw := json.RawMessage(
+		`[{"field":"address","old_value":"","new_value":"1234 Secret St","old_value_withheld":true}]`)
+	r := makeTestRevision(1)
+	r.EntityType = "venue"
+	r.FieldChanges = &raw
+
+	for _, tc := range []struct {
+		name   string
+		viewer contracts.RevisionViewer
+	}{
+		{"public", publicViewer()},
+		{"admin", adminViewer()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := mapRevisionToResponse(r, tc.viewer)
+			if len(item.Changes) != 1 {
+				t.Fatalf("expected one change, got %d", len(item.Changes))
+			}
+			if !item.Changes[0].OldValueUnstamped() {
+				t.Error("the served change must carry no stamp")
+			}
+			encoded, err := json.Marshal(item)
+			if err != nil {
+				t.Fatalf("marshal failed: %v", err)
+			}
+			if body := string(encoded); strings.Contains(body, "old_value_withheld") {
+				t.Errorf("the served JSON must not name the stamp: %s", body)
+			}
+		})
+	}
+}
+
 func TestMapRevisionToResponse_NilFieldChanges(t *testing.T) {
 	r := adminm.Revision{
 		ID:           1,

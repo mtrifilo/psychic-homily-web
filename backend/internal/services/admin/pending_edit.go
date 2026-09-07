@@ -1125,11 +1125,13 @@ func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contrac
 		UpdatedAt:           edit.UpdatedAt,
 	}
 
-	// Parse field changes
+	// Parse field changes. Served through ForServing, which drops the
+	// storage-only OldValueWithheld stamp: this response goes to the submitter,
+	// and the stamp answers the question the withholding exists to refuse.
 	if edit.FieldChanges != nil {
 		var changes []adminm.FieldChange
 		if err := json.Unmarshal(*edit.FieldChanges, &changes); err == nil {
-			resp.FieldChanges = changes
+			resp.FieldChanges = adminm.ForServing(changes)
 		}
 	}
 

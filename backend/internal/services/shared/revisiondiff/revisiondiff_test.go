@@ -13,10 +13,28 @@ func strPtr(s string) *string   { return &s }
 func intPtr(i int) *int         { return &i }
 func f64Ptr(f float64) *float64 { return &f }
 
-// TestCompare_ShowAllFields exercises the show field list across the value
-// kinds it uses (string, *string, *float64, time.Time) and asserts the exact
-// FieldChange shape — value Go types included — so output stays byte-identical
-// with the old computeShowChanges.
+// A diff cannot know whether the before-image its caller passed is the entity
+// or a gated view of it, so it asserts nothing about where the previous value
+// came from. The caller here is the admin update path, which passes two
+// already-gated VenueDetailResponse values: a withheld address reads as unset
+// on both sides, which is indistinguishable from a column that was empty.
+//
+// Stamping observed would put a claim onto a stored row that outlives the
+// function making it, and a rollback reading that claim writes the mask into
+// the column. Unstamped is the honest state and the one rollback leaves alone.
+func TestCompareDoesNotStampTheOldValue(t *testing.T) {
+	old := contracts.VenueDetailResponse{Name: "Old Room"}
+	updated := contracts.VenueDetailResponse{Name: "New Room"}
+
+	got := Compare(old, updated, VenueFields)
+	if len(got) != 1 {
+		t.Fatalf("expected one change, got %d", len(got))
+	}
+	if !got[0].OldValueUnstamped() {
+		t.Error("Compare must not assert where its caller's before-image came from")
+	}
+}
+
 func TestCompare_ShowAllFields(t *testing.T) {
 	oldDate := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
 	newDate := time.Date(2026, 5, 2, 21, 0, 0, 0, time.UTC)

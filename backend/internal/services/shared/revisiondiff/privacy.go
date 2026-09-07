@@ -72,6 +72,9 @@ var venuePrivateFields = func() map[string]struct{} {
 // returns a new slice and never mutates the input, because the input is
 // unmarshalled from a stored row that other code paths (rollback) must still
 // see raw.
+//
+// It says nothing about FieldChange.OldValueWithheld, which is dropped from
+// every served payload whatever the venue's state; see admin.ForServing.
 func RedactVenueChanges(changes []adminm.FieldChange) []adminm.FieldChange {
 	out := make([]adminm.FieldChange, len(changes))
 	copy(out, changes)
