@@ -608,9 +608,23 @@ func (s *TagService) createTagInline(tagName string, category string, user *auth
 	// the derived SLUG matches the same party stored with different spacing or
 	// punctuation. Both are needed once the stored name is the typed one, since
 	// neither key alone sees both spellings.
+	//
+	// The slug key is scoped to the REQUESTED category. Slugs are globally
+	// unique, so an unscoped slug key would answer a locale request with a crew
+	// tag that happens to derive the same slug, and the caller would never be
+	// told: this endpoint returns no body. Out of category, the create below
+	// falls back to a suffixed slug, which is what it did before this key
+	// existed. The name key is unscoped and stays that way.
+	//
+	// Ordered because the two keys can match different rows, and a First over an
+	// unordered OR picks arbitrarily. The name match wins; ties go to the older
+	// row.
 	baseSlug := utils.GenerateSlug(normalized)
 	var existing catalogm.Tag
-	if err := s.db.Where("LOWER(name) = LOWER(?) OR slug = ?", normalized, baseSlug).First(&existing).Error; err == nil {
+	if err := s.db.
+		Where("LOWER(name) = LOWER(?) OR (slug = ? AND category = ?)", normalized, baseSlug, category).
+		Order(gorm.Expr("(LOWER(name) = LOWER(?)) DESC, id ASC", normalized)).
+		First(&existing).Error; err == nil {
 		return &existing, nil
 	}
 
@@ -1250,6 +1264,10 @@ func (s *TagService) PruneDownvotedTags() (int64, error) {
 
 	// Find entity_tags that should be pruned
 	// Subquery: tag-entity pairs with more downvotes than upvotes and at least 2 total votes
+	//
+	// Tier-gated categories are exempt for the reason CleanupService's prune
+	// states: a vote threshold that deleted a crew application would undercut
+	// the gate RemoveTagFromEntity applies to the same row.
 	type pruneCandidate struct {
 		TagID      uint
 		EntityType string
@@ -1262,6 +1280,7 @@ func (s *TagService) PruneDownvotedTags() (int64, error) {
 		FROM tag_votes tv
 		JOIN tags t ON t.id = tv.tag_id
 		WHERE t.is_official = false
+		  AND ` + descriptiveTagCategorySQL("t") + `
 		GROUP BY tv.tag_id, tv.entity_type, tv.entity_id
 		HAVING COUNT(*) >= 2
 		   AND SUM(CASE WHEN tv.vote = -1 THEN 1 ELSE 0 END) > SUM(CASE WHEN tv.vote = 1 THEN 1 ELSE 0 END)

@@ -12,8 +12,11 @@ import (
 const frontendTagTypesPath = "../../../../frontend/features/tags/types.ts"
 
 var (
-	frontendCategoryListPattern = regexp.MustCompile(`(?s)TAG_CATEGORIES\s*=\s*\[(.*?)\]`)
-	frontendCrewPattern         = regexp.MustCompile(`TAG_CATEGORY_CREW\s*=\s*'([^']+)'`)
+	// Anchored on the declaration, so neither pattern can match inside a longer
+	// identifier such as DESCRIPTIVE_TAG_CATEGORIES, whose own initializer would
+	// otherwise let this test compare a derived list against itself.
+	frontendCategoryListPattern = regexp.MustCompile(`(?sm)^export const TAG_CATEGORIES\s*=\s*\[(.*?)\]`)
+	frontendCrewPattern         = regexp.MustCompile(`(?m)^export const TAG_CATEGORY_CREW\s*=\s*'([^']+)'`)
 	frontendQuotedPattern       = regexp.MustCompile(`'([^']+)'`)
 )
 

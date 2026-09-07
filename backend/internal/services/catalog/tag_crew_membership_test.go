@@ -275,3 +275,48 @@ func (suite *TagServiceIntegrationTestSuite) TestDescriptiveTagCategoryPredicate
 		)
 	}
 }
+
+// "Matching POST /tags" is the claim, so the two writers are compared rather
+// than described: the same typed name through CreateTag and through the inline
+// path must land the same name and the same slug shape.
+func (suite *TagServiceIntegrationTestSuite) TestInlineCreateMatchesCreateTagOnNameAndSlug() {
+	admin := suite.createAdminUser("parity-admin")
+
+	direct, err := suite.tagService.CreateTag("Gracie's Tax Bar", nil, nil, catalogm.TagCategoryOther, false, nil)
+	suite.Require().NoError(err)
+
+	artistID := suite.createArtist("Parity Band")
+	_, err = suite.tagService.AddTagToEntity(0, "Gracie's Tax Bar Two", "artist", artistID, admin.ID, catalogm.TagCategoryOther)
+	suite.Require().NoError(err)
+	inline, err := suite.tagService.GetTagBySlug("gracies-tax-bar-two")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(inline)
+
+	suite.Assert().Equal("Gracie's Tax Bar", direct.Name)
+	suite.Assert().Equal("gracies-tax-bar", direct.Slug)
+	suite.Assert().Equal("Gracie's Tax Bar Two", inline.Name)
+	suite.Assert().Equal("gracies-tax-bar-two", inline.Slug)
+}
+
+// The slug key is scoped to the requested category, so a request for one
+// category is never answered with an existing tag of another. Slugs are
+// globally unique, so the out-of-category request falls back to a suffixed
+// slug, which is what it did before the slug key existed.
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_SlugKeyDoesNotCrossCategories() {
+	admin := suite.createAdminUser("cross-category-admin")
+	// Punctuation differs, so only the DERIVED SLUG connects the two spellings.
+	// An exact-name match would be caught by the outer lookup in
+	// AddTagToEntity, which is unscoped and older than this key.
+	crew := suite.createTag("Tempe, AZ", catalogm.TagCategoryCrew)
+	suite.Require().Equal("tempe-az", crew.Slug)
+
+	artistID := suite.createArtist("Cross Category Band")
+	et, err := suite.tagService.AddTagToEntity(0, "Tempe AZ", "artist", artistID, admin.ID, catalogm.TagCategoryLocale)
+	suite.Require().NoError(err)
+	suite.Require().NotEqual(crew.ID, et.TagID, "a locale request must not be answered with the crew tag")
+
+	var created catalogm.Tag
+	suite.Require().NoError(suite.db.First(&created, et.TagID).Error)
+	suite.Assert().Equal(catalogm.TagCategoryLocale, created.Category)
+	suite.Assert().NotEqual(crew.Slug, created.Slug)
+}
