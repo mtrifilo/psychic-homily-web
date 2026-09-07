@@ -55,14 +55,7 @@ func allowedEditFields(entityType string) map[string]bool {
 
 // canEditDirectly returns true if the user can bypass the pending queue.
 func canEditDirectly(user *authm.User) bool {
-	if user.IsAdmin {
-		return true
-	}
-	switch user.UserTier {
-	case "trusted_contributor", "local_ambassador":
-		return true
-	}
-	return false
+	return user.HasTrustedTier()
 }
 
 // --- Suggest Edit ---

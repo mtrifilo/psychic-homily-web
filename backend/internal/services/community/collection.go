@@ -3303,7 +3303,7 @@ func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, use
 		return 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
-	if err := s.tagService.RemoveTagFromEntity(tagID, catalogm.TagEntityCollection, collection.ID); err != nil {
+	if err := s.tagService.RemoveTagFromEntity(tagID, catalogm.TagEntityCollection, collection.ID, userID); err != nil {
 		return 0, err
 	}
 

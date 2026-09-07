@@ -3835,7 +3835,7 @@ type MockTagService struct {
 	UpdateTagFn                func(uint, *string, *string, *uint, *string, *bool) (*catalogm.Tag, error)
 	DeleteTagFn                func(uint) error
 	AddTagToEntityFn           func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error)
-	RemoveTagFromEntityFn      func(uint, string, uint) error
+	RemoveTagFromEntityFn      func(uint, string, uint, uint) error
 	ListEntityTagsFn           func(string, uint, uint) ([]contracts.EntityTagResponse, error)
 	VoteOnTagFn                func(uint, string, uint, uint, bool) error
 	RemoveTagVoteFn            func(uint, string, uint, uint) error
@@ -3904,9 +3904,9 @@ func (m *MockTagService) AddTagToEntity(tagID uint, tagName string, entityType s
 	}
 	return nil, nil
 }
-func (m *MockTagService) RemoveTagFromEntity(tagID uint, entityType string, entityID uint) error {
+func (m *MockTagService) RemoveTagFromEntity(tagID uint, entityType string, entityID uint, userID uint) error {
 	if m.RemoveTagFromEntityFn != nil {
-		return m.RemoveTagFromEntityFn(tagID, entityType, entityID)
+		return m.RemoveTagFromEntityFn(tagID, entityType, entityID, userID)
 	}
 	return nil
 }

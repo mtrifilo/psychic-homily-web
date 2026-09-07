@@ -27,7 +27,7 @@ func MapTagError(err error) error {
 			return huma.Error409Conflict(tagErr.Message)
 		case apperrors.CodeEntityTagNotFound:
 			return huma.Error404NotFound(tagErr.Message)
-		case apperrors.CodeTagCreationForbidden, apperrors.CodeTagCategoryAdminOnly:
+		case apperrors.CodeTagCreationForbidden, apperrors.CodeTagCategoryAdminOnly, apperrors.CodeTagCategoryTierOnly:
 			return huma.Error403Forbidden(tagErr.Message)
 		case apperrors.CodeTagNameInvalid:
 			return huma.Error422UnprocessableEntity(tagErr.Message)

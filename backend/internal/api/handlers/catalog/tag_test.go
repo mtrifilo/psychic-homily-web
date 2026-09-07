@@ -355,7 +355,7 @@ func TestTagWriteRoutes_RefuseAnEntityTheCallerCannotSee(t *testing.T) {
 
 	t.Run("remove", func(t *testing.T) {
 		mock := &testhelpers.MockTagService{
-			RemoveTagFromEntityFn: func(uint, string, uint) error {
+			RemoveTagFromEntityFn: func(uint, string, uint, uint) error {
 				reached(t)()
 				return nil
 			},
@@ -492,7 +492,7 @@ func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 		{"remove", func(user *authm.User, showID uint) (int, error) {
 			reached := 0
 			mock := &testhelpers.MockTagService{
-				RemoveTagFromEntityFn: func(uint, string, uint) error { reached++; return nil },
+				RemoveTagFromEntityFn: func(uint, string, uint, uint) error { reached++; return nil },
 			}
 			_, err := NewTagHandler(mock, nil, showRule).
 				RemoveTagFromEntityHandler(testhelpers.CtxWithUser(user), &RemoveTagFromEntityRequest{

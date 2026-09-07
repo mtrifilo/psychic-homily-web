@@ -13,6 +13,7 @@ const (
 	CodeEntityTagNotFound     = "ENTITY_TAG_NOT_FOUND"
 	CodeTagCreationForbidden  = "TAG_CREATION_FORBIDDEN"
 	CodeTagCategoryAdminOnly  = "TAG_CATEGORY_ADMIN_ONLY"
+	CodeTagCategoryTierOnly   = "TAG_CATEGORY_TIER_ONLY"
 	CodeTagNameInvalid        = "TAG_NAME_INVALID"
 	CodeTagMergeInvalid       = "TAG_MERGE_INVALID"
 	CodeTagMergeAliasConflict = "TAG_MERGE_ALIAS_CONFLICT"
@@ -109,6 +110,21 @@ func ErrTagCategoryAdminOnly(category string) *TagError {
 	return &TagError{
 		Code:    CodeTagCategoryAdminOnly,
 		Message: fmt.Sprintf("Only admins can create %s tags. You can still apply an existing %s tag.", category, category),
+	}
+}
+
+// ErrTagCategoryTierOnly is returned when a caller below the trusted
+// contributor tier APPLIES a tag of a tier-gated category to an entity, or
+// REMOVES one. Both directions carry it: attaching a booker to a show it never
+// played and stripping the booker that did are the same claim.
+//
+// Distinct from ErrTagCategoryAdminOnly, which turns on who may bring the NAME
+// into the vocabulary. This one turns on who may say what the name is attached
+// to, so a trusted contributor clears it without being an admin.
+func ErrTagCategoryTierOnly(category string) *TagError {
+	return &TagError{
+		Code:    CodeTagCategoryTierOnly,
+		Message: fmt.Sprintf("Only trusted contributors can add or remove %s tags. Reach Trusted Contributor tier to change one.", category),
 	}
 }
 

@@ -475,6 +475,17 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 		return nil, fmt.Errorf("tag_id or tag_name is required")
 	}
 
+	// Membership in a tier-gated category is a claim about a named party, so
+	// applying one takes the trusted tier. The RESOLVED tag's STORED category
+	// governs, not the category on the request: the request's category is a hint
+	// for inline creation, and a caller naming an existing tag may send any
+	// category or none.
+	if catalogm.IsTierGatedTagCategory(tag.Category) {
+		if err := s.requireTrustedTier(userID, tag.Category); err != nil {
+			return nil, err
+		}
+	}
+
 	// Check for existing application
 	var existing catalogm.EntityTag
 	err := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tag.ID, entityType, entityID).
@@ -514,14 +525,29 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	return entityTag, nil
 }
 
+// requireTrustedTier refuses a caller whose standing is below trusted
+// contributor. category is the tag's own stored category and appears in the
+// refusal, so the caller is told which rule it hit.
+func (s *TagService) requireTrustedTier(userID uint, category string) error {
+	var user authm.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return fmt.Errorf("failed to look up user: %w", err)
+	}
+	if !user.HasTrustedTier() {
+		return apperrors.ErrTagCategoryTierOnly(category)
+	}
+	return nil
+}
+
 // createTagInline creates a new tag as part of the AddTagToEntity flow.
 //
-// Two refusals live here, on different terms and at different points. The TIER
-// refusal is first and applies to the whole call: a new_user reaching this
-// function is refused before the tag is even resolved. The CATEGORY refusal
-// sits after the duplicate lookup, so it refuses only an actual create: any
-// tier may apply an existing admin-mint-only tag, and only an admin may bring
-// a new one into existence.
+// Three refusals live here, on different terms and at different points. The
+// CREATION-tier refusal is first and applies to the whole call: a new_user
+// reaching this function is refused before the tag is even resolved. The other
+// two sit after the duplicate lookup, so they refuse only an actual create: the
+// MEMBERSHIP-tier refusal, because the mint refusal points the caller at
+// applying an existing tag instead, and then the ADMIN-MINT refusal, so only an
+// admin brings a new name in the category into existence.
 func (s *TagService) createTagInline(tagName string, category string, userID uint) (*catalogm.Tag, error) {
 	// Look up user to check trust tier
 	var user authm.User
@@ -534,13 +560,23 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 		return nil, apperrors.ErrTagCreationForbidden()
 	}
 
-	// Normalize the tag name
-	normalized := NormalizeTagName(tagName)
+	// The NAME is stored as typed, trimmed; the SLUG is derived from it. Same
+	// split as CreateTag, so a tag reads the same whichever path minted it. The
+	// normalized form is not stored, but it still bounds the name and keys the
+	// duplicate lookup below.
+	name := strings.TrimSpace(tagName)
+	normalized := NormalizeTagName(name)
 	if len(normalized) < 2 {
 		return nil, apperrors.ErrTagNameInvalid("must be at least 2 characters after normalization")
 	}
 	if len(normalized) > 50 {
 		return nil, apperrors.ErrTagNameInvalid("must be 50 characters or fewer after normalization")
+	}
+	// The stored value is the typed one, and normalization can only shorten, so
+	// the bound above does not reach it: a name that is mostly punctuation
+	// normalizes short and would still overflow the column.
+	if len(name) > catalogm.MaxTagNameLength {
+		return nil, apperrors.ErrTagNameInvalid(fmt.Sprintf("must be %d characters or fewer", catalogm.MaxTagNameLength))
 	}
 
 	// Default category
@@ -551,23 +587,35 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 		return nil, fmt.Errorf("invalid tag category: %s", category)
 	}
 
-	// Check for duplicate after normalization (case-insensitive)
+	// Duplicate lookup, on two keys because one name reaches an existing tag two
+	// ways: the NORMALIZED form matches a row already stored slug-shaped, and
+	// the derived SLUG matches the same party stored with different spacing or
+	// punctuation. Both are needed once the stored name is the typed one, since
+	// neither key alone sees both spellings.
+	baseSlug := utils.GenerateSlug(normalized)
 	var existing catalogm.Tag
-	if err := s.db.Where("LOWER(name) = LOWER(?)", normalized).First(&existing).Error; err == nil {
-		// Already exists after normalization — use existing
+	if err := s.db.Where("LOWER(name) = LOWER(?) OR slug = ?", normalized, baseSlug).First(&existing).Error; err == nil {
 		return &existing, nil
+	}
+
+	// The membership gate reaches the mint path too, and precedes the mint gate,
+	// because the mint refusal tells the caller to apply an existing tag of the
+	// category instead. A caller who may not apply one must not be sent there.
+	if catalogm.IsTierGatedTagCategory(category) && !user.HasTrustedTier() {
+		return nil, apperrors.ErrTagCategoryTierOnly(category)
 	}
 
 	// Admin-mint gate, placed AFTER the duplicate lookup above so it refuses
 	// only an actual CREATE. A caller naming a crew tag that already exists
-	// returns through that lookup and is applied like any other tag, which is
-	// what "admin-mint, anyone-apply" means at this call site.
+	// returns through that lookup and is applied like any other tag, subject to
+	// the membership gate that governs every application.
 	if catalogm.IsAdminMintOnlyTagCategory(category) && !user.IsAdmin {
 		return nil, apperrors.ErrTagCategoryAdminOnly(category)
 	}
 
-	// Generate slug
-	baseSlug := utils.GenerateSlug(normalized)
+	// The suffixing branch is reachable only against a row the lookup above
+	// cannot see, which is a row whose slug was not derived from its name. The
+	// unique index on tags.slug is what makes the call load-bearing anyway.
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
 		s.db.Model(&catalogm.Tag{}).Where("slug = ?", candidate).Count(&count)
@@ -575,7 +623,7 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 	})
 
 	tag := &catalogm.Tag{
-		Name:       normalized,
+		Name:       name,
 		Slug:       slug,
 		Category:   category,
 		IsOfficial: false,
@@ -604,10 +652,31 @@ func NormalizeTagName(name string) string {
 	return name
 }
 
-// RemoveTagFromEntity removes a tag from an entity.
-func (s *TagService) RemoveTagFromEntity(tagID uint, entityType string, entityID uint) error {
+// RemoveTagFromEntity removes a tag from an entity. userID is the caller, whose
+// standing decides whether a tier-gated category may be touched.
+func (s *TagService) RemoveTagFromEntity(tagID uint, entityType string, entityID uint, userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
+	}
+
+	// The membership gate in the other direction: stripping the booker that did
+	// put on a show is the same claim about a named party as attaching one that
+	// did not.
+	//
+	// A tag id matching no row skips the gate and falls through to the delete,
+	// which answers "not applied" as it always has. Nothing that does not exist
+	// carries a category.
+	var tag catalogm.Tag
+	switch err := s.db.Select("id", "category").First(&tag, tagID).Error; {
+	case err == nil:
+		if catalogm.IsTierGatedTagCategory(tag.Category) {
+			if gateErr := s.requireTrustedTier(userID, tag.Category); gateErr != nil {
+				return gateErr
+			}
+		}
+	case errors.Is(err, gorm.ErrRecordNotFound):
+	default:
+		return fmt.Errorf("failed to get tag: %w", err)
 	}
 
 	result := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tagID, entityType, entityID).
@@ -2005,6 +2074,7 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		  ON et_self.entity_type = et_other.entity_type
 		 AND et_self.entity_id   = et_other.entity_id
 		JOIN tags t ON t.id = et_other.tag_id
+			AND `+descriptiveTagCategorySQL("t")+`
 		WHERE `+selfVisible+`
 		  AND `+otherVisible+`
 		  AND et_self.tag_id = ?
