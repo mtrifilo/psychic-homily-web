@@ -56,7 +56,8 @@ import {
 } from './useAdminTags'
 import {
   TAG_CATEGORIES,
-  getCategoryColor,
+  canonicalTagCategory,
+  getCategoryChipClasses,
   getCategoryLabel,
   type TagCategory,
   type TagDetailResponse,
@@ -380,9 +381,31 @@ export function EditTagFormFields({
 
   const [name, setName] = useState(tag.name)
   const [description, setDescription] = useState(tag.description || '')
-  const [category, setCategory] = useState<string>(tag.category)
+  const [category, setCategory] = useState<string>(
+    canonicalTagCategory(tag.category)
+  )
   const [isOfficial, setIsOfficial] = useState(tag.is_official)
   const [error, setError] = useState<string | null>(null)
+
+  // A Select whose value has no matching option renders an EMPTY trigger while
+  // the form still submits the value behind it, so an admin who "fixes" the
+  // blank field re-categorizes the tag without meaning to. `tags.category` is
+  // an unconstrained column, so the stored value is offered whatever it is.
+  //
+  // Two exceptions. A value that is only a spelling of a known category is
+  // canonicalized above instead of appended, so the list never holds two
+  // options that render alike. And the empty string is left alone: Radix
+  // throws on a SelectItem with an empty value, so such a tag still gets a
+  // blank trigger.
+  //
+  // Derived from the tag, not the edit state: from state, picking a listed
+  // option would drop the stored one with no way back inside the dialog.
+  const storedCategory = canonicalTagCategory(tag.category)
+  const categoryOptions: string[] =
+    storedCategory === '' ||
+    (TAG_CATEGORIES as readonly string[]).includes(storedCategory)
+      ? [...TAG_CATEGORIES]
+      : [...TAG_CATEGORIES, storedCategory]
 
   const tagId = tag.id
 
@@ -440,7 +463,7 @@ export function EditTagFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TAG_CATEGORIES.map((cat) => (
+              {categoryOptions.map((cat) => (
                 <SelectItem key={cat} value={cat}>
                   {getCategoryLabel(cat)}
                 </SelectItem>
@@ -765,7 +788,7 @@ export function TagManagement() {
                     </span>
                     <Badge
                       variant="outline"
-                      className={`text-xs flex-shrink-0 ${getCategoryColor(tag.category)}`}
+                      className={`text-xs flex-shrink-0 ${getCategoryChipClasses(tag.category)}`}
                     >
                       {getCategoryLabel(tag.category)}
                     </Badge>

@@ -12,7 +12,7 @@ import { Breadcrumb, FollowButton } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useTagDetail, useTagIntersection, useSearchTags } from '../hooks'
 import {
-  getCategoryColor,
+  getCategoryChipClasses,
   getCategoryLabel,
   getTagSectionLabel,
   getTagSectionBrowseUrl,
@@ -201,7 +201,7 @@ function TagDetailContent({
             <span
               className={cn(
                 'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
-                getCategoryColor(tag.category)
+                getCategoryChipClasses(tag.category)
               )}
             >
               {getCategoryLabel(tag.category)}
@@ -472,7 +472,7 @@ function RelatedTagsRail({
             onClick={() => onAddTag(t.slug)}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted/50',
-              getCategoryColor(t.category)
+              getCategoryChipClasses(t.category)
             )}
             data-testid={`related-tag-${t.slug}`}
           >

@@ -6,15 +6,50 @@ import {
   TAG_ENTITY_TYPES,
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
-  getCategoryColor,
+  DESCRIPTIVE_TAG_CATEGORIES,
+  isDescriptiveTagCategory,
+  getCategoryChipClasses,
+  getCategoryTint,
+  getTagChipClasses,
+  categoryHasChipShape,
+  canonicalTagCategory,
   getCategoryLabel,
   getEntityUrl,
   getEntityTypePluralLabel,
 } from './types'
 
 describe('tag constants', () => {
-  it('exposes the three tag categories', () => {
-    expect(TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
+  it('lists the four tag categories the UI knows', () => {
+    expect(TAG_CATEGORIES).toEqual(['genre', 'locale', 'other', 'crew'])
+  })
+
+  it('keeps crew out of the facet vocabulary and everything else in', () => {
+    expect(DESCRIPTIVE_TAG_CATEGORIES).toEqual(['genre', 'locale', 'other'])
+    expect(DESCRIPTIVE_TAG_CATEGORIES).not.toContain('crew')
+  })
+})
+
+describe('isDescriptiveTagCategory', () => {
+  it('admits every category except crew', () => {
+    expect(isDescriptiveTagCategory('genre')).toBe(true)
+    expect(isDescriptiveTagCategory('locale')).toBe(true)
+    expect(isDescriptiveTagCategory('other')).toBe(true)
+    expect(isDescriptiveTagCategory('crew')).toBe(false)
+  })
+
+  it('admits a category this build does not know', () => {
+    // A category the server adds before the frontend ships must render,
+    // not vanish from every row that consults this.
+    expect(isDescriptiveTagCategory('era')).toBe(true)
+    expect(isDescriptiveTagCategory('')).toBe(true)
+  })
+
+  it('excludes crew whatever its casing or padding', () => {
+    // tags.category is an unconstrained column: a guard that only knows the
+    // exact lowercase spelling is one seeder away from leaking.
+    for (const variant of ['Crew', 'CREW', ' crew ', 'cReW']) {
+      expect(isDescriptiveTagCategory(variant)).toBe(false)
+    }
   })
 
   it('maps each sort option to a backend slug', () => {
@@ -71,23 +106,149 @@ describe('low-quality signal chips', () => {
   })
 })
 
-describe('getCategoryColor', () => {
+describe('getCategoryChipClasses', () => {
   it('binds each known category to a distinct DS chart token (PSY-943)', () => {
-    expect(getCategoryColor('genre')).toContain('text-chart-6')
-    expect(getCategoryColor('locale')).toContain('text-chart-8')
-    expect(getCategoryColor('other')).toContain('text-muted-foreground')
+    expect(getCategoryChipClasses('genre')).toContain('text-chart-6')
+    expect(getCategoryChipClasses('locale')).toContain('text-chart-8')
+    expect(getCategoryChipClasses('other')).toContain('text-muted-foreground')
   })
 
   it('uses no raw off-palette Tailwind hue', () => {
-    for (const cat of ['genre', 'locale', 'other']) {
-      expect(getCategoryColor(cat)).not.toMatch(
+    for (const cat of TAG_CATEGORIES) {
+      expect(getCategoryChipClasses(cat)).not.toMatch(
         /(?:bg|text|border)-(?:blue|cyan|zinc)-\d/
       )
     }
   })
 
+  it('gives crew an unfilled hairline square in mono uppercase (Figma 1402:789)', () => {
+    expect(getCategoryChipClasses('crew')).toBe(
+      'bg-transparent text-muted-foreground border-border rounded-[2px] font-mono uppercase tracking-[0.04em]'
+    )
+  })
+
+  it('gives crew no colour fill, so it is not another tint among the tints', () => {
+    expect(getCategoryChipClasses('crew')).not.toMatch(/bg-(?:chart|muted|primary)/)
+    expect(getCategoryChipClasses('crew')).not.toBe(getCategoryChipClasses('other'))
+  })
+
+  it('sets no font size, leaving density to the calling surface', () => {
+    for (const cat of TAG_CATEGORIES) {
+      expect(getCategoryChipClasses(cat)).not.toMatch(
+        /\btext-(?:xs|sm|base|[2-9]?xl|lg|md|\[\d)/
+      )
+    }
+  })
+
   it('falls back to the "other" styling for an unknown category', () => {
-    expect(getCategoryColor('mystery')).toBe(getCategoryColor('other'))
+    expect(getCategoryChipClasses('mystery')).toBe(getCategoryChipClasses('other'))
+  })
+
+  it('styles a crew tag stored with odd casing as crew, not as the fallback', () => {
+    // The predicate normalizes, so the lookups must too: otherwise a `Crew`
+    // row is dropped from a card as crew while an entity page paints it the
+    // neutral catch-all pill, which is the misreading this all exists to stop.
+    for (const variant of ['Crew', 'CREW', ' crew ']) {
+      expect(getCategoryChipClasses(variant)).toBe(getCategoryChipClasses('crew'))
+      expect(getCategoryTint(variant)).toBe(getCategoryTint('crew'))
+      expect(getTagChipClasses({ category: variant, is_official: true })).toBe(
+        getCategoryChipClasses('crew')
+      )
+    }
+  })
+
+  it('falls back for a category name that collides with an object member', () => {
+    // The category is read straight out of the database, so it can be any
+    // string; an object-index lookup would answer these from the prototype.
+    for (const key of ['toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+      expect(getCategoryChipClasses(key)).toBe(getCategoryChipClasses('other'))
+    }
+  })
+})
+
+describe('getCategoryTint', () => {
+  it('returns the colour token alone, with no chip shape attached', () => {
+    expect(getCategoryTint('genre')).toBe('text-chart-6')
+    expect(getCategoryTint('locale')).toBe('text-chart-8')
+    expect(getCategoryTint('other')).toBe('text-muted-foreground')
+    // Crew's identity is its shape; a text-only surface takes the tint only.
+    expect(getCategoryTint('crew')).toBe('text-muted-foreground')
+  })
+
+  it('never returns a shape or layout class', () => {
+    for (const cat of TAG_CATEGORIES) {
+      expect(getCategoryTint(cat)).toMatch(/^text-\S+$/)
+    }
+  })
+
+  it('falls back to the "other" tint for an unknown category', () => {
+    expect(getCategoryTint('mystery')).toBe(getCategoryTint('other'))
+    expect(getCategoryTint('toString')).toBe('text-muted-foreground')
+  })
+})
+
+describe('categoryHasChipShape', () => {
+  it('is true only for a category whose classes carry geometry', () => {
+    expect(categoryHasChipShape('crew')).toBe(true)
+    for (const cat of ['genre', 'locale', 'other']) {
+      expect(categoryHasChipShape(cat)).toBe(false)
+    }
+  })
+
+  it('reads an unknown or odd-cased category the same way the styling does', () => {
+    expect(categoryHasChipShape('era')).toBe(false)
+    expect(categoryHasChipShape('Crew')).toBe(true)
+  })
+})
+
+describe('canonicalTagCategory', () => {
+  it('returns the known spelling for any casing or padding of it', () => {
+    expect(canonicalTagCategory('Crew')).toBe('crew')
+    expect(canonicalTagCategory(' GENRE ')).toBe('genre')
+    expect(canonicalTagCategory('other')).toBe('other')
+  })
+
+  it('leaves a value this build does not know exactly as stored', () => {
+    // A control that writes the column back must not quietly rewrite a value
+    // it cannot vouch for.
+    expect(canonicalTagCategory('Era')).toBe('Era')
+    expect(canonicalTagCategory('')).toBe('')
+  })
+})
+
+describe('getTagChipClasses', () => {
+  it('swaps a tint-only category for the official accent', () => {
+    for (const cat of ['genre', 'locale', 'other']) {
+      expect(getTagChipClasses({ category: cat, is_official: true })).toBe(
+        'border-primary/40 bg-primary/10 text-foreground'
+      )
+    }
+  })
+
+  it('keeps crew classes on an official crew tag', () => {
+    // Crew is admin-minted, so nearly every crew tag is official. The accent
+    // is the same pill an official genre tag wears, so taking it would erase
+    // the only thing that tells a booker from a sound.
+    expect(getTagChipClasses({ category: 'crew', is_official: true })).toBe(
+      getCategoryChipClasses('crew')
+    )
+  })
+
+  it('uses the category classes for any unofficial tag', () => {
+    expect(getTagChipClasses({ category: 'genre', is_official: false })).toBe(
+      'bg-chart-6/10 text-chart-6 border-chart-6/20'
+    )
+    for (const cat of TAG_CATEGORIES) {
+      expect(getTagChipClasses({ category: cat, is_official: false })).toBe(
+        getCategoryChipClasses(cat)
+      )
+    }
+  })
+
+  it('gives an unknown official category the accent, like the "other" it falls back to', () => {
+    expect(getTagChipClasses({ category: 'era', is_official: true })).toBe(
+      getTagChipClasses({ category: 'other', is_official: true })
+    )
   })
 })
 
@@ -95,6 +256,13 @@ describe('getCategoryLabel', () => {
   it('capitalizes the first letter', () => {
     expect(getCategoryLabel('genre')).toBe('Genre')
     expect(getCategoryLabel('locale')).toBe('Locale')
+    expect(getCategoryLabel('crew')).toBe('Crew')
+  })
+
+  it('reads a stored value with odd casing or padding as one label', () => {
+    for (const variant of ['Crew', 'CREW', ' crew ']) {
+      expect(getCategoryLabel(variant)).toBe('Crew')
+    }
   })
 
   it('returns an empty string for empty input', () => {

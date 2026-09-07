@@ -15,7 +15,9 @@ import {
   TAG_CATEGORIES,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
-  getCategoryColor,
+  getCategoryChipClasses,
+  getCategoryTint,
+  categoryHasChipShape,
   getCategoryLabel,
 } from '../types'
 import type { TagListItem, TagSortOption } from '../types'
@@ -35,25 +37,30 @@ function sortToBackend(sort: TagSortOption): string {
 
 /**
  * Per-category total counts for the facet chips, scoped to the active search
- * term but NOT to the selected category — each chip reports how many tags
- * that facet would surface, so a chip can be disabled when it has none.
- * One `useTags({category, limit:1})` per category (3 categories ⇒ 3 bounded
- * requests, same approach as TagFacetPanel). `all` is the cross-category sum.
+ * term but NOT to the selected category, so each chip reports how many tags
+ * that facet would surface and a chip with none can be disabled. `all` sums
+ * exactly the counts the chips read.
+ *
+ * The queries are written out rather than mapped over TAG_CATEGORIES because
+ * they are hooks, and a `.map` would put a hook inside a callback. That makes
+ * this the one place a missing category fails silently rather than at compile
+ * time, so the counts derive from these results: one list, not two.
  */
 function useCategoryCounts(search: string | undefined): {
   counts: Record<string, number>
   all: number
 } {
-  const genre = useTags({ category: 'genre', search, limit: 1 })
-  const locale = useTags({ category: 'locale', search, limit: 1 })
-  const other = useTags({ category: 'other', search, limit: 1 })
-
-  const counts: Record<string, number> = {
-    genre: genre.data?.total ?? 0,
-    locale: locale.data?.total ?? 0,
-    other: other.data?.total ?? 0,
+  const results = {
+    genre: useTags({ category: 'genre', search, limit: 1 }),
+    locale: useTags({ category: 'locale', search, limit: 1 }),
+    other: useTags({ category: 'other', search, limit: 1 }),
+    crew: useTags({ category: 'crew', search, limit: 1 }),
   }
-  return { counts, all: counts.genre + counts.locale + counts.other }
+
+  const counts: Record<string, number> = Object.fromEntries(
+    Object.entries(results).map(([category, r]) => [category, r.data?.total ?? 0])
+  )
+  return { counts, all: Object.values(counts).reduce((sum, n) => sum + n, 0) }
 }
 
 export function TagBrowse() {
@@ -184,7 +191,9 @@ export function TagBrowse() {
             label={getCategoryLabel(cat)}
             count={counts[cat] ?? 0}
             active={category === cat}
-            categoryTint={getCategoryColor(cat)}
+            activeCategoryClasses={
+              categoryHasChipShape(cat) ? undefined : getCategoryChipClasses(cat)
+            }
             onClick={() => handleCategoryChange(cat)}
           />
         ))}
@@ -256,21 +265,27 @@ export function TagBrowse() {
 }
 
 // ──────────────────────────────────────────────
-// Facet chip (All / Genre / Locale / Other)
+// Facet chip: All, plus one per TAG_CATEGORIES entry
 // ──────────────────────────────────────────────
 
 function FacetChip({
   label,
   count,
   active,
-  categoryTint,
+  activeCategoryClasses,
   onClick,
 }: {
   label: string
   count: number
   active: boolean
-  /** Category tint classes (from getCategoryColor) applied when active. */
-  categoryTint?: string
+  /**
+   * The category's own chip classes, worn only while the chip is active.
+   * Omitted for a category whose treatment is a shape rather than a tint:
+   * those classes are an unfilled square built for a tag pill, and on a
+   * facet control they make the selected state quieter than the resting one.
+   * The generic selected style below is used instead.
+   */
+  activeCategoryClasses?: string
   onClick: () => void
 }) {
   // Zero-result facets are disabled — clicking them would only show an empty
@@ -286,9 +301,7 @@ function FacetChip({
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
         active
-          ? categoryTint
-            ? categoryTint
-            : 'border-foreground bg-foreground text-background'
+          ? (activeCategoryClasses ?? 'border-foreground bg-foreground text-background')
           : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
         disabled && 'cursor-not-allowed opacity-40 hover:bg-muted/40 hover:text-muted-foreground'
       )}
@@ -358,7 +371,7 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
               </Link>
             </td>
             <td>
-              <span className={cn('text-xs font-medium', categoryTextTint(tag.category))}>
+              <span className={cn('text-xs font-medium', getCategoryTint(tag.category))}>
                 {getCategoryLabel(tag.category)}
               </span>
             </td>
@@ -370,21 +383,4 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
       </tbody>
     </DenseTable>
   )
-}
-
-/**
- * Category as a tinted TEXT label (not a pill). Derives the foreground tint
- * from `getCategoryColor` — the single source of truth for the genre→chart-6 /
- * locale→chart-8 / other→muted mapping — by keeping only its `text-*` token and
- * dropping the bg/border classes. Deriving (rather than re-hardcoding the map)
- * keeps the two surfaces from drifting. Contract: `getCategoryColor` must return
- * exactly one `text-*` token; if that ever stops holding, this falls back to
- * `text-muted-foreground` (and TagBrowse.test.tsx asserts the genre tint, so a
- * regression surfaces in CI rather than silently).
- */
-function categoryTextTint(category: string): string {
-  const text = getCategoryColor(category)
-    .split(' ')
-    .find(c => c.startsWith('text-'))
-  return text ?? 'text-muted-foreground'
 }

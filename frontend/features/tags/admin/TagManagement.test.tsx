@@ -215,6 +215,95 @@ describe('TagManagement — category filter (PSY-924)', () => {
   })
 })
 
+describe('TagManagement: crew category (PSY-1883)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseTags.mockReturnValue({
+      data: { tags: [], total: 0 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  it('offers Crew as an option when editing a tag that is not crew', async () => {
+    // Asserting the trigger on a crew tag would pass off the unknown-category
+    // fallback below rather than off the vocabulary.
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={7}
+        tag={makeTagDetail({ id: 7, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByLabelText('Category *'))
+    expect(await screen.findByRole('option', { name: 'Crew' })).toBeInTheDocument()
+  })
+
+  it('offers an odd-cased stored category once, under the spelling the server takes', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={11}
+        tag={makeTagDetail({ id: 11, name: 'Rubber Brother Records', category: 'Crew' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Category *')).toHaveTextContent('Crew')
+    await user.click(screen.getByLabelText('Category *'))
+    expect(await screen.findAllByRole('option', { name: 'Crew' })).toHaveLength(1)
+  })
+
+  it('shows a stored category the UI has never heard of rather than a blank trigger', async () => {
+    // tags.category is an unconstrained column, so a seeder or a newer server
+    // can store a value this build does not list.
+    renderWithProviders(
+      <EditTagFormFields
+        key={8}
+        tag={makeTagDetail({ id: 8, name: 'nineties', category: 'era' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Category *')).toHaveTextContent('Era')
+  })
+
+  it('renders rather than crashing for a tag stored with no category', async () => {
+    // Radix rejects a SelectItem whose value is the empty string, so the
+    // unknown-category option has to skip that one case.
+    expect(() =>
+      renderWithProviders(
+        <EditTagFormFields
+          key={9}
+          tag={makeTagDetail({ id: 9, name: 'orphan', category: '' })}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+    ).not.toThrow()
+    expect(screen.getByLabelText('Name *')).toHaveValue('orphan')
+  })
+
+  it('offers Crew when filtering the admin tag list', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TagManagement />)
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Filter by category' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'Crew' }))
+
+    expect(mockUseTags).toHaveBeenLastCalledWith(
+      expect.objectContaining({ category: 'crew' })
+    )
+  })
+})
+
 describe('EditTagFormFields: tag switch resets fields via key prop', () => {
   // Pins PSY-768: the inner form initializes local state from the tag prop
   // on mount, with no useEffect and no `initialized` ratchet. Callers pass
