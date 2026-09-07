@@ -25,11 +25,10 @@ function daySpec(slug: string) {
     // canonical and the share-image URL; `city` is printed. None of them has a
     // blank form this surface can serve.
     identityFields: ['date', 'city', 'slug', 'iso_week'] as const,
-    // `prev_date` and `next_date` are EMPTY at the edges of the servable window
-    // and the view reads that emptiness as "no neighbour in this direction", so
-    // a blank one is data rather than damage. They must still be present:
-    // `undefined.split` throws from a server component, turning a thin payload
-    // into a 500 for the whole page instead of the "no data" path.
+    // `prev_date` and `next_date` name the adjacent days, and they are EMPTY at
+    // the edges of the servable window: there, emptiness IS the answer "no
+    // neighbour in this direction", so it must not fail the payload. Absence is
+    // a different answer, and a body that omits them is not this payload.
     presenceFields: ['prev_date', 'next_date'] as const,
     // `=== true` rather than truthy: a wire value of anything else must not
     // freeze tonight's page in the CDN for a day. The backend guarantees this
