@@ -9,6 +9,7 @@ import {
   type Ref,
 } from 'react'
 import Link from 'next/link'
+import { useQueryState } from 'nuqs'
 import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
@@ -26,6 +27,7 @@ import {
 import {
   ArtistSearch,
   ArtistGraphVisualization,
+  useArtist,
   useArtistGraph,
   useArtistGraphCard,
   useFetchArtistGraph,
@@ -42,6 +44,7 @@ import {
   truncateTrail,
   type TraversalEntry,
 } from '@/components/graph/graphTraversalHistory'
+import type { ApiError } from '@/lib/api'
 import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
 import { useSceneDetail, useScenes } from '@/features/scenes/hooks/useScenes'
 import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
@@ -52,6 +55,7 @@ import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { useGraphStartingPoints } from '../hooks/useGraphStartingPoints'
 import { anchorFromCatalogTarget, type GraphAnchor } from '../graphAnchor'
+import { GRAPH_ROOT_PARAM, isArtistSlug } from '../graphRootLink'
 import { pickRotationSuggestions } from '../startingSuggestions'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
@@ -68,6 +72,11 @@ const SHUFFLE_PILL_CLASS =
 // Trail chip hit-area (PSY-1474 F3): 4px 8px padding, hover background.
 const TRAIL_CHIP_CLASS =
   'rounded-md bg-muted/50 px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+
+/** A lookup that failed because the catalog has no such artist. */
+function isNotFound(error: unknown): boolean {
+  return (error as ApiError | null)?.status === 404
+}
 
 function anchorFromArtist(artist: Artist): GraphAnchor {
   return { id: artist.id, slug: artist.slug, name: artist.name }
@@ -468,16 +477,24 @@ function EmptyGraphEscapeHatches({
  *  - `map`         — a snapshot we can draw.
  */
 export function resolveZeroStateView({
+  isRootLinkPending,
   isPending,
   isError,
   error,
   hasMap,
 }: {
+  /** A `?artist=` slug from the URL is still being resolved. */
+  isRootLinkPending: boolean
   isPending: boolean
   isError: boolean
   error: unknown
   hasMap: boolean
 }): 'loading' | 'unavailable' | 'hero' | 'map' {
+  // A PENDING DEEP LINK OUTRANKS EVERYTHING, the drawable map included: the
+  // visitor named an artist, and the map arm is about to be replaced by that
+  // artist's ego graph. Drawing it first flashes a surface nobody asked for and
+  // starts a growth replay against a canvas that is leaving.
+  if (isRootLinkPending) return 'loading'
   // A MAP WE ALREADY HAVE ALWAYS WINS. React Query keeps `data` when a
   // background refetch fails, so testing `isError` first would tear a
   // perfectly good on-screen map down and replace it with an error card —
@@ -635,6 +652,59 @@ function TonightShowsLink() {
   )
 }
 
+/** The page's outer gutters, shared by the surface and its Suspense fallback. */
+const OBSERVATORY_PAGE_CLASS = 'mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8'
+
+/** The card that holds the search row and the canvas, on both of the above. */
+const OBSERVATORY_CARD_CLASS =
+  'overflow-visible rounded-xl border border-border/60 bg-card shadow-sm'
+
+/** The card's first row, which the search box and the status line share. */
+const OBSERVATORY_SEARCH_ROW_CLASS =
+  'relative z-50 flex flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center'
+
+/** Static page chrome, shared by the surface and its Suspense fallback. */
+function ObservatoryHeader() {
+  return (
+    <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+          Music Knowledge Graph
+        </h1>
+      </div>
+      <p className="max-w-xl text-sm text-muted-foreground sm:text-right">
+        Search for an artist, inspect their connections, and hop outward without losing your trail.
+      </p>
+    </header>
+  )
+}
+
+/**
+ * What `/graph`'s static shell paints while the surface itself streams in.
+ *
+ * The Observatory reads `?artist=` through nuqs, which reads `useSearchParams`,
+ * so it renders inside a Suspense boundary and cannot be part of the prerender.
+ * The chrome around it can, and this is that chrome: header, card frame and the
+ * search row's height, over the loading box the surface's own first frame shows
+ * anyway.
+ */
+export function GraphObservatorySkeleton() {
+  return (
+    <div className={OBSERVATORY_PAGE_CLASS}>
+      <ObservatoryHeader />
+      <section className={OBSERVATORY_CARD_CLASS}>
+        {/* The search row is RESERVED, not rendered: an input the shell cannot
+            wire up is a control that swallows what a visitor types into it.
+            The shared class is what keeps the reservation the right size. */}
+        <div className={OBSERVATORY_SEARCH_ROW_CLASS} aria-hidden="true">
+          <div className="h-9 max-w-2xl flex-1 rounded-md bg-muted/50" />
+        </div>
+        <GraphLoadingBox>Mapping the scene…</GraphLoadingBox>
+      </section>
+    </div>
+  )
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -690,14 +760,43 @@ export function GraphObservatory() {
     setIsShuffleLookupPending(false)
   }, [])
 
-  const startAt = useCallback((next: GraphAnchor) => {
+  // `?artist=<slug>` — the URL's name for what the map is centred on.
+  //
+  // `history: 'replace'`: the trail above the canvas is this surface's back
+  // affordance, and one history entry per hop would put the browser's Back
+  // button in competition with it.
+  const [rootSlug, setRootSlug] = useQueryState(GRAPH_ROOT_PARAM, { history: 'replace' })
+
+  // The centre and the URL move together, and every re-root goes through here.
+  // Publishing at the moment the centre changes, rather than mirroring it from
+  // an effect, is what lets the read below treat any disagreement between the
+  // two as the URL having moved on its own. A slug-less anchor publishes no
+  // param: `?artist=` names nobody.
+  const centerOn = useCallback((next: GraphAnchor | null) => {
     setCenter(next)
+    void setRootSlug(next?.slug || null)
+  }, [setRootSlug])
+
+  const startAt = useCallback((next: GraphAnchor) => {
+    centerOn(next)
     updateTrail(resetTrail())
     setSelectedNode(null)
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
-  }, [updateTrail])
+  }, [centerOn, updateTrail])
+
+  // Who the URL names, or null when it names nobody. A blank `?artist=` and a
+  // value that is not slug-shaped both name nobody; `isArtistSlug` is the same
+  // rule the link builder applies, so the two halves cannot disagree about
+  // which links are honoured.
+  const linkedSlug = rootSlug !== null && isArtistSlug(rootSlug) ? rootSlug : null
+  // What the URL names and the surface is not already showing.
+  const wantedSlug = linkedSlug !== null && linkedSlug !== center?.slug ? linkedSlug : null
+  const rootLinkQuery = useArtist({
+    artistId: wantedSlug ?? '',
+    enabled: wantedSlug !== null,
+  })
 
   const handleArtistSelect = useCallback(
     (artist: Artist) => {
@@ -712,35 +811,91 @@ export function GraphObservatory() {
     cancelPendingLookup()
     const shouldRestoreFocus = selectionSource === 'list'
     updateTrail(previous => pushTrail(previous, center))
-    setCenter(anchorFromNode(selectedNode))
+    centerOn(anchorFromNode(selectedNode))
     setSelectedNode(null)
     setSelectionSource(null)
     listTriggerRef.current = null
     if (shouldRestoreFocus) {
       window.requestAnimationFrame(() => resetButtonRef.current?.focus())
     }
-  }, [cancelPendingLookup, center, selectedNode, selectionSource, updateTrail])
+  }, [cancelPendingLookup, center, centerOn, selectedNode, selectionSource, updateTrail])
 
   const handleTrailJump = useCallback((entry: TraversalEntry, index: number) => {
     cancelPendingLookup()
     updateTrail(previous => truncateTrail(previous, index))
-    setCenter(entry)
+    centerOn(entry)
     setSelectedNode(null)
     setSelectionSource(null)
     listTriggerRef.current = null
     window.requestAnimationFrame(() => resetButtonRef.current?.focus())
-  }, [cancelPendingLookup, updateTrail])
+  }, [cancelPendingLookup, centerOn, updateTrail])
 
-  const handleReset = useCallback(() => {
+  // Back to the overview: no centre, no trail, no selection, no focus move.
+  // Separate from `handleReset` because the URL reaches this state too, and
+  // pulling focus into the search box is right for a button press and wrong for
+  // a navigation the visitor made somewhere else on the page.
+  const clearCenter = useCallback(() => {
     cancelPendingLookup()
-    setCenter(null)
+    centerOn(null)
     updateTrail(resetTrail())
     setSelectedNode(null)
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
+  }, [cancelPendingLookup, centerOn, updateTrail])
+
+  const handleReset = useCallback(() => {
+    clearCenter()
     window.requestAnimationFrame(() => searchInputRef.current?.focus())
-  }, [cancelPendingLookup, updateTrail])
+  }, [clearCenter])
+
+  // Follow the URL. `?artist=<slug>` names the artist on screen and an absent
+  // param is the overview, in both directions: `centerOn` above keeps the URL
+  // current as the visitor re-roots, and this keeps the surface current when
+  // the URL moves on its own — an arrival, the nav's own bare `/graph` link,
+  // the address bar, a history move.
+  //
+  // A slug this catalog has no artist for settles to the overview rather than
+  // an error: it is still a link to the map. Dropping the param leaves the URL
+  // saying what is on screen.
+  useEffect(() => {
+    if (wantedSlug === null) {
+      // The URL already names the centre.
+      if (linkedSlug !== null) return
+      // It names nobody. A centre WITH a slug should have been in the param, so
+      // the param's absence is a navigation to the bare path and the surface
+      // follows it. A slug-less centre publishes no param in the first place,
+      // so a missing one says nothing about it and must not clear it.
+      if (center?.slug) {
+        clearCenter()
+        return
+      }
+      // Present but unusable (blank, or not slug-shaped). Drop it, so the URL
+      // never keeps naming an artist the surface is not showing.
+      if (rootSlug !== null) void setRootSlug(null)
+      return
+    }
+    if (rootLinkQuery.data) {
+      startAt(anchorFromArtist(rootLinkQuery.data))
+      return
+    }
+    // Only "this catalog has no such artist" retires the link. A 500, or the
+    // per-IP limiter this project sees intermittently, is a failure of the
+    // lookup and not of the URL: dropping the param there would delete the
+    // visitor's deep link, and a reload would no longer name the artist.
+    if (rootLinkQuery.isError && isNotFound(rootLinkQuery.error)) void setRootSlug(null)
+  }, [
+    center,
+    clearCenter,
+    linkedSlug,
+    rootSlug,
+    rootLinkQuery.data,
+    rootLinkQuery.error,
+    rootLinkQuery.isError,
+    setRootSlug,
+    startAt,
+    wantedSlug,
+  ])
 
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
     cancelPendingLookup()
@@ -845,7 +1000,22 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
+  // Derived, not latched, and it ends at the first sign the answer is not
+  // immediate — otherwise the surface can be pinned on a spinner it cannot
+  // leave, with a drawable map sitting in cache behind it. Three states end it
+  // besides success: a settled failure, a query React Query has PAUSED
+  // (offline, which never reports an error), and a first attempt that failed
+  // (a 429 or 5xx retries for up to a full limiter window before `isError`).
+  // The lookup keeps running through all three; if it does land, the effect
+  // above still roots on it.
+  const isRootLinkPending =
+    wantedSlug !== null &&
+    !rootLinkQuery.isError &&
+    rootLinkQuery.failureCount === 0 &&
+    rootLinkQuery.fetchStatus !== 'paused'
+
   const zeroStateView = resolveZeroStateView({
+    isRootLinkPending,
     isPending: overviewQuery.isPending,
     isError: overviewQuery.isError,
     error: overviewQuery.error,
@@ -901,27 +1071,20 @@ export function GraphObservatory() {
   )
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
-            Music Knowledge Graph
-          </h1>
-        </div>
-        <p className="max-w-xl text-sm text-muted-foreground sm:text-right">
-          Search for an artist, inspect their connections, and hop outward without losing your trail.
-        </p>
-      </header>
+    <div className={OBSERVATORY_PAGE_CLASS}>
+      <ObservatoryHeader />
 
-      <section className="overflow-visible rounded-xl border border-border/60 bg-card shadow-sm">
-        <div className="relative z-50 flex flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center">
+      <section className={OBSERVATORY_CARD_CLASS}>
+        <div className={OBSERVATORY_SEARCH_ROW_CLASS}>
           <ArtistSearch
             ref={searchInputRef}
             onSelect={handleArtistSelect}
             placeholder="Search an artist to begin, or start anywhere on the map"
             className="max-w-2xl flex-1"
           />
-          {(center || sceneMap) && (
+          {/* "The whole map" is the wrong caption over a box that is about to
+              draw one artist's neighborhood. */}
+          {(center || (sceneMap && !isRootLinkPending)) && (
             <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               {center ? (
                 <>

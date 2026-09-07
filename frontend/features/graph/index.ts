@@ -1,1 +1,1 @@
-export { GraphObservatory } from './components/GraphObservatory'
+export { GraphObservatory, GraphObservatorySkeleton } from './components/GraphObservatory'
