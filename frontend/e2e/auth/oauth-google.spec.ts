@@ -29,16 +29,15 @@ import { BACKEND_BASE_URL } from '../backend-url'
 // directly does nothing. Observing the redirect request and re-navigating is the
 // robust path and keeps the genuine cookie-setting begin-auth leg intact.
 //
-// The fixed email matches a pre-seeded user (setup-db.sh), so the first faux
-// login resolves to an EXISTING user (a login via linkOAuthAccount), NOT a new
-// signup — keeping this spec off the terms/consent path. The signup-consent
-// flow is a separate follow-up.
+// The clone's fixed identity matches a pre-seeded user AND a pre-seeded
+// oauth_accounts row (setup-db.sh), so the faux login resolves to an EXISTING
+// user, NOT a new signup — keeping this spec off the terms/consent path. The
+// signup-consent flow is a separate follow-up.
 //
-// That link is conditional: the backend links by address only when the provider
-// asserts it verified the address, and the clone stamps that assertion into
-// RawData. This spec only covers the verified side; the refusal is covered by
-// the Go handler and service suites, because flipping the clone means
-// restarting the backend the harness starts once.
+// The oauth_accounts row is what makes it a login. A sign-in resolves on
+// provider + provider_user_id; an address that merely matches an account is
+// refused. So this spec covers the returning-user path, and the refusal is
+// covered by the Go handler and service suites.
 
 // PSY-1645: resolved, not hardcoded — this must be the backend global-setup
 // actually started, or the callback below lands on an unrelated process.

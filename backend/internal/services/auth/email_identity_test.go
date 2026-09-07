@@ -3,16 +3,18 @@ package auth
 import (
 	"github.com/golang-jwt/jwt/v5"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_LinksAppleAccount covers
-// the Apple Sign In lookup. Apple returns the address from its own record, in
-// whatever casing it holds, so a user who registered as Mixed.Case@Example.com
-// and later signs in with Apple must land on that account rather than a second
-// one for the same mailbox.
-func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_LinksAppleAccount() {
+// TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_RefusesSignIn covers the
+// Apple Sign In lookup. Identity is case-insensitive, so an address differing
+// only in case from a stored one resolves to that account, and an address that
+// resolves to an account refuses the sign-in. The refusal is what proves the
+// fold ran: without it the address would resolve to nothing and the sign-in
+// would mint a second account for the mailbox, which the count below pins.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_RefusesSignIn() {
 	existingUser := &authm.User{
 		Email:         stringPtr("Apple.Case@Example.com"),
 		FirstName:     stringPtr("Existing"),
@@ -31,11 +33,17 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 		},
 	}, "Apple", "Name")
 
-	s.Require().NoError(err)
-	// Returning the pre-existing row's ID is what proves the link branch ran
-	// and no second account was minted.
-	s.Equal(existingUser.ID, user.ID)
-	s.Equal("Apple.Case@Example.com", *user.Email)
-	s.Require().Len(user.OAuthAccounts, 1)
-	s.Equal("apple-sub-case-variant", user.OAuthAccounts[0].ProviderUserID)
+	s.Require().Error(err)
+	s.Require().Nil(user)
+
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
+	s.assertNoAppleAccountFor(existingUser.ID)
+
+	var rows int64
+	s.Require().NoError(
+		s.db.Model(&authm.User{}).Where(authm.EmailIdentityWhere, "apple.case@example.com").Count(&rows).Error)
+	s.Equal(int64(1), rows, "a refused sign-in must not mint a second account for the mailbox")
 }
