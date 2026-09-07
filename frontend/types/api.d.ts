@@ -24044,7 +24044,10 @@ export interface operations {
     "post-auth-oauth-link-token": {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                Origin?: string;
+                Referer?: string;
+            };
             path?: never;
             cookie?: never;
         };

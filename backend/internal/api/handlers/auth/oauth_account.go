@@ -14,12 +14,15 @@ import (
 // OAuthAccountHandler handles OAuth account management HTTP requests
 type OAuthAccountHandler struct {
 	userService contracts.UserServiceInterface
+	// jwtSecret signs the one-time link token this handler mints.
+	jwtSecret string
 }
 
 // NewOAuthAccountHandler creates a new OAuth account handler
-func NewOAuthAccountHandler(userService contracts.UserServiceInterface) *OAuthAccountHandler {
+func NewOAuthAccountHandler(userService contracts.UserServiceInterface, jwtSecret string) *OAuthAccountHandler {
 	return &OAuthAccountHandler{
 		userService: userService,
+		jwtSecret:   jwtSecret,
 	}
 }
 
@@ -104,8 +107,13 @@ func (h *OAuthAccountHandler) GetOAuthAccountsHandler(ctx context.Context, req *
 	}, nil
 }
 
-// StartOAuthLinkRequest represents the request for minting a link token.
-type StartOAuthLinkRequest struct{}
+// StartOAuthLinkRequest carries the browser's own account of where the request
+// came from. Both are read only to bind the minted token to that origin; they
+// are never trusted as authorization on their own.
+type StartOAuthLinkRequest struct {
+	Origin  string `header:"Origin"`
+	Referer string `header:"Referer"`
+}
 
 // StartOAuthLinkResponse carries the one-time token Settings puts on the
 // /auth/link/{provider} URL it navigates to.
@@ -134,7 +142,16 @@ func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *St
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	token, err := mintOAuthLinkToken(user.ID)
+	// Bound to the origin that asked. Outside production the CORS allowlist
+	// admits any *.vercel.app with credentials, so an attacker origin can call
+	// this and read the answer; a token spendable only from the origin that
+	// minted it is worth nothing to them.
+	origin := req.Origin
+	if origin == "" && req.Referer != "" {
+		origin = originOfURL(req.Referer)
+	}
+
+	token, err := mintOAuthLinkToken(h.jwtSecret, user.ID, origin)
 	if err != nil {
 		logger.FromContext(ctx).Error("oauth_link_token_mint_failed",
 			"user_id", user.ID,

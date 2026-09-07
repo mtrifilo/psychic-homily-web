@@ -104,6 +104,12 @@ const OAUTH_LINK_ERROR_COPY = new Map<string, string>([
   ],
   ['OAUTH_LINK_START_FAILED', 'Could not start the connection. Try again.'],
   [
+    // The callback's session-mismatch refusal lands here rather than at /auth,
+    // because by then the reader is back on this page.
+    'OAUTH_LINK_REAUTH_REQUIRED',
+    'Sign in again, then connect the provider from this page.',
+  ],
+  [
     'USER_EXISTS',
     'An account already uses that email address. Sign in to it instead.',
   ],

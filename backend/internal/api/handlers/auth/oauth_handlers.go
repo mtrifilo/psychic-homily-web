@@ -403,24 +403,34 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// sign-in they did ask for would strand them on Settings with no session.
 	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
-		intent := peekOAuthLinkIntent(cookie.Value)
+		intent, found := peekOAuthLinkIntent(cookie.Value)
+		matchesThisHandshake := found &&
+			intent.provider == provider &&
+			intent.state == r.URL.Query().Get("state")
+
 		switch {
-		case intent == nil:
-			// The cookie names a link this process no longer holds: it timed
-			// out, or a restart or a second replica dropped it. That IS a link
-			// attempt, and the person is waiting for one, so it is refused as
-			// expired rather than quietly turning into a sign-in they did not
-			// ask for.
+		case matchesThisHandshake && time.Now().After(intent.expiresAt):
+			// Their link, and they ran out of time. Say so.
+			consumeOAuthLinkIntent(cookie.Value)
 			http.SetCookie(w, h.newLinkIntentCookie("", -1))
 			logger.AuthWarn(ctx, "oauth_link_intent_expired", "provider", provider)
 			redirectToLinkResult(w, r, frontendURL, autherrors.CodeOAuthLinkExpired)
 			return
 
-		case intent.provider == provider && intent.state == r.URL.Query().Get("state"):
+		case matchesThisHandshake:
 			consumeOAuthLinkIntent(cookie.Value)
 			http.SetCookie(w, h.newLinkIntentCookie("", -1))
-			h.completeOAuthLink(w, r, provider, intent, frontendURL)
+			h.completeOAuthLink(w, r, provider, &intent, frontendURL)
 			return
+
+		case !found:
+			// The cookie names a link this process never held: a restart, or
+			// another replica. That is not evidence the reader wanted a link
+			// rather than a sign-in, and refusing would strand an ordinary
+			// sign-in on a page it did not ask for. Clear the cookie so it
+			// cannot confuse the next callback, and carry on.
+			http.SetCookie(w, h.newLinkIntentCookie("", -1))
+			logger.AuthDebug(ctx, "oauth_callback_link_intent_unknown", "provider", provider)
 
 		default:
 			// An intent for a DIFFERENT handshake. This callback is not that

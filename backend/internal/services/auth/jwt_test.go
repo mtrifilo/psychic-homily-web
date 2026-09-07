@@ -623,7 +623,6 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 	})
 }
 
-
 // TestJWTService_SessionUserID covers the DB-free user-id extraction used by the
 // public-read per-user rate limiter (PSY-1373).
 func TestJWTService_SessionUserID(t *testing.T) {

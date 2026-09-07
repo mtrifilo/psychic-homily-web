@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,13 +25,6 @@ const oauthLinkIntentCookieName = "oauth_link_intent"
 // and a second factor at the provider, short enough that an abandoned attempt
 // does not stay armed on a shared machine. Matches the signup consent cookie.
 const oauthLinkIntentTTL = 10 * time.Minute
-
-// oauthLinkTokenTTL bounds the one-time token Settings mints before starting a
-// link. It only has to survive the click that follows minting it.
-const oauthLinkTokenTTL = 5 * time.Minute
-
-// oauthLinkTokenParam carries that token on the start URL.
-const oauthLinkTokenParam = "t"
 
 // Where a finished link attempt returns the browser: the surface that started
 // it, so the result is read where the control is. Split into path and query
@@ -115,16 +107,18 @@ func storeOAuthLinkIntent(id string, intent oauthLinkIntent) {
 // decide whether the intent is even for this handshake before spending it. A
 // stale intent belonging to some other flow has to survive the look, or an
 // ordinary sign-in that happens to carry the cookie would burn it and then be
-// refused instead of signing the user in.
-func peekOAuthLinkIntent(id string) *oauthLinkIntent {
+// refused instead of signing the reader in.
+//
+// found distinguishes "this process never held it" from "it is past its TTL",
+// which are different situations: the first is a restart or another replica
+// and must not turn a sign-in into a refusal, the second is a reader who
+// genuinely ran out of time and is owed an explanation.
+func peekOAuthLinkIntent(id string) (intent oauthLinkIntent, found bool) {
 	oauthLinkIntentStore.Lock()
 	defer oauthLinkIntentStore.Unlock()
 
-	intent, ok := oauthLinkIntentStore.intents[id]
-	if !ok || time.Now().After(intent.expiresAt) {
-		return nil
-	}
-	return &intent
+	intent, found = oauthLinkIntentStore.intents[id]
+	return intent, found
 }
 
 // consumeOAuthLinkIntent removes an intent once it has been matched to the
@@ -134,71 +128,6 @@ func consumeOAuthLinkIntent(id string) {
 	oauthLinkIntentStore.Lock()
 	defer oauthLinkIntentStore.Unlock()
 	delete(oauthLinkIntentStore.intents, id)
-}
-
-// oauthLinkToken is the one-time proof that a link was started from this
-// application's own Settings page rather than from a page an attacker
-// controls. See mintOAuthLinkToken for why the route needs one.
-type oauthLinkToken struct {
-	userID    uint
-	expiresAt time.Time
-}
-
-var oauthLinkTokenStore = struct {
-	sync.Mutex
-	tokens map[string]oauthLinkToken
-}{
-	tokens: make(map[string]oauthLinkToken),
-}
-
-// mintOAuthLinkToken issues a token bound to userID.
-//
-// /auth/link/{provider} is a cookie-authenticated GET. The auth cookie's
-// SameSite is SESSION_SAME_SITE, which defaults to lax, and a lax cookie IS
-// sent on a cross-site top-level navigation. Without this token any page could
-// navigate a signed-in user into the link flow, and a user with a live
-// provider session completes it with no interaction at all.
-//
-// The token is minted by an authenticated request whose RESPONSE another
-// origin cannot read. That rests on the CORS allowlist, which is exact-origin
-// in production but admits any *.vercel.app outside it, so on preview
-// environments this lock is weaker than in production.
-func mintOAuthLinkToken(userID uint) (string, error) {
-	token, err := randomHexID(oauthLinkIntentIDBytes)
-	if err != nil {
-		return "", err
-	}
-
-	oauthLinkTokenStore.Lock()
-	defer oauthLinkTokenStore.Unlock()
-
-	now := time.Now()
-	for k, v := range oauthLinkTokenStore.tokens {
-		if now.After(v.expiresAt) {
-			delete(oauthLinkTokenStore.tokens, k)
-		}
-	}
-	oauthLinkTokenStore.tokens[token] = oauthLinkToken{
-		userID:    userID,
-		expiresAt: now.Add(oauthLinkTokenTTL),
-	}
-	return token, nil
-}
-
-// consumeOAuthLinkToken spends a token and reports whether it was live and
-// belonged to userID. Bound to the user, not just to existence, so one
-// account's token cannot start a link on another's session.
-func consumeOAuthLinkToken(token string, userID uint) bool {
-	if token == "" {
-		return false
-	}
-
-	oauthLinkTokenStore.Lock()
-	defer oauthLinkTokenStore.Unlock()
-
-	stored, ok := oauthLinkTokenStore.tokens[token]
-	delete(oauthLinkTokenStore.tokens, token)
-	return ok && stored.userID == userID && time.Now().Before(stored.expiresAt)
 }
 
 // oauthLinkIntentIDBytes sizes the intent id and the link token,
@@ -225,21 +154,6 @@ func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.C
 		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	}
-}
-
-// requestIsCrossSite reports whether the browser told us this navigation came
-// from another site. Fetch metadata cannot be set by page script, so a present
-// "cross-site" is trustworthy; absent is not evidence either way, so the token
-// is what holds on a browser that sends nothing.
-//
-// This refuses outright, so it has to be true that the frontend and this API
-// are same-site. They are in production (psychichomily.com and
-// api.psychichomily.com) and in local development (both localhost; ports do
-// not affect same-site). A deployment that puts them on DIFFERENT registrable
-// domains, which NEXT_PUBLIC_OAUTH_BACKEND_URL permits, would see every
-// connect refused here.
-func requestIsCrossSite(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site")
 }
 
 // OAuthLinkHTTPHandler begins an OAuth link for the authenticated caller.
@@ -271,8 +185,8 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if requestIsCrossSite(r) {
-		logger.AuthWarn(ctx, "oauth_link_refused_cross_site",
+	if !requestIsFromOurFrontend(r, frontendURL) {
+		logger.AuthWarn(ctx, "oauth_link_refused_not_from_frontend",
 			"provider", provider,
 			"user_id", user.ID,
 		)
@@ -300,7 +214,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if !consumeOAuthLinkToken(r.URL.Query().Get(oauthLinkTokenParam), user.ID) {
+	if !consumeOAuthLinkToken(h.jwtSecret(), r.URL.Query().Get(oauthLinkTokenParam), user.ID, requestOrigin(r)) {
 		logger.AuthWarn(ctx, "oauth_link_refused_missing_token",
 			"provider", provider,
 			"user_id", user.ID,
@@ -376,7 +290,7 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 			"intent_user_id", intent.userID,
 			"session_present", ok,
 		)
-		redirectToReauth(w, r, h.frontendURL())
+		redirectToLinkResult(w, r, h.frontendURL(), oauthLinkErrorReauthRequired)
 		return
 	}
 
@@ -429,6 +343,15 @@ func redirectToReauth(w http.ResponseWriter, r *http.Request, frontendURL string
 		"reason":   {oauthLinkErrorReauthRequired},
 	}
 	http.Redirect(w, r, frontendURL+"/auth?"+query.Encode(), http.StatusTemporaryRedirect)
+}
+
+// jwtSecret signs the one-time link token. The same secret the session uses:
+// both are this server asserting something to itself across a round trip.
+func (h *OAuthHTTPHandler) jwtSecret() string {
+	if h.config == nil {
+		return ""
+	}
+	return h.config.JWT.SecretKey
 }
 
 // frontendURL is where every browser-facing redirect from this handler goes.
