@@ -1,21 +1,31 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 // Deep-imported, not through `@/components/shared` — see the note in
 // SceneRooms.tsx and features/scenes/components/index.ts (PSY-1772).
 import { BracketLink } from '@/components/shared/BracketLink'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { useSceneArtists } from '../hooks'
+import { rosterUpcomingLine } from '../sceneRosterLine'
 import { EntityNameLink, EntityNameList, SceneSectionHeading } from './sceneChrome'
-import type { SceneDetail, SceneRepresentativeEmbed } from '../types'
+import type { SceneArtist, SceneDetail, SceneRepresentativeEmbed } from '../types'
 
 /**
- * The bands based here, named in one line, with one of them playing.
+ * The bands based here: named in one line, and once the reader asks for the
+ * whole roster, dated.
  *
- * Names and nothing else. The payload's other per-band fields are all-time or
- * derived figures, and this module sits under a calendar, where any of them
- * would read as a count of what is coming up.
+ * The two shapes carry different amounts because they answer different
+ * questions. The preview is an identity line — who is from here — and stays
+ * names and nothing else, so it sits under a calendar without reading as a
+ * count of what is coming up. The expanded list is the roster itself, which a
+ * reader opens to browse, and there each band states what it has booked.
+ *
+ * Nothing all-time is printed in either. `show_count` counts every approved
+ * show a band has ever played anywhere and `is_active` stays true for months
+ * after a last gig; only `upcoming_show_count` and `next_show` answer "can I go
+ * see them", which is the question this page is built around.
  *
  * The roster lists every band BASED in the metro, which is a different set from
  * "bands playing here soon": London has 197 upcoming shows and zero based-here
@@ -69,6 +79,65 @@ function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
         />
       </p>
     </div>
+  )
+}
+
+/**
+ * The links inside a roster row's dated line: prose underlines in the muted
+ * mono register, not the medium-weight entity treatment the band name above
+ * carries. The row already has one primary name; a second one at equal weight
+ * would compete with it.
+ */
+const ROSTER_LINE_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
+
+/**
+ * One band on the expanded roster: its name, and under it what it has booked.
+ *
+ * A band with nothing booked is a NAME AND NOTHING ELSE. No `0 upcoming`, no
+ * "no upcoming shows" — a quiet band is the ordinary state of most of a roster,
+ * and forty rows each declaring their own emptiness is the shape this page
+ * removes rather than adds.
+ *
+ * The date links to the show and the room to its own page, so the line is the
+ * reader's way into both. Either link degrades to plain text on its own: show
+ * and venue slugs are both nullable, and `entityHref` answers null rather than
+ * an href that resolves to an index page (PSY-1754).
+ */
+function RosterRow({ artist }: { artist: SceneArtist }) {
+  const line = rosterUpcomingLine(artist)
+  const day = line?.day
+    ? line.dayHref
+      ? <Link href={line.dayHref} className={ROSTER_LINE_LINK_CLASS}>{line.day}</Link>
+      : line.day
+    : null
+  const venue = line?.venueName
+    ? line.venueHref
+      ? <Link href={line.venueHref} className={ROSTER_LINE_LINK_CLASS}>{line.venueName}</Link>
+      : line.venueName
+    : null
+
+  return (
+    <li className="border-b border-border/40 py-2 last:border-b-0">
+      <EntityNameLink name={artist.name} slug={artist.slug} basePath="/artists" />
+      {line && (
+        <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+          {line.countText}
+          {/* The next-show clause drops whole when the payload can support
+              neither half of it, and re-words to `next at {room}` when it can
+              name the room but not date it — the same rule the latest-additions
+              row applies to the same pair of facts. */}
+          {(day || venue) && (
+            <>
+              {' · next '}
+              {day}
+              {day && venue && ', '}
+              {!day && venue && 'at '}
+              {venue}
+            </>
+          )}
+        </p>
+      )}
+    </li>
   )
 }
 
@@ -128,34 +197,48 @@ export function SceneRoster({
 
   const embed = firstPage?.representative_embed
 
+  // The shape follows the reader's REQUEST, not the response, and there is only
+  // ever one rule: a reader who has asked for the whole roster is reading the
+  // expanded list. A widening that then fails draws the rows it does have in
+  // that same shape, with the shortfall stated below them, rather than snapping
+  // back to a preview the reader has already left.
+  const expanded = limit > ROSTER_PAGE_SIZE
 
   return (
     <section id={anchorId} className="scroll-mt-20 border-t border-border pt-4">
       <SceneSectionHeading title="Bands based here" note={total} />
 
-      <p className="mt-2 text-sm leading-relaxed">
-        <EntityNameList items={artists} basePath="/artists" />
-        {/* The ellipsis rides with the CONTROL, not with the elision: it marks
-            names one click away. Names withheld by the endpoint's ceiling are
-            past any control, and the line below names the shown count and the
-            total instead. Decorative either way, so it is hidden from assistive
-            tech, which reads the control's own label. */}
-        {canExpand && (
-          <>
-            <span aria-hidden="true" className="text-muted-foreground">
-              {' … '}
-            </span>
-            <BracketLink
-              label={
-                expandTo === total
-                  ? `Show all ${total} →`
-                  : `Show ${expandTo} of ${total} →`
-              }
-              onClick={() => setLimit(expandTo)}
-            />
-          </>
-        )}
-      </p>
+      {expanded ? (
+        <ul className="mt-2">
+          {artists.map(artist => (
+            <RosterRow key={artist.id} artist={artist} />
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm leading-relaxed">
+          <EntityNameList items={artists} basePath="/artists" />
+          {/* The ellipsis rides with the CONTROL, not with the elision: it marks
+              names one click away. Names withheld by the endpoint's ceiling are
+              past any control, and the line below names the shown count and the
+              total instead. Decorative either way, so it is hidden from assistive
+              tech, which reads the control's own label. */}
+          {canExpand && (
+            <>
+              <span aria-hidden="true" className="text-muted-foreground">
+                {' … '}
+              </span>
+              <BracketLink
+                label={
+                  expandTo === total
+                    ? `Show all ${total} →`
+                    : `Show ${expandTo} of ${total} →`
+                }
+                onClick={() => setLimit(expandTo)}
+              />
+            </>
+          )}
+        </p>
+      )}
 
       {/* Only reachable once the ceiling is the thing withholding bands, so it
           states that rather than offering a control that cannot deliver. */}

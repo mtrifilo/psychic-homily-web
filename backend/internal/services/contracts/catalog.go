@@ -2199,6 +2199,47 @@ type SceneArtistResponse struct {
 	// RepresentativeEmbed (PSY-1294) rather than scanning this per-artist field,
 	// but it stays on the roster payload.
 	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
+	// UpcomingShowCount is how many approved, non-cancelled shows the band has
+	// ahead of it, anywhere. It is a DIFFERENT question from ShowCount above,
+	// which is every approved show all time, and from IsActive, which a band
+	// keeps for months after its last gig.
+	//
+	// The boundary is the venue's own calendar (shared.VenueLocalDateCondition):
+	// a show leaves this count at venue-local midnight, not at its start instant,
+	// so a band playing tonight still reads as having one upcoming all evening.
+	// Cancelled shows are excluded here and from NextShow, matching
+	// SceneNewArtistShow: neither row carries a status badge, so a cancelled
+	// show would read as a date a reader can turn up to.
+	UpcomingShowCount int `json:"upcoming_show_count"`
+	// NextShow is the soonest of exactly those shows, so it is non-nil if and
+	// only if UpcomingShowCount is greater than zero. One query over one
+	// boundary decides both, which is what makes that equivalence hold.
+	NextShow *SceneArtistNextShow `json:"next_show,omitempty"`
+}
+
+// SceneArtistNextShow is the one show attached to a scene roster row: the
+// band's soonest upcoming approved show, absent when it has none.
+//
+// Deliberately roster-local and thinner than SceneNewArtistShow, the closest
+// match on the wire. That type carries IsUpcoming because its endpoint falls
+// back to a PAST show; this one never does, so the flag would be a constant
+// true and a reader would branch on it for nothing. It also carries StartsAt,
+// which this row has no use for: the roster line prints a date and no time.
+type SceneArtistNextShow struct {
+	ID uint `json:"id"`
+	// Slug is the canonical /shows/{slug} target; "" when the show has none, and
+	// clients fall back to the id.
+	Slug string `json:"slug,omitempty"`
+	// EventDate is the calendar date at the VENUE, in the venue's own zone. It is
+	// rendered by the SAME expression that decided the show was upcoming
+	// (shared.VenueLocalDateSQL), so the date printed cannot contradict the
+	// filter that selected it.
+	EventDate string `json:"event_date"`
+	// The billed venue, empty when the show has no venue row. Both halves come
+	// from ONE venue row: a show booked into two rooms resolves here to the same
+	// room whose zone dated it.
+	VenueName string `json:"venue_name,omitempty"`
+	VenueSlug string `json:"venue_slug,omitempty"`
 }
 
 // SceneRepresentativeEmbed identifies the single band whose Bandcamp embed the

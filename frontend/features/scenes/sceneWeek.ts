@@ -259,9 +259,36 @@ export function showDisplayTitle(show: SceneWeekShow): string {
   return 'Live music'
 }
 
-/** Canonical `/shows/...` target; falls back to the id when a slug is missing. */
-export function showHref(show: SceneWeekShow): string {
+/**
+ * Canonical `/shows/...` target; falls back to the id when a slug is missing.
+ *
+ * The parameter is the two fields the rule actually reads, not a row type, so
+ * every payload that names a show can link it through this one function. Show
+ * slugs are nullable, and the id fallback is the reason a scene surface may
+ * never build `/shows/${slug}` itself.
+ */
+export function showHref(show: { id: number; slug?: string }): string {
   return show.slug ? `/shows/${show.slug}` : `/shows/${show.id}`
+}
+
+/**
+ * `Aug 22` from a `YYYY-MM-DD` calendar date, or null when it is not one.
+ *
+ * The SHAPE is the whole guard, and it has to run first — see `isCalendarDate`
+ * for why a post-hoc NaN check would never fire.
+ *
+ * Lives beside `parseCalendarDate` and `isCalendarDate` because it is those two
+ * composed, and because more than one scene module prints this exact form: the
+ * latest-additions row and the roster's upcoming line must not date the same
+ * show differently.
+ */
+export function formatCalendarMonthDay(iso: string): string | null {
+  const trimmed = iso.trim()
+  if (!isCalendarDate(trimmed)) return null
+  return parseCalendarDate(trimmed).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 /**

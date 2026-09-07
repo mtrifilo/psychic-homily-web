@@ -113,7 +113,31 @@ export interface SceneArtist {
   // from the rows it returns. Rendering a player per row is what that field
   // exists to replace, so reach for it rather than for this column.
   bandcamp_embed_url?: string | null
+  // How many approved, non-cancelled shows the band has ahead of it, anywhere,
+  // bounded on each show's OWN venue calendar so tonight's show counts all day
+  // (PSY-1813). A different question from `show_count` above, which is all-time,
+  // and from `is_active`, which a band keeps for months after its last gig.
+  //
+  // Optional on the type, required on the wire: the frontend and backend deploy
+  // separately and Next's data cache can serve a body fetched before the backend
+  // widened, so a reader must treat an absent value as "not stated", never as 0.
+  upcoming_show_count?: number
+  // The soonest of exactly those shows. The backend sends it if and only if
+  // `upcoming_show_count` is positive.
+  next_show?: SceneArtistNextShow | null
 }
+
+/**
+ * The one show attached to a scene roster row (PSY-1813).
+ *
+ * DERIVED from the generated schema, same rule as `SceneNewArtistShow` below:
+ * a hand-written copy drifts silently because the `api:types:check` gate cannot
+ * see a type it does not generate.
+ *
+ * `event_date` is a scene-local CALENDAR date, not an instant — parse it with
+ * `parseCalendarDate`, never `new Date`.
+ */
+export type SceneArtistNextShow = components['schemas']['SceneArtistNextShow']
 
 // The single band whose Bandcamp embed represents the scene (PSY-1294), chosen
 // server-side over the FULL metro roster (active-first) so the preview's player
