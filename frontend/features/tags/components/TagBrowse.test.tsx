@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { TagListItem } from '../types'
+import { TAG_CATEGORIES } from '../types'
+import type { TagCategory, TagListItem } from '../types'
 
 // ── Mocks ──────────────────────────────────────────
 
@@ -80,14 +81,14 @@ function makeTag(overrides: Partial<TagListItem> = {}): TagListItem {
 function mockTags({
   list,
   total = list.length,
-  counts = { genre: 0, locale: 0, other: 0 },
+  counts = {},
   isLoading = false,
   error = null as Error | null,
   refetch = vi.fn(),
 }: {
   list: TagListItem[]
   total?: number
-  counts?: { genre: number; locale: number; other: number }
+  counts?: Partial<Record<TagCategory, number>>
   isLoading?: boolean
   error?: Error | null
   refetch?: () => void
@@ -95,7 +96,7 @@ function mockTags({
   mockUseTags.mockImplementation((params?: { category?: string; limit?: number }) => {
     // Count queries are the limit:1, category-scoped calls.
     if (params?.limit === 1 && params.category) {
-      const cat = params.category as 'genre' | 'locale' | 'other'
+      const cat = params.category as TagCategory
       return {
         data: { tags: [], total: counts[cat] ?? 0 },
         isLoading: false,
@@ -265,26 +266,60 @@ describe('TagBrowse', () => {
 
   // ── Category facet chips with counts ──
 
-  it('renders All + per-category facet chips', () => {
-    mockTags({ list: [makeTag()], total: 1, counts: { genre: 18, locale: 4, other: 2 } })
+  it('renders All + a facet chip for every tag category', () => {
+    mockTags({ list: [makeTag()], total: 1, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
 
     renderWithProviders(<TagBrowse />)
 
     expect(screen.getByTestId('facet-all')).toBeInTheDocument()
-    expect(screen.getByTestId('facet-genre')).toBeInTheDocument()
-    expect(screen.getByTestId('facet-locale')).toBeInTheDocument()
-    expect(screen.getByTestId('facet-other')).toBeInTheDocument()
+    for (const cat of TAG_CATEGORIES) {
+      expect(screen.getByTestId(`facet-${cat}`)).toBeInTheDocument()
+    }
   })
 
   it('shows live per-category counts (and All = sum) on the facet chips', () => {
-    mockTags({ list: [makeTag()], total: 24, counts: { genre: 18, locale: 4, other: 2 } })
+    // The list total differs from the facet sum on purpose: an All chip
+    // reading the list total instead of the sum would otherwise pass.
+    mockTags({ list: [makeTag()], total: 5, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
 
     renderWithProviders(<TagBrowse />)
 
-    expect(within(screen.getByTestId('facet-all')).getByText('24')).toBeInTheDocument()
+    expect(within(screen.getByTestId('facet-all')).getByText('27')).toBeInTheDocument()
     expect(within(screen.getByTestId('facet-genre')).getByText('18')).toBeInTheDocument()
     expect(within(screen.getByTestId('facet-locale')).getByText('4')).toBeInTheDocument()
     expect(within(screen.getByTestId('facet-other')).getByText('2')).toBeInTheDocument()
+    expect(within(screen.getByTestId('facet-crew')).getByText('3')).toBeInTheDocument()
+  })
+
+  it('issues a count query for every category it renders a chip for', () => {
+    // useCategoryCounts writes its useTags calls out by hand (they are hooks),
+    // so a category added to TAG_CATEGORIES without a line there would render
+    // a chip reading 0 and drop out of the All total.
+    mockTags({ list: [makeTag()], total: 27, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
+
+    renderWithProviders(<TagBrowse />)
+
+    for (const cat of TAG_CATEGORIES) {
+      expect(mockUseTags).toHaveBeenCalledWith(
+        expect.objectContaining({ category: cat, limit: 1 })
+      )
+    }
+  })
+
+  it('filters the list to crew when the crew facet chip is clicked', async () => {
+    mockTags({ list: [makeTag()], total: 3, counts: { genre: 18, locale: 4, other: 2, crew: 3 } })
+
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.click(screen.getByTestId('facet-crew'))
+
+    const listCalls = mockUseTags.mock.calls.filter(
+      c => (c[0] as { limit?: number })?.limit !== 1
+    )
+    expect(listCalls[listCalls.length - 1][0]).toEqual(
+      expect.objectContaining({ category: 'crew' })
+    )
   })
 
   it('disables a facet chip with zero results', () => {

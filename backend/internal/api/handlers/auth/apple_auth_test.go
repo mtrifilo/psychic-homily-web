@@ -45,6 +45,8 @@ type mockAppleAuthService struct {
 	gotFirstName string
 	gotLastName  string
 	called       bool
+	// findErr, when set, is what FindOrCreateAppleUser returns instead of a user.
+	findErr error
 }
 
 func (m *mockAppleAuthService) ValidateIdentityToken(string) (*contracts.AppleIdentityTokenClaims, error) {
@@ -58,6 +60,9 @@ func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityT
 	m.called = true
 	m.gotFirstName = firstName
 	m.gotLastName = lastName
+	if m.findErr != nil {
+		return nil, m.findErr
+	}
 	return &authm.User{ID: 1, Email: strPtr("apple@example.com")}, nil
 }
 

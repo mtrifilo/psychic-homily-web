@@ -1,9 +1,58 @@
 // Tag types — aligned with backend contracts/tag.go response types.
 
 export const TAG_CATEGORIES = [
-  'genre', 'locale', 'other'
+  'genre', 'locale', 'other', 'crew'
 ] as const
 export type TagCategory = typeof TAG_CATEGORIES[number]
+
+/**
+ * A tag naming a MUSIC BOOKER: a promoter, a DIY crew or collective, or a
+ * named series or residency that books live music. No control in this build
+ * offers it as a category a contributor can mint.
+ */
+export const TAG_CATEGORY_CREW = 'crew' as const satisfies TagCategory
+
+/** A category that describes a tag's subject rather than naming a party. */
+export type DescriptiveTagCategory = Exclude<
+  TagCategory,
+  typeof TAG_CATEGORY_CREW
+>
+
+/**
+ * `tags.category` is an unconstrained column, so every comparison in this
+ * module normalizes first: `Crew` must not slip past a guard that knows only
+ * `crew`.
+ */
+function normalizeCategory(category: string): string {
+  return category.trim().toLowerCase()
+}
+
+/**
+ * True for every category except `crew`, which names the party that booked
+ * the show rather than describing the music. A surface that cannot say which
+ * kind of tag it is showing reads a booker's name as a genre, so that is the
+ * distinction every rule here turns on.
+ *
+ * An unrecognized category counts as descriptive, so a category this build
+ * has not heard of renders rather than silently vanishing.
+ */
+export function isDescriptiveTagCategory(category: string): boolean {
+  return normalizeCategory(category) !== TAG_CATEGORY_CREW
+}
+
+/**
+ * The closed list of descriptive categories this build knows, for a control
+ * that has to ENUMERATE its options.
+ *
+ * To TEST an arbitrary stored category instead, use
+ * `isDescriptiveTagCategory`, which admits an unrecognized one rather than
+ * dropping it. The two answer different questions and disagree on a category
+ * this build has never seen.
+ */
+export const DESCRIPTIVE_TAG_CATEGORIES: readonly DescriptiveTagCategory[] =
+  TAG_CATEGORIES.filter((c): c is DescriptiveTagCategory =>
+    isDescriptiveTagCategory(c)
+  )
 
 // Sort options for the tag browse page. Values are the URL-facing slugs;
 // `backend` is the value passed to the /tags `sort` query param.
@@ -431,23 +480,136 @@ export interface GenreHierarchyNode extends GenreHierarchyTag {
 }
 
 /**
- * Tag-category tint, bound to the DS categorical palette (PSY-943). Replaces
- * the raw blue/cyan/zinc hues that drifted off the newsprint/vinyl theme.
- * Three categories → three distinct-but-muted tokens: genre = chart-6 (denim),
- * locale = chart-8 (teal), other = muted (the neutral catch-all). The token
- * tints track light/dark automatically via the CSS cascade.
+ * One category's chip classes, split so a text-only surface can take the
+ * colour token alone. `shape` is present only for a category whose identity
+ * is geometry rather than colour, and `categoryHasChipShape` is how the rest
+ * of the app asks which kind a category is.
  */
-export function getCategoryColor(category: string): string {
-  const colors: Record<string, string> = {
-    genre: 'bg-chart-6/10 text-chart-6 border-chart-6/20',
-    locale: 'bg-chart-8/10 text-chart-8 border-chart-8/20',
-    other: 'bg-muted text-muted-foreground border-border',
-  }
-  return colors[category] || colors.other
+interface CategoryChipTokens {
+  bg: string
+  text: string
+  border: string
+  shape?: string
 }
 
+/** Bound to the DS categorical palette (PSY-943); tracks light/dark via CSS. */
+const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
+  genre: { bg: 'bg-chart-6/10', text: 'text-chart-6', border: 'border-chart-6/20' },
+  locale: { bg: 'bg-chart-8/10', text: 'text-chart-8', border: 'border-chart-8/20' },
+  other: { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' },
+  // Figma `1402:789`: an unfilled hairline square on the border token, mono
+  // uppercase on muted-foreground. Font SIZE is absent on purpose, so each
+  // surface keeps its own density.
+  crew: {
+    bg: 'bg-transparent',
+    text: 'text-muted-foreground',
+    border: 'border-border',
+    shape: 'rounded-[2px] font-mono uppercase tracking-[0.04em]',
+  },
+}
+
+/** The category an unrecognized one is styled as. */
+const FALLBACK_CATEGORY = 'other' as const satisfies TagCategory
+
+function composeChipClasses(t: CategoryChipTokens): string {
+  return [t.bg, t.text, t.border, t.shape].filter(Boolean).join(' ')
+}
+
+/**
+ * Maps rather than object indexes, because the key is a raw column value:
+ * `getCategoryChipClasses('toString')` must miss and fall back, which an
+ * object index does not.
+ */
+const CATEGORY_CHIP_TOKEN_MAP = new Map<string, CategoryChipTokens>(
+  Object.entries(CATEGORY_CHIP_TOKENS)
+)
+const CATEGORY_CHIP_CLASS_MAP = new Map<string, string>(
+  Object.entries(CATEGORY_CHIP_TOKENS).map(([category, t]) => [
+    category,
+    composeChipClasses(t),
+  ])
+)
+const FALLBACK_CHIP_TOKENS = CATEGORY_CHIP_TOKENS[FALLBACK_CATEGORY]
+const FALLBACK_CHIP_CLASSES = composeChipClasses(FALLBACK_CHIP_TOKENS)
+
+function categoryTokens(category: string): CategoryChipTokens {
+  return (
+    CATEGORY_CHIP_TOKEN_MAP.get(normalizeCategory(category)) ??
+    FALLBACK_CHIP_TOKENS
+  )
+}
+
+/**
+ * Every class a category's chip wears. Callers must compose this through
+ * `cn` (or a component that does), because a category carrying `shape`
+ * overrides shape utilities the caller sets first.
+ */
+export function getCategoryChipClasses(category: string): string {
+  return (
+    CATEGORY_CHIP_CLASS_MAP.get(normalizeCategory(category)) ??
+    FALLBACK_CHIP_CLASSES
+  )
+}
+
+/**
+ * The foreground tint alone, for a surface that prints the category as text
+ * rather than as a chip and so must not inherit a chip's shape.
+ */
+export function getCategoryTint(category: string): string {
+  return categoryTokens(category).text
+}
+
+/**
+ * Whether a category's chip identity is its geometry rather than its colour.
+ * A control that supplies its own shape asks this before wearing a category's
+ * classes, since those classes would override the shape it set.
+ */
+export function categoryHasChipShape(category: string): boolean {
+  return categoryTokens(category).shape !== undefined
+}
+
+/**
+ * The canonical spelling of a stored category, or the value unchanged when it
+ * is not one this build knows. A control that writes the column back uses
+ * this so an odd-cased row is offered once, under the spelling the server
+ * accepts, rather than twice under two spellings that render alike.
+ */
+export function canonicalTagCategory(category: string): string {
+  const normalized = normalizeCategory(category)
+  return CATEGORY_CHIP_TOKEN_MAP.has(normalized) ? normalized : category
+}
+
+/**
+ * The accent an official tag wears in place of its category tint, so curated
+ * tags read as curated at a glance (ISSUE-004 from tags-audit-2).
+ */
+const OFFICIAL_TAG_CHIP_CLASSES = 'border-primary/40 bg-primary/10 text-foreground'
+
+/**
+ * Classes for one applied tag's chip. The official accent replaces a
+ * descriptive category's classes but never a non-descriptive one's: the
+ * accent is the same pill an official genre tag wears, so it would erase the
+ * only thing telling the two apart. The official indicator rendered beside
+ * the name still marks the tag as curated.
+ */
+export function getTagChipClasses(tag: {
+  category: string
+  is_official: boolean
+}): string {
+  if (tag.is_official && isDescriptiveTagCategory(tag.category)) {
+    return OFFICIAL_TAG_CHIP_CLASSES
+  }
+  return getCategoryChipClasses(tag.category)
+}
+
+/**
+ * The display form of a category. Normalizing first means one stored spelling
+ * per label; the vocabulary is lowercase, so an all-caps stored value reads
+ * back title-cased rather than shouted.
+ */
 export function getCategoryLabel(category: string): string {
-  return category.charAt(0).toUpperCase() + category.slice(1)
+  const normalized = normalizeCategory(category)
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 /** Build entity URL from entity type and slug */

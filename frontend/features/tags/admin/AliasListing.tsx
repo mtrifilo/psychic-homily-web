@@ -27,7 +27,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
-import { getCategoryColor, getCategoryLabel } from '../types'
+import { getCategoryChipClasses, getCategoryLabel } from '../types'
 import type {
   BulkAliasImportItem,
   BulkAliasImportResult,
@@ -171,7 +171,7 @@ export function AliasListing() {
                   </Link>
                   <Badge
                     variant="outline"
-                    className={`text-xs ${getCategoryColor(a.tag_category)}`}
+                    className={`text-xs ${getCategoryChipClasses(a.tag_category)}`}
                   >
                     {getCategoryLabel(a.tag_category)}
                   </Badge>

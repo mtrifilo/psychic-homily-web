@@ -25,6 +25,10 @@ import {
   getReleaseTypeLabel,
   useReleaseSaveCountBatch,
 } from '@/features/releases'
+// Leaf module, not the feature barrel: the barrel reaches
+// components/filters/cityParams, which builds a nuqs parser at module scope,
+// and ChartsPage.test.tsx mocks nuqs without that export.
+import { getCategoryLabel } from '@/features/tags/types'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { cn } from '@/lib/utils'
 import {
@@ -1075,7 +1079,7 @@ export function ChartsPage({
                   {tag.name}
                 </Link>
               }
-              meta={`${tag.show_count}${tag.show_count === 1 ? ' show' : ' shows'}${tag.category ? ` · ${tag.category}` : ''}`}
+              meta={`${tag.show_count}${tag.show_count === 1 ? ' show' : ' shows'}${tag.category ? ` · ${getCategoryLabel(tag.category)}` : ''}`}
               stat={`${tag.weighted_saves}${tag.rank === 1 ? ' saves' : ''}`}
               action={null}
             />

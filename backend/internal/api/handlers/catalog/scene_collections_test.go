@@ -119,7 +119,7 @@ func TestGetSceneCollections_EmptyIsOKNotNotFound(t *testing.T) {
 func TestGetSceneCollections_UnknownSlugIsNotFound(t *testing.T) {
 	mock := &testhelpers.MockSceneService{
 		ParseSceneSlugFn: func(slug string) (string, string, error) {
-			return "", "", fmt.Errorf("invalid scene slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("invalid scene slug: %s", slug))
 		},
 		GetSceneCollectionsFn: func(string, string, int) ([]contracts.SceneCollectionSummary, error) {
 			t.Fatal("service must not be called for an unparseable slug")

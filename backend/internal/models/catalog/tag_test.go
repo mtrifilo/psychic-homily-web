@@ -44,6 +44,22 @@ func TestIsValidTagCategory_Invalid(t *testing.T) {
 }
 
 // =============================================================================
+// IsAdminMintOnlyTagCategory Tests
+// =============================================================================
+
+// Crew is the restricted category; the descriptive ones stay open. The
+// restricted category must also be a VALID one, or the rule gates nothing.
+func TestIsAdminMintOnlyTagCategory_CrewOnly(t *testing.T) {
+	assert.True(t, IsAdminMintOnlyTagCategory(TagCategoryCrew))
+	assert.True(t, IsValidTagCategory(TagCategoryCrew))
+	for _, c := range []string{TagCategoryGenre, TagCategoryLocale, TagCategoryOther} {
+		assert.False(t, IsAdminMintOnlyTagCategory(c), "expected %q to be open", c)
+	}
+	assert.False(t, IsAdminMintOnlyTagCategory(""))
+	assert.False(t, IsAdminMintOnlyTagCategory("Crew")) // case-sensitive
+}
+
+// =============================================================================
 // IsValidTagEntityType Tests
 // =============================================================================
 
@@ -68,7 +84,8 @@ func TestTagCategoryConstants(t *testing.T) {
 	assert.Equal(t, "genre", TagCategoryGenre)
 	assert.Equal(t, "locale", TagCategoryLocale)
 	assert.Equal(t, "other", TagCategoryOther)
-	assert.Len(t, TagCategories, 3)
+	assert.Equal(t, "crew", TagCategoryCrew)
+	assert.Len(t, TagCategories, 4)
 }
 
 func TestTagEntityTypeConstants(t *testing.T) {

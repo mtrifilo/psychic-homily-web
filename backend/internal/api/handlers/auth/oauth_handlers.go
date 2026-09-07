@@ -328,7 +328,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		)
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {
+		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
 			errorMessage = authErr.UserMessage()
 		}
 
@@ -362,6 +362,27 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 	// Redirect to frontend home page
 	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
+}
+
+// authRefusalCarriesItsOwnCopy names the refusals an OAuth callback reports in
+// their own words rather than as a generic failure. Every other code stays
+// generic, so a backend fault never reaches a caller.
+//
+// A code added here reaches three surfaces, all of them in this file and
+// AppleCallbackHandler: the browser redirect to the frontend auth page, the
+// loopback redirect to a CLI callback, and the Apple callback's JSON body. It
+// therefore also decides what an unauthenticated caller learns about why the
+// attempt failed.
+//
+// It governs only those two callbacks. Other handlers in this package answer
+// with a code of their own and do not consult it.
+func authRefusalCarriesItsOwnCopy(code string) bool {
+	switch code {
+	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:
+		return true
+	default:
+		return false
+	}
 }
 
 func encodeOAuthSignupConsent(consent contracts.OAuthSignupConsent) (string, error) {

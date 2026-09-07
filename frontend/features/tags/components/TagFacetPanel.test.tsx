@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -29,7 +29,15 @@ const tagsByCategory = {
   other: [
     { id: 4, slug: 'diy', name: 'diy', category: 'other', is_official: false, usage_count: 12, created_at: '' },
   ],
+  // Present so that a panel which asks for crew would render a chip rather
+  // than an empty group that hides itself and reads as a pass.
+  crew: [
+    { id: 5, slug: 'rubber-brother', name: 'Rubber Brother Records', category: 'crew', is_official: true, usage_count: 31, created_at: '' },
+  ],
 }
+
+/** Every `category` the panel asked `useTags` for during a render. */
+const requestedCategories: string[] = []
 
 // Per-entity-type overrides: { entity_type: { tag_slug: count } }. Any tag
 // not listed inherits its default usage_count above. Used to simulate the
@@ -55,6 +63,7 @@ vi.mock('../hooks', () => ({
     entity_type?: string
     cities?: Array<{ city: string; state: string }>
   }) => {
+    if (params?.category) requestedCategories.push(params.category)
     const baseTags = params?.category ? tagsByCategory[params.category] ?? [] : []
     const cityScoped =
       params?.entity_type === 'show' && (params?.cities?.length ?? 0) > 0
@@ -91,7 +100,11 @@ describe('parseTagsParam / buildTagsParam', () => {
 })
 
 describe('TagFacetPanel', () => {
-  it('renders all 3 categories with their tags', () => {
+  beforeEach(() => {
+    requestedCategories.length = 0
+  })
+
+  it('renders the facet categories with their tags', () => {
     renderWithProviders(
       <TagFacetPanel
         selectedSlugs={[]}
@@ -106,6 +119,47 @@ describe('TagFacetPanel', () => {
     expect(screen.getByTestId('tag-facet-chip-phoenix')).toBeInTheDocument()
     expect(screen.getByTestId('tag-facet-chip-diy')).toBeInTheDocument()
   })
+
+  it('asks for no crew tags even while another tag is selected', () => {
+    // The exclusion is unconditional: a selection must not turn the crew
+    // query back on for a group the panel never renders.
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={['post-punk']}
+        onToggle={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByTestId('tag-facet-chip-post-punk')).toBeInTheDocument()
+    expect(requestedCategories).not.toContain('crew')
+    expect(
+      screen.queryByTestId('tag-facet-category-crew')
+    ).not.toBeInTheDocument()
+  })
+
+  it.each(['rail', 'bar'] as const)(
+    'leaves crew out of the %s layout, chips and queries alike',
+    layout => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          layout={layout}
+        />
+      )
+      expect(
+        screen.queryByTestId('tag-facet-category-crew')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('tag-facet-chip-rubber-brother')
+      ).not.toBeInTheDocument()
+      // A crew group suppressed only at render would still cost a request and
+      // would come back the moment someone flattened the layout.
+      expect(requestedCategories).not.toContain('crew')
+      expect(requestedCategories).toContain('genre')
+    }
+  )
 
   it('shows the multi-tag selection tooltip copy for the shows facet', async () => {
     const user = userEvent.setup()

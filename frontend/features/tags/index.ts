@@ -22,10 +22,17 @@ export type {
 
 export {
   TAG_CATEGORIES,
+  DESCRIPTIVE_TAG_CATEGORIES,
+  TAG_CATEGORY_CREW,
+  isDescriptiveTagCategory,
   TAG_ENTITY_TYPES,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
-  getCategoryColor,
+  getCategoryChipClasses,
+  getCategoryTint,
+  getTagChipClasses,
+  categoryHasChipShape,
+  canonicalTagCategory,
   getCategoryLabel,
 } from './types'
 

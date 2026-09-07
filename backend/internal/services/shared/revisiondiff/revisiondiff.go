@@ -234,6 +234,15 @@ func Compare(before, after interface{}, fields []Field) []adminm.FieldChange {
 
 		oldVal, newVal, changed := diffValue(bf, af)
 		if changed {
+			// FieldChange.OldValueWithheld is left UNSTAMPED, which is not an
+			// oversight. The stamp asserts where the previous value came from,
+			// and this function reads whatever before-image its caller handed
+			// it: a caller diffing two already-gated response values passes a
+			// masked field as unset, and Compare cannot tell that apart from a
+			// column that was empty. Stamping observed here would put an
+			// assertion this function cannot check onto a row that outlives it.
+			// A caller that KNOWS its before-image is the entity itself may
+			// stamp what it emits.
 			changes = append(changes, adminm.FieldChange{
 				Field:    f.Name,
 				OldValue: oldVal,

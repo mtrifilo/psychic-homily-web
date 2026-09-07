@@ -20,6 +20,7 @@ import {
   useMergeTagsPreview,
   useTagAliases,
 } from './useAdminTags'
+import { getCategoryChipClasses, getCategoryLabel } from '../types'
 import type { TagListItem } from '../types'
 
 interface MergeTagDialogProps {
@@ -148,8 +149,11 @@ export function MergeTagDialog({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{selectedTarget.name}</span>
-                      <Badge variant="outline" className="text-xs">
-                        {selectedTarget.category}
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${getCategoryChipClasses(selectedTarget.category)}`}
+                      >
+                        {getCategoryLabel(selectedTarget.category)}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -266,8 +270,11 @@ export function MergeTagDialog({
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{tag.name}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {tag.category}
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${getCategoryChipClasses(tag.category)}`}
+                            >
+                              {getCategoryLabel(tag.category)}
                             </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground">

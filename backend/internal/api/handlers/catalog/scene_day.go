@@ -64,7 +64,7 @@ func (h *SceneHandler) GetSceneCurrentDayHandler(ctx context.Context, req *GetSc
 func (h *SceneHandler) sceneDay(slug, dateKey string) (*GetSceneDayResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	day, err := h.sceneService.GetSceneDay(city, state, dateKey)

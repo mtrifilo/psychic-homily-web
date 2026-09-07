@@ -722,7 +722,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	// week's buckets: GetSceneWeek buckets scene-locally, so a UTC-formatted key
 	// names the wrong week whenever the anchor instant has already crossed into
 	// Monday UTC but is still Sunday in the scene (Phoenix is UTC-7 year round).
-	sceneLoc, _ := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
+	phoenixScope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	sceneLoc, _ := suite.sceneService.sceneLocation(phoenixScope, "AZ")
 	anchorWeekKey := ISOWeekKey(anchor.In(sceneLoc))
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
@@ -1086,7 +1088,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroD
 
 	// The number the surviving row publishes is the number its destination page
 	// serves: the collapse must not leave the directory contradicting the page.
-	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor("Phoenix", "AZ"))
+	scope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	count, err := suite.sceneService.verifiedVenueCount(scope)
 	suite.Require().NoError(err)
 	suite.Equal(int64(scenes[0].VenueCount), count)
 }
@@ -1098,10 +1102,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroD
 //
 // The assertion is the CORRESPONDENCE, not a guess at which spelling wins:
 // whichever literal ParseSceneSlug resolves the slug to is the one the list must
-// publish, since that is the pair venuePredicate will serve. Asserting the
-// agreement rather than a hardcoded winner also keeps the test honest about
-// collation — Go compares the group minima byte-wise and Postgres orders under
-// the database's collation, and this fails loudly if those ever disagree.
+// publish, since that is the pair venuePredicate will serve. Both sides pick
+// that literal through sceneGroupOutranks here, because both groups clear the
+// venue floor. TestSceneSlugOrderByAgreesWithTheGroupMinima covers the groups
+// that do not, which are the ones ParseSceneSlug still resolves with SQL.
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDoNotSplitTheScene() {
 	user := suite.createUser()
 	spacedA := suite.createVerifiedVenue("Spaced A", "Saint Jerome", "QC")
@@ -1130,7 +1134,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDo
 	suite.Equal(resolvedState, scenes[0].State)
 
 	// And the counts must be that group's alone, not the pair summed.
-	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor(resolvedCity, resolvedState))
+	scope, err := suite.sceneService.scopeFor(resolvedCity, resolvedState)
+	suite.Require().NoError(err)
+	count, err := suite.sceneService.verifiedVenueCount(scope)
 	suite.Require().NoError(err)
 	suite.Equal(int64(scenes[0].VenueCount), count)
 	suite.Equal(2, scenes[0].VenueCount)
@@ -1939,12 +1945,8 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 	jazzTag := suite.createGenreTag("jazz", "jazz")
 	future := time.Now().UTC().AddDate(0, 0, 7)
 
-	// 30 LOCAL punk artists — meets the 30-tagged-artist threshold.
-	for i := 0; i < 30; i++ {
-		a := suite.createArtist(fmt.Sprintf("Local Punk %d", i)) // Phoenix-local (default)
-		suite.createApprovedShow(fmt.Sprintf("LP Show %d", i), venues[i%2].ID, a.ID, user.ID, future.AddDate(0, 0, i))
-		suite.tagArtist(a.ID, punkTag, user.ID)
-	}
+	suite.seedLocalTaggedCohort("Local Punk", venues, punkTag, user.ID, future)
+
 	// A touring jazz act playing a Phoenix venue — its genre must NOT appear.
 	tourer := suite.createArtistIn("LA Jazz Tourer", "Los Angeles", "CA")
 	suite.createApprovedShow("Tour Show", v1.ID, tourer.ID, user.ID, future)
@@ -1959,6 +1961,37 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 	}
 	suite.Contains(names, "punk", "local artists' genre is present")
 	suite.NotContains(names, "jazz", "a touring act's genre must not pollute the scene")
+}
+
+// TestGetSceneGenreDistribution_ExcludesCrewCategoryTags pins the genre rails
+// against the crew category. The crew tag here rides a LOCAL artist that
+// already contributes to the distribution, so neither the locality predicate
+// nor the entity-type join can be what hides it: only the category filter can.
+// A crew tag also must not inflate the tagged-artist mass the threshold reads.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_ExcludesCrewCategoryTags() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("CX-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("CX-V2", "Phoenix", "AZ")
+	venues := []*catalogm.Venue{v1, v2}
+
+	punkTag := suite.createGenreTag("punk", "punk")
+	crewTag := suite.createTagInCategory("Rubber Brother Records", "rubber-brother-records", catalogm.TagCategoryCrew)
+	future := time.Now().UTC().AddDate(0, 0, 7)
+
+	locals := suite.seedLocalTaggedCohort("Crew Local", venues, punkTag, user.ID, future)
+	suite.tagArtist(locals[0], crewTag, user.ID)
+	suite.Require().Equal(2, suite.countArtistTags(locals[0]), "the crew tag is applied, so its absence below is the filter's doing")
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(genres)
+
+	total := 0
+	for _, g := range genres {
+		suite.NotEqual("rubber-brother-records", g.Slug, "a crew tag must not appear as a genre")
+		total += g.Count
+	}
+	suite.Equal(sceneGenreMinTaggedArtists, total, "a crew tag must not inflate the tagged-artist mass")
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_RespectsLimit() {
@@ -2479,27 +2512,77 @@ func TestDiversityLabel(t *testing.T) {
 
 // createGenreTag creates a genre tag for testing
 func (suite *SceneServiceIntegrationTestSuite) createGenreTag(name, slug string) uint {
+	return suite.createTagInCategory(name, slug, catalogm.TagCategoryGenre)
+}
+
+// seedLocalTaggedCohort creates sceneGenreMinTaggedArtists city-local artists,
+// each with one approved show at one of the given venues and the given tag, and
+// returns their IDs in creation order. The size is the threshold itself, so a
+// caller that removes an artist drops the scene below it.
+func (suite *SceneServiceIntegrationTestSuite) seedLocalTaggedCohort(
+	namePrefix string,
+	venues []*catalogm.Venue,
+	tagID, userID uint,
+	firstShowDate time.Time,
+) []uint {
+	ids := make([]uint, 0, sceneGenreMinTaggedArtists)
+	for i := 0; i < sceneGenreMinTaggedArtists; i++ {
+		a := suite.createArtist(fmt.Sprintf("%s %d", namePrefix, i)) // Phoenix-local (default)
+		suite.createApprovedShow(
+			fmt.Sprintf("%s Show %d", namePrefix, i),
+			venues[i%len(venues)].ID,
+			a.ID, userID,
+			firstShowDate.AddDate(0, 0, i),
+		)
+		suite.tagArtist(a.ID, tagID, userID)
+		ids = append(ids, a.ID)
+	}
+	return ids
+}
+
+// countArtistTags returns how many tags of any category are applied to an artist.
+func (suite *SceneServiceIntegrationTestSuite) countArtistTags(artistID uint) int {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var count int
+	err = sqlDB.QueryRow(
+		`SELECT COUNT(*) FROM entity_tags WHERE entity_type = 'artist' AND entity_id = $1`,
+		artistID,
+	).Scan(&count)
+	suite.Require().NoError(err)
+	return count
+}
+
+// createTagInCategory creates a tag in an arbitrary category for testing.
+func (suite *SceneServiceIntegrationTestSuite) createTagInCategory(name, slug, category string) uint {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	var tagID uint
 	err = sqlDB.QueryRow(`
 		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
-		VALUES ($1, $2, 'genre', true, 0, NOW(), NOW())
+		VALUES ($1, $2, $3, true, 0, NOW(), NOW())
 		RETURNING id
-	`, name, slug).Scan(&tagID)
+	`, name, slug, category).Scan(&tagID)
 	suite.Require().NoError(err)
 	return tagID
 }
 
-// tagArtist tags an artist with a genre tag
-func (suite *SceneServiceIntegrationTestSuite) tagArtist(artistID, tagID, userID uint) {
+// tagEntity applies a tag to any entity through the polymorphic entity_tags
+// edge. One spelling of the INSERT, so a column added to the table is found
+// once rather than per entity type.
+func (suite *SceneServiceIntegrationTestSuite) tagEntity(entityType string, entityID, tagID, userID uint) {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	_, err = sqlDB.Exec(`
 		INSERT INTO entity_tags (entity_type, entity_id, tag_id, added_by_user_id, created_at)
-		VALUES ('artist', $1, $2, $3, NOW())
-	`, artistID, tagID, userID)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, entityType, entityID, tagID, userID)
 	suite.Require().NoError(err)
+}
+
+// tagArtist tags an artist.
+func (suite *SceneServiceIntegrationTestSuite) tagArtist(artistID, tagID, userID uint) {
+	suite.tagEntity(catalogm.TagEntityArtist, artistID, tagID, userID)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_InsufficientData() {

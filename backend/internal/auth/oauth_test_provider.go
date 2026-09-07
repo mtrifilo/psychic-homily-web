@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"os"
+
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/providers/faux"
 
@@ -42,6 +44,24 @@ const TestProviderEmail = "e2e-oauth@test.local"
 // returns. Fixed so repeat logins resolve to the same oauth_accounts row.
 const TestProviderUserID = "e2e-oauth-faux-user-id"
 
+// TestProviderUnverifiedEmailEnvVar makes the clone report its address as NOT
+// verified by the provider. Unset, the clone reports verified, which is what
+// the seeded account at TestProviderEmail needs to be linkable.
+//
+// No automated suite sets it. It is read at request time, so flipping it means
+// restarting the backend: it exists so a person can drive the link refusal
+// through the genuine gothic handshake by hand against a local stack. It is
+// read only by isOAuthTestProviderEmailUnverified, in a provider that
+// newTestProvider builds and SetupGoth registers only behind the double gate
+// described at the top of this file.
+const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
+
+// EmailVerifiedRawDataKey is the RawData key the clone carries its
+// verification flag under. It must be one the link-by-email path reads, which
+// is why it is exported: internal/services/user tests its own reader against
+// this constant rather than against a copy of the string.
+const EmailVerifiedRawDataKey = "verified_email"
+
 // testProvider wraps goth's faux provider so it (a) registers/resolves under
 // the name "google" and (b) returns a deterministic, non-empty user. Every
 // method other than Name/FetchUser delegates to the embedded faux provider, so
@@ -69,8 +89,9 @@ func (p *testProvider) Name() string {
 // FetchUser delegates to faux for the AccessToken-gating round-trip (faux
 // errors until the session has been Authorize()d, exactly as a real provider
 // would before the token exchange), then overwrites the identity fields with
-// the deterministic test values. The empty-email problem in stock faux is
-// fixed here.
+// the deterministic test values. Stock faux supplies neither an email nor any
+// RawData; the link-by-email path reads the address from the first and the
+// provider's verification assertion from the second.
 func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 	user, err := p.Provider.FetchUser(session)
 	if err != nil {
@@ -80,7 +101,16 @@ func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 	user.UserID = TestProviderUserID
 	user.Email = TestProviderEmail
 	user.Name = "E2E OAuth User"
+	user.RawData = map[string]any{
+		EmailVerifiedRawDataKey: !isOAuthTestProviderEmailUnverified(os.Getenv),
+	}
 	return user, nil
+}
+
+// isOAuthTestProviderEmailUnverified reports whether the clone should present
+// its address as unverified by the provider.
+func isOAuthTestProviderEmailUnverified(getenv func(string) string) bool {
+	return testenv.IsFlagEnabled(TestProviderUnverifiedEmailEnvVar, getenv)
 }
 
 // IsOAuthTestProviderEnabled reports whether the faux "google" provider should

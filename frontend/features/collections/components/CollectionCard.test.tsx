@@ -558,6 +558,123 @@ describe('CollectionCard', () => {
       )
     })
 
+    // PSY-1883: a booker's tag on a card whose chips print no category.
+    const crewTag = {
+      id: 99,
+      name: 'Rubber Brother Records',
+      slug: 'rubber-brother-records',
+      category: 'crew',
+      is_official: true,
+      usage_count: 31,
+    }
+
+    it('drops crew chips: the row shows no category, so a booker reads as a genre', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          {
+            id: 1,
+            name: 'post-punk',
+            slug: 'post-punk',
+            category: 'genre',
+            is_official: false,
+            usage_count: 9,
+          },
+          crewTag,
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(screen.getByRole('link', { name: 'post-punk' })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'Rubber Brother Records' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('hides the whole row when every tag is crew', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          crewTag,
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(
+        screen.queryByTestId('collection-card-tags')
+      ).not.toBeInTheDocument()
+    })
+
+    it('counts the overflow off the chips it renders, not the raw tag list', () => {
+      // A crew tag left inside the remainder would make "+N" promise chips
+      // the card will never show.
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          ...Array.from({ length: 6 }, (_, i) => ({
+            id: i + 1,
+            name: `tag-${i + 1}`,
+            slug: `tag-${i + 1}`,
+            category: 'other',
+            is_official: false,
+            usage_count: 1,
+          })),
+          crewTag,
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(screen.getByText('+1')).toBeInTheDocument()
+    })
+
+    it('shows no overflow when crew is what pushed the list past the cap', () => {
+      // The overflow count is taken off the filtered list, so "+N" never
+      // promises a chip this row drops.
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          ...Array.from({ length: 5 }, (_, i) => ({
+            id: i + 1,
+            name: `tag-${i + 1}`,
+            slug: `tag-${i + 1}`,
+            category: 'other',
+            is_official: false,
+            usage_count: 1,
+          })),
+          crewTag,
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(screen.getAllByRole('link', { name: /^tag-\d$/ })).toHaveLength(5)
+      expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    })
+
+    it('drops a crew chip whose category arrives differently cased', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [{ ...crewTag, category: 'Crew' }],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(
+        screen.queryByTestId('collection-card-tags')
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps a tag whose category this build does not know', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          {
+            id: 1,
+            name: 'mystery',
+            slug: 'mystery',
+            category: 'era',
+            is_official: false,
+            usage_count: 1,
+          },
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      expect(screen.getByRole('link', { name: 'mystery' })).toBeInTheDocument()
+    })
+
     it('caps visible chips at 5 and shows the overflow count', () => {
       const collection: Collection = {
         ...baseCollection,

@@ -124,10 +124,14 @@ vi.mock('../hooks', () => ({
   }),
 }))
 
-vi.mock('../types', () => ({
-  getCategoryColor: () => '',
-  getCategoryLabel: (cat: string) => cat.charAt(0).toUpperCase() + cat.slice(1),
-  TAG_CATEGORIES: ['genre', 'locale', 'other'],
+// The category tint is stubbed so the dialog's class assertions stay legible.
+// Everything else comes from the real module: a hardcoded category list here
+// would let the dialog's filter row drift from the vocabulary the app ships.
+// Note the stub does NOT reach the tag pill, which styles itself through
+// `getTagChipClasses` and so is asserted against real class strings.
+vi.mock('../types', async importOriginal => ({
+  ...(await importOriginal<typeof import('../types')>()),
+  getCategoryChipClasses: () => '',
 }))
 
 // Default auth context: a contributor (can create tags). Individual tests
@@ -149,6 +153,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 import { EntityTagList, AddTagDialog } from './EntityTagList'
+import { DESCRIPTIVE_TAG_CATEGORIES, getCategoryLabel } from '../types'
 
 describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
@@ -606,6 +611,177 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 // button that already looks dead. PSY-483 replaces the disabled button with
 // inline explanatory prose that's always visible, and removes the
 // silently-disabled affordance entirely.
+describe('EntityTagList crew pill treatment (PSY-1883)', () => {
+  const officialAccent = 'bg-primary/10'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockSearchTags = { tags: [] }
+    currentMockTags = {
+      tags: [
+        { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: true, upvotes: 3, downvotes: 0, wilson_score: 0.56, user_vote: 0 },
+        { tag_id: 9, name: 'Rubber Brother Records', slug: 'rubber-brother-records', category: 'crew', is_official: true, upvotes: 0, downvotes: 0, wilson_score: 0, user_vote: 0 },
+      ],
+    }
+  })
+
+  function pillFor(name: string) {
+    return within(desktopRow())
+      .getByRole('group', { name: `${name} tag details` })
+  }
+
+  it('keeps the crew treatment on an official crew tag', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(pillFor('rock').className).toContain(officialAccent)
+
+    const crewPill = pillFor('Rubber Brother Records').className
+    expect(crewPill).not.toContain(officialAccent)
+    // Asserting the absence alone would also pass for the neutral fallback,
+    // which is the shape of the bug this guards.
+    expect(crewPill).toContain('font-mono')
+    expect(crewPill).toContain('rounded-[2px]')
+    expect(crewPill).toContain('bg-transparent')
+  })
+
+  it('still marks the crew tag as official beside its name', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(
+      within(pillFor('Rubber Brother Records')).getByRole('img', {
+        name: 'Official tag',
+      })
+    ).toBeInTheDocument()
+  })
+})
+
+describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockEntityTags
+    currentMockSearchTags = { tags: [] }
+    mockAuthUser = { user_tier: 'contributor' }
+  })
+
+  it('offers no Crew filter chip: minting crew is admin-only', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    const dialog = screen.getByRole('dialog')
+    for (const label of ['Genre', 'Locale', 'Other']) {
+      expect(within(dialog).getByRole('button', { name: label })).toBeInTheDocument()
+    }
+    expect(
+      within(dialog).queryByRole('button', { name: 'Crew' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers the same categories in the create select as the filter row renders', async () => {
+    // The dialog copies the chosen filter chip into the category it would
+    // mint. A chip with no matching option leaves the select showing one
+    // value while the form submits another.
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, 'brand-new-tag')
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
+
+    const dialog = screen.getByRole('dialog')
+    // Both label lists are read out of the DOM, so this compares the two
+    // controls to each other. "All" is the filter row's clear affordance and
+    // has no counterpart in a create select.
+    const chipLabels = within(within(dialog).getByTestId('add-tag-category-filter'))
+      .getAllByRole('button')
+      .map(b => b.textContent)
+      .filter(label => label !== 'All')
+    const optionLabels = within(dialog)
+      .getAllByRole('option')
+      .map(o => o.textContent)
+    expect(optionLabels).toEqual(chipLabels)
+    expect(optionLabels).not.toContain('Crew')
+    expect(optionLabels).toHaveLength(DESCRIPTIVE_TAG_CATEGORIES.length)
+  })
+})
+
+describe('EntityTagList add-tag dialog crew search result (PSY-1883)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // EntityTagList hides itself (and its Add affordance) on a tagless
+    // entity, so the dialog needs an existing tag to be reachable at all.
+    currentMockTags = mockEntityTags
+    mockAuthUser = { user_tier: 'contributor' }
+    currentMockSearchTags = {
+      tags: [
+        { id: 9, name: 'Rubber Brother Records', slug: 'rubber-brother-records', category: 'crew', is_official: true, usage_count: 31, created_at: '' },
+      ],
+    }
+  })
+
+  async function searchDialog(queryText: string) {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    await user.type(
+      screen.getByPlaceholderText('Search tags or type a new one...'),
+      queryText
+    )
+    return user
+  }
+
+  it('offers a crew tag from the unfiltered results even with no crew chip', async () => {
+    // Dropping the Crew filter chip must not cost a contributor the ability
+    // to apply a crew tag someone else minted.
+    const user = await searchDialog('Rubber')
+
+    const result = await screen.findByRole(
+      'button',
+      { name: /Rubber Brother Records/ },
+      DEBOUNCE_TIMEOUT
+    )
+    await user.click(result)
+    expect(mockAddMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ tag_id: 9 }),
+      expect.anything()
+    )
+  })
+
+  it('labels the crew result the same way every other surface does', async () => {
+    await searchDialog('Rubber')
+
+    const result = await screen.findByRole(
+      'button',
+      { name: /Rubber Brother Records/ },
+      DEBOUNCE_TIMEOUT
+    )
+    // The category badge prints through getCategoryLabel, so it reads "Crew"
+    // rather than the raw column value.
+    expect(within(result).getByText('Crew')).toBeInTheDocument()
+  })
+})
+
 describe('EntityTagList add-tag dialog create-tag tier gating', () => {
   beforeEach(() => {
     vi.clearAllMocks()

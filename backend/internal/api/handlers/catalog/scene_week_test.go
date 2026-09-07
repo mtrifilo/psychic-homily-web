@@ -16,7 +16,7 @@ func weekMock(capture *string) *testhelpers.MockSceneService {
 			if slug == "phoenix-az" {
 				return "Phoenix", "AZ", nil
 			}
-			return "", "", fmt.Errorf("unknown scene slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("unknown scene slug: %s", slug))
 		},
 		GetSceneWeekFn: func(city, state, weekKey string) (*contracts.SceneWeekResponse, error) {
 			if capture != nil {

@@ -10,8 +10,8 @@ import { InfoTooltip } from '@/components/shared/InfoTooltip'
 import type { CityState } from '@/components/filters'
 import { useTags } from '../hooks'
 import {
-  TAG_CATEGORIES,
-  getCategoryColor,
+  DESCRIPTIVE_TAG_CATEGORIES,
+  getCategoryChipClasses,
   getCategoryLabel,
 } from '../types'
 import type { TagCategory, TagEntityType, TagListItem } from '../types'
@@ -87,13 +87,17 @@ export interface TagFacetPanelProps {
 
 /**
  * Sidebar/drawer used by the six browse pages (PSY-309). Groups tags by
- * category (genre / locale / other — the 3 TAG_CATEGORIES in prod)
- * and lets the user toggle chips to combine tags with AND semantics.
+ * category and lets the user toggle chips to combine tags with AND semantics.
+ *
+ * The vocabulary is DESCRIPTIVE_TAG_CATEGORIES, not TAG_CATEGORIES: a crew
+ * chip among genre chips reads as a genre and dilutes the filter it sits in.
+ * A slug outside that vocabulary can still arrive in `selectedSlugs` from the
+ * URL, and this panel renders no chip for it, so "Clear all" is the only
+ * control that reaches it.
  *
  * Data source: `/tags?category={cat}&sort=usage&limit=N&entity_type=…` —
- * one query per category via `useTags`. Small number of categories (3)
- * keeps the request count bounded. The panel auto-grows if TAG_CATEGORIES
- * gains more entries.
+ * one query per category via `useTags`. The small category count keeps the
+ * request count bounded. The panel auto-grows if the constant gains entries.
  */
 export function TagFacetPanel({
   selectedSlugs,
@@ -159,7 +163,7 @@ export function TagFacetPanel({
   // Bar layout (PSY-1000): the full vocabulary flows into ONE wrapping row so
   // the chips sit above a full-width list. We flatten the categories rather
   // than stacking per-category headings — the chip colors (from
-  // getCategoryColor) already encode the category, matching the Figma
+  // getCategoryChipClasses) already encode the category, matching the Figma
   // `474:9` "Filter by tag" row. The heading, chips, the "show all"
   // expander, and "Clear all" all share that single flex-wrap row.
   if (isBar) {
@@ -181,7 +185,7 @@ export function TagFacetPanel({
           </h2>
         )}
 
-        {TAG_CATEGORIES.map(cat => (
+        {DESCRIPTIVE_TAG_CATEGORIES.map(cat => (
           <CategoryGroup
             key={cat}
             category={cat}
@@ -229,7 +233,7 @@ export function TagFacetPanel({
         <div className="flex justify-end">{clearButton}</div>
       )}
 
-      {TAG_CATEGORIES.map(cat => (
+      {DESCRIPTIVE_TAG_CATEGORIES.map(cat => (
         <CategoryGroup
           key={cat}
           category={cat}
@@ -358,7 +362,7 @@ interface TagChipProps {
 }
 
 function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
-  const catColors = getCategoryColor(tag.category)
+  const catClasses = getCategoryChipClasses(tag.category)
   return (
     <button
       type="button"
@@ -375,7 +379,7 @@ function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
           : 'cursor-pointer',
         selected
           ? 'bg-primary text-primary-foreground border-primary shadow-sm ring-1 ring-primary/40'
-          : `${catColors} ${disabled ? '' : 'hover:bg-muted/60'}`
+          : `${catClasses} ${disabled ? '' : 'hover:bg-muted/60'}`
       )}
     >
       <span>{tag.name}</span>

@@ -29,6 +29,9 @@ func setupSceneRoutes(rc RouteContext) {
 	// a data sub-resource of the scene page, not a reader-facing path — no HEAD
 	// sibling, because frontend/proxy.ts never existence-checks it.
 	huma.Get(rc.API, "/scenes/{slug}/gaps", sceneHandler.GetSceneGapsHandler)
+	// Crew tags booking in the scene (PSY-1884). Same kind of data sub-resource
+	// as /gaps above, with the same absence of a HEAD sibling for the same reason.
+	huma.Get(rc.API, "/scenes/{slug}/crews", sceneHandler.GetSceneCrewsHandler)
 	// Named new bands (PSY-1781). A data sub-resource of the scene page, not a
 	// reader-facing path — no HEAD sibling, unlike the week/day families below,
 	// because frontend/proxy.ts never existence-checks it.

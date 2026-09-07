@@ -17,7 +17,12 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-import { EntityNameLink, RoomLink, SceneSectionHeading } from './sceneChrome'
+import {
+  EntityNameLink,
+  EntityNameList,
+  RoomList,
+  SceneSectionHeading,
+} from './sceneChrome'
 
 // The nullable-slug href guard is a rule this codebase has learned the hard way
 // (PSY-1754) and now has ONE implementation. These are its tests.
@@ -71,21 +76,138 @@ describe('EntityNameLink', () => {
   })
 })
 
-describe('RoomLink', () => {
-  // The day and week pages' rooms footer rides on the same guard. Its own
-  // styling is deliberately different, which is the whole reason the guard is
-  // parameterised rather than duplicated.
-  it('keeps its own underline treatment while delegating the guard', () => {
-    renderWithProviders(<RoomLink venue={{ name: 'Valley Bar', slug: 'valley-bar' }} />)
-    const link = screen.getByRole('link', { name: 'Valley Bar' })
-    expect(link).toHaveAttribute('href', '/venues/valley-bar')
-    expect(link.className).toContain('underline-offset-4')
+// The dot-separated names line has one implementation, and these are its tests.
+describe('EntityNameList', () => {
+  it('joins the names with middots and links each one', () => {
+    const { container } = renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Gatecreeper', slug: 'gatecreeper' },
+          { id: 2, name: 'Diners', slug: 'diners' },
+          { id: 3, name: 'Playboy Manbaby', slug: 'playboy-manbaby' },
+        ]}
+        basePath="/artists"
+      />
+    )
+
+    expect(container.textContent).toBe('Gatecreeper · Diners · Playboy Manbaby')
+    expect(screen.getByRole('link', { name: 'Diners' })).toHaveAttribute(
+      'href',
+      '/artists/diners'
+    )
   })
 
-  it('names a slugless room unlinked', () => {
-    renderWithProviders(<RoomLink venue={{ name: 'Turn! Turn! Turn!' }} />)
-    expect(screen.getByText('Turn! Turn! Turn!')).toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  // The separator lives OUTSIDE the anchor. Asserting the joined text would
+  // pass just as well with the middot inside a link, which is the edit this
+  // guards against.
+  it('keeps the separator out of every link', () => {
+    renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Gatecreeper', slug: 'gatecreeper' },
+          { id: 2, name: 'Diners', slug: 'diners' },
+        ]}
+        basePath="/artists"
+      />
+    )
+    for (const link of screen.getAllByRole('link')) {
+      expect(link.textContent).not.toContain('·')
+    }
+  })
+
+  it('names a slugless entity without linking it', () => {
+    renderWithProviders(
+      <EntityNameList
+        items={[
+          { id: 1, name: 'Gatecreeper', slug: '' },
+          { id: 2, name: 'Diners', slug: 'diners' },
+        ]}
+        basePath="/artists"
+      />
+    )
+    expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
+  })
+
+  // Items without an id key on slug-or-name.
+  it('renders every row when the caller has no ids and no slugs', () => {
+    const { container } = renderWithProviders(
+      <EntityNameList
+        items={[{ name: 'The Rebel Lounge' }, { name: 'Valley Bar' }]}
+        basePath="/venues"
+      />
+    )
+    expect(container.textContent).toBe('The Rebel Lounge · Valley Bar')
+  })
+
+  // The key collision the doc block names: no id, no slug, same name twice.
+  // Both rows still have to reach the DOM, because a name repeating is a fact
+  // about the data and never a reason to drop one of them. React's duplicate-key
+  // complaint is expected here rather than a failure, so it is captured to keep
+  // it out of the suite's output; the test below asserts its absence where the
+  // key IS unique.
+  it('renders both rows when two id-less, slugless items share a name', () => {
+    const warned = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { container } = renderWithProviders(
+        <EntityNameList
+          items={[{ name: 'The Lounge' }, { name: 'The Lounge' }]}
+          basePath="/venues"
+        />
+      )
+      expect(container.textContent).toBe('The Lounge · The Lounge')
+    } finally {
+      warned.mockRestore()
+    }
+  })
+
+  // The `id` branch is what makes the previous case collision-free, and the
+  // only observable difference is React's duplicate-key complaint, so that is
+  // what this asserts the absence of.
+  it('keys on the id, so identical names and slugs do not collide', () => {
+    const complained = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { container } = renderWithProviders(
+        <EntityNameList
+          items={[
+            { id: 1, name: 'Repeat', slug: '' },
+            { id: 2, name: 'Repeat', slug: '' },
+          ]}
+          basePath="/artists"
+        />
+      )
+      expect(container.textContent).toBe('Repeat · Repeat')
+      expect(complained).not.toHaveBeenCalled()
+    } finally {
+      complained.mockRestore()
+    }
+  })
+})
+
+describe('RoomList', () => {
+  it('prints the rooms as one middot-separated line, each linked when it can be', () => {
+    const { container } = renderWithProviders(
+      <RoomList
+        venues={[
+          { name: 'Valley Bar', slug: 'valley-bar' },
+          { name: 'Turn! Turn! Turn!' },
+        ]}
+      />
+    )
+
+    expect(container.textContent).toBe('Valley Bar · Turn! Turn! Turn!')
+    expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveAttribute(
+      'href',
+      '/venues/valley-bar'
+    )
+    expect(screen.queryByRole('link', { name: 'Turn! Turn! Turn!' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the rooms footer underline treatment', () => {
+    renderWithProviders(<RoomList venues={[{ name: 'Valley Bar', slug: 'valley-bar' }]} />)
+    expect(screen.getByRole('link', { name: 'Valley Bar' }).className).toContain(
+      'underline-offset-4'
+    )
   })
 })
 

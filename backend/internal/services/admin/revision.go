@@ -284,6 +284,13 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 // path uses (observeCurrentValues). An unlocked read would be a check the write
 // it guards can invalidate in between.
 //
+// A field whose recorded previous value the pipeline WITHHELD is skipped by the
+// same report, and never written. The pending-edit pipeline records, for a
+// column its submitter is not shown, the placeholder it shows them instead, so
+// writing that back destroys the value the column held. See
+// refuseWithheldOldValues, which also says why nothing tries to recover the real
+// one.
+//
 // The recorded rollback revision's old_value is that OBSERVED value, not the
 // revision's recorded new_value. The two agree for every field that passes the
 // check, and where a stored claim and the column disagree the column is the one
@@ -333,9 +340,14 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 		return nil, fmt.Errorf("revision %d records no field changes", revisionID)
 	}
 
+	refusals := refuseWithheldOldValues(fieldOrder, byField)
+
 	// Build update map from old values (reversing the change)
 	updates := make(map[string]interface{}, len(fieldOrder))
 	for _, field := range fieldOrder {
+		if _, refused := refusals[field]; refused {
+			continue
+		}
 		updates[field] = byField[field].OldValue
 	}
 
@@ -349,11 +361,13 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	// transaction overwrites.
 	//
 	// Refusals accumulate by field name rather than into the reported list
-	// directly, so the two rounds of judging can be reported in one pass, in the
-	// order the revision recorded the fields.
-	refusals := make(map[string]string, len(fieldOrder))
+	// directly, so the three rounds of judging can be reported in one pass, in
+	// the order the revision recorded the fields.
 	numericBounds := contracts.NumericEditFieldBounds()
 	for _, field := range fieldOrder {
+		if _, refused := refusals[field]; refused {
+			continue
+		}
 		if err := rollbackFieldError(ctx, updates, field, numericBounds); err != nil {
 			delete(updates, field)
 			refusals[field] = refusalReason(err)
@@ -414,7 +428,10 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 				Field:    field,
 				OldValue: current[field],
 				NewValue: byField[field].OldValue,
-			})
+				// The observation reads a withheld column as the column, so
+				// this old_value is always the entity's own. revisiondiff
+				// masks it for every non-admin reader.
+			}.WithOldValueWithheld(false))
 		}
 		result = &contracts.RollbackResult{
 			AppliedFields: applied,
@@ -476,6 +493,64 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 // differs by cause: a later edit, a merge and a direct admin write all land
 // here.
 const changedSinceReason = "this field changed after the revision was recorded, so restoring it would discard that change"
+
+// withheldOldValueReason is the sentence an admin reads beside a field whose
+// recorded previous value is the mask the pipeline showed the submitter rather
+// than the value the column held.
+//
+// It names the recorded value rather than the field's privacy. "This field is
+// secret" would be the wrong reading: the admin can see the column, and the
+// History panel beside this message is showing it. What the row does not carry
+// is the value that preceded the edit.
+const withheldOldValueReason = "the previous value recorded here is a placeholder shown in place of a value the contributor was not allowed to see, so it is not what the field held"
+
+// refuseWithheldOldValues names every field whose recorded previous value the
+// pipeline WITHHELD, so a rollback writes none of them.
+//
+// WHY. A contributor editing an unverified venue's address is served "" in
+// place of the street address, and the pending edit records that blank as the
+// field's previous value (see the OLD-VALUE CONTRACT). Writing it back on undo
+// empties a column that held a real address: the venue's own address is
+// destroyed by the button whose whole purpose is to put things back.
+//
+// It keys on the STAMP, not on the value's shape. A mask is whatever the unset
+// value of the column's type renders as, which for the two gated columns today
+// is "" but for an int column would be 0 and for a timestamp the year 1. Keying
+// on blankness would write those two.
+//
+// WHY IT DOES NOT RECOVER THE REAL VALUE. The obvious repair is to read the
+// value an earlier revision recorded writing to the field. Two properties of
+// this system make that a wrong write rather than a restore, and both are
+// reachable without doing anything unusual:
+//
+//   - A venue merge re-points the loser's revisions onto the winner by
+//     rewriting entity_id (catalog.repointRevisions), keeping their ids. An
+//     earlier revision of "this entity" can therefore be another venue's, so
+//     the recovered value can be a different house's street address, written
+//     into a column the winner may publish.
+//   - For an unverified venue's address there is no complete history to read.
+//     The admin update path diffs two already-gated VenueDetailResponse values,
+//     which are nil on both sides for a gated field, so an admin correcting
+//     such an address records no revision at all. The most recent recorded
+//     write is then not the value the column held.
+//
+// A refusal is honest and an admin can act on it. A plausible wrong address,
+// written under the Undo button and reported as an applied field, loses the
+// same real value in a form that reads as success.
+//
+// An UNSTAMPED row says nothing about where its value came from and is left
+// alone: nothing here can tell a mask from a column that really was empty, and
+// refusing would break the ordinary undo of a contributor filling in an empty
+// field. Such a row is written as recorded.
+func refuseWithheldOldValues(fieldOrder []string, byField map[string]adminm.FieldChange) map[string]string {
+	refusals := make(map[string]string, len(fieldOrder))
+	for _, field := range fieldOrder {
+		if byField[field].OldValueIsWithheld() {
+			refusals[field] = withheldOldValueReason
+		}
+	}
+	return refusals
+}
 
 // observeRollbackValues reads the entity under a row lock and reports the value
 // it currently holds for every field the claims name, plus the fields whose
@@ -846,9 +921,10 @@ func (s *RevisionService) verifiedVenueIDs(ids []uint) map[uint]struct{} {
 // depend on the stored JSON having exactly the shape adminm.FieldChange models:
 // encoding/json silently drops keys the struct does not declare, so a row
 // carrying an address under an unmodeled key would parse to a clean-looking
-// diff and then be served verbatim. Rebuilding the payload from the three
-// fields this function can actually inspect makes what is served a function of
-// what was checked. The cost is one marshal of a bounded slice per masked row.
+// diff and then be served verbatim. Rebuilding the payload from the fields
+// adminm.FieldChange declares, which are the ones this function can inspect,
+// makes what is served a function of what was checked. The cost is one marshal
+// of a bounded slice per masked row.
 //
 // It assigns a NEW *json.RawMessage rather than writing through the existing
 // one, and reassigns Summary rather than writing through *r.Summary, for the

@@ -662,10 +662,12 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 
 	entries := make([]contracts.SitemapEntry, 0, len(unique)*sceneWeekSitemapWindow)
 	for _, grp := range unique {
-		city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
-		slug := buildSceneSlug(city, state)
-		scope := metroScopeFor(s.geocoder, city, state)
-		loc := s.sceneLocation(scope, state)
+		// The winner's own key builds the scope, so the weeks published under a
+		// slug are the weeks of the rooms that group holds, which are the rooms
+		// the page that slug serves is scoped to.
+		scope := sceneScopeForGroup(grp)
+		slug := sceneGroupSlug(grp)
+		loc := s.sceneLocation(scope, scope.state)
 
 		nowLocal := time.Now().In(loc)
 		y, w := nowLocal.ISOWeek()

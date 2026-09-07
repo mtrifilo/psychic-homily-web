@@ -11,13 +11,23 @@ const (
 	TagCategoryGenre  = "genre"
 	TagCategoryLocale = "locale"
 	TagCategoryOther  = "other"
+	// TagCategoryCrew marks a tag naming a MUSIC BOOKER: a promoter, a DIY
+	// crew or collective, or a named music series or residency that books
+	// live music. Non-music bar programming (bingo, karaoke, comedy open
+	// mics) is outside the category and belongs under TagCategoryOther.
+	TagCategoryCrew = "crew"
 )
 
-// TagCategories is the set of valid tag categories.
+// TagCategories is the set of valid tag categories, enforced by
+// IsValidTagCategory in TagService's create, update, and inline-create paths.
+// Nothing below those enforces it: tags.category is a plain VARCHAR with no
+// CHECK constraint, so seeders and migrations that write the column directly
+// can store any string.
 var TagCategories = []string{
 	TagCategoryGenre,
 	TagCategoryLocale,
 	TagCategoryOther,
+	TagCategoryCrew,
 }
 
 // Tag entity type constants (same values as CollectionEntity* / RequestEntity*)
@@ -143,6 +153,20 @@ func IsValidTagCategory(category string) bool {
 		}
 	}
 	return false
+}
+
+// IsAdminMintOnlyTagCategory reports whether CREATING a tag in this category
+// requires admin.
+//
+// The rule governs which NAMES may enter the tag vocabulary, and nothing else.
+// Applying an existing tag of the category, and removing an application, are
+// unrestricted by it, so what a crew tag is attached to is not admin-controlled
+// even though what a crew tag is called is.
+//
+// Crew is restricted because the value names a real party. The other categories
+// describe rather than name, so a wrong one is noise a curator fixes.
+func IsAdminMintOnlyTagCategory(category string) bool {
+	return category == TagCategoryCrew
 }
 
 // IsValidTagEntityType returns true if the given entity type is valid for tagging.

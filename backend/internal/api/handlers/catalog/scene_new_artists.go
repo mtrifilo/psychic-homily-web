@@ -75,7 +75,7 @@ type GetSceneNewArtistsResponse struct {
 func (h *SceneHandler) GetSceneNewArtistsHandler(ctx context.Context, req *GetSceneNewArtistsRequest) (*GetSceneNewArtistsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	artists, err := h.sceneService.GetSceneLatestArtists(city, state, time.Now().UTC(), req.Limit)

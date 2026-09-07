@@ -56,17 +56,20 @@ import (
 // view and not the column: an unverified venue's address records "" while the
 // column holds a street address.
 //
-// Two separate things follow from that, and only one of them is settled.
+// Three things follow from that, and each is answered somewhere different.
 //
-// The OBSERVATION is settled: Rollback derives through the same functions but
-// reads such a column as the column, because it answers for a different
-// audience. See adminAudience.
+// The OBSERVATION: Rollback derives through the same functions but reads such a
+// column as the column, because it answers for a different audience. See
+// adminAudience.
 //
-// The WRITE is not. Rollback still writes OldValue back verbatim, so restoring a
-// contributor-originated revision on an unverified venue writes the recorded ""
-// over a real street address rather than restoring the address that preceded
-// the edit. Nothing here narrows that: the recorded value is the only record of
-// what the field held, and for a withheld field it never described the column.
+// The RECORD: every change this derivation returns carries
+// FieldChange.OldValueWithheld, so the row itself says whether its blank is the
+// column's value or the mask over it. See that field for why nothing else can
+// say.
+//
+// The WRITE: Rollback never puts a withheld value into a column. It skips the
+// field, with a reason, in the report it already carries. See
+// refuseWithheldOldValues for why it does not try to recover the real one.
 
 // entityModelsByType pairs each entity type with the GORM model whose columns a
 // derivation here may read.
@@ -316,7 +319,8 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 		// submitter, so deriving from the column would publish the value the
 		// entity payload withholds. adminAudience is the one audience this does
 		// not hold for.
-		if withheld[field] && readFor.masksWithheldColumns() {
+		masked := withheld[field] && readFor.masksWithheldColumns()
+		if masked {
 			column = reflect.Zero(column.Type())
 		}
 		value, err := revisiondiff.EmitValue(column)
@@ -330,6 +334,12 @@ func resolveFieldValues(db *gorm.DB, entityType string, entityID uint, changes [
 			stale = append(stale, apperrors.StaleFieldValue{Field: field, Current: value})
 		}
 		out[i].OldValue = value
+		// Stamped unconditionally, which is what makes the answer the server's
+		// on both counts. The stamp arrives on the wire beside the value (the
+		// suggest-edit body decodes into this same struct), so a submitter can
+		// claim a field was withheld when it was not, and a rollback reading
+		// that claim would refuse to restore a value it could have restored.
+		out[i] = out[i].WithOldValueWithheld(masked)
 	}
 	return out, stale, nil
 }

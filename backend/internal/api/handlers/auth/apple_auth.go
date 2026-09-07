@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -118,8 +119,16 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	// Find or create user
 	user, err := h.appleAuthService.FindOrCreateAppleUser(claims, firstName, lastName)
 	if err != nil {
-		logger.AuthError(ctx, "apple_auth_user_create_failed", err)
 		resp.Body.Success = false
+		// A refusal keeps its own code and copy; only a fault reports as one.
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+			logger.AuthWarn(ctx, "apple_auth_refused", "error_code", authErr.Code)
+			resp.Body.Message = authErr.UserMessage()
+			resp.Body.ErrorCode = authErr.Code
+			return resp, nil
+		}
+		logger.AuthError(ctx, "apple_auth_user_create_failed", err)
 		resp.Body.Message = "Failed to process Apple sign-in"
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil

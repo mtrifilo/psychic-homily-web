@@ -32,7 +32,12 @@ import {
   useRemoveTagVote,
   useSearchTags,
 } from '../hooks'
-import { getCategoryColor, TAG_CATEGORIES, getCategoryLabel } from '../types'
+import {
+  getCategoryChipClasses,
+  getTagChipClasses,
+  DESCRIPTIVE_TAG_CATEGORIES,
+  getCategoryLabel,
+} from '../types'
 import type { EntityTag, TagListItem } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -476,12 +481,7 @@ function TagWithVotes({
           onKeyDown={handleTriggerKeyDown}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
-            // Official tags get a distinct primary-accent background that
-            // overrides the per-category color, making curated tags visibly
-            // different at a glance (ISSUE-004 from tags-audit-2).
-            tag.is_official
-              ? 'border-primary/40 bg-primary/10 text-foreground'
-              : getCategoryColor(tag.category)
+            getTagChipClasses(tag)
           )}
         >
           {tag.is_official && (
@@ -742,6 +742,10 @@ function AddTagForm({
   // filterCategory → createCategory. Clearing the filter (cat === '') leaves
   // createCategory untouched, matching the prior effect's `if (filterCategory)`
   // guard.
+  //
+  // The mirror is only sound while both controls read one vocabulary: a chip
+  // with no matching option sets a create category the select cannot show and
+  // submits it anyway. Both read DESCRIPTIVE_TAG_CATEGORIES.
   const handleSelectFilterCategory = (cat: string) => {
     setFilterCategory(cat)
     if (cat) {
@@ -831,7 +835,10 @@ function AddTagForm({
         )}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div
+        className="flex items-center gap-1.5"
+        data-testid="add-tag-category-filter"
+      >
         <span className="text-xs text-muted-foreground">Category:</span>
         <button
           onClick={() => handleSelectFilterCategory('')}
@@ -844,14 +851,14 @@ function AddTagForm({
         >
           All
         </button>
-        {TAG_CATEGORIES.map(cat => (
+        {DESCRIPTIVE_TAG_CATEGORIES.map(cat => (
           <button
             key={cat}
             onClick={() => handleSelectFilterCategory(filterCategory === cat ? '' : cat)}
             className={cn(
               'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
               filterCategory === cat
-                ? getCategoryColor(cat)
+                ? getCategoryChipClasses(cat)
                 : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
             )}
           >
@@ -898,10 +905,10 @@ function AddTagForm({
               <span
                 className={cn(
                   'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0 mt-0.5',
-                  getCategoryColor(tag.category)
+                  getCategoryChipClasses(tag.category)
                 )}
               >
-                {tag.category}
+                {getCategoryLabel(tag.category)}
               </span>
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{tag.name}</span>
@@ -954,9 +961,11 @@ function AddTagForm({
                       onChange={e => setCreateCategory(e.target.value)}
                       className="text-xs rounded border border-input bg-background px-2 py-1"
                     >
-                      <option value="genre">Genre</option>
-                      <option value="locale">Locale</option>
-                      <option value="other">Other</option>
+                      {DESCRIPTIVE_TAG_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>
+                          {getCategoryLabel(cat)}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <Button

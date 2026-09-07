@@ -296,7 +296,10 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 	if n, err := s.verifiedVenueCount(scope); err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	} else if n < sceneMinVenues {
