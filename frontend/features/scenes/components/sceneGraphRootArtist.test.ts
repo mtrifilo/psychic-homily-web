@@ -65,6 +65,19 @@ describe('pickMostBookedSceneArtistSlug', () => {
     expect(picked).toBe('sundressed')
   })
 
+  // The link falls through to the next artist rather than to nothing, so one
+  // unusable slug at the top does not cost the scene its deep link.
+  it.each(['', 'Capitalised', 'has space', 'under_score'])(
+    'skips a node whose slug the Observatory would refuse (%p)',
+    slug => {
+      const picked = pickMostBookedSceneArtistSlug([
+        node({ slug, name: 'Unusable', upcoming_show_count: 9 }),
+        node({ slug: 'sundressed', name: 'Sundressed', upcoming_show_count: 1 }),
+      ])
+      expect(picked).toBe('sundressed')
+    },
+  )
+
   // A slugless href resolves to the artists INDEX rather than 404, so a
   // slugless node is not a candidate at any activity level.
   it('skips a node with no slug', () => {

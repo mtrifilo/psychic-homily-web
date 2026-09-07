@@ -1,3 +1,5 @@
+import { isArtistSlug } from '@/features/graph/graphRootLink'
+
 /**
  * Which artist a scene's `/graph` link opens the map rooted on.
  *
@@ -23,6 +25,8 @@ interface SceneRootCandidate {
   entity_type?: string
 }
 
+const ARTIST_ENTITY_TYPE = 'artist'
+
 /**
  * Artists only, as an ALLOWLIST.
  *
@@ -32,8 +36,6 @@ interface SceneRootCandidate {
  * served before hubs shipped carry no discriminator, so an absent one is an
  * artist.
  */
-const ARTIST_ENTITY_TYPE = 'artist'
-
 function isArtistNode(node: SceneRootCandidate): boolean {
   return node.entity_type === undefined || node.entity_type === ARTIST_ENTITY_TYPE
 }
@@ -53,14 +55,18 @@ function byUpcomingThenName(a: SceneRootCandidate, b: SceneRootCandidate): numbe
  *
  * Null when nothing on the canvas has an upcoming show, which is what leaves
  * the scene's link on the plain map instead of rooting it on an arbitrary band.
- * A slugless node is never a candidate either: it would build a link that
- * resolves to the artists index rather than a 404.
+ *
+ * A node whose slug the Observatory would refuse is not a candidate either, so
+ * the link falls through to the next artist rather than to nothing. The slug
+ * column is a free nullable string: an empty one builds a link that resolves to
+ * the artists index rather than a 404, and a value outside the generated shape
+ * is one the reader will not honour.
  */
 export function pickMostBookedSceneArtistSlug(
   nodes: readonly SceneRootCandidate[] | null | undefined,
 ): string | null {
   const candidates = (nodes ?? []).filter(
-    node => node.slug && node.upcoming_show_count > 0 && isArtistNode(node),
+    node => isArtistSlug(node.slug) && node.upcoming_show_count > 0 && isArtistNode(node),
   )
   if (candidates.length === 0) return null
   return candidates.reduce((leader, node) =>
