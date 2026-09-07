@@ -220,7 +220,18 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	if gothUser.Email != "" {
 		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
-			// User exists, link OAuth account
+			// The address is the whole basis for treating this provider
+			// identity as the account's owner, so the provider has to vouch
+			// for it. Without that, anyone who can make a provider report a
+			// chosen address signs in as whoever already holds it. Refusing
+			// here also stops the fall-through to account creation, which the
+			// users_lower_email_uniq index would reject anyway.
+			if !ProviderAssertsEmailVerified(gothUser) {
+				logger.Default().Warn("oauth_link_refused_unverified_email",
+					"provider", provider,
+					"email_hash", logger.HashEmail(gothUser.Email))
+				return nil, apperrors.ErrUserExists(gothUser.Email)
+			}
 			return s.linkOAuthAccount(&existingUser, gothUser, provider)
 		}
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {

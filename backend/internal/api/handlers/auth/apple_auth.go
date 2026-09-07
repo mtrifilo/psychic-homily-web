@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -120,6 +121,16 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	if err != nil {
 		logger.AuthError(ctx, "apple_auth_user_create_failed", err)
 		resp.Body.Success = false
+		// A refused address is a decision, not a fault: the account exists and
+		// belongs to whoever registered it, so it gets its own code and copy
+		// rather than being reported as the backend being down. The goth
+		// callback carries the same refusal to its redirect.
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
+			resp.Body.Message = authErr.UserMessage()
+			resp.Body.ErrorCode = autherrors.CodeUserExists
+			return resp, nil
+		}
 		resp.Body.Message = "Failed to process Apple sign-in"
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil

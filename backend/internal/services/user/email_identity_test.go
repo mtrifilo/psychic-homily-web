@@ -118,8 +118,9 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_LinksCaseVari
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
 	linked, err := suite.userService.FindOrCreateUser(goth.User{
-		UserID: "goth-case-subject",
-		Email:  "goth.case@example.com",
+		UserID:  "goth-case-subject",
+		Email:   "goth.case@example.com",
+		RawData: map[string]any{"verified_email": true},
 	}, "google")
 
 	suite.Require().NoError(err)

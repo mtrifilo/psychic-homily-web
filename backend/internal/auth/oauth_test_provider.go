@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"os"
+
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/providers/faux"
 
@@ -42,6 +44,20 @@ const TestProviderEmail = "e2e-oauth@test.local"
 // returns. Fixed so repeat logins resolve to the same oauth_accounts row.
 const TestProviderUserID = "e2e-oauth-faux-user-id"
 
+// TestProviderUnverifiedEmailEnvVar makes the faux clone report its address as
+// NOT verified by the provider. Unset, the clone reports verified, which is
+// what the E2E seed's pre-created account needs to be linked and signed in.
+// Set, it exercises the refusal in FindOrCreateUserWithConsent. It is read
+// only from inside a provider that cannot register outside {test, ci,
+// development}, so it adds no production surface of its own.
+const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
+
+// emailVerifiedRawDataKey is the key goth's google provider would carry the
+// flag under, because it reads Google's oauth2/v2/userinfo response. The clone
+// answers as "google", so it has to speak that response's spelling for the
+// link path to read the same field in E2E that it reads in production.
+const emailVerifiedRawDataKey = "verified_email"
+
 // testProvider wraps goth's faux provider so it (a) registers/resolves under
 // the name "google" and (b) returns a deterministic, non-empty user. Every
 // method other than Name/FetchUser delegates to the embedded faux provider, so
@@ -69,8 +85,10 @@ func (p *testProvider) Name() string {
 // FetchUser delegates to faux for the AccessToken-gating round-trip (faux
 // errors until the session has been Authorize()d, exactly as a real provider
 // would before the token exchange), then overwrites the identity fields with
-// the deterministic test values. The empty-email problem in stock faux is
-// fixed here.
+// the deterministic test values. Stock faux supplies neither an email nor any
+// RawData; both are filled here, because the link-by-email path reads the
+// address from the first and the provider's verification assertion from the
+// second.
 func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 	user, err := p.Provider.FetchUser(session)
 	if err != nil {
@@ -80,7 +98,16 @@ func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
 	user.UserID = TestProviderUserID
 	user.Email = TestProviderEmail
 	user.Name = "E2E OAuth User"
+	user.RawData = map[string]any{
+		emailVerifiedRawDataKey: !IsOAuthTestProviderEmailUnverified(os.Getenv),
+	}
 	return user, nil
+}
+
+// IsOAuthTestProviderEmailUnverified reports whether the faux clone should
+// present its address as unverified by the provider.
+func IsOAuthTestProviderEmailUnverified(getenv func(string) string) bool {
+	return testenv.IsFlagEnabled(TestProviderUnverifiedEmailEnvVar, getenv)
 }
 
 // IsOAuthTestProviderEnabled reports whether the faux "google" provider should

@@ -1,0 +1,198 @@
+package user
+
+import (
+	"testing"
+
+	"github.com/markbates/goth"
+	"github.com/stretchr/testify/assert"
+
+	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
+)
+
+// TestProviderAssertsEmailVerified covers the shapes the configured providers
+// can put in RawData, and the shapes that are not a signal at all.
+func TestProviderAssertsEmailVerified(t *testing.T) {
+	cases := []struct {
+		name    string
+		rawData map[string]any
+		want    bool
+	}{
+		{"google verified_email true", map[string]any{"verified_email": true}, true},
+		{"google verified_email false", map[string]any{"verified_email": false}, false},
+		{"oidc email_verified true", map[string]any{"email_verified": true}, true},
+		{"oidc email_verified false", map[string]any{"email_verified": false}, false},
+		{"string true", map[string]any{"email_verified": "true"}, true},
+		{"string false", map[string]any{"email_verified": "false"}, false},
+		// GitHub's /user response, the goth github provider's whole RawData,
+		// carries no verification field at all.
+		{"no signal in a populated payload", map[string]any{"login": "octocat", "id": 1}, false},
+		{"empty raw data", map[string]any{}, false},
+		{"nil raw data", nil, false},
+		// A shape nothing sends must not read as an assertion either way.
+		{"unparseable value", map[string]any{"email_verified": "yes"}, false},
+		{"numeric value", map[string]any{"email_verified": 1}, false},
+		{"null value", map[string]any{"email_verified": nil}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ProviderAssertsEmailVerified(goth.User{RawData: tc.rawData})
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestProviderAssertsEmailVerified_FallsThroughToSecondKey pins that an
+// unreadable value under the first key does not shadow a readable one under
+// the second, which is what makes the key list an ordered preference rather
+// than a first-match-wins lookup.
+func TestProviderAssertsEmailVerified_FallsThroughToSecondKey(t *testing.T) {
+	got := ProviderAssertsEmailVerified(goth.User{RawData: map[string]any{
+		"verified_email": "unparseable",
+		"email_verified": true,
+	}})
+	assert.True(t, got)
+}
+
+// --- integration: the link gate in findOrCreateOAuthUser ---
+
+// TestFindOrCreateUser_UnverifiedEmail_RefusesLink is the ticket's core case: a
+// provider that reports an address it did not verify must not be handed the
+// account that already holds that address.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_RefusesLink() {
+	existing := &authm.User{
+		Email:         stringPtr("unverified.link@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(existing).Error)
+
+	linked, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-unverified-subject",
+		Email:   "unverified.link@example.com",
+		RawData: map[string]any{"verified_email": false},
+	}, "google")
+
+	suite.Require().Error(err)
+	suite.Require().Nil(linked)
+
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeUserExists, authErr.Code)
+
+	suite.assertNoOAuthAccountFor(existing.ID)
+	suite.assertSingleUserForEmail("unverified.link@example.com")
+}
+
+// TestFindOrCreateUser_AbsentVerificationSignal_RefusesLink covers a provider
+// that says nothing about the address, which is every provider goth exposes no
+// verification field for.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerificationSignal_RefusesLink() {
+	existing := &authm.User{
+		Email:         stringPtr("absent.signal@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(existing).Error)
+
+	linked, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "github-absent-subject",
+		Email:   "absent.signal@example.com",
+		RawData: map[string]any{"login": "octocat"},
+	}, "github")
+
+	suite.Require().Error(err)
+	suite.Require().Nil(linked)
+
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeUserExists, authErr.Code)
+
+	suite.assertNoOAuthAccountFor(existing.ID)
+	suite.assertSingleUserForEmail("absent.signal@example.com")
+}
+
+// TestFindOrCreateUser_VerifiedEmail_LinksAccount is the counterweight: with
+// the assertion present the link still happens, so the gate is not simply
+// refusing everything.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail_LinksAccount() {
+	existing := &authm.User{
+		Email:         stringPtr("verified.link@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(existing).Error)
+
+	linked, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-verified-subject",
+		Email:   "verified.link@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(linked)
+	suite.Equal(existing.ID, linked.ID)
+	suite.Require().Len(linked.OAuthAccounts, 1)
+	suite.Equal("goth-verified-subject", linked.OAuthAccounts[0].ProviderUserID)
+}
+
+// TestFindOrCreateUser_AlreadyLinkedAccount_UnaffectedByVerification pins the
+// blast radius: the gate sits on the link-by-email branch only. A provider
+// identity already recorded in oauth_accounts resolves by provider_user_id and
+// never reaches the address comparison, so an established sign-in cannot be
+// broken by a provider that stops sending the flag.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AlreadyLinkedAccount_UnaffectedByVerification() {
+	existing := &authm.User{
+		Email:         stringPtr("already.linked@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(existing).Error)
+	suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
+		UserID:         existing.ID,
+		Provider:       "google",
+		ProviderUserID: "goth-already-linked-subject",
+	}).Error)
+
+	resolved, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID: "goth-already-linked-subject",
+		Email:  "already.linked@example.com",
+	}, "google")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resolved)
+	suite.Equal(existing.ID, resolved.ID)
+}
+
+// TestFindOrCreateUser_UnverifiedEmail_NoExistingAccount_StillCreates pins the
+// other half of the blast radius. The gate guards the link branch; a first-time
+// signup whose address matches nobody is not a takeover and still creates an
+// account.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_NoExistingAccount_StillCreates() {
+	created, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "goth-fresh-unverified-subject",
+		Email:   "fresh.unverified@example.com",
+		RawData: map[string]any{"verified_email": false},
+	}, "google")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(created)
+	suite.Equal("fresh.unverified@example.com", *created.Email)
+}
+
+func (suite *UserServiceIntegrationTestSuite) assertNoOAuthAccountFor(userID uint) {
+	suite.T().Helper()
+	var oauthRows int64
+	suite.Require().NoError(
+		suite.db.Model(&authm.OAuthAccount{}).Where("user_id = ?", userID).Count(&oauthRows).Error)
+	suite.Equal(int64(0), oauthRows, "a refused link must leave no oauth_accounts row")
+}
+
+func (suite *UserServiceIntegrationTestSuite) assertSingleUserForEmail(email string) {
+	suite.T().Helper()
+	var userRows int64
+	suite.Require().NoError(
+		suite.db.Model(&authm.User{}).Where(authm.EmailIdentityWhere, email).Count(&userRows).Error)
+	suite.Equal(int64(1), userRows, "a refused link must not mint a second account for the mailbox")
+}

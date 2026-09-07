@@ -286,7 +286,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		log.Printf("OAuth callback failed: %v", err)
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {
+		if errors.As(err, &authErr) && oauthCallbackErrorIsUserActionable(authErr.Code) {
 			errorMessage = authErr.UserMessage()
 		}
 
@@ -320,6 +320,25 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 	// Redirect to frontend home page
 	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
+}
+
+// oauthCallbackErrorIsUserActionable names the refusals whose own copy the
+// callback redirect carries to the frontend instead of the generic
+// "authentication failed". Both name something the person can act on: accept
+// the terms, or sign in the way this address is already registered. Every
+// other failure stays generic, so a backend fault never reaches the query
+// string.
+//
+// USER_EXISTS is not an enumeration disclosure this endpoint opens: /auth/register
+// answers with the same code for any address, at a fraction of the cost of a
+// completed OAuth round trip.
+func oauthCallbackErrorIsUserActionable(code string) bool {
+	switch code {
+	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:
+		return true
+	default:
+		return false
+	}
 }
 
 func encodeOAuthSignupConsent(consent contracts.OAuthSignupConsent) (string, error) {
