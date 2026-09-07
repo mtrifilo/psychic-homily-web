@@ -102,9 +102,8 @@ func (s *AuthService) oauthCallbackInternal(
 		return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
 	}
 
-	// goth.User carries AccessToken, RefreshToken, IDToken, the raw provider
-	// payload, and the email, so the completed user is never logged as a value.
-	// Provider and the opaque provider user id are the only loggable fields.
+	// goth.User carries AccessToken, RefreshToken, IDToken, RawData, and Email;
+	// never log it as a value.
 	log.Printf("DEBUG: OAuth completion succeeded: provider=%s provider_user_id=%s", provider, gothUser.UserID)
 
 	// Find or create user using user service

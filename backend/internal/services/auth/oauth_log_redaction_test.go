@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"bytes"
 	"errors"
-	"log"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -14,9 +12,10 @@ import (
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testlog"
 )
 
-// Sentinels are improbable literals so a hit in the captured log is proof the
+// Sentinels are improbable literals, so a hit in the captured log is proof the
 // value came from the OAuth payload and not from unrelated log text.
 const (
 	sentinelAccessToken  = "SENTINEL-ACCESS-TOKEN-9f2b41"
@@ -37,35 +36,12 @@ type oauthUserServiceStub struct {
 	user *authm.User
 }
 
-func (s *oauthUserServiceStub) FindOrCreateUser(goth.User, string) (*authm.User, error) {
-	return s.user, nil
-}
-
 func (s *oauthUserServiceStub) FindOrCreateUserWithConsent(
 	goth.User,
 	string,
 	*contracts.OAuthSignupConsent,
 ) (*authm.User, error) {
 	return s.user, nil
-}
-
-// captureStdLog redirects the standard logger for the duration of fn and
-// returns everything written to it.
-func captureStdLog(t *testing.T, fn func()) string {
-	t.Helper()
-
-	var buf bytes.Buffer
-	prevWriter := log.Writer()
-	prevFlags := log.Flags()
-	defer func() {
-		log.SetOutput(prevWriter)
-		log.SetFlags(prevFlags)
-	}()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-
-	fn()
-	return buf.String()
 }
 
 // sentinelGothUser is a completed provider identity whose every credential and
@@ -104,8 +80,8 @@ func assertNoSecretsLogged(t *testing.T, output string) {
 	}
 }
 
-// TestOAuthCallbackNeverLogsCredentials pins the OAuth completion path against
-// re-introducing a whole-value log of goth.User or of the callback URL. Both
+// TestOAuthCallbackNeverLogsCredentials asserts the invariant that the OAuth
+// completion path logs neither goth.User nor the callback URL as a value. Both
 // carry live credentials: goth.User holds the access, refresh, and ID tokens
 // plus the raw provider payload and the email, and the callback query string
 // holds the single-use authorization code and the state nonce.
@@ -119,6 +95,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 
 	callbackURL := "/auth/callback/google?code=" + sentinelAuthzCode + "&state=" + sentinelState
 
+	// OAuthCallbackWithConsent is the entry point the HTTP handler calls.
 	t.Run("completed_login", func(t *testing.T) {
 		userService := &oauthUserServiceStub{user: &authm.User{ID: 42}}
 		authService := NewAuthService(nil, cfg, userService)
@@ -130,11 +107,12 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 
 		var token string
 		var err error
-		output := captureStdLog(t, func() {
-			_, token, err = authService.OAuthCallback(
+		output := testlog.Capture(t, func() {
+			_, token, err = authService.OAuthCallbackWithConsent(
 				httptest.NewRecorder(),
 				httptest.NewRequest("GET", callbackURL, nil),
 				"google",
+				nil,
 			)
 		})
 
@@ -147,8 +125,6 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 
 		assertNoSecretsLogged(t, output)
 
-		// The provider and the opaque provider user id stay loggable, so the
-		// fix is a redaction rather than a silent removal of the diagnostic.
 		if !strings.Contains(output, sentinelProviderUser) {
 			t.Errorf("expected the provider user id in the log; captured log:\n%s", output)
 		}
@@ -166,11 +142,12 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 		authService.SetOAuthCompleter(completer)
 
 		var err error
-		output := captureStdLog(t, func() {
-			_, _, err = authService.OAuthCallback(
+		output := testlog.Capture(t, func() {
+			_, _, err = authService.OAuthCallbackWithConsent(
 				httptest.NewRecorder(),
 				httptest.NewRequest("GET", callbackURL, nil),
 				"google",
+				nil,
 			)
 		})
 

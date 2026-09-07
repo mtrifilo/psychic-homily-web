@@ -21,8 +21,7 @@ var (
 
 // SetupGoth configures Goth with OAuth providers
 func SetupGoth(cfg *config.Config) error {
-	// The OAuth secret key is the HMAC key the gothic cookie store signs the
-	// session with, so only its length is loggable.
+	// The OAuth secret key is the gothic cookie store's HMAC key.
 	log.Printf("DEBUG: Setting up Goth (OAuth secret key length: %d)", len(cfg.OAuth.SecretKey))
 
 	// Configure session store

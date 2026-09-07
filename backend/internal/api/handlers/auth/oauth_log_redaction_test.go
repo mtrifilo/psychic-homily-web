@@ -1,60 +1,30 @@
 package auth
 
 import (
-	"bytes"
-	"context"
-	"log"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
-
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/testlog"
 )
 
-// captureStdLog redirects the standard logger for the duration of fn and
-// returns everything written to it.
-func captureStdLog(t *testing.T, fn func()) string {
-	t.Helper()
-
-	var buf bytes.Buffer
-	prevWriter := log.Writer()
-	prevFlags := log.Flags()
-	defer func() {
-		log.SetOutput(prevWriter)
-		log.SetFlags(prevFlags)
-	}()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-
-	fn()
-	return buf.String()
-}
-
-// TestOAuthLoginNeverLogsCookieValues pins the OAuth initiation handler against
-// re-introducing a whole-value log of the request cookies. A user who is
-// already signed in carries the session JWT in config.AuthCookieName, so
-// logging cookie values writes a live session credential to stdout. Names stay
-// loggable.
+// TestOAuthLoginNeverLogsCookieValues asserts the invariant that the OAuth
+// initiation handler logs cookie NAMES and never cookie values. A signed-in
+// user carries the session JWT in config.AuthCookieName, so a cookie value in
+// the log stream is a live session credential.
 func TestOAuthLoginNeverLogsCookieValues(t *testing.T) {
 	const sentinelSessionJWT = "SENTINEL-SESSION-JWT-VALUE-7c3a55"
-	const sentinelGothicSession = "SENTINEL-GOTHIC-SESSION-b0d419"
+	const sentinelCallbackID = "SENTINEL-CLI-CALLBACK-ID-b0d419"
 
-	cfg := &config.Config{}
-	handler := NewOAuthHTTPHandler(nil, cfg)
+	handler := NewOAuthHTTPHandler(nil, &config.Config{})
 
-	req := httptest.NewRequest("GET", "/auth/login/google", nil)
+	w, req := oauthLoginRequest("google")
 	req.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: sentinelSessionJWT})
-	req.AddCookie(&http.Cookie{Name: "_gothic_session", Value: sentinelGothicSession})
+	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: sentinelCallbackID})
 
-	routeCtx := chi.NewRouteContext()
-	routeCtx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
-
-	output := captureStdLog(t, func() {
-		handler.OAuthLoginHTTPHandler(httptest.NewRecorder(), req)
+	output := testlog.Capture(t, func() {
+		handler.OAuthLoginHTTPHandler(w, req)
 	})
 
 	for _, secret := range []struct {
@@ -62,7 +32,7 @@ func TestOAuthLoginNeverLogsCookieValues(t *testing.T) {
 		value string
 	}{
 		{"session JWT cookie value", sentinelSessionJWT},
-		{"gothic session cookie value", sentinelGothicSession},
+		{"CLI callback ID cookie value", sentinelCallbackID},
 	} {
 		if strings.Contains(output, secret.value) {
 			t.Errorf("the OAuth login handler logged the %s; captured log:\n%s", secret.label, output)
