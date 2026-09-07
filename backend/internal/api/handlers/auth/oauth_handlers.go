@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/markbates/goth/gothic"
@@ -78,9 +79,8 @@ func deleteCLICallback(id string) {
 	delete(cliCallbackStore.callbacks, id)
 }
 
-// requestCookieNames returns the names of the request's cookies. Cookie VALUES
-// carry the session JWT (config.AuthCookieName) and the gothic OAuth session,
-// so only names are loggable.
+// requestCookieNames returns the names of the request's cookies. Cookie values
+// are credentials; only names are loggable.
 func requestCookieNames(r *http.Request) []string {
 	cookies := r.Cookies()
 	names := make([]string, 0, len(cookies))
@@ -198,7 +198,9 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
-		log.Printf("DEBUG: CLI callback stored with ID %s: %s", callbackID, cliCallback)
+		// callbackID is the cli_callback_id cookie value: the correlation key
+		// that gates the token-bearing redirect, so it is never logged.
+		log.Printf("DEBUG: CLI callback stored: %s", cliCallback)
 	}
 
 	// Add provider to query parameters for Goth (following Goth best practices)
@@ -207,7 +209,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	r.URL.RawQuery = q.Encode()
 
 	// DEBUG: Check session before OAuth
-	log.Printf("DEBUG: Login - Request URL: %s", r.URL.String())
+	log.Printf("DEBUG: Login - Request path: %s", r.URL.Path)
 	log.Printf("DEBUG: Login - Request cookie names BEFORE: %v", requestCookieNames(r))
 
 	// Use Goth's standard BeginAuthHandler directly
@@ -244,7 +246,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			// falls back to the standard web flow (no token leaked).
 			if validated, verr := validateCLICallback(callback); verr == nil {
 				cliCallback = validated
-				log.Printf("DEBUG: CLI callback found for ID %s: %s", callbackID, cliCallback)
+				log.Printf("DEBUG: CLI callback found: %s", cliCallback)
 			} else {
 				log.Printf("WARN: rejected non-loopback cli_callback at callback from %s: %v", r.RemoteAddr, verr)
 			}
@@ -295,7 +297,11 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
 	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
 	if err != nil {
-		log.Printf("OAuth callback failed: %v", err)
+		// goth's Google provider fetches the profile with the access token in
+		// the URL query, so a transport failure yields a *url.Error whose
+		// message embeds a live token. RedactErrorURL drops the path and query
+		// and keeps the host.
+		log.Printf("OAuth callback failed: %v", utils.RedactErrorURL(err))
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {

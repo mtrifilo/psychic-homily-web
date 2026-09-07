@@ -59,6 +59,18 @@ func sentinelGothUser() goth.User {
 	}
 }
 
+// assertCaptureIsLive fails when the captured stream lacks a line the code
+// under test always emits. Without it an empty capture would make every
+// absence assertion below pass vacuously.
+func assertCaptureIsLive(t *testing.T, output string) {
+	t.Helper()
+
+	const marker = "DEBUG: OAuth callback path: /auth/callback/google"
+	if !strings.Contains(output, marker) {
+		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this path and the secret assertions below are vacuous; captured log:\n%s", marker, output)
+	}
+}
+
 func assertNoSecretsLogged(t *testing.T, output string) {
 	t.Helper()
 
@@ -123,10 +135,11 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 			t.Fatal("expected a session token from the completed callback")
 		}
 
+		assertCaptureIsLive(t, output)
 		assertNoSecretsLogged(t, output)
 
 		if !strings.Contains(output, sentinelProviderUser) {
-			t.Errorf("expected the provider user id in the log; captured log:\n%s", output)
+			t.Errorf("expected the provider user id to survive redaction; its absence means the diagnostic was dropped, not redacted; captured log:\n%s", output)
 		}
 		if strings.Contains(output, token) {
 			t.Errorf("the OAuth callback logged the minted session token; captured log:\n%s", output)
@@ -155,6 +168,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 			t.Fatal("expected the stubbed completion failure to surface")
 		}
 
+		assertCaptureIsLive(t, output)
 		assertNoSecretsLogged(t, output)
 	})
 }

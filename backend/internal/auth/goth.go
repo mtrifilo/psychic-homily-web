@@ -96,7 +96,7 @@ func GetSession(r *http.Request) (*sessions.Session, error) {
 	if err != nil {
 		log.Printf("DEBUG: SessionStore.Get error: %v", err)
 	} else {
-		log.Printf("DEBUG: SessionStore.Get successful, session ID: %s", session.ID)
+		log.Printf("DEBUG: SessionStore.Get successful")
 	}
 	return session, err
 }

@@ -102,8 +102,7 @@ func (s *AuthService) oauthCallbackInternal(
 		return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
 	}
 
-	// goth.User carries AccessToken, RefreshToken, IDToken, RawData, and Email;
-	// never log it as a value.
+	// goth.User carries live credentials; never log it as a value.
 	log.Printf("DEBUG: OAuth completion succeeded: provider=%s provider_user_id=%s", provider, gothUser.UserID)
 
 	// Find or create user using user service

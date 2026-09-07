@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/markbates/goth/gothic"
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/testlog"
@@ -14,6 +17,16 @@ import (
 // reader of the log stream could forge a session cookie.
 func TestSetupGothNeverLogsTheOAuthSecret(t *testing.T) {
 	const sentinelOAuthSecret = "SENTINEL-OAUTH-SECRET-KEY-f13b8e0a"
+
+	// SetupGoth reads the process environment and assigns package-global
+	// stores; pin the one and restore the others.
+	t.Setenv(EnableOAuthTestProviderEnvVar, "")
+	prevSessionStore := SessionStore
+	prevGothicStore := gothic.Store
+	t.Cleanup(func() {
+		SessionStore = prevSessionStore
+		gothic.Store = prevGothicStore
+	})
 
 	cfg := &config.Config{}
 	cfg.OAuth.SecretKey = sentinelOAuthSecret
@@ -29,7 +42,14 @@ func TestSetupGothNeverLogsTheOAuthSecret(t *testing.T) {
 	if strings.Contains(output, sentinelOAuthSecret) {
 		t.Errorf("SetupGoth logged the OAuth secret key; captured log:\n%s", output)
 	}
-	if !strings.Contains(output, "length") {
-		t.Errorf("expected the secret key LENGTH to stay in the log; captured log:\n%s", output)
+
+	// Pin the rendered datum, not a stray word: an unrelated line containing
+	// "length" must not satisfy this, and the assertion must fail when someone
+	// drops the length rather than when someone rewords the message.
+	wantLength := fmt.Sprintf("OAuth secret key length: %d", len(sentinelOAuthSecret))
+	if !strings.Contains(output, wantLength) {
+		t.Fatalf("captured log is missing %q, so either the length diagnostic was dropped or "+
+			"testlog.Capture no longer intercepts this path and the assertion above is vacuous; "+
+			"captured log:\n%s", wantLength, output)
 	}
 }
