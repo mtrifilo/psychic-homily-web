@@ -47,19 +47,11 @@ func TestIsValidTagCategory_Invalid(t *testing.T) {
 // IsAdminMintOnlyTagCategory Tests
 // =============================================================================
 
-// Admin-mint-only is a SUBSET of the valid categories, not a parallel list: a
-// category no writer may name is a rule nothing can satisfy.
-func TestAdminMintOnlyTagCategories_AreValidCategories(t *testing.T) {
-	assert.NotEmpty(t, AdminMintOnlyTagCategories)
-	for _, c := range AdminMintOnlyTagCategories {
-		assert.True(t, IsValidTagCategory(c), "expected %q to be a valid category", c)
-		assert.True(t, IsAdminMintOnlyTagCategory(c))
-	}
-}
-
-// Crew is the restricted category; the descriptive ones stay open.
+// Crew is the restricted category; the descriptive ones stay open. The
+// restricted category must also be a VALID one, or the rule gates nothing.
 func TestIsAdminMintOnlyTagCategory_CrewOnly(t *testing.T) {
 	assert.True(t, IsAdminMintOnlyTagCategory(TagCategoryCrew))
+	assert.True(t, IsValidTagCategory(TagCategoryCrew))
 	for _, c := range []string{TagCategoryGenre, TagCategoryLocale, TagCategoryOther} {
 		assert.False(t, IsAdminMintOnlyTagCategory(c), "expected %q to be open", c)
 	}

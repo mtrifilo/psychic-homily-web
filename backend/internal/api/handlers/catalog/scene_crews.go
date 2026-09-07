@@ -29,22 +29,12 @@ type GetSceneCrewsResponse struct {
 // (promoters, DIY crews, named series) whose tag sits on shows at this scene's
 // venues.
 //
-// A SEPARATE route rather than more fields on GET /scenes/{slug}, matching the
-// gaps and collections rails: this is a five-table join over the scene's entire
-// show history serving one secondary row, a backlog figure that is fine minutes
-// stale next to counts that are not, and a failure here costs one chip row
-// rather than the whole scene page.
+// A separate route off the blocking path, no HEAD sibling, and the same
+// existence gate as its neighbours: see GetSceneGapsHandler, whose three
+// arguments for that shape apply here unchanged.
 //
 // An empty list is a normal answer, not an error: most scenes have no crew tag
 // yet, and the row hides itself rather than rendering an empty shelf.
-//
-// A parseable place that has not cleared the scene venue threshold 404s, which
-// follows /gaps, /collections, /shows and /graph rather than the permissive
-// /new-artists rail on the same page.
-//
-// No HEAD sibling, unlike the week/day families: this is a data sub-resource
-// the frontend fetches directly, never a reader-facing path that
-// frontend/proxy.ts existence-checks before the page streams.
 func (h *SceneHandler) GetSceneCrewsHandler(ctx context.Context, req *GetSceneCrewsRequest) (*GetSceneCrewsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {

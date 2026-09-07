@@ -2561,15 +2561,22 @@ func (suite *SceneServiceIntegrationTestSuite) createTagInCategory(name, slug, c
 	return tagID
 }
 
-// tagArtist tags an artist with a genre tag
-func (suite *SceneServiceIntegrationTestSuite) tagArtist(artistID, tagID, userID uint) {
+// tagEntity applies a tag to any entity through the polymorphic entity_tags
+// edge. One spelling of the INSERT, so a column added to the table is found
+// once rather than per entity type.
+func (suite *SceneServiceIntegrationTestSuite) tagEntity(entityType string, entityID, tagID, userID uint) {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	_, err = sqlDB.Exec(`
 		INSERT INTO entity_tags (entity_type, entity_id, tag_id, added_by_user_id, created_at)
-		VALUES ('artist', $1, $2, $3, NOW())
-	`, artistID, tagID, userID)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, entityType, entityID, tagID, userID)
 	suite.Require().NoError(err)
+}
+
+// tagArtist tags an artist.
+func (suite *SceneServiceIntegrationTestSuite) tagArtist(artistID, tagID, userID uint) {
+	suite.tagEntity(catalogm.TagEntityArtist, artistID, tagID, userID)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_InsufficientData() {

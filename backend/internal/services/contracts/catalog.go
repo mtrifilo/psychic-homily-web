@@ -2088,11 +2088,16 @@ type SceneCollectionSummary struct {
 type SceneCrewSummary struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
-	// ShowCount counts DISTINCT approved shows at the scene's venues carrying
-	// this tag, over all dates. Approved-only matches every other show-side
-	// scene surface, so a pending submission no reader can see cannot pad a
-	// chip's rank. Unwindowed because a crew's standing in a town is its whole
-	// history there, not its last month.
+	// ShowCount counts the approved shows at the scene's venues carrying this
+	// tag, over all dates. Approved-only matches every other show-side scene
+	// surface, so a pending submission no reader can see cannot pad a chip's
+	// rank. Unwindowed because a crew's standing in a town is its whole history
+	// there, not its last month.
+	//
+	// NOT the tag's usage figure from the /tags facets. That one reaches shows
+	// transitively through their billed artists (tag_counts.go) and is global,
+	// so for a crew tag, which sits directly on shows, the two numbers describe
+	// different sets and will differ.
 	ShowCount int `json:"show_count"`
 }
 
@@ -2804,22 +2809,20 @@ type SceneServiceInterface interface {
 	GetSceneGaps(city, state string) (*SceneGapsResponse, error)
 	// GetSceneCrews returns the crew tags booking in this scene, ranked by the
 	// number of the scene's shows carrying each tag (descending), then by name
-	// ascending. That pair is a total order: LOWER(tags.name) carries a unique
-	// index, so no two crews can tie on both legs.
+	// ascending.
 	//
-	// The edge is crew tag applied to a SHOW, and the show's venue is what puts
-	// it in the scene: an entity_tags row with entity_type show, joined through
-	// show_venues to a venue matching the scene's venuePredicate. Crew tags on
-	// artists and venues are not counted here.
+	// The edge is a crew tag applied to a SHOW, and the show's venue is what
+	// puts it in the scene. Crew tags on artists and venues are not counted.
 	//
 	// Gated on the SAME scene-existence threshold as GetSceneDetail, so a
 	// parseable place that is not a scene 404s rather than publishing "no crews
 	// book here" about a town this site does not cover. Returns an empty slice,
 	// never an error, when the scene exists and no crew tag reaches it.
 	//
-	// Uncapped: the caller passes no limit and none is applied. The population
-	// is admin-minted crew tags that have played this one scene, and any cap
-	// would be a product threshold nothing has decided.
+	// Uncapped: the caller passes no limit and none is applied, unlike
+	// GetSceneCollections. The population is admin-minted crew tags that have
+	// played this one scene, and any cap would be a product threshold nothing
+	// has decided.
 	GetSceneCrews(city, state string) ([]SceneCrewSummary, error)
 	// UpdateSceneTagline sets the authored tagline for a scene, or clears it
 	// when tagline is nil. Returns the registry row id it wrote (for the

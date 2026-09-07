@@ -16,13 +16,6 @@ import (
 // "a room in this town", so a show's scene membership here cannot disagree with
 // the shows, gaps and collections rails on the same page.
 
-// sceneCrewRow is the flat scan target for the ranked crew query.
-type sceneCrewRow struct {
-	Slug      string `gorm:"column:slug"`
-	Name      string `gorm:"column:name"`
-	ShowCount int    `gorm:"column:show_count"`
-}
-
 // GetSceneCrews implements contracts.SceneServiceInterface. The ranking rule
 // and the payload's shape are documented there; what follows is how it is
 // computed.
@@ -47,19 +40,19 @@ func (s *SceneService) GetSceneCrews(city, state string) ([]contracts.SceneCrewS
 	vp, vargs := scope.venuePredicate("v")
 
 	// Bind args go in SQL TEXT order, not logical order: the entity-type
-	// discriminator sits in a JOIN above the WHERE, so it leads, then the venue
-	// predicate, then the crew category and the show status. A swap here
+	// discriminator and the show status sit in JOINs above the WHERE, then the
+	// crew category, then the venue predicate inside the EXISTS. A swap here
 	// returns wrong rows rather than erroring, since all four bind strings.
 	args := make([]any, 0, len(vargs)+3)
-	args = append(args, catalogm.TagEntityShow)
+	args = append(args, catalogm.TagEntityShow, catalogm.ShowStatusApproved, catalogm.TagCategoryCrew)
 	args = append(args, vargs...)
-	args = append(args, catalogm.TagCategoryCrew, catalogm.ShowStatusApproved)
 
 	// Notes on the query below:
 	//
-	//   - COUNT(DISTINCT s.id), not COUNT(*): show_venues is a many-to-many, so
-	//     a show booked into two rooms of the same scene joins twice and would
-	//     otherwise count twice for its crew.
+	//   - Venue membership is a SEMI-join. show_venues is a many-to-many and
+	//     nothing here projects from it, so EXISTS stops at a show's first room
+	//     in scope; joining it in would fan a two-room show out to two rows and
+	//     count it twice.
 	//   - The venue scope is the BARE venuePredicate, not trackedVenuePredicate.
 	//     `verified` is a publication gate on a room's address, and no address is
 	//     published here. A crew that books only DIY rooms is exactly the
@@ -73,32 +66,28 @@ func (s *SceneService) GetSceneCrews(city, state string) ([]contracts.SceneCrewS
 	//   - Count then name is a TOTAL order: migration 000051 puts a unique index
 	//     on LOWER(tags.name), so no two crews can tie on both legs and no
 	//     further tiebreak is reachable.
-	var rows []sceneCrewRow
+	var crews []contracts.SceneCrewSummary
 	if err := s.db.Raw(`
 		SELECT t.slug AS slug,
 		       t.name AS name,
-		       COUNT(DISTINCT s.id) AS show_count
+		       COUNT(*) AS show_count
 		FROM tags t
 		JOIN entity_tags et ON et.tag_id = t.id AND et.entity_type = ?
-		JOIN shows s ON s.id = et.entity_id
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE `+vp+`
-		  AND t.category = ?
-		  AND s.status = ?
-		GROUP BY t.id, t.slug, t.name
+		JOIN shows s ON s.id = et.entity_id AND s.status = ?
+		WHERE t.category = ?
+		  AND EXISTS (
+		      SELECT 1
+		      FROM show_venues sv
+		      JOIN venues v ON v.id = sv.venue_id
+		      WHERE sv.show_id = s.id AND `+vp+`
+		  )
+		GROUP BY t.id
 		ORDER BY show_count DESC, t.name ASC
-	`, args...).Scan(&rows).Error; err != nil {
+	`, args...).Scan(&crews).Error; err != nil {
 		return nil, fmt.Errorf("failed to list scene crews: %w", err)
 	}
-
-	crews := make([]contracts.SceneCrewSummary, 0, len(rows))
-	for _, r := range rows {
-		crews = append(crews, contracts.SceneCrewSummary{
-			Slug:      r.Slug,
-			Name:      r.Name,
-			ShowCount: r.ShowCount,
-		})
+	if crews == nil {
+		crews = []contracts.SceneCrewSummary{}
 	}
 	return crews, nil
 }

@@ -17,16 +17,9 @@ func (suite *SceneServiceIntegrationTestSuite) crewScene() (*catalogm.Venue, *ca
 		suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
 }
 
-// tagShow applies a tag to a show through entity_tags, the polymorphic edge the
-// crew query reads.
+// tagShow tags a show, the edge the crew query reads.
 func (suite *SceneServiceIntegrationTestSuite) tagShow(showID, tagID, userID uint) {
-	sqlDB, err := suite.db.DB()
-	suite.Require().NoError(err)
-	_, err = sqlDB.Exec(`
-		INSERT INTO entity_tags (entity_type, entity_id, tag_id, added_by_user_id, created_at)
-		VALUES ('show', $1, $2, $3, NOW())
-	`, showID, tagID, userID)
-	suite.Require().NoError(err)
+	suite.tagEntity(catalogm.TagEntityShow, showID, tagID, userID)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) crewSlugs(city, state string) []string {
