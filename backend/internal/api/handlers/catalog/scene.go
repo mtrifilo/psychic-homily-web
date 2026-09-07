@@ -25,6 +25,21 @@ func NewSceneHandler(sceneService contracts.SceneServiceInterface) *SceneHandler
 	}
 }
 
+// mapSceneSlugError answers a slug resolution failure: a scene-not-found is a
+// 404, anything else is the infrastructure fault it is.
+//
+// ParseSceneSlug reads the venue rows on every slug, so a database fault is one
+// of the errors it can return. Answering that with a 404 tells the reader, the
+// crawler and the frontend proxy that a scene is gone when the database was
+// briefly unreachable, and the proxy's soft-404 is cached. It matches
+// engagement's mapSceneSlugError, which the follow routes already use.
+func mapSceneSlugError(err error) error {
+	if mapped := shared.MapSceneError(err); mapped != nil {
+		return mapped
+	}
+	return huma.Error500InternalServerError("Failed to resolve scene slug", err)
+}
+
 // ============================================================================
 // List Scenes
 // ============================================================================
@@ -77,7 +92,7 @@ type GetSceneDetailResponse struct {
 func (h *SceneHandler) GetSceneDetailHandler(ctx context.Context, req *GetSceneDetailRequest) (*GetSceneDetailResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	detail, err := h.sceneService.GetSceneDetail(city, state)
@@ -120,7 +135,7 @@ type GetSceneActiveArtistsResponse struct {
 func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *GetSceneActiveArtistsRequest) (*GetSceneActiveArtistsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	period := req.Period
@@ -236,7 +251,7 @@ type GetSceneShowsResponse struct {
 func (h *SceneHandler) GetSceneShowsHandler(ctx context.Context, req *GetSceneShowsRequest) (*GetSceneShowsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	days := req.Days
@@ -282,7 +297,7 @@ type GetSceneGenresResponse struct {
 func (h *SceneHandler) GetSceneGenresHandler(ctx context.Context, req *GetSceneGenresRequest) (*GetSceneGenresResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	genres, err := h.sceneService.GetSceneGenreDistribution(city, state)
@@ -337,7 +352,7 @@ type GetSceneGraphResponse struct {
 func (h *SceneHandler) GetSceneGraphHandler(ctx context.Context, req *GetSceneGraphRequest) (*GetSceneGraphResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	graph, err := h.sceneService.GetSceneGraph(city, state, parseTypesQueryParam(req.Types), req.ClusterBy)
@@ -403,7 +418,7 @@ func (h *SceneHandler) GetSceneCurrentWeekHandler(ctx context.Context, req *GetS
 func (h *SceneHandler) sceneWeek(slug, weekKey string) (*GetSceneWeekResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	week, err := h.sceneService.GetSceneWeek(city, state, weekKey)

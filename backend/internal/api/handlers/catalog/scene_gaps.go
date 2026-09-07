@@ -51,7 +51,7 @@ type GetSceneGapsResponse struct {
 func (h *SceneHandler) GetSceneGapsHandler(ctx context.Context, req *GetSceneGapsRequest) (*GetSceneGapsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	gaps, err := h.sceneService.GetSceneGaps(city, state)

@@ -47,7 +47,7 @@ type GetSceneCollectionsResponse struct {
 func (h *SceneHandler) GetSceneCollectionsHandler(ctx context.Context, req *GetSceneCollectionsRequest) (*GetSceneCollectionsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
-		return nil, huma.Error404NotFound("Scene not found")
+		return nil, mapSceneSlugError(err)
 	}
 
 	collections, err := h.sceneService.GetSceneCollections(city, state, req.Limit)

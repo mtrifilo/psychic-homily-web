@@ -722,7 +722,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	// week's buckets: GetSceneWeek buckets scene-locally, so a UTC-formatted key
 	// names the wrong week whenever the anchor instant has already crossed into
 	// Monday UTC but is still Sunday in the scene (Phoenix is UTC-7 year round).
-	sceneLoc, _ := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
+	phoenixScope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	sceneLoc, _ := suite.sceneService.sceneLocation(phoenixScope, "AZ")
 	anchorWeekKey := ISOWeekKey(anchor.In(sceneLoc))
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
@@ -1086,7 +1088,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroD
 
 	// The number the surviving row publishes is the number its destination page
 	// serves: the collapse must not leave the directory contradicting the page.
-	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor("Phoenix", "AZ"))
+	scope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	count, err := suite.sceneService.verifiedVenueCount(scope)
 	suite.Require().NoError(err)
 	suite.Equal(int64(scenes[0].VenueCount), count)
 }
@@ -1098,10 +1102,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroD
 //
 // The assertion is the CORRESPONDENCE, not a guess at which spelling wins:
 // whichever literal ParseSceneSlug resolves the slug to is the one the list must
-// publish, since that is the pair venuePredicate will serve. Asserting the
-// agreement rather than a hardcoded winner also keeps the test honest about
-// collation — Go compares the group minima byte-wise and Postgres orders under
-// the database's collation, and this fails loudly if those ever disagree.
+// publish, since that is the pair venuePredicate will serve. Both sides pick
+// that literal through sceneGroupOutranks here, because both groups clear the
+// venue floor. TestSceneSlugOrderByAgreesWithTheGroupMinima covers the groups
+// that do not, which are the ones ParseSceneSlug still resolves with SQL.
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDoNotSplitTheScene() {
 	user := suite.createUser()
 	spacedA := suite.createVerifiedVenue("Spaced A", "Saint Jerome", "QC")
@@ -1130,7 +1134,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDo
 	suite.Equal(resolvedState, scenes[0].State)
 
 	// And the counts must be that group's alone, not the pair summed.
-	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor(resolvedCity, resolvedState))
+	scope, err := suite.sceneService.scopeFor(resolvedCity, resolvedState)
+	suite.Require().NoError(err)
+	count, err := suite.sceneService.verifiedVenueCount(scope)
 	suite.Require().NoError(err)
 	suite.Equal(int64(scenes[0].VenueCount), count)
 	suite.Equal(2, scenes[0].VenueCount)

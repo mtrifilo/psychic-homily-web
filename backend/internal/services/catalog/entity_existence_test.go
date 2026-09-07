@@ -23,7 +23,7 @@ type EntityExistenceServiceIntegrationTestSuite struct {
 func (suite *EntityExistenceServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
-	suite.svc = NewEntityExistenceService(suite.db)
+	suite.svc = NewEntityExistenceService(suite.db, NewSceneService(suite.db))
 }
 
 func (suite *EntityExistenceServiceIntegrationTestSuite) TearDownSuite() {

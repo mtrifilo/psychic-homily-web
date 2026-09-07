@@ -74,7 +74,10 @@ func (s *SceneService) GetSceneGaps(city, state string) (*contracts.SceneGapsRes
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 
 	venueCount, err := s.verifiedVenueCount(scope)
 	if err != nil {

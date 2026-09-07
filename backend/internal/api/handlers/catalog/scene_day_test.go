@@ -16,7 +16,7 @@ func dayMock(capture *string) *testhelpers.MockSceneService {
 			if slug == "phoenix-az" {
 				return "Phoenix", "AZ", nil
 			}
-			return "", "", fmt.Errorf("unknown scene slug: %s", slug)
+			return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("unknown scene slug: %s", slug))
 		},
 		GetSceneDayFn: func(city, state, dateKey string) (*contracts.SceneDayResponse, error) {
 			if capture != nil {

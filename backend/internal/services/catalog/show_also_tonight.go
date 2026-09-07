@@ -68,7 +68,10 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		return emptyAlsoTonight(subject), nil
 	}
 
-	scope := s.scopeFor(subject.VenueCity, subject.VenueState)
+	scope, err := s.scopeFor(subject.VenueCity, subject.VenueState)
+	if err != nil {
+		return nil, err
+	}
 	// The metro's principal city, not the venue's: a Mesa show belongs to the
 	// Phoenix scene, and the slug emitted from this must be one /scenes/{slug}
 	// answers. Passing it back into GetSceneShowsInRange re-resolves the SAME
