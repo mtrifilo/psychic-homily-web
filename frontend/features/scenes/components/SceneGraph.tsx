@@ -135,10 +135,11 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   /**
    * The one knowledge-graph cross-link this section offers, at either width.
    *
-   * Rooted on the scene's most active artist so the map opens on this scene's
-   * neighborhood rather than the whole-catalog overview; plain `/graph` when no
-   * artist here has an upcoming show. Single-sourced so the desktop foot link
-   * and the sub-640px teaser cannot drift onto different targets.
+   * Rooted on the scene artist with the most upcoming shows, so the map opens
+   * on this scene's neighborhood rather than the whole-catalog overview; plain
+   * `/graph` when no artist here has anything booked. Single-sourced so the
+   * desktop foot link and the sub-640px teaser cannot drift onto different
+   * targets.
    */
   const wholeMapHref = useMemo(
     () => graphRootHref(pickMostBookedSceneArtistSlug(data?.nodes)),
