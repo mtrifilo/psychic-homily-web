@@ -25,7 +25,10 @@ func (s *SceneService) GetSceneCrews(city, state string) ([]contracts.SceneCrewS
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	scope := s.scopeFor(city, state)
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return nil, err
+	}
 
 	// Same existence gate as /gaps and /collections: a slug that resolves to a
 	// real place but not to a scene 404s here too, so this list does not answer
