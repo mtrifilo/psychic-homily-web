@@ -25,8 +25,11 @@ import (
 // MIGRATED so far: artist show lists, venue show lists, the artist graph card's
 // next-show, the saved-shows list, the main /shows feed
 // (catalog.ShowService.GetUpcomingShows and its GetShowCities picker counts),
-// and the whole tag page — its entity counts (catalog/tag_intersection.go) and
-// the per-entity upcoming_show_count its cards print (PSY-1760).
+// the whole tag page — its entity counts (catalog/tag_intersection.go) and the
+// per-entity upcoming_show_count its cards print (PSY-1760) — and the scene
+// roster's per-band count and next-show
+// (catalog/scene_roster_upcoming.go), which is a COUNT surface built through
+// here rather than an exception to the paragraph below.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and

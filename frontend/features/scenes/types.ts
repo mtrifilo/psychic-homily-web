@@ -118,9 +118,8 @@ export interface SceneArtist {
   // (PSY-1813). A different question from `show_count` above, which is all-time,
   // and from `is_active`, which a band keeps for months after its last gig.
   //
-  // Optional on the type, required on the wire: the frontend and backend deploy
-  // separately and Next's data cache can serve a body fetched before the backend
-  // widened, so a reader must treat an absent value as "not stated", never as 0.
+  // Optional on the type, required on the wire: a cached body fetched before the
+  // backend widened carries no count, and absent means "not stated", never 0.
   upcoming_show_count?: number
   // The soonest of exactly those shows. The backend sends it if and only if
   // `upcoming_show_count` is positive.

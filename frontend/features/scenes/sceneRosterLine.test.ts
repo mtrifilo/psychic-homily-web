@@ -34,8 +34,7 @@ describe('rosterUpcomingLine', () => {
       countText: '2 upcoming',
       day: 'Sep 9',
       dayHref: '/shows/gatecreeper-valley-bar',
-      venueName: 'Valley Bar',
-      venueHref: '/venues/valley-bar',
+      venue: { name: 'Valley Bar', slug: 'valley-bar' },
     })
   })
 
@@ -71,8 +70,7 @@ describe('rosterUpcomingLine', () => {
       countText: '3 upcoming',
       day: null,
       dayHref: null,
-      venueName: null,
-      venueHref: null,
+      venue: null,
     })
   })
 
@@ -85,15 +83,14 @@ describe('rosterUpcomingLine', () => {
       })
     )
     expect(line?.day).toBe('Sep 9')
-    expect(line?.venueName).toBeNull()
-    expect(line?.venueHref).toBeNull()
+    expect(line?.venue).toBeNull()
   })
 
   it('treats a whitespace-only venue name as no room', () => {
     expect(
       rosterUpcomingLine(
         artist({ upcoming_show_count: 1, next_show: nextShow({ venue_name: '   ' }) })
-      )?.venueName
+      )?.venue
     ).toBeNull()
   })
 
@@ -107,20 +104,13 @@ describe('rosterUpcomingLine', () => {
     ).toBe('/shows/42')
   })
 
-  it('names a slugless room without linking it to the venues index', () => {
+  // The slug is passed on unresolved: `EntityNameLink` owns the guard that
+  // decides whether it can be linked, so this helper must not pre-empt it.
+  it('names a slugless room and carries the slug through untouched', () => {
     const line = rosterUpcomingLine(
       artist({ upcoming_show_count: 1, next_show: nextShow({ venue_slug: '' }) })
     )
-    expect(line?.venueName).toBe('Valley Bar')
-    expect(line?.venueHref).toBeNull()
-  })
-
-  it('refuses a traversal-shaped venue slug', () => {
-    expect(
-      rosterUpcomingLine(
-        artist({ upcoming_show_count: 1, next_show: nextShow({ venue_slug: '..' }) })
-      )?.venueHref
-    ).toBeNull()
+    expect(line?.venue).toEqual({ name: 'Valley Bar', slug: '' })
   })
 
   // `event_date` is a calendar date, and anything else is not one it may print.
@@ -134,7 +124,7 @@ describe('rosterUpcomingLine', () => {
     )
     expect(line?.day).toBeNull()
     expect(line?.dayHref).toBeNull()
-    expect(line?.venueName).toBe('Valley Bar')
+    expect(line?.venue?.name).toBe('Valley Bar')
   })
 
   // A calendar date is read component-wise, never as an instant: `new Date`
