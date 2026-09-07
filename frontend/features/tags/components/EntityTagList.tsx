@@ -835,7 +835,10 @@ function AddTagForm({
         )}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div
+        className="flex items-center gap-1.5"
+        data-testid="add-tag-category-filter"
+      >
         <span className="text-xs text-muted-foreground">Category:</span>
         <button
           onClick={() => handleSelectFilterCategory('')}

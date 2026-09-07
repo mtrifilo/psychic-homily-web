@@ -631,8 +631,6 @@ describe('EntityTagList crew pill treatment (PSY-1883)', () => {
   }
 
   it('keeps the crew treatment on an official crew tag', () => {
-    // Crew tags are admin-minted, so nearly every one is official. If the
-    // official accent won, the treatment would never actually render.
     renderWithProviders(
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
@@ -707,17 +705,19 @@ describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
     ).toBeInTheDocument()
 
     const dialog = screen.getByRole('dialog')
-    // Read the chips out of the DOM rather than off the constant, so this
-    // compares the two controls to each other and not both to one source.
-    const chipLabels = DESCRIPTIVE_TAG_CATEGORIES.map(getCategoryLabel).filter(
-      label => within(dialog).queryByRole('button', { name: label }) !== null
-    )
+    // Both label lists are read out of the DOM, so this compares the two
+    // controls to each other. "All" is the filter row's clear affordance and
+    // has no counterpart in a create select.
+    const chipLabels = within(within(dialog).getByTestId('add-tag-category-filter'))
+      .getAllByRole('button')
+      .map(b => b.textContent)
+      .filter(label => label !== 'All')
     const optionLabels = within(dialog)
       .getAllByRole('option')
       .map(o => o.textContent)
-    expect(chipLabels).toHaveLength(DESCRIPTIVE_TAG_CATEGORIES.length)
     expect(optionLabels).toEqual(chipLabels)
     expect(optionLabels).not.toContain('Crew')
+    expect(optionLabels).toHaveLength(DESCRIPTIVE_TAG_CATEGORIES.length)
   })
 })
 

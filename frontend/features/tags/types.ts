@@ -7,8 +7,8 @@ export type TagCategory = typeof TAG_CATEGORIES[number]
 
 /**
  * A tag naming a MUSIC BOOKER: a promoter, a DIY crew or collective, or a
- * named series or residency that books live music. The server will not let a
- * non-admin mint one.
+ * named series or residency that books live music. No control in this build
+ * offers it as a category a contributor can mint.
  */
 export const TAG_CATEGORY_CREW = 'crew' as const satisfies TagCategory
 
@@ -19,8 +19,9 @@ export type DescriptiveTagCategory = Exclude<
 >
 
 /**
- * `tags.category` is an unconstrained column, so any comparison against it
- * normalizes first: `Crew` must not slip past a guard that knows only `crew`.
+ * `tags.category` is an unconstrained column, so every comparison in this
+ * module normalizes first: `Crew` must not slip past a guard that knows only
+ * `crew`.
  */
 function normalizeCategory(category: string): string {
   return category.trim().toLowerCase()
@@ -40,17 +41,13 @@ export function isDescriptiveTagCategory(category: string): boolean {
 }
 
 /**
- * The closed list of descriptive categories this build knows, for building a
- * control that has to ENUMERATE them: the browse-page facet chip rows, the
- * add-tag dialog's filter row, and that dialog's create-category select. Crew
- * is absent, so none of those offers a booker's name beside genre chips.
+ * The closed list of descriptive categories this build knows, for a control
+ * that has to ENUMERATE its options.
  *
- * The create select reads the same list as the filter row because the dialog
- * copies the chosen filter chip into the category it would mint: a chip with
- * no matching option there is a value the control cannot show yet submits.
- *
- * To TEST an arbitrary stored category, use `isDescriptiveTagCategory`, which
- * admits an unrecognized one instead of dropping it.
+ * To TEST an arbitrary stored category instead, use
+ * `isDescriptiveTagCategory`, which admits an unrecognized one rather than
+ * dropping it. The two answer different questions and disagree on a category
+ * this build has never seen.
  */
 export const DESCRIPTIVE_TAG_CATEGORIES: readonly DescriptiveTagCategory[] =
   TAG_CATEGORIES.filter((c): c is DescriptiveTagCategory =>
@@ -483,13 +480,10 @@ export interface GenreHierarchyNode extends GenreHierarchyTag {
 }
 
 /**
- * One category's chip vocabulary, bound to the DS categorical palette
- * (PSY-943): genre = chart-6 (denim), locale = chart-8 (teal), other = muted
- * (the neutral catch-all). The tokens track light/dark via the CSS cascade.
- *
- * `shape` is set only for a category whose identity is not a colour. It is a
- * separate field so `getCategoryTint` can hand a text-only surface the colour
- * token without the chip geometry coming along.
+ * One category's chip classes, split so a text-only surface can take the
+ * colour token alone. `shape` is present only for a category whose identity
+ * is geometry rather than colour, and `categoryHasChipShape` is how the rest
+ * of the app asks which kind a category is.
  */
 interface CategoryChipTokens {
   bg: string
@@ -498,6 +492,7 @@ interface CategoryChipTokens {
   shape?: string
 }
 
+/** Bound to the DS categorical palette (PSY-943); tracks light/dark via CSS. */
 const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
   genre: { bg: 'bg-chart-6/10', text: 'text-chart-6', border: 'border-chart-6/20' },
   locale: { bg: 'bg-chart-8/10', text: 'text-chart-8', border: 'border-chart-8/20' },
@@ -513,7 +508,7 @@ const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
   },
 }
 
-/** Classes an unrecognized category falls back to. */
+/** The category an unrecognized one is styled as. */
 const FALLBACK_CATEGORY = 'other' as const satisfies TagCategory
 
 function composeChipClasses(t: CategoryChipTokens): string {
@@ -521,11 +516,9 @@ function composeChipClasses(t: CategoryChipTokens): string {
 }
 
 /**
- * Lookups go through a Map, and through `normalizeCategory` first, for the
- * same reason the predicate does: the key is a raw column value. An object
- * index would answer `toString` with a prototype member instead of missing,
- * so the fallback would never fire, and an exact match would style `Crew` as
- * the neutral catch-all while the predicate treats it as a crew tag.
+ * Maps rather than object indexes, because the key is a raw column value:
+ * `getCategoryChipClasses('toString')` must miss and fall back, which an
+ * object index does not.
  */
 const CATEGORY_CHIP_TOKEN_MAP = new Map<string, CategoryChipTokens>(
   Object.entries(CATEGORY_CHIP_TOKENS)
@@ -567,6 +560,26 @@ export function getCategoryTint(category: string): string {
 }
 
 /**
+ * Whether a category's chip identity is its geometry rather than its colour.
+ * A control that supplies its own shape asks this before wearing a category's
+ * classes, since those classes would override the shape it set.
+ */
+export function categoryHasChipShape(category: string): boolean {
+  return categoryTokens(category).shape !== undefined
+}
+
+/**
+ * The canonical spelling of a stored category, or the value unchanged when it
+ * is not one this build knows. A control that writes the column back uses
+ * this so an odd-cased row is offered once, under the spelling the server
+ * accepts, rather than twice under two spellings that render alike.
+ */
+export function canonicalTagCategory(category: string): string {
+  const normalized = normalizeCategory(category)
+  return CATEGORY_CHIP_TOKEN_MAP.has(normalized) ? normalized : category
+}
+
+/**
  * The accent an official tag wears in place of its category tint, so curated
  * tags read as curated at a glance (ISSUE-004 from tags-audit-2).
  */
@@ -589,6 +602,11 @@ export function getTagChipClasses(tag: {
   return getCategoryChipClasses(tag.category)
 }
 
+/**
+ * The display form of a category. Normalizing first means one stored spelling
+ * per label; the vocabulary is lowercase, so an all-caps stored value reads
+ * back title-cased rather than shouted.
+ */
 export function getCategoryLabel(category: string): string {
   const normalized = normalizeCategory(category)
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)

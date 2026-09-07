@@ -20,10 +20,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-// The tags LEAF module, not the feature barrel: the barrel re-exports
-// features/tags/hooks, which evaluates a nuqs parser at module scope, and a
-// test here that partially mocks nuqs then fails to load this file at all.
-import { isDescriptiveTagCategory } from '@/features/tags/types'
+import { isDescriptiveTagCategory } from '@/features/tags'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { CollectionCoverImage } from './CollectionCoverImage'

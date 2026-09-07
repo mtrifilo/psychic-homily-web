@@ -13,12 +13,11 @@ import { DenseTable } from '@/components/shared'
 import { useTags } from '../hooks'
 import {
   TAG_CATEGORIES,
-  TAG_CATEGORY_CREW,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
   getCategoryChipClasses,
   getCategoryTint,
-  isDescriptiveTagCategory,
+  categoryHasChipShape,
   getCategoryLabel,
 } from '../types'
 import type { TagListItem, TagSortOption } from '../types'
@@ -45,8 +44,7 @@ function sortToBackend(sort: TagSortOption): string {
  * The queries are written out rather than mapped over TAG_CATEGORIES because
  * they are hooks, and a `.map` would put a hook inside a callback. That makes
  * this the one place a missing category fails silently rather than at compile
- * time, so the counts derive from these results (one list, not two) and a
- * test asserts a query exists for every category the page renders a chip for.
+ * time, so the counts derive from these results: one list, not two.
  */
 function useCategoryCounts(search: string | undefined): {
   counts: Record<string, number>
@@ -56,7 +54,7 @@ function useCategoryCounts(search: string | undefined): {
     genre: useTags({ category: 'genre', search, limit: 1 }),
     locale: useTags({ category: 'locale', search, limit: 1 }),
     other: useTags({ category: 'other', search, limit: 1 }),
-    [TAG_CATEGORY_CREW]: useTags({ category: TAG_CATEGORY_CREW, search, limit: 1 }),
+    crew: useTags({ category: 'crew', search, limit: 1 }),
   }
 
   const counts: Record<string, number> = Object.fromEntries(
@@ -194,9 +192,7 @@ export function TagBrowse() {
             count={counts[cat] ?? 0}
             active={category === cat}
             activeCategoryClasses={
-              isDescriptiveTagCategory(cat)
-                ? getCategoryChipClasses(cat)
-                : undefined
+              categoryHasChipShape(cat) ? undefined : getCategoryChipClasses(cat)
             }
             onClick={() => handleCategoryChange(cat)}
           />
@@ -305,9 +301,7 @@ function FacetChip({
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
         active
-          ? activeCategoryClasses
-            ? activeCategoryClasses
-            : 'border-foreground bg-foreground text-background'
+          ? (activeCategoryClasses ?? 'border-foreground bg-foreground text-background')
           : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
         disabled && 'cursor-not-allowed opacity-40 hover:bg-muted/40 hover:text-muted-foreground'
       )}

@@ -225,24 +225,42 @@ describe('TagManagement: crew category (PSY-1883)', () => {
     })
   })
 
-  it('offers Crew in the edit select', async () => {
+  it('offers Crew as an option when editing a tag that is not crew', async () => {
+    // Asserting the trigger on a crew tag would pass off the unknown-category
+    // fallback below rather than off the vocabulary.
+    const user = userEvent.setup()
     renderWithProviders(
       <EditTagFormFields
         key={7}
-        tag={makeTagDetail({ id: 7, name: 'Rubber Brother Records', category: 'crew' })}
+        tag={makeTagDetail({ id: 7, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByLabelText('Category *'))
+    expect(await screen.findByRole('option', { name: 'Crew' })).toBeInTheDocument()
+  })
+
+  it('offers an odd-cased stored category once, under the spelling the server takes', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={11}
+        tag={makeTagDetail({ id: 11, name: 'Rubber Brother Records', category: 'Crew' })}
         onSuccess={vi.fn()}
         onCancel={vi.fn()}
       />
     )
 
     expect(screen.getByLabelText('Category *')).toHaveTextContent('Crew')
+    await user.click(screen.getByLabelText('Category *'))
+    expect(await screen.findAllByRole('option', { name: 'Crew' })).toHaveLength(1)
   })
 
   it('shows a stored category the UI has never heard of rather than a blank trigger', async () => {
-    // A Select whose value has no option renders an EMPTY trigger while the
-    // form still holds the value, so an admin who "fixes" the blank field
-    // silently re-categorizes the tag. tags.category is an unconstrained
-    // column, so a seeder or a newer server can store a value not listed here.
+    // tags.category is an unconstrained column, so a seeder or a newer server
+    // can store a value this build does not list.
     renderWithProviders(
       <EditTagFormFields
         key={8}

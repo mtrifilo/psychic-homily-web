@@ -56,6 +56,7 @@ import {
 } from './useAdminTags'
 import {
   TAG_CATEGORIES,
+  canonicalTagCategory,
   getCategoryChipClasses,
   getCategoryLabel,
   type TagCategory,
@@ -380,28 +381,31 @@ export function EditTagFormFields({
 
   const [name, setName] = useState(tag.name)
   const [description, setDescription] = useState(tag.description || '')
-  const [category, setCategory] = useState<string>(tag.category)
+  const [category, setCategory] = useState<string>(
+    canonicalTagCategory(tag.category)
+  )
   const [isOfficial, setIsOfficial] = useState(tag.is_official)
   const [error, setError] = useState<string | null>(null)
 
-  // A Select whose value has no matching option renders an EMPTY trigger,
-  // and the form still submits the value behind it: an admin who "fixes" the
-  // blank field silently re-categorizes the tag. `tags.category` is an
-  // unconstrained column that seeders, migrations and a newer server can all
-  // write, so the tag's own category is offered whatever it is.
+  // A Select whose value has no matching option renders an EMPTY trigger while
+  // the form still submits the value behind it, so an admin who "fixes" the
+  // blank field re-categorizes the tag without meaning to. `tags.category` is
+  // an unconstrained column, so the stored value is offered whatever it is.
   //
-  // The empty string is the exception: Radix throws on a SelectItem with an
-  // empty value, so a tag stored with no category falls back to a blank
-  // trigger rather than crashing the dialog it is being edited in.
+  // Two exceptions. A value that is only a spelling of a known category is
+  // canonicalized above instead of appended, so the list never holds two
+  // options that render alike. And the empty string is left alone: Radix
+  // throws on a SelectItem with an empty value, so such a tag still gets a
+  // blank trigger.
   //
-  // It reads the tag's stored category, not the edit state: derived from
-  // state, picking a listed option would drop the stored one from the list
-  // and leave no way back to it without closing the dialog.
+  // Derived from the tag, not the edit state: from state, picking a listed
+  // option would drop the stored one with no way back inside the dialog.
+  const storedCategory = canonicalTagCategory(tag.category)
   const categoryOptions: string[] =
-    tag.category === '' ||
-    (TAG_CATEGORIES as readonly string[]).includes(tag.category)
+    storedCategory === '' ||
+    (TAG_CATEGORIES as readonly string[]).includes(storedCategory)
       ? [...TAG_CATEGORIES]
-      : [...TAG_CATEGORIES, tag.category]
+      : [...TAG_CATEGORIES, storedCategory]
 
   const tagId = tag.id
 

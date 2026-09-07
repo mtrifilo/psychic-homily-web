@@ -11,6 +11,8 @@ import {
   getCategoryChipClasses,
   getCategoryTint,
   getTagChipClasses,
+  categoryHasChipShape,
+  canonicalTagCategory,
   getCategoryLabel,
   getEntityUrl,
   getEntityTypePluralLabel,
@@ -133,7 +135,7 @@ describe('getCategoryChipClasses', () => {
   it('sets no font size, leaving density to the calling surface', () => {
     for (const cat of TAG_CATEGORIES) {
       expect(getCategoryChipClasses(cat)).not.toMatch(
-        /\btext-(?:xs|sm|base|lg|\[\d)/
+        /\btext-(?:xs|sm|base|[2-9]?xl|lg|md|\[\d)/
       )
     }
   })
@@ -182,6 +184,35 @@ describe('getCategoryTint', () => {
   it('falls back to the "other" tint for an unknown category', () => {
     expect(getCategoryTint('mystery')).toBe(getCategoryTint('other'))
     expect(getCategoryTint('toString')).toBe('text-muted-foreground')
+  })
+})
+
+describe('categoryHasChipShape', () => {
+  it('is true only for a category whose classes carry geometry', () => {
+    expect(categoryHasChipShape('crew')).toBe(true)
+    for (const cat of ['genre', 'locale', 'other']) {
+      expect(categoryHasChipShape(cat)).toBe(false)
+    }
+  })
+
+  it('reads an unknown or odd-cased category the same way the styling does', () => {
+    expect(categoryHasChipShape('era')).toBe(false)
+    expect(categoryHasChipShape('Crew')).toBe(true)
+  })
+})
+
+describe('canonicalTagCategory', () => {
+  it('returns the known spelling for any casing or padding of it', () => {
+    expect(canonicalTagCategory('Crew')).toBe('crew')
+    expect(canonicalTagCategory(' GENRE ')).toBe('genre')
+    expect(canonicalTagCategory('other')).toBe('other')
+  })
+
+  it('leaves a value this build does not know exactly as stored', () => {
+    // A control that writes the column back must not quietly rewrite a value
+    // it cannot vouch for.
+    expect(canonicalTagCategory('Era')).toBe('Era')
+    expect(canonicalTagCategory('')).toBe('')
   })
 })
 

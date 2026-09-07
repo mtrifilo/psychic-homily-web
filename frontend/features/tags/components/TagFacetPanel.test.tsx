@@ -120,27 +120,9 @@ describe('TagFacetPanel', () => {
     expect(screen.getByTestId('tag-facet-chip-diy')).toBeInTheDocument()
   })
 
-  it.each(['rail', 'bar'] as const)(
-    'renders a selected crew chip so the filter can be switched back off in %s layout',
-    layout => {
-      // A tag page links to /shows?tags={slug} for every tag, so a crew slug
-      // can be applied to a panel that offers no crew chip. Without a chip,
-      // only "Clear all" undoes it, and that drops every other selection.
-      renderWithProviders(
-        <TagFacetPanel
-          selectedSlugs={['rubber-brother']}
-          onToggle={() => {}}
-          onClear={() => {}}
-          layout={layout}
-        />
-      )
-      expect(
-        screen.getByTestId('tag-facet-chip-rubber-brother')
-      ).toBeInTheDocument()
-    }
-  )
-
-  it('shows only the SELECTED crew chip, never the rest of the category', () => {
+  it('asks for no crew tags even while another tag is selected', () => {
+    // The exclusion is unconditional: a selection must not turn the crew
+    // query back on for a group the panel never renders.
     renderWithProviders(
       <TagFacetPanel
         selectedSlugs={['post-punk']}
@@ -149,8 +131,9 @@ describe('TagFacetPanel', () => {
       />
     )
     expect(screen.getByTestId('tag-facet-chip-post-punk')).toBeInTheDocument()
+    expect(requestedCategories).not.toContain('crew')
     expect(
-      screen.queryByTestId('tag-facet-chip-rubber-brother')
+      screen.queryByTestId('tag-facet-category-crew')
     ).not.toBeInTheDocument()
   })
 

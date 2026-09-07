@@ -25,9 +25,9 @@ import {
   getReleaseTypeLabel,
   useReleaseSaveCountBatch,
 } from '@/features/releases'
-// The tags LEAF module, not the feature barrel: the barrel re-exports
-// features/tags/hooks, which evaluates a nuqs parser at module scope, and a
-// test here that partially mocks nuqs then fails to load this file at all.
+// Leaf module, not the feature barrel: the barrel reaches
+// components/filters/cityParams, which builds a nuqs parser at module scope,
+// and ChartsPage.test.tsx mocks nuqs without that export.
 import { getCategoryLabel } from '@/features/tags/types'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { cn } from '@/lib/utils'

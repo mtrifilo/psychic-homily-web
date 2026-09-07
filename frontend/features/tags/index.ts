@@ -31,6 +31,8 @@ export {
   getCategoryChipClasses,
   getCategoryTint,
   getTagChipClasses,
+  categoryHasChipShape,
+  canonicalTagCategory,
   getCategoryLabel,
 } from './types'
 

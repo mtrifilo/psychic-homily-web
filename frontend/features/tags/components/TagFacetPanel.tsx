@@ -11,7 +11,6 @@ import type { CityState } from '@/components/filters'
 import { useTags } from '../hooks'
 import {
   DESCRIPTIVE_TAG_CATEGORIES,
-  TAG_CATEGORY_CREW,
   getCategoryChipClasses,
   getCategoryLabel,
 } from '../types'
@@ -92,8 +91,9 @@ export interface TagFacetPanelProps {
  *
  * The vocabulary is DESCRIPTIVE_TAG_CATEGORIES, not TAG_CATEGORIES: a crew
  * chip among genre chips reads as a genre and dilutes the filter it sits in.
- * A crew slug can still arrive in the URL, so see the selected-only group
- * below for how a selection the vocabulary does not cover stays removable.
+ * A slug outside that vocabulary can still arrive in `selectedSlugs` from the
+ * URL, and this panel renders no chip for it, so "Clear all" is the only
+ * control that reaches it.
  *
  * Data source: `/tags?category={cat}&sort=usage&limit=N&entity_type=…` —
  * one query per category via `useTags`. The small category count keeps the
@@ -199,20 +199,6 @@ export function TagFacetPanel({
             inline
           />
         ))}
-        {selectedSlugs.length > 0 && (
-          <CategoryGroup
-            category={TAG_CATEGORY_CREW}
-            limit={tagsPerCategory}
-            selectedSet={selectedSet}
-            onToggle={handleToggle}
-            entityType={entityType}
-            selectedCities={selectedCities}
-            showAll={showAll}
-            cityScoped={cityScoped}
-            inline
-            selectedOnly
-          />
-        )}
 
         {showAllExpander}
         {clearButton}
@@ -261,26 +247,6 @@ export function TagFacetPanel({
         />
       ))}
 
-      {/* A tag page links to /shows?tags={slug} for every tag, crew included,
-          so a crew slug can be applied here while the vocabulary above offers
-          no chip for it. A selection with no control is one only "Clear all"
-          can undo, and that drops every other selection with it. This group
-          renders the selected crew chips and nothing else, so it costs a
-          query only while something is selected. */}
-      {selectedSlugs.length > 0 && (
-        <CategoryGroup
-          category={TAG_CATEGORY_CREW}
-          limit={tagsPerCategory}
-          selectedSet={selectedSet}
-          onToggle={handleToggle}
-          entityType={entityType}
-          selectedCities={selectedCities}
-          showAll={showAll}
-          cityScoped={cityScoped}
-          selectedOnly
-        />
-      )}
-
       {showAllExpander && <div className="pt-1">{showAllExpander}</div>}
     </aside>
   )
@@ -302,12 +268,6 @@ interface CategoryGroupProps {
    * container. Rail layout (default) keeps the stacked heading + group.
    */
   inline?: boolean
-  /**
-   * Render only the chips this panel already has selected. Used for a
-   * category the panel does not offer: the group appears exactly when a
-   * selection needs a control to switch it back off, and never otherwise.
-   */
-  selectedOnly?: boolean
 }
 
 function CategoryGroup({
@@ -320,7 +280,6 @@ function CategoryGroup({
   showAll,
   cityScoped,
   inline = false,
-  selectedOnly = false,
 }: CategoryGroupProps) {
   const { data, isLoading } = useTags({
     category,
@@ -341,9 +300,8 @@ function CategoryGroup({
   //   than it vanishing, and a disabled chip can never dead-end on click.
   // Selected chips stay visible regardless of count so the selection controls
   // remain reachable (preserves clear/toggle UX across navigation).
-  const visibleTags = selectedOnly
-    ? allTags.filter(tag => selectedSet.has(tag.slug))
-    : entityType && !cityScoped && !showAll
+  const visibleTags =
+    entityType && !cityScoped && !showAll
       ? allTags.filter(
           tag => tag.usage_count > 0 || selectedSet.has(tag.slug),
         )
