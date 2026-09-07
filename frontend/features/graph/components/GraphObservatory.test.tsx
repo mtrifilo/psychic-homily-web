@@ -676,7 +676,6 @@ describe('GraphObservatory', () => {
     // read back as a navigation that clears the centre the visitor just chose.
     it('keeps a centre whose artist has no slug', async () => {
       const user = userEvent.setup()
-      artistBySlug.set('slugless', { id: 1, name: 'Diners', slug: '' })
       renderWithProviders(<GraphObservatory />)
 
       await user.click(screen.getByRole('button', { name: 'Search Slugless' }))
