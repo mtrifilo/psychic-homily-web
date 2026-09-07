@@ -1141,7 +1141,7 @@ type AddCollectionTagHandlerRequest struct {
 	Body struct {
 		TagID    uint   `json:"tag_id,omitempty" required:"false" doc:"Existing tag ID (provide tag_id OR tag_name)"`
 		TagName  string `json:"tag_name,omitempty" required:"false" doc:"Tag name with alias resolution; creates the tag inline when not found"`
-		Category string `json:"category,omitempty" required:"false" doc:"Tag category for inline creation (genre, locale, other; default: other)"`
+		Category string `json:"category,omitempty" required:"false" doc:"Tag category for inline creation (genre, locale, other, crew; default: other)"`
 	}
 }
 

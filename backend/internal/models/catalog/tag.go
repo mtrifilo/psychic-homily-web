@@ -15,15 +15,12 @@ const (
 	// crew or collective, or a named music series or residency that books
 	// live music. Non-music bar programming (bingo, karaoke, comedy open
 	// mics) is outside the category and belongs under TagCategoryOther.
-	//
-	// A crew is a tag, not an entity: it owns no table of its own and
-	// attaches through entity_tags like every other tag.
 	TagCategoryCrew = "crew"
 )
 
 // TagCategories is the set of valid tag categories. It is the only category
-// allowlist: every create, update, and attach path validates through
-// IsValidTagCategory, so a category absent from this slice is unwritable.
+// allowlist: every write path validates through IsValidTagCategory, so a
+// category absent from this slice is unwritable.
 var TagCategories = []string{
 	TagCategoryGenre,
 	TagCategoryLocale,

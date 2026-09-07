@@ -1939,12 +1939,8 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 	jazzTag := suite.createGenreTag("jazz", "jazz")
 	future := time.Now().UTC().AddDate(0, 0, 7)
 
-	// 30 LOCAL punk artists — meets the 30-tagged-artist threshold.
-	for i := 0; i < 30; i++ {
-		a := suite.createArtist(fmt.Sprintf("Local Punk %d", i)) // Phoenix-local (default)
-		suite.createApprovedShow(fmt.Sprintf("LP Show %d", i), venues[i%2].ID, a.ID, user.ID, future.AddDate(0, 0, i))
-		suite.tagArtist(a.ID, punkTag, user.ID)
-	}
+	suite.seedLocalTaggedCohort("Local Punk", venues, punkTag, user.ID, future)
+
 	// A touring jazz act playing a Phoenix venue — its genre must NOT appear.
 	tourer := suite.createArtistIn("LA Jazz Tourer", "Los Angeles", "CA")
 	suite.createApprovedShow("Tour Show", v1.ID, tourer.ID, user.ID, future)
@@ -1976,16 +1972,8 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Exc
 	crewTag := suite.createTagInCategory("Rubber Brother Records", "rubber-brother-records", catalogm.TagCategoryCrew)
 	future := time.Now().UTC().AddDate(0, 0, 7)
 
-	var firstLocal uint
-	for i := 0; i < 30; i++ {
-		a := suite.createArtist(fmt.Sprintf("Crew Local %d", i)) // Phoenix-local (default)
-		suite.createApprovedShow(fmt.Sprintf("CL Show %d", i), venues[i%2].ID, a.ID, user.ID, future.AddDate(0, 0, i))
-		suite.tagArtist(a.ID, punkTag, user.ID)
-		if i == 0 {
-			firstLocal = a.ID
-		}
-	}
-	suite.tagArtist(firstLocal, crewTag, user.ID)
+	locals := suite.seedLocalTaggedCohort("Crew Local", venues, punkTag, user.ID, future)
+	suite.tagArtist(locals[0], crewTag, user.ID)
 
 	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
 	suite.Require().NoError(err)
@@ -2518,6 +2506,31 @@ func TestDiversityLabel(t *testing.T) {
 // createGenreTag creates a genre tag for testing
 func (suite *SceneServiceIntegrationTestSuite) createGenreTag(name, slug string) uint {
 	return suite.createTagInCategory(name, slug, catalogm.TagCategoryGenre)
+}
+
+// seedLocalTaggedCohort creates sceneGenreMinTaggedArtists city-local artists,
+// each with one approved show at one of the given venues and the given tag, and
+// returns their IDs in creation order. The size is the threshold itself, so a
+// caller that removes an artist drops the scene below it.
+func (suite *SceneServiceIntegrationTestSuite) seedLocalTaggedCohort(
+	namePrefix string,
+	venues []*catalogm.Venue,
+	tagID, userID uint,
+	firstShowDate time.Time,
+) []uint {
+	ids := make([]uint, 0, sceneGenreMinTaggedArtists)
+	for i := 0; i < sceneGenreMinTaggedArtists; i++ {
+		a := suite.createArtist(fmt.Sprintf("%s %d", namePrefix, i)) // Phoenix-local (default)
+		suite.createApprovedShow(
+			fmt.Sprintf("%s Show %d", namePrefix, i),
+			venues[i%len(venues)].ID,
+			a.ID, userID,
+			firstShowDate.AddDate(0, 0, i),
+		)
+		suite.tagArtist(a.ID, tagID, userID)
+		ids = append(ids, a.ID)
+	}
+	return ids
 }
 
 // createTagInCategory creates a tag in an arbitrary category for testing.

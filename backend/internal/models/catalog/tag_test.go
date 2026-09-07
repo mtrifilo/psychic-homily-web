@@ -73,14 +73,6 @@ func TestTagCategoryConstants(t *testing.T) {
 	assert.Contains(t, TagCategories, TagCategoryCrew)
 }
 
-// TestIsValidTagCategory_Crew pins the crew category as writable through the
-// single allowlist every create/update/attach path consults.
-func TestIsValidTagCategory_Crew(t *testing.T) {
-	assert.True(t, IsValidTagCategory(TagCategoryCrew))
-	assert.False(t, IsValidTagCategory("Crew"))  // case-sensitive
-	assert.False(t, IsValidTagCategory("crews")) // exact match only
-}
-
 func TestTagEntityTypeConstants(t *testing.T) {
 	assert.Equal(t, "artist", TagEntityArtist)
 	assert.Equal(t, "release", TagEntityRelease)

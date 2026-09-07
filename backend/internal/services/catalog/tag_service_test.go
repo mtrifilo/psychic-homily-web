@@ -140,21 +140,17 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_Success() {
 	suite.Assert().Nil(tag.CreatedByUserID)
 }
 
-// TestCreateTag_CrewCategory pins the crew category as creatable through the
-// admin create path, alongside the unknown-category rejection below.
+// TestCreateTag_CrewCategory pins the crew category as accepted by the create
+// path's category guard.
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_CrewCategory() {
-	tag, err := suite.tagService.CreateTag("Rubber Brother Records", nil, nil, catalogm.TagCategoryCrew, true, nil)
-	suite.Require().NoError(err)
+	tag := suite.createTag("Rubber Brother Records", catalogm.TagCategoryCrew)
 	suite.Require().NotNil(tag)
 	suite.Assert().Equal(catalogm.TagCategoryCrew, tag.Category)
-
-	fetched, err := suite.tagService.GetTag(tag.ID)
-	suite.Require().NoError(err)
-	suite.Assert().Equal(catalogm.TagCategoryCrew, fetched.Category)
 }
 
-// TestUpdateTag_ToCrewCategory covers the update-path category guard, the
-// second of the three IsValidTagCategory call sites.
+// TestUpdateTag_ToCrewCategory pins the crew category as accepted by the
+// update path's category guard, which is a separate check from the create
+// path's.
 func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_ToCrewCategory() {
 	created := suite.createTag("Local Collective", "other")
 

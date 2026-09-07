@@ -7242,7 +7242,7 @@ export interface components {
              * @example https://example.com/schemas/AddCollectionTagHandlerRequestBody.json
              */
             readonly $schema?: string;
-            /** @description Tag category for inline creation (genre, locale, other; default: other) */
+            /** @description Tag category for inline creation (genre, locale, other, crew; default: other) */
             category?: string;
             /**
              * Format: int64
