@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
@@ -584,10 +585,18 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 
 	svc := s.newService()
 
-	_, err := svc.createAppleUser("apple-dupe-id", "dupe@example.com", "Dupe", "User")
+	// A CASE VARIANT, so the insert collides on users_lower_email_uniq rather
+	// than on the byte-exact users_email_key: this asserts the new index, not
+	// the one that was always there. createAppleUser is called directly, so it
+	// skips the pre-check FindOrCreateAppleUser does and lands on the index the
+	// way a lost race would. The service returns USER_EXISTS; AppleCallbackHandler
+	// still collapses it to its own generic shape, which this does not assert.
+	_, err := svc.createAppleUser("apple-dupe-id", "DUPE@Example.com", "Dupe", "User")
 
-	s.Error(err)
-	s.Contains(err.Error(), "failed to create user")
+	s.Require().Error(err)
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeUserExists, authErr.Code)
 }
 
 // ---------------------------------------------------------------------------

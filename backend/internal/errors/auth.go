@@ -3,6 +3,8 @@ package errors
 
 import (
 	"fmt"
+
+	"psychic-homily-backend/internal/logger"
 )
 
 // Auth error codes
@@ -149,8 +151,13 @@ func ErrServiceUnavailable(service string, internal error) *AuthError {
 }
 
 // ErrUserExists creates a user already exists error.
+//
+// The internal error carries the address MASKED, because callers log the whole
+// error chain and several of them do so beside a masked address or with no
+// address of their own. A cleartext address here would be the only cleartext
+// copy in those log lines. Callers that need the raw value already hold it.
 func ErrUserExists(email string) *AuthError {
-	return NewAuthError(CodeUserExists, "An account with this email already exists", fmt.Errorf("duplicate email: %s", email))
+	return NewAuthError(CodeUserExists, "An account with this email already exists", fmt.Errorf("duplicate email: %s", logger.HashEmail(email)))
 }
 
 // ErrValidationFailed creates a validation error.

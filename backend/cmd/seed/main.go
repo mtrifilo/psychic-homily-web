@@ -500,7 +500,7 @@ func seedTestUsers(db *gorm.DB) int {
 	for _, u := range users {
 		// Check if user already exists
 		var existing authm.User
-		if err := db.Where("email = ?", u.Email).First(&existing).Error; err == nil {
+		if err := db.Where(authm.EmailIdentityWhere, u.Email).First(&existing).Error; err == nil {
 			fmt.Printf("  User %s already exists, skipping\n", u.Email)
 			continue
 		}
@@ -555,7 +555,7 @@ func seedTestUsers(db *gorm.DB) int {
 func seedTestUserEngagement(db *gorm.DB) {
 	// Find the test user
 	var testUser authm.User
-	if err := db.Where("email = ?", "testuser@test.local").First(&testUser).Error; err != nil {
+	if err := db.Where(authm.EmailIdentityWhere, "testuser@test.local").First(&testUser).Error; err != nil {
 		log.Printf("Warning: Could not find testuser for engagement seeding: %v", err)
 		return
 	}
