@@ -213,7 +213,9 @@ describe('SceneGraph', () => {
     expect(links[0]).toHaveTextContent(
       'See how Phoenix artists connect on the music map →',
     )
-    expect(links[0]).toHaveAttribute('href', '/graph')
+    // Rooted on Sundressed, the only fixture node with an upcoming show. The
+    // teaser and the desktop foot link share one href.
+    expect(links[0]).toHaveAttribute('href', '/graph?artist=sundressed')
   })
 
   // The `#graph` deep-link target (Cmd+K, PSY-366) has to survive the collapse
@@ -311,7 +313,30 @@ describe('SceneGraph', () => {
     expect(screen.queryByText('Scene graph')).not.toBeInTheDocument()
   })
 
-  it('links the section foot to /graph, not a re-rooted artist URL', () => {
+  // The section foot re-roots the map on the scene artist with the most
+  // upcoming shows, so the map opens on this scene's neighborhood.
+  it('roots the section foot on the scene artist with the most upcoming shows', () => {
+    renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+    expect(
+      screen.getByRole('link', { name: 'View this scene on the whole map →' }),
+    ).toHaveAttribute('href', '/graph?artist=sundressed')
+  })
+
+  // A scene whose bands have nothing booked links to the plain map rather than
+  // rooting on an arbitrary name.
+  it('links the section foot to plain /graph when no artist has an upcoming show', () => {
+    vi.mocked(useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: {
+            ...mockData,
+            nodes: mockData.nodes.map(node => ({ ...node, upcoming_show_count: 0 })),
+          },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     expect(
       screen.getByRole('link', { name: 'View this scene on the whole map →' }),
