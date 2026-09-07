@@ -534,14 +534,14 @@ const withheldOldValueReason = "the previous value recorded here is a placeholde
 //     such an address records no revision at all. The most recent recorded
 //     write is then not the value the column held.
 //
-// A refusal is honest and an admin can act on it. A plausible wrong address
-// written under the Undo button, reported as an applied field, is the defect
-// this function exists to stop wearing a different value.
+// A refusal is honest and an admin can act on it. A plausible wrong address,
+// written under the Undo button and reported as an applied field, loses the
+// same real value in a form that reads as success.
 //
-// An UNSTAMPED row says nothing about where its blank came from, and is left
+// An UNSTAMPED row says nothing about where its value came from and is left
 // alone: nothing here can tell a mask from a column that really was empty, and
 // refusing would break the ordinary undo of a contributor filling in an empty
-// field. Those rows keep the behaviour they had.
+// field. Such a row is written as recorded.
 func refuseWithheldOldValues(fieldOrder []string, byField map[string]adminm.FieldChange) map[string]string {
 	refusals := make(map[string]string, len(fieldOrder))
 	for _, field := range fieldOrder {

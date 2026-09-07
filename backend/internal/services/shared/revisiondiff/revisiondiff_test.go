@@ -13,29 +13,16 @@ func strPtr(s string) *string   { return &s }
 func intPtr(i int) *int         { return &i }
 func f64Ptr(f float64) *float64 { return &f }
 
-// unstamped drops OldValueWithheld so the tests below assert what their subject
-// is: which fields differ and in what value shape. The stamp is one constant
-// across every one of them, and TestCompareStampsTheOldValueAsObserved is where
-// it is pinned.
-func unstamped(changes []adminm.FieldChange) []adminm.FieldChange {
-	if changes == nil {
-		// Compare returns a nil slice when nothing differs, and two of the
-		// cases below assert exactly that.
-		return nil
-	}
-	out := make([]adminm.FieldChange, len(changes))
-	copy(out, changes)
-	for i := range out {
-		out[i].OldValueWithheld = nil
-	}
-	return out
-}
-
-// A diff reads its previous value off the before-image, so every change it
-// emits is stamped observed. That is what keeps a rollback of an admin's own
-// edit from being treated as a row that predates the stamp, where a blank would
-// be resolved against the revision history instead of written.
-func TestCompareStampsTheOldValueAsObserved(t *testing.T) {
+// A diff cannot know whether the before-image its caller passed is the entity
+// or a gated view of it, so it asserts nothing about where the previous value
+// came from. The caller here is the admin update path, which passes two
+// already-gated VenueDetailResponse values: a withheld address reads as unset
+// on both sides, which is indistinguishable from a column that was empty.
+//
+// Stamping observed would put a claim onto a stored row that outlives the
+// function making it, and a rollback reading that claim writes the mask into
+// the column. Unstamped is the honest state and the one rollback leaves alone.
+func TestCompareDoesNotStampTheOldValue(t *testing.T) {
 	old := contracts.VenueDetailResponse{Name: "Old Room"}
 	updated := contracts.VenueDetailResponse{Name: "New Room"}
 
@@ -43,18 +30,11 @@ func TestCompareStampsTheOldValueAsObserved(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected one change, got %d", len(got))
 	}
-	if got[0].OldValueUnstamped() {
-		t.Error("a diffed change must carry the stamp, or a rollback reads it as predating the stamp")
-	}
-	if got[0].OldValueIsWithheld() {
-		t.Error("a diffed previous value is observed, never withheld")
+	if !got[0].OldValueUnstamped() {
+		t.Error("Compare must not assert where its caller's before-image came from")
 	}
 }
 
-// TestCompare_ShowAllFields exercises the show field list across the value
-// kinds it uses (string, *string, *float64, time.Time) and asserts the exact
-// FieldChange shape — value Go types included — so output stays byte-identical
-// with the old computeShowChanges.
 func TestCompare_ShowAllFields(t *testing.T) {
 	oldDate := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
 	newDate := time.Date(2026, 5, 2, 21, 0, 0, 0, time.UTC)
@@ -84,7 +64,7 @@ func TestCompare_ShowAllFields(t *testing.T) {
 		ImageURL:       strPtr("https://new.example/flyer.png"),
 	}
 
-	got := unstamped(Compare(old, updated, ShowFields))
+	got := Compare(old, updated, ShowFields)
 	want := []adminm.FieldChange{
 		{Field: "title", OldValue: "Old Title", NewValue: "New Title"},
 		{Field: "event_date", OldValue: oldDate.Format(time.RFC3339), NewValue: newDate.Format(time.RFC3339)},
@@ -159,7 +139,7 @@ func TestCompare_ShowOptionalTimes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := unstamped(Compare(tc.old, tc.updated, ShowFields))
+			got := Compare(tc.old, tc.updated, ShowFields)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("diff mismatch:\n got=%#v\nwant=%#v", got, tc.want)
 			}
@@ -188,7 +168,7 @@ func TestCompare_ArtistNestedSocials(t *testing.T) {
 		},
 	}
 
-	got := unstamped(Compare(old, updated, ArtistFields))
+	got := Compare(old, updated, ArtistFields)
 	want := []adminm.FieldChange{
 		{Field: "country", OldValue: "USA", NewValue: "Australia"},
 		{Field: "instagram", OldValue: "old_ig", NewValue: "new_ig"},
@@ -214,7 +194,7 @@ func TestCompare_ReleaseIntPointers(t *testing.T) {
 		Description: strPtr("desc"), // unchanged
 	}
 
-	got := unstamped(Compare(old, updated, ReleaseFields))
+	got := Compare(old, updated, ReleaseFields)
 	want := []adminm.FieldChange{
 		{Field: "release_type", OldValue: "album", NewValue: "ep"},
 		{Field: "release_year", OldValue: 2021 - 1, NewValue: 2021},
@@ -288,7 +268,7 @@ func TestCompare_ShowOptionalPrices(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := unstamped(Compare(tc.old, tc.updated, ShowFields))
+			got := Compare(tc.old, tc.updated, ShowFields)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("price diff mismatch:\n got=%#v\nwant=%#v", got, tc.want)
 			}
@@ -336,7 +316,7 @@ func TestCompare_VenueOptionalCapacity(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := unstamped(Compare(tc.old, tc.updated, VenueFields))
+			got := Compare(tc.old, tc.updated, VenueFields)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("capacity diff mismatch:\n got=%#v\nwant=%#v", got, tc.want)
 			}
@@ -364,7 +344,7 @@ func TestCompare_FestivalNonPtrInt(t *testing.T) {
 		Status:      "published",  // changed
 	}
 
-	got := unstamped(Compare(old, updated, FestivalFields))
+	got := Compare(old, updated, FestivalFields)
 	want := []adminm.FieldChange{
 		{Field: "edition_year", OldValue: 2025, NewValue: 2026},
 		{Field: "start_date", OldValue: "2025-06-01", NewValue: "2026-06-01"},
@@ -390,7 +370,7 @@ func TestCompare_NilPtrToValue(t *testing.T) {
 	old := &contracts.ShowResponse{Title: "T"} // Description nil
 	updated := &contracts.ShowResponse{Title: "T", Description: strPtr("now set")}
 
-	got := unstamped(Compare(old, updated, ShowFields))
+	got := Compare(old, updated, ShowFields)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 change, got %#v", got)
 	}

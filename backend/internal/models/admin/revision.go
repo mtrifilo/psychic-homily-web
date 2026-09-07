@@ -51,8 +51,9 @@ func (Revision) TableName() string { return "revisions" }
 // OldValueWithheld is a THREE-state stamp, and the third state is the reason it
 // is a pointer:
 //
-//   - true: OldValue is the blank served in place of a column this change's
-//     audience is not shown. It is NOT what the field held.
+//   - true: OldValue is the placeholder served in place of a column this
+//     change's audience is not shown, which is the unset value of the column's
+//     type. It is NOT what the field held.
 //   - false: OldValue is the value the recorder read off the entity.
 //   - nil: nothing recorded either way. Every row written before the stamp
 //     existed reads this way, and so does any row a writer that does not stamp
@@ -84,7 +85,7 @@ func (c FieldChange) WithOldValueWithheld(withheld bool) FieldChange {
 }
 
 // OldValueIsWithheld reports whether the change positively records that its
-// OldValue is a withheld blank. An unstamped change reports false: absence of a
+// OldValue is a placeholder. An unstamped change reports false: absence of a
 // stamp is absence of knowledge, not a claim that the value was observed. Use
 // OldValueUnstamped to tell the two apart.
 func (c FieldChange) OldValueIsWithheld() bool {
@@ -103,8 +104,9 @@ func (c FieldChange) OldValueUnstamped() bool { return c.OldValueWithheld == nil
 // column is SET, so `true` on an unverified venue's address says "this house
 // has a street address on record" to anyone who asks to edit it, which is
 // exactly what deriving the mask rather than the column was for: the derived
-// value is the same whatever the column holds. Every path that serves a
-// FieldChange to a client goes through here.
+// value is the same whatever the column holds. A path that serves a FieldChange
+// to a client and does not call this is a leak, so add the call rather than a
+// second way of clearing it.
 func ForServing(changes []FieldChange) []FieldChange {
 	out := make([]FieldChange, len(changes))
 	copy(out, changes)
