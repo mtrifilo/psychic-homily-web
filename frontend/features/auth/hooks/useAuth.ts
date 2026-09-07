@@ -974,6 +974,37 @@ export const useOAuthAccounts = () => {
   })
 }
 
+/**
+ * Mints the one-time token the connect flow puts on its start URL.
+ *
+ * Separate from the navigation itself because it has to be a same-origin
+ * authenticated request: that is the only thing a page on another site cannot
+ * make on the user's behalf and read back, and it is what stands between a
+ * cookie-authenticated GET and a cross-site connect.
+ */
+export const useStartOAuthLink = () => {
+  return useMutation({
+    mutationFn: async (): Promise<{ token: string }> => {
+      const response = await apiRequest<{
+        success: boolean
+        token: string
+      }>(API_ENDPOINTS.AUTH.OAUTH_LINK_TOKEN, {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (!response.success || !response.token) {
+        throw new AuthError(
+          'Could not start the connection',
+          AuthErrorCode.UNKNOWN
+        )
+      }
+
+      return { token: response.token }
+    },
+  })
+}
+
 // Unlink OAuth account mutation
 export const useUnlinkOAuthAccount = () => {
   const queryClient = useQueryClient()
