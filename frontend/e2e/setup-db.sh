@@ -602,21 +602,29 @@ ON CONFLICT (email) DO NOTHING;
 
 -- OAuth login fixture (PSY-914). The faux "google" provider
 -- (ENABLE_OAUTH_TEST_PROVIDER=1, backend/internal/auth/oauth_test_provider.go)
--- always returns email e2e-oauth@test.local. Pre-seeding that user means the
--- first faux login resolves to an EXISTING user (linkOAuthAccount = a login),
--- NOT a new signup — so oauth-google.spec.ts never hits the terms/consent flow.
--- That link needs BOTH halves of the by-address rule, so both are load-bearing
--- here: the faux provider reports the address as verified, and the row below
--- sets email_verified = true. Flip either one and the link is refused and the
--- spec fails. No spec exercises the refusal: the faux provider's env levers are
--- read at request time by a backend the harness starts once, so they are manual
--- levers, not something a spec can flip.
--- Dedicated user (not a worker login) so linking an oauth_accounts row to it
--- can't disturb the parallel worker auth state. No password login is expected
--- (OAuth only); the shared hash is set just for parity with the other fixtures.
+-- returns a fixed identity: email e2e-oauth@test.local, provider_user_id
+-- e2e-oauth-faux-user-id. Pre-seeding both rows below means the faux login
+-- resolves to an EXISTING user, NOT a new signup, so oauth-google.spec.ts never
+-- hits the terms/consent flow.
+--
+-- The oauth_accounts row is what makes it a login. An OAuth sign-in resolves on
+-- provider + provider_user_id; an address that merely MATCHES an account is
+-- refused, because a matching address says who holds the mailbox and never who
+-- holds the account. So provider_user_id below must stay equal to
+-- internal/auth.TestProviderUserID, or the callback falls through to the
+-- address branch and the spec gets the refusal instead of a session.
+--
+-- Dedicated user (not a worker login) so this identity can't disturb the
+-- parallel worker auth state. No password login is expected (OAuth only); the
+-- shared hash is set just for parity with the other fixtures.
 INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, user_tier, created_at, updated_at)
 VALUES ('e2e-oauth@test.local', '${BCRYPT_HASH}', 'Test', 'OAuth', true, false, true, 'contributor', NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO oauth_accounts (user_id, provider, provider_user_id, provider_email, provider_name, created_at, updated_at)
+SELECT id, 'google', 'e2e-oauth-faux-user-id', 'e2e-oauth@test.local', 'E2E OAuth User', NOW(), NOW()
+FROM users WHERE email = 'e2e-oauth@test.local'
+ON CONFLICT DO NOTHING;
 
 -- Create user_preferences for all seeded test users (regular worker users + admin + unverified + recovery + oauth)
 INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)

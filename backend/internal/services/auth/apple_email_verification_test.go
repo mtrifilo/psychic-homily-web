@@ -9,7 +9,10 @@ import (
 )
 
 // Apple's email_verified claim arrives as a JSON bool or as the string "true".
-// Both spellings open the link; every other value refuses it.
+// Both spellings record a verified address on an account this path creates;
+// every other value records an unverified one. The claim opens nothing: an
+// address that already belongs to an account refuses the sign-in whatever the
+// claim says.
 
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmail_RefusesLink() {
 	existing := &authm.User{
@@ -65,7 +68,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AbsentVerifica
 	s.assertNoAppleAccountFor(existing.ID)
 }
 
-func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerifiedClaim_LinksAccount() {
+// The strongest spelling of the claim is still not evidence about who holds
+// the account, so it refuses like the weakest one.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerifiedClaim_RefusesAddressMatch() {
 	existing := &authm.User{
 		Email:         stringPtr("apple-string-verified@example.com"),
 		IsActive:      true,
@@ -82,11 +87,33 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerified
 		},
 	}, "Apple", "Name")
 
+	s.Require().Error(err)
+	s.Require().Nil(user)
+
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
+	s.assertNoAppleAccountFor(existing.ID)
+	s.assertSingleUserForAddress("apple-string-verified@example.com")
+}
+
+// The create path is the only one that still reads the claim, so it is where
+// the string spelling has to be honoured end to end.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerifiedClaim_NoExistingAccount_CreatesVerified() {
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-fresh-string-verified@example.com",
+		EmailVerified: "true",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "apple-sub-fresh-string-verified",
+		},
+	}, "Apple", "Name")
+
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
-	s.Equal(existing.ID, user.ID)
-	s.Require().Len(user.OAuthAccounts, 1)
-	s.Equal("apple-sub-string-verified", user.OAuthAccounts[0].ProviderUserID)
+	s.True(user.EmailVerified)
+	s.assertStoredEmailVerified(user.ID, true)
 }
 
 // A returning Apple user resolves by subject before the address is consulted,
@@ -194,7 +221,14 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_SquattedUnveri
 	var authErr *apperrors.AuthError
 	s.Require().ErrorAs(err, &authErr)
 	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
-	s.Contains(authErr.UserMessage(), "Settings")
+	// Apple's own copy. It names no Settings control because there is none to
+	// name: Apple arrives by a native-token POST, not the goth handshake that
+	// /auth/link/{provider} drives.
+	s.Equal(
+		"An account already uses this email address. Sign in to that account with the method it already has.",
+		authErr.UserMessage(),
+	)
+	s.NotContains(authErr.UserMessage(), "Settings")
 
 	s.assertStoredEmailVerified(squatted.ID, false)
 	var rows int64
@@ -263,6 +297,18 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_EmptySubject_R
 	s.Require().Error(err)
 	s.Require().Nil(user)
 	s.Contains(err.Error(), "no subject")
+}
+
+// A refused sign-in must not fall through to the create path: the mailbox
+// still resolves to exactly one row. Uses the same case-folding fragment the
+// service looks addresses up with, so a second row differing only in case
+// counts here too.
+func (s *AppleAuthIntegrationTestSuite) assertSingleUserForAddress(email string) {
+	s.T().Helper()
+	var rows int64
+	s.Require().NoError(
+		s.db.Model(&authm.User{}).Where(authm.EmailIdentityWhere, email).Count(&rows).Error)
+	s.Equal(int64(1), rows, "a refused sign-in must not mint a second account for the mailbox")
 }
 
 func (s *AppleAuthIntegrationTestSuite) assertNoAppleAccountFor(userID uint) {

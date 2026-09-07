@@ -23,8 +23,13 @@ func TestAuthLinkRouteRequiresASession(t *testing.T) {
 }
 
 // Its sibling stays open, because it is how a caller gets a session at all.
-// Asserting the redirect rather than "not 401": a deleted route answers 404,
-// which is also not 401, so the weaker check would pass on a missing route.
+//
+// Two assertions rather than one: "not 401" alone would also hold for a route
+// that had been deleted, so the route's existence is checked separately. The
+// status is pinned no tighter than that. This binary never calls SetupGoth, so
+// no provider is registered and the handler answers with gothic's own 400
+// rather than the provider redirect a configured server sends. That answer
+// belongs to goth's configuration, not to the routing contract this file owns.
 func TestAuthLoginRouteStaysUnauthenticated(t *testing.T) {
 	router := newTestRouter(t)
 
@@ -32,8 +37,10 @@ func TestAuthLoginRouteStaysUnauthenticated(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Errorf("GET /auth/login/google with no credential = %d, want %d (the provider redirect)",
-			w.Code, http.StatusTemporaryRedirect)
+	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("GET /auth/login/google = %d: the sign-in route is not registered", w.Code)
+	}
+	if w.Code == http.StatusUnauthorized {
+		t.Errorf("GET /auth/login/google with no credential = %d: the sign-in route must not require one", w.Code)
 	}
 }

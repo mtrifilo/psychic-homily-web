@@ -62,8 +62,10 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	s.Equal(int64(0), oauthRows)
 }
 
-// The same request with the provider vouching for the address.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndSetsCookie() {
+// The same request with the provider vouching for the address. A vouched
+// address is still only evidence about the mailbox, so the callback refuses it
+// on the same terms and by the same route.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession() {
 	existing := &authm.User{
 		Email:         strPtr("callback-verified@test.com"),
 		IsActive:      true,
@@ -86,21 +88,30 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_LinksAndS
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	s.Equal("http://localhost:3000", w.Header().Get("Location"))
+	location := w.Header().Get("Location")
+	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
+		"expected redirect to the frontend auth page, got %s", location)
 
-	sessionIssued := false
+	parsed, err := url.Parse(location)
+	s.Require().NoError(err)
+	s.Equal(autherrors.ErrOAuthLinkRefused("callback-verified@test.com").UserMessage(), parsed.Query().Get("error"))
+
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
-			sessionIssued = true
+			s.Fail("a refused sign-in must not issue a session")
 		}
 	}
-	s.True(sessionIssued, "a verified link must issue a session")
 
 	var oauthRows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
-		Where("user_id = ? AND provider_user_id = ?", existing.ID, "google-verified-callback").
-		Count(&oauthRows).Error)
-	s.Equal(int64(1), oauthRows)
+		Where("user_id = ?", existing.ID).Count(&oauthRows).Error)
+	s.Equal(int64(0), oauthRows, "a refused sign-in must attach no identity to the account")
+
+	// The refusal must not fall through to the create path either.
+	var users int64
+	s.Require().NoError(s.deps.DB.Model(&authm.User{}).
+		Where(authm.EmailIdentityWhere, "callback-verified@test.com").Count(&users).Error)
+	s.Equal(int64(1), users)
 }
 
 // The allowlist itself. A code absent from it is reported generically on all

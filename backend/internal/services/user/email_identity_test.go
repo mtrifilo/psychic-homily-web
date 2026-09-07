@@ -106,10 +106,14 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Duplica
 	suite.Equal(int64(1), rows)
 }
 
-// TestFindOrCreateUser_LinksCaseVariantEmail covers the goth OAuth callback: a
-// provider that returns the address in different casing than the row stores
-// links to the existing account instead of minting a second one.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_LinksCaseVariantEmail() {
+// TestFindOrCreateUser_RefusesCaseVariantEmail covers the goth OAuth callback:
+// a provider returning the address in different casing than the row stores
+// resolves to that row, and an address that resolves to an account refuses the
+// sign-in.
+//
+// The refusal is what proves the fold ran: a case-sensitive lookup would miss
+// the row and mint a second account for the same mailbox instead.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_RefusesCaseVariantEmail() {
 	existing := &authm.User{
 		Email:         stringPtr("Goth.Case@Example.com"),
 		IsActive:      true,
@@ -123,12 +127,15 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_LinksCaseVari
 		RawData: map[string]any{"verified_email": true},
 	}, "google")
 
-	suite.Require().NoError(err)
-	suite.Require().NotNil(linked)
-	// Returning the pre-existing row's ID is what proves the link branch ran
-	// and no second account was minted.
-	suite.Equal(existing.ID, linked.ID)
-	suite.Equal("Goth.Case@Example.com", *linked.Email)
+	suite.Require().Error(err)
+	suite.Require().Nil(linked)
+
+	var refusal *apperrors.AuthError
+	suite.Require().True(errors.As(err, &refusal))
+	suite.Equal(apperrors.CodeOAuthLinkRefused, refusal.Code)
+
+	suite.assertNoOAuthAccountFor(existing.ID)
+	suite.assertSingleUserForEmail("goth.case@example.com")
 }
 
 // TestUsersLowerEmailUniqueIndex_RefusesCaseVariantRow asserts the schema, not

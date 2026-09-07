@@ -423,7 +423,11 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleU
 	s.Equal(int64(1), count)
 }
 
-func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_LinksAppleAccount() {
+// An address that already belongs to an account refuses the sign-in. A
+// matching address says who holds the mailbox, never who holds the account, so
+// it is never a reason to attach an identity; the account's own holder does
+// that from a session, at /auth/link/{provider}.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_RefusesSignIn() {
 	// Pre-create a user with email but no OAuth
 	existingUser := &authm.User{
 		Email:         stringPtr("link-apple@example.com"),
@@ -445,21 +449,23 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 
 	user, err := svc.FindOrCreateAppleUser(claims, "Apple", "Name")
 
-	s.Require().NoError(err)
-	s.Equal(existingUser.ID, user.ID) // Same user, not a new one
-	s.Require().Len(user.OAuthAccounts, 1)
-	s.Equal("apple", user.OAuthAccounts[0].Provider)
-	s.Equal("apple-sub-link", user.OAuthAccounts[0].ProviderUserID)
+	s.Require().Error(err)
+	s.Require().Nil(user)
+
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
+	s.assertNoAppleAccountFor(existingUser.ID)
+	s.assertSingleUserForAddress("link-apple@example.com")
 }
 
-func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_DifferentAppleID() {
+// A second Apple subject arriving on an address an Apple account already holds
+// is refused like any other address match. The account keeps exactly the one
+// identity it was created with.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_DifferentAppleID_Refused() {
 	svc := s.newService()
 
-	// Create first user with apple account. The claim is VERIFIED, so the
-	// account it creates holds a proven address, which is what makes it a
-	// link target below. The unverified version of this sequence is the
-	// squat, and it is refused: see
-	// TestFindOrCreateAppleUser_SquattedUnverifiedAccount_RefusesVerifiedOwner.
 	claims1 := &contracts.AppleIdentityTokenClaims{
 		Email:         "shared-email@example.com",
 		EmailVerified: true,
@@ -471,9 +477,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	s.Require().NoError(err)
 	s.Require().True(firstUser.EmailVerified)
 
-	// Second call with different apple subject but same email
-	// Since first user already has an apple OAuth, this looks up by apple subject (not found),
-	// then finds user by email and links the new apple ID
+	// Second call with a different apple subject but the same address. The
+	// subject lookup misses, the address lookup hits, and the address hit is
+	// the refusal.
 	claims2 := &contracts.AppleIdentityTokenClaims{
 		Email:         "shared-email@example.com",
 		EmailVerified: true,
@@ -483,14 +489,20 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	}
 	secondUser, err := svc.FindOrCreateAppleUser(claims2, "Second", "User")
 
-	s.Require().NoError(err)
-	// Links to same user since email matches
-	s.Equal(firstUser.ID, secondUser.ID)
+	s.Require().Error(err)
+	s.Require().Nil(secondUser)
 
-	// Now user has two apple OAuth accounts
+	var authErr *apperrors.AuthError
+	s.Require().ErrorAs(err, &authErr)
+	s.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+
 	var count int64
-	s.db.Model(&authm.OAuthAccount{}).Where("user_id = ? AND provider = ?", firstUser.ID, "apple").Count(&count)
-	s.Equal(int64(2), count)
+	s.Require().NoError(
+		s.db.Model(&authm.OAuthAccount{}).
+			Where("user_id = ? AND provider = ?", firstUser.ID, "apple").
+			Count(&count).Error)
+	s.Equal(int64(1), count)
+	s.assertSingleUserForAddress("shared-email@example.com")
 }
 
 // ---------------------------------------------------------------------------
