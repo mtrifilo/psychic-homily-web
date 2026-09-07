@@ -191,6 +191,19 @@ vi.mock('@/features/artists/components/ArtistSearch', () => ({
       >
         Search Playboy Manbaby
       </button>
+      {/* Entity slugs are nullable in this schema. */}
+      <button
+        type="button"
+        onClick={() => onSelect({
+          id: 1,
+          name: 'Diners',
+          slug: '',
+          city: 'Phoenix',
+          state: 'AZ',
+        })}
+      >
+        Search Slugless
+      </button>
     </>
   ),
 }))
@@ -356,7 +369,12 @@ const { rootParam, setRootParam, artistLookups, artistBySlug, lookupState } = vi
     ['diners', { id: 1, name: 'Diners', slug: 'diners' }],
     ['playboy-manbaby', { id: 2, name: 'Playboy Manbaby', slug: 'playboy-manbaby' }],
   ]),
-  lookupState: { isPending: false, fetchStatus: 'fetching' as 'fetching' | 'paused' },
+  lookupState: {
+    isPending: false,
+    failureCount: 0,
+    errorStatus: 404,
+    fetchStatus: 'fetching' as 'fetching' | 'paused',
+  },
 }))
 
 vi.mock('nuqs', async importOriginal => {
@@ -395,25 +413,45 @@ vi.mock('@/features/artists/hooks/useArtists', async importOriginal => {
     ...actual,
     useArtist: ({ artistId, enabled }: { artistId: string | number; enabled?: boolean }) => {
       if (enabled === false) {
-        return { data: undefined, isError: false, isPending: true, fetchStatus: 'idle' }
+        return {
+          data: undefined,
+          isError: false,
+          error: null,
+          isPending: true,
+          failureCount: 0,
+          fetchStatus: 'idle',
+        }
       }
       artistLookups.push(String(artistId))
       if (lookupState.fetchStatus !== 'fetching') {
         return {
           data: undefined,
           isError: false,
+          error: null,
           isPending: true,
+          failureCount: 0,
           fetchStatus: lookupState.fetchStatus,
         }
       }
       if (lookupState.isPending) {
-        return { data: undefined, isError: false, isPending: true, fetchStatus: 'fetching' }
+        return {
+          data: undefined,
+          isError: false,
+          error: null,
+          isPending: true,
+          failureCount: lookupState.failureCount,
+          fetchStatus: 'fetching',
+        }
       }
       const artist = artistBySlug.get(String(artistId))
       return {
         data: artist,
         isError: artist === undefined,
+        // The shape `apiRequest` throws, which is what tells a missing artist
+        // apart from a lookup that merely failed.
+        error: artist === undefined ? { status: lookupState.errorStatus } : null,
         isPending: false,
+        failureCount: artist === undefined ? 1 : 0,
         fetchStatus: 'idle',
       }
     },
@@ -465,6 +503,8 @@ describe('GraphObservatory', () => {
     setRootParam.mockReset()
     artistLookups.length = 0
     lookupState.isPending = false
+    lookupState.failureCount = 0
+    lookupState.errorStatus = 404
     lookupState.fetchStatus = 'fetching'
     searchRequest.mockReset()
     searchRequest.mockResolvedValue({
@@ -579,9 +619,10 @@ describe('GraphObservatory', () => {
       await user.click(screen.getByRole('button', { name: 'Search Playboy Manbaby' }))
       expect(await screen.findByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
 
-      // The deep link's own lookup settles afterwards and must not re-root.
-      lookupState.isPending = false
-      expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+      // The URL now names the visitor's choice, which is what retires the deep
+      // link's lookup: the param and the centre agree, so nothing is left to
+      // resolve and land on top of them.
+      await waitFor(() => expect(setRootParam).toHaveBeenLastCalledWith('playboy-manbaby'))
     })
 
     // React Query pauses rather than failing when the browser is offline, so a
@@ -597,6 +638,54 @@ describe('GraphObservatory', () => {
 
       expect(screen.queryByText('Mapping the scene…')).not.toBeInTheDocument()
       expect(screen.getByText(/The whole map/)).toBeInTheDocument()
+      // The link is KEPT: the lookup resumes on reconnect, and a dropped param
+      // would leave it nothing to root on.
+      expect(setRootParam).not.toHaveBeenCalled()
+    })
+
+    // A 429 or a 5xx retries for up to a full limiter window before it reports
+    // an error. Waiting that out would withhold a drawable map behind a spinner
+    // the visitor cannot dismiss.
+    it('hands over the map once the first attempt has failed, without waiting out the retries', () => {
+      overviewState.data = {} as never
+      overviewState.isPending = false
+      overviewState.isError = false
+      overviewState.error = null
+      rootParam.initial = 'diners'
+      lookupState.isPending = true
+      lookupState.failureCount = 1
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.queryByText('Mapping the scene…')).not.toBeInTheDocument()
+      expect(screen.getByText(/The whole map/)).toBeInTheDocument()
+      expect(setRootParam).not.toHaveBeenCalled()
+    })
+
+    // Only "no such artist" retires a link. Dropping the param on a transient
+    // failure would delete it, and a reload would no longer name the artist.
+    it('keeps the link when the lookup fails for a reason other than a missing artist', async () => {
+      rootParam.initial = 'diners-but-unreachable'
+      lookupState.errorStatus = 500
+      renderWithProviders(<GraphObservatory />)
+
+      expect(await screen.findByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+      expect(setRootParam).not.toHaveBeenCalled()
+    })
+
+    // A slug-less anchor publishes no param, and the absence of one must not be
+    // read back as a navigation that clears the centre the visitor just chose.
+    it('keeps a centre whose artist has no slug', async () => {
+      const user = userEvent.setup()
+      artistBySlug.set('slugless', { id: 1, name: 'Diners', slug: '' })
+      renderWithProviders(<GraphObservatory />)
+
+      await user.click(screen.getByRole('button', { name: 'Search Slugless' }))
+
+      expect(await screen.findByLabelText('Graph centered on Diners')).toBeInTheDocument()
+      await waitFor(() => expect(setRootParam).toHaveBeenLastCalledWith(null))
+      // Still centred a beat later: the effect must not have read its own
+      // null write back as an external clear.
+      expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
     })
 
     it('writes no param on a bare visit', async () => {
@@ -1327,8 +1416,10 @@ describe('GraphObservatorySkeleton', () => {
     expect(screen.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeInTheDocument()
     expect(screen.getByText('Mapping the scene…')).toBeInTheDocument()
     // The search row is reserved for its height only: an input the shell cannot
-    // wire up swallows what a visitor types into it before hydration.
+    // wire up swallows what a visitor types into it before hydration. Asserted
+    // on the row itself, not on "some aria-hidden node" — the loading box
+    // carries an aria-hidden spinner, so that would pass with the row deleted.
     expect(container.querySelector('input')).toBeNull()
-    expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull()
+    expect(container.querySelector('.border-b[aria-hidden="true"]')).not.toBeNull()
   })
 })

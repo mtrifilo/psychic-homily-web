@@ -44,6 +44,7 @@ import {
   truncateTrail,
   type TraversalEntry,
 } from '@/components/graph/graphTraversalHistory'
+import type { ApiError } from '@/lib/api'
 import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
 import { useSceneDetail, useScenes } from '@/features/scenes/hooks/useScenes'
 import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
@@ -54,21 +55,13 @@ import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { useGraphStartingPoints } from '../hooks/useGraphStartingPoints'
 import { anchorFromCatalogTarget, type GraphAnchor } from '../graphAnchor'
-import { GRAPH_ROOT_PARAM } from '../graphRootLink'
+import { GRAPH_ROOT_PARAM, isArtistSlug } from '../graphRootLink'
 import { pickRotationSuggestions } from '../startingSuggestions'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
 import { pickVisitorScene, sceneSlugFromPlace } from './visitorScene'
 
 const RANDOM_GRAPH_ATTEMPTS = 3
-
-/**
- * The shape of a backend slug: lowercase alphanumerics joined by single
- * hyphens (`utils.GenerateSlug`). The `?artist=` value is attacker-authorable
- * and the artist endpoint interpolates it into a request path, so this is the
- * gate that keeps a path or a query string out of that request.
- */
-const ARTIST_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 // Refinement-board pill for "A random rabbit hole" (PSY-1474 F2): primary-
 // tinted border/fill, pill radius, 13px medium. Shared by the serendipity
@@ -79,6 +72,11 @@ const SHUFFLE_PILL_CLASS =
 // Trail chip hit-area (PSY-1474 F3): 4px 8px padding, hover background.
 const TRAIL_CHIP_CLASS =
   'rounded-md bg-muted/50 px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+
+/** A lookup that failed because the catalog has no such artist. */
+function isNotFound(error: unknown): boolean {
+  return (error as ApiError | null)?.status === 404
+}
 
 function anchorFromArtist(artist: Artist): GraphAnchor {
   return { id: artist.id, slug: artist.slug, name: artist.name }
@@ -789,11 +787,10 @@ export function GraphObservatory() {
   }, [centerOn, updateTrail])
 
   // Who the URL names, or null when it names nobody. A blank `?artist=` and a
-  // value that is not slug-shaped both name nobody: backend slugs are lowercase
-  // alphanumerics joined by single hyphens, and the artist endpoint
-  // interpolates this value straight into a request path, so anything else is
-  // refused at this boundary rather than sent.
-  const linkedSlug = rootSlug !== null && ARTIST_SLUG_PATTERN.test(rootSlug) ? rootSlug : null
+  // value that is not slug-shaped both name nobody; `isArtistSlug` is the same
+  // rule the link builder applies, so the two halves cannot disagree about
+  // which links are honoured.
+  const linkedSlug = rootSlug !== null && isArtistSlug(rootSlug) ? rootSlug : null
   // What the URL names and the surface is not already showing.
   const wantedSlug = linkedSlug !== null && linkedSlug !== center?.slug ? linkedSlug : null
   const rootLinkQuery = useArtist({
@@ -808,36 +805,6 @@ export function GraphObservatory() {
     },
     [cancelPendingLookup, startAt],
   )
-
-  // Follow the URL. `?artist=<slug>` names the artist on screen and an absent
-  // param is the overview, in both directions: `centerOn` above keeps the URL
-  // current as the visitor re-roots, and this keeps the surface current when
-  // the URL moves on its own — an arrival, the nav's own bare `/graph` link,
-  // the address bar, a history move.
-  //
-  // A slug this catalog has no artist for settles to the overview rather than
-  // an error: it is still a link to the map. Dropping the param leaves the URL
-  // saying what is on screen.
-  useEffect(() => {
-    if (wantedSlug === null) {
-      if (linkedSlug === null && center !== null) centerOn(null)
-      return
-    }
-    if (rootLinkQuery.data) {
-      startAt(anchorFromArtist(rootLinkQuery.data))
-      return
-    }
-    if (rootLinkQuery.isError) void setRootSlug(null)
-  }, [
-    center,
-    centerOn,
-    linkedSlug,
-    rootLinkQuery.data,
-    rootLinkQuery.isError,
-    setRootSlug,
-    startAt,
-    wantedSlug,
-  ])
 
   const handleCenterHere = useCallback(() => {
     if (!center || !selectedNode || selectedNode.id === center.id) return
@@ -863,7 +830,11 @@ export function GraphObservatory() {
     window.requestAnimationFrame(() => resetButtonRef.current?.focus())
   }, [cancelPendingLookup, centerOn, updateTrail])
 
-  const handleReset = useCallback(() => {
+  // Back to the overview: no centre, no trail, no selection, no focus move.
+  // Separate from `handleReset` because the URL reaches this state too, and
+  // pulling focus into the search box is right for a button press and wrong for
+  // a navigation the visitor made somewhere else on the page.
+  const clearCenter = useCallback(() => {
     cancelPendingLookup()
     centerOn(null)
     updateTrail(resetTrail())
@@ -871,8 +842,61 @@ export function GraphObservatory() {
     setSelectionSource(null)
     setLookupError(null)
     listTriggerRef.current = null
-    window.requestAnimationFrame(() => searchInputRef.current?.focus())
   }, [cancelPendingLookup, centerOn, updateTrail])
+
+  const handleReset = useCallback(() => {
+    clearCenter()
+    window.requestAnimationFrame(() => searchInputRef.current?.focus())
+  }, [clearCenter])
+
+  // Follow the URL. `?artist=<slug>` names the artist on screen and an absent
+  // param is the overview, in both directions: `centerOn` above keeps the URL
+  // current as the visitor re-roots, and this keeps the surface current when
+  // the URL moves on its own — an arrival, the nav's own bare `/graph` link,
+  // the address bar, a history move.
+  //
+  // A slug this catalog has no artist for settles to the overview rather than
+  // an error: it is still a link to the map. Dropping the param leaves the URL
+  // saying what is on screen.
+  useEffect(() => {
+    if (wantedSlug === null) {
+      // The URL already names the centre.
+      if (linkedSlug !== null) return
+      // It names nobody. A centre WITH a slug should have been in the param, so
+      // the param's absence is a navigation to the bare path and the surface
+      // follows it. A slug-less centre publishes no param in the first place,
+      // so a missing one says nothing about it and must not clear it.
+      if (center?.slug) {
+        clearCenter()
+        return
+      }
+      // Present but unusable (blank, or not slug-shaped). Drop it, so the URL
+      // never keeps naming an artist the surface is not showing.
+      if (rootSlug !== null) void setRootSlug(null)
+      return
+    }
+    if (rootLinkQuery.data) {
+      startAt(anchorFromArtist(rootLinkQuery.data))
+      return
+    }
+    // Only "this catalog has no such artist" retires the link. A 500, or the
+    // per-IP limiter this project sees intermittently, is a failure of the
+    // lookup and not of the URL: dropping the param there would delete the
+    // visitor's deep link, and a reload would no longer name the artist.
+    if (rootLinkQuery.isError && isNotFound(rootLinkQuery.error)) void setRootSlug(null)
+  }, [
+    center,
+    centerOn,
+    clearCenter,
+    linkedSlug,
+    rootSlug,
+    rootLinkQuery.data,
+    rootLinkQuery.error,
+    rootLinkQuery.isError,
+    setRootSlug,
+    startAt,
+    wantedSlug,
+  ])
 
   const handleCanvasSelect = useCallback((node: ArtistGraphSelection) => {
     cancelPendingLookup()
@@ -977,13 +1001,19 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
-  // Derived, not latched, and it must end the moment an answer exists or the
-  // surface can be pinned on a spinner it cannot leave. A settled failure hands
-  // the visitor the overview; so does a query React Query has PAUSED (offline),
-  // which never reports an error and would otherwise withhold a map that is
-  // already in cache.
+  // Derived, not latched, and it ends at the first sign the answer is not
+  // immediate — otherwise the surface can be pinned on a spinner it cannot
+  // leave, with a drawable map sitting in cache behind it. Three states end it
+  // besides success: a settled failure, a query React Query has PAUSED
+  // (offline, which never reports an error), and a first attempt that failed
+  // (a 429 or 5xx retries for up to a full limiter window before `isError`).
+  // The lookup keeps running through all three; if it does land, the effect
+  // above still roots on it.
   const isRootLinkPending =
-    wantedSlug !== null && !rootLinkQuery.isError && rootLinkQuery.fetchStatus !== 'paused'
+    wantedSlug !== null &&
+    !rootLinkQuery.isError &&
+    rootLinkQuery.failureCount === 0 &&
+    rootLinkQuery.fetchStatus !== 'paused'
 
   const zeroStateView = resolveZeroStateView({
     isRootLinkPending,

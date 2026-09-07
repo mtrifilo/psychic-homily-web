@@ -7,9 +7,15 @@ describe('graphRootHref', () => {
     expect(graphRootHref('sundressed')).toBe('/graph?artist=sundressed')
   })
 
-  it('encodes a slug so a stray character cannot open a second param', () => {
-    expect(graphRootHref('a&b=c')).toBe('/graph?artist=a%26b%3Dc')
-  })
+  // The reader refuses anything that is not slug-shaped, so the writer must
+  // too: a link that looks rooted and silently lands on the overview is worse
+  // than one that never claimed to be.
+  it.each(['a&b=c', '../../auth/profile', 'Bad Slug', 'Diners'])(
+    'refuses a value that is not slug-shaped (%s)',
+    value => {
+      expect(graphRootHref(value)).toBe('/graph')
+    },
+  )
 
   // An empty slug is reachable: entity slugs are nullable in this schema, and
   // `?artist=` names nothing the Observatory can resolve.

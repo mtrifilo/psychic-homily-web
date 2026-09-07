@@ -17,12 +17,27 @@ const GRAPH_PATH = '/graph'
 export const GRAPH_ROOT_PARAM = 'artist'
 
 /**
+ * A backend slug: lowercase alphanumerics joined by single hyphens
+ * (`utils.GenerateSlug`).
+ *
+ * ONE rule for both halves of the link. The reader needs it because the artist
+ * endpoint interpolates the value straight into a request path, so a value
+ * carrying `/` or `?` would aim that request somewhere else. The writer needs
+ * the SAME rule or it can emit links the reader will silently refuse.
+ */
+export function isArtistSlug(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+}
+
+/**
  * The map's URL, rooted on `slug` when there is one to root on.
  *
- * Entity slugs are nullable in this schema, and `?artist=` names nothing the
- * Observatory can resolve, so an empty slug yields the plain path.
+ * Anything that is not a slug yields the plain path: entity slugs are nullable
+ * in this schema, and a param the Observatory will refuse is worse than no
+ * param, because the link still looks rooted. `encodeURIComponent` stays as a
+ * second line of defence for a slug rule that later widens.
  */
 export function graphRootHref(slug?: string | null): string {
-  if (!slug) return GRAPH_PATH
+  if (!slug || !isArtistSlug(slug)) return GRAPH_PATH
   return `${GRAPH_PATH}?${GRAPH_ROOT_PARAM}=${encodeURIComponent(slug)}`
 }
