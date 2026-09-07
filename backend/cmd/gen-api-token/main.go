@@ -93,7 +93,7 @@ func main() {
 	// Resolve user
 	var user authm.User
 	if *email != "" {
-		if err := db.Where("email = ?", *email).First(&user).Error; err != nil {
+		if err := db.Where(authm.EmailIdentityWhere, *email).First(&user).Error; err != nil {
 			fmt.Fprintf(os.Stderr, "User with email %q not found: %v\n", *email, err)
 			os.Exit(1)
 		}
