@@ -5,10 +5,14 @@ package testlog
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"log/slog"
+	"net/http"
 	"sync"
 	"testing"
+
+	"psychic-homily-backend/internal/logger"
 )
 
 // captureInFlight serializes captures. The loggers Capture redirects are
@@ -85,4 +89,30 @@ func Capture(t *testing.T, fn func()) string {
 	// Read only once the loggers point back at their original destinations.
 	restore()
 	return buf.String()
+}
+
+// Context returns ctx carrying a logger that writes wherever slog's default
+// logger points at the moment of the call, which is the capture buffer when
+// called from inside Capture's fn.
+//
+// The logger package's own Default() holds a handler built at Init time rather
+// than consulting slog.Default(), so a logger.Auth* call whose context carries
+// no logger writes past Capture entirely. Subjects that log through
+// logger.Auth* therefore need a context built here; in production the same
+// context logger is supplied by middleware.RequestIDMiddleware.
+//
+// Call this INSIDE fn: called outside, it snapshots the process logger and the
+// records go wherever that one writes. The positive-marker assertion every
+// Capture caller makes is what turns that mistake into a failure rather than a
+// vacuous pass.
+func Context(t *testing.T, ctx context.Context) context.Context {
+	t.Helper()
+	return logger.NewContext(ctx, slog.Default())
+}
+
+// Request returns r with a context built by Context. It is the form nearly
+// every caller wants, since the subject under capture is an http.Handler.
+func Request(t *testing.T, r *http.Request) *http.Request {
+	t.Helper()
+	return r.WithContext(Context(t, r.Context()))
 }

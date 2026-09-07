@@ -65,9 +65,13 @@ func sentinelGothUser() goth.User {
 func assertCaptureIsLive(t *testing.T, output string) {
 	t.Helper()
 
-	const marker = "DEBUG: OAuth callback path: /auth/callback/google"
-	if !strings.Contains(output, marker) {
-		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this path and the secret assertions below are vacuous; captured log:\n%s", marker, output)
+	// Two fragments, asserted independently of attribute order: the event key
+	// proves the capture is live, the rendered path proves the diagnostic was
+	// redacted rather than dropped.
+	for _, marker := range []string{"msg=oauth_callback_received", "path=/auth/callback/google"} {
+		if !strings.Contains(output, marker) {
+			t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this path and the secret assertions below are vacuous; captured log:\n%s", marker, output)
+		}
 	}
 }
 
@@ -122,7 +126,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 		output := testlog.Capture(t, func() {
 			_, token, err = authService.OAuthCallbackWithConsent(
 				httptest.NewRecorder(),
-				httptest.NewRequest("GET", callbackURL, nil),
+				testlog.Request(t, httptest.NewRequest("GET", callbackURL, nil)),
 				"google",
 				nil,
 			)
@@ -158,7 +162,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 		output := testlog.Capture(t, func() {
 			_, _, err = authService.OAuthCallbackWithConsent(
 				httptest.NewRecorder(),
-				httptest.NewRequest("GET", callbackURL, nil),
+				testlog.Request(t, httptest.NewRequest("GET", callbackURL, nil)),
 				"google",
 				nil,
 			)

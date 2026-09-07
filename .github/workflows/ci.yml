@@ -252,7 +252,10 @@ jobs:
   # PSY-772: backend lint gate.
   #   * Gated linters (.golangci.yml) — fail the job on any finding. Currently
   #     govet (inline analyzer disabled), errorlint, ineffassign, staticcheck,
-  #     unused, errcheck. All linters surveyed clean as of 2026-05-25.
+  #     unused, errcheck, and forbidigo. The first six are repo-wide; forbidigo
+  #     is scoped by a path-except exclusion to the auth packages, where the
+  #     standard logger is banned in favour of the redaction-aware logger.Auth*
+  #     helpers.
   #   * Advisory tier (.golangci-advisory.yml) — REMOVED by PSY-849. The
   #     graduation series (PSY-762/830/831/832/833) cleared every advisory
   #     linter; all 5 are now gated. Re-add the file + a second action step

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
@@ -107,6 +107,7 @@ func NewOAuthHTTPHandler(authService contracts.AuthServiceInterface, cfg *config
 
 // OAuthLoginHTTPHandler handles OAuth login initiation via HTTP
 func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	secureCookie := false
 	if h != nil && h.config != nil {
 		secureCookie = h.config.Session.Secure
@@ -180,7 +181,11 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		// cookie is set on this same top-level navigation.
 		validated, err := validateCLICallback(cliCallback)
 		if err != nil {
-			log.Printf("WARN: rejected open-redirect cli_callback from %s: %v", r.RemoteAddr, err)
+			logger.AuthWarn(ctx, "oauth_cli_callback_rejected",
+				"stage", "initiation",
+				"provider", provider,
+				"error", err.Error(),
+			)
 			http.Error(w, "Invalid cli_callback", http.StatusBadRequest)
 			return
 		}
@@ -201,7 +206,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		})
 		// callbackID is the cli_callback_id cookie value: the correlation key
 		// that gates the token-bearing redirect, so it is never logged.
-		log.Printf("DEBUG: CLI callback stored: %s", cliCallback)
+		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
 	}
 
 	// Add provider to query parameters for Goth (following Goth best practices)
@@ -209,18 +214,21 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	q.Add("provider", provider)
 	r.URL.RawQuery = q.Encode()
 
-	// DEBUG: Check session before OAuth
-	log.Printf("DEBUG: Login - Request path: %s", r.URL.Path)
-	log.Printf("DEBUG: Login - Request cookie names BEFORE: %v", requestCookieNames(r))
+	logger.AuthDebug(ctx, "oauth_login_request",
+		"provider", provider,
+		"path", r.URL.Path,
+		"cookie_names", requestCookieNames(r),
+	)
 
 	// Use Goth's standard BeginAuthHandler directly
 	gothic.BeginAuthHandler(w, r)
 
-	log.Printf("DEBUG: Login - After BeginAuthHandler call")
+	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
 func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	secureCookie := false
 	if h != nil && h.config != nil {
 		secureCookie = h.config.Session.Secure
@@ -232,7 +240,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		provider = "google" // fallback
 	}
 
-	log.Printf("DEBUG: Using provider '%s' from URL path", provider)
+	logger.AuthDebug(ctx, "oauth_callback_provider_resolved", "provider", provider)
 
 	// Check for CLI callback via cookie ID + memory store
 	var cliCallback string
@@ -247,9 +255,13 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			// falls back to the standard web flow (no token leaked).
 			if validated, verr := validateCLICallback(callback); verr == nil {
 				cliCallback = validated
-				log.Printf("DEBUG: CLI callback found: %s", cliCallback)
+				logger.AuthDebug(ctx, "oauth_cli_callback_found", "callback", cliCallback)
 			} else {
-				log.Printf("WARN: rejected non-loopback cli_callback at callback from %s: %v", r.RemoteAddr, verr)
+				logger.AuthWarn(ctx, "oauth_cli_callback_rejected",
+					"stage", "callback",
+					"provider", provider,
+					"error", verr.Error(),
+				)
 			}
 		}
 		// Clear the CLI callback ID cookie
@@ -267,7 +279,10 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	if cookie, err := r.Cookie(oauthSignupConsentCookieName); err == nil {
 		consent, decodeErr := decodeOAuthSignupConsent(cookie.Value)
 		if decodeErr != nil {
-			log.Printf("WARN: failed to decode OAuth signup consent cookie: %v", decodeErr)
+			logger.AuthWarn(ctx, "oauth_signup_consent_cookie_decode_failed",
+				"provider", provider,
+				"error", decodeErr.Error(),
+			)
 		} else {
 			signupConsent = consent
 		}
@@ -303,9 +318,14 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		// embeds the token endpoint's raw response body. RedactErrorURL keeps
 		// scheme and host and drops path and query, which also drops the
 		// wrapper text; ScrubText then covers the shapes that are not a
-		// *url.Error and caps an unbounded body.
-		log.Printf("OAuth callback failed: %v",
-			observability.ScrubText(utils.RedactErrorURL(err).Error()))
+		// *url.Error and caps an unbounded body. The wrapped value carries the
+		// scrubbed text and not the original chain, because AuthError renders
+		// whatever error it is handed; the chain is still read below for
+		// errors.As.
+		logger.AuthError(ctx, "oauth_callback_failed",
+			errors.New(observability.ScrubText(utils.RedactErrorURL(err).Error())),
+			"provider", provider,
+		)
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
@@ -325,13 +345,13 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
-	log.Printf("OAuth callback successful for user ID: %d", user.ID)
+	logger.AuthInfo(ctx, "oauth_callback_success", "provider", provider, "user_id", user.ID)
 
 	// Handle CLI callback - redirect with token instead of setting cookie
 	if cliCallback != "" {
 		// Token expires in 24 hours (86400 seconds)
 		redirectURL := cliCallback + "?token=" + url.QueryEscape(token) + "&expires_in=86400"
-		log.Printf("DEBUG: Redirecting to CLI callback: %s", cliCallback)
+		logger.AuthDebug(ctx, "oauth_cli_redirect", "callback", cliCallback)
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 		return
 	}

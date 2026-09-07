@@ -74,6 +74,11 @@
 #                |            |           |    and ~27 testify-suite + bare-t fixture
 #                |            |           |    drops resolved with NoError calls. Gated to
 #                |            |           |    prevent regression of error-discipline.
+#   forbidigo    |          0 | GATE      | The only SCOPED entry: a path-except exclusion
+#                |            |           | confines it to the three auth packages, where the
+#                |            |           | standard logger is banned outright. The rest of the
+#                |            |           | tree still prints through it in places, so a
+#                |            |           | repo-wide forbidigo would not be a gate today.
 #
 # Note on the PSY-760 attribution-deref rule:
 #   PSY-760 wants a custom rule that flags direct user.{Username,FirstName,Email}
@@ -100,8 +105,34 @@ linters:
     - staticcheck
     - unused
     - errcheck
+    - forbidigo
 
   settings:
+    forbidigo:
+      # The exclusion rule below is what confines these patterns to the auth
+      # packages; they are written as if repo-wide.
+      #
+      # Those packages handle provider tokens, session JWTs, cookie values, and
+      # addresses. The standard logger writes whatever it is handed, at no level
+      # and with no redaction, so a %v on a goth.User, a cookie, or an error
+      # carrying a token URL ships the credential to the log stream. The
+      # logger.Auth* helpers are level-gated and carry the request id, and their
+      # call sites pass projections (logger.HashEmail, utils.RedactErrorURL,
+      # observability.ScrubText) rather than whole values.
+      #
+      # analyze-types resolves the package a call belongs to instead of matching
+      # the rendered source text, so `import stdlog "log"` followed by
+      # `stdlog.Printf` is caught. Without it the patterns below match only the
+      # literal spelling and an aliased import walks straight through.
+      analyze-types: true
+      forbid:
+        - pattern: '^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$'
+          msg: "auth packages log through logger.Auth{Debug,Info,Warn,Error}, which is level-gated and redaction-aware; the standard logger writes credentials verbatim"
+        - pattern: '^fmt\.Print(f|ln)?$'
+          msg: "auth packages log through logger.Auth{Debug,Info,Warn,Error}; fmt.Print* writes to stdout unredacted and ungated"
+        - pattern: '^print(ln)?$'
+          msg: "auth packages log through logger.Auth{Debug,Info,Warn,Error}; the print builtins write to stderr unredacted and ungated"
+
     govet:
       # govet ships with an `inline` analyzer that suggests rewriting
       # `reflect.Ptr` (deprecated constant) as `reflect.Pointer`. The 3 hits
@@ -111,14 +142,32 @@ linters:
       disable:
         - inline
 
-  # The PSY-760 placeholder. Un-comment + extend after that ticket ships.
+  exclusions:
+    rules:
+      # forbidigo is scoped, not repo-wide: a path-except rule drops every
+      # forbidigo issue OUTSIDE these three package trees. Adding a fourth
+      # package to the guard means adding it to this alternation.
+      #
+      # Paths are matched against the file path golangci reports, which is
+      # relative to this config's directory (backend/), so the leading
+      # `internal/` is correct here and a `backend/` prefix would match nothing.
+      # Test files are in scope too: a credential printed from a test still
+      # reaches CI output.
+      - linters:
+          - forbidigo
+        path-except: '^internal/(services/auth|api/handlers/auth|services/user)/'
+
+  # The PSY-760 placeholder. `settings.forbidigo.forbid` and
+  # `exclusions.rules` are live blocks above, so this appends to them. A second
+  # copy of either key aborts the whole lint run with `mapping key "settings"
+  # already defined`, and the tempting repair is to delete one copy, which is
+  # how the auth patterns get dropped. The pattern goes in the forbid list:
   #
-  # exclusions:
-  #   rules:
-  #     - path: internal/services/shared/.*
-  #       linters: [forbidigo]
-  # settings:
-  #   forbidigo:
-  #     forbid:
   #       - pattern: 'user\.(Username|FirstName|Email)'
   #         msg: "use services/shared.Resolve* helpers, not direct field deref (PSY-760)"
+  #
+  # Its scope is the inverse of the auth guard's: repo-wide except
+  # services/shared, rather than auth-only. The auth rule's path-except drops
+  # every forbidigo issue outside the three auth trees, this one included, so
+  # the two cannot share that single exclusion. Resolving that is part of
+  # PSY-760, not a detail to discover at merge time.

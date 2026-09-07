@@ -2,7 +2,6 @@ package auth
 
 import (
 	"log"
-	"net/http"
 	"os"
 
 	"github.com/gorilla/sessions"
@@ -88,20 +87,4 @@ func SetupGoth(cfg *config.Config) error {
 	goth.UseProviders(providers...)
 
 	return nil
-}
-
-// GetSession retrieves the session from the request
-func GetSession(r *http.Request) (*sessions.Session, error) {
-	session, err := SessionStore.Get(r, "_gothic_session")
-	if err != nil {
-		log.Printf("DEBUG: SessionStore.Get error: %v", err)
-	} else {
-		log.Printf("DEBUG: SessionStore.Get successful")
-	}
-	return session, err
-}
-
-// SaveSession saves the session to the response
-func SaveSession(w http.ResponseWriter, r *http.Request, session *sessions.Session) error {
-	return session.Save(r, w)
 }
