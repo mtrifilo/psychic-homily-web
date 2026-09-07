@@ -24,6 +24,7 @@ vi.mock('@/features/scenes/components/SceneCalendar', () => ({
   SceneCalendar: (): null => null,
 }))
 
+import { JsonLd } from '@/components/seo/JsonLd'
 import ScenePage, { generateMetadata } from './page'
 
 function buildScene(overrides: Record<string, unknown> = {}) {
@@ -146,6 +147,28 @@ describe('scenes/[slug] calendar slice', () => {
     }
   }
 
+  /** A show the JSON-LD can describe: it carries a venue and a real instant. */
+  function buildShow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 1,
+      title: '',
+      event_date: '2026-08-18',
+      starts_at: '2026-08-19T03:00:00Z',
+      is_sold_out: false,
+      is_cancelled: false,
+      slug: 'smooth-hands-valley-bar',
+      venue_name: 'Valley Bar',
+      venue_slug: 'valley-bar',
+      venue_address: '130 N Central Ave',
+      venue_city: 'Phoenix',
+      venue_state: 'AZ',
+      venue_country: 'US',
+      venue_timezone: 'America/Phoenix',
+      artist_names: ['Smooth Hands'],
+      ...overrides,
+    }
+  }
+
   /** Every URL the route asked for, in order. */
   function fetchedUrls(): string[] {
     return fetchMock.mock.calls.map(call => String(call[0]))
@@ -167,6 +190,21 @@ describe('scenes/[slug] calendar slice', () => {
     const props = (node as Node)?.props
     if (props && 'calendarSlot' in props) return props.calendarSlot
     return props ? findCalendarSlot(props.children) : undefined
+  }
+
+  /**
+   * Every payload handed to a `<JsonLd>` in the returned tree.
+   *
+   * Matched on the component identity rather than on a `data` prop, so a
+   * neighbour that happens to take a prop of that name cannot be counted as
+   * structured data.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function findJsonLd(node: any): any[] {
+    if (!node || typeof node !== 'object') return []
+    if (Array.isArray(node)) return node.flatMap(findJsonLd)
+    if (node.type === JsonLd) return [node.props.data]
+    return node.props ? findJsonLd(node.props.children) : []
   }
 
   it('reads tonight and the next full day from the day endpoint', async () => {
@@ -225,5 +263,70 @@ describe('scenes/[slug] calendar slice', () => {
     // through its own query), and that is exactly the pair being distinguished.
     const slot = findCalendarSlot(tree)
     expect(slot?.props?.scene?.slug).toBe('phoenix-az')
+  })
+
+  // PSY-1889: the root's structured data lists exactly the shows the root
+  // renders. The week fetch is mocked to null for this whole suite, so an
+  // ItemList reaching the markup at all proves the slice is what feeds it.
+  it('describes exactly the shows the rendered slice holds', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildDay({
+          shows: [buildShow(), buildShow({ id: 2, slug: 'tournament-rebel-lounge' })],
+        })
+      )
+    )
+    // Every request after tonight's answers for the next day. The keyed leg
+    // costs TWO of them: `fetchScenePeriod` probes the long window first, and a
+    // date that has not happened yet is never frozen, so it always falls
+    // through to the short one.
+    fetchMock.mockResolvedValue(
+      okResponse(
+        buildDay({
+          date: '2026-08-19',
+          is_tonight: false,
+          shows: [
+            buildShow({
+              id: 3,
+              slug: 'holy-fawn-crescent',
+              event_date: '2026-08-19',
+              starts_at: '2026-08-20T03:00:00Z',
+            }),
+          ],
+        })
+      )
+    )
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    const slot = findCalendarSlot(tree)
+    const renderedShows = slot.props.slice.days.reduce(
+      (n: number, day: { shows?: unknown[] }) => n + (day.shows?.length ?? 0),
+      0
+    )
+    const itemList = findJsonLd(tree).find(
+      (data: { '@type'?: string }) => data['@type'] === 'ItemList'
+    )
+    const events = findJsonLd(tree).find(Array.isArray)
+
+    expect(renderedShows).toBe(3)
+    expect(itemList?.numberOfItems).toBe(3)
+    expect(events).toHaveLength(3)
+  })
+
+  // The week is Monday-anchored, so a root describing it both over- and
+  // under-stated the two nights it draws. It now feeds the OG card only.
+  it('publishes no seven-day list when the slice is two days', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    fetchMock.mockResolvedValue(okResponse(buildDay({ shows: [buildShow()] })))
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    const breadcrumb = findJsonLd(tree).find(
+      (data: { '@type'?: string }) => data['@type'] === 'BreadcrumbList'
+    )
+    const leaf = breadcrumb.itemListElement[breadcrumb.itemListElement.length - 1]
+    expect(leaf.item).toBe('https://psychichomily.com/scenes/phoenix-az')
   })
 })
