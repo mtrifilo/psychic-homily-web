@@ -247,10 +247,6 @@ describe('useSceneGaps', () => {
     expect(result.current.fetchStatus).toBe('idle')
   })
 
-  // Keyed by SLUG, never by the numeric ids or the city/state pair the payload
-  // echoes back (the PSY-1109 key-drift class). The endpoint takes no
-  // parameter and no viewer, so the slug is the whole key under the 'scenes'
-  // prefix that invalidation reaches.
   it('keys by slug alone under the scenes prefix', () => {
     expect(queryKeys.scenes.gaps('phoenix-az')).toEqual([
       'scenes',

@@ -195,13 +195,6 @@ export function useSceneCollections(options: UseSceneCollectionsOptions) {
 /**
  * Hook to fetch a scene's completeness gap counts (PSY-1845).
  *
- * Keyed by SLUG, never by the city and state the payload echoes back: the slug
- * is what the request is made with, and the pair is a derived spelling of it.
- *
- * There is no parameter to put in the key. The endpoint takes none, and it
- * takes no viewer either, so the counts are one answer about the place that
- * every caller and every viewer share.
- *
  * Held longer than its siblings' five minutes. These counts move when someone
  * edits an artist, not when a show is booked, and the line they feed is a
  * backlog figure that reads the same at ten minutes stale.

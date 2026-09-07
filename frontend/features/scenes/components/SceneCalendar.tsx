@@ -25,7 +25,7 @@ import {
   sceneWindowHref,
 } from '../sceneWindow'
 import { sceneSliceIsQuiet, type SceneSliceData } from '../sceneSlice'
-import { ShowStatusBadge } from './sceneChrome'
+import { SCENE_ACCENT_LINK_CLASS, ShowStatusBadge } from './sceneChrome'
 import type { SceneDetail, SceneShowSummary } from '../types'
 
 /**
@@ -79,11 +79,7 @@ function SceneWindowNav({ sceneSlug }: { sceneSlug: string }) {
         <Link
           key={key}
           href={sceneWindowHref(sceneSlug, key)}
-          // Hover UNDERLINES rather than recolouring. The old strip was
-          // `text-muted-foreground hover:text-foreground`, where hover was a
-          // step up in contrast; against this primary base that same class is a
-          // step DOWN, so hovering a link made it recede.
-          className="rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+          className={SCENE_ACCENT_LINK_CLASS}
         >
           {SCENE_WINDOW_LABEL[key]}
         </Link>

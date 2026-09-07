@@ -25,6 +25,20 @@ export const SCENE_NAV_CHIP_CLASS =
   'rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50'
 
 /**
+ * A scene-page link in the accent register: the same mono micro-caps as
+ * `SceneSectionHeading`, toned `text-primary` instead of muted.
+ *
+ * Hover UNDERLINES rather than recolouring. Against this primary base, the
+ * muted register's `hover:text-foreground` is a step DOWN in contrast, so
+ * hovering would make the link recede.
+ *
+ * The focus ring is offset rather than inset because these are inline text
+ * links with no box of their own to ring inside.
+ */
+export const SCENE_ACCENT_LINK_CLASS =
+  'rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring'
+
+/**
  * One named entity, linked to its own page when it has one.
  *
  * The guard is the point, and it is why this is a component rather than three

@@ -95,15 +95,31 @@ export interface SceneWindowData {
 }
 
 /**
- * The city's whole upcoming listing — the way out of a window that could not
- * hold everything, and of the widest window when it is empty.
+ * A list surface filtered to one scene, e.g. `/shows?cities=Phoenix%2CAZ`.
+ *
+ * The single home of "scene pair to city-filtered list URL" for this feature,
+ * so every destination the scene pages point at spells the param one way.
  *
  * The `?cities=` value is built here rather than through
  * `components/filters/cityParams`, whose module pulls `nuqs` in for a parser
  * these server-rendered pages never use. The format is one pair, `City,ST`.
+ *
+ * @param basePath Route prefix WITHOUT a trailing slash, e.g. `/shows`.
+ */
+export function sceneCityListHref(
+  basePath: string,
+  city: string,
+  state: string
+): string {
+  return `${basePath}?cities=${encodeURIComponent(`${city},${state}`)}`
+}
+
+/**
+ * The city's whole upcoming listing — the way out of a window that could not
+ * hold everything, and of the widest window when it is empty.
  */
 export function allUpcomingHref(city: string, state: string): string {
-  return `/shows?cities=${encodeURIComponent(`${city},${state}`)}`
+  return sceneCityListHref('/shows', city, state)
 }
 
 /** The rolling window `/next-4-weeks` serves: 28 days from tonight. */
