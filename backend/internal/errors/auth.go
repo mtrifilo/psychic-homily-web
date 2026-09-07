@@ -179,14 +179,24 @@ func ErrUserExists(email string) *AuthError {
 // string, and a caller that renders one where the other was expected must get
 // the same words.
 const (
-	oauthLinkRefusedMessage           = "An account already uses this email address. Sign in with the method you set up for that account, then connect this provider in Settings under Connected accounts."
+	// Deliberately does not say "the method YOU set up". The caller has not
+	// authenticated as this account and may not hold it at all, so asserting
+	// they created it is both possibly false and a hint about someone else's
+	// account. It states what the account has and what to do, nothing about
+	// who the caller is.
+	oauthLinkRefusedMessage = "An account already uses this email address. Sign in to that account first, then connect this provider in Settings under Connected accounts."
+	// Apple's refusal names no Settings control, because there is none: Apple
+	// arrives by a native-token POST rather than the goth handshake the link
+	// route drives.
+	appleSignInRefusedMessage         = "An account already uses this email address. Sign in to that account with the method it already has."
 	oauthIdentityInUseMessage         = "This provider account is already connected to another Psychic Homily account. Disconnect it there first."
 	oauthProviderAlreadyLinkedMessage = "Your account is already connected to a different account from this provider. Disconnect it first, then connect this one."
 	oauthLinkExpiredMessage           = "That connection request expired. Start it again from Settings."
 )
 
-// ErrOAuthLinkRefused creates the refusal an OAuth sign-in gets when its
-// address already belongs to an account that this identity may not join.
+// ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its
+// address already belongs to an account. Every such sign-in is refused; the
+// address is never a reason to attach an identity to an account.
 //
 // The message names the remediation (sign in, then connect from Settings)
 // without naming WHICH method the account uses. An unauthenticated caller
@@ -201,7 +211,19 @@ func ErrOAuthLinkRefused(email string) *AuthError {
 	return NewAuthError(
 		CodeOAuthLinkRefused,
 		oauthLinkRefusedMessage,
-		fmt.Errorf("oauth link refused for: %s", logger.HashEmail(email)),
+		fmt.Errorf("oauth sign-in refused, address belongs to an account: %s", logger.HashEmail(email)),
+	)
+}
+
+// ErrAppleSignInRefused is the same refusal for the Apple path, which needs
+// its own copy: /auth/link/{provider} drives the goth handshake, Apple does
+// not go through it, and Settings has no Apple control. Promising one there
+// would send a user looking for something that does not exist.
+func ErrAppleSignInRefused(email string) *AuthError {
+	return NewAuthError(
+		CodeOAuthLinkRefused,
+		appleSignInRefusedMessage,
+		fmt.Errorf("apple sign-in refused, address belongs to an account: %s", logger.HashEmail(email)),
 	)
 }
 

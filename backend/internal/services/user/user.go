@@ -234,20 +234,22 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	if gothUser.Email != "" {
 		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
-			// The address is the whole basis for treating this provider
-			// identity as the account's owner, so both sides have to have
-			// proven the mailbox. See authm.OAuthLinkByEmailAllowed for what
-			// each half closes. The authenticated link from Settings, named in
-			// the refusal, is how a user gets past this.
-			if !authm.OAuthLinkByEmailAllowed(providerAssertsEmailVerified(gothUser), &existingUser) {
-				logger.Default().Warn("oauth_link_refused_unproven_email",
-					"provider", provider,
-					"provider_asserts_verified", providerAssertsEmailVerified(gothUser),
-					"account_email_verified", existingUser.EmailVerified,
-					"email_hash", logger.HashEmail(gothUser.Email))
-				return nil, apperrors.ErrOAuthLinkRefused(gothUser.Email)
-			}
-			return s.linkOAuthAccount(&existingUser, gothUser, provider)
+			// A matching address is not evidence that this provider identity
+			// belongs to the account holding it, and no verification signal
+			// makes it evidence. The provider's claim says who owns the
+			// MAILBOX; it says nothing about who owns the ACCOUNT, and those
+			// come apart the moment someone creates an account on an address
+			// they do not own. Attaching an identity by address alone is how
+			// the real owner of a squatted address gets joined into the
+			// squatter's account.
+			//
+			// So there is no by-address link at all. An identity is attached
+			// only from a session that already holds the account, at
+			// /auth/link/{provider}, which the refusal names.
+			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
+				"provider", provider,
+				"email_hash", logger.HashEmail(gothUser.Email))
+			return nil, apperrors.ErrOAuthLinkRefused(gothUser.Email)
 		}
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("database error: %w", result.Error)
@@ -486,10 +488,10 @@ func (s *UserService) createNewUserOauthWithConsent(
 		LastName:  &gothUser.LastName,
 		AvatarURL: &gothUser.AvatarURL,
 		IsActive:  true,
-		// The column records whether the address was proven, so it can only
-		// carry what the provider actually asserted. An account created from
-		// an address no provider vouched for stays unverified, which closes
-		// every capability gated on the flag.
+		// The column carries what the provider actually asserted. An account
+		// created from an address no provider vouched for stays unverified,
+		// which closes every capability gated on the flag until this system's
+		// own verification email opens them.
 		EmailVerified: providerAssertsEmailVerified(gothUser),
 	}
 	if gothUser.Email != "" {

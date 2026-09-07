@@ -255,9 +255,13 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	)
 
 	// The provider query parameter goth resolves on is set inside
-	// beginOAuthHandshake, which both this handler and the link share.
-	// No state of our own: gothic generates the nonce for a sign-in.
-	beginOAuthHandshake(w, r, provider, "")
+	// beginOAuthHandshake, which both this handler and the link share. No
+	// state of our own: it mints a fresh one for a sign-in.
+	if err := beginOAuthHandshake(w, r, provider, ""); err != nil {
+		logger.AuthError(ctx, "oauth_login_state_failed", err, "provider", provider)
+		http.Error(w, "Failed to start authentication", http.StatusInternalServerError)
+		return
+	}
 
 	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
 }
@@ -266,19 +270,32 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 // from the "provider" query parameter, so the path parameter both handlers
 // read has to be copied there first.
 //
-// An empty state leaves gothic to generate its own unguessable nonce, which is
-// what sign-in does. A caller that supplies one is naming a handshake it wants
-// to recognize when the callback comes back; gothic.SetState prefers the
-// request's state over generating one.
-func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state string) {
-	q := r.URL.Query()
-	q.Add("provider", provider)
-	if state != "" {
-		q.Set("state", state)
+// Set, not Add, for both parameters, and the caller's state is dropped before
+// ours goes on. gothic reads the FIRST value of each: an attacker-supplied
+// ?provider= on the URL would otherwise win over the path parameter and
+// complete one provider's handshake while everything downstream believed it
+// was another's, and an attacker-supplied ?state= would fix the nonce that is
+// the handshake's only CSRF defence.
+//
+// state is always ours. A link supplies one it will recognize at the callback;
+// sign-in gets a fresh nonce here rather than leaving gothic to generate one,
+// so that neither flow can have its state chosen by the caller.
+func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state string) error {
+	if state == "" {
+		generated, err := randomHexID(oauthLinkStateBytes)
+		if err != nil {
+			return err
+		}
+		state = generated
 	}
+
+	q := r.URL.Query()
+	q.Set("provider", provider)
+	q.Set("state", state)
 	r.URL.RawQuery = q.Encode()
 
 	gothic.BeginAuthHandler(w, r)
+	return nil
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
@@ -354,9 +371,13 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		})
 	}
 
-	// Add provider to query parameters for Goth (following best practices)
+	// Set, not Add: gothic reads the first value, so a caller-supplied
+	// ?provider= on the callback URL would otherwise decide which provider
+	// completes the handshake while the path parameter decided what the
+	// resulting oauth_accounts row is labelled. The two must be the same
+	// provider or the row names an identity from somewhere else.
 	q := r.URL.Query()
-	q.Add("provider", provider)
+	q.Set("provider", provider)
 	r.URL.RawQuery = q.Encode()
 
 	// Get frontend URL for redirects

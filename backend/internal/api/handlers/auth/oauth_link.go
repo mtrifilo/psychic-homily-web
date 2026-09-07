@@ -179,7 +179,14 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		"user_id", user.ID,
 	)
 
-	beginOAuthHandshake(w, r, provider, state)
+	// state is already minted above and stored on the intent, so this cannot
+	// take the generating branch; the error is handled because the signature
+	// admits one, not because this call is expected to fail.
+	if err := beginOAuthHandshake(w, r, provider, state); err != nil {
+		logger.AuthError(ctx, "oauth_link_handshake_failed", err, "provider", provider)
+		http.Error(w, "Failed to start account connection", http.StatusInternalServerError)
+		return
+	}
 }
 
 // completeOAuthLink finishes a callback that carried a link intent. It never
