@@ -24,6 +24,9 @@ vi.mock('@/features/scenes/components/SceneCalendar', () => ({
   SceneCalendar: (): null => null,
 }))
 
+import { JsonLd } from '@/components/seo/JsonLd'
+import { countWindowShows } from '@/features/scenes/sceneWindow'
+import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import ScenePage, { generateMetadata } from './page'
 
 function buildScene(overrides: Record<string, unknown> = {}) {
@@ -111,6 +114,30 @@ describe('scenes/[slug] generateMetadata description', () => {
     expect(meta.description).toBe(GENERATED_DESCRIPTION)
   })
 
+  // The week fetch survives on this route for exactly one reason: the card the
+  // page advertises is the ARCHIVED week card, whose URL carries the week key.
+  // Without this the fetch reads as dead weight, and dropping it would fall the
+  // route back to its own rolling `opengraph-image`, whose URL never changes.
+  it('advertises the archived week card, from the week fetch', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    vi.mocked(fetchSceneWeek).mockResolvedValueOnce({
+      slug: 'phoenix-az',
+      iso_week: '2026-W34',
+    } as Awaited<ReturnType<typeof fetchSceneWeek>>)
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(meta.openGraph?.images).toEqual([
+      expect.objectContaining({
+        url: 'https://psychichomily.com/scenes/phoenix-az/2026-W34/opengraph-image',
+        alt: GENERATED_DESCRIPTION,
+      }),
+    ])
+    // Omitted deliberately: Next copies the openGraph descriptor across when
+    // Twitter has none, and a bare URL string here would drop the alt.
+    expect(meta.twitter?.images).toBeUndefined()
+  })
+
   it('still returns the not-found metadata for a missing scene', async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 404 })
 
@@ -146,6 +173,28 @@ describe('scenes/[slug] calendar slice', () => {
     }
   }
 
+  /** A show the JSON-LD can describe: it carries a venue and a real instant. */
+  function buildShow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 1,
+      title: '',
+      event_date: '2026-08-18',
+      starts_at: '2026-08-19T03:00:00Z',
+      is_sold_out: false,
+      is_cancelled: false,
+      slug: 'smooth-hands-valley-bar',
+      venue_name: 'Valley Bar',
+      venue_slug: 'valley-bar',
+      venue_address: '130 N Central Ave',
+      venue_city: 'Phoenix',
+      venue_state: 'AZ',
+      venue_country: 'US',
+      venue_timezone: 'America/Phoenix',
+      artist_names: ['Smooth Hands'],
+      ...overrides,
+    }
+  }
+
   /** Every URL the route asked for, in order. */
   function fetchedUrls(): string[] {
     return fetchMock.mock.calls.map(call => String(call[0]))
@@ -167,6 +216,15 @@ describe('scenes/[slug] calendar slice', () => {
     const props = (node as Node)?.props
     if (props && 'calendarSlot' in props) return props.calendarSlot
     return props ? findCalendarSlot(props.children) : undefined
+  }
+
+  /** Every payload handed to a `<JsonLd>` in the returned tree. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function findJsonLd(node: any): any[] {
+    if (!node || typeof node !== 'object') return []
+    if (Array.isArray(node)) return node.flatMap(findJsonLd)
+    if (node.type === JsonLd) return [node.props.data]
+    return node.props ? findJsonLd(node.props.children) : []
   }
 
   it('reads tonight and the next full day from the day endpoint', async () => {
@@ -225,5 +283,67 @@ describe('scenes/[slug] calendar slice', () => {
     // through its own query), and that is exactly the pair being distinguished.
     const slot = findCalendarSlot(tree)
     expect(slot?.props?.scene?.slug).toBe('phoenix-az')
+
+    // The structured data resolves the same way, off the day payload's slug.
+    // The trail names a location, so it names the scene the request landed on,
+    // not the spelling that was typed. (`alternates.canonical` answers a
+    // different question and still carries the requested spelling.)
+    const breadcrumb = findJsonLd(tree).find(
+      (data: { '@type'?: string }) => data['@type'] === 'BreadcrumbList'
+    )
+    const leaf = breadcrumb.itemListElement[breadcrumb.itemListElement.length - 1]
+    expect(leaf.item).toBe('https://psychichomily.com/scenes/phoenix-az')
   })
+
+  // The unit suite pins the builder; what this pins is the WIRING. The week
+  // fetch is mocked to null for the whole file, so an ItemList reaching the
+  // markup at all proves the slice is what feeds it, and the counts below are
+  // taken from the one slice object both the markup and the calendar receive.
+  it('describes exactly the shows the slice it hands the calendar holds', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildDay({
+          shows: [buildShow(), buildShow({ id: 2, slug: 'tournament-rebel-lounge' })],
+        })
+      )
+    )
+    // Every request after tonight's answers for the next day. The keyed leg
+    // costs TWO of them: `fetchScenePeriod` probes the long window first, and a
+    // date that has not happened yet is never frozen, so it always falls
+    // through to the short one.
+    fetchMock.mockResolvedValue(
+      okResponse(
+        buildDay({
+          date: '2026-08-19',
+          is_tonight: false,
+          shows: [
+            buildShow({
+              id: 3,
+              slug: 'holy-fawn-crescent',
+              event_date: '2026-08-19',
+              starts_at: '2026-08-20T03:00:00Z',
+            }),
+          ],
+        })
+      )
+    )
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    const blocks = findJsonLd(tree)
+    // Counted through the helper the calendar's own quiet check goes through,
+    // so this figure is not a second spelling of it.
+    const slicedShows = countWindowShows(findCalendarSlot(tree).props.slice.days)
+    const itemList = blocks.find((data: { '@type'?: string }) => data['@type'] === 'ItemList')
+    // FILTERED, not `find`: a second array-valued block would make a positional
+    // pick silently assert about the wrong one.
+    const eventBlocks = blocks.filter(Array.isArray)
+
+    expect(slicedShows).toBe(3)
+    expect(itemList?.numberOfItems).toBe(3)
+    expect(eventBlocks).toHaveLength(1)
+    expect(eventBlocks[0]).toHaveLength(3)
+  })
+
 })
