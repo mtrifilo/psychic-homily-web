@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
 
 	"psychic-homily-backend/internal/config"
@@ -19,13 +20,18 @@ func TestSetupGothNeverLogsTheOAuthSecret(t *testing.T) {
 	const sentinelOAuthSecret = "SENTINEL-OAUTH-SECRET-KEY-f13b8e0a"
 
 	// SetupGoth reads the process environment and assigns package-global
-	// stores; pin the one and restore the others.
+	// stores and the goth provider registry; pin the one and restore the rest.
 	t.Setenv(EnableOAuthTestProviderEnvVar, "")
 	prevSessionStore := SessionStore
 	prevGothicStore := gothic.Store
+	prevProviders := goth.GetProviders()
 	t.Cleanup(func() {
 		SessionStore = prevSessionStore
 		gothic.Store = prevGothicStore
+		goth.ClearProviders()
+		for _, p := range prevProviders {
+			goth.UseProviders(p)
+		}
 	})
 
 	cfg := &config.Config{}

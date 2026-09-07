@@ -37,14 +37,15 @@ func (s *syncBuf) String() string {
 	return s.buf.String()
 }
 
-// Capture redirects BOTH the standard logger and the default slog logger for
-// the duration of fn and returns everything either one emitted.
+// Capture redirects the standard logger and slog's default logger for the
+// duration of fn and returns everything either one emitted.
 //
-// Covering both matters: a caller that reads only log.Printf output returns ""
-// the day its subject moves to slog, and a test asserting a secret is ABSENT
-// from "" passes vacuously. Redirecting both means the assertion keeps its
-// meaning across that port. Assert on a positive marker as well, so an empty
-// capture fails instead of passing silently.
+// It does NOT reach a logger that holds its own handler instead of consulting
+// slog.Default(); such a logger keeps writing wherever it was built to write.
+// So an absence assertion alone is never sufficient: a stream this function
+// does not intercept yields "", and "" contains no secret. Every caller must
+// also assert a positive marker it knows the subject emits, so an uncaptured
+// stream fails the test instead of passing vacuously.
 //
 // The redirects are undone BEFORE the buffer is read, so a goroutine still
 // logging after fn returns cannot truncate or race the read. A caller already

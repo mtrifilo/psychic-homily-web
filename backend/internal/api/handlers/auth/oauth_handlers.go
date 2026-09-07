@@ -15,6 +15,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 
@@ -297,11 +298,14 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
 	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
 	if err != nil {
-		// goth's Google provider fetches the profile with the access token in
-		// the URL query, so a transport failure yields a *url.Error whose
-		// message embeds a live token. RedactErrorURL drops the path and query
-		// and keeps the host.
-		log.Printf("OAuth callback failed: %v", utils.RedactErrorURL(err))
+		// A provider error can carry credentials two ways: a *url.Error whose
+		// URL holds an access token in the query, and an error whose text
+		// embeds the token endpoint's raw response body. RedactErrorURL keeps
+		// scheme and host and drops path and query, which also drops the
+		// wrapper text; ScrubText then covers the shapes that are not a
+		// *url.Error and caps an unbounded body.
+		log.Printf("OAuth callback failed: %v",
+			observability.ScrubText(utils.RedactErrorURL(err).Error()))
 		errorMessage := "authentication failed"
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {

@@ -34,13 +34,16 @@ func cliCallbackID(t *testing.T, w *httptest.ResponseRecorder) string {
 // initiation handler logs cookie NAMES, the request PATH, and the loopback
 // callback URL, and never a cookie value, a query string, or the CLI callback
 // ID. A signed-in user carries the session JWT in config.AuthCookieName, and
-// the CLI callback ID gates a redirect that later carries a 24h JWT.
+// the CLI callback ID gates a redirect that later carries a session JWT.
 func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	const sentinelSessionJWT = "SENTINEL-SESSION-JWT-VALUE-7c3a55"
 	const sentinelConsentCookie = "SENTINEL-CONSENT-COOKIE-b0d419"
 	const loopbackCallback = "http://localhost:8765/cli-oauth-return"
 
 	handler := NewOAuthHTTPHandler(nil, &config.Config{})
+
+	// The cli_callback branch writes to the package-global store.
+	t.Cleanup(cleanCLICallbackStore)
 
 	w, req := oauthLoginRequest("google")
 	// Reach the cliCallback branch, which the bare helper request skips.
@@ -69,7 +72,9 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 
 	// Pin the rendered fragments so an unrelated line cannot satisfy these.
 	for _, want := range []string{
-		"Login - Request cookie names BEFORE: [" + config.AuthCookieName,
+		// Not pinned to a position: cookie order is not the invariant.
+		"Login - Request cookie names BEFORE: [",
+		config.AuthCookieName,
 		"Login - Request path: /auth/login/google",
 		"CLI callback stored: " + loopbackCallback,
 	} {
@@ -113,6 +118,12 @@ func TestOAuthCallbackHandlerNeverLogsTheMintedToken(t *testing.T) {
 	}
 	if loc := w.Header().Get("Location"); !strings.Contains(loc, sentinelToken) {
 		t.Fatalf("expected the minted token in the redirect, got %q", loc)
+	}
+
+	const marker = "CLI callback found:"
+	if !strings.Contains(output, marker) {
+		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this "+
+			"path and the assertions below are vacuous; captured log:\n%s", marker, output)
 	}
 
 	for _, secret := range []struct {
@@ -170,5 +181,50 @@ func TestOAuthCallbackHandlerRedactsTokenBearingErrorURL(t *testing.T) {
 	// The host survives redaction, so the log still names the endpoint that failed.
 	if !strings.Contains(output, "www.googleapis.com") {
 		t.Errorf("expected the failing host to survive redaction; captured log:\n%s", output)
+	}
+}
+
+// TestOAuthCallbackHandlerScrubsNonURLProviderError asserts the invariant that
+// a provider error which is NOT a *url.Error is still scrubbed and capped. A
+// token-exchange failure renders the token endpoint's raw response body into
+// the error text, which RedactErrorURL passes through untouched.
+func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
+	const sentinelBodyToken = "SENTINEL-BODY-ACCESS-TOKEN-5b30"
+
+	// The shape x/oauth2 renders when the token endpoint returns a failure
+	// status: a plain error carrying the response body verbatim.
+	providerErr := fmt.Errorf(
+		"oauth2: cannot fetch token: 400 Bad Request\nResponse: %s",
+		`{"access_token":"`+sentinelBodyToken+`","error":"invalid_grant"}`+strings.Repeat("x", 4000),
+	)
+
+	authService := &testhelpers.MockAuthService{
+		OAuthCallbackWithConsentFn: func(
+			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+		) (*authm.User, string, error) {
+			return nil, "", fmt.Errorf("OAuth completion failed: %w", providerErr)
+		},
+	}
+	handler := NewOAuthHTTPHandler(authService, &config.Config{})
+
+	req := httptest.NewRequest("GET", "/auth/callback/google", nil)
+	w := httptest.NewRecorder()
+
+	output := testlog.Capture(t, func() {
+		handler.OAuthCallbackHTTPHandler(w, req)
+	})
+
+	const marker = "OAuth callback failed:"
+	if !strings.Contains(output, marker) {
+		t.Fatalf("captured log is missing %q, so testlog.Capture no longer intercepts this "+
+			"path and the assertions below are vacuous; captured log:\n%s", marker, output)
+	}
+	if strings.Contains(output, sentinelBodyToken) {
+		t.Errorf("the OAuth callback handler logged a token from the provider response body; "+
+			"captured log:\n%s", output)
+	}
+	// An unbounded provider body must not reach the log stream in full.
+	if len(output) > 4000 {
+		t.Errorf("expected the provider error to be capped, got %d bytes of log", len(output))
 	}
 }

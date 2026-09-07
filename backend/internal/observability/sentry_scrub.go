@@ -136,6 +136,18 @@ func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	return event
 }
 
+// ScrubText redacts common secret shapes from s and caps it at
+// sentryValueLimit runes: the same treatment ScrubSentryEvent gives an event's
+// message, exposed for log call sites that render third-party error text. A
+// provider error can embed a token-bearing URL or an unbounded response body,
+// and a log stream has no BeforeSend hook in front of it.
+//
+// Best-effort, with the limits documented on ScrubSentryEvent: a secret in a
+// URL path segment, or a bare token with no recognizable key, survives.
+func ScrubText(s string) string {
+	return scrubText(s)
+}
+
 // scrubText redacts secret patterns THEN caps length — redact first so a secret
 // can't survive by sitting just past the length boundary.
 func scrubText(s string) string {
