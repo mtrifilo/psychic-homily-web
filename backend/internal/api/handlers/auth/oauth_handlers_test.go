@@ -10,18 +10,34 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// --- generateRandomID ---
+// --- randomHexID ---
 
-func TestGenerateRandomID(t *testing.T) {
-	id := generateRandomID()
+func TestRandomHexID(t *testing.T) {
+	id, err := randomHexID(16)
+	if err != nil {
+		t.Fatalf("randomHexID: %v", err)
+	}
 	if len(id) != 32 {
 		t.Errorf("expected 32 hex chars, got %d", len(id))
 	}
 
 	// Verify uniqueness
-	id2 := generateRandomID()
+	id2, err := randomHexID(16)
+	if err != nil {
+		t.Fatalf("randomHexID: %v", err)
+	}
 	if id == id2 {
 		t.Error("expected unique IDs, got duplicates")
+	}
+
+	// The size is the caller's, because the two callers park ids of different
+	// widths in cookies.
+	wide, err := randomHexID(32)
+	if err != nil {
+		t.Fatalf("randomHexID: %v", err)
+	}
+	if len(wide) != 64 {
+		t.Errorf("expected 64 hex chars, got %d", len(wide))
 	}
 }
 

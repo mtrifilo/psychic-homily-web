@@ -25,10 +25,39 @@ import (
 
 const oauthSignupConsentCookieName = "oauth_signup_consent"
 
-func generateRandomID() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+// isGothOAuthProvider names the providers reachable through the chi goth
+// handshake: sign-in, link, and unlink all admit the same set.
+//
+// Apple is absent from all of them. Its callback is a Huma POST validated
+// against Apple's JWKS, not this handshake, so it never resolves through goth
+// and never carries these flows' cookies.
+func isGothOAuthProvider(provider string) bool {
+	return provider == "google" || provider == "github"
+}
+
+// randomHexID returns an unguessable hex id of n bytes, or an error rather
+// than a weak one. Every caller parks the result in a cookie as the only thing
+// standing between two concurrent flows, so a degraded value has to fail the
+// request instead of being used.
+func randomHexID(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// refusalMessage picks the copy an OAuth callback reports for err: the
+// refusal's own words when it is one a caller may act on, and fallback for
+// everything else, so a backend fault never reaches a caller. All three
+// callback surfaces route through here so they cannot disagree about which
+// errors speak for themselves.
+func refusalMessage(err error, fallback string) string {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		return authErr.UserMessage()
+	}
+	return fallback
 }
 
 // cliCallbackStore stores CLI callback URLs temporarily during OAuth flow
@@ -121,7 +150,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Validate provider
-	if provider != "google" && provider != "github" {
+	if !isGothOAuthProvider(provider) {
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
 		return
 	}
@@ -192,7 +221,12 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		cliCallback = validated
 
 		// Generate unique ID and store callback in memory
-		callbackID := generateRandomID()
+		callbackID, idErr := randomHexID(16)
+		if idErr != nil {
+			logger.AuthError(ctx, "oauth_cli_callback_id_failed", idErr, "provider", provider)
+			http.Error(w, "Failed to start authentication", http.StatusInternalServerError)
+			return
+		}
 		storeCLICallback(callbackID, cliCallback)
 
 		// Store only the ID in a cookie (not the full URL)
@@ -323,8 +357,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// not arm the next callback on this browser.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
 		http.SetCookie(w, h.newLinkIntentCookie("", -1))
-		intent, usable := takeOAuthLinkIntent(cookie.Value)
-		h.completeOAuthLink(w, r, provider, intent, usable, frontendURL)
+		h.completeOAuthLink(w, r, provider, takeOAuthLinkIntent(cookie.Value), frontendURL)
 		return
 	}
 
@@ -344,11 +377,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			errors.New(observability.ScrubText(utils.RedactErrorURL(err).Error())),
 			"provider", provider,
 		)
-		errorMessage := "authentication failed"
-		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-			errorMessage = authErr.UserMessage()
-		}
+		errorMessage := refusalMessage(err, "authentication failed")
 
 		// Handle CLI callback error
 		if cliCallback != "" {
@@ -392,8 +421,8 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 // after a link attempt. It therefore also decides what an unauthenticated
 // caller learns about why the attempt failed.
 //
-// It governs only those two callbacks. Other handlers in this package answer
-// with a code of their own and do not consult it.
+// Handlers outside those surfaces answer with a code of their own and do not
+// consult it.
 func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
 	case autherrors.CodeTermsAcceptanceRequired,

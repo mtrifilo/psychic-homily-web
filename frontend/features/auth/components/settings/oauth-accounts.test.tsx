@@ -49,9 +49,8 @@ vi.mock('@sentry/nextjs', () => ({
 // the component reads the URL and rewrites it.
 let mockSearchParams = new URLSearchParams()
 const mockRouterReplace = vi.fn()
-// One router object for the whole file, matching what next/navigation returns:
-// a hook handing back a fresh object every render would put any effect that
-// depends on the router into a re-entry loop.
+// One router object for the whole file: the hook returns a stable reference,
+// and effects here list the router in their dependencies.
 const mockRouter = { replace: mockRouterReplace }
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,

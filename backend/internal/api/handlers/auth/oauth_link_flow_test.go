@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,7 +15,17 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
-const linkSettingsPrefix = "http://localhost:3000/profile?tab=settings"
+// parseLinkRedirect asserts the browser was sent back to the Settings tab and
+// returns the query it carried. Parsed rather than prefix-matched: the query
+// is encoded from a map, so parameter order is not part of the contract.
+func (s *OAuthHandlerIntegrationSuite) parseLinkRedirect(location string) url.Values {
+	s.T().Helper()
+	parsed, err := url.Parse(location)
+	s.Require().NoError(err)
+	s.Equal("http://localhost:3000/profile", parsed.Scheme+"://"+parsed.Host+parsed.Path)
+	s.Equal("settings", parsed.Query().Get("tab"))
+	return parsed.Query()
+}
 
 func oauthLinkRequest(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
 	req := httptest.NewRequest("GET", "/auth/link/"+provider, nil)
@@ -62,8 +71,8 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_ArmsAnIntentForTheSessionsAccoun
 	// The cookie names nothing on its own: the account lives in the store.
 	s.NotContains(cookie.Value, "link-start@test.com")
 
-	intent, ok := takeOAuthLinkIntent(cookie.Value)
-	s.Require().True(ok)
+	intent := takeOAuthLinkIntent(cookie.Value)
+	s.Require().NotNil(intent)
 	s.Equal(user.ID, intent.userID)
 	s.Equal("google", intent.provider)
 }
@@ -110,9 +119,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AttachesIdentityAndIssue
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, linkSettingsPrefix), "got %s", location)
-	s.Contains(location, "oauth_link=connected")
+	query := s.parseLinkRedirect(w.Header().Get("Location"))
+	s.Equal("connected", query.Get(oauthLinkResultParam))
+	s.Empty(query.Get(oauthLinkErrorParam))
 
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
@@ -266,7 +275,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntentStillSignsIn() 
 // --- store ---
 
 func (s *OAuthHandlerIntegrationSuite) TestLinkIntent_ExpiredIsNotUsable() {
-	id, err := newOAuthLinkIntentID()
+	id, err := randomHexID(oauthLinkIntentIDBytes)
 	s.Require().NoError(err)
 	storeOAuthLinkIntent(id, oauthLinkIntent{
 		userID:    1,
@@ -274,25 +283,16 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkIntent_ExpiredIsNotUsable() {
 		expiresAt: time.Now().Add(-time.Second),
 	})
 
-	_, ok := takeOAuthLinkIntent(id)
-	s.False(ok)
-}
-
-func (s *OAuthHandlerIntegrationSuite) TestLinkIntentIDs_AreDistinct() {
-	first, err := newOAuthLinkIntentID()
-	s.Require().NoError(err)
-	second, err := newOAuthLinkIntentID()
-	s.Require().NoError(err)
-	s.NotEqual(first, second)
-	s.Len(first, 64)
+	s.Nil(takeOAuthLinkIntent(id))
 }
 
 // armLinkIntent stores an intent and returns the cookie a browser would carry
 // back from the provider.
 func (s *OAuthHandlerIntegrationSuite) armLinkIntent(userID uint, provider string) *http.Cookie {
 	s.T().Helper()
-	id, err := newOAuthLinkIntentID()
+	id, err := randomHexID(oauthLinkIntentIDBytes)
 	s.Require().NoError(err)
+	s.Require().Len(id, 2*oauthLinkIntentIDBytes)
 	storeOAuthLinkIntent(id, oauthLinkIntent{
 		userID:    userID,
 		provider:  provider,
@@ -304,11 +304,7 @@ func (s *OAuthHandlerIntegrationSuite) armLinkIntent(userID uint, provider strin
 func (s *OAuthHandlerIntegrationSuite) assertLinkRefusal(w *httptest.ResponseRecorder, wantMessage string) {
 	s.T().Helper()
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	location := w.Header().Get("Location")
-	s.Require().True(strings.HasPrefix(location, linkSettingsPrefix), "got %s", location)
-
-	parsed, err := url.Parse(location)
-	s.Require().NoError(err)
-	s.Equal(wantMessage, parsed.Query().Get("oauth_link_error"))
-	s.Empty(parsed.Query().Get("oauth_link"))
+	query := s.parseLinkRedirect(w.Header().Get("Location"))
+	s.Equal(wantMessage, query.Get(oauthLinkErrorParam))
+	s.Empty(query.Get(oauthLinkResultParam))
 }

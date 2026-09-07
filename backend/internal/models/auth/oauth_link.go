@@ -18,8 +18,8 @@ package auth
 // the second stops a genuine address from reaching an account that was never
 // entitled to it.
 //
-// The authenticated link path does not consult this. A signed-in user attaches
-// a provider to their own session's account, where the address plays no part.
+// This governs the by-address decision only. A link that resolves its account
+// some other way has no address to weigh and does not ask.
 func OAuthLinkByEmailAllowed(providerAssertsVerified bool, existing *User) bool {
 	return providerAssertsVerified && existing != nil && existing.EmailVerified
 }

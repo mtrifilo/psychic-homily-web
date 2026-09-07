@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/features/auth'
@@ -8,6 +8,9 @@ import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/features/auth'
 // is the same full-page OAuth redirect the login button performs. See
 // lib/api-base.ts (PSY-1649).
 import { OAUTH_BACKEND_URL } from '@/lib/api-base'
+// Subpath import, not the shared barrel: this panel is reachable from a
+// browse route and the barrel pulls the whole shared surface into its chunk.
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -53,9 +56,13 @@ function GoogleIcon({ className }: { className?: string }) {
   )
 }
 
-/** How the backend reports a finished link attempt on the redirect back here. */
-export const OAUTH_LINK_RESULT_PARAM = 'oauth_link'
-export const OAUTH_LINK_ERROR_PARAM = 'oauth_link_error'
+/**
+ * How the backend reports a finished link attempt on the redirect back here.
+ * The same two names are written by redirectToLinkResult in
+ * backend/internal/api/handlers/auth/oauth_link.go.
+ */
+const OAUTH_LINK_RESULT_PARAM = 'oauth_link'
+const OAUTH_LINK_ERROR_PARAM = 'oauth_link_error'
 
 type OAuthLinkResult =
   | { status: 'connected' }
@@ -86,22 +93,17 @@ export function OAuthAccounts() {
 
   // The link result arrives as a query parameter because the backend returns
   // the browser here by redirect, a fresh page load with no other channel to
-  // it.
-  //
-  // Captured at mount rather than derived on every render, so the banner
-  // survives the rewrite below that takes the parameters back out of the URL.
-  // The rewrite is what stops a reload from replaying a result the user has
-  // already seen, and the ref is what keeps it to one rewrite: the effect
-  // depends on the router, whose identity is not guaranteed stable.
+  // it. Captured at mount, so the banner survives the rewrite that takes the
+  // parameters back out of the URL and a reload does not replay it.
   const [linkResult] = useState<OAuthLinkResult | null>(() =>
     readOAuthLinkResult(searchParams)
   )
-  const linkResultStripped = useRef(false)
   useEffect(() => {
-    if (!linkResult || linkResultStripped.current) return
-    linkResultStripped.current = true
-
+    // The rewrite is self-limiting: once the parameters are gone the stripped
+    // query equals the current one and there is nothing left to replace.
     const query = withoutOAuthLinkResult(searchParams)
+    if (!linkResult || query === searchParams.toString()) return
+
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }, [linkResult, searchParams, pathname, router])
 
@@ -190,10 +192,10 @@ export function OAuthAccounts() {
 
           {/* Result of a link attempt that redirected back to this page */}
           {linkResult?.status === 'error' && (
-            <div role="alert" className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <InlineErrorBanner className="flex items-start gap-2">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{linkResult.message}</span>
-            </div>
+            </InlineErrorBanner>
           )}
 
           {linkResult?.status === 'connected' && (
@@ -205,18 +207,18 @@ export function OAuthAccounts() {
 
           {/* Error display */}
           {error && (
-            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <InlineErrorBanner className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>Failed to load connected accounts</span>
-            </div>
+            </InlineErrorBanner>
           )}
 
           {/* Unlink error */}
           {unlinkMutation.isError && (
-            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <InlineErrorBanner className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{unlinkMutation.error?.message || 'Failed to disconnect account'}</span>
-            </div>
+            </InlineErrorBanner>
           )}
 
           {/* Success message */}
