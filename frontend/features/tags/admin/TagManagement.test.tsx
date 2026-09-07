@@ -11,6 +11,7 @@ import type {
 } from '../types'
 
 const mockUseTags = vi.fn()
+const mockUpdateTagMutate = vi.hoisted(() => vi.fn())
 vi.mock('../hooks', () => ({
   useTags: (...args: unknown[]) => mockUseTags(...args),
   useTag: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock('../hooks', () => ({
 
 vi.mock('./useAdminTags', () => ({
   useCreateTag: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateTag: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateTag: () => ({ mutate: mockUpdateTagMutate, isPending: false }),
   useDeleteTag: () => ({ mutate: vi.fn(), isPending: false }),
   useTagAliases: () => ({ data: { aliases: [] as TagAlias[] }, isLoading: false }),
   useCreateAlias: () => ({ mutate: vi.fn(), isPending: false }),
@@ -378,5 +379,124 @@ describe('EditTagFormFields: tag switch resets fields via key prop', () => {
     )
 
     expect(screen.getByLabelText('Name *')).toHaveValue('dirty-edit')
+  })
+})
+
+describe('TagManagement — crew outbound links (PSY-1888)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('offers no link inputs for a non-crew tag', () => {
+    renderWithProviders(
+      <EditTagFormFields
+        key={1}
+        tag={makeTagDetail({ id: 1, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByLabelText('Website')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Instagram')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Bandcamp')).not.toBeInTheDocument()
+  })
+
+  it('offers the three link inputs for a crew tag, prefilled from the stored links', () => {
+    renderWithProviders(
+      <EditTagFormFields
+        key={2}
+        tag={makeTagDetail({
+          id: 2,
+          name: 'Rubber Brother Records',
+          category: 'crew',
+          social: {
+            website: 'https://rubberbrotherrecords.test',
+            instagram: 'https://instagram.com/rubberbrother',
+            bandcamp: null,
+          },
+        })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Website')).toHaveValue(
+      'https://rubberbrotherrecords.test'
+    )
+    expect(screen.getByLabelText('Instagram')).toHaveValue(
+      'https://instagram.com/rubberbrother'
+    )
+    expect(screen.getByLabelText('Bandcamp')).toHaveValue('')
+  })
+
+  it('reveals the link inputs when the category is switched to crew', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={3}
+        tag={makeTagDetail({ id: 3, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByLabelText('Website')).not.toBeInTheDocument()
+    await user.click(screen.getByLabelText('Category *'))
+    await user.click(await screen.findByRole('option', { name: 'Crew' }))
+
+    expect(await screen.findByLabelText('Website')).toBeInTheDocument()
+  })
+
+  it('submits the trimmed link fields for a crew tag', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={4}
+        tag={makeTagDetail({ id: 4, name: 'Rubber Brother', category: 'crew' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.type(
+      screen.getByLabelText('Website'),
+      '  https://rubberbrotherrecords.test  '
+    )
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    expect(mockUpdateTagMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.tagId).toBe(4)
+    expect(payload.data.website).toBe('https://rubberbrotherrecords.test')
+    expect(payload.data.instagram).toBe('')
+    expect(payload.data.bandcamp).toBe('')
+  })
+
+  // A form that does not show the inputs must not send them: stored links a
+  // non-crew editor never saw would otherwise be cleared by saving a rename.
+  it('sends no link fields at all for a non-crew tag', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={5}
+        tag={makeTagDetail({
+          id: 5,
+          name: 'shoegaze',
+          category: 'genre',
+          social: { website: 'https://zine.test', instagram: null, bandcamp: null },
+        })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    expect(mockUpdateTagMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.data).not.toHaveProperty('website')
+    expect(payload.data).not.toHaveProperty('instagram')
+    expect(payload.data).not.toHaveProperty('bandcamp')
   })
 })

@@ -66,7 +66,7 @@ func (s *TagIntersectionIntegrationTestSuite) SetupTest() {
 		if n == "phoenix" {
 			cat = "locale"
 		}
-		t, err := s.tagService.CreateTag(n, nil, nil, cat, false, nil)
+		t, err := s.tagService.CreateTag(n, nil, nil, cat, false, nil, catalogm.TagLinks{})
 		s.Require().NoError(err)
 		s.tags[t.Slug] = t
 	}

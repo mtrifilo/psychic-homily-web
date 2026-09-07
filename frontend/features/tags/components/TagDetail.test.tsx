@@ -51,7 +51,14 @@ vi.mock('@/features/notifications', () => ({
   ),
 }))
 
-vi.mock('@/components/shared', () => ({
+// The real SocialLinks, pulled in by file so the barrel stub does not replace
+// the read gate this suite is asserting.
+vi.mock('@/components/shared', async () => ({
+  SocialLinks: (
+    await vi.importActual<typeof import('@/components/shared/SocialLinks')>(
+      '@/components/shared/SocialLinks'
+    )
+  ).SocialLinks,
   Breadcrumb: ({
     fallback,
     intermediate,
@@ -230,6 +237,85 @@ describe('TagDetail', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Genre')).toBeInTheDocument()
     expect(screen.getByText('42 uses')).toBeInTheDocument()
+  })
+
+  it('renders the stored outbound links through the shared read gate', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        name: 'Rubber Brother Records',
+        category: 'crew',
+        social: {
+          website: 'https://rubberbrotherrecords.test',
+          instagram: 'https://instagram.com/rubberbrother',
+          bandcamp: null,
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<TagDetail slug="rubber-brother-records" />)
+
+    const website = screen.getByRole('link', { name: 'Website' })
+    expect(website).toHaveAttribute('href', 'https://rubberbrotherrecords.test')
+    expect(website).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(website).toHaveAttribute('target', '_blank')
+    expect(screen.getByRole('link', { name: 'Instagram' })).toHaveAttribute(
+      'href',
+      'https://instagram.com/rubberbrother'
+    )
+    expect(
+      screen.queryByRole('link', { name: 'Bandcamp' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders no link for a stored value the host anchor refuses', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        category: 'crew',
+        social: {
+          website: null,
+          instagram: 'https://instagram.com.evil.test/rubberbrother',
+          bandcamp: null,
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<TagDetail slug="rubber-brother-records" />)
+
+    expect(
+      screen.queryByRole('link', { name: 'Instagram' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders links for a non-crew tag that has them', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        category: 'genre',
+        social: { website: 'https://zine.test', instagram: null, bandcamp: null },
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+
+    expect(screen.getByRole('link', { name: 'Website' })).toHaveAttribute(
+      'href',
+      'https://zine.test'
+    )
+  })
+
+  it('renders no link row for a tag with no stored links', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail(),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+
+    expect(
+      screen.queryByRole('link', { name: 'Website' })
+    ).not.toBeInTheDocument()
   })
 
   it('renders singular "use" for a 1-use tag', () => {

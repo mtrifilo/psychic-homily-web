@@ -36,7 +36,20 @@ export function useTagAliases(tagId: number, options?: { enabled?: boolean }) {
 // Mutations
 // ──────────────────────────────────────────────
 
-interface CreateTagInput {
+/**
+ * The outbound-link half of a tag write.
+ *
+ * An absent key leaves the column alone; an empty string clears it. Only the
+ * crew-category controls send these, which is why they are optional rather
+ * than part of every write.
+ */
+interface TagLinkInput {
+  website?: string
+  instagram?: string
+  bandcamp?: string
+}
+
+interface CreateTagInput extends TagLinkInput {
   name: string
   description?: string
   parent_id?: number
@@ -61,7 +74,7 @@ export function useCreateTag() {
 
 interface UpdateTagInput {
   tagId: number
-  data: {
+  data: TagLinkInput & {
     name?: string
     description?: string | null
     parent_id?: number | null

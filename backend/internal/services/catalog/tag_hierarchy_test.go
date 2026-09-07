@@ -63,14 +63,14 @@ func (s *TagHierarchyIntegrationSuite) createUser(name string) *authm.User {
 
 // createGenre creates a genre tag (no parent).
 func (s *TagHierarchyIntegrationSuite) createGenre(name string) *catalogm.Tag {
-	tag, err := s.tagService.CreateTag(name, nil, nil, catalogm.TagCategoryGenre, false, nil)
+	tag, err := s.tagService.CreateTag(name, nil, nil, catalogm.TagCategoryGenre, false, nil, catalogm.TagLinks{})
 	s.Require().NoError(err)
 	return tag
 }
 
 // createTagWithCategory creates a tag in a specific category (for rejection tests).
 func (s *TagHierarchyIntegrationSuite) createTagWithCategory(name, category string) *catalogm.Tag {
-	tag, err := s.tagService.CreateTag(name, nil, nil, category, false, nil)
+	tag, err := s.tagService.CreateTag(name, nil, nil, category, false, nil, catalogm.TagLinks{})
 	s.Require().NoError(err)
 	return tag
 }
@@ -334,11 +334,11 @@ func (s *TagHierarchyIntegrationSuite) TestUpdateTag_SetsParent_WithCycleGuard()
 	a := s.createGenre("a")
 	b := s.createGenre("b")
 	// A → B via UpdateTag.
-	_, err := s.tagService.UpdateTag(b.ID, nil, nil, &a.ID, nil, nil)
+	_, err := s.tagService.UpdateTag(b.ID, nil, nil, &a.ID, nil, nil, catalogm.TagLinks{})
 	s.Require().NoError(err)
 
 	// Now B → A via UpdateTag would be a cycle.
-	_, err = s.tagService.UpdateTag(a.ID, nil, nil, &b.ID, nil, nil)
+	_, err = s.tagService.UpdateTag(a.ID, nil, nil, &b.ID, nil, nil, catalogm.TagLinks{})
 	s.Require().Error(err)
 	var tagErr *apperrors.TagError
 	s.Require().ErrorAs(err, &tagErr)
@@ -353,7 +353,7 @@ func (s *TagHierarchyIntegrationSuite) TestUpdateTag_NonGenreWithParentID_Reject
 	genre := s.createGenre("rock")
 	locale := s.createTagWithCategory("arizona", catalogm.TagCategoryLocale)
 
-	_, err := s.tagService.UpdateTag(locale.ID, nil, nil, &genre.ID, nil, nil)
+	_, err := s.tagService.UpdateTag(locale.ID, nil, nil, &genre.ID, nil, nil, catalogm.TagLinks{})
 	s.Require().Error(err)
 	var tagErr *apperrors.TagError
 	s.Require().ErrorAs(err, &tagErr)

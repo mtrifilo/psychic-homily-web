@@ -77,6 +77,76 @@ var TagEntityTypes = []string{
 // value it stores has to read the bound from somewhere.
 const MaxTagNameLength = 100
 
+// TagLinks carries the outbound-link columns through the tag write paths.
+//
+// Named fields rather than three positional *string arguments: the three are
+// the same type and a transposition would store an Instagram URL in the
+// bandcamp column, where the host anchor would refuse it under the wrong
+// platform's name.
+//
+// A nil field means "not supplied": unset on create, unchanged on update. A
+// supplied value that is empty or whitespace-only clears the column to NULL.
+type TagLinks struct {
+	Website   *string
+	Instagram *string
+	Bandcamp  *string
+}
+
+// Columns maps each supplied link onto its column name and the value to store,
+// with an empty value normalized to NULL. Fields that were not supplied are
+// absent from the map, so an update writes only what the caller sent.
+//
+// A cleared column is an untyped nil rather than a nil *string, which is what a
+// map-driven GORM Updates writes as SQL NULL without depending on how it
+// unwraps a typed nil.
+//
+// The keys are also the field names urlFieldSpecs validates by, so a caller
+// that validates and a caller that stores name the same three things.
+func (l TagLinks) Columns() map[string]any {
+	cols := map[string]any{}
+	for name, value := range map[string]*string{
+		"website":   l.Website,
+		"instagram": l.Instagram,
+		"bandcamp":  l.Bandcamp,
+	} {
+		if value == nil {
+			continue
+		}
+		if stored := normalizeTagLink(*value); stored != nil {
+			cols[name] = *stored
+		} else {
+			cols[name] = nil
+		}
+	}
+	return cols
+}
+
+// Apply writes the supplied links onto a tag, leaving unsupplied ones alone.
+func (l TagLinks) Apply(tag *Tag) {
+	if l.Website != nil {
+		tag.Website = normalizeTagLink(*l.Website)
+	}
+	if l.Instagram != nil {
+		tag.Instagram = normalizeTagLink(*l.Instagram)
+	}
+	if l.Bandcamp != nil {
+		tag.Bandcamp = normalizeTagLink(*l.Bandcamp)
+	}
+}
+
+// normalizeTagLink trims a supplied link and turns an empty one into NULL.
+//
+// The trim is strings.TrimSpace, which is what utils.ValidateHTTPURL and
+// utils.ValidateSocialHost parse after, so what is stored is the string the
+// host anchor judged rather than a padded spelling of it.
+func normalizeTagLink(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
 // Tag represents a user-facing tag for categorizing entities.
 type Tag struct {
 	ID              uint       `json:"id" gorm:"primaryKey"`
@@ -91,6 +161,14 @@ type Tag struct {
 	ReviewedAt      *time.Time `json:"reviewed_at,omitempty" gorm:"column:reviewed_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+
+	// Outbound links. NULL means no link; the write paths clear an empty value
+	// to NULL so an unset link has one spelling. Instagram and Bandcamp are
+	// anchored to their platform's host at the write boundary and again at
+	// render; Website makes no platform claim and takes any host.
+	Website   *string `json:"website,omitempty" gorm:"column:website"`
+	Instagram *string `json:"instagram,omitempty" gorm:"column:instagram"`
+	Bandcamp  *string `json:"bandcamp,omitempty" gorm:"column:bandcamp"`
 
 	// Relationships
 	Parent    *Tag        `json:"parent,omitempty" gorm:"foreignKey:ParentID"`

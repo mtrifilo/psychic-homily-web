@@ -569,7 +569,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	target := suite.createBasicCollection(user, "Alias Target")
 	suite.createBasicCollection(user, "Alias Distractor")
 
-	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID)
+	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	// Seed an alias row directly — the tag service's public surface for
@@ -1788,7 +1788,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Searc
 	target := suite.createBasicCollection(user, "Untitled Yours Mix")
 	suite.createBasicCollection(user, "Other Untitled")
 
-	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID)
+	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Require().NoError(suite.db.Create(&catalogm.TagAlias{
 		TagID: tag.ID,
@@ -2789,7 +2789,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_ByID(
 	coll := suite.createBasicCollection(creator, "By ID Collection")
 
 	// Pre-create a tag.
-	tag, err := suite.tagService.CreateTag("phoenix", nil, nil, catalogm.TagCategoryLocale, false, &creator.ID)
+	tag, err := suite.tagService.CreateTag("phoenix", nil, nil, catalogm.TagCategoryLocale, false, &creator.ID, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	resp, _, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,

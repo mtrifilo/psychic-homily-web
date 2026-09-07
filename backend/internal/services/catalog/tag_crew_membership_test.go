@@ -282,7 +282,7 @@ func (suite *TagServiceIntegrationTestSuite) TestDescriptiveTagCategoryPredicate
 func (suite *TagServiceIntegrationTestSuite) TestInlineCreateMatchesCreateTagOnNameAndSlug() {
 	admin := suite.createAdminUser("parity-admin")
 
-	direct, err := suite.tagService.CreateTag("Gracie's Tax Bar", nil, nil, catalogm.TagCategoryOther, false, nil)
+	direct, err := suite.tagService.CreateTag("Gracie's Tax Bar", nil, nil, catalogm.TagCategoryOther, false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	artistID := suite.createArtist("Parity Band")

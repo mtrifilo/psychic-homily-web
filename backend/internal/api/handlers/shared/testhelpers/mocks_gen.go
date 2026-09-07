@@ -3835,11 +3835,11 @@ func (m *MockStreamingWorklistService) UpdateStreamingDiscoveryStatus(input cont
 // ============================================================================
 
 type MockTagService struct {
-	CreateTagFn                func(string, *string, *uint, string, bool, *uint) (*catalogm.Tag, error)
+	CreateTagFn                func(string, *string, *uint, string, bool, *uint, catalogm.TagLinks) (*catalogm.Tag, error)
 	GetTagFn                   func(uint) (*catalogm.Tag, error)
 	GetTagBySlugFn             func(string) (*catalogm.Tag, error)
 	ListTagsFn                 func(string, string, *uint, string, int, int, string, []contracts.CityStateFilter) ([]catalogm.Tag, int64, error)
-	UpdateTagFn                func(uint, *string, *string, *uint, *string, *bool) (*catalogm.Tag, error)
+	UpdateTagFn                func(uint, *string, *string, *uint, *string, *bool, catalogm.TagLinks) (*catalogm.Tag, error)
 	DeleteTagFn                func(uint) error
 	AddTagToEntityFn           func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error)
 	RemoveTagFromEntityFn      func(uint, string, uint, uint) error
@@ -3869,9 +3869,9 @@ type MockTagService struct {
 	PruneDownvotedTagsFn       func() (int64, error)
 }
 
-func (m *MockTagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*catalogm.Tag, error) {
+func (m *MockTagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint, links catalogm.TagLinks) (*catalogm.Tag, error) {
 	if m.CreateTagFn != nil {
-		return m.CreateTagFn(name, description, parentID, category, isOfficial, userID)
+		return m.CreateTagFn(name, description, parentID, category, isOfficial, userID, links)
 	}
 	return nil, nil
 }
@@ -3893,9 +3893,9 @@ func (m *MockTagService) ListTags(category string, search string, parentID *uint
 	}
 	return nil, 0, nil
 }
-func (m *MockTagService) UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*catalogm.Tag, error) {
+func (m *MockTagService) UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool, links catalogm.TagLinks) (*catalogm.Tag, error) {
 	if m.UpdateTagFn != nil {
-		return m.UpdateTagFn(tagID, name, description, parentID, category, isOfficial)
+		return m.UpdateTagFn(tagID, name, description, parentID, category, isOfficial, links)
 	}
 	return nil, nil
 }

@@ -90,12 +90,31 @@ export interface TagListItem {
   matched_via_alias?: string
 }
 
+/**
+ * A tag's outbound links, as stored.
+ *
+ * Three columns, not the eight an artist or venue carries, and the key names
+ * are the same ones so `SocialLinkValues` accepts this shape and the shared
+ * read gate decides what becomes an href.
+ */
+export interface TagSocial {
+  website?: string | null
+  instagram?: string | null
+  bandcamp?: string | null
+}
+
 export interface TagDetailResponse extends TagListItem {
   description?: string
   parent_id?: number
   parent_name?: string
   child_count: number
   aliases: string[]
+  /**
+   * Outbound links. The API always sends the key with a null per unset column;
+   * it is optional here because a response cached before these columns existed
+   * carries none, and the read gate renders nothing either way.
+   */
+  social?: TagSocial
   created_by_user_id?: number
   created_by_username?: string
   updated_at: string

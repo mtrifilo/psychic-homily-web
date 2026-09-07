@@ -56,6 +56,7 @@ import {
 } from './useAdminTags'
 import {
   TAG_CATEGORIES,
+  TAG_CATEGORY_CREW,
   canonicalTagCategory,
   getCategoryChipClasses,
   getCategoryLabel,
@@ -64,6 +65,95 @@ import {
 } from '../types'
 
 type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
+
+// ============================================================================
+// Outbound links (crew tags)
+// ============================================================================
+
+/** The three link inputs as edited, before they are trimmed and submitted. */
+interface TagLinkDraft {
+  website: string
+  instagram: string
+  bandcamp: string
+}
+
+const EMPTY_TAG_LINKS: TagLinkDraft = { website: '', instagram: '', bandcamp: '' }
+
+/**
+ * Whether the form should offer the link inputs.
+ *
+ * Keyed on the category the form is ABOUT TO SAVE rather than the stored one,
+ * so recategorizing a tag to crew and filling its links is one pass. The
+ * canonical spelling is used because the stored column is unconstrained.
+ */
+function offersTagLinks(category: string): boolean {
+  return canonicalTagCategory(category) === TAG_CATEGORY_CREW
+}
+
+/**
+ * The link half of a tag write, or nothing.
+ *
+ * A form that is not offering the inputs sends no link keys at all, so a
+ * category change cannot silently clear values the admin was not shown. A
+ * trimmed-empty input is sent, and clears its column.
+ */
+function tagLinkPayload(
+  category: string,
+  links: TagLinkDraft
+): Partial<TagLinkDraft> {
+  if (!offersTagLinks(category)) return {}
+  return {
+    website: links.website.trim(),
+    instagram: links.instagram.trim(),
+    bandcamp: links.bandcamp.trim(),
+  }
+}
+
+/**
+ * The three outbound-link inputs.
+ *
+ * Free text, not validated here: the host rule is the API's, and duplicating
+ * it in the browser would be a second rule to keep in step. A refused value
+ * comes back as the same message every other entity's link fields produce and
+ * is shown in the form's error banner.
+ */
+function TagLinkFields({
+  idPrefix,
+  links,
+  onChange,
+  disabled,
+}: {
+  idPrefix: string
+  links: TagLinkDraft
+  onChange: (next: TagLinkDraft) => void
+  disabled?: boolean
+}) {
+  const fields: { key: keyof TagLinkDraft; label: string; placeholder: string }[] = [
+    { key: 'website', label: 'Website', placeholder: 'https://example.com' },
+    { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/handle' },
+    { key: 'bandcamp', label: 'Bandcamp', placeholder: 'https://name.bandcamp.com' },
+  ]
+
+  return (
+    <div className="space-y-3 rounded-md border border-dashed p-3">
+      <p className="text-xs text-muted-foreground">
+        Links shown on the tag page. Leave blank to remove.
+      </p>
+      {fields.map(({ key, label, placeholder }) => (
+        <div key={key} className="space-y-2">
+          <Label htmlFor={`${idPrefix}-${key}`}>{label}</Label>
+          <Input
+            id={`${idPrefix}-${key}`}
+            value={links[key]}
+            onChange={(e) => onChange({ ...links, [key]: e.target.value })}
+            placeholder={placeholder}
+            disabled={disabled}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // ============================================================================
 // Needs-Review Tab Badge
@@ -208,6 +298,7 @@ function CreateTagForm({
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<string>('genre')
   const [isOfficial, setIsOfficial] = useState(false)
+  const [links, setLinks] = useState<TagLinkDraft>(EMPTY_TAG_LINKS)
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = useCallback(
@@ -226,6 +317,7 @@ function CreateTagForm({
           description: description.trim() || undefined,
           category,
           is_official: isOfficial,
+          ...tagLinkPayload(category, links),
         },
         {
           onSuccess: () => onSuccess(),
@@ -237,7 +329,7 @@ function CreateTagForm({
         }
       )
     },
-    [name, description, category, isOfficial, createMutation, onSuccess]
+    [name, description, category, isOfficial, links, createMutation, onSuccess]
   )
 
   return (
@@ -269,6 +361,15 @@ function CreateTagForm({
           </SelectContent>
         </Select>
       </div>
+
+      {offersTagLinks(category) && (
+        <TagLinkFields
+          idPrefix="create"
+          links={links}
+          onChange={setLinks}
+          disabled={createMutation.isPending}
+        />
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="create-desc">Description</Label>
@@ -385,6 +486,11 @@ export function EditTagFormFields({
     canonicalTagCategory(tag.category)
   )
   const [isOfficial, setIsOfficial] = useState(tag.is_official)
+  const [links, setLinks] = useState<TagLinkDraft>({
+    website: tag.social?.website ?? '',
+    instagram: tag.social?.instagram ?? '',
+    bandcamp: tag.social?.bandcamp ?? '',
+  })
   const [error, setError] = useState<string | null>(null)
 
   // A Select whose value has no matching option renders an EMPTY trigger while
@@ -427,6 +533,7 @@ export function EditTagFormFields({
             description: description.trim() || null,
             category,
             is_official: isOfficial,
+            ...tagLinkPayload(category, links),
           },
         },
         {
@@ -439,7 +546,16 @@ export function EditTagFormFields({
         }
       )
     },
-    [name, description, category, isOfficial, tagId, updateMutation, onSuccess]
+    [
+      name,
+      description,
+      category,
+      isOfficial,
+      links,
+      tagId,
+      updateMutation,
+      onSuccess,
+    ]
   )
 
   return (
@@ -471,6 +587,15 @@ export function EditTagFormFields({
             </SelectContent>
           </Select>
         </div>
+
+        {offersTagLinks(category) && (
+          <TagLinkFields
+            idPrefix="edit"
+            links={links}
+            onChange={setLinks}
+            disabled={updateMutation.isPending}
+          />
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="edit-desc">Description</Label>
