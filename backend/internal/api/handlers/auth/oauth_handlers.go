@@ -332,9 +332,8 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 // therefore also decides what an unauthenticated caller learns about why the
 // attempt failed.
 //
-// The JSON auth endpoints that answer with a code directly (registration,
-// passkey signup) do not route through this; they have no generic arm to opt
-// out of.
+// It governs only those two callbacks. Other handlers in this package answer
+// with a code of their own and do not consult it.
 func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
 	case autherrors.CodeTermsAcceptanceRequired, autherrors.CodeUserExists:

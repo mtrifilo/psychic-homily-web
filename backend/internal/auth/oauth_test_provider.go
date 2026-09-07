@@ -45,17 +45,21 @@ const TestProviderEmail = "e2e-oauth@test.local"
 const TestProviderUserID = "e2e-oauth-faux-user-id"
 
 // TestProviderUnverifiedEmailEnvVar makes the clone report its address as NOT
-// verified by the provider, which drives the link refusal. Unset, the clone
-// reports verified, which is what the seeded account at TestProviderEmail
-// needs to be linkable. It is read only by isOAuthTestProviderEmailUnverified
-// below, and only from a provider newTestProvider builds, so it is inert
-// wherever the double gate above keeps that provider unregistered.
+// verified by the provider. Unset, the clone reports verified, which is what
+// the seeded account at TestProviderEmail needs to be linkable.
+//
+// No automated suite sets it. It is read at request time, so flipping it means
+// restarting the backend: it exists so a person can drive the link refusal
+// through the genuine gothic handshake by hand against a local stack. It is
+// read only by isOAuthTestProviderEmailUnverified, in a provider that
+// newTestProvider builds and SetupGoth registers only behind the double gate
+// described at the top of this file.
 const TestProviderUnverifiedEmailEnvVar = "OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL"
 
 // EmailVerifiedRawDataKey is the RawData key the clone carries its
-// verification flag under. It must be one the link-by-email path reads;
-// TestProviderAssertsEmailVerified_ReadsTheFauxProvidersKey in
-// internal/services/user is what holds the two together.
+// verification flag under. It must be one the link-by-email path reads, which
+// is why it is exported: internal/services/user tests its own reader against
+// this constant rather than against a copy of the string.
 const EmailVerifiedRawDataKey = "verified_email"
 
 // testProvider wraps goth's faux provider so it (a) registers/resolves under

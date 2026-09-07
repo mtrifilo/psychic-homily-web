@@ -178,6 +178,32 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 	suite.Equal("fresh.unverified@example.com", *created.Email)
 }
 
+// provider_user_id permits the empty string, so a stored row with one would be
+// matched by any provider that returns no subject, ahead of the address gate.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_EmptyProviderUserID_Refused() {
+	owner := &authm.User{
+		Email:         stringPtr("empty.subject.owner@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(owner).Error)
+	suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
+		UserID:         owner.ID,
+		Provider:       "google",
+		ProviderUserID: "",
+	}).Error)
+
+	resolved, err := suite.userService.FindOrCreateUser(goth.User{
+		UserID:  "",
+		Email:   "someone.else@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google")
+
+	suite.Require().Error(err)
+	suite.Require().Nil(resolved)
+	suite.Contains(err.Error(), "no user id")
+}
+
 func (suite *UserServiceIntegrationTestSuite) assertNoOAuthAccountFor(userID uint) {
 	suite.T().Helper()
 	var oauthRows int64

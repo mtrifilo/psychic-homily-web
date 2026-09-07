@@ -201,6 +201,14 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	// provider_user_id is the identity this whole function resolves on, and the
+	// column permits the empty string. Without this, a provider returning no
+	// subject would match any row stored with an empty one and sign in as its
+	// owner, ahead of every check below.
+	if gothUser.UserID == "" {
+		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
+	}
+
 	// First, try to find existing OAuth account
 	var oauthAccount authm.OAuthAccount
 

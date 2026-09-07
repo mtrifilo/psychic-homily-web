@@ -42,8 +42,9 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 
 	parsed, err := url.Parse(location)
 	s.Require().NoError(err)
-	// UserMessage(), not ToExternalMessage(): the handler emits the former, and
-	// the two agree only for CodeUserExists.
+	// UserMessage() is what the handler emits. ToExternalMessage is a separate
+	// table that happens to agree for this code, so asserting against it would
+	// point a maintainer at the wrong function.
 	s.Equal(autherrors.ErrUserExists("callback-unverified@test.com").UserMessage(), parsed.Query().Get("error"))
 
 	for _, c := range w.Result().Cookies() {

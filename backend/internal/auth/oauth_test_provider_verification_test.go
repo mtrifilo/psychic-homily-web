@@ -7,7 +7,7 @@ import (
 )
 
 // authorizedFauxUser drives the clone's FetchUser through faux's
-// begin->authorize gate, the same order gothic.CompleteUserAuth uses.
+// begin->authorize gate, which FetchUser requires an AccessToken from.
 func authorizedFauxUser(t *testing.T) goth.User {
 	t.Helper()
 	p := newTestProvider()
@@ -41,8 +41,8 @@ func TestTestProvider_FetchUser_ReportsVerifiedEmailByDefault(t *testing.T) {
 	}
 }
 
-// Under the flag the clone reports unverified, which is what drives the link
-// refusal through the real gothic begin-authorize-callback sequence.
+// Under the flag the clone reports unverified. Nothing else in the tree sets
+// the flag; a person sets it and restarts the backend to reproduce a refusal.
 func TestTestProvider_FetchUser_ReportsUnverifiedEmailWhenFlagged(t *testing.T) {
 	t.Setenv(TestProviderUnverifiedEmailEnvVar, "1")
 

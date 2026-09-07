@@ -132,6 +132,32 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmai
 	s.True(user.EmailVerified)
 }
 
+// provider_user_id permits the empty string, so a stored row with one would be
+// matched by a token carrying no subject, ahead of the address gate.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_EmptySubject_Refused() {
+	owner := &authm.User{
+		Email:         stringPtr("apple-empty-subject-owner@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	s.Require().NoError(s.db.Create(owner).Error)
+	s.Require().NoError(s.db.Create(&authm.OAuthAccount{
+		UserID:         owner.ID,
+		Provider:       "apple",
+		ProviderUserID: "",
+	}).Error)
+
+	svc := s.newService()
+	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
+		Email:         "apple-someone-else@example.com",
+		EmailVerified: true,
+	}, "Apple", "Name")
+
+	s.Require().Error(err)
+	s.Require().Nil(user)
+	s.Contains(err.Error(), "no subject")
+}
+
 func (s *AppleAuthIntegrationTestSuite) assertNoAppleAccountFor(userID uint) {
 	s.T().Helper()
 	var rows int64

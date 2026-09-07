@@ -27,8 +27,9 @@ func TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode(t *testing.T) {
 	if resp.Body.ErrorCode != autherrors.CodeUserExists {
 		t.Errorf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeUserExists)
 	}
-	// UserMessage(), not ToExternalMessage(): the handler emits the former, and
-	// the two agree only for CodeUserExists.
+	// UserMessage() is what the handler emits. ToExternalMessage is a separate
+	// table that happens to agree for this code, so asserting against it would
+	// point a maintainer at the wrong function.
 	if want := autherrors.ErrUserExists("apple-refused@example.com").UserMessage(); resp.Body.Message != want {
 		t.Errorf("message = %q, want %q", resp.Body.Message, want)
 	}
@@ -37,8 +38,8 @@ func TestAppleCallbackHandler_RefusedLinkKeepsItsOwnCode(t *testing.T) {
 	}
 }
 
-// A genuine fault still reports as one, so the refusal branch has not
-// swallowed the fail-closed arm it sits in front of.
+// A genuine fault still reports as SERVICE_UNAVAILABLE, so the refusal branch
+// has not swallowed the generic arm it sits in front of.
 func TestAppleCallbackHandler_BackendFaultStaysServiceUnavailable(t *testing.T) {
 	svc := &mockAppleAuthService{findErr: autherrors.ErrServiceUnavailable("database", nil)}
 	h := NewAppleAuthHandler(svc, &testhelpers.MockDiscordService{}, testConfig())

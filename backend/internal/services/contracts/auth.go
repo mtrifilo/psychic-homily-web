@@ -55,9 +55,9 @@ func (c *AppleIdentityTokenClaims) IsEmailVerified() bool {
 	return verified
 }
 
-// ParseEmailVerifiedClaim reads one provider's email-verification flag. It
-// arrives as a JSON bool from an OIDC userinfo response and as the string
-// "true"/"false" from an Apple identity token, so both shapes decode here.
+// ParseEmailVerifiedClaim reads one provider's email-verification flag. A JSON
+// bool and the strings "true"/"false" both decode, because AppleIdentityToken-
+// Claims.EmailVerified is typed any for exactly that reason.
 //
 // present is false for a nil claim and for any other shape, which keeps an
 // unreadable value from being mistaken for an assertion in either direction.

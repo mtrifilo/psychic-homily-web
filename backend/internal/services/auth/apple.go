@@ -123,6 +123,14 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
 	appleUserID := claims.Subject
 
+	// The subject is the identity this whole function resolves on, and
+	// provider_user_id permits the empty string. Without this, a token with no
+	// subject would match any row stored with an empty one and sign in as its
+	// owner, ahead of every check below.
+	if appleUserID == "" {
+		return nil, fmt.Errorf("apple identity token has no subject")
+	}
+
 	// Look for existing OAuth account with provider=apple
 	var oauthAccount authm.OAuthAccount
 	result := s.db.
@@ -145,7 +153,9 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	// No existing Apple account. Check if a user exists with the same email.
 	if claims.Email != "" {
 		var existingUser authm.User
-		if err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error; err == nil {
+		err := s.db.Where(authm.EmailIdentityWhere, claims.Email).First(&existingUser).Error
+		switch {
+		case err == nil:
 			// The address is the only thing tying this Apple identity to an
 			// account that already exists, so Apple has to assert it verified
 			// the address.
@@ -157,6 +167,10 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 			}
 			// Link Apple account to existing user
 			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			// A failed lookup is not proof that no account holds the address,
+			// so it must not fall through to creating one.
+			return nil, fmt.Errorf("database error: %w", err)
 		}
 	}
 

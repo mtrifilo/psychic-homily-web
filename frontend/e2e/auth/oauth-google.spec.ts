@@ -36,8 +36,9 @@ import { BACKEND_BASE_URL } from '../backend-url'
 //
 // That link is conditional: the backend links by address only when the provider
 // asserts it verified the address, and the clone stamps that assertion into
-// RawData. Under OAUTH_TEST_PROVIDER_UNVERIFIED_EMAIL the clone reports
-// unverified and this login becomes a refusal instead.
+// RawData. This spec only covers the verified side; the refusal is covered by
+// the Go handler and service suites, because flipping the clone means
+// restarting the backend the harness starts once.
 
 // PSY-1645: resolved, not hardcoded — this must be the backend global-setup
 // actually started, or the callback below lands on an unrelated process.
