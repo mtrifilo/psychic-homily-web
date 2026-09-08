@@ -89,6 +89,13 @@ vi.mock('./SceneCollections', () => ({
 vi.mock('./SceneGapLine', () => ({
   SceneGapLine: () => <div data-testid="scene-gap-line" />,
 }))
+// The crews chip row owns a request and a suite of its own (SceneCrews.test.tsx);
+// this file asserts only where the view places it.
+vi.mock('./SceneCrews', () => ({
+  SceneCrews: ({ scene }: { scene: SceneDetail }) => (
+    <div data-testid="scene-crews">{scene.slug}</div>
+  ),
+}))
 
 const mockUseSceneDetail = vi.fn()
 vi.mock('../hooks', () => ({
@@ -375,6 +382,27 @@ describe('SceneDetailView', () => {
       renderScene({ slug: 'phoenix-az' })
       expect(screen.getByTestId('share-button')).toHaveTextContent('/scenes/phoenix-az')
       expect(screen.getByTestId('scene-add-to-calendar')).toHaveTextContent('phoenix-az')
+    })
+
+    // Figma `1402:2` draws the row directly under the scene's identity and
+    // ABOVE the actions, so it sits between the stat line and the action row.
+    // It is handed the scene the page resolved to rather than the route's slug
+    // argument: a member-city slug and the canonical one are not the same
+    // string.
+    it("puts the crews chip row between the stat line and the actions", () => {
+      const { container } = renderScene({ slug: 'tempe-az' })
+      const crews = screen.getByTestId('scene-crews')
+      const statLine = screen.getByRole('heading', {
+        level: 1,
+        name: 'Phoenix, AZ',
+      }).nextElementSibling
+
+      expect(statLine?.nextElementSibling).toBe(crews)
+      expect(crews.nextElementSibling).toBe(
+        screen.getByTestId('share-button').closest('div')
+      )
+      expect(container.querySelector('header')).toContainElement(crews)
+      expect(crews).toHaveTextContent('phoenix-az')
     })
 
     it('does not render editorial scaffolding in the reserved slot', () => {

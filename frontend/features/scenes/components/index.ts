@@ -31,19 +31,19 @@ export { SceneList } from './SceneList'
 // barrel would therefore not merely add bytes — it would pull a server-only
 // module across the client boundary, which is a different class of breakage.
 //
-// SceneRooms / SceneNewBands / SceneRoster (PSY-1784), SceneCollections and
-// SceneGapLine are off it for the same reason: listing any of them would put
-// that module's markup, and everything it reaches, into the global chunk on
-// behalf of one section of one route. SceneCollections reaches across
-// features, into features/collections.
+// SceneRooms / SceneNewBands / SceneRoster (PSY-1784), SceneCollections,
+// SceneGapLine and SceneCrews are off it for the same reason: listing any of
+// them would put that module's markup, and everything it reaches, into the
+// global chunk on behalf of one section of one route. SceneCollections reaches
+// across features, into features/collections.
 //
 // NOT because of MusicEmbed, which an earlier version of this note claimed:
 // MusicEmbed is ALREADY global (layout -> @/components/layout -> AppShell ->
 // CommandPalette -> the @/components/shared barrel, which exports it). The
-// three modules deep-import their shared primitives anyway, which is the habit
-// that keeps that from being load-bearing in the wrong direction later.
+// evicted modules deep-import their shared primitives anyway, which is the
+// habit that keeps that from being load-bearing in the wrong direction later.
 //
-// All three are also named in features/sharedChunkBarrelGuard.test.ts, because
-// this comment cannot fail a build and that list can.
+// Every one of them is also named in features/sharedChunkBarrelGuard.test.ts,
+// because this comment cannot fail a build and that list can.
 export { AtlasGlobe } from './AtlasGlobe'
 export { ScenePreviewPanel } from './ScenePreviewPanel'
