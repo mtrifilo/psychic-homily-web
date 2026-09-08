@@ -32,6 +32,10 @@ import (
 //   - It sweeps /auth/ only. The public /unsubscribe/ family registered in
 //     auth.go on rc.API and on the chi router is invisible to it.
 //   - It sweeps mutating methods only. No GET takes a password today.
+//   - It sees only the routes THIS build registers. setupPasskeyRoutes returns
+//     early when rc.SC.WebAuthn is nil, so a mutating route added inside that
+//     block, or inside any other conditional registration, is invisible to the
+//     sweep on a build where the condition is false.
 const authInventoryPrefix = "/auth/"
 
 var authInventoryMethods = []string{"POST", "PUT", "PATCH", "DELETE"}
@@ -119,22 +123,43 @@ func TestEveryMutatingAuthRouteHasARateLimitDisposition(t *testing.T) {
 			served[key] = true
 			if _, ok := authRouteRateLimitScope[key]; !ok {
 				t.Errorf("the router serves %q and no budget is written down for it: "+
-					"if it takes the account password it belongs on passwordConfirmGroup, and either "+
-					"way its scope has to be recorded here", key)
+					"record the group it is REGISTERED on, reading auth.go rather than copying a "+
+					"neighbouring constant, since a wrong sentence here passes this test and "+
+					"misleads the next reader; if it takes the account password it belongs on "+
+					"passwordConfirmGroup", key)
 			}
 		}
 	}
 
-	var stale []string
-	for key := range authRouteRateLimitScope {
-		if !served[key] {
-			stale = append(stale, key)
+	// The passkey routes are registered only when the WebAuthn service built,
+	// so on a build without it every passkey row would read as stale and this
+	// guard would go red over configuration rather than over routing. Absent as
+	// a block is the condition being false; absent one at a time is a real
+	// stale row.
+	passkeyServed := 0
+	for key, scope := range authRouteRateLimitScope {
+		if scope == scopePasskey && served[key] {
+			passkeyServed++
 		}
+	}
+
+	var stale []string
+	for key, scope := range authRouteRateLimitScope {
+		if served[key] {
+			continue
+		}
+		if scope == scopePasskey && passkeyServed == 0 {
+			continue
+		}
+		stale = append(stale, key)
 	}
 	sort.Strings(stale)
 	for _, key := range stale {
 		t.Errorf("%q is dispositioned here but the router no longer serves it: "+
 			"a stale entry hides the next route that takes its place", key)
+	}
+	if passkeyServed == 0 {
+		t.Log("this build registered no passkey routes, so their dispositions were not swept")
 	}
 }
 
@@ -176,15 +201,16 @@ const passwordConfirmOverReachProbe = `huma.Get(rc.Protected, "/auth/preferences
 // The probe only proves anything while it is registered AFTER the group: a Huma
 // group binds its middleware into an operation as that operation is registered,
 // so a route registered earlier answers normally whatever the group is attached
-// to. That ordering lives in the source and has no runtime representation, so
-// this reads the source.
+// to.
 //
-// Without this, tidying the preference registrations into a block above the
-// group turns the over-reach probe into an assertion that cannot fail, and a
-// limiter mistakenly throttling every authenticated route at this budget ships
-// green.
+// The property is CALL order. This reads text order inside one function body,
+// which stands in for it only while both sites live in that body, so the search
+// is bounded to setupProtectedAuthRoutes: hoisting the preference registrations
+// into a helper called before it fails here rather than quietly turning the
+// over-reach probe into an assertion that cannot fail.
 func TestPasswordConfirmOverReachProbeIsRegisteredAfterTheGroup(t *testing.T) {
 	const mount = "passwordConfirmGroup := huma.NewGroup("
+	const enclosing = "func setupProtectedAuthRoutes(rc RouteContext) {"
 
 	source, err := os.ReadFile("auth.go")
 	if err != nil {
@@ -192,15 +218,28 @@ func TestPasswordConfirmOverReachProbeIsRegisteredAfterTheGroup(t *testing.T) {
 	}
 	text := string(source)
 
-	mountAt := strings.Index(text, mount)
+	bodyAt := strings.Index(text, enclosing)
+	if bodyAt < 0 {
+		t.Fatalf("auth.go no longer declares %q; the over-reach probe's premise cannot be checked", enclosing)
+	}
+	body := text[bodyAt:]
+	if next := strings.Index(body[len(enclosing):], "\nfunc "); next >= 0 {
+		body = body[:len(enclosing)+next]
+	}
+
+	mountAt := strings.Index(body, mount)
 	if mountAt < 0 {
-		t.Fatalf("auth.go no longer contains %q; the over-reach probe's premise cannot be checked", mount)
+		t.Fatalf("%s no longer builds %q; the over-reach probe's premise cannot be checked", enclosing, mount)
 	}
-	probeAt := strings.Index(text, passwordConfirmOverReachProbe)
-	if probeAt < 0 {
-		t.Fatalf("auth.go no longer registers the over-reach probe as %q; the throttle test is asking for a "+
-			"route this guard cannot find, so pick a new probe and update both", passwordConfirmOverReachProbe)
+	// Exactly one, so a commented-out or duplicated registration earlier in the
+	// body cannot satisfy the ordering on behalf of the live one.
+	if n := strings.Count(body, passwordConfirmOverReachProbe); n != 1 {
+		t.Fatalf("%s contains %d occurrences of %q, want exactly 1: with more than one, the ordering "+
+			"below is checked against whichever comes first rather than against the registration the "+
+			"throttle test calls", enclosing, n, passwordConfirmOverReachProbe)
 	}
+	probeAt := strings.Index(body, passwordConfirmOverReachProbe)
+
 	if probeAt < mountAt {
 		t.Errorf("the over-reach probe is registered before passwordConfirmGroup, so it would answer 200 whether " +
 			"the limiter is on the group or on rc.Protected; the throttle test's reach assertion can no longer fail")

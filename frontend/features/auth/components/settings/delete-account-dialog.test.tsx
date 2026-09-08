@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as Sentry from '@sentry/nextjs'
 import { renderWithProviders } from '@/test/utils'
@@ -473,14 +473,15 @@ describe('DeleteAccountDialog', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
 
-    // Wait for the rejection to have been handled, not merely for the mutation
-    // to have been called: the call happens before the catch runs, so asserting
-    // on it would leave this passing by timing rather than by the guard.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Delete My Account' })
-      ).toBeEnabled()
-    )
+    // The catch runs in the promise chain the click started, so the assertion
+    // has to come after that chain settles rather than after the call: waiting
+    // on rendered state would not do it, because the mutation state this test
+    // renders from is a static mock. The paired 503 case is the control that
+    // this synchronization can observe a capture at all.
+    await waitFor(() => expect(mockDeleteMutateAsync).toHaveBeenCalled())
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled()
   })
 
@@ -507,7 +508,7 @@ describe('DeleteAccountDialog', () => {
 // password-confirm-errors.test.ts; what is this surface's own is the copy it
 // binds.
 describe('formatDeleteAccountError', () => {
-  it('binds this dialog copy to the shared formatter', () => {
+  it('binds this dialog fallback, and passes the throttle and message branches through', () => {
     const throttled = Object.assign(new Error('Rate limit exceeded.'), {
       status: 429,
     })

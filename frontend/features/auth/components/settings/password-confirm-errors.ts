@@ -1,20 +1,23 @@
 import type { ApiError } from '@/lib/api'
 
 /**
- * Copy for one password-confirming surface.
+ * The sentence every password-confirming surface opens its throttle line with.
  *
- * `throttledSentence` is a complete sentence, terminal punctuation included and
- * no trailing space: the formatter appends a second sentence after it. It must
- * not name the surface it is shown on, because one budget meters every surface
- * that uses this formatter and a person can arrive at one with the budget
- * already spent on another. Every caller passing the same sentence is asserted
- * in password-confirm-errors.test.ts.
- *
- * `fallback` is the line shown when a failure carries no message of its own.
+ * It is one exported value rather than a per-surface string because one budget
+ * meters every surface that uses this formatter: a person can be refused here
+ * by traffic they sent somewhere else, so a sentence naming the surface it
+ * appears on would name the wrong cause. A complete sentence, terminal
+ * punctuation included and no trailing space, since the formatter appends a
+ * second sentence after it.
+ */
+export const PASSWORD_CONFIRM_THROTTLED_SENTENCE = 'Too many password attempts.'
+
+/**
+ * Copy for one password-confirming surface: the line shown when a failure
+ * carries no message of its own.
  */
 interface PasswordConfirmErrorCopy {
   fallback: string
-  throttledSentence: string
 }
 
 /**
@@ -41,9 +44,9 @@ export function formatPasswordConfirmError(
   if (apiErr.status === 429) {
     const retryAfter = apiErr.retryAfter
     if (typeof retryAfter === 'number' && retryAfter > 0) {
-      return `${copy.throttledSentence} Try again in ${retryAfter}s.`
+      return `${PASSWORD_CONFIRM_THROTTLED_SENTENCE} Try again in ${retryAfter}s.`
     }
-    return `${copy.throttledSentence} Try again in a minute.`
+    return `${PASSWORD_CONFIRM_THROTTLED_SENTENCE} Try again in a minute.`
   }
   return apiErr.message || copy.fallback
 }

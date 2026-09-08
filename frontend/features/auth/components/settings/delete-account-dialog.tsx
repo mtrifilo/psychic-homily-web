@@ -42,12 +42,12 @@ interface DeleteAccountDialogProps {
 type Step = 'warning' | 'confirm' | 'success'
 
 /**
- * This dialog's spelling of the shared password-confirm copy.
+ * This dialog's spelling of the shared password-confirm copy. The throttle
+ * sentence is the shared one; only the fallback is this dialog's own.
  */
 export function formatDeleteAccountError(error: unknown): string {
   return formatPasswordConfirmError(error, {
     fallback: 'Failed to delete account. Please try again.',
-    throttledSentence: 'Too many password attempts.',
   })
 }
 
@@ -112,9 +112,11 @@ export function DeleteAccountDialog({
         setStep('success')
       }
     } catch (error) {
-      // A 429 is the limiter working, and lib/api.ts already records every one
-      // of them as a rate-limit hit. Reporting it here would file the throttle
-      // as an account-deletion fault and double-count it.
+      // A 429 is the limiter working, not an account-deletion fault. It is
+      // still reported: lib/api.ts records every 429 through
+      // recordRateLimitHit, which breadcrumbs each one and promotes a sampled
+      // event tagged error_type: rate_limited. What is given up here is the
+      // per-occurrence event tagged service: account-deletion.
       if ((error as ApiError)?.status === 429) return
       Sentry.captureException(error, {
         level: 'warning',

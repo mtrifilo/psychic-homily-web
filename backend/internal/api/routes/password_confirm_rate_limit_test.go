@@ -16,6 +16,50 @@ import (
 // properties that make the budget safe to add: it is not the public auth
 // counter, and an unauthenticated caller cannot spend it.
 
+// The account password of the fixture user.
+const passwordConfirmAccountPassword = "fixture-account-password"
+
+// Request bodies and the handler replies that prove the request got past the
+// limiter. The change-password body repeats one value on purpose: the handler
+// rejects equal passwords before it reaches the password validator, which
+// queries HaveIBeenPwned over the network. The delete body is a wrong password,
+// which the handler answers without touching the account. Asserting the reply is
+// what stops a body the operation never accepted from passing for a request that
+// reached the handler.
+const (
+	passwordConfirmChangeBody    = `{"current_password":"same-password-value","new_password":"same-password-value"}`
+	passwordConfirmChangeReached = "New password must be different"
+	passwordConfirmDeleteBody    = `{"password":"not-the-account-password"}`
+	passwordConfirmDeleteReached = "Password is incorrect"
+)
+
+type passwordConfirmRoute struct {
+	path    string
+	body    string
+	reached string
+}
+
+// passwordConfirmBudgetRoutes is the membership of the shared budget as the
+// tests drive it. It lives in this file rather than beside the router-level
+// test because the fast tests in this package read it and this file carries no
+// database dependency. Two guards sit either side of it:
+//
+//   - TestPasswordConfirmDispositionsCoverTheBudget requires this list and the
+//     rows dispositioned onto this budget in the route inventory to name the
+//     same routes, so a member recorded in one and not the other fails;
+//   - TestPasswordConfirmRoutesThrottledThroughRouter requires every route
+//     listed here to be throttled by a budget its siblings spent, so a member
+//     that is not actually mounted on the group fails.
+//
+// Neither reads the middleware chain, which a Huma group hides inside the
+// operation handler. A route mounted on the group and written down in neither
+// place is caught by the inventory sweep of the built router, which requires a
+// disposition for every mutating route under /auth/.
+var passwordConfirmBudgetRoutes = []passwordConfirmRoute{
+	{path: "/auth/change-password", body: passwordConfirmChangeBody, reached: passwordConfirmChangeReached},
+	{path: "/auth/account/delete", body: passwordConfirmDeleteBody, reached: passwordConfirmDeleteReached},
+}
+
 // limiterAttempt sends one request through a bare limiter chain, with no router
 // or handler behind it, so the recorded code is the limiter's own answer.
 //
@@ -155,8 +199,11 @@ func TestPasswordConfirmUnauthenticatedRequestsDoNotSpendTheBudget(t *testing.T)
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 	router := newTestRouter(t)
 
+	// A block of its own: every other test in this file names a fixed address,
+	// and an index-derived one that grew into theirs would 429 early and be
+	// reported as a budget tighter than the constant.
 	for routeIndex, route := range passwordConfirmBudgetRoutes {
-		ip := fmt.Sprintf("203.0.113.%d:1234", 64+routeIndex)
+		ip := fmt.Sprintf("203.0.113.%d:1234", 140+routeIndex)
 		for attempt := 0; attempt < PasswordConfirmAttemptsPerMinute*3; attempt++ {
 			code := send(t, router, "POST", route.path, ip, nil)
 			if code == http.StatusTooManyRequests {

@@ -317,7 +317,7 @@ describe('ChangePassword', () => {
 // password-confirm-errors.test.ts; what is this surface's own is the copy it
 // binds.
 describe('formatChangePasswordError', () => {
-  it('binds this form copy to the shared formatter', () => {
+  it('binds this form fallback, and passes the throttle and message branches through', () => {
     const throttled = Object.assign(new Error('Rate limit exceeded.'), {
       status: 429,
     })

@@ -39,16 +39,12 @@ const changePasswordSchema = z
 type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
 
 /**
- * This form's spelling of the shared password-confirm copy.
- *
- * The throttle sentence names the password rather than the password change:
- * a person can arrive here with the budget already spent, so naming this form's
- * own attempts would send them looking for the wrong cause.
+ * This form's spelling of the shared password-confirm copy. The throttle
+ * sentence is the shared one; only the fallback is this form's own.
  */
 export function formatChangePasswordError(error: unknown): string {
   return formatPasswordConfirmError(error, {
     fallback: 'Failed to change password',
-    throttledSentence: 'Too many password attempts.',
   })
 }
 

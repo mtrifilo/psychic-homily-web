@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { formatPasswordConfirmError } from './password-confirm-errors'
+import {
+  formatPasswordConfirmError,
+  PASSWORD_CONFIRM_THROTTLED_SENTENCE,
+} from './password-confirm-errors'
 import { formatChangePasswordError } from './change-password'
 import { formatDeleteAccountError } from './delete-account-dialog'
 
-const copy = {
-  fallback: 'Something went wrong',
-  throttledSentence: 'Too many attempts.',
-}
+const copy = { fallback: 'Something went wrong' }
+const throttled = PASSWORD_CONFIRM_THROTTLED_SENTENCE
 
 describe('formatPasswordConfirmError', () => {
   it('keeps the server message for a non-429 failure', () => {
@@ -25,7 +26,7 @@ describe('formatPasswordConfirmError', () => {
       retryAfter: 42,
     })
     expect(formatPasswordConfirmError(error, copy)).toBe(
-      'Too many attempts. Try again in 42s.'
+      `${throttled} Try again in 42s.`
     )
   })
 
@@ -36,7 +37,7 @@ describe('formatPasswordConfirmError', () => {
       status: 429,
     })
     expect(formatPasswordConfirmError(error, copy)).toBe(
-      'Too many attempts. Try again in a minute.'
+      `${throttled} Try again in a minute.`
     )
   })
 
@@ -46,7 +47,7 @@ describe('formatPasswordConfirmError', () => {
       retryAfter: 0,
     })
     expect(formatPasswordConfirmError(error, copy)).toBe(
-      'Too many attempts. Try again in a minute.'
+      `${throttled} Try again in a minute.`
     )
   })
 
@@ -62,17 +63,22 @@ describe('formatPasswordConfirmError', () => {
 })
 
 // One budget meters both surfaces, so a person can be throttled on one by
-// traffic to the other. A throttle line naming the surface it appears on would
-// therefore name the wrong cause, which is why the sentence is passed in rather
-// than written per surface, and why it has to be the same sentence.
-describe('the throttle sentence is surface neutral', () => {
-  it('reads the same on every surface that shares the budget', () => {
-    const throttled = Object.assign(new Error('Rate limit exceeded.'), {
-      status: 429,
-      retryAfter: 30,
-    })
-    expect(formatDeleteAccountError(throttled)).toBe(
-      formatChangePasswordError(throttled)
+// traffic to the other and a line naming the surface would name the wrong
+// cause. The sentence is one exported constant, so the surfaces cannot drift;
+// this pins that each of them renders that constant rather than a copy of its
+// current wording.
+describe('every surface renders the shared throttle sentence', () => {
+  const rateLimited = Object.assign(new Error('Rate limit exceeded.'), {
+    status: 429,
+    retryAfter: 30,
+  })
+
+  it.each([
+    ['the deletion dialog', formatDeleteAccountError],
+    ['the settings password form', formatChangePasswordError],
+  ])('%s opens its throttle line with it', (_name, format) => {
+    expect(format(rateLimited)).toBe(
+      `${PASSWORD_CONFIRM_THROTTLED_SENTENCE} Try again in 30s.`
     )
   })
 })

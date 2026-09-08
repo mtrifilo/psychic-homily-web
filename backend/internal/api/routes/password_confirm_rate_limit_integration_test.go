@@ -27,48 +27,6 @@ import (
 // What this file covers is the MOUNTING of every member, the reach of the
 // mount, and that the members draw on ONE counter.
 
-// The account password of the fixture user.
-const passwordConfirmAccountPassword = "fixture-account-password"
-
-// Request bodies and the handler replies that prove the request got past the
-// limiter. The change-password body repeats one value on purpose: the handler
-// rejects equal passwords before it reaches the password validator, which
-// queries HaveIBeenPwned over the network. The delete body is a wrong password,
-// which the handler answers without touching the account. Asserting the reply is
-// what stops a body the operation never accepted from passing for a request that
-// reached the handler.
-const (
-	passwordConfirmChangeBody    = `{"current_password":"same-password-value","new_password":"same-password-value"}`
-	passwordConfirmChangeReached = "New password must be different"
-	passwordConfirmDeleteBody    = `{"password":"not-the-account-password"}`
-	passwordConfirmDeleteReached = "Password is incorrect"
-)
-
-type passwordConfirmRoute struct {
-	path    string
-	body    string
-	reached string
-}
-
-// passwordConfirmBudgetRoutes is the membership of the shared budget as the
-// tests drive it. Two guards sit either side of it:
-//
-//   - TestPasswordConfirmDispositionsCoverTheBudget requires this list and the
-//     rows dispositioned onto this budget in the route inventory to name the
-//     same routes, so a member recorded in one and not the other fails;
-//   - TestPasswordConfirmRoutesThrottledThroughRouter requires every route
-//     listed here to be throttled by a budget its siblings spent, so a member
-//     that is not actually mounted on the group fails.
-//
-// Neither reads the middleware chain, which a Huma group hides inside the
-// operation handler. A route mounted on the group and written down in neither
-// place is caught by the inventory sweep of the built router, which requires a
-// disposition for every mutating route under /auth/.
-var passwordConfirmBudgetRoutes = []passwordConfirmRoute{
-	{path: "/auth/change-password", body: passwordConfirmChangeBody, reached: passwordConfirmChangeReached},
-	{path: "/auth/account/delete", body: passwordConfirmDeleteBody, reached: passwordConfirmDeleteReached},
-}
-
 // passwordConfirmFixture builds a user carrying a real password hash, a session
 // for it, and a router from the live route table.
 //
@@ -201,6 +159,17 @@ func TestPasswordConfirmRoutesThrottledThroughRouter(t *testing.T) {
 			"a 429 means the limiter is mounted on the protected group rather than on the "+
 			"password-confirm group, and any other code means this probe stopped proving that",
 			sibling.Code)
+	}
+
+	// The read the dialog makes when it opens. It takes no password, so it is on
+	// rc.Protected rather than on the group; moving it onto the group would mean
+	// merely opening the deletion dialog spends a password guess, and the
+	// inventory sweep cannot see it because it sweeps mutating methods only.
+	summary := sendAuthed(t, router, "GET", "/auth/account/deletion-summary", "", probeIP, session)
+	if summary.Code != http.StatusOK {
+		t.Errorf("GET /auth/account/deletion-summary answered %d with the password-confirm budget exhausted, "+
+			"want 200: the summary read is on the password-confirm group, so opening the deletion dialog "+
+			"now costs a password guess", summary.Code)
 	}
 
 	// The neighbouring budget of the same size. Hoisting the
