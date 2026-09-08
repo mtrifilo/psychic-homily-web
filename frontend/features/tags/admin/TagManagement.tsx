@@ -114,21 +114,36 @@ function holdsStoredLink(social: TagDetailResponse['social']): boolean {
   return TAG_LINK_PLATFORMS.some((platform) => Boolean(social?.[platform]))
 }
 
+/** The draft as it stood when the form loaded, per platform. */
+function tagLinkDraftFrom(social: TagDetailResponse['social']): TagLinkDraft {
+  return Object.fromEntries(
+    TAG_LINK_PLATFORMS.map((platform) => [platform, social?.[platform] ?? ''])
+  ) as TagLinkDraft
+}
+
 /**
- * The link half of a tag write, or nothing.
+ * The link half of a tag write: only the platforms whose input DIFFERS from
+ * what the form loaded.
+ *
+ * Sending all three on every save would make an untouched field a write. The
+ * empty string means "clear", so a form whose baseline is empty because the
+ * response it loaded carried no `social` key, or carried a stale one, would
+ * clear links it never displayed and whose owner never touched them. Sending
+ * only what changed makes an untouched field cost nothing.
  *
  * A form that is not offering the inputs sends no link keys at all, so a
- * category change cannot silently clear values the admin was not shown. A
- * trimmed-empty input is sent, and clears its column.
+ * category change cannot clear values the admin was not shown.
  */
 function tagLinkPayload(
   category: string,
   links: TagLinkDraft,
+  baseline: TagLinkDraft,
   hasStoredLink: boolean
 ): TagLinkInput {
   if (!offersTagLinks(category, hasStoredLink)) return {}
   return Object.fromEntries(
     TAG_LINK_PLATFORMS.map((platform) => [platform, links[platform].trim()])
+      .filter(([platform, value]) => value !== baseline[platform as TagLinkPlatform])
   )
 }
 
@@ -338,7 +353,7 @@ function CreateTagForm({
           description: description.trim() || undefined,
           category,
           is_official: isOfficial,
-          ...tagLinkPayload(category, links, false),
+          ...tagLinkPayload(category, links, EMPTY_TAG_LINKS, false),
         },
         {
           onSuccess: () => onSuccess(),
@@ -507,11 +522,11 @@ export function EditTagFormFields({
     canonicalTagCategory(tag.category)
   )
   const [isOfficial, setIsOfficial] = useState(tag.is_official)
-  const [links, setLinks] = useState<TagLinkDraft>({
-    website: tag.social?.website ?? '',
-    instagram: tag.social?.instagram ?? '',
-    bandcamp: tag.social?.bandcamp ?? '',
-  })
+  // The baseline is what the loaded row held; the submit sends only the
+  // platforms that differ from it. Derived from the tag, not held in state, so
+  // it cannot drift from the row this form is editing.
+  const linkBaseline = tagLinkDraftFrom(tag.social)
+  const [links, setLinks] = useState<TagLinkDraft>(linkBaseline)
   const hasStoredLink = holdsStoredLink(tag.social)
   const [error, setError] = useState<string | null>(null)
 
@@ -555,7 +570,7 @@ export function EditTagFormFields({
             description: description.trim() || null,
             category,
             is_official: isOfficial,
-            ...tagLinkPayload(category, links, hasStoredLink),
+            ...tagLinkPayload(category, links, linkBaseline, hasStoredLink),
           },
         },
         {
@@ -574,6 +589,7 @@ export function EditTagFormFields({
       category,
       isOfficial,
       links,
+      linkBaseline,
       hasStoredLink,
       tagId,
       updateMutation,

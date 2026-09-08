@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/utils"
 )
 
 func tagLinkPtr(s string) *string { return &s }
@@ -29,24 +30,70 @@ var refusedTagLinkValues = []struct {
 	{"host-less website", catalogm.TagLinks{Website: tagLinkPtr("https:///path")}},
 }
 
-// TestTagLinkGateMatchesTheArtistGate pins the tag columns to the SAME rule and
-// the SAME wording the artist/venue/label/festival columns of these names get.
-// A refusal that read differently here would be a second policy, which is the
-// thing this handler deliberately does not have.
-func TestTagLinkGateMatchesTheArtistGate(t *testing.T) {
+// TestTagLinkRefusalsCarryThePolicysOwnWording pins each refusal to the message
+// the POLICY function produces, not to the wrapper that calls it.
+//
+// Comparing validateTagLinks against ValidateSocialURLs would be comparing a
+// call with itself. utils.ValidateSocialHost and utils.ValidateHTTPURL are the
+// two rules underneath, and they are what the artist, venue, label and festival
+// columns of these names reach as well, so a tag refusal that stopped matching
+// them would be a second policy.
+func TestTagLinkRefusalsCarryThePolicysOwnWording(t *testing.T) {
 	for _, tc := range refusedTagLinkValues {
 		t.Run(tc.name, func(t *testing.T) {
 			got := validateTagLinks(tc.links)
 			if got == nil {
 				t.Fatalf("expected a refusal for %+v", tc.links)
 			}
-			want := shared.ValidateSocialURLs(
-				tc.links.Instagram, nil, nil, nil, nil, nil, tc.links.Bandcamp, tc.links.Website,
-			)
-			if want == nil || want.Error() != got.Error() {
-				t.Errorf("tag refusal %q does not match the shared gate %v", got, want)
+			field, value := suppliedTagLink(tc.links)
+			label, ok := shared.URLFieldDisplayName(field)
+			if !ok {
+				t.Fatalf("urlFieldSpecs does not know %q", field)
+			}
+			want := utils.ValidateHTTPURL(value, label)
+			if want == nil {
+				want = utils.ValidateSocialHost(field, label, value)
+			}
+			if want == nil {
+				t.Fatalf("neither underlying rule refuses %q", value)
+			}
+			if !strings.Contains(got.Error(), want.Error()) {
+				t.Errorf("tag refusal %q does not carry the policy message %q", got, want)
 			}
 		})
+	}
+}
+
+// suppliedTagLink names the one field a refusal case sets.
+func suppliedTagLink(links catalogm.TagLinks) (string, string) {
+	switch {
+	case links.Instagram != nil:
+		return "instagram", *links.Instagram
+	case links.Bandcamp != nil:
+		return "bandcamp", *links.Bandcamp
+	case links.Website != nil:
+		return "website", *links.Website
+	}
+	return "", ""
+}
+
+// TestTagLinkGateAppliesEachRuleToItsOwnField is the guard on the positional
+// call inside validateTagLinks. website takes any host and bandcamp does not,
+// so a value accepted as a website and refused as a bandcamp separates the two
+// slots: swapping them makes exactly one of these two assertions fail.
+func TestTagLinkGateAppliesEachRuleToItsOwnField(t *testing.T) {
+	offPlatform := "https://rubberbrotherrecords.test"
+
+	if err := validateTagLinks(catalogm.TagLinks{Website: &offPlatform}); err != nil {
+		t.Errorf("website takes any host, got %v", err)
+	}
+	if err := validateTagLinks(catalogm.TagLinks{Bandcamp: &offPlatform}); err == nil {
+		t.Error("bandcamp is anchored to bandcamp.com and must refuse an off-platform host")
+	}
+
+	onPlatform := "https://rubberbrother.bandcamp.com"
+	if err := validateTagLinks(catalogm.TagLinks{Bandcamp: &onPlatform}); err != nil {
+		t.Errorf("an on-platform bandcamp URL must be accepted, got %v", err)
 	}
 }
 

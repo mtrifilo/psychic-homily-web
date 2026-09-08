@@ -98,8 +98,10 @@ type TagLinks struct {
 // goes. Columns and Apply both walk it, so the update path and the create path
 // cannot come to disagree about a column or the rule applied to it.
 //
-// The names are the field names urlFieldSpecs validates by, so what is
-// validated and what is stored are the same three things.
+// The names are DATABASE column names: Columns feeds a GORM Updates map, whose
+// keys go into the SQL unquoted and are checked by nothing at compile time.
+// Renaming a column here without renaming it in the migration fails at run
+// time, on an admin write.
 var tagLinkColumns = []struct {
 	name  string
 	value func(TagLinks) *string

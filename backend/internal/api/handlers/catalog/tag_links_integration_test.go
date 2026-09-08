@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
@@ -168,4 +169,64 @@ func (s *TagHandlerIntegrationSuite) TestTagLinks_InlineCreateTakesNoLinks() {
 	s.Nil(stored.Website)
 	s.Nil(stored.Instagram)
 	s.Nil(stored.Bandcamp)
+}
+
+// TestTagLinks_ColumnWidthsMatchTheURLRegistry closes the third leg of the cap
+// agreement. TestTagLinkCapsMatchTheURLRegistry holds the request structs to
+// urlFieldSpecs; this reads the widths back out of the MIGRATED database, so a
+// cap raised in the registry and the struct tags but not in the DDL fails here
+// rather than as a Postgres 22001 on a rare admin write.
+//
+// It reads information_schema rather than the migration file, so a later ALTER
+// is covered too.
+func (s *TagHandlerIntegrationSuite) TestTagLinks_ColumnWidthsMatchTheURLRegistry() {
+	for _, field := range []string{"website", "instagram", "bandcamp"} {
+		want, ok := shared.URLFieldMaxLength(field)
+		s.Require().True(ok, "urlFieldSpecs does not know %q", field)
+
+		var got int
+		err := s.deps.DB.Raw(
+			`SELECT character_maximum_length FROM information_schema.columns
+			 WHERE table_name = 'tags' AND column_name = ?`, field,
+		).Scan(&got).Error
+		s.Require().NoError(err)
+		s.Equal(want, got, "tags.%s is %d wide, urlFieldSpecs caps at %d", field, got, want)
+	}
+}
+
+// TestTagLinks_MergeDiscardsTheSourcesLinks records what merging does to the
+// new columns: nothing carries them to the target, and the source row is hard
+// deleted, so they are gone.
+//
+// This pins the behaviour rather than endorsing it. MergeTags has an explicit
+// carry-over inventory (entity tags, votes, aliases, usage_count, is_official)
+// and description is already dropped the same way; extending that inventory is
+// a product decision this ticket did not make. The test is here so the next
+// person changing it is changing something a test names.
+func (s *TagHandlerIntegrationSuite) TestTagLinks_MergeDiscardsTheSourcesLinks() {
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
+
+	website := "https://rubberbrotherrecords.test"
+	sourceReq := &CreateTagRequest{}
+	sourceReq.Body.Name = "Merge Source Crew"
+	sourceReq.Body.Category = catalogm.TagCategoryCrew
+	sourceReq.Body.Website = &website
+	source, err := s.handler.CreateTagHandler(ctx, sourceReq)
+	s.Require().NoError(err)
+
+	target := s.createTagViaHandler(admin, "Merge Target Crew", catalogm.TagCategoryCrew)
+
+	mergeReq := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
+	mergeReq.Body.TargetID = target.Body.ID
+	_, err = s.handler.MergeTagsHandler(ctx, mergeReq)
+	s.Require().NoError(err)
+
+	var merged catalogm.Tag
+	s.Require().NoError(s.deps.DB.First(&merged, target.Body.ID).Error)
+	s.Nil(merged.Website, "merge does not carry the source's links to the target")
+
+	var sourceCount int64
+	s.deps.DB.Model(&catalogm.Tag{}).Where("id = ?", source.Body.ID).Count(&sourceCount)
+	s.EqualValues(0, sourceCount, "the source row is hard deleted, taking its links with it")
 }

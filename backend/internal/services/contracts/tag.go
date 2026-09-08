@@ -42,10 +42,9 @@ type TagResponse struct {
 // NewTagResponse projects a stored tag's OWN COLUMNS onto the wire shape.
 //
 // The relationship-derived fields (ParentName, CreatedByUsername, Aliases) stay
-// with the callers, because each read path preloads a different subset and
-// answers differently when a preload is absent. What this owns is the column
-// list, which is the half that two hand-written projections had already been
-// keeping in step by hand.
+// with the callers: each read path preloads a different subset and answers
+// differently when a preload is absent. What this owns is the column list, so
+// a column added to Tag reaches every tag response from one place.
 func NewTagResponse(tag *catalogm.Tag) TagResponse {
 	return TagResponse{
 		ID:          tag.ID,

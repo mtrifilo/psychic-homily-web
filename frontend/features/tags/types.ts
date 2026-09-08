@@ -115,9 +115,14 @@ export interface TagDetailResponse extends TagListItem {
   child_count: number
   aliases: string[]
   /**
-   * Outbound links. The API always sends the key with a null per unset column;
-   * it is optional here because a response cached before these columns existed
-   * carries none, and the read gate renders nothing either way.
+   * Outbound links. The API always sends the key, with a null per unset
+   * column; it is optional here because a response cached before these columns
+   * existed carries none.
+   *
+   * An absent key renders nothing, and the admin form submits only the link
+   * inputs an operator changed, so an absent key also writes nothing. Both
+   * halves are load-bearing: a form that submitted every input would read an
+   * absent key as three empty strings, which the API takes as "clear".
    */
   social?: TagSocial
   created_by_user_id?: number
