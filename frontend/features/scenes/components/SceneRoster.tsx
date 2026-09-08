@@ -153,10 +153,23 @@ export function SceneRoster({
   /** The mobile graph teaser's link-out target (PSY-1472). */
   anchorId?: string
 }) {
+  // ONE control drives both the page size and the shape, so `expanded` is the
+  // reader's single answer to "show me the roster" rather than something
+  // derived from how many bands happened to come back. A scene whose whole
+  // roster already fits has nothing to widen and would otherwise never reach
+  // the dated rows at all.
+  const [expanded, setExpanded] = useState(false)
   const [limit, setLimit] = useState(ROSTER_PAGE_SIZE)
   // The hook retains the previous page across a limit change on its own, so the
   // reader keeps looking at the list while the rest of it arrives.
-  const { data, isLoading, isError } = useSceneArtists({ slug: scene.slug, limit })
+  //
+  // The dated fields are asked for only once the reader has opened the roster:
+  // they cost the backend a query, and the preview does not print them.
+  const { data, isLoading, isError } = useSceneArtists({
+    slug: scene.slug,
+    limit,
+    includeUpcoming: expanded,
+  })
   // The first page is read separately, and is what the player and the failed
   // widening both fall back on.
   //
@@ -201,12 +214,26 @@ export function SceneRoster({
 
   const embed = firstPage?.representative_embed
 
-  // The shape follows the reader's REQUEST, not the response, and there is only
-  // ever one rule: a reader who has asked for the whole roster is reading the
-  // expanded list. A widening that then fails draws the rows it does have in
-  // that same shape, with the shortfall stated below them, rather than snapping
-  // back to a preview the reader has already left.
-  const expanded = limit > ROSTER_PAGE_SIZE
+  // The control is offered until the reader takes it, and it names which of the
+  // two things it will do. On a roster that overflows the first page it fetches
+  // the rest AND dates them; on one that already fits there is nothing to
+  // fetch, so it names the only thing that changes. Both set the same state, so
+  // there is one expanded shape and one way into it.
+  //
+  // A widening that FAILS leaves the reader in the shape they asked for over
+  // the page already on screen, with the shortfall stated below, rather than
+  // snapping back to a preview they have already left.
+  const control = canExpand
+    ? {
+        label: expandTo === total ? `Show all ${total} →` : `Show ${expandTo} of ${total} →`,
+        onClick: () => {
+          setLimit(expandTo)
+          setExpanded(true)
+        },
+      }
+    : expanded
+      ? null
+      : { label: 'Show upcoming →', onClick: () => setExpanded(true) }
 
   return (
     <section id={anchorId} className="scroll-mt-20 border-t border-border pt-4">
@@ -221,24 +248,22 @@ export function SceneRoster({
       ) : (
         <p className="mt-2 text-sm leading-relaxed">
           <EntityNameList items={artists} basePath="/artists" />
-          {/* The ellipsis rides with the CONTROL, not with the elision: it marks
-              names one click away. Names withheld by the endpoint's ceiling are
-              past any control, and the line below names the shown count and the
-              total instead. Decorative either way, so it is hidden from assistive
+          {/* The ellipsis marks names one click away, so it rides with the
+              WIDENING control only: beside "Show upcoming" no names are
+              withheld. Names withheld by the endpoint's ceiling are past any
+              control, and the line below names the shown count and the total
+              instead. Decorative either way, so it is hidden from assistive
               tech, which reads the control's own label. */}
-          {canExpand && (
+          {control && (
             <>
-              <span aria-hidden="true" className="text-muted-foreground">
-                {' … '}
-              </span>
-              <BracketLink
-                label={
-                  expandTo === total
-                    ? `Show all ${total} →`
-                    : `Show ${expandTo} of ${total} →`
-                }
-                onClick={() => setLimit(expandTo)}
-              />
+              {canExpand ? (
+                <span aria-hidden="true" className="text-muted-foreground">
+                  {' … '}
+                </span>
+              ) : (
+                ' '
+              )}
+              <BracketLink label={control.label} onClick={control.onClick} />
             </>
           )}
         </p>

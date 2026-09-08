@@ -1477,7 +1477,6 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 	}
 
 	results := make([]*contracts.SceneArtistResponse, len(rows))
-	ids := make([]uint, len(rows))
 	for i, r := range rows {
 		slug := ""
 		if r.Slug != nil {
@@ -1493,23 +1492,7 @@ func (s *SceneService) GetActiveArtists(city, state string, activeWindowDays, li
 			IsActive:         r.IsActive,
 			BandcampEmbedURL: r.BandcampEmbedURL,
 		}
-		ids[i] = r.ID
 	}
-
-	// Upcoming activity is a second read over the fetched page rather than more
-	// joins above, because it partitions on each show's own venue zone while the
-	// query above is keyed on the artist alone. One extra round trip whatever
-	// the page holds; the rows it walks are the page's bands times their booked
-	// shows, since a count has to see every one of them.
-	//
-	// Served on every page of the roster, not only the expanded one the fields
-	// are drawn on: the endpoint publishes one artist shape, and a variant
-	// payload behind a flag would put two of them on the wire.
-	upcoming, err := s.batchRosterUpcoming(ids)
-	if err != nil {
-		return nil, 0, err
-	}
-	applyRosterUpcoming(results, upcoming)
 
 	return results, total, nil
 }

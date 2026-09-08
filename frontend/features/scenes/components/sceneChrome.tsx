@@ -207,9 +207,9 @@ export type TrackedRoom = {
  * tone, rather than the medium-weight entity name `EntityNameLink` defaults to.
  *
  * It is what a link wears when it is NOT the primary name of its row — a room
- * in a list, a caption, a clause under a band's name. Those places are muted
- * mono where the default weight bump is nearly invisible and its hover
- * underline waits for a hover a touch reader never performs.
+ * in a comma-free list, a player caption, a clause under a band's name. The
+ * underline is carried rather than left to hover, because a touch reader never
+ * hovers and would see no affordance at all.
  */
 export const SCENE_PROSE_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
 

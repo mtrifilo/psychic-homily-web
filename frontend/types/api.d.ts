@@ -32661,6 +32661,8 @@ export interface operations {
                 limit?: number;
                 /** @description Offset for pagination */
                 offset?: number;
+                /** @description Fill upcoming_show_count and next_show per band, scoped to this scene's rooms. Costs an extra query, so ask only when rendering them. */
+                include_upcoming?: boolean;
             };
             header?: never;
             path: {

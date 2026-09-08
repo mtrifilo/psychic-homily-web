@@ -56,6 +56,15 @@ interface UseSceneArtistsOptions {
   period?: number
   limit?: number
   offset?: number
+  /**
+   * Ask the endpoint to fill `upcoming_show_count` and `next_show` per band.
+   *
+   * Opt-in because it costs the backend a query, and most readers of this hook
+   * draw names only. Leaving it off does NOT return zeros meaning "nothing
+   * booked" — it returns zeros meaning "not asked", so a caller that renders
+   * either field must set it.
+   */
+  includeUpcoming?: boolean
 }
 
 /** Position of `slug` in `queryKeys.scenes.artists`, which this hook reads back. */
@@ -69,12 +78,13 @@ const ARTISTS_KEY_SLUG_INDEX = 2
  * re-default it here, or the FE-sent window would contradict that model.
  */
 export function useSceneArtists(options: UseSceneArtistsOptions) {
-  const { slug, period, limit = 20, offset = 0 } = options
+  const { slug, period, limit = 20, offset = 0, includeUpcoming = false } = options
 
   const params = new URLSearchParams()
   if (period) params.set('period', period.toString())
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
+  if (includeUpcoming) params.set('include_upcoming', 'true')
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -85,7 +95,7 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
     // `limit` is part of the key: different limits for the same slug+period are
     // distinct results (e.g. the /atlas preview's 6 vs scene-detail's 10), so
     // they must not share a cache entry.
-    queryKey: queryKeys.scenes.artists(slug, period, limit),
+    queryKey: queryKeys.scenes.artists(slug, period, limit, includeUpcoming),
     queryFn: async (): Promise<SceneArtistsResponse> => {
       return apiRequest<SceneArtistsResponse>(endpoint, {
         method: 'GET',
