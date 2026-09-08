@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { formatPasswordConfirmError } from './password-confirm-errors'
+import type { ApiError } from '@/lib/api'
 
 interface DeleteAccountDialogProps {
   open: boolean
@@ -41,15 +42,12 @@ interface DeleteAccountDialogProps {
 type Step = 'warning' | 'confirm' | 'success'
 
 /**
- * This dialog's spelling of the shared password-confirm copy. The throttle
- * sentence names the password rather than the deletion because the budget is
- * shared with the settings password form, so it can already be spent when the
- * first attempt lands here.
+ * This dialog's spelling of the shared password-confirm copy.
  */
 export function formatDeleteAccountError(error: unknown): string {
   return formatPasswordConfirmError(error, {
     fallback: 'Failed to delete account. Please try again.',
-    throttled: 'Too many password attempts.',
+    throttledSentence: 'Too many password attempts.',
   })
 }
 
@@ -114,6 +112,10 @@ export function DeleteAccountDialog({
         setStep('success')
       }
     } catch (error) {
+      // A 429 is the limiter working, and lib/api.ts already records every one
+      // of them as a rate-limit hit. Reporting it here would file the throttle
+      // as an account-deletion fault and double-count it.
+      if ((error as ApiError)?.status === 429) return
       Sentry.captureException(error, {
         level: 'warning',
         tags: { service: 'account-deletion' },

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,37 +14,55 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// The throttle shared by POST /auth/change-password and POST
-// /auth/account/delete, driven through the ROUTER by a caller holding a real
-// session.
+// The throttle shared by the routes on passwordConfirmGroup, driven through the
+// ROUTER by a caller holding a real session.
 //
 // The budget, the key and the escape hatch are pinned in
 // password_confirm_rate_limit_test.go against a limiter that test builds
 // itself, so nothing there fails if the middleware is never mounted on a route,
 // and the tests there that do drive the router send unauthenticated requests,
-// which stop at HumaJWTMiddleware before any counter. Reaching the counter
-// takes a session, and a session takes a database.
+// which stop at HumaJWTMiddleware before any counter. Reaching the counter takes
+// a session, and a session takes a database.
 //
-// What this file covers is the MOUNTING of both routes, the reach of the
-// mount, and that the two routes draw on ONE counter.
+// What this file covers is the MOUNTING of every member, the reach of the
+// mount, and that the members draw on ONE counter.
 
-// The account password of the fixture user. Every request in this file submits
-// something else, so no request here can delete the account or change its
-// password.
+// The account password of the fixture user.
 const passwordConfirmAccountPassword = "fixture-account-password"
 
 // Request bodies and the handler replies that prove the request got past the
 // limiter. The change-password body repeats one value on purpose: the handler
 // rejects equal passwords before it reaches the password validator, which
-// queries HaveIBeenPwned over the network. Asserting the reply is what stops a
-// body the operation never accepted from passing for a request that reached the
-// handler.
+// queries HaveIBeenPwned over the network. The delete body is a wrong password,
+// which the handler answers without touching the account. Asserting the reply is
+// what stops a body the operation never accepted from passing for a request that
+// reached the handler.
 const (
-	changePasswordAttempt = `{"current_password":"same-password-value","new_password":"same-password-value"}`
-	changePasswordReached = "New password must be different"
-	accountDeleteAttempt  = `{"password":"not-the-account-password"}`
-	accountDeleteReached  = "Password is incorrect"
+	passwordConfirmChangeBody    = `{"current_password":"same-password-value","new_password":"same-password-value"}`
+	passwordConfirmChangeReached = "New password must be different"
+	passwordConfirmDeleteBody    = `{"password":"not-the-account-password"}`
+	passwordConfirmDeleteReached = "Password is incorrect"
 )
+
+type passwordConfirmRoute struct {
+	path    string
+	body    string
+	reached string
+}
+
+// passwordConfirmBudgetRoutes is the membership of the shared budget as the
+// tests drive it, and it is one half of a closed loop:
+//
+//   - a route mounted on passwordConfirmGroup but missing here fails
+//     TestPasswordConfirmDispositionsCoverTheBudget, which compares this list
+//     against the router disposition table;
+//   - a route listed here but not mounted on the group fails
+//     TestPasswordConfirmRoutesThrottledThroughRouter, which expects it to be
+//     throttled by a budget the other members spent.
+var passwordConfirmBudgetRoutes = []passwordConfirmRoute{
+	{path: "/auth/change-password", body: passwordConfirmChangeBody, reached: passwordConfirmChangeReached},
+	{path: "/auth/account/delete", body: passwordConfirmDeleteBody, reached: passwordConfirmDeleteReached},
+}
 
 // passwordConfirmFixture builds a user carrying a real password hash, a session
 // for it, and a router from the live route table.
@@ -103,31 +122,31 @@ func assertPasswordConfirmAttemptLanded(t *testing.T, w *httptest.ResponseRecord
 
 // spendBudget sends exactly the budget at one route from one IP and fails if any
 // of those requests was limited or failed to reach the handler.
-func spendBudget(t *testing.T, router *chi.Mux, session, path, body, reached, ip string) {
+func spendBudget(t *testing.T, router *chi.Mux, session, ip string, route passwordConfirmRoute) {
 	t.Helper()
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
-		w := sendAuthed(t, router, "POST", path, body, ip, session)
+		w := sendAuthed(t, router, "POST", route.path, route.body, ip, session)
 		if w.Code == http.StatusTooManyRequests {
 			t.Fatalf("%s attempt %d/%d was limited early; the budget is tighter than %d",
-				path, i+1, PasswordConfirmAttemptsPerMinute, PasswordConfirmAttemptsPerMinute)
+				route.path, i+1, PasswordConfirmAttemptsPerMinute, PasswordConfirmAttemptsPerMinute)
 		}
-		assertPasswordConfirmAttemptLanded(t, w, path, reached)
+		assertPasswordConfirmAttemptLanded(t, w, route.path, route.reached)
 	}
 }
 
-// assertThrottled requires the next request at path to be the limiter's answer,
-// carrying the header the client renders as a wait.
-func assertThrottled(t *testing.T, router *chi.Mux, session, path, body, ip, why string) {
+// assertThrottled requires the next request at a route to be the limiter's
+// answer, carrying the header the client renders as a wait.
+func assertThrottled(t *testing.T, router *chi.Mux, session, ip, why string, route passwordConfirmRoute) {
 	t.Helper()
-	w := sendAuthed(t, router, "POST", path, body, ip, session)
+	w := sendAuthed(t, router, "POST", route.path, route.body, ip, session)
 	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("%s returned %d past the budget, want 429: %s", path, w.Code, why)
+		t.Fatalf("%s returned %d past the budget, want 429: %s", route.path, w.Code, why)
 	}
 	// Asserted here rather than only on the bare limiter: the header has to
 	// survive humaFromHTTP and the protected group's response writer to reach a
 	// client, and only a request through the router proves that.
 	if got := w.Header().Get("Retry-After"); got != "60" {
-		t.Errorf("429 from %s through the router carried Retry-After %q, want 60", path, got)
+		t.Errorf("429 from %s through the router carried Retry-After %q, want 60", route.path, got)
 	}
 }
 
@@ -139,28 +158,27 @@ func TestPasswordConfirmRoutesThrottledThroughRouter(t *testing.T) {
 
 	router, session := passwordConfirmFixture(t, "password-confirm-throttle@test.com")
 
-	// Spending the budget at change-password and finding the delete route
-	// already throttled is the whole contract in one pass: the delete route is
-	// mounted, since an unmounted one would answer with its handler's reply,
-	// and the two mounts were handed one counter.
-	const changeFirstIP = "198.51.100.90:4444"
-	spendBudget(t, router, session, "/auth/change-password", changePasswordAttempt, changePasswordReached, changeFirstIP)
-	assertThrottled(t, router, session, "/auth/change-password", changePasswordAttempt, changeFirstIP,
-		"the limiter is not mounted on the change-password route")
-	assertThrottled(t, router, session, "/auth/account/delete", accountDeleteAttempt, changeFirstIP,
-		"the delete route is not on the shared password-confirm counter, so a caller out of "+
-			"change-password guesses still gets a full budget of delete guesses")
+	// Every member spends the budget once, from a counter of its own, and every
+	// OTHER member must then already be throttled. Run per member rather than
+	// once, because a single direction is satisfied by whichever route is still
+	// mounted: dropping any one route from the group leaves the pass on the
+	// pass it did not drive.
+	for i, spender := range passwordConfirmBudgetRoutes {
+		ip := fmt.Sprintf("198.51.100.%d:4444", 90+i)
 
-	// The same contract from the other side, on a fresh counter. Without this
-	// direction, dropping change-password from the group would still pass:
-	// every assertion above is satisfied by the delete route alone once the
-	// change-password requests stop being counted.
-	const deleteFirstIP = "198.51.100.92:4444"
-	spendBudget(t, router, session, "/auth/account/delete", accountDeleteAttempt, accountDeleteReached, deleteFirstIP)
-	assertThrottled(t, router, session, "/auth/account/delete", accountDeleteAttempt, deleteFirstIP,
-		"the limiter is not mounted on the account-delete route")
-	assertThrottled(t, router, session, "/auth/change-password", changePasswordAttempt, deleteFirstIP,
-		"the change-password route is not on the shared password-confirm counter")
+		spendBudget(t, router, session, ip, spender)
+		assertThrottled(t, router, session, ip,
+			"the limiter is not mounted on this route", spender)
+
+		for _, sibling := range passwordConfirmBudgetRoutes {
+			if sibling.path == spender.path {
+				continue
+			}
+			assertThrottled(t, router, session, ip,
+				"this route is not on the shared password-confirm counter, so a caller out of "+
+					spender.path+" guesses still gets a full budget here", sibling)
+		}
+	}
 
 	// The reach of the mount. Attaching the middleware to rc.Protected itself
 	// rather than to a child group is a one-token edit that would throttle
@@ -168,10 +186,10 @@ func TestPasswordConfirmRoutesThrottledThroughRouter(t *testing.T) {
 	// above can see it. The probe has to be a route registered AFTER the mount
 	// point, because a Huma group binds its middleware into an operation when
 	// that operation is registered: routes registered earlier would keep
-	// answering normally and prove nothing. This one is registered last in
-	// setupProtectedAuthRoutes, so reordering the file cannot quietly move it
-	// above the mount.
-	sibling := sendAuthed(t, router, "GET", "/auth/preferences/alerts", "", changeFirstIP, session)
+	// answering normally and prove nothing. /auth/preferences/alerts is
+	// registered after the group in setupProtectedAuthRoutes.
+	const probeIP = "198.51.100.90:4444"
+	sibling := sendAuthed(t, router, "GET", "/auth/preferences/alerts", "", probeIP, session)
 	if sibling.Code != http.StatusOK {
 		t.Errorf("GET /auth/preferences/alerts answered %d with only the password-confirm budget exhausted, want 200: "+
 			"a 429 means the limiter is mounted on the protected group rather than on the "+
@@ -184,7 +202,7 @@ func TestPasswordConfirmRoutesThrottledThroughRouter(t *testing.T) {
 	// same DRY move this file's own constructor came from, and it would mean
 	// five resend clicks throttle a password change. Nothing but a request
 	// through the router can see which limiter each mount was handed.
-	resend := sendAuthed(t, router, "POST", "/auth/verify-email/send", "{}", changeFirstIP, session)
+	resend := sendAuthed(t, router, "POST", "/auth/verify-email/send", "{}", probeIP, session)
 	if resend.Code == http.StatusTooManyRequests {
 		t.Error("POST /auth/verify-email/send returned 429 with only the password-confirm budget exhausted; " +
 			"the two mounts were handed one limiter")
@@ -197,7 +215,7 @@ func TestPasswordConfirmRoutesThrottledThroughRouter(t *testing.T) {
 	// and one of these would 429.
 	for i := 0; i < authLimitPerMinute; i++ {
 		login := sendAuthed(t, router, "POST", "/auth/login",
-			`{"email":"password-confirm-throttle@test.com","password":"whatever"}`, changeFirstIP, "")
+			`{"email":"password-confirm-throttle@test.com","password":"whatever"}`, probeIP, "")
 		if login.Code == http.StatusTooManyRequests {
 			t.Fatalf("POST /auth/login %d/%d returned 429 after the password-confirm budget was exhausted from "+
 				"the same IP; the password routes share a counter with login", i+1, authLimitPerMinute)
@@ -218,23 +236,16 @@ func TestPasswordConfirmDisableFlagIsHonoredAtTheRoutes(t *testing.T) {
 
 	router, session := passwordConfirmFixture(t, "password-confirm-flag@test.com")
 
-	for _, route := range []struct {
-		path    string
-		body    string
-		reached string
-		ip      string
-	}{
-		{"/auth/change-password", changePasswordAttempt, changePasswordReached, "198.51.100.91:4444"},
-		{"/auth/account/delete", accountDeleteAttempt, accountDeleteReached, "198.51.100.94:4444"},
-	} {
+	for i, route := range passwordConfirmBudgetRoutes {
+		ip := fmt.Sprintf("198.51.100.%d:4444", 120+i)
 		// One past the budget is the whole assertion: that request is the first
-		// one a live limiter would refuse. Each delete attempt past it costs a
-		// bcrypt comparison and proves nothing further.
-		for i := 0; i <= PasswordConfirmAttemptsPerMinute; i++ {
-			w := sendAuthed(t, router, "POST", route.path, route.body, route.ip, session)
+		// one a live limiter would refuse. Each further attempt costs a bcrypt
+		// comparison and proves nothing more.
+		for attempt := 0; attempt <= PasswordConfirmAttemptsPerMinute; attempt++ {
+			w := sendAuthed(t, router, "POST", route.path, route.body, ip, session)
 			if w.Code == http.StatusTooManyRequests {
 				t.Fatalf("%s request %d returned 429 with %s=1: the route carries a limiter the flag does not reach",
-					route.path, i+1, DisableAuthRateLimitsEnvVar)
+					route.path, attempt+1, DisableAuthRateLimitsEnvVar)
 			}
 			assertPasswordConfirmAttemptLanded(t, w, route.path, route.reached)
 		}

@@ -298,7 +298,7 @@ describe('ChangePassword', () => {
     renderForm()
 
     expect(
-      screen.getByText('Too many password change attempts. Try again in 42s.')
+      screen.getByText('Too many password attempts. Try again in 42s.')
     ).toBeInTheDocument()
   })
 
@@ -308,7 +308,7 @@ describe('ChangePassword', () => {
     renderForm()
 
     expect(
-      screen.getByText('Too many password change attempts. Try again in a minute.')
+      screen.getByText('Too many password attempts. Try again in a minute.')
     ).toBeInTheDocument()
   })
 })
@@ -322,8 +322,17 @@ describe('formatChangePasswordError', () => {
       status: 429,
     })
     expect(formatChangePasswordError(throttled)).toBe(
-      'Too many password change attempts. Try again in a minute.'
+      'Too many password attempts. Try again in a minute.'
     )
     expect(formatChangePasswordError(null)).toBe('Failed to change password')
+    // The wrong-current-password reply, which is what this surface answers most
+    // often.
+    const wrongPassword = Object.assign(
+      new Error('Current password is incorrect'),
+      { status: 400 }
+    )
+    expect(formatChangePasswordError(wrongPassword)).toBe(
+      'Current password is incorrect'
+    )
   })
 })

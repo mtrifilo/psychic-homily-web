@@ -90,17 +90,24 @@ func setupAuthRoutes(rc RouteContext) {
 // endpoint open as an email-bombing amplifier.
 const VerificationResendPerMinute = 5
 
-// PasswordConfirmAttemptsPerMinute is the per-IP budget shared by the routes
-// that verify a submitted password before acting on it: POST
-// /auth/change-password and POST /auth/account/delete. It matches the resend
-// budget on its own counter, so tuning one does not tune the other.
+// PasswordConfirmAttemptsPerMinute is the per-IP budget shared by the routes on
+// passwordConfirmGroup, each of which takes the account password as
+// confirmation. It matches the resend budget on its own counter, so tuning one
+// does not tune the other.
 //
-// Not every attempt it counts is a guess: a new password the server rejects on
-// policy spends one too, and the breach-list half of that policy is a lookup
-// the browser form cannot make, so a user iterating on a new password costs the
-// same as an attacker iterating on the current one. Five per minute per IP is a
-// floor against unsophisticated abuse, not a bound on a determined caller, who
-// can rotate source addresses for a fresh counter each time.
+// The counter meters requests, not guesses, and several of those requests are
+// not guesses at all: a new password the server rejects on policy spends one on
+// change-password, and an account with no password spends one on the delete
+// route before anything is compared. A user iterating on a new password
+// therefore costs what an attacker iterating on the current one costs, and the
+// breach-list half of that policy is a lookup the browser form cannot make on
+// its own.
+//
+// Five per minute per IP is a floor against unsophisticated abuse, not a bound
+// on a determined caller, who can rotate source addresses for a fresh counter
+// each time. The cost of sharing rather than siblings is that one surface can
+// spend the other's budget, including for a different person behind the same
+// NAT.
 const PasswordConfirmAttemptsPerMinute = 5
 
 // authScopedRateLimiter builds a per-IP minute limiter for an auth route,
@@ -150,12 +157,18 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	verifyEmailGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(VerificationResendPerMinute)))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
-	// The routes that verify a submitted password share this one group, so they
-	// share one counter: a wrong guess on either spends from the same per-IP
-	// budget. The counter is separate from the public auth budget, so attempts
-	// here cannot lock the same person out of /auth/login. The group hangs off
-	// rc.Protected, so HumaJWTMiddleware runs first and an unauthenticated
-	// caller is refused before it reaches the counter.
+	// Members: /auth/change-password here, /auth/account/delete further down
+	// beside the other account endpoints. Both take the account password as
+	// confirmation, and one group means one counter, so a wrong guess at either
+	// spends from the same per-IP budget. That counter is separate from the
+	// public auth budget, so attempts here cannot lock the same person out of
+	// /auth/login. The group hangs off rc.Protected, so HumaJWTMiddleware runs
+	// first and an unauthenticated caller is refused before it reaches the
+	// counter.
+	//
+	// A route registered on rc.Protected instead of here carries no budget of
+	// its own; TestEveryAuthPostHasARateLimitDisposition makes a new POST under
+	// /auth/ say which budget meters it.
 	passwordConfirmGroup := huma.NewGroup(rc.Protected, "")
 	passwordConfirmGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(PasswordConfirmAttemptsPerMinute)))
 	huma.Post(passwordConfirmGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
@@ -165,7 +178,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(rc.SC.JWT, 7*24*time.Hour))
 	huma.Post(lenientGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 
-	// Account deletion endpoints.
+	// Account deletion endpoints. Only the delete route takes the account
+	// password, so only it belongs on passwordConfirmGroup: putting the summary
+	// read there would spend password-guess budget on opening the dialog.
 	huma.Get(rc.Protected, "/auth/account/deletion-summary", authHandler.GetDeletionSummaryHandler)
 	huma.Post(passwordConfirmGroup, "/auth/account/delete", authHandler.DeleteAccountHandler)
 

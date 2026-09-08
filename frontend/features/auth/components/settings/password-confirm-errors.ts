@@ -1,13 +1,15 @@
 import type { ApiError } from '@/lib/api'
 
 /**
- * Copy for one password-confirming surface: the line shown when the request
- * failed for any other reason carries no message, and the sentence that opens
- * the throttle line.
+ * Copy for one password-confirming surface.
+ *
+ * `throttledSentence` is a complete sentence, terminal punctuation included and
+ * no trailing space: the formatter appends a second sentence after it.
+ * `fallback` is the line shown when a failure carries no message of its own.
  */
 interface PasswordConfirmErrorCopy {
   fallback: string
-  throttled: string
+  throttledSentence: string
 }
 
 /**
@@ -38,9 +40,9 @@ export function formatPasswordConfirmError(
   if (apiErr.status === 429) {
     const retryAfter = apiErr.retryAfter
     if (typeof retryAfter === 'number' && retryAfter > 0) {
-      return `${copy.throttled} Try again in ${retryAfter}s.`
+      return `${copy.throttledSentence} Try again in ${retryAfter}s.`
     }
-    return `${copy.throttled} Try again in a minute.`
+    return `${copy.throttledSentence} Try again in a minute.`
   }
   return apiErr.message || copy.fallback
 }

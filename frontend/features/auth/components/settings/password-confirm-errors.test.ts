@@ -3,7 +3,7 @@ import { formatPasswordConfirmError } from './password-confirm-errors'
 
 const copy = {
   fallback: 'Something went wrong',
-  throttled: 'Too many attempts.',
+  throttledSentence: 'Too many attempts.',
 }
 
 describe('formatPasswordConfirmError', () => {

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -150,18 +151,16 @@ func TestPasswordConfirmUnauthenticatedRequestsDoNotSpendTheBudget(t *testing.T)
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 	router := newTestRouter(t)
 
-	for _, tc := range []struct{ path, ip string }{
-		{"/auth/change-password", "203.0.113.64:1234"},
-		{"/auth/account/delete", "203.0.113.66:1234"},
-	} {
-		for i := 0; i < PasswordConfirmAttemptsPerMinute*3; i++ {
-			code := send(t, router, "POST", tc.path, tc.ip, nil)
+	for routeIndex, route := range passwordConfirmBudgetRoutes {
+		ip := fmt.Sprintf("203.0.113.%d:1234", 64+routeIndex)
+		for attempt := 0; attempt < PasswordConfirmAttemptsPerMinute*3; attempt++ {
+			code := send(t, router, "POST", route.path, ip, nil)
 			if code == http.StatusTooManyRequests {
 				t.Fatalf("unauthenticated %s request %d returned 429: the limiter runs before authentication, "+
-					"so anonymous traffic can exhaust the budget of whoever shares this IP", tc.path, i+1)
+					"so anonymous traffic can exhaust the budget of whoever shares this IP", route.path, attempt+1)
 			}
 			if code != http.StatusUnauthorized {
-				t.Fatalf("unauthenticated %s request %d returned %d, want 401", tc.path, i+1, code)
+				t.Fatalf("unauthenticated %s request %d returned %d, want 401", route.path, attempt+1, code)
 			}
 		}
 	}
