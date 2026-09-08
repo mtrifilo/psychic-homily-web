@@ -14,6 +14,7 @@ import { prefetchEntities } from '@/lib/query-hydration'
 import { hasText } from '@/features/scenes/scenePeriodApi'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
+import { sceneSliceTonightCount } from '@/features/scenes/sceneSlice'
 import { buildSceneSliceJsonLd } from '@/features/scenes/sceneSliceJsonLd'
 import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
 // Deep-imported from the component FILE for the same reason SceneDetailView is:
@@ -164,10 +165,9 @@ const getSceneWeek = cache((slug: string) =>
  *
  * The sequencing and the empty-`next_date` trap live in `sceneSliceApi` rather
  * than here, so a second consumer cannot re-derive them; this wrapper only adds
- * the per-request dedupe its two neighbours above already have. `cache()` is
- * currently redundant — the page body is the only caller — and kept for the
- * caller this page will plausibly grow: `generateMetadata` can now state a real
- * tonight count, which the old forward window could not supply (PSY-1807).
+ * the per-request dedupe its two neighbours above already have. The page body is
+ * currently the only caller, so `cache()` dedupes nothing today; it is what
+ * keeps a second caller from re-running the chain.
  */
 const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
@@ -373,6 +373,11 @@ export default async function ScenePage({ params }: ScenePageProps) {
             <SceneDetailView
               slug={slug}
               timeZone={slice?.timezone}
+              /* The SAME slice the calendar slot below renders, so the band's
+                 count and the rows under the calendar's TONIGHT heading are
+                 one payload. A slice that did not load counts nothing rather
+                 than counting zero. */
+              tonightShowCount={slice ? sceneSliceTonightCount(slice) : undefined}
               calendarSlot={<SceneCalendar scene={scene} slice={slice} />}
             />
           </Suspense>

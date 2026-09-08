@@ -36,7 +36,7 @@
  * CLIENT fetch, so the reader pays less either way.
  */
 
-import { looksLikeCalendarDate, type SceneDayResponse } from './sceneDay'
+import { dayShows, looksLikeCalendarDate, type SceneDayResponse } from './sceneDay'
 import { countWindowShows } from './sceneWindow'
 
 /**
@@ -129,4 +129,26 @@ export function buildSceneSlice(
  */
 export function sceneSliceIsQuiet(slice: SceneSliceData): boolean {
   return countWindowShows(slice.days) === 0
+}
+
+/**
+ * How many shows the slice lists for TONIGHT.
+ *
+ * The BACKEND's `is_tonight` picks the day, never a clock on this side: between
+ * midnight and 06:00 the live night is the PREVIOUS calendar date, and that
+ * flag is the only thing here that knows it. Counting through `dayShows` for
+ * the same reason `sceneSliceIsQuiet` counts through `countWindowShows`: the
+ * rows are the count everywhere on this page.
+ *
+ * This is the SAME figure `SceneCalendar` prints beside its TONIGHT heading,
+ * off the same array: cancelled rows are in both, and a night past
+ * `sceneDayShowCap` reports the cap in both. A caller that filtered here would
+ * put a number above the fold that disagrees with the rows a screen below it.
+ *
+ * Zero when no day carries the flag, which is the value a caller draws nothing
+ * for.
+ */
+export function sceneSliceTonightCount(slice: SceneSliceData): number {
+  const tonight = slice.days.find(day => day.is_tonight)
+  return tonight ? dayShows(tonight).length : 0
 }

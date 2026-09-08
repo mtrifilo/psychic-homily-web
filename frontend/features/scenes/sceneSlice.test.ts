@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { buildSceneSlice, sceneSliceIsQuiet } from './sceneSlice'
+import {
+  buildSceneSlice,
+  sceneSliceIsQuiet,
+  sceneSliceTonightCount,
+} from './sceneSlice'
 import { countWindowShows } from './sceneWindow'
 import type { SceneDayResponse } from './sceneDay'
 import type { SceneShowSummary } from './types'
@@ -149,5 +153,74 @@ describe('sceneSliceIsQuiet', () => {
       buildDay({ date: '2026-08-18', is_tonight: false, shows: [buildShow()] })
     )
     expect(sceneSliceIsQuiet(slice!)).toBe(false)
+  })
+})
+
+describe('sceneSliceTonightCount', () => {
+  it('counts the rows on the night the payload marks tonight', () => {
+    const slice = buildSceneSlice(
+      buildDay({
+        shows: [buildShow({ id: 1 }), buildShow({ id: 2 }), buildShow({ id: 3 })],
+      }),
+      buildDay({
+        date: '2026-08-18',
+        is_tonight: false,
+        shows: [buildShow({ id: 4 })],
+      })
+    )
+    expect(sceneSliceTonightCount(slice!)).toBe(3)
+  })
+
+  it('counts one', () => {
+    const slice = buildSceneSlice(buildDay({ shows: [buildShow()] }), null)
+    expect(sceneSliceTonightCount(slice!)).toBe(1)
+  })
+
+  it('is zero on a quiet night even when the next day has shows', () => {
+    const slice = buildSceneSlice(
+      buildDay({ shows: [] }),
+      buildDay({ date: '2026-08-18', is_tonight: false, shows: [buildShow()] })
+    )
+    expect(sceneSliceTonightCount(slice!)).toBe(0)
+  })
+
+  it('treats a null shows array as no shows', () => {
+    const slice = buildSceneSlice(buildDay({ shows: null }), null)
+    expect(sceneSliceTonightCount(slice!)).toBe(0)
+  })
+
+  // The post-midnight shape the backend sends between 00:00 and 06:00: the day
+  // flagged tonight is the PREVIOUS calendar date, and the day after it is the
+  // one the wall clock is already in. A count derived from a clock on this side
+  // would read the second; the flag reads the first, which is the night a
+  // reader standing in the scene is still in. No clock is consulted here, which
+  // is why this case needs no fake timers to pin.
+  it('counts the previous calendar date when tonight is flagged on it', () => {
+    const slice = buildSceneSlice(
+      buildDay({
+        date: '2026-08-17',
+        is_tonight: true,
+        shows: [buildShow({ id: 1 }), buildShow({ id: 2 })],
+      }),
+      buildDay({
+        date: '2026-08-18',
+        is_tonight: false,
+        shows: [buildShow({ id: 3 }), buildShow({ id: 4 }), buildShow({ id: 5 })],
+      })
+    )
+
+    expect(slice?.days[0].date).toBe('2026-08-17')
+    expect(sceneSliceTonightCount(slice!)).toBe(2)
+  })
+
+  // A slice that cannot name its own live night has no honest count, and zero
+  // is the value the band omits rather than printing a number nobody checked.
+  it('is zero when no day carries the flag', () => {
+    expect(
+      sceneSliceTonightCount({
+        timezone: 'America/Chicago',
+        days: [buildDay({ is_tonight: false, shows: [buildShow()] })],
+      })
+    ).toBe(0)
   })
 })

@@ -202,20 +202,24 @@ describe('scenes/[slug] calendar slice', () => {
 
   type Node = { props?: Record<string, unknown> } | null | undefined
 
-  /** The element handed to `SceneDetailView` as its `calendarSlot`. */
+  /**
+   * The props the route handed `SceneDetailView`, found by the one prop only it
+   * takes. Returned whole so every rule about what this route passes down reads
+   * one tree walk.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function findCalendarSlot(node: any): any {
+  function findSceneDetailProps(node: any): any {
     if (!node || typeof node !== 'object') return undefined
     if (Array.isArray(node)) {
       for (const child of node) {
-        const found = findCalendarSlot(child)
+        const found = findSceneDetailProps(child)
         if (found) return found
       }
       return undefined
     }
     const props = (node as Node)?.props
-    if (props && 'calendarSlot' in props) return props.calendarSlot
-    return props ? findCalendarSlot(props.children) : undefined
+    if (props && 'calendarSlot' in props) return props
+    return props ? findSceneDetailProps(props.children) : undefined
   }
 
   /** Every query the route dehydrated into its `<HydrationBoundary>`. */
@@ -429,7 +433,7 @@ describe('scenes/[slug] calendar slice', () => {
     // with. A blunt string scan would not do — `mesa-az` is legitimately still
     // present as the REQUESTED slug (SceneDetailView resolves it canonically
     // through its own query), and that is exactly the pair being distinguished.
-    const slot = findCalendarSlot(tree)
+    const slot = findSceneDetailProps(tree)?.calendarSlot
     expect(slot?.props?.scene?.slug).toBe('phoenix-az')
 
     // The structured data resolves the same way, off the day payload's slug.
@@ -482,7 +486,8 @@ describe('scenes/[slug] calendar slice', () => {
     const blocks = findJsonLd(tree)
     // Counted through the helper the calendar's own quiet check goes through,
     // so this figure is not a second spelling of it.
-    const slicedShows = countWindowShows(findCalendarSlot(tree).props.slice.days)
+    const slice = findSceneDetailProps(tree).calendarSlot.props.slice
+    const slicedShows = countWindowShows(slice.days)
     const itemList = blocks.find((data: { '@type'?: string }) => data['@type'] === 'ItemList')
     // FILTERED, not `find`: a second array-valued block would make a positional
     // pick silently assert about the wrong one.
@@ -494,6 +499,36 @@ describe('scenes/[slug] calendar slice', () => {
     expect(eventBlocks[0]).toHaveLength(3)
   })
 
+  // The band's number and the rows under the calendar's TONIGHT heading come
+  // from ONE slice, derived here rather than fetched a second time.
+  it("hands the view the count of tonight's rows", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    fetchMock.mockResolvedValue(
+      okResponse(
+        buildDay({
+          next_date: '',
+          shows: [buildShow(), buildShow({ id: 2, slug: 'tournament-rebel-lounge' })],
+        })
+      )
+    )
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(findSceneDetailProps(tree)?.tonightShowCount).toBe(2)
+  })
+
+  // A failed slice is not an empty calendar. The view gets no count rather than
+  // a zero, which it would be entitled to draw as a fact about the night.
+  it('hands the view no count when the slice could not be read', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    fetchMock.mockResolvedValue(errorResponse(503))
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    const props = findSceneDetailProps(tree)
+    expect(props?.calendarSlot?.props?.slice).toBeNull()
+    expect(props?.tonightShowCount).toBeUndefined()
+  })
 })
 
 // This route is the existence check the rest of the page trusts, so what it
