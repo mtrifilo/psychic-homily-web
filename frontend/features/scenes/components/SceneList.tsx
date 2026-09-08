@@ -106,7 +106,7 @@ export function SceneList() {
 
                 `shows_calendar_week`, NOT `shows_this_week`. The number and the
                 link are one sentence, so the number has to be the destination's
-                own — the rolling field beside it counts a different seven days
+                own — the seven-night field beside it counts a different week
                 and would make this card contradict the page it opens. "Quiet"
                 means quiet in the CALENDAR week for the same reason: a scene
                 muted here must be a scene whose week page is empty.

@@ -490,6 +490,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHolds
 	user := suite.createUser()
 	room := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
 	dark := suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
+	// A verified room that has never hosted an approved show. It counts toward
+	// the venue floor and resolves no zone, so it is the row that would vanish
+	// if the join the counts ride on stopped being a LEFT one.
+	suite.createVerifiedVenue("Never Booked", "Phoenix", "AZ")
 	band := suite.createArtist("Tonight Band")
 
 	loc, tonight := sceneNightFixture()
@@ -506,6 +510,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHolds
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
 	suite.Require().NoError(err)
 
+	suite.Equal(3, scenes[0].VenueCount, "the room with nothing booked still clears the venue floor")
 	suite.Equal(4, scenes[0].TotalShowCount, "the lifetime count keeps the previous night")
 	suite.Equal(3, scenes[0].UpcomingShowCount, "tonight's two, plus the one next month")
 	suite.Equal(detail.Stats.UpcomingShowCount, scenes[0].UpcomingShowCount,
@@ -515,10 +520,51 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHolds
 		"the seven-night slice cannot exceed the set it slices")
 }
 
-// The seven days are seven venue-local NIGHTS counted from the night in
-// progress, so both edges move once a night rather than with every request and
-// two readers minutes apart see one number. The night in progress and the six
-// after it are in; the seventh after it is the first one out.
+// SEEDBED for the equality above: the card and the page share a night bound,
+// not a room set. The directory reaches verified rooms only
+// (sceneVenueEligibilitySQL); GetSceneDetail's headline scope carries no such
+// filter, so a scene holding an unverified room with a booking reads LOWER on
+// its card than on the page that card opens.
+//
+// Asserted rather than left to the fixture, because the sibling test above
+// proves equality only over a corpus where every room is verified, and a reader
+// who takes that for the general rule will file the gap below as a bug.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountReachesOnlyVerifiedRooms() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	unverified := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
+	band := suite.createArtist("Eligibility Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Verified 1", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(2), loc))
+	suite.createApprovedShow("Verified 2", v2.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(3), loc))
+	suite.createApprovedShow("Verified 3", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(4), loc))
+	suite.createApprovedShow("Unverified Room", unverified.ID, band.ID, user.ID,
+		dateOnlyShowInstant(tonight.addDays(2), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(2, scenes[0].VenueCount, "the unverified room is not one of the scene's rooms")
+	suite.Equal(3, scenes[0].UpcomingShowCount, "the card counts the verified rooms' bookings")
+	suite.Equal(4, detail.Stats.UpcomingShowCount, "the page counts the unverified room's booking too")
+	suite.Less(scenes[0].UpcomingShowCount, detail.Stats.UpcomingShowCount,
+		"the two share a night bound, not a room set")
+}
+
+// The FAR edge: the night in progress and the six after it are in, the seventh
+// is out. That is what this test owns at every hour of the day.
+//
+// It does NOT discriminate the anchor. Between 06:00 and 20:00 local these same
+// fixtures land the same way under a window measured from the request instant,
+// so a revert of the anchor alone would leave this green. The anchor is owned by
+// the Doors Already Open fixture in the test above, which is behind the clock
+// whatever time it runs.
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeekSpansSevenNightsFromTonight() {
 	user := suite.createUser()
 	room := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")

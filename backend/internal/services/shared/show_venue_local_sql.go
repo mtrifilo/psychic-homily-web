@@ -40,9 +40,10 @@ import (
 //     tonight bucket those two sit beside is drawn on.
 //   - the scenes DIRECTORY's upcoming_count (catalog/scene.go ListScenes), on
 //     that same NIGHT bound, because a card links to the page printing the
-//     headline above and the two numbers are read against each other. Its
-//     this_week_count slices the same night set through
-//     VenueLocalNightWindowCondition, so the pair is nested at every hour.
+//     headline above. The two draw one boundary over different room sets: the
+//     directory counts verified rooms only. Its this_week_count slices the same
+//     night set through VenueLocalNightWindowCondition, so the pair is nested
+//     at every hour.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
@@ -511,9 +512,10 @@ var VenueLocalNightDateCondition = nightUpcomingCoarseBound + " AND " +
 // venue-local NIGHTS rather than a span from the request instant, so its edges
 // move once a night and two readers minutes apart see one number.
 //
-// nights renders through strconv.Itoa from a caller-side constant; nothing here
-// interpolates request input. Carries no bind parameters, like the conditions
-// above it.
+// nights is rendered by strconv.Itoa, which emits only digits and a sign, so
+// the interpolation is safe for any int a caller can pass. Fewer than one night
+// renders an unsatisfiable window and counts nothing rather than erroring.
+// Carries no bind parameters, like the conditions above it.
 func VenueLocalNightWindowCondition(nights int) string {
 	return VenueLocalNightDateCondition + " AND " + VenueLocalDateSQL + " < (" +
 		venueLocalNightStartDateSQL + " + " + strconv.Itoa(nights) + ")"

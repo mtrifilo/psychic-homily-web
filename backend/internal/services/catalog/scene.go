@@ -792,18 +792,19 @@ func (s *SceneService) sceneGenreCounts() (map[string][]contracts.GenreCount, er
 // sceneDirectoryCountsSQL is the directory's one grouped pass: distinct venues,
 // approved shows, and the two night-bounded subsets, per scene.
 //
-// Rendered once at init rather than per request. It carries no runtime input,
-// and the conditions below each expand the venue-local zone chain, so building
-// it per call would concatenate that ~2KB CASE six times for every GET /scenes.
-// The package-level fragments it is built from are vars for the same reason.
+// Rendered once at init rather than per request: it carries no runtime input,
+// and every night condition in it expands the venue-local zone chain, so
+// building it per call would rebuild several KB of that CASE on every
+// GET /scenes.
 //
-// COST, measured on postgres:18 at 8000 approved shows: 20-21 ms warm against
-// 6 ms for the instant-bounded form it replaced, most of it JIT compiling the
-// six zone expansions rather than the lateral, which costs 0.002 ms per row.
-// The lever, if this needs to come down, is projecting the local date and the
-// night start from VenueTZJoin's lateral so the zone resolves once per row; it
-// is not a rider on this query, because that projection feeds every migrated
-// surface and each one has to be re-checked for loops=1.
+// The counts are FILTER aggregates over a scan with no date bound of its own,
+// so the lateral fires once per (verified venue x approved show ever) row. The
+// growth axis is lifetime show volume, not upcoming volume.
+//
+// COST on postgres:18 at 8000 approved shows: 20-21 ms warm. Most of it is JIT
+// compiling the zone expansions, not the lateral, which costs 0.002 ms per row,
+// so the lever is shrinking the rendered expression rather than reordering the
+// joins.
 var sceneDirectoryCountsSQL = `
 		SELECT ` + sceneGroupIdentitySQL + `,
 		       COUNT(DISTINCT v.id) AS venue_count,
@@ -834,8 +835,11 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	//
 	// Both count filters are bounded at the NIGHT in progress in each show's own
 	// venue zone, which is the boundary GetSceneDetail's headline figure takes. A
-	// card here links to that page, so the two numbers are read against each
-	// other and must name the same night.
+	// card here links to that page, so the two numbers must name the same night.
+	//
+	// The NIGHT is all they share. This count reaches only verified rooms
+	// (sceneVenueEligibilitySQL); the detail page's scope has no such filter, so
+	// a scene holding an unverified room with upcoming shows reads lower here.
 	//
 	// this_week_count is the sceneThisWeekDays-night slice of that same set
 	// (PSY-1309), driving the Atlas globe's pulse: one more FILTER aggregate in

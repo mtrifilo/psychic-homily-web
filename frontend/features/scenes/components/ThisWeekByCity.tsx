@@ -67,8 +67,8 @@ function CityRow({ scene }: { scene: SceneListItem }) {
  * that the page each row links to serves. A row's number therefore equals the
  * total on its destination, which is the whole point of the field existing:
  * `shows_this_week` is a different seven days, counted as seven nights from
- * the night in progress, and measured 76 for Chicago against that page's 96 on
- * 2026-08-02.
+ * the night in progress, and runs well clear of the calendar week's total on a
+ * busy scene.
  *
  * TWO THINGS STILL BLUR THAT EQUALITY, both bounded, neither hidden:
  *
