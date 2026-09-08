@@ -191,6 +191,12 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
           {sceneStatParts(stats).join(' · ')}
         </p>
 
+        {/* The crews and collectives chip row. A crew is a TAG, not an entity,
+            so each chip lands on the tag page rather than on a page of its
+            own. Absent, with no header and no scaffold, on the scenes no crew
+            tag reaches. */}
+        <SceneCrews scene={scene} />
+
         {/* Follow-a-scene (PSY-1340) + notify mode (PSY-1341), plus share and
             the scene .ics feed (PSY-1785 / locked P6). */}
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -203,12 +209,6 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
           />
           <SceneAddToCalendar slug={scene.slug} />
         </div>
-
-        {/* The crews and collectives chip row. A crew is a TAG, not an entity,
-            so each chip lands on the tag page rather than on a page of its
-            own. Absent, with no header and no scaffold, on the scenes no crew
-            tag reaches. */}
-        <SceneCrews scene={scene} />
       </header>
 
       <div className="mt-6">{calendarSlot}</div>

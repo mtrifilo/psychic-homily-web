@@ -384,13 +384,24 @@ describe('SceneDetailView', () => {
       expect(screen.getByTestId('scene-add-to-calendar')).toHaveTextContent('phoenix-az')
     })
 
-    // The row is the LAST thing in the header, and it is handed the scene the
-    // page resolved to rather than the route's slug argument: a member-city
-    // slug and the canonical one are not the same string.
-    it('puts the crews chip row at the end of the header', () => {
+    // Figma `1402:2` draws the row directly under the scene's identity and
+    // ABOVE the actions, so it sits between the stat line and the action row.
+    // It is handed the scene the page resolved to rather than the route's slug
+    // argument: a member-city slug and the canonical one are not the same
+    // string.
+    it("puts the crews chip row between the stat line and the actions", () => {
       const { container } = renderScene({ slug: 'tempe-az' })
       const crews = screen.getByTestId('scene-crews')
-      expect(container.querySelector('header')?.lastElementChild).toBe(crews)
+      const statLine = screen.getByRole('heading', {
+        level: 1,
+        name: 'Phoenix, AZ',
+      }).nextElementSibling
+
+      expect(statLine?.nextElementSibling).toBe(crews)
+      expect(crews.nextElementSibling).toBe(
+        screen.getByTestId('share-button').closest('div')
+      )
+      expect(container.querySelector('header')).toContainElement(crews)
       expect(crews).toHaveTextContent('phoenix-az')
     })
 
