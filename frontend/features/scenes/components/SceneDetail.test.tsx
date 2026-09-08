@@ -257,41 +257,29 @@ describe('SceneDetailView', () => {
       expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
     })
 
-    // The clause the reader is scanning for, so it leads.
-    it('leads with the tonight count', () => {
-      renderScene({ slug: 'phoenix-az', tonightShowCount: 4 })
-      expect(
-        screen.getByText(
-          '4 tonight · 45 upcoming shows · 12 rooms tracked · all times MST'
-        )
-      ).toBeInTheDocument()
+    // The clause the reader is scanning for, so it leads. Asserted as the LEAD
+    // rather than against the whole band, so a later edit to the clauses after
+    // it fails its own case and not this one.
+    // "tonight" is the noun the number counts against, so one reads the same as
+    // nine and there is no plural to get wrong.
+    it.each([
+      [4, '4 tonight · '],
+      [1, '1 tonight · '],
+    ])('leads with the count of %i tonight', (count, lead) => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount: count })
+      expect(screen.getByTestId('scene-status-band')).toHaveTextContent(
+        new RegExp(`^${lead}45 upcoming shows`)
+      )
     })
 
-    // "tonight" is the noun the number counts against, so one reads the same
-    // as nine and there is no plural to get wrong.
-    it('does not pluralize a single show tonight', () => {
-      renderScene({ slug: 'phoenix-az', tonightShowCount: 1 })
-      expect(
-        screen.getByText(
-          '1 tonight · 45 upcoming shows · 12 rooms tracked · all times MST'
-        )
-      ).toBeInTheDocument()
-    })
-
-    // A zero here would be a claim about the city, not about this page's
-    // calendar. The band says nothing rather than "nothing tonight".
-    it('omits the clause on a quiet night', () => {
-      renderScene({ slug: 'phoenix-az', tonightShowCount: 0 })
-      expect(
-        screen.getByText('45 upcoming shows · 12 rooms tracked · all times MST')
-      ).toBeInTheDocument()
-      expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
-    })
-
-    // A slice that did not load has no count. That is a different answer from
-    // zero, and neither is drawn.
-    it('omits the clause when the count is absent', () => {
-      renderScene({ slug: 'phoenix-az' })
+    // Zero would read as a claim about the city rather than about this page's
+    // calendar, and a count nothing answered for is not a zero. Both draw the
+    // same band, which says nothing about tonight at all.
+    it.each([
+      ['a quiet night', 0],
+      ['a count nothing answered for', undefined],
+    ])('omits the clause on %s', (_label, tonightShowCount) => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount })
       expect(
         screen.getByText('45 upcoming shows · 12 rooms tracked · all times MST')
       ).toBeInTheDocument()

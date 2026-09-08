@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   buildSceneSlice,
   sceneSliceIsQuiet,
@@ -157,10 +157,6 @@ describe('sceneSliceIsQuiet', () => {
 })
 
 describe('sceneSliceTonightCount', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('counts the rows on the night the payload marks tonight', () => {
     const slice = buildSceneSlice(
       buildDay({
@@ -193,16 +189,13 @@ describe('sceneSliceTonightCount', () => {
     expect(sceneSliceTonightCount(slice!)).toBe(0)
   })
 
-  // The night boundary is the scene's 6am, resolved by the backend. At 02:00 in
-  // Chicago the night a reader is standing in is still the PREVIOUS calendar
-  // date, so a count taken from a clock on this side would name the wrong
-  // bucket and report the next day's rows. The flag decides, and no clock here
-  // is read at all.
-  it('counts the previous calendar date between midnight and 6am', () => {
-    vi.useFakeTimers()
-    // 02:00 America/Chicago on 2026-08-18 (CDT, UTC-5).
-    vi.setSystemTime(new Date('2026-08-18T07:00:00Z'))
-
+  // The post-midnight shape the backend sends between 00:00 and 06:00: the day
+  // flagged tonight is the PREVIOUS calendar date, and the day after it is the
+  // one the wall clock is already in. A count derived from a clock on this side
+  // would read the second; the flag reads the first, which is the night a
+  // reader standing in the scene is still in. No clock is consulted here, which
+  // is why this case needs no fake timers to pin.
+  it('counts the previous calendar date when tonight is flagged on it', () => {
     const slice = buildSceneSlice(
       buildDay({
         date: '2026-08-17',

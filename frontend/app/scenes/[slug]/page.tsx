@@ -165,10 +165,8 @@ const getSceneWeek = cache((slug: string) =>
  *
  * The sequencing and the empty-`next_date` trap live in `sceneSliceApi` rather
  * than here, so a second consumer cannot re-derive them; this wrapper only adds
- * the per-request dedupe its two neighbours above already have. `cache()` is
- * currently redundant — the page body is the only caller — and kept for the
- * caller this page will plausibly grow: `generateMetadata` can state a real
- * tonight count off this same payload.
+ * the per-request dedupe its two neighbours above already have. `cache()` bounds
+ * this to one trip per request however many callers it grows.
  */
 const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
@@ -374,11 +372,10 @@ export default async function ScenePage({ params }: ScenePageProps) {
             <SceneDetailView
               slug={slug}
               timeZone={slice?.timezone}
-              /* Derived HERE, off the one slice both this prop and the calendar
-                 slot below read, so the band's count and the rows under the
-                 calendar's TONIGHT heading can never come from two fetches.
-                 `undefined` when the slice failed: a missing count is not a
-                 zero, and the band draws neither. */
+              /* The SAME slice the calendar slot below renders, so the band's
+                 count and the rows under the calendar's TONIGHT heading are
+                 one payload. A slice that did not load counts nothing rather
+                 than counting zero. */
               tonightShowCount={slice ? sceneSliceTonightCount(slice) : undefined}
               calendarSlot={<SceneCalendar scene={scene} slice={slice} />}
             />

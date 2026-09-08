@@ -50,8 +50,8 @@ interface SceneDetailProps {
    * is a slot: passing the payload across this client boundary would serialize
    * every row of it into the flight payload a second time.
    *
-   * `undefined` means the slice did not load, which is not the same answer as
-   * zero and is not rendered as one. The band omits the clause for both.
+   * Absent when nothing answered for tonight. The band draws the clause only
+   * for a count above zero, so absent and zero reach the reader alike.
    */
   tonightShowCount?: number
 }
@@ -75,11 +75,10 @@ interface SceneDetailProps {
  * and the stat line is read as a sentence.
  *
  * The TONIGHT clause LEADS, because it is the clause a reader opening this page
- * is scanning for. It is omitted at zero rather than spelled "NOTHING TONIGHT":
- * this page knows its own calendar and not the city's, so a zero printed in the
- * band would assert about every room it does not track. An absent count (the
- * slice did not load) omits it for the same reason a failed request is not an
- * empty calendar.
+ * is scanning for. It is drawn only above zero, never as "NOTHING TONIGHT":
+ * this band speaks for the rooms this page tracks, and a zero in it would read
+ * as a claim about the city. So a quiet night and a night nothing answered for
+ * are one rendering, and neither states a number.
  *
  * ONE clause the mock draws is absent, because no honest number exists for it
  * here: `THIS WEEK n`. `GET /scenes/{slug}` carries no calendar-week field;

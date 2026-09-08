@@ -203,10 +203,9 @@ describe('scenes/[slug] calendar slice', () => {
   type Node = { props?: Record<string, unknown> } | null | undefined
 
   /**
-   * The props the route handed `SceneDetailView`, found by the one prop only
-   * it takes. Returned whole rather than one field at a time: every assertion
-   * about what this route passes down reads the same object, so a second rule
-   * cannot grow a second walk of the tree.
+   * The props the route handed `SceneDetailView`, found by the one prop only it
+   * takes. Returned whole so every rule about what this route passes down reads
+   * one tree walk.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function findSceneDetailProps(node: any): any {
@@ -487,7 +486,8 @@ describe('scenes/[slug] calendar slice', () => {
     const blocks = findJsonLd(tree)
     // Counted through the helper the calendar's own quiet check goes through,
     // so this figure is not a second spelling of it.
-    const slicedShows = countWindowShows(findSceneDetailProps(tree).calendarSlot.props.slice.days)
+    const slice = findSceneDetailProps(tree).calendarSlot.props.slice
+    const slicedShows = countWindowShows(slice.days)
     const itemList = blocks.find((data: { '@type'?: string }) => data['@type'] === 'ItemList')
     // FILTERED, not `find`: a second array-valued block would make a positional
     // pick silently assert about the wrong one.
