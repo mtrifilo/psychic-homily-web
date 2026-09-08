@@ -45,6 +45,7 @@ import { LowQualityTagQueue } from './LowQualityTagQueue'
 import { MergeTagDialog } from './MergeTagDialog'
 import { TagHierarchyEditor } from './TagHierarchyEditor'
 import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
+import type { TagLinkInput } from './useAdminTags'
 import {
   useCreateTag,
   useUpdateTag,
@@ -54,16 +55,141 @@ import {
   useDeleteAlias,
   useLowQualityTagQueue,
 } from './useAdminTags'
+import { SOCIAL_LINK_PLATFORMS } from '@/lib/socialLinks'
 import {
   TAG_CATEGORIES,
+  TAG_CATEGORY_CREW,
+  TAG_LINK_PLATFORMS,
   canonicalTagCategory,
   getCategoryChipClasses,
   getCategoryLabel,
   type TagCategory,
   type TagDetailResponse,
+  type TagLinkPlatform,
 } from '../types'
 
 type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
+
+// ============================================================================
+// Outbound links (crew tags)
+// ============================================================================
+
+/** The link inputs as edited, before they are trimmed and submitted. */
+type TagLinkDraft = Record<TagLinkPlatform, string>
+
+const EMPTY_TAG_LINKS: TagLinkDraft = Object.fromEntries(
+  TAG_LINK_PLATFORMS.map((platform) => [platform, ''])
+) as TagLinkDraft
+
+/** The placeholder each input shows. The label comes from the shared registry. */
+const TAG_LINK_PLACEHOLDERS: Record<TagLinkPlatform, string> = {
+  website: 'https://example.com',
+  instagram: 'https://instagram.com/handle',
+  bandcamp: 'https://name.bandcamp.com',
+}
+
+/**
+ * Whether the form should offer the link inputs.
+ *
+ * Keyed on the category the form is ABOUT TO SAVE, so recategorizing a tag to
+ * crew and filling its links is one pass. The canonical spelling is used
+ * because the stored column is unconstrained.
+ *
+ * A tag that already HOLDS a link keeps the inputs whatever its category:
+ * recategorizing a crew tag leaves its links stored and rendered, and without
+ * this the only surface that can clear them would have hidden them.
+ *
+ * hasStoredLink reads the SAVED row, never the draft. From the draft, emptying
+ * the last input would hide the inputs and drop the clear before it was sent.
+ *
+ * This is an affordance, not a policy: the API takes links on any category and
+ * the tag page renders them for any category.
+ */
+function offersTagLinks(category: string, hasStoredLink: boolean): boolean {
+  return canonicalTagCategory(category) === TAG_CATEGORY_CREW || hasStoredLink
+}
+
+/** Whether the saved row holds any link. */
+function holdsStoredLink(social: TagDetailResponse['social']): boolean {
+  return TAG_LINK_PLATFORMS.some((platform) => Boolean(social?.[platform]))
+}
+
+/** The draft as it stood when the form loaded, per platform. */
+function tagLinkDraftFrom(social: TagDetailResponse['social']): TagLinkDraft {
+  return Object.fromEntries(
+    TAG_LINK_PLATFORMS.map((platform) => [platform, social?.[platform] ?? ''])
+  ) as TagLinkDraft
+}
+
+/**
+ * The link half of a tag write: only the platforms whose input DIFFERS from
+ * what the form loaded.
+ *
+ * Sending all three on every save would make an untouched field a write. The
+ * empty string means "clear", so a form whose baseline is empty because the
+ * response it loaded carried no `social` key, or carried a stale one, would
+ * clear links it never displayed and whose owner never touched them. Sending
+ * only what changed makes an untouched field cost nothing.
+ *
+ * A form that is not offering the inputs sends no link keys at all, so a
+ * category change cannot clear values the admin was not shown.
+ */
+function tagLinkPayload(
+  category: string,
+  links: TagLinkDraft,
+  baseline: TagLinkDraft,
+  hasStoredLink: boolean
+): TagLinkInput {
+  if (!offersTagLinks(category, hasStoredLink)) return {}
+  return Object.fromEntries(
+    TAG_LINK_PLATFORMS.map((platform) => [platform, links[platform].trim()])
+      .filter(([platform, value]) => value !== baseline[platform as TagLinkPlatform])
+  )
+}
+
+/**
+ * The outbound-link inputs.
+ *
+ * Free text, not validated here: the host rule is the API's, and duplicating
+ * it in the browser would be a second rule to keep in step. A refused value
+ * comes back as the same message every other entity's link fields produce and
+ * is shown in the form's error banner.
+ */
+function TagLinkFields({
+  idPrefix,
+  links,
+  onChange,
+  disabled,
+}: {
+  idPrefix: string
+  links: TagLinkDraft
+  onChange: (next: TagLinkDraft) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="space-y-3 rounded-md border border-dashed p-3">
+      <p className="text-xs text-muted-foreground">
+        Links shown on the tag page. Leave blank to remove.
+      </p>
+      {TAG_LINK_PLATFORMS.map((platform) => (
+        <div key={platform} className="space-y-2">
+          <Label htmlFor={`${idPrefix}-${platform}`}>
+            {SOCIAL_LINK_PLATFORMS[platform].label}
+          </Label>
+          <Input
+            id={`${idPrefix}-${platform}`}
+            value={links[platform]}
+            onChange={(e) =>
+              onChange({ ...links, [platform]: e.target.value })
+            }
+            placeholder={TAG_LINK_PLACEHOLDERS[platform]}
+            disabled={disabled}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // ============================================================================
 // Needs-Review Tab Badge
@@ -208,6 +334,7 @@ function CreateTagForm({
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<string>('genre')
   const [isOfficial, setIsOfficial] = useState(false)
+  const [links, setLinks] = useState<TagLinkDraft>(EMPTY_TAG_LINKS)
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = useCallback(
@@ -226,6 +353,7 @@ function CreateTagForm({
           description: description.trim() || undefined,
           category,
           is_official: isOfficial,
+          ...tagLinkPayload(category, links, EMPTY_TAG_LINKS, false),
         },
         {
           onSuccess: () => onSuccess(),
@@ -237,7 +365,7 @@ function CreateTagForm({
         }
       )
     },
-    [name, description, category, isOfficial, createMutation, onSuccess]
+    [name, description, category, isOfficial, links, createMutation, onSuccess]
   )
 
   return (
@@ -269,6 +397,15 @@ function CreateTagForm({
           </SelectContent>
         </Select>
       </div>
+
+      {offersTagLinks(category, false) && (
+        <TagLinkFields
+          idPrefix="create"
+          links={links}
+          onChange={setLinks}
+          disabled={createMutation.isPending}
+        />
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="create-desc">Description</Label>
@@ -385,6 +522,12 @@ export function EditTagFormFields({
     canonicalTagCategory(tag.category)
   )
   const [isOfficial, setIsOfficial] = useState(tag.is_official)
+  // The baseline is what the loaded row held; the submit sends only the
+  // platforms that differ from it. Derived from the tag, not held in state, so
+  // it cannot drift from the row this form is editing.
+  const linkBaseline = tagLinkDraftFrom(tag.social)
+  const [links, setLinks] = useState<TagLinkDraft>(linkBaseline)
+  const hasStoredLink = holdsStoredLink(tag.social)
   const [error, setError] = useState<string | null>(null)
 
   // A Select whose value has no matching option renders an EMPTY trigger while
@@ -427,6 +570,7 @@ export function EditTagFormFields({
             description: description.trim() || null,
             category,
             is_official: isOfficial,
+            ...tagLinkPayload(category, links, linkBaseline, hasStoredLink),
           },
         },
         {
@@ -439,7 +583,18 @@ export function EditTagFormFields({
         }
       )
     },
-    [name, description, category, isOfficial, tagId, updateMutation, onSuccess]
+    [
+      name,
+      description,
+      category,
+      isOfficial,
+      links,
+      linkBaseline,
+      hasStoredLink,
+      tagId,
+      updateMutation,
+      onSuccess,
+    ]
   )
 
   return (
@@ -471,6 +626,15 @@ export function EditTagFormFields({
             </SelectContent>
           </Select>
         </div>
+
+        {offersTagLinks(category, hasStoredLink) && (
+          <TagLinkFields
+            idPrefix="edit"
+            links={links}
+            onChange={setLinks}
+            disabled={updateMutation.isPending}
+          />
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="edit-desc">Description</Label>

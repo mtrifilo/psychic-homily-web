@@ -9,23 +9,62 @@ import (
 // Tag types
 // ──────────────────────────────────────────────
 
+// TagSocialResponse is a tag's outbound links. It is not SocialResponse: that
+// shape has eight keys, and five of them would be permanently null here,
+// describing a schema that does not exist. The key names match the other
+// entities' so one read gate answers for all of them.
+type TagSocialResponse struct {
+	Website   *string `json:"website"`
+	Instagram *string `json:"instagram"`
+	Bandcamp  *string `json:"bandcamp"`
+}
+
 // TagResponse represents a tag returned to clients.
 type TagResponse struct {
-	ID                uint      `json:"id"`
-	Name              string    `json:"name"`
-	Slug              string    `json:"slug"`
-	Description       *string   `json:"description,omitempty"`
-	ParentID          *uint     `json:"parent_id,omitempty"`
-	ParentName        string    `json:"parent_name,omitempty"`
-	Category          string    `json:"category"`
-	IsOfficial        bool      `json:"is_official"`
-	UsageCount        int       `json:"usage_count"`
-	ChildCount        int       `json:"child_count"`
-	Aliases           []string  `json:"aliases,omitempty"`
-	CreatedByUserID   *uint     `json:"created_by_user_id,omitempty"`
-	CreatedByUsername *string   `json:"created_by_username,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                uint              `json:"id"`
+	Name              string            `json:"name"`
+	Slug              string            `json:"slug"`
+	Description       *string           `json:"description,omitempty"`
+	ParentID          *uint             `json:"parent_id,omitempty"`
+	ParentName        string            `json:"parent_name,omitempty"`
+	Category          string            `json:"category"`
+	IsOfficial        bool              `json:"is_official"`
+	UsageCount        int               `json:"usage_count"`
+	ChildCount        int               `json:"child_count"`
+	Aliases           []string          `json:"aliases,omitempty"`
+	Social            TagSocialResponse `json:"social"`
+	CreatedByUserID   *uint             `json:"created_by_user_id,omitempty"`
+	CreatedByUsername *string           `json:"created_by_username,omitempty"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+}
+
+// NewTagResponse projects a stored tag's OWN COLUMNS onto the wire shape.
+//
+// The relationship-derived fields (ParentName, CreatedByUsername, Aliases) stay
+// with the callers: each read path preloads a different subset and answers
+// differently when a preload is absent. What this owns is the column list, so
+// a column added to Tag reaches every tag response from one place.
+func NewTagResponse(tag *catalogm.Tag) TagResponse {
+	return TagResponse{
+		ID:          tag.ID,
+		Name:        tag.Name,
+		Slug:        tag.Slug,
+		Description: tag.Description,
+		ParentID:    tag.ParentID,
+		Category:    tag.Category,
+		IsOfficial:  tag.IsOfficial,
+		UsageCount:  tag.UsageCount,
+		ChildCount:  len(tag.Children),
+		Social: TagSocialResponse{
+			Website:   tag.Website,
+			Instagram: tag.Instagram,
+			Bandcamp:  tag.Bandcamp,
+		},
+		CreatedByUserID: tag.CreatedByUserID,
+		CreatedAt:       tag.CreatedAt,
+		UpdatedAt:       tag.UpdatedAt,
+	}
 }
 
 // TagSummary is a minimal tag representation for use in parent/children/related arrays.
@@ -331,7 +370,7 @@ type BulkLowQualityTagActionResult struct {
 // TagServiceInterface defines the contract for tag operations.
 type TagServiceInterface interface {
 	// CRUD
-	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*catalogm.Tag, error)
+	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint, links catalogm.TagLinks) (*catalogm.Tag, error)
 	GetTag(tagID uint) (*catalogm.Tag, error)
 	GetTagBySlug(slug string) (*catalogm.Tag, error)
 	// ListTags returns tags with optional filters/sort. When entityType is
@@ -341,7 +380,7 @@ type TagServiceInterface interface {
 	// a set of (city, state) pairs and is honoured only for entityType=="show"
 	// (PSY-982); pass nil when no city filter is active.
 	ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string, cities []CityStateFilter) ([]catalogm.Tag, int64, error)
-	UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*catalogm.Tag, error)
+	UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool, links catalogm.TagLinks) (*catalogm.Tag, error)
 	DeleteTag(tagID uint) error
 
 	// Entity tagging

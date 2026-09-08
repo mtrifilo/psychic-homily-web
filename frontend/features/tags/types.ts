@@ -1,5 +1,7 @@
 // Tag types — aligned with backend contracts/tag.go response types.
 
+import type { SocialLinkPlatform, SocialLinkValues } from '@/lib/socialLinks'
+
 export const TAG_CATEGORIES = [
   'genre', 'locale', 'other', 'crew'
 ] as const
@@ -90,12 +92,39 @@ export interface TagListItem {
   matched_via_alias?: string
 }
 
+/**
+ * The social columns a tag carries: three, not the eight an artist or venue
+ * has. Named against the shared read registry rather than restated, so a
+ * platform key renamed there fails to compile here.
+ */
+export const TAG_LINK_PLATFORMS = [
+  'website',
+  'instagram',
+  'bandcamp',
+] as const satisfies readonly SocialLinkPlatform[]
+
+export type TagLinkPlatform = (typeof TAG_LINK_PLATFORMS)[number]
+
+/** A tag's outbound links, as stored. Accepted by the shared read gate. */
+export type TagSocial = Pick<SocialLinkValues, TagLinkPlatform>
+
 export interface TagDetailResponse extends TagListItem {
   description?: string
   parent_id?: number
   parent_name?: string
   child_count: number
   aliases: string[]
+  /**
+   * Outbound links. The API always sends the key, with a null per unset
+   * column; it is optional here because a response cached before these columns
+   * existed carries none.
+   *
+   * An absent key renders nothing, and the admin form submits only the link
+   * inputs an operator changed, so an absent key also writes nothing. Both
+   * halves are load-bearing: a form that submitted every input would read an
+   * absent key as three empty strings, which the API takes as "clear".
+   */
+  social?: TagSocial
   created_by_user_id?: number
   created_by_username?: string
   updated_at: string

@@ -448,7 +448,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_TagAliasM
 	taggedSlug := s.seedSearchableCollection(user, "Alpha Catalog", "ordinary description text", "")
 	s.seedSearchableCollection(user, "Beta Catalog", "ordinary description text", "")
 
-	tag, err := s.deps.TagService.CreateTag("post-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID)
+	tag, err := s.deps.TagService.CreateTag("post-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID, catalogm.TagLinks{})
 	s.Require().NoError(err)
 	s.Require().NoError(s.deps.DB.Create(&catalogm.TagAlias{
 		TagID: tag.ID,

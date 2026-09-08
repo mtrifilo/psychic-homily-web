@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"strings"
@@ -41,7 +42,10 @@ func NewTagService(database *gorm.DB) *TagService {
 // ──────────────────────────────────────────────
 
 // CreateTag creates a new tag. If userID is non-nil, it records who created the tag.
-func (s *TagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*catalogm.Tag, error) {
+//
+// links carries the outbound-link columns; the caller has already run them
+// through the shared social-URL gate, which is the only place that rule lives.
+func (s *TagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint, links catalogm.TagLinks) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -73,6 +77,7 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 		IsOfficial:      isOfficial,
 		CreatedByUserID: userID,
 	}
+	links.Apply(tag)
 
 	if err := s.db.Create(tag).Error; err != nil {
 		// A duplicate key here means a row the lookups above could not see was
@@ -328,7 +333,11 @@ func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint
 }
 
 // UpdateTag updates a tag's fields.
-func (s *TagService) UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*catalogm.Tag, error) {
+//
+// links carries the outbound-link columns; a nil member leaves its column
+// alone, so a caller that does not offer the fields cannot clear them. The
+// caller has already run any supplied value through the shared social-URL gate.
+func (s *TagService) UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool, links catalogm.TagLinks) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -377,6 +386,7 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 	if isOfficial != nil {
 		updates["is_official"] = *isOfficial
 	}
+	maps.Copy(updates, links.Columns())
 
 	if len(updates) > 0 {
 		if err := s.db.Model(&tag).Updates(updates).Error; err != nil {
@@ -1932,20 +1942,7 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	}
 
 	resp := &contracts.TagDetailResponse{
-		TagResponse: contracts.TagResponse{
-			ID:              tag.ID,
-			Name:            tag.Name,
-			Slug:            tag.Slug,
-			Description:     tag.Description,
-			ParentID:        tag.ParentID,
-			Category:        tag.Category,
-			IsOfficial:      tag.IsOfficial,
-			UsageCount:      tag.UsageCount,
-			ChildCount:      len(tag.Children),
-			CreatedByUserID: tag.CreatedByUserID,
-			CreatedAt:       tag.CreatedAt,
-			UpdatedAt:       tag.UpdatedAt,
-		},
+		TagResponse:     contracts.NewTagResponse(tag),
 		Children:        []contracts.TagSummary{},
 		UsageBreakdown:  map[string]int64{},
 		TopContributors: []contracts.TagContributor{},

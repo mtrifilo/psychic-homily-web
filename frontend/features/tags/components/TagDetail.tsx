@@ -8,7 +8,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { Button } from '@/components/ui/button'
-import { Breadcrumb, FollowButton } from '@/components/shared'
+import { Breadcrumb, FollowButton, SocialLinks } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useTagDetail, useTagIntersection, useSearchTags } from '../hooks'
 import {
@@ -254,6 +254,12 @@ function TagDetailContent({
             </>
           )}
         </div>
+
+        {/* Outbound links, for any category that has them. The gate inside
+            SocialLinks decides what becomes an href, so a stored value whose
+            host is not the platform's renders nothing at all, and a tag with
+            no usable link renders no row. */}
+        <SocialLinks social={tag.social} className="mt-3" />
 
         {/* Optional description. */}
         {tag.description_html ? (

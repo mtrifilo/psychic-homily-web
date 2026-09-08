@@ -11,6 +11,8 @@ import type {
 } from '../types'
 
 const mockUseTags = vi.fn()
+const mockUpdateTagMutate = vi.hoisted(() => vi.fn())
+const mockCreateTagMutate = vi.hoisted(() => vi.fn())
 vi.mock('../hooks', () => ({
   useTags: (...args: unknown[]) => mockUseTags(...args),
   useTag: vi.fn(),
@@ -21,8 +23,8 @@ vi.mock('../hooks', () => ({
 }))
 
 vi.mock('./useAdminTags', () => ({
-  useCreateTag: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateTag: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateTag: () => ({ mutate: mockCreateTagMutate, isPending: false }),
+  useUpdateTag: () => ({ mutate: mockUpdateTagMutate, isPending: false }),
   useDeleteTag: () => ({ mutate: vi.fn(), isPending: false }),
   useTagAliases: () => ({ data: { aliases: [] as TagAlias[] }, isLoading: false }),
   useCreateAlias: () => ({ mutate: vi.fn(), isPending: false }),
@@ -378,5 +380,276 @@ describe('EditTagFormFields: tag switch resets fields via key prop', () => {
     )
 
     expect(screen.getByLabelText('Name *')).toHaveValue('dirty-edit')
+  })
+})
+
+describe('TagManagement — crew outbound links (PSY-1888)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('offers no link inputs for a non-crew tag', () => {
+    renderWithProviders(
+      <EditTagFormFields
+        key={1}
+        tag={makeTagDetail({ id: 1, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByLabelText('Website')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Instagram')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Bandcamp')).not.toBeInTheDocument()
+  })
+
+  it('offers the three link inputs for a crew tag, prefilled from the stored links', () => {
+    renderWithProviders(
+      <EditTagFormFields
+        key={2}
+        tag={makeTagDetail({
+          id: 2,
+          name: 'Rubber Brother Records',
+          category: 'crew',
+          social: {
+            website: 'https://rubberbrotherrecords.test',
+            instagram: 'https://instagram.com/rubberbrother',
+            bandcamp: null,
+          },
+        })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Website')).toHaveValue(
+      'https://rubberbrotherrecords.test'
+    )
+    expect(screen.getByLabelText('Instagram')).toHaveValue(
+      'https://instagram.com/rubberbrother'
+    )
+    expect(screen.getByLabelText('Bandcamp')).toHaveValue('')
+  })
+
+  it('reveals the link inputs when the category is switched to crew', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={3}
+        tag={makeTagDetail({ id: 3, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByLabelText('Website')).not.toBeInTheDocument()
+    await user.click(screen.getByLabelText('Category *'))
+    await user.click(await screen.findByRole('option', { name: 'Crew' }))
+
+    expect(await screen.findByLabelText('Website')).toBeInTheDocument()
+  })
+
+  it('submits the trimmed link fields for a crew tag', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={4}
+        tag={makeTagDetail({ id: 4, name: 'Rubber Brother', category: 'crew' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.type(
+      screen.getByLabelText('Website'),
+      '  https://rubberbrotherrecords.test  '
+    )
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    expect(mockUpdateTagMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.tagId).toBe(4)
+    expect(payload.data.website).toBe('https://rubberbrotherrecords.test')
+    // The two untouched inputs are absent: the payload carries what changed.
+    expect(payload.data).not.toHaveProperty('instagram')
+    expect(payload.data).not.toHaveProperty('bandcamp')
+  })
+
+  // A form that does not show the inputs must not send them: stored links a
+  // non-crew editor never saw would otherwise be cleared by saving a rename.
+  it('sends no link fields at all for a non-crew tag with no stored links', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={5}
+        tag={makeTagDetail({ id: 5, name: 'shoegaze', category: 'genre' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    expect(mockUpdateTagMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.data).not.toHaveProperty('website')
+    expect(payload.data).not.toHaveProperty('instagram')
+    expect(payload.data).not.toHaveProperty('bandcamp')
+  })
+
+  // Recategorizing a crew tag leaves its links stored and rendered. If the
+  // only surface that can clear them hid them, they would be unremovable.
+  it('keeps the inputs for a non-crew tag that already holds a link', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={6}
+        tag={makeTagDetail({
+          id: 6,
+          name: 'shoegaze',
+          category: 'genre',
+          social: { website: 'https://zine.test', instagram: null, bandcamp: null },
+        })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Website')).toHaveValue('https://zine.test')
+    await user.clear(screen.getByLabelText('Website'))
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.data.website).toBe('')
+  })
+})
+
+describe('TagManagement — link writes send only what changed (PSY-1888)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // The reason the payload is a diff: the edit form's baseline is whatever
+  // response it loaded. A response with no `social` key, or a stale one, would
+  // otherwise submit three empty strings and clear links the admin never saw.
+  it('sends nothing when a crew tag is renamed and no link input is touched', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={20}
+        tag={makeTagDetail({ id: 20, name: 'Rubber Brother', category: 'crew' })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    const nameInput = screen.getByLabelText('Name *')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Rubber Brother Records')
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.data.name).toBe('Rubber Brother Records')
+    expect(payload.data).not.toHaveProperty('website')
+    expect(payload.data).not.toHaveProperty('instagram')
+    expect(payload.data).not.toHaveProperty('bandcamp')
+  })
+
+  it('sends only the platform that changed, leaving the others alone', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EditTagFormFields
+        key={21}
+        tag={makeTagDetail({
+          id: 21,
+          name: 'Rubber Brother',
+          category: 'crew',
+          social: {
+            website: 'https://rubberbrotherrecords.test',
+            instagram: null,
+            bandcamp: null,
+          },
+        })}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.type(
+      screen.getByLabelText('Instagram'),
+      'https://instagram.com/rubberbrother'
+    )
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    const [payload] = mockUpdateTagMutate.mock.calls[0]
+    expect(payload.data.instagram).toBe('https://instagram.com/rubberbrother')
+    expect(payload.data).not.toHaveProperty('website')
+    expect(payload.data).not.toHaveProperty('bandcamp')
+  })
+})
+
+describe('TagManagement — create dialog link inputs (PSY-1888)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseTags.mockReturnValue({
+      data: { tags: [] as TagListItem[], total: 0 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  async function openCreateDialog(user: ReturnType<typeof userEvent.setup>) {
+    renderWithProviders(<TagManagement />)
+    await user.click(screen.getByRole('button', { name: /New Tag/i }))
+    return screen.findByLabelText('Name *')
+  }
+
+  it('offers no link inputs until the category is crew', async () => {
+    const user = userEvent.setup()
+    await openCreateDialog(user)
+
+    expect(screen.queryByLabelText('Website')).not.toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Category *'))
+    await user.click(await screen.findByRole('option', { name: 'Crew' }))
+
+    expect(await screen.findByLabelText('Website')).toBeInTheDocument()
+    expect(screen.getByLabelText('Instagram')).toBeInTheDocument()
+    expect(screen.getByLabelText('Bandcamp')).toBeInTheDocument()
+  })
+
+  it('submits the typed links with the new crew tag', async () => {
+    const user = userEvent.setup()
+    const nameInput = await openCreateDialog(user)
+    await user.type(nameInput, 'Rubber Brother Records')
+
+    await user.click(screen.getByLabelText('Category *'))
+    await user.click(await screen.findByRole('option', { name: 'Crew' }))
+    await user.type(
+      await screen.findByLabelText('Website'),
+      '  https://rubberbrotherrecords.test  '
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Create Tag' }))
+
+    expect(mockCreateTagMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockCreateTagMutate.mock.calls[0]
+    expect(payload.category).toBe('crew')
+    expect(payload.website).toBe('https://rubberbrotherrecords.test')
+    expect(payload).not.toHaveProperty('instagram')
+    expect(payload).not.toHaveProperty('bandcamp')
+  })
+
+  it('sends no link fields for a non-crew tag', async () => {
+    const user = userEvent.setup()
+    const nameInput = await openCreateDialog(user)
+    await user.type(nameInput, 'shoegaze')
+    await user.click(screen.getByRole('button', { name: 'Create Tag' }))
+
+    expect(mockCreateTagMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockCreateTagMutate.mock.calls[0]
+    expect(payload).not.toHaveProperty('website')
+    expect(payload).not.toHaveProperty('instagram')
+    expect(payload).not.toHaveProperty('bandcamp')
   })
 })

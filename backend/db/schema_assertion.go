@@ -32,6 +32,13 @@ var requiredSchemaColumns = []requiredColumn{
 	{Table: "shows", Column: "doors_at"},
 	{Table: "shows", Column: "music_at"},
 	{Table: "shows", Column: "door_price"},
+	// GORM's Create enumerates every model column, so these three appear in
+	// every tag INSERT, including the one an entity page's inline tag-add runs.
+	// Absent DDL fails that write at request time, which is what this list
+	// exists to turn into a boot refusal.
+	{Table: "tags", Column: "website"},
+	{Table: "tags", Column: "instagram"},
+	{Table: "tags", Column: "bandcamp"},
 	// PSY-1761: shared.VenueTZJoin reads this table on EVERY show-listing
 	// query, so recorded-migration-but-absent-DDL here does not degrade, it
 	// fails every listing surface at once with "relation does not exist" —

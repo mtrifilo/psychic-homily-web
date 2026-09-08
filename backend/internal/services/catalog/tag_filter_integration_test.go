@@ -90,7 +90,7 @@ func (s *TagFilterIntegrationTestSuite) SetupTest() {
 		if name == "phoenix" {
 			cat = "locale"
 		}
-		t, err := s.tagService.CreateTag(name, nil, nil, cat, false, nil)
+		t, err := s.tagService.CreateTag(name, nil, nil, cat, false, nil, catalogm.TagLinks{})
 		s.Require().NoError(err)
 		s.tags[t.Slug] = t
 	}

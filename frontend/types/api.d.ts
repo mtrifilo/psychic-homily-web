@@ -10326,6 +10326,8 @@ export interface components {
              * @example https://example.com/schemas/CreateTagRequestBody.json
              */
             readonly $schema?: string;
+            /** @description Bandcamp URL */
+            bandcamp?: string | null;
             /**
              * @description Tag category (genre, locale, other, crew)
              * @example genre
@@ -10333,6 +10335,8 @@ export interface components {
             category: string;
             /** @description Tag description */
             description?: string | null;
+            /** @description Instagram URL */
+            instagram?: string | null;
             /** @description Whether this is an official/canonical tag */
             is_official?: boolean;
             /**
@@ -10345,6 +10349,8 @@ export interface components {
              * @description Parent tag ID for hierarchy
              */
             parent_id?: number | null;
+            /** @description Website URL */
+            website?: string | null;
         };
         CredentialAssertion: {
             mediation?: string;
@@ -16972,6 +16978,7 @@ export interface components {
             parent_name?: string;
             related_tags: components["schemas"]["TagSummary"][] | null;
             slug: string;
+            social: components["schemas"]["TagSocialResponse"];
             top_contributors: components["schemas"]["TagContributor"][] | null;
             /** Format: date-time */
             updated_at: string;
@@ -17036,10 +17043,16 @@ export interface components {
             parent_id?: number;
             parent_name?: string;
             slug: string;
+            social: components["schemas"]["TagSocialResponse"];
             /** Format: date-time */
             updated_at: string;
             /** Format: int64 */
             usage_count: number;
+        };
+        TagSocialResponse: {
+            bandcamp: string | null;
+            instagram: string | null;
+            website: string | null;
         };
         TagSummary: {
             category: string;
@@ -17800,10 +17813,14 @@ export interface components {
              * @example https://example.com/schemas/UpdateTagRequestBody.json
              */
             readonly $schema?: string;
+            /** @description Bandcamp URL */
+            bandcamp?: string | null;
             /** @description Tag category */
             category?: string | null;
             /** @description Tag description */
             description?: string | null;
+            /** @description Instagram URL */
+            instagram?: string | null;
             /** @description Whether this is official */
             is_official?: boolean | null;
             /** @description Tag name */
@@ -17813,6 +17830,8 @@ export interface components {
              * @description Parent tag ID
              */
             parent_id?: number | null;
+            /** @description Website URL */
+            website?: string | null;
         };
         UpdateVenueRequestBody: {
             /**

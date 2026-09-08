@@ -578,6 +578,13 @@ type CreateTagRequest struct {
 		ParentID    *uint   `json:"parent_id" required:"false" doc:"Parent tag ID for hierarchy"`
 		Category    string  `json:"category" doc:"Tag category (genre, locale, other, crew)" example:"genre"`
 		IsOfficial  bool    `json:"is_official" required:"false" doc:"Whether this is an official/canonical tag"`
+		// Outbound links, flat like the venue/label/artist request bodies. The
+		// caps are urlFieldSpecs' for the columns of these names, and the
+		// columns are that wide; TestTagLinkCapsMatchTheURLRegistry holds the
+		// first half of that to the registry.
+		Website   *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+		Instagram *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
+		Bandcamp  *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
 	}
 }
 
@@ -594,8 +601,16 @@ func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest
 	if req.Body.Category == "" {
 		return nil, huma.Error422UnprocessableEntity("Category is required")
 	}
+	links := catalogm.TagLinks{
+		Website:   req.Body.Website,
+		Instagram: req.Body.Instagram,
+		Bandcamp:  req.Body.Bandcamp,
+	}
+	if err := validateTagLinks(links); err != nil {
+		return nil, err
+	}
 
-	tag, err := h.tagService.CreateTag(req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial, &user.ID)
+	tag, err := h.tagService.CreateTag(req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial, &user.ID, links)
 	if err != nil {
 		mapped := shared.MapTagError(err)
 		if mapped != nil {
@@ -639,6 +654,11 @@ type UpdateTagRequest struct {
 		ParentID    *uint   `json:"parent_id" required:"false" doc:"Parent tag ID"`
 		Category    *string `json:"category" required:"false" doc:"Tag category"`
 		IsOfficial  *bool   `json:"is_official" required:"false" doc:"Whether this is official"`
+		// An omitted link field leaves its column alone; an empty string clears
+		// it. Caps match CreateTagRequest and the columns behind them.
+		Website   *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+		Instagram *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
+		Bandcamp  *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
 	}
 }
 
@@ -654,7 +674,16 @@ func (h *TagHandler) UpdateTagHandler(ctx context.Context, req *UpdateTagRequest
 		return nil, huma.Error400BadRequest("Invalid tag ID")
 	}
 
-	tag, err := h.tagService.UpdateTag(uint(id), req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial)
+	links := catalogm.TagLinks{
+		Website:   req.Body.Website,
+		Instagram: req.Body.Instagram,
+		Bandcamp:  req.Body.Bandcamp,
+	}
+	if err := validateTagLinks(links); err != nil {
+		return nil, err
+	}
+
+	tag, err := h.tagService.UpdateTag(uint(id), req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial, links)
 	if err != nil {
 		mapped := shared.MapTagError(err)
 		if mapped != nil {
@@ -1184,6 +1213,15 @@ func (h *TagHandler) SetTagParentHandler(ctx context.Context, req *SetTagParentR
 // Helpers
 // ============================================================================
 
+// validateTagLinks runs a tag's outbound links through the gate that judges the
+// artist, venue, label and festival columns of these names. The nil arguments
+// are the five social columns a tag does not carry.
+func validateTagLinks(links catalogm.TagLinks) error {
+	return shared.ValidateSocialURLs(
+		links.Instagram, nil, nil, nil, nil, nil, links.Bandcamp, links.Website,
+	)
+}
+
 // resolveTag resolves a tag by numeric ID or slug.
 func (h *TagHandler) resolveTag(idOrSlug string) *catalogm.Tag {
 	// Try numeric ID first
@@ -1203,20 +1241,8 @@ func (h *TagHandler) resolveTag(idOrSlug string) *catalogm.Tag {
 
 // buildTagResponse converts a catalogm.Tag to a TagResponse.
 func buildTagResponse(tag *catalogm.Tag) *contracts.TagResponse {
-	resp := &contracts.TagResponse{
-		ID:              tag.ID,
-		Name:            tag.Name,
-		Slug:            tag.Slug,
-		Description:     tag.Description,
-		ParentID:        tag.ParentID,
-		Category:        tag.Category,
-		IsOfficial:      tag.IsOfficial,
-		UsageCount:      tag.UsageCount,
-		ChildCount:      len(tag.Children),
-		CreatedByUserID: tag.CreatedByUserID,
-		CreatedAt:       tag.CreatedAt,
-		UpdatedAt:       tag.UpdatedAt,
-	}
+	projected := contracts.NewTagResponse(tag)
+	resp := &projected
 
 	if tag.Parent != nil {
 		resp.ParentName = tag.Parent.Name

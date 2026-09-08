@@ -106,7 +106,7 @@ func (suite *TagServiceIntegrationTestSuite) createTestUser(name string) *authm.
 }
 
 func (suite *TagServiceIntegrationTestSuite) createTag(name, category string) *catalogm.Tag {
-	tag, err := suite.tagService.CreateTag(name, nil, nil, category, false, nil)
+	tag, err := suite.tagService.CreateTag(name, nil, nil, category, false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	return tag
 }
@@ -126,7 +126,7 @@ func (suite *TagServiceIntegrationTestSuite) createArtist(name string) uint {
 
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_Success() {
 	desc := "A subgenre of punk rock"
-	tag, err := suite.tagService.CreateTag("Post-Punk", &desc, nil, "genre", true, nil)
+	tag, err := suite.tagService.CreateTag("Post-Punk", &desc, nil, "genre", true, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(tag)
 
@@ -155,14 +155,14 @@ func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_ToCrewCategory() {
 	created := suite.createTag("Local Collective", catalogm.TagCategoryOther)
 
 	crew := catalogm.TagCategoryCrew
-	updated, err := suite.tagService.UpdateTag(created.ID, nil, nil, nil, &crew, nil)
+	updated, err := suite.tagService.UpdateTag(created.ID, nil, nil, nil, &crew, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(updated)
 	suite.Assert().Equal(catalogm.TagCategoryCrew, updated.Category)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_InvalidCategory() {
-	tag, err := suite.tagService.CreateTag("Test", nil, nil, "invalid", false, nil)
+	tag, err := suite.tagService.CreateTag("Test", nil, nil, "invalid", false, nil, catalogm.TagLinks{})
 	suite.Assert().Error(err)
 	suite.Assert().Contains(err.Error(), "invalid tag category")
 	suite.Assert().Nil(tag)
@@ -171,7 +171,7 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_InvalidCategory() {
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_DuplicateName() {
 	suite.createTag("rock", "genre")
 
-	tag, err := suite.tagService.CreateTag("Rock", nil, nil, "genre", false, nil)
+	tag, err := suite.tagService.CreateTag("Rock", nil, nil, "genre", false, nil, catalogm.TagLinks{})
 	suite.Assert().Error(err)
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
@@ -182,7 +182,7 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_DuplicateName() {
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_WithParent() {
 	parent := suite.createTag("rock", "genre")
 
-	child, err := suite.tagService.CreateTag("post-punk", nil, &parent.ID, "genre", false, nil)
+	child, err := suite.tagService.CreateTag("post-punk", nil, &parent.ID, "genre", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Assert().NotNil(child.ParentID)
 	suite.Assert().Equal(parent.ID, *child.ParentID)
@@ -191,7 +191,7 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_WithParent() {
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_WithUserID() {
 	user := suite.createTestUser("creator")
 
-	tag, err := suite.tagService.CreateTag("Ambient", nil, nil, "genre", false, &user.ID)
+	tag, err := suite.tagService.CreateTag("Ambient", nil, nil, "genre", false, &user.ID, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(tag)
 	suite.Assert().NotNil(tag.CreatedByUserID)
@@ -207,7 +207,7 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_WithUserID() {
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_NilUserID() {
-	tag, err := suite.tagService.CreateTag("NoCreator", nil, nil, "genre", false, nil)
+	tag, err := suite.tagService.CreateTag("NoCreator", nil, nil, "genre", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(tag)
 	suite.Assert().Nil(tag.CreatedByUserID)
@@ -280,7 +280,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByParent() {
 	parent := suite.createTag("rock", "genre")
 	suite.createTag("post-punk", "genre")
 	// Make post-rock a child of rock
-	_, err := suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil)
+	_, err := suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0, "", nil)
@@ -432,7 +432,7 @@ func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_Success() {
 
 	newName := "corrected-tag"
 	newCategory := "locale"
-	updated, err := suite.tagService.UpdateTag(tag.ID, &newName, nil, nil, &newCategory, nil)
+	updated, err := suite.tagService.UpdateTag(tag.ID, &newName, nil, nil, &newCategory, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 	suite.Assert().Equal("corrected-tag", updated.Name)
 	suite.Assert().Equal("locale", updated.Category)
@@ -440,7 +440,7 @@ func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_Success() {
 
 func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_NotFound() {
 	name := "test"
-	_, err := suite.tagService.UpdateTag(99999, &name, nil, nil, nil, nil)
+	_, err := suite.tagService.UpdateTag(99999, &name, nil, nil, nil, nil, catalogm.TagLinks{})
 	suite.Assert().Error(err)
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
@@ -982,7 +982,7 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags() {
 func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags_OfficialImmune() {
 	user1 := suite.createTestUser("voter1")
 	user2 := suite.createTestUser("voter2")
-	tag, _ := suite.tagService.CreateTag("official-tag", nil, nil, "genre", true, nil)
+	tag, _ := suite.tagService.CreateTag("official-tag", nil, nil, "genre", true, nil, catalogm.TagLinks{})
 	artistID := suite.createArtist("Some Official Band")
 
 	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
@@ -1447,7 +1447,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_Minimal() {
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_DescriptionRenderedAsHTML() {
 	desc := "This is **bold** and *italic* with a [link](https://example.com)."
-	tag, err := suite.tagService.CreateTag("with-desc", &desc, nil, "genre", false, nil)
+	tag, err := suite.tagService.CreateTag("with-desc", &desc, nil, "genre", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	resp, err := suite.tagService.GetTagDetail(tag.ID)
@@ -1464,7 +1464,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_DescriptionRendere
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_DescriptionSanitized() {
 	// Bluemonday policy strips dangerous tags and attributes.
 	desc := `Safe text <script>alert('xss')</script> and <img src=x onerror=alert(1)>.`
-	tag, err := suite.tagService.CreateTag("xss-tag", &desc, nil, "other", false, nil)
+	tag, err := suite.tagService.CreateTag("xss-tag", &desc, nil, "other", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	resp, err := suite.tagService.GetTagDetail(tag.ID)
@@ -1478,9 +1478,9 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_DescriptionSanitiz
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_ParentAndChildren() {
 	parent := suite.createTag("post-punk", "genre")
 	parentID := parent.ID
-	childA, err := suite.tagService.CreateTag("dream-pop", nil, &parentID, "genre", false, nil)
+	childA, err := suite.tagService.CreateTag("dream-pop", nil, &parentID, "genre", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
-	childB, err := suite.tagService.CreateTag("shoegaze", nil, &parentID, "genre", true, nil)
+	childB, err := suite.tagService.CreateTag("shoegaze", nil, &parentID, "genre", true, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	resp, err := suite.tagService.GetTagDetail(parent.ID)
@@ -1600,7 +1600,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_CreatedBy() {
 	creator := suite.createTestUserWithUsername("creator-user", "creatoruser")
 	creatorID := creator.ID
 
-	tag, err := suite.tagService.CreateTag("attributed-tag", nil, nil, "genre", false, &creatorID)
+	tag, err := suite.tagService.CreateTag("attributed-tag", nil, nil, "genre", false, &creatorID, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	resp, err := suite.tagService.GetTagDetail(tag.ID)
@@ -1615,7 +1615,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_CreatedBy() {
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_CreatedBy_UnknownWhenNil() {
-	tag, err := suite.tagService.CreateTag("anonymous-tag", nil, nil, "genre", false, nil)
+	tag, err := suite.tagService.CreateTag("anonymous-tag", nil, nil, "genre", false, nil, catalogm.TagLinks{})
 	suite.Require().NoError(err)
 
 	resp, err := suite.tagService.GetTagDetail(tag.ID)

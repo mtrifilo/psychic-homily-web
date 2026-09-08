@@ -62,7 +62,7 @@ func (s *TagMergeIntegrationSuite) createUser(name string) *authm.User {
 }
 
 func (s *TagMergeIntegrationSuite) createTagWithOfficial(name string, official bool) *catalogm.Tag {
-	tag, err := s.tagService.CreateTag(name, nil, nil, catalogm.TagCategoryGenre, official, nil)
+	tag, err := s.tagService.CreateTag(name, nil, nil, catalogm.TagCategoryGenre, official, nil, catalogm.TagLinks{})
 	s.Require().NoError(err)
 	return tag
 }
