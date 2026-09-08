@@ -48,10 +48,10 @@ var mintGateExemptions = map[string]string{
 	"auth/auth.go:AuthHandler.ChangePasswordHandler":         "current password verified in this request",
 	"auth/passkey.go:PasskeyHandler.FinishLoginHandler":      "webauthn assertion",
 	"auth/passkey.go:PasskeyHandler.FinishSignupHandler":     "webauthn registration at signup",
-	// The begin step is gated, so no challenge exists without a recent factor,
-	// and a challenge lives five minutes. Refusing here instead would land
-	// after the user completed the ceremony and their authenticator had already
-	// written the credential.
+	// The begin step is gated, so no challenge exists without a recent factor.
+	// Refusing here instead would land after the user completed the ceremony
+	// and their authenticator had already written the credential. What bounds
+	// the gap is stated exactly on BeginRegisterHandler.
 	"auth/passkey.go:PasskeyHandler.FinishRegisterHandler": "spends a challenge BeginRegisterHandler only issues behind the gate",
 	// Its own definition, which issues nothing until a handler calls it.
 	"auth/oauth_link_token.go:mintOAuthLinkToken": "the mint itself, not a request",
@@ -94,7 +94,7 @@ var credentialIssuingFuncs = map[string]bool{
 
 const gateFunc = "RequireRecentSessionAuth"
 
-func TestCredentialMintsAskTheReauthGate(t *testing.T) {
+func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 	handlersRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatalf("resolving the handler tree: %v", err)

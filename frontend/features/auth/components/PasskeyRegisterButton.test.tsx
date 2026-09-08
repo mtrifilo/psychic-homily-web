@@ -100,6 +100,33 @@ describe('PasskeyRegisterButton error translation', () => {
     expect((reported as AuthError).code).toBe(AuthErrorCode.REAUTH_REQUIRED)
   })
 
+  // apiRequest handles this for every other credential surface. Here it is this
+  // component's job: a refusal from an edge rule or a protection page carries
+  // no JSON, and parsing it blind would surface a SyntaxError with no remedy.
+  it('reports a non-JSON refusal as an ordinary failure, not a parse error', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      headers: new Headers(),
+      json: async () => {
+        throw new SyntaxError("Unexpected token '<'")
+      },
+    } as unknown as Response) as unknown as typeof fetch
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    const reported = onError.mock.calls[0][0]
+    expect(reported).toBeInstanceOf(Error)
+    expect((reported as Error).message).toBe(
+      'Failed to start passkey registration'
+    )
+    expect((reported as Error).name).not.toBe('SyntaxError')
+  })
+
   // A failure the backend does not type stays an ordinary Error, so the card
   // renders its own copy rather than offering a remedy that does not apply.
   it('leaves an untyped failure as a plain Error', async () => {

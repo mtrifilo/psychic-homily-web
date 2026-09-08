@@ -1481,13 +1481,20 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 	// the same factor a sign-in proves. The session gets a token stamped with
 	// that, so the gates that ask when a factor last completed see this one.
 	//
+	// This is the one path on which a principal that establishes no
+	// authentication time, an API token, comes away with a session that does.
+	// It costs the account's current password, which UpdatePassword verified
+	// above and which an OAuth-only account cannot supply, so it hands over
+	// nothing the caller had not already proven.
+	//
 	// A mint failure here is logged and not surfaced: the password is already
 	// changed, so reporting failure would misdescribe what happened. The
 	// caller keeps its existing session and is asked to sign in again the next
 	// time a gate wants a recent factor, which refuses rather than grants.
 	//
-	// 24 hours matches the token's own expiry and every other cookie this
-	// package sets. The OAuth callback sets a seven-day cookie instead, so an
+	// 24 hours is what every other cookie this package sets uses, and what the
+	// token's own expiry defaults to (JWT_EXPIRY_HOURS). Raising that env var
+	// moves the token and not the cookie, at all eleven of those sites alike. The OAuth callback sets a seven-day cookie instead, so an
 	// account holding both a password and a provider identity, signed in
 	// through the provider, has its cookie shortened by changing its password.
 	// The token inside that cookie expires in 24 hours either way; what the

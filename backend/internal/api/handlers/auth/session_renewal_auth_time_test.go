@@ -136,36 +136,30 @@ func TestGenerateCLITokenHandler_SessionWithoutAuthTimeRefused(t *testing.T) {
 	}
 }
 
-// The stale session, and the same session after POST /auth/refresh renewed it.
-// The renewal is what the gate exists to see through: it moves the issue time
-// with no factor behind it, so it must buy no access to the mint.
-func TestGenerateCLITokenHandler_StaleAndRefreshedSessionsRefused(t *testing.T) {
+// A session whose factor completed two hours ago is refused. POST /auth/refresh
+// hands such a session a token carrying that same authentication time, so it
+// arrives here as this exact value and is refused the same way; that the
+// renewal carries it rather than moving it is established by
+// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared, which
+// runs the renewal against the JWT service.
+func TestGenerateCLITokenHandler_StaleSessionRefused(t *testing.T) {
 	user := &authm.User{ID: 1, IsAdmin: true, IsActive: true}
-	stale := time.Now().Add(-2 * time.Hour)
 
-	// A refreshed stale session presents the same authentication time it
-	// arrived with, which is what shared.TestRequireRecentSessionAuth_
-	// RenewalBuysNoFreshness runs the renewal to establish.
-	for name, authAt := range map[string]time.Time{
-		"stale session, refreshed or not": stale,
-	} {
-		t.Run(name, func(t *testing.T) {
-			var called bool
-			h := authHandler(func(ah *AuthHandler) {
-				ah.jwtService = &testhelpers.MockJWTService{
-					RenewSessionTokenFn: func(u *authm.User, a time.Time) (string, error) {
-						called = true
-						return "cli-token", nil
-					},
-				}
-			})
+	var called bool
+	h := authHandler(func(ah *AuthHandler) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			RenewSessionTokenFn: func(u *authm.User, a time.Time) (string, error) {
+				called = true
+				return "cli-token", nil
+			},
+		}
+	})
 
-			if _, err := h.GenerateCLITokenHandler(testhelpers.CtxWithSessionAuthTime(user, authAt), &struct{}{}); err == nil {
-				t.Fatal("expected the mint to be refused")
-			}
-			if called {
-				t.Error("a refused request must not reach the JWT service")
-			}
-		})
+	ctx := testhelpers.CtxWithSessionAuthTime(user, time.Now().Add(-2*time.Hour))
+	if _, err := h.GenerateCLITokenHandler(ctx, &struct{}{}); err == nil {
+		t.Fatal("expected the mint to be refused")
+	}
+	if called {
+		t.Error("a refused request must not reach the JWT service")
 	}
 }

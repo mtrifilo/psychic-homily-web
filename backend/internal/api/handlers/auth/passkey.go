@@ -87,14 +87,25 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	// the account, and signing in with it stamps the freshness every other gate
 	// asks for.
 	//
-	// The refusal belongs at BEGIN, not at finish. No challenge is issued
-	// without a recent factor, and a challenge lives five minutes
-	// (webauthn.go StoreChallenge), so that is the bound on how far past a
-	// passing check a registration can land. Asking again at finish would put
-	// the refusal after the user has completed the biometric or security-key
-	// ceremony, and the authenticator has already written the credential to the
-	// device by then: they would be left holding a passkey the server never
-	// recorded.
+	// The refusal belongs at BEGIN, not at finish. Asking again at finish would
+	// put it after the user completed the biometric or security-key ceremony,
+	// by which point their authenticator has already written the credential:
+	// they would be left holding a passkey the server never recorded.
+	//
+	// What that leaves, stated exactly: no challenge is issued without a recent
+	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), it
+	// is spent once, and FinishRegisterHandler will only spend it for the user
+	// it was issued to. It is NOT bound to the session that passed this gate,
+	// so within those five minutes any live session of that account can spend
+	// a challenge some other session obtained. Reaching that needs the
+	// challenge id, which is returned only in the response to the request that
+	// passed here. Binding the challenge to the authentication time that
+	// obtained it would close it and needs a column to store one.
+	//
+	// Composed, the terms add up: RecentSessionWindow's ten minutes, plus the
+	// two the claim reader believes of a future stamp (maxAuthTimeSkew), plus
+	// these five. A passkey can land about seventeen minutes after the factor
+	// that allowed it.
 	if err := shared.RequireRecentSessionAuth(ctx, "passkey_register"); err != nil {
 		return nil, err
 	}

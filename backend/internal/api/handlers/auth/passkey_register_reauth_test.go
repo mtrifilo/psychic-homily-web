@@ -44,8 +44,8 @@ func TestPasskeyRegistration_FreshSessionProceeds(t *testing.T) {
 
 func TestPasskeyRegistration_StaleSessionRefused(t *testing.T) {
 	for name, authAt := range map[string]time.Time{
-		"stale session, refreshed or not": time.Now().Add(-2 * time.Hour),
-		"api-token principal":             {},
+		"stale session":       time.Now().Add(-2 * time.Hour),
+		"api-token principal": {},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var reached bool
@@ -73,8 +73,9 @@ func TestPasskeyRegistration_StaleSessionRefused(t *testing.T) {
 // Finish is deliberately NOT gated. The user has completed the ceremony by the
 // time it runs and their authenticator has already written the credential, so a
 // refusal here would leave them holding a passkey the server never recorded.
-// What bounds it instead is that begin is gated and a challenge lives five
-// minutes; this pins the decision so it is not re-litigated as an oversight.
+// The bound that replaces it, and what that bound does not cover, are stated on
+// BeginRegisterHandler; this pins the decision so it is not re-litigated as an
+// oversight.
 func TestPasskeyRegistration_FinishIsNotGated(t *testing.T) {
 	var reachedChallenge bool
 	mockWA := &testhelpers.MockWebAuthnService{

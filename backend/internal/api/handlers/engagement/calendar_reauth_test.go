@@ -52,12 +52,13 @@ func TestCreateCalendarTokenHandler_StaleAndRefreshedSessionsRefused(t *testing.
 	user := calendarUser()
 	stale := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
 
-	// A refreshed stale session presents the same authentication time it
-	// arrived with, which is what shared.TestRequireRecentSessionAuth_
-	// RenewalBuysNoFreshness runs the renewal to establish.
+	// A refreshed session arrives carrying the same authentication time it had,
+	// so it reaches this handler as the stale value below; that the renewal
+	// carries rather than moves it is established by
+	// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared.
 	for name, authAt := range map[string]time.Time{
-		"stale session, refreshed or not": stale,
-		"no authentication time at all":   {},
+		"stale session":                 stale,
+		"no authentication time at all": {},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var minted bool

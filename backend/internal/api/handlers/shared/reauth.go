@@ -46,8 +46,10 @@ const (
 )
 
 // ReauthFactorFor decides what a caller must present to add a credential to an
-// account. It is the ONE place the rule lives: the OAuth link path and every
-// credential mint read it, and a second encoding of it would be a second rule.
+// account. It is the one place that DECISION is made: RequireRecentSessionAuth
+// asks it for every API mint, and the OAuth link path asks it directly because
+// its refusal is a browser redirect rather than a 403. Two refusals, one rule;
+// a third caller answers the question here or it is a second rule.
 //
 // The rule:
 //

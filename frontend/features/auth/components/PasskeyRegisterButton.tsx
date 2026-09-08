@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
+import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,17 +38,44 @@ interface PasskeyRegisterButtonProps {
  * and, for typed refusals, an error_code. The re-authentication refusal is the
  * one a caller has to tell apart, so this carries the code through instead of
  * flattening the response to its sentence.
+ *
+ * This is the one credential surface that does not go through `apiRequest`,
+ * because it drives the WebAuthn ceremony between the two calls. Reading the
+ * response is therefore its own job, including the case `apiRequest` handles
+ * for everyone else: a non-JSON refusal from an edge rule or a protection page,
+ * which must not surface as a parse error with no remedy.
  */
-function registrationError(
-  body: { message?: string; error_code?: string },
+async function readRegistrationResponse(
+  response: Response,
   fallback: string
-): Error {
-  const message = body.message || fallback
-  if (!body.error_code) return new Error(message)
-  return new AuthError(
-    message,
-    (body.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN
-  )
+): Promise<{ ok: true; body: RegistrationStepBody } | { ok: false; error: Error }> {
+  let body: RegistrationStepBody | null = null
+  try {
+    body = (await response.json()) as RegistrationStepBody
+  } catch {
+    body = null
+  }
+
+  if (body?.success) return { ok: true, body }
+
+  const message = body?.message || fallback
+  const code = body?.error_code
+  if (!code) return { ok: false, error: new Error(message) }
+  return {
+    ok: false,
+    error: new AuthError(
+      message,
+      (code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN
+    ),
+  }
+}
+
+interface RegistrationStepBody {
+  success?: boolean
+  message?: string
+  error_code?: string
+  options?: PublicKeyCredentialCreationOptionsJSON
+  challenge_id?: string
 }
 
 export function PasskeyRegisterButton({ onSuccess, onError, className }: PasskeyRegisterButtonProps) {
@@ -74,13 +102,14 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
         body: JSON.stringify({ display_name: displayName }),
       })
 
-      const beginData = await beginResponse.json()
-
-      if (!beginData.success) {
-        throw registrationError(
-          beginData,
-          'Failed to start passkey registration'
-        )
+      const begin = await readRegistrationResponse(
+        beginResponse,
+        'Failed to start passkey registration'
+      )
+      if (!begin.ok) throw begin.error
+      const beginData = begin.body
+      if (!beginData.options) {
+        throw new Error('Failed to start passkey registration')
       }
 
       // Step 2: Perform WebAuthn registration
@@ -100,11 +129,11 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
         }),
       })
 
-      const finishData = await finishResponse.json()
-
-      if (!finishData.success) {
-        throw registrationError(finishData, 'Failed to register passkey')
-      }
+      const finish = await readRegistrationResponse(
+        finishResponse,
+        'Failed to register passkey'
+      )
+      if (!finish.ok) throw finish.error
 
       // Success
       setIsOpen(false)

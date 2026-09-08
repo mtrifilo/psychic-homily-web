@@ -334,10 +334,10 @@ export function APITokenManagement() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : error ? (
-            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" />
+            <InlineErrorBanner className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               <span>Failed to load tokens. Please try again.</span>
-            </div>
+            </InlineErrorBanner>
           ) : tokens.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/50 bg-muted/30 p-6 text-center">
               <Key className="mx-auto h-8 w-8 text-muted-foreground/50" />
@@ -378,12 +378,13 @@ export function APITokenManagement() {
           {!isCreateDialogOpen && createErrorBanner}
 
           {revokeToken.isError && (
-            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" />
+            <InlineErrorBanner className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               <span>
-                {revokeToken.error?.message || 'Failed to revoke token. Please try again.'}
+                {revokeToken.error?.message ||
+                  'Failed to revoke token. Please try again.'}
               </span>
-            </div>
+            </InlineErrorBanner>
           )}
         </div>
       </CardContent>

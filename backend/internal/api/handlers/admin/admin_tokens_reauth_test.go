@@ -14,6 +14,9 @@ import (
 // POST /admin/tokens mints a phk_ bearer that outlives the session it was asked
 // from by up to a year, so the session has to have proven the account recently.
 
+// IsAdmin is set because that is the principal HumaAdminMiddleware puts in
+// front of this handler, not because the handler reads it: it does not. The
+// password hash is what the gate reads, and only to label the log.
 func adminUser() *authm.User {
 	hash := "$2a$not-a-real-hash"
 	return &authm.User{ID: 3, IsAdmin: true, IsActive: true, PasswordHash: &hash}
@@ -55,14 +58,15 @@ func TestCreateAPITokenHandler_FreshSessionMints(t *testing.T) {
 	}
 }
 
-// A refreshed stale session presents the same authentication time it arrived
-// with; TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared
-// runs the renewal against the JWT service to establish that. A phk_ bearer
-// presents none at all, so one cannot mint its own successor.
+// A refreshed session arrives carrying the same authentication time it had, so
+// it reaches this handler as the stale value below; that the renewal carries
+// rather than moves it is established by
+// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared. A
+// phk_ bearer presents none at all, so one cannot mint its own successor.
 func TestCreateAPITokenHandler_SessionsWithoutRecentAuthRefused(t *testing.T) {
 	for name, authAt := range map[string]time.Time{
-		"stale session, refreshed or not": time.Now().Add(-2 * time.Hour),
-		"api-token principal":             {},
+		"stale session":       time.Now().Add(-2 * time.Hour),
+		"api-token principal": {},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var minted bool
