@@ -89,6 +89,13 @@ vi.mock('./SceneCollections', () => ({
 vi.mock('./SceneGapLine', () => ({
   SceneGapLine: () => <div data-testid="scene-gap-line" />,
 }))
+// The crews chip row owns a request and a suite of its own (SceneCrews.test.tsx);
+// this file asserts only where the view places it.
+vi.mock('./SceneCrews', () => ({
+  SceneCrews: ({ scene }: { scene: SceneDetail }) => (
+    <div data-testid="scene-crews">{scene.slug}</div>
+  ),
+}))
 
 const mockUseSceneDetail = vi.fn()
 vi.mock('../hooks', () => ({
@@ -375,6 +382,25 @@ describe('SceneDetailView', () => {
       renderScene({ slug: 'phoenix-az' })
       expect(screen.getByTestId('share-button')).toHaveTextContent('/scenes/phoenix-az')
       expect(screen.getByTestId('scene-add-to-calendar')).toHaveTextContent('phoenix-az')
+    })
+
+    // The row is the last thing in the header, under the action row, and it is
+    // handed the scene the page is on rather than the route's slug argument:
+    // a member-city slug and the canonical one are not the same string.
+    it('puts the crews chip row at the end of the header', () => {
+      renderScene({ slug: 'tempe-az' })
+      const crews = screen.getByTestId('scene-crews')
+      expect(crews).toHaveTextContent('phoenix-az')
+      expect(crews.closest('header')).not.toBeNull()
+      expect(
+        screen
+          .getByTestId('share-button')
+          .compareDocumentPosition(crews) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        crews.compareDocumentPosition(screen.getByTestId('scene-calendar')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
     })
 
     it('does not render editorial scaffolding in the reserved slot', () => {

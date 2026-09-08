@@ -11,6 +11,7 @@ import {
   useSceneArtists,
   useSceneCollections,
   useSceneGaps,
+  useSceneCrews,
 } from './useScenes'
 
 describe('useScenes', () => {
@@ -263,6 +264,71 @@ describe('useSceneGaps', () => {
     )
 
     const { result } = renderHook(() => useSceneGaps('nowhere-zz'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
+  })
+})
+
+describe('useSceneCrews', () => {
+  function stubCrews(crews: unknown[] = []) {
+    let capturedUrl = ''
+    server.use(
+      http.get(`${TEST_API_BASE}/scenes/:slug/crews`, ({ request }) => {
+        capturedUrl = request.url
+        return HttpResponse.json({ crews })
+      })
+    )
+    return () => capturedUrl
+  }
+
+  // The endpoint takes no parameter and applies no cap, so the request carries
+  // nothing but the slug.
+  it('fetches the scene crews and sends no parameters of its own', async () => {
+    const url = stubCrews([
+      { slug: 'pleiades-series', name: 'Pleiades Series', show_count: 4 },
+    ])
+
+    const { result } = renderHook(() => useSceneCrews('phoenix-az'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const requested = new URL(url())
+    expect(requested.pathname).toBe('/scenes/phoenix-az/crews')
+    expect(requested.search).toBe('')
+    expect(result.current.data?.crews).toHaveLength(1)
+  })
+
+  it('does not fetch when slug is empty', () => {
+    const { result } = renderHook(() => useSceneCrews(''), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  // The page caches every scene query by SLUG, never by the numeric scene id
+  // (the PSY-1109 key-drift class). Nothing else is in the key: the endpoint
+  // takes no parameter and no viewer.
+  it('keys by slug alone under the scenes prefix', () => {
+    expect(queryKeys.scenes.crews('phoenix-az')).toEqual([
+      'scenes',
+      'crews',
+      'phoenix-az',
+    ])
+  })
+
+  it('surfaces a 404 as an error rather than an empty row', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE}/scenes/:slug/crews`, () =>
+        HttpResponse.json({ message: 'scene not found' }, { status: 404 })
+      )
+    )
+
+    const { result } = renderHook(() => useSceneCrews('nowhere-zz'), {
       wrapper: createWrapper(),
     })
 

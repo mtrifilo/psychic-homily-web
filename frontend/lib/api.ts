@@ -462,6 +462,12 @@ export const API_ENDPOINTS = {
      * scene page. 404s below the scene venue threshold, like COLLECTIONS.
      */
     GAPS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/gaps`,
+    /**
+     * The crew tags booking in this scene, most of the scene's shows first
+     * (PSY-1884). Takes no parameters and applies no cap. 404s below the scene
+     * venue threshold, like COLLECTIONS and GAPS.
+     */
+    CREWS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/crews`,
   },
 
   // Community endpoints (public)

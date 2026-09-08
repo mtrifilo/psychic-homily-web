@@ -53,6 +53,7 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
       'SceneRoster',
       'SceneCollections',
       'SceneGapLine',
+      'SceneCrews',
     ],
   ],
   [

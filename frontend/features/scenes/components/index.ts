@@ -31,8 +31,8 @@ export { SceneList } from './SceneList'
 // barrel would therefore not merely add bytes — it would pull a server-only
 // module across the client boundary, which is a different class of breakage.
 //
-// SceneRooms / SceneNewBands / SceneRoster (PSY-1784), SceneCollections and
-// SceneGapLine are off it for the same reason: listing any of them would put
+// SceneRooms / SceneNewBands / SceneRoster (PSY-1784), SceneCollections,
+// SceneGapLine and SceneCrews are off it for the same reason: listing any of them would put
 // that module's markup, and everything it reaches, into the global chunk on
 // behalf of one section of one route. SceneCollections reaches across
 // features, into features/collections.

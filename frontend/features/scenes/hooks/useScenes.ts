@@ -17,6 +17,7 @@ import type {
   SceneNewArtistsResponse,
   SceneCollectionsResponse,
   SceneGapsResponse,
+  SceneCrewsResponse,
   SceneShowsResponse,
 } from '../types'
 
@@ -219,6 +220,34 @@ export function useSceneGaps(slug: string) {
     queryKey: queryKeys.scenes.gaps(slug),
     queryFn: async (): Promise<SceneGapsResponse> => {
       return apiRequest<SceneGapsResponse>(API_ENDPOINTS.SCENES.GAPS(slug), {
+        method: 'GET',
+      })
+    },
+    enabled: Boolean(slug),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  })
+}
+
+/**
+ * Hook to fetch the crew tags booking in this scene (PSY-1884).
+ *
+ * The endpoint takes no parameter and applies no cap, so the caller has nothing
+ * to pass and nothing to re-rank: the rows arrive ordered by how many of the
+ * scene's shows carry each tag, then by name.
+ *
+ * Ten minutes. The list moves when someone tags a show with a crew, not when a
+ * show is booked, and the chip row reads the same at ten minutes stale.
+ *
+ * This endpoint 404s on a parseable place below the scene venue threshold,
+ * where the sibling new-artists endpoint answers 200 with an empty list. The
+ * caller renders nothing in either case, so the difference does not reach the
+ * page.
+ */
+export function useSceneCrews(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.scenes.crews(slug),
+    queryFn: async (): Promise<SceneCrewsResponse> => {
+      return apiRequest<SceneCrewsResponse>(API_ENDPOINTS.SCENES.CREWS(slug), {
         method: 'GET',
       })
     },

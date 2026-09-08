@@ -5,6 +5,7 @@ export {
   useSceneNewArtists,
   useSceneCollections,
   useSceneGaps,
+  useSceneCrews,
   useSceneGraph,
   useSceneShows,
 } from './useScenes'

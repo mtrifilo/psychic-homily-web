@@ -208,6 +208,26 @@ export interface SceneCollectionsResponse {
 }
 
 /**
+ * One crew tag booking in this scene: a promoter, a DIY crew, a named series.
+ *
+ * DERIVED from the generated schema, the same rule as `SceneCollectionSummary`.
+ *
+ * `show_count` counts the scene's approved shows carrying this tag, over all
+ * dates. It ORDERS the list and is not the tag's global usage figure from the
+ * /tags facets, which reaches shows transitively through their billed artists
+ * and so counts a different set.
+ */
+export type SceneCrewSummary = components['schemas']['SceneCrewSummary']
+
+/**
+ * `crews` is never null: the handler substitutes an empty slice, which is why
+ * this is narrower than the generated response body.
+ */
+export interface SceneCrewsResponse {
+  crews: SceneCrewSummary[]
+}
+
+/**
  * One upcoming show in the scene preview's "Next 7 days" row (PSY-1309).
  *
  * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written
