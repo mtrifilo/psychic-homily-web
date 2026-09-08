@@ -11,7 +11,14 @@ const mockGet = vi.fn()
 // `toString` backs the pager's href builder, which edits the LIVE params rather
 // than rebuilding from a key list. Derived from the same `mockGet` so a test
 // that stubs one param cannot end up with an address bar that disagrees.
-const mockSearchParamKeys = ['cities', 'tags', 'tag_match', 'page', 'utm_source']
+const mockSearchParamKeys = [
+  'cities',
+  'tags',
+  'tag_match',
+  'page',
+  'missing',
+  'utm_source',
+]
 const mockSearchParamsToString = () => {
   const params = new URLSearchParams()
   for (const key of mockSearchParamKeys) {
@@ -32,6 +39,12 @@ vi.mock('next/navigation', () => ({
 // source of truth); the real citiesParser runs. The setters are asserted on.
 const mockSetCities = vi.fn()
 const mockSetPage = vi.fn()
+const mockSetMissing = vi.fn()
+const mockSetterFor = (key: string) => {
+  if (key === 'page') return mockSetPage
+  if (key === 'missing') return mockSetMissing
+  return mockSetCities
+}
 vi.mock('nuqs', async importOriginal => {
   const actual = await importOriginal<typeof import('nuqs')>()
   return {
@@ -42,7 +55,7 @@ vi.mock('nuqs', async importOriginal => {
     ) => {
       const raw = mockGet(key)
       const value = raw != null ? parser.parse(raw) : (parser.defaultValue ?? null)
-      return [value, key === 'page' ? mockSetPage : mockSetCities]
+      return [value, mockSetterFor(key)]
     },
   }
 })
@@ -65,7 +78,10 @@ vi.mock('./ArtistSearch', () => ({
   ArtistSearch: () => <div data-testid="artist-search">ArtistSearch</div>,
 }))
 
-vi.mock('@/components/filters', () => ({
+// Partial mock: `RemovableFilterChip` stays REAL, because the chip's label and
+// its remove control are what the gap-filter tests assert.
+vi.mock('@/components/filters', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/components/filters')>()),
   CityFilters: ({
     onFilterChange,
     selectedCities,
@@ -618,6 +634,102 @@ describe('ArtistList', () => {
       expect(
         screen.queryByText('No artists available at this time.')
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // `?missing=listen` is the scene gap line's destination: the list of the
+  // bands that sentence counts, rather than every band in the city.
+  describe('gap filter', () => {
+    const withMissing = (value: string) =>
+      mockGet.mockImplementation((key: string) => (key === 'missing' ? value : null))
+
+    it('forwards the filter to the request', () => {
+      withMissing('listen')
+
+      renderWithProviders(<ArtistList />)
+
+      const [options] = mockUseArtists.mock.calls.at(-1) as [{ missing?: string }]
+      expect(options.missing).toBe('listen')
+    })
+
+    it('names the engaged filter in a chip', () => {
+      withMissing('listen')
+
+      renderWithProviders(<ArtistList />)
+
+      expect(screen.getByTestId('artist-missing-chip')).toHaveTextContent(
+        'No listen link'
+      )
+    })
+
+    it('renders no chip when the filter is absent', () => {
+      renderWithProviders(<ArtistList />)
+
+      expect(screen.queryByTestId('artist-missing-chip')).not.toBeInTheDocument()
+    })
+
+    // An unrecognised value is dropped rather than forwarded: the API answers a
+    // 422 for one, which would render the error state over a URL typo.
+    it('ignores a value the API does not accept', () => {
+      withMissing('bandcamp')
+
+      renderWithProviders(<ArtistList />)
+
+      const [options] = mockUseArtists.mock.calls.at(-1) as [{ missing?: string }]
+      expect(options.missing).toBeUndefined()
+      expect(screen.queryByTestId('artist-missing-chip')).not.toBeInTheDocument()
+    })
+
+    // Removing it widens the set, so the pager resets with it — the same reason
+    // a city change clears `?page=`.
+    it('clears the filter and the page on removal', async () => {
+      const user = userEvent.setup()
+      withMissing('listen')
+
+      renderWithProviders(<ArtistList />)
+      await user.click(screen.getByTestId('artist-missing-chip-remove'))
+
+      expect(mockSetMissing).toHaveBeenCalledWith(null)
+      expect(mockSetPage).toHaveBeenCalledWith(null)
+    })
+
+    // The filter is a filter: an empty result under it offers the way out, and
+    // says the list is filtered rather than that the catalogue is empty.
+    it('counts as a filter in the empty state', () => {
+      withMissing('listen')
+
+      renderWithProviders(<ArtistList />)
+
+      expect(
+        screen.getByText('No artists match the current filters.')
+      ).toBeInTheDocument()
+    })
+
+    // Every page link carries it, so a page change does not silently widen the
+    // list to the whole city. The carry is unconditional through OWNED_PARAMS;
+    // this asserts the outcome, which the length allowance for foreign params
+    // would also produce for a value this short.
+    it('carries the filter into the page links', () => {
+      mockGet.mockImplementation((key: string) => {
+        if (key === 'missing') return 'listen'
+        return null
+      })
+      mockUseArtists.mockReturnValue({
+        data: { artists: [makeArtist()], total: 120, limit: 50, offset: 0 },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      renderWithProviders(<ArtistList />)
+
+      for (const link of screen.getAllByRole('link', { name: 'Next' })) {
+        expect(link).toHaveAttribute(
+          'href',
+          expect.stringContaining('missing=listen')
+        )
+      }
     })
   })
 })

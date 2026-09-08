@@ -55,6 +55,22 @@ type ArtistService struct {
 	// goroutine per row. The image enqueue uses a durable outbox to get full coverage;
 	// this trades that for simplicity, with the sweep guaranteeing eventual coverage.
 	locationEnricher func(artistID uint)
+	// geocoder resolves a place to its scene scope for the missing-listen-link
+	// browse filter, whose rows must be the rows GetSceneGaps counts. Stateless,
+	// so sharing geo.Default() is safe; nil (a service built via
+	// &ArtistService{} rather than the constructor) reads geo.Default() at use.
+	geocoder geo.Geocoder
+}
+
+// sceneGeocoder is the geocoder the scene-scoped browse filter resolves places
+// through. It must be the same geo build the venues.metro column was written by
+// and the same one SceneService holds, or the filter and the gap count would
+// scope to different metros.
+func (s *ArtistService) sceneGeocoder() geo.Geocoder {
+	if s.geocoder != nil {
+		return s.geocoder
+	}
+	return geo.Default()
 }
 
 // NewArtistService creates a new artist service
@@ -64,6 +80,7 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 	}
 	return &ArtistService{
 		db:               database,
+		geocoder:         geo.Default(),
 		bandcampResolver: NewBandcampProfileResolver(),
 		dispatchAsync: func(name string, work func()) {
 			shared.GoSafe(context.Background(), name, work)
@@ -746,8 +763,28 @@ type ArtistWithCount struct {
 func (s *ArtistService) artistBrowseScope(
 	filters map[string]interface{},
 	now time.Time,
-) func() *gorm.DB {
-	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
+) (func() *gorm.DB, error) {
+	skipActiveFilter := browseSkipsActiveGate(filters)
+	missingListenLink := missingListenLinkEngaged(filters)
+
+	// The scene rosters are resolved BEFORE the builder, and once: resolving a
+	// place reads the venue rows, and the builder runs per query (the count,
+	// then the page). It is also the only part of this scope that can fail, so
+	// resolving it here keeps the builder itself infallible.
+	var rosterPred string
+	var rosterArgs []any
+	if missingListenLink {
+		place, scoped, err := browseGapPlace(filters)
+		if err != nil {
+			return nil, err
+		}
+		if scoped {
+			rosterPred, rosterArgs, err = sceneRosterPredicate(s.db, s.sceneGeocoder(), place, "artists")
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve scene scope for the missing-listen-link filter: %w", err)
+			}
+		}
+	}
 
 	return func() *gorm.DB {
 		upcomingSubquery := s.upcomingShowCountSubquery(now)
@@ -763,14 +800,20 @@ func (s *ArtistService) artistBrowseScope(
 			query = query.Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
 		}
 
-		if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
+		if rosterPred != "" {
+			// The scene roster REPLACES the literal city matching below, which
+			// is the half of this filter that makes its total equal the gap
+			// count. See artist_missing_listen.go.
+			query = query.Where(rosterPred, rosterArgs...)
+		} else if _, ok := filters["cities"].([]map[string]string); ok {
+			// Read through browseCityPairs, the same reader the roster branch
+			// above uses, so the two cannot disagree about which places a
+			// request named.
 			var conditions []string
 			var args []interface{}
-			for _, cs := range cities {
-				if cs["city"] != "" && cs["state"] != "" {
-					conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
-					args = append(args, cs["city"], cs["state"])
-				}
+			for _, pair := range browseCityPairs(filters) {
+				conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
+				args = append(args, pair.city, pair.state)
 			}
 			if len(conditions) > 0 {
 				query = query.Where(strings.Join(conditions, " OR "), args...)
@@ -786,9 +829,12 @@ func (s *ArtistService) artistBrowseScope(
 		if tf, ok := filters["tag_filter"].(TagFilter); ok {
 			query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
 		}
+		if missingListenLink {
+			query = query.Where(noListenLinkSQL("artists"))
+		}
 
 		return query
-	}
+	}, nil
 }
 
 // GetArtistsWithShowCounts retrieves ONE PAGE of artists with their upcoming
@@ -820,9 +866,12 @@ func (s *ArtistService) GetArtistsWithShowCounts(
 
 	limit, offset = clampPageWindow(limit, offset)
 
-	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
+	skipActiveFilter := browseSkipsActiveGate(filters)
 	now := time.Now().UTC()
-	baseQuery := s.artistBrowseScope(filters, now)
+	baseQuery, err := s.artistBrowseScope(filters, now)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// The total is counted over the SCOPE, without the page window and without
 	// the presentational join below: neither changes which rows match, and the

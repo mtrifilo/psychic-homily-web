@@ -207,6 +207,14 @@ describe('sceneCityListHref', () => {
     )
   })
 
+  // The gap line's destination is the list of the bands it counts, which is a
+  // second param on the same href rather than a second href builder.
+  it('carries extra params after the city pair', () => {
+    expect(
+      sceneCityListHref('/artists', 'Phoenix', 'AZ', { missing: 'listen' })
+    ).toBe('/artists?cities=Phoenix%2CAZ&missing=listen')
+  })
+
   // The shows link and the artists link agree about the format because both go
   // through this one function.
   it('is what allUpcomingHref points at /shows with', () => {

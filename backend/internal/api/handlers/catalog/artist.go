@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
@@ -142,7 +143,14 @@ type ListArtistsRequest struct {
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and takes AT MOST ONE city, which must name its state. That city is read as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string, and the default 'has an upcoming show' gate is dropped. Where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it; that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps this endpoint's own literal state matching." example:"listen"`
 }
+
+// artistMissingListen is the only value GET /artists' `missing` parameter takes.
+// It must stay equal to the `enum:"listen"` tag above: the tag is what an HTTP
+// caller is held to, this is what the handler reads, and the two are asserted
+// together in artist_pagination_tags_test.go.
+const artistMissingListen = "listen"
 
 // ListArtistsResponse represents the response for listing artists.
 //
@@ -157,6 +165,28 @@ type ListArtistsResponse struct {
 		Limit   int                                      `json:"limit" doc:"Limit used in query"`
 		Offset  int                                      `json:"offset" doc:"Offset used in query"`
 	}
+}
+
+// namesOneScopeablePlaceAtMost reports whether the request names at most one
+// place the gap filter can scope to.
+//
+// It reads the RAW parameters rather than the parsed filters, because what it
+// has to catch is precisely what parsing discards: `cities` drops an entry with
+// no state and truncates past its cap, both silently, so the parsed filters
+// cannot tell "one place named" from "one of four survived".
+//
+// A request naming no city at all passes: that is the unscoped gap list.
+func namesOneScopeablePlaceAtMost(req *ListArtistsRequest) bool {
+	if req.Cities != "" {
+		entries := strings.Split(req.Cities, "|")
+		if len(entries) != 1 {
+			return false
+		}
+		parts := strings.SplitN(entries[0], ",", 2)
+		return len(parts) == 2 &&
+			strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
+	}
+	return req.City == "" || req.State != ""
 }
 
 // ListArtistsHandler handles GET /artists - returns one page of the browse list
@@ -191,6 +221,32 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 			filters["city"] = req.City
 		}
 	}
+	// Both guards below fail closed. Answering a request that named a filter
+	// with a list built under a different rule is a wrong answer rather than a
+	// missing feature, and neither shape is visible to the reader once it
+	// renders.
+	//
+	// huma's enum rejects an unrecognised value on the wire before this runs,
+	// so the first guard answers for callers that build the struct directly.
+	switch req.Missing {
+	case "":
+	case artistMissingListen:
+		filters[catalog.FilterMissingListenLink] = true
+	default:
+		return nil, huma.Error422UnprocessableEntity("Unsupported missing filter")
+	}
+
+	// The second: this filter scopes a place by its SCENE, so it answers for ONE
+	// complete (city, state) place, or for none. Every other shape is refused
+	// rather than silently narrowed: `cities` drops entries it cannot parse and
+	// truncates past its cap, so a request naming three places could otherwise
+	// be answered for one of them under a total the caller would compare against
+	// the sum of three gap counts.
+	if req.Missing != "" && !namesOneScopeablePlaceAtMost(req) {
+		return nil, huma.Error422UnprocessableEntity(
+			"The missing filter takes one city, naming its state: cities=City,ST, or city= with state=")
+	}
+
 	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
 		filters["tag_filter"] = tf
 		// PSY-495 (Bandcamp model): when a tag filter is engaged, drop the

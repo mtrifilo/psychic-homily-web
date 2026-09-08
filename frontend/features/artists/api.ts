@@ -208,6 +208,34 @@ export const artistQueryKeys = {
 } as const
 
 // ============================================================================
+// Completeness-gap filter
+// ============================================================================
+
+/** The search param and API query param naming a completeness gap to filter by. */
+export const ARTIST_MISSING_PARAM = 'missing'
+
+/**
+ * The only value that param takes: bands with no listen link.
+ *
+ * Under it a city means that SCENE'S ROSTER rather than a literal stored city,
+ * so the list's total equals the count `GET /scenes/{slug}/gaps` publishes as
+ * `artists_missing_listen_link`. That equality is the filter's whole reason to
+ * exist: the scene page states the count in a sentence and links here. The
+ * scoping rules are spelled once, in the endpoint's own documentation.
+ */
+export const ARTIST_MISSING_LISTEN = 'listen'
+
+/** The values `?missing=` accepts. The API rejects anything else with a 422. */
+export const ARTIST_MISSING_VALUES = [ARTIST_MISSING_LISTEN] as const
+
+export type ArtistMissingFilter = (typeof ARTIST_MISSING_VALUES)[number]
+
+/** The chip that names the engaged gap filter, and the API's own vocabulary. */
+export const ARTIST_MISSING_LABELS: Record<ArtistMissingFilter, string> = {
+  [ARTIST_MISSING_LISTEN]: 'No listen link',
+}
+
+// ============================================================================
 // Server-rendered first screen (PSY-1774)
 // ============================================================================
 

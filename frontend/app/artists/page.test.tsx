@@ -247,6 +247,7 @@ describe('/artists server-seeded first screen', () => {
     ['cities', 'Phoenix,AZ'],
     ['tags', 'post-punk'],
     ['tag_match', 'any'],
+    ['missing', 'listen'],
   ])('skips the seed entirely when ?%s= is present', async (key, value) => {
     fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
 
@@ -278,7 +279,7 @@ describe('/artists server-seeded first screen', () => {
   // An empty value is not a filter. `?tags=` parses to no tags and `?page=`
   // parses to page 1, so both land on the first-screen key — reading them as
   // "present" would skip a seed that would have hit.
-  it.each([['tags'], ['page'], ['cities']])(
+  it.each([['tags'], ['page'], ['cities'], ['missing']])(
     'still seeds when ?%s= carries an empty value',
     async key => {
       fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })

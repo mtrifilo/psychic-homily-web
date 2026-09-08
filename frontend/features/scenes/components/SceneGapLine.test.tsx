@@ -78,7 +78,10 @@ describe('SceneGapLine', () => {
     expect(mockUseSceneGaps).toHaveBeenCalledWith('phoenix-az')
   })
 
-  it('states the gap and links to the artist list filtered to the scene city', () => {
+  // `missing=listen` is what makes the destination the bands the sentence
+  // counts. Without it the link lands on every band in the city, under a
+  // sentence stating a smaller number.
+  it('states the gap and links to the artist list filtered to that gap', () => {
     mockGaps(gaps())
     renderWithProviders(<SceneGapLine scene={buildScene()} />)
 
@@ -86,7 +89,7 @@ describe('SceneGapLine', () => {
       screen.getByRole('link', {
         name: '11 Phoenix bands have no listen link → Help finish Phoenix',
       })
-    ).toHaveAttribute('href', '/artists?cities=Phoenix%2CAZ')
+    ).toHaveAttribute('href', '/artists?cities=Phoenix%2CAZ&missing=listen')
   })
 
   // The count is a fact about the place; the sentence names the page the

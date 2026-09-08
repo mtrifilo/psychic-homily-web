@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Search, X, Check, ChevronsUpDown } from 'lucide-react'
+import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
-import { Badge } from '@/components/ui/badge'
+import { RemovableFilterChip } from './RemovableFilterChip'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
@@ -175,22 +175,13 @@ export function CityFilters({
 
         {/* Active filter chips */}
         {selectedCities.map(city => (
-          <Badge
+          <RemovableFilterChip
             key={cityKey(city)}
-            variant="secondary"
-            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium cursor-default"
+            label={cityLabel(city)}
+            onRemove={() => handleRemoveCity(city)}
             data-testid={`city-chip-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
-          >
-            {cityLabel(city)}
-            <button
-              onClick={() => handleRemoveCity(city)}
-              className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5 transition-colors"
-              aria-label={`Remove ${cityLabel(city)} filter`}
-              data-testid={`city-chip-remove-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </Badge>
+            removeTestId={`city-chip-remove-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
+          />
         ))}
 
         {/* "All Cities" button when cities are selected */}
