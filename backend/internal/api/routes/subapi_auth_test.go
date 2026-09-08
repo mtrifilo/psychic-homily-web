@@ -26,9 +26,12 @@ import (
 //     E2E shard — all sharing 127.0.0.1 — would start failing register and
 //     magic-link again, which is the exact regression PSY-475 fixed.
 
+// Written out rather than read from middleware, which is what makes them an
+// oracle: auth.go builds its limiters from those constants, so a budget widened
+// there and not here fails this file instead of passing silently.
 const (
-	authLimitPerMinute    = 10 // auth.go, matching middleware.AuthRequestsPerMinute
-	passkeyLimitPerMinute = 20 // auth.go, matching middleware.PasskeyRequestsPerMinute
+	authLimitPerMinute    = 10 // middleware.AuthRequestsPerMinute
+	passkeyLimitPerMinute = 20 // middleware.PasskeyRequestsPerMinute
 )
 
 func TestAuthOperationsAreInMainSpec(t *testing.T) {
@@ -47,6 +50,7 @@ func TestAuthOperationsAreInMainSpec(t *testing.T) {
 		"/auth/passkey/login/finish",
 		"/auth/passkey/signup/begin",
 		"/auth/passkey/signup/finish",
+		"/auth/change-password",
 	} {
 		item, ok := paths[p]
 		if !ok {

@@ -515,8 +515,8 @@ export interface ApiError extends Error {
   /**
    * Seconds until the client may retry. Populated from the `Retry-After`
    * response header per RFC 7231 §7.1.3 (currently only an integer-second
-   * Retry-After is parsed; HTTP-date variants are ignored). Used by the
-   * comment compose form (PSY-589) to populate countdown copy on 429.
+   * Retry-After is parsed; HTTP-date variants are ignored), so the value is
+   * always a whole number. Read by the surfaces that render a wait on a 429.
    */
   retryAfter?: number
 }

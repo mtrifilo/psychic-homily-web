@@ -6,12 +6,13 @@ import (
 	"testing"
 )
 
-// TestVerificationResendRateLimiter_ThrottlesAfterBudget pins the PSY-1871
-// throttle on POST /auth/verify-email/send. Signup emails the verification link
-// automatically and the /shows/submit gate puts a resend button in front of
-// every blocked user, so an unthrottled endpoint is an inbox-bombing and
-// Resend-quota vector for any authenticated caller.
-func TestVerificationResendRateLimiter_ThrottlesAfterBudget(t *testing.T) {
+// TestVerificationResendBudget_ThrottlesAfterBudget pins the throttle behind
+// POST /auth/verify-email/send at its own budget. Signup emails the
+// verification link automatically and the /shows/submit gate puts a resend
+// button in front of every blocked user, so an unthrottled endpoint is an
+// inbox-bombing and Resend-quota vector for any authenticated caller. That the
+// route is handed this budget is checked through the router.
+func TestVerificationResendBudget_ThrottlesAfterBudget(t *testing.T) {
 	t.Setenv("DISABLE_AUTH_RATE_LIMITS", "")
 
 	var served int
@@ -19,7 +20,7 @@ func TestVerificationResendRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 		served++
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := verificationResendRateLimiter()(next)
+	wrapped := authScopedRateLimiter(VerificationResendPerMinute)(next)
 
 	for i := 0; i < VerificationResendPerMinute; i++ {
 		w := httptest.NewRecorder()
@@ -48,15 +49,15 @@ func TestVerificationResendRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	}
 }
 
-// TestVerificationResendRateLimiter_HonorsDisableFlag guards the E2E path: all
+// TestVerificationResendBudget_HonorsDisableFlag guards the E2E path: all
 // workers share 127.0.0.1, so a live limiter here would 429 unrelated shards.
-func TestVerificationResendRateLimiter_HonorsDisableFlag(t *testing.T) {
+func TestVerificationResendBudget_HonorsDisableFlag(t *testing.T) {
 	t.Setenv("DISABLE_AUTH_RATE_LIMITS", "1")
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := verificationResendRateLimiter()(next)
+	wrapped := authScopedRateLimiter(VerificationResendPerMinute)(next)
 
 	for i := 0; i < VerificationResendPerMinute*3; i++ {
 		w := httptest.NewRecorder()

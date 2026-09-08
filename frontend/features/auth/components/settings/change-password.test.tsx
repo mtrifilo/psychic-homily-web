@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { ChangePassword } from './change-password'
+import { ChangePassword, formatChangePasswordError } from './change-password'
 
 // --- Mocks ---
 
@@ -287,5 +287,53 @@ describe('ChangePassword', () => {
     renderForm()
 
     expect(screen.getByText('Failed to change password')).toBeInTheDocument()
+  })
+
+  it('renders throttle copy with the wait in seconds when Retry-After is readable', () => {
+    const error = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
+      retryAfter: 42,
+    })
+    mockMutationState = { isPending: false, isError: true, error }
+    renderForm()
+
+    expect(
+      screen.getByText('Too many password change attempts. Try again in 42s.')
+    ).toBeInTheDocument()
+  })
+
+  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', () => {
+    const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
+    mockMutationState = { isPending: false, isError: true, error }
+    renderForm()
+
+    expect(
+      screen.getByText('Too many password change attempts. Try again in a minute.')
+    ).toBeInTheDocument()
+  })
+})
+
+describe('formatChangePasswordError', () => {
+  it('keeps the server message for a non-429 failure', () => {
+    // The shape useChangePassword throws for a rejected password: the backend
+    // answers 200 with success:false, and the hook turns that into an AuthError
+    // carrying status 400.
+    const error = Object.assign(new Error('Current password is incorrect'), {
+      status: 400,
+    })
+    expect(formatChangePasswordError(error)).toBe('Current password is incorrect')
+  })
+
+  it('names the window when retryAfter is absent', () => {
+    // The deployed frontend calls the backend cross-origin, where Retry-After
+    // is not exposed, so `retryAfter` is undefined for real users.
+    const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
+    expect(formatChangePasswordError(error)).toBe(
+      'Too many password change attempts. Try again in a minute.'
+    )
+  })
+
+  it('returns the fallback for a missing error', () => {
+    expect(formatChangePasswordError(null)).toBe('Failed to change password')
   })
 })
