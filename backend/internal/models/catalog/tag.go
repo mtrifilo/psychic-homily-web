@@ -135,16 +135,14 @@ type TagLinkDiscard struct {
 // link columns: carry is the columns to write on the target, and discarded
 // names every source value the merge destroys along with the source row.
 //
-// Column by column, not row by row: a target holding only a website keeps it
-// and still takes the source's instagram.
-//
 // A column the target already answers for keeps the target's value, which is
-// the same rule the entity-tag and vote moves apply to a conflict, and the only
-// one that does not overwrite a curator's chosen value with a duplicate's. Two
-// columns holding the same string cost nothing and are not reported.
+// the rule the entity-tag and vote moves apply to a conflict, and the only one
+// that does not overwrite a curator's chosen value with a duplicate's.
 //
 // A blank column is no link on either side: the write paths store NULL for the
 // clear gesture, and a legacy row holding "" means the same thing.
+//
+// carry is never nil, so a caller may add its own columns to it before writing.
 func ResolveTagLinkMerge(source, target *Tag) (map[string]any, []TagLinkDiscard) {
 	carry := make(map[string]any, len(tagLinkColumns))
 	var discarded []TagLinkDiscard

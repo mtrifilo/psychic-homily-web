@@ -138,8 +138,6 @@ export function MergeTagDialog({
   const totalSkips = preview
     ? preview.skipped_entity_tags + preview.skipped_votes
     : 0
-  // Read outside the preview guard below, so the nullish default is what covers
-  // the states where there is no preview to read.
   const discardedLinks = preview?.discarded_links ?? []
 
   return (

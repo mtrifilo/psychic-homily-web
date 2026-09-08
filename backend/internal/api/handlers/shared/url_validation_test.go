@@ -156,6 +156,11 @@ func TestValidateSocialURLsCoversEveryCorpusField(t *testing.T) {
 		if err := socialURLsByField(field, "javascript:alert(1)"); err == nil {
 			t.Errorf("ValidateSocialURLs does not scheme-check %q", field)
 		}
+		// Unanchored is a claim about the HOST. The userinfo rule binds this
+		// column too, and it is the half a host-only reading would skip.
+		if err := socialURLsByField(field, "https://evil.test@anything.example.test/x"); err == nil {
+			t.Errorf("ValidateSocialURLs stores a userinfo value on %q", field)
+		}
 	}
 }
 

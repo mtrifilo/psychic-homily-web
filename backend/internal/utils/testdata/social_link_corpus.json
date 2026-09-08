@@ -182,11 +182,6 @@
       "field": "instagram",
       "value": "https://xn--a.instagram.com/",
       "why": "Go treats xn-- as four ordinary bytes; the WHATWG parser decodes the label and throws when it does not decode"
-    },
-    {
-      "field": "website",
-      "value": "https://your-account-is-suspended-verify-now.example.com@calexico.example.com/",
-      "why": "userinfo on the unanchored field: the reader refuses userinfo on every field, while the write boundary's userinfo rule lives inside the host anchor, which website is absent from. This is the one shape of it a write path still stores"
     }
   ],
   "refusedByWriter": [
@@ -230,6 +225,12 @@
       "field": "instagram",
       "value": "https://evil.test@instagram.com/x",
       "why": "the shortest spelling of the same shape, on a field a crew tag carries",
+      "rendersAnyway": false
+    },
+    {
+      "field": "website",
+      "value": "https://your-account-is-suspended-verify-now.example.com@calexico.example.com/",
+      "why": "userinfo on the unanchored column: the anchor makes no claim about this host, and the userinfo rule still binds, because both gates judge the userinfo by what it is rather than by where the click lands",
       "rendersAnyway": false
     },
     {

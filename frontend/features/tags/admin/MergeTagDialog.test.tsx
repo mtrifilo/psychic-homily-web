@@ -345,17 +345,14 @@ describe('MergeTagDialog', () => {
     expect(warning).toHaveTextContent('Bandcamp: https://sourcecrew.bandcamp.com')
   })
 
-  it('shows no discard warning when nothing is lost', async () => {
-    await selectTargetWithPreview(makePreview({ discarded_links: [] }))
+  // Both shapes the contract allows for "nothing is lost".
+  it.each([[[]], [null]])(
+    'shows no discard warning for %j',
+    async discarded_links => {
+      await selectTargetWithPreview(makePreview({ discarded_links }))
 
-    await screen.findByTestId('merge-preview')
-    expect(screen.queryByTestId('merge-preview-discarded-links')).toBeNull()
-  })
-
-  it('shows no discard warning when the field is null', async () => {
-    await selectTargetWithPreview(makePreview({ discarded_links: null }))
-
-    await screen.findByTestId('merge-preview')
-    expect(screen.queryByTestId('merge-preview-discarded-links')).toBeNull()
-  })
+      await screen.findByTestId('merge-preview')
+      expect(screen.queryByTestId('merge-preview-discarded-links')).toBeNull()
+    }
+  )
 })

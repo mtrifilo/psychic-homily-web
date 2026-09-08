@@ -68,25 +68,21 @@ func (s *TagService) PreviewMergeTags(sourceID, targetID uint) (*contracts.Merge
 	}
 	preview.SourceAliasesCount = aliasCount
 
-	preview.DiscardedLinks = discardedLinkPreview(source, target)
-
-	return preview, nil
-}
-
-// discardedLinkPreview names the outbound links a merge would destroy, from the
-// same resolution the merge itself runs, so the warning and the write cannot
-// disagree about which values survive.
-func discardedLinkPreview(source, target *catalogm.Tag) []contracts.MergeTagsDiscardedLink {
+	// The links the merge would destroy, from the same resolution the merge
+	// itself runs, so the warning and the write cannot disagree about which
+	// values survive. Empty rather than nil, so the dialog reads a list whether
+	// or not anything is lost.
 	_, discarded := catalogm.ResolveTagLinkMerge(source, target)
-	links := make([]contracts.MergeTagsDiscardedLink, 0, len(discarded))
+	preview.DiscardedLinks = make([]contracts.MergeTagsDiscardedLink, 0, len(discarded))
 	for _, d := range discarded {
-		links = append(links, contracts.MergeTagsDiscardedLink{
+		preview.DiscardedLinks = append(preview.DiscardedLinks, contracts.MergeTagsDiscardedLink{
 			Field:       d.Field,
 			SourceValue: d.SourceValue,
 			TargetValue: d.TargetValue,
 		})
 	}
-	return links
+
+	return preview, nil
 }
 
 // countVoteMovesBySign breaks the MovedVotes total into upvotes/downvotes so
@@ -236,27 +232,20 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		if err := tx.Model(&catalogm.EntityTag{}).Where("tag_id = ?", target.ID).Count(&count).Error; err != nil {
 			return fmt.Errorf("failed to recount usage: %w", err)
 		}
-		if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("usage_count", count).Error; err != nil {
-			return fmt.Errorf("failed to update usage count: %w", err)
-		}
 
-		// 7. Carry official designation forward: if either was official, the
-		// result is official. Only update when we need to flip false → true on target.
+		// 7. Everything the merge changes on the target row, in one statement:
+		// the recounted usage, the official flag carried forward when either tag
+		// was official, and each link column the target holds none of. A link
+		// column both tags answer for keeps the target's value, and
+		// PreviewMergeTags names every source value that costs, from this same
+		// resolution.
+		updates, _ := catalogm.ResolveTagLinkMerge(source, target)
+		updates["usage_count"] = count
 		if source.IsOfficial && !target.IsOfficial {
-			if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("is_official", true).Error; err != nil {
-				return fmt.Errorf("failed to carry official flag: %w", err)
-			}
+			updates["is_official"] = true
 		}
-
-		// 8. Carry outbound links forward per column: the target takes the
-		// source's value for each column it holds none of. A column both hold
-		// keeps the target's value, and PreviewMergeTags names every source
-		// value that costs, from this same resolution.
-		carry, _ := catalogm.ResolveTagLinkMerge(source, target)
-		if len(carry) > 0 {
-			if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Updates(carry).Error; err != nil {
-				return fmt.Errorf("failed to carry outbound links: %w", err)
-			}
+		if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update the merged tag: %w", err)
 		}
 
 		return nil

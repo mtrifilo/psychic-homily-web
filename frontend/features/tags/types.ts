@@ -389,9 +389,8 @@ export interface BulkAliasImportResult {
 }
 
 /**
- * One outbound link a merge destroys: the target already answers for that
- * column with a different value, and the source row is deleted carrying its
- * own. `field` is a key of SOCIAL_LINK_PLATFORMS.
+ * One outbound link a merge destroys. `field` is a key of
+ * SOCIAL_LINK_PLATFORMS, which is where its label comes from.
  */
 export interface MergeTagsDiscardedLink {
   field: string
@@ -411,11 +410,8 @@ export interface MergeTagsPreview {
   source_aliases_count: number
   source_name: string
   target_name: string
-  /**
-   * Empty when the merge carries every link the source holds. Nullable because
-   * the generated contract says so: an empty Go slice is serialized as an
-   * array, a nil one as null, and only the sender decides which.
-   */
+  /** Empty when the merge carries every link the source holds. Nullable per the
+   * generated contract: a nil Go slice serializes as null. */
   discarded_links: MergeTagsDiscardedLink[] | null
 }
 

@@ -366,35 +366,41 @@ var socialHostSuffixes = map[string][]string{
 	"bandcamp":   {"bandcamp.com"},
 }
 
-// ValidateSocialHost reports whether value sits on the platform allowlisted for
-// field, returning a plain error naming the accepted hosts. Fields absent from
-// SocialHostSuffixes are unrestricted and always pass.
+// ValidateSocialHost applies the two rules the eight social columns are held to:
+// the value sits on the platform allowlisted for field, and it carries no
+// userinfo. A field named by neither table is unrestricted and always passes.
+//
+// The two rules have different reach on purpose. The anchor answers a platform
+// claim, so it binds only the seven fields in socialHostSuffixes; the userinfo
+// rule is about the value itself, so it binds every column in SocialFieldLabels
+// including the unanchored website. That is the set the render gate in
+// frontend/lib/socialLinks.ts refuses userinfo on, and matching it is the point:
+// a value that gate drops is one a curator saves to a 200 and then cannot see,
+// with nothing naming the reason. ValidateReleaseLink refuses userinfo for the
+// same reason, on the column it owns.
+//
+// Userinfo is not part of the host in any parser, so the anchor already decides
+// where the click lands; what it buys is attacker-chosen text that reads as a
+// domain wherever the stored value is printed, including a `sameAs` claim.
 //
 // A parse failure is a PASS, not a rejection: callers run the scheme check
 // first, which is what rejects unparseable input, and answering "must be a link
 // on instagram.com" for a value that is not a URL at all would report the wrong
 // problem.
-//
-// A value carrying userinfo is refused even when its host is anchored, matching
-// ValidateReleaseLink and the render gate in frontend/lib/socialLinks.ts. The
-// host is where the click lands and the anchor already decides that; userinfo is
-// attacker-chosen text that no parser counts as part of the host, and it reads
-// as a domain wherever the stored value is printed. Refusing it here is what
-// keeps a value the render gate drops out of the column: a curator who saves one
-// otherwise sees a 200 and no link, with nothing naming the reason.
-//
-// The host is judged first so an off-platform value keeps the sentence naming
-// the accepted hosts, which is the problem to fix on that value.
 func ValidateSocialHost(field, fieldName, value string) error {
-	bases, restricted := socialHostSuffixes[field]
-	if !restricted || strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	bases, anchored := socialHostSuffixes[field]
+	_, socialColumn := SocialFieldLabels[field]
+	if trimmed == "" || (!anchored && !socialColumn) {
 		return nil
 	}
-	u, err := url.Parse(strings.TrimSpace(value))
+	u, err := url.Parse(trimmed)
 	if err != nil {
 		return nil
 	}
-	if !hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
+	// The host is judged first, so an off-platform value keeps the sentence
+	// naming the accepted hosts.
+	if anchored && !hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
 		return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
 	}
 	if u.User != nil {

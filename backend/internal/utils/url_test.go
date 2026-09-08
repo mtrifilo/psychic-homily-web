@@ -542,19 +542,30 @@ func TestValidateSocialHostRefusesUserinfo(t *testing.T) {
 		})
 	}
 
-	// The rule lives inside the host anchor, so an unanchored field never
-	// reaches it. The shared corpus carries this value as storable and
-	// unrenderable, which is where that gap is written down.
-	assert.NoError(t, ValidateSocialHost("website", "Website URL",
+	// The unanchored column is held to the userinfo rule and to nothing else,
+	// which is the asymmetry between the two rules' reach.
+	assert.Error(t, ValidateSocialHost("website", "Website URL",
 		"https://evil.test@calexico.example.com/"))
+	assert.NoError(t, ValidateSocialHost("website", "Website URL",
+		"https://calexico.example.com/"))
+
+	// A field neither table names is not a social column, so neither rule
+	// reaches it.
+	assert.NoError(t, ValidateSocialHost("ticket_url", "Ticket URL",
+		"https://evil.test@tickets.example.com/x"))
 }
 
-// TestValidateSocialHostRefusesUserinfoOnEveryAnchoredField drives the rule from
-// the anchor table itself, so a platform added later inherits the assertion
-// rather than needing someone to remember this test.
-func TestValidateSocialHostRefusesUserinfoOnEveryAnchoredField(t *testing.T) {
-	for field, bases := range socialHostSuffixes {
-		value := "https://evil.test@" + bases[0] + "/x"
+// TestValidateSocialHostRefusesUserinfoOnEveryColumn drives the rule from the
+// column table itself, so a column added later inherits the assertion rather
+// than needing someone to remember this test. It is the whole eight, which is
+// one more than the anchor covers.
+func TestValidateSocialHostRefusesUserinfoOnEveryColumn(t *testing.T) {
+	for field := range SocialFieldLabels {
+		host := "calexico.example.com"
+		if bases, anchored := socialHostSuffixes[field]; anchored {
+			host = bases[0]
+		}
+		value := "https://evil.test@" + host + "/x"
 		assert.Error(t, ValidateSocialHost(field, field, value),
 			"%q stores a userinfo value the render gate drops", field)
 	}
