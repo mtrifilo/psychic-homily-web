@@ -968,23 +968,36 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	// Upcoming show count (metro-wide)
+	// Upcoming show count (metro-wide), bounded at the NIGHT in progress rather
+	// than at this instant.
+	//
+	// The status band prints this number beside a count of the shows on tonight,
+	// and the tonight bucket is the night that BEGAN yesterday evening until
+	// 06:00 (scene_day.go). An instant bound drops every set that has already
+	// started, so a reader standing in a room at 23:00 reads `2 TONIGHT ·
+	// 0 UPCOMING SHOWS`, a headline that contradicts the two rows printed under
+	// it. shared.VenueLocalNightDateCondition is the same boundary expressed in
+	// SQL, per show, in its own venue's zone.
+	//
+	// The shows table must be UNALIASED here: shared.VenueTZJoin's lateral
+	// correlates on `shows.id`.
 	var upcomingShowCount int64
 	if err := s.db.Raw(`
-		SELECT COUNT(DISTINCT s.id)
-		FROM shows s
-		JOIN show_venues sv ON sv.show_id = s.id
+		SELECT COUNT(DISTINCT shows.id)
+		FROM shows
+		JOIN show_venues sv ON sv.show_id = shows.id
 		JOIN venues v ON v.id = sv.venue_id
+		`+shared.VenueTZJoin+`
 		WHERE `+vp+`
-		  AND s.status = ?
-		  AND s.event_date >= ?
-	`, venueArgs(catalogm.ShowStatusApproved, now)...).Scan(&upcomingShowCount).Error; err != nil {
+		  AND shows.status = ?
+		  AND `+shared.VenueLocalNightDateCondition()+`
+	`, venueArgs(catalogm.ShowStatusApproved)...).Scan(&upcomingShowCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
-	// The rooms leaderboard, counted at the SAME `now` as the headline upcoming
+	// The rooms leaderboard, drawn on the same night boundary as the headline
 	// figure above so a reader cannot find the two disagreeing.
-	venues, err := s.sceneVenueLeaderboard(scope, now)
+	venues, err := s.sceneVenueLeaderboard(scope)
 	if err != nil {
 		return nil, err
 	}

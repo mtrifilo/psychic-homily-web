@@ -6,6 +6,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // sceneDayShowCap bounds one day's payload. Chicago, the densest scene, runs
@@ -28,7 +29,11 @@ const sceneDayShowCap = 100
 // trade-off: a 06:00→06:00 window would list such a show under a date its own
 // permalink disagrees with. Do not "fix" this by widening the window without
 // revisiting that decision.
-const nightStartHour = 6
+//
+// The value is shared.NightStartHour, which the scene page's upcoming counts
+// are bounded at in SQL. One constant is what keeps a count from dropping a
+// show the tonight listing beside it still names.
+const nightStartHour = shared.NightStartHour
 
 // sceneDayNextShowWindowDays bounds the look-ahead behind a quiet night's
 // "next on our calendar" pointer.

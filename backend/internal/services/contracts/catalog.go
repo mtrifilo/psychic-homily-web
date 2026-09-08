@@ -1710,17 +1710,19 @@ type SceneVenueSummary struct {
 	// and New York's into New Jersey, so a city-only row renders a bare "Camden"
 	// on a Philadelphia page. Same pair the venue charts carry (ActiveVenue).
 	State string `json:"state"`
-	// UpcomingShowCount is the room's approved shows still to come, counted from
-	// the START of the current UTC day — see sceneVenueLeaderboard for why an
-	// instant bound would zero out a room whose only show is tonight.
+	// UpcomingShowCount is the room's approved shows still to come, bounded at
+	// the NIGHT in progress in the show's own venue zone. See
+	// sceneVenueLeaderboard for why an instant bound would zero out a room whose
+	// only show is tonight.
 	//
-	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in EVERY
-	// direction, all three on purpose:
-	//   - PAST it, because a show billed to two rooms is counted by both, and
-	//     because today's shows are inside this bound and outside that one.
+	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in both
+	// directions on purpose:
+	//   - PAST it, because a show billed to two rooms is counted by both.
 	//   - SHORT of it, because the scene total counts shows at UNVERIFIED rooms,
 	//     which are not tracked and so have no row here.
-	// Do not "reconcile" the two by editing the scene total: that silently
+	// The BOUNDARY is no longer one of those directions: both are drawn at the
+	// same night start, so neither holds a night the other has let go of. Do not
+	// "reconcile" the remaining two by editing the scene total: that silently
 	// changes a number already being served.
 	//
 	// CANCELLED shows are counted, because they are still `approved` — the same
@@ -2129,8 +2131,20 @@ type SceneDetailResponse struct {
 
 // SceneStats holds aggregate counts for a scene
 type SceneStats struct {
-	VenueCount        int `json:"venue_count"`
-	ArtistCount       int `json:"artist_count"`
+	VenueCount  int `json:"venue_count"`
+	ArtistCount int `json:"artist_count"`
+	// UpcomingShowCount is the scene's approved shows still to come, bounded at
+	// the NIGHT in progress in each show's own venue zone rather than at the
+	// request instant.
+	//
+	// The night is the unit because of what this number is printed beside: the
+	// status band leads with a count of the shows on tonight, and the tonight
+	// bucket runs until 06:00 local. Bounded at the instant, this reads lower
+	// than the count next to it and lower than the rows underneath it for the
+	// whole evening, which is the reader's own evening.
+	//
+	// It counts shows at UNVERIFIED rooms too, which the per-room leaderboard
+	// beside it cannot; see SceneVenueSummary.UpcomingShowCount.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	FestivalCount     int `json:"festival_count"`
 }
