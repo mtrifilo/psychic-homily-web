@@ -133,12 +133,19 @@ func socialURLsByField(field, value string) error {
 func TestValidateSocialURLsCoversEveryCorpusField(t *testing.T) {
 	corpus := loadSocialCorpusFields(t)
 
-	for field := range corpus.Platforms {
+	for field, bases := range corpus.Platforms {
 		if err := socialURLsByField(field, "https://not-the-platform.evil.test/x"); err == nil {
 			t.Errorf("ValidateSocialURLs does not host-anchor %q", field)
 		}
 		if err := socialURLsByField(field, "javascript:alert(1)"); err == nil {
 			t.Errorf("ValidateSocialURLs does not scheme-check %q", field)
+		}
+		// Every entity whose handler reaches this function inherits the
+		// userinfo rule, on a value whose host is the platform's own: the
+		// render gate drops one, so a column that stored it would show a
+		// curator a 200 and no link.
+		if err := socialURLsByField(field, "https://evil.test@"+bases[0]+"/x"); err == nil {
+			t.Errorf("ValidateSocialURLs stores a userinfo value on %q", field)
 		}
 	}
 
@@ -148,6 +155,11 @@ func TestValidateSocialURLsCoversEveryCorpusField(t *testing.T) {
 		}
 		if err := socialURLsByField(field, "javascript:alert(1)"); err == nil {
 			t.Errorf("ValidateSocialURLs does not scheme-check %q", field)
+		}
+		// Unanchored is a claim about the HOST. The userinfo rule binds this
+		// column too, and it is the half a host-only reading would skip.
+		if err := socialURLsByField(field, "https://evil.test@anything.example.test/x"); err == nil {
+			t.Errorf("ValidateSocialURLs stores a userinfo value on %q", field)
 		}
 	}
 }

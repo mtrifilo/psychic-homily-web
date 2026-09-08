@@ -524,8 +524,9 @@ var rollbackURLFields = map[string]string{
 // field recorded beside it.
 //
 // `website` is host-unrestricted by design (it is the any-host escape hatch), so
-// for that field this is the scheme check alone, as it is for the image and
-// flyer fields, which have no platform to anchor to.
+// for that field the host anchor passes any host. It is still one of the eight
+// social columns, so ValidateSocialHost's userinfo rule applies to it, unlike
+// the image and flyer fields, which get the scheme check alone.
 //
 // image_url gets its SCHEME rule here but not its host guard: that resolves DNS
 // and needs a context.Context this function does not take. Rollback runs

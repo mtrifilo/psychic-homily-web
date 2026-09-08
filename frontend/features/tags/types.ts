@@ -388,6 +388,16 @@ export interface BulkAliasImportResult {
   skipped: BulkAliasImportSkipped[]
 }
 
+/**
+ * One outbound link a merge destroys. `field` is a key of
+ * SOCIAL_LINK_PLATFORMS, which is where its label comes from.
+ */
+export interface MergeTagsDiscardedLink {
+  field: string
+  source_value: string
+  target_value: string
+}
+
 /** Preview of a merge — returned by GET /admin/tags/{source_id}/merge-preview */
 export interface MergeTagsPreview {
   moved_entity_tags: number
@@ -400,6 +410,9 @@ export interface MergeTagsPreview {
   source_aliases_count: number
   source_name: string
   target_name: string
+  /** Empty when the merge carries every link the source holds. Nullable per the
+   * generated contract: a nil Go slice serializes as null. */
+  discarded_links: MergeTagsDiscardedLink[] | null
 }
 
 /** Result of a completed merge — returned by POST /admin/tags/{source_id}/merge */

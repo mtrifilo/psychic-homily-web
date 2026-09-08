@@ -152,7 +152,11 @@ func hasHTTPSchemePrefix(raw string) bool {
 	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
-// SocialFieldLabels names each social column as a refusal reports it.
+// SocialFieldLabels names each social column as a refusal reports it, and its
+// KEY SET is also the reach of ValidateSocialHost's userinfo rule: a field named
+// here is judged by it, a field named nowhere is not. Membership is therefore a
+// gate, not only wording, and TestSocialLinkCorpusPinsTheTable holds the keys to
+// the shared corpus so a column cannot leave the gate by being renamed.
 //
 // It is the source the other two label tables are held to:
 // TestSocialLabelsAgreeAcrossLayers in internal/services/admin asserts that the

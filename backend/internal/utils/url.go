@@ -345,7 +345,10 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 //
 // Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
 // intentionally excluded: they cannot be statically verified to land
-// on-platform, which is the point of the anchor. `website` is the escape hatch.
+// on-platform, which is the point of the anchor. `website` is the escape hatch
+// FROM THE HOST RULE ONLY: absent here it accepts any host, and it is still one
+// of the eight columns in SocialFieldLabels, which is what ValidateSocialHost
+// reads for the userinfo rule.
 //
 // It lives in utils, not beside the handler validator that reads it, because
 // its other consumers cannot import a handler package: the apply gate in
@@ -366,27 +369,47 @@ var socialHostSuffixes = map[string][]string{
 	"bandcamp":   {"bandcamp.com"},
 }
 
-// ValidateSocialHost reports whether value sits on the platform allowlisted for
-// field, returning a plain error naming the accepted hosts. Fields absent from
-// SocialHostSuffixes are unrestricted and always pass.
+// ValidateSocialHost applies the two rules the eight social columns are held to:
+// the value sits on the platform allowlisted for field, and it carries no
+// userinfo. A field named by neither table is unrestricted and always passes.
+//
+// The two rules have different reach on purpose. The anchor answers a platform
+// claim, so it binds only the seven fields in socialHostSuffixes; the userinfo
+// rule is about the value itself, so it binds every column in SocialFieldLabels
+// including the unanchored website. That is the set the render gate in
+// frontend/lib/socialLinks.ts refuses userinfo on, and matching it is the point:
+// a value that gate drops is one a curator saves to a 200 and then cannot see,
+// with nothing naming the reason. ValidateReleaseLink refuses userinfo for the
+// same reason, on the column it owns.
+//
+// Userinfo is not part of the host in any parser, so the anchor already decides
+// where the click lands; what it buys is attacker-chosen text that reads as a
+// domain wherever the stored value is printed, including a `sameAs` claim.
 //
 // A parse failure is a PASS, not a rejection: callers run the scheme check
 // first, which is what rejects unparseable input, and answering "must be a link
 // on instagram.com" for a value that is not a URL at all would report the wrong
 // problem.
 func ValidateSocialHost(field, fieldName, value string) error {
-	bases, restricted := socialHostSuffixes[field]
-	if !restricted || strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	bases, anchored := socialHostSuffixes[field]
+	_, socialColumn := SocialFieldLabels[field]
+	if trimmed == "" || (!anchored && !socialColumn) {
 		return nil
 	}
-	u, err := url.Parse(strings.TrimSpace(value))
+	u, err := url.Parse(trimmed)
 	if err != nil {
 		return nil
 	}
-	if hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
-		return nil
+	// The host is judged first, so an off-platform value keeps the sentence
+	// naming the accepted hosts.
+	if anchored && !hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
+		return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
 	}
-	return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
+	if u.User != nil {
+		return fmt.Errorf("%s must not carry a username before the host", fieldName)
+	}
+	return nil
 }
 
 // hostMatchesAnyBase reports whether an already-lowercased host equals one of the

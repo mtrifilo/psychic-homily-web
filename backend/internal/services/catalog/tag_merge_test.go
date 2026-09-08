@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -465,6 +466,112 @@ func (s *TagMergeIntegrationSuite) TestMerge_WritesAuditLog() {
 	s.Equal("shoe-gaze", meta["source_tag_name"])
 	s.Equal("shoegaze", meta["target_tag_name"])
 	s.Equal(float64(1), meta["moved_entity_tags"])
+}
+
+// TestMerge_AuditLogRecordsTheLinksItMovedAndDestroyed: the merge deletes the
+// source row, so for a discarded link this entry is the only place the value
+// still exists.
+func (s *TagMergeIntegrationSuite) TestMerge_AuditLogRecordsTheLinksItMovedAndDestroyed() {
+	admin := s.createUser("audit-admin")
+	sourceIG := "https://instagram.com/auditsource"
+	sourceBC := "https://auditsource.bandcamp.com"
+	source, err := s.tagService.CreateTag("audit-source", nil, nil, catalogm.TagCategoryCrew, false, nil,
+		catalogm.TagLinks{Instagram: &sourceIG, Bandcamp: &sourceBC})
+	s.Require().NoError(err)
+
+	targetIG := "https://instagram.com/audittarget"
+	target, err := s.tagService.CreateTag("audit-target", nil, nil, catalogm.TagCategoryCrew, false, nil,
+		catalogm.TagLinks{Instagram: &targetIG})
+	s.Require().NoError(err)
+
+	_, err = s.tagService.MergeTags(source.ID, target.ID, admin.ID)
+	s.Require().NoError(err)
+
+	var log adminm.AuditLog
+	for i := 0; i < 40; i++ {
+		if err := s.db.Where("action = ? AND entity_id = ?", AuditActionMergeTags, target.ID).First(&log).Error; err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	s.Require().NotZero(log.ID, "audit log was not written in time")
+	s.Require().NotNil(log.Metadata)
+
+	var meta struct {
+		CarriedLinks   []string `json:"carried_links"`
+		DiscardedLinks []struct {
+			Field string `json:"field"`
+			Lost  string `json:"lost"`
+			Kept  string `json:"kept"`
+		} `json:"discarded_links"`
+	}
+	s.Require().NoError(json.Unmarshal(*log.Metadata, &meta))
+
+	s.Equal([]string{"bandcamp"}, meta.CarriedLinks)
+	s.Require().Len(meta.DiscardedLinks, 1)
+	s.Equal("instagram", meta.DiscardedLinks[0].Field)
+	s.Equal(sourceIG, meta.DiscardedLinks[0].Lost)
+	s.Equal(targetIG, meta.DiscardedLinks[0].Kept)
+}
+
+// TestConcurrentMergesIntoOneTargetCarryOneLinkAndRecordTheOther is the row lock
+// asserted through what it prevents. Link carry is the first write in this
+// transaction that is neither recounted from rows nor monotonic, so without
+// serialization both merges read the target's website as empty, both carry, and
+// the later write destroys the earlier value with nothing recording it.
+func (s *TagMergeIntegrationSuite) TestConcurrentMergesIntoOneTargetCarryOneLinkAndRecordTheOther() {
+	admin := s.createUser("race-admin")
+	firstWebsite := "https://race-one.test"
+	second := "https://race-two.test"
+	sourceOne, err := s.tagService.CreateTag("race-one", nil, nil, catalogm.TagCategoryCrew, false, nil,
+		catalogm.TagLinks{Website: &firstWebsite})
+	s.Require().NoError(err)
+	sourceTwo, err := s.tagService.CreateTag("race-two", nil, nil, catalogm.TagCategoryCrew, false, nil,
+		catalogm.TagLinks{Website: &second})
+	s.Require().NoError(err)
+	target := s.createTag("race-target")
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, sourceID := range []uint{sourceOne.ID, sourceTwo.ID} {
+		wg.Add(1)
+		go func(slot int, id uint) {
+			defer wg.Done()
+			_, errs[slot] = s.tagService.MergeTags(id, target.ID, admin.ID)
+		}(i, sourceID)
+	}
+	wg.Wait()
+	s.Require().NoError(errs[0])
+	s.Require().NoError(errs[1])
+
+	var merged catalogm.Tag
+	s.Require().NoError(s.db.First(&merged, target.ID).Error)
+	s.Require().NotNil(merged.Website)
+	s.Contains([]string{firstWebsite, second}, *merged.Website)
+
+	var logs []adminm.AuditLog
+	for i := 0; i < 80; i++ {
+		s.db.Where("action = ? AND entity_id = ?", AuditActionMergeTags, target.ID).Find(&logs)
+		if len(logs) == 2 {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	s.Require().Len(logs, 2, "both merges write an audit entry")
+
+	carried, discarded := 0, 0
+	for _, log := range logs {
+		s.Require().NotNil(log.Metadata)
+		var meta struct {
+			CarriedLinks   []string         `json:"carried_links"`
+			DiscardedLinks []map[string]any `json:"discarded_links"`
+		}
+		s.Require().NoError(json.Unmarshal(*log.Metadata, &meta))
+		carried += len(meta.CarriedLinks)
+		discarded += len(meta.DiscardedLinks)
+	}
+	s.Equal(1, carried, "the second merge reads the first's carried website")
+	s.Equal(1, discarded, "and records the value it could not keep")
 }
 
 // ──────────────────────────────────────────────

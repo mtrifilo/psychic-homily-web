@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -68,6 +70,22 @@ func (s *TagService) PreviewMergeTags(sourceID, targetID uint) (*contracts.Merge
 	}
 	preview.SourceAliasesCount = aliasCount
 
+	// The links a merge run against this snapshot would destroy. It is the
+	// resolution the merge itself runs, so the two answer the same rules; they
+	// read different snapshots, and an edit to either tag between the preview
+	// and the confirm is resolved again inside the merge transaction, which is
+	// the answer that decides what is written. Empty rather than nil, so the
+	// dialog reads a list whether or not anything is lost.
+	_, discarded := catalogm.ResolveTagLinkMerge(source, target)
+	preview.DiscardedLinks = make([]contracts.MergeTagsDiscardedLink, 0, len(discarded))
+	for _, d := range discarded {
+		preview.DiscardedLinks = append(preview.DiscardedLinks, contracts.MergeTagsDiscardedLink{
+			Field:       d.Field,
+			SourceValue: d.SourceValue,
+			TargetValue: d.TargetValue,
+		})
+	}
+
 	return preview, nil
 }
 
@@ -124,6 +142,15 @@ func countVoteMovesBySign(db *gorm.DB, sourceID, targetID uint) (up, down int64,
 //   - is_official carries forward: if either source or target is official, the
 //     result is official (union semantics — safe default that never loses the
 //     official designation).
+//   - Outbound links carry forward per column: the target takes the source's
+//     website, instagram or bandcamp for each of those columns it holds none
+//     of. A column both hold keeps the target's value, and the source's is
+//     destroyed with the source row; PreviewMergeTags names each one.
+//   - The source's description is not carried and dies with the row. Which
+//     prose describes the merged tag is an admin judgment, not a rule.
+//
+// Both rows are locked in ascending ID order, so two merges touching the same
+// tag serialize rather than reading the same link columns as empty.
 //
 // actorUserID is used only for the post-commit audit log (fire-and-forget).
 func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*contracts.MergeTagsResult, error) {
@@ -138,13 +165,18 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 	}
 
 	var (
-		result      contracts.MergeTagsResult
-		sourceName  string
-		targetName  string
-		mergedTagID uint
+		result         contracts.MergeTagsResult
+		sourceName     string
+		targetName     string
+		mergedTagID    uint
+		carriedLinks   []string
+		discardedLinks []catalogm.TagLinkDiscard
 	)
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockTagRows(tx, sourceID, targetID); err != nil {
+			return err
+		}
 		source, target, err := s.loadMergeTags(tx, sourceID, targetID)
 		if err != nil {
 			return err
@@ -214,16 +246,27 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		if err := tx.Model(&catalogm.EntityTag{}).Where("tag_id = ?", target.ID).Count(&count).Error; err != nil {
 			return fmt.Errorf("failed to recount usage: %w", err)
 		}
-		if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("usage_count", count).Error; err != nil {
-			return fmt.Errorf("failed to update usage count: %w", err)
-		}
 
-		// 7. Carry official designation forward: if either was official, the
-		// result is official. Only update when we need to flip false → true on target.
+		// 7. Everything the merge changes on the target row, in one statement:
+		// the recounted usage, the official flag carried forward when either tag
+		// was official, and each link column the target holds none of. A link
+		// column both tags answer for keeps the target's value; what that costs
+		// is resolved here and recorded in the audit log, because the source row
+		// is deleted above and nothing else remembers the value.
+		updates, discarded := catalogm.ResolveTagLinkMerge(source, target)
+		discardedLinks = discarded
+		carriedLinks = make([]string, 0, len(updates))
+		for column := range updates {
+			carriedLinks = append(carriedLinks, column)
+		}
+		sort.Strings(carriedLinks)
+
+		updates["usage_count"] = count
 		if source.IsOfficial && !target.IsOfficial {
-			if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("is_official", true).Error; err != nil {
-				return fmt.Errorf("failed to carry official flag: %w", err)
-			}
+			updates["is_official"] = true
+		}
+		if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update the merged tag: %w", err)
 		}
 
 		return nil
@@ -236,10 +279,35 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 	// convention used in neighboring admin services. Errors inside LogAction
 	// are logged but never bubble up.
 	shared.SubmitAuditWrite("tag_merge_audit_log", func() {
-		s.writeMergeAuditLog(actorUserID, sourceID, mergedTagID, sourceName, targetName, &result)
+		s.writeMergeAuditLog(actorUserID, sourceID, mergedTagID, sourceName, targetName, &result,
+			carriedLinks, discardedLinks)
 	})
 
 	return &result, nil
+}
+
+// lockTagRows takes a row lock on both tags in ascending ID order, so two
+// merges touching the same tag serialize instead of both reading a link column
+// as empty and the later write winning.
+//
+// Ascending order, and two statements: a single IN (...) ignores the order and
+// would let two merges take the locks in opposite orders and deadlock.
+//
+// A missing row is not an error here. loadMergeTags reads the same rows
+// immediately after and reports the not-found that names which tag.
+func lockTagRows(tx *gorm.DB, sourceID, targetID uint) error {
+	first, second := sourceID, targetID
+	if first > second {
+		first, second = second, first
+	}
+	for _, id := range []uint{first, second} {
+		var locked catalogm.Tag
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, id).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("failed to lock tag %d: %w", id, err)
+		}
+	}
+	return nil
 }
 
 // loadMergeTags resolves source and target, and rejects circular merges.
@@ -383,9 +451,23 @@ func countVoteMoves(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64,
 
 // writeMergeAuditLog records a tag merge in the audit log.
 // Fire-and-forget — errors are logged but never fail the parent operation.
-func (s *TagService) writeMergeAuditLog(actorID, sourceID, targetID uint, sourceName, targetName string, result *contracts.MergeTagsResult) {
+func (s *TagService) writeMergeAuditLog(actorID, sourceID, targetID uint, sourceName, targetName string,
+	result *contracts.MergeTagsResult, carriedLinks []string, discardedLinks []catalogm.TagLinkDiscard,
+) {
 	if s.db == nil {
 		return
+	}
+
+	// discarded_links records the values themselves, not a count: the source row
+	// is deleted by the merge, so this entry is the only place a destroyed link
+	// still exists.
+	discarded := make([]map[string]string, 0, len(discardedLinks))
+	for _, d := range discardedLinks {
+		discarded = append(discarded, map[string]string{
+			"field": d.Field,
+			"lost":  d.SourceValue,
+			"kept":  d.TargetValue,
+		})
 	}
 
 	metadata := map[string]interface{}{
@@ -398,6 +480,8 @@ func (s *TagService) writeMergeAuditLog(actorID, sourceID, targetID uint, source
 		"skipped_votes":       result.SkippedVotes,
 		"moved_aliases":       result.MovedAliases,
 		"alias_created":       result.AliasCreated,
+		"carried_links":       carriedLinks,
+		"discarded_links":     discarded,
 	}
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {

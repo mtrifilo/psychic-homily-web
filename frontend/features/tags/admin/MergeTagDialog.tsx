@@ -20,8 +20,23 @@ import {
   useMergeTagsPreview,
   useTagAliases,
 } from './useAdminTags'
+import {
+  isSocialLinkPlatform,
+  SOCIAL_LINK_PLATFORMS,
+} from '@/lib/socialLinks'
 import { getCategoryChipClasses, getCategoryLabel } from '../types'
 import type { TagListItem } from '../types'
+
+/**
+ * The platform's own name for a discarded link's column, so the warning reads
+ * as the editor's labels do. A column the registry does not know is printed as
+ * the backend named it rather than guessed at.
+ */
+function linkFieldLabel(field: string): string {
+  return isSocialLinkPlatform(field)
+    ? SOCIAL_LINK_PLATFORMS[field].label
+    : field
+}
 
 interface MergeTagDialogProps {
   open: boolean
@@ -123,6 +138,7 @@ export function MergeTagDialog({
   const totalSkips = preview
     ? preview.skipped_entity_tags + preview.skipped_votes
     : 0
+  const discardedLinks = preview?.discarded_links ?? []
 
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
@@ -134,7 +150,8 @@ export function MergeTagDialog({
           </DialogTitle>
           <DialogDescription>
             Pick a target tag. All entity applications, votes, and aliases move
-            to the target. &quot;{sourceTagName}&quot; becomes an alias and is
+            to the target, along with any outbound link the target does not
+            already have. &quot;{sourceTagName}&quot; becomes an alias and is
             then deleted.
           </DialogDescription>
         </DialogHeader>
@@ -227,6 +244,29 @@ export function MergeTagDialog({
                     &quot;{preview.source_name}&quot; will become an alias of
                     &quot;{preview.target_name}&quot;.
                   </p>
+                  {discardedLinks.length > 0 && (
+                    <div
+                      data-testid="merge-preview-discarded-links"
+                      className="space-y-1 text-destructive"
+                    >
+                      <p>
+                        {discardedLinks.length === 1
+                          ? 'This link on '
+                          : 'These links on '}
+                        &quot;{preview.source_name}&quot; will be lost.
+                        &quot;{preview.target_name}&quot; keeps the value it
+                        already has.
+                      </p>
+                      <ul className="list-disc space-y-1 pl-5">
+                        {discardedLinks.map(link => (
+                          <li key={link.field} className="break-words">
+                            {linkFieldLabel(link.field)}: {link.source_value}{' '}
+                            (kept: {link.target_value})
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

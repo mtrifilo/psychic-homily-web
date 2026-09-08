@@ -498,3 +498,76 @@ func TestIsBandcampArtistHost(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateSocialHostRefusesUserinfo pins the userinfo rule and the sentence
+// each refusal reports, because the two refusals name different problems and a
+// curator acts on the sentence they are shown.
+func TestValidateSocialHostRefusesUserinfo(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{
+			"userinfo on the anchored host",
+			"https://evil.test@instagram.com/x",
+			"must not carry a username before the host",
+		},
+		{
+			"user and password on the anchored host",
+			"https://evil.test:pass@www.instagram.com/x",
+			"must not carry a username before the host",
+		},
+		{
+			"userinfo spoofing an off-platform host keeps the host sentence",
+			"https://instagram.com@evil.test/x",
+			"must be a link on instagram.com",
+		},
+		{
+			"an on-platform value with no userinfo passes",
+			"https://instagram.com/calexico",
+			"",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSocialHost("instagram", "Instagram URL", tc.value)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+
+	// The unanchored column is held to the userinfo rule and to nothing else,
+	// which is the asymmetry between the two rules' reach.
+	assert.Error(t, ValidateSocialHost("website", "Website URL",
+		"https://evil.test@calexico.example.com/"))
+	assert.NoError(t, ValidateSocialHost("website", "Website URL",
+		"https://calexico.example.com/"))
+
+	// A field neither table names is not a social column, so neither rule
+	// reaches it.
+	assert.NoError(t, ValidateSocialHost("ticket_url", "Ticket URL",
+		"https://evil.test@tickets.example.com/x"))
+}
+
+// TestValidateSocialHostRefusesUserinfoOnEveryColumn drives the rule from the
+// column table itself, so a column ADDED later inherits the assertion. It reads
+// the same table the rule reads, so a column removed from that table leaves both
+// at once: TestSocialLinkCorpusPinsTheTable is what catches a removal, by
+// holding the key set to the shared corpus.
+func TestValidateSocialHostRefusesUserinfoOnEveryColumn(t *testing.T) {
+	for field := range SocialFieldLabels {
+		host := "calexico.example.com"
+		if bases, anchored := socialHostSuffixes[field]; anchored {
+			host = bases[0]
+		}
+		value := "https://evil.test@" + host + "/x"
+		assert.Error(t, ValidateSocialHost(field, field, value),
+			"%q stores a userinfo value the render gate drops", field)
+	}
+}

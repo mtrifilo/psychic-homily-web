@@ -200,9 +200,8 @@ func runFileImport(database *gorm.DB, festivalService *catalog.FestivalService, 
 // there are no legacy rows passing through, so an operator who leaves the scheme
 // off should be told now rather than have it guessed at.
 //
-// Neither field anchors a host today, so ValidateSocialHost returns nil for both.
-// It is called anyway so a field that gains an anchor is guarded here on arrival
-// rather than on someone remembering this file.
+// ValidateSocialHost is called for both fields so a field that gains a rule
+// there is guarded here on arrival rather than on someone remembering this file.
 func validateFestivalURLs(input *FestivalInput) error {
 	for _, field := range []struct{ name, label, value string }{
 		{"website", "Website URL", input.Website},
