@@ -140,6 +140,11 @@ export function sceneSliceIsQuiet(slice: SceneSliceData): boolean {
  * the same reason `sceneSliceIsQuiet` counts through `countWindowShows`: the
  * rows are the count everywhere on this page.
  *
+ * This is the SAME figure `SceneCalendar` prints beside its TONIGHT heading,
+ * off the same array: cancelled rows are in both, and a night past
+ * `sceneDayShowCap` reports the cap in both. A caller that filtered here would
+ * put a number above the fold that disagrees with the rows a screen below it.
+ *
  * Zero when no day carries the flag, which is the value a caller draws nothing
  * for.
  */

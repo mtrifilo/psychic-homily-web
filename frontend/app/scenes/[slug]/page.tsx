@@ -165,8 +165,9 @@ const getSceneWeek = cache((slug: string) =>
  *
  * The sequencing and the empty-`next_date` trap live in `sceneSliceApi` rather
  * than here, so a second consumer cannot re-derive them; this wrapper only adds
- * the per-request dedupe its two neighbours above already have. `cache()` bounds
- * this to one trip per request however many callers it grows.
+ * the per-request dedupe its two neighbours above already have. The page body is
+ * currently the only caller, so `cache()` dedupes nothing today; it is what
+ * keeps a second caller from re-running the chain.
  */
 const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
