@@ -547,6 +547,27 @@ func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_SocialLinks() {
 	s.Equal("https://artist.com", *resp.Body.Social.Website)
 }
 
+// TestAdminUpdateArtist_RefusesUserinfo: artists reach the same shared social
+// validator a crew tag does, so the userinfo rule covers this column too and
+// the refused value leaves the row alone.
+func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_RefusesUserinfo() {
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	artistID := s.createArtistViaService("Userinfo Artist")
+
+	ctx := testhelpers.CtxWithUser(admin)
+	userinfo := "https://evil.test@instagram.com/artist"
+	req := &AdminUpdateArtistRequest{ArtistID: fmt.Sprintf("%d", artistID)}
+	req.Body.Instagram = &userinfo
+
+	_, err := s.handler.AdminUpdateArtistHandler(ctx, req)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "must not carry a username before the host")
+
+	var stored catalogm.Artist
+	s.Require().NoError(s.deps.DB.First(&stored, artistID).Error)
+	s.Nil(stored.Social.Instagram)
+}
+
 func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_NotFound() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)

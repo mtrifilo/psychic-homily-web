@@ -194,28 +194,31 @@ func (s *TagHandlerIntegrationSuite) TestTagLinks_ColumnWidthsMatchTheURLRegistr
 	}
 }
 
-// TestTagLinks_MergeDiscardsTheSourcesLinks records what merging does to the
-// new columns: nothing carries them to the target, and the source row is hard
-// deleted, so they are gone.
-//
-// This pins the behaviour rather than endorsing it. MergeTags has an explicit
-// carry-over inventory (entity tags, votes, aliases, usage_count, is_official)
-// and description is already dropped the same way; extending that inventory is
-// a product decision this ticket did not make. The test is here so the next
-// person changing it is changing something a test names.
-func (s *TagHandlerIntegrationSuite) TestTagLinks_MergeDiscardsTheSourcesLinks() {
+// TestTagLinks_MergeCarriesLinksToAnEmptyTarget: the source row is hard deleted
+// by a merge, so a column the target has none of takes the source's value
+// rather than losing it.
+func (s *TagHandlerIntegrationSuite) TestTagLinks_MergeCarriesLinksToAnEmptyTarget() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
 
 	website := "https://rubberbrotherrecords.test"
+	instagram := "https://instagram.com/rubberbrother"
 	sourceReq := &CreateTagRequest{}
 	sourceReq.Body.Name = "Merge Source Crew"
 	sourceReq.Body.Category = catalogm.TagCategoryCrew
 	sourceReq.Body.Website = &website
+	sourceReq.Body.Instagram = &instagram
 	source, err := s.handler.CreateTagHandler(ctx, sourceReq)
 	s.Require().NoError(err)
 
 	target := s.createTagViaHandler(admin, "Merge Target Crew", catalogm.TagCategoryCrew)
+
+	preview, err := s.handler.MergeTagsPreviewHandler(ctx, &MergeTagsPreviewRequest{
+		SourceID: fmt.Sprintf("%d", source.Body.ID),
+		TargetID: target.Body.ID,
+	})
+	s.Require().NoError(err)
+	s.Empty(preview.Body.DiscardedLinks, "nothing is discarded when the target holds no links")
 
 	mergeReq := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
 	mergeReq.Body.TargetID = target.Body.ID
@@ -224,9 +227,83 @@ func (s *TagHandlerIntegrationSuite) TestTagLinks_MergeDiscardsTheSourcesLinks()
 
 	var merged catalogm.Tag
 	s.Require().NoError(s.deps.DB.First(&merged, target.Body.ID).Error)
-	s.Nil(merged.Website, "merge does not carry the source's links to the target")
+	s.Require().NotNil(merged.Website)
+	s.Equal(website, *merged.Website)
+	s.Require().NotNil(merged.Instagram)
+	s.Equal(instagram, *merged.Instagram)
+	s.Nil(merged.Bandcamp, "a column neither tag held stays empty")
 
 	var sourceCount int64
 	s.deps.DB.Model(&catalogm.Tag{}).Where("id = ?", source.Body.ID).Count(&sourceCount)
-	s.EqualValues(0, sourceCount, "the source row is hard deleted, taking its links with it")
+	s.EqualValues(0, sourceCount, "the source row is still hard deleted")
+}
+
+// TestTagLinks_MergePreviewNamesTheDiscardedLink: a column both tags answer for
+// keeps the target's value, and the value the merge destroys is named before
+// the admin confirms rather than discovered afterwards.
+func (s *TagHandlerIntegrationSuite) TestTagLinks_MergePreviewNamesTheDiscardedLink() {
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
+
+	sourceInstagram := "https://instagram.com/sourcecrew"
+	sourceBandcamp := "https://sourcecrew.bandcamp.com"
+	sourceReq := &CreateTagRequest{}
+	sourceReq.Body.Name = "Conflict Source Crew"
+	sourceReq.Body.Category = catalogm.TagCategoryCrew
+	sourceReq.Body.Instagram = &sourceInstagram
+	sourceReq.Body.Bandcamp = &sourceBandcamp
+	source, err := s.handler.CreateTagHandler(ctx, sourceReq)
+	s.Require().NoError(err)
+
+	targetInstagram := "https://instagram.com/targetcrew"
+	targetReq := &CreateTagRequest{}
+	targetReq.Body.Name = "Conflict Target Crew"
+	targetReq.Body.Category = catalogm.TagCategoryCrew
+	targetReq.Body.Instagram = &targetInstagram
+	target, err := s.handler.CreateTagHandler(ctx, targetReq)
+	s.Require().NoError(err)
+
+	preview, err := s.handler.MergeTagsPreviewHandler(ctx, &MergeTagsPreviewRequest{
+		SourceID: fmt.Sprintf("%d", source.Body.ID),
+		TargetID: target.Body.ID,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(preview.Body.DiscardedLinks, 1, "only the column both tags hold is discarded")
+	s.Equal("instagram", preview.Body.DiscardedLinks[0].Field)
+	s.Equal(sourceInstagram, preview.Body.DiscardedLinks[0].SourceValue)
+	s.Equal(targetInstagram, preview.Body.DiscardedLinks[0].TargetValue)
+
+	mergeReq := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
+	mergeReq.Body.TargetID = target.Body.ID
+	_, err = s.handler.MergeTagsHandler(ctx, mergeReq)
+	s.Require().NoError(err)
+
+	var merged catalogm.Tag
+	s.Require().NoError(s.deps.DB.First(&merged, target.Body.ID).Error)
+	s.Require().NotNil(merged.Instagram)
+	s.Equal(targetInstagram, *merged.Instagram, "the target's own value survives the merge")
+	s.Require().NotNil(merged.Bandcamp)
+	s.Equal(sourceBandcamp, *merged.Bandcamp, "the column the target had none of still carries")
+}
+
+// TestTagLinks_UserinfoIsRefused: the render gate drops a value carrying
+// userinfo, so the write gate refuses one rather than storing a link nobody
+// ever sees.
+func (s *TagHandlerIntegrationSuite) TestTagLinks_UserinfoIsRefused() {
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
+
+	userinfo := "https://evil.test@instagram.com/x"
+	req := &CreateTagRequest{}
+	req.Body.Name = "Userinfo Crew"
+	req.Body.Category = catalogm.TagCategoryCrew
+	req.Body.Instagram = &userinfo
+
+	_, err := s.handler.CreateTagHandler(ctx, req)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "must not carry a username before the host")
+
+	var count int64
+	s.deps.DB.Model(&catalogm.Tag{}).Where("name = ?", "Userinfo Crew").Count(&count)
+	s.EqualValues(0, count, "a refused link must not create the tag")
 }

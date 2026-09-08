@@ -94,9 +94,10 @@ type TagLinks struct {
 }
 
 // tagLinkColumns is the one enumeration of the three columns: the name each
-// one carries, where a supplied value comes from, and where a stored value
-// goes. Columns and Apply both walk it, so the update path and the create path
-// cannot come to disagree about a column or the rule applied to it.
+// one carries, where a supplied value comes from, where a stored value goes,
+// and how a stored value is read back. Columns, Apply and ResolveTagLinkMerge
+// all walk it, so the create, update and merge paths cannot come to disagree
+// about a column or the rule applied to it.
 //
 // The names are DATABASE column names: Columns feeds a GORM Updates map, whose
 // keys go into the SQL unquoted and are checked by nothing at compile time.
@@ -105,11 +106,68 @@ type TagLinks struct {
 var tagLinkColumns = []struct {
 	name  string
 	value func(TagLinks) *string
+	read  func(*Tag) *string
 	store func(*Tag, *string)
 }{
-	{"website", func(l TagLinks) *string { return l.Website }, func(t *Tag, v *string) { t.Website = v }},
-	{"instagram", func(l TagLinks) *string { return l.Instagram }, func(t *Tag, v *string) { t.Instagram = v }},
-	{"bandcamp", func(l TagLinks) *string { return l.Bandcamp }, func(t *Tag, v *string) { t.Bandcamp = v }},
+	{"website",
+		func(l TagLinks) *string { return l.Website },
+		func(t *Tag) *string { return t.Website },
+		func(t *Tag, v *string) { t.Website = v }},
+	{"instagram",
+		func(l TagLinks) *string { return l.Instagram },
+		func(t *Tag) *string { return t.Instagram },
+		func(t *Tag, v *string) { t.Instagram = v }},
+	{"bandcamp",
+		func(l TagLinks) *string { return l.Bandcamp },
+		func(t *Tag) *string { return t.Bandcamp },
+		func(t *Tag, v *string) { t.Bandcamp = v }},
+}
+
+// TagLinkDiscard names one source link a merge does not carry, with both values
+// so a warning can say what survives as well as what is lost.
+type TagLinkDiscard struct {
+	Field       string
+	SourceValue string
+	TargetValue string
+}
+
+// ResolveTagLinkMerge answers what merging source into target does to the three
+// link columns: carry is the columns to write on the target, and discarded
+// names every source value the merge destroys along with the source row.
+//
+// Column by column, not row by row: a target holding only a website keeps it
+// and still takes the source's instagram.
+//
+// A column the target already answers for keeps the target's value, which is
+// the same rule the entity-tag and vote moves apply to a conflict, and the only
+// one that does not overwrite a curator's chosen value with a duplicate's. Two
+// columns holding the same string cost nothing and are not reported.
+//
+// A blank column is no link on either side: the write paths store NULL for the
+// clear gesture, and a legacy row holding "" means the same thing.
+func ResolveTagLinkMerge(source, target *Tag) (map[string]any, []TagLinkDiscard) {
+	carry := make(map[string]any, len(tagLinkColumns))
+	var discarded []TagLinkDiscard
+	for _, col := range tagLinkColumns {
+		sourceValue := utils.NilIfBlankPtr(col.read(source))
+		if sourceValue == nil {
+			continue
+		}
+		targetValue := utils.NilIfBlankPtr(col.read(target))
+		if targetValue == nil {
+			carry[col.name] = *sourceValue
+			continue
+		}
+		if *targetValue == *sourceValue {
+			continue
+		}
+		discarded = append(discarded, TagLinkDiscard{
+			Field:       col.name,
+			SourceValue: *sourceValue,
+			TargetValue: *targetValue,
+		})
+	}
+	return carry, discarded
 }
 
 // Columns maps each supplied link onto its column name and the value to store.

@@ -327,6 +327,21 @@ type MergeTagsPreview struct {
 	SourceAliasesCount int64  `json:"source_aliases_count"`
 	SourceName         string `json:"source_name"`
 	TargetName         string `json:"target_name"`
+	// DiscardedLinks is every outbound link the merge destroys. A merge carries
+	// each link column the target has none of, so what is left here is the
+	// columns both hold with different values, which no merge rule can keep.
+	// Empty rather than null when nothing is lost, so the dialog reads a list
+	// either way.
+	DiscardedLinks []MergeTagsDiscardedLink `json:"discarded_links"`
+}
+
+// MergeTagsDiscardedLink is one outbound link a merge destroys: the target
+// already answers for that column with a different value, and the source row is
+// deleted carrying its own.
+type MergeTagsDiscardedLink struct {
+	Field       string `json:"field"`
+	SourceValue string `json:"source_value"`
+	TargetValue string `json:"target_value"`
 }
 
 // MergeTagsResult summarizes what happened during a merge.

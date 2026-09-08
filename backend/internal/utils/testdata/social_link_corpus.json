@@ -38,8 +38,10 @@
     "refusedByWriter = the write boundary refuses it. `rendersAnyway` marks the",
     "             legacy shapes the reader deliberately keeps: handles and",
     "             scheme-less domains that still land on the platform. The rest",
-    "             are the ones a click would carry off-platform, and the reader",
-    "             must refuse every one.",
+    "             the reader must refuse: the ones a click would carry",
+    "             off-platform, and the ones carrying userinfo, where the click",
+    "             does land on the platform and the value still names another",
+    "             domain in everything that prints it.",
     "`goParserRefuses` marks a rendersAnyway row the reader keeps only because",
     "             the two languages PARSE it differently, not because the legacy",
     "             tolerance resolves it. The offline writers' gate is allowed to",
@@ -182,9 +184,9 @@
       "why": "Go treats xn-- as four ordinary bytes; the WHATWG parser decodes the label and throws when it does not decode"
     },
     {
-      "field": "spotify",
-      "value": "https://your-account-is-suspended-verify-now.example.com@open.spotify.com/artist/6cM2X9pUxJqL4z1234567",
-      "why": "userinfo: the click does land on the platform, but it is attacker-chosen text that reads as a domain in a right-truncated status bar and that sameAs would publish inside an identity claim, so the reader refuses it as the release-link gate does"
+      "field": "website",
+      "value": "https://your-account-is-suspended-verify-now.example.com@calexico.example.com/",
+      "why": "userinfo on the unanchored field: the reader refuses userinfo on every field, while the write boundary's userinfo rule lives inside the host anchor, which website is absent from. This is the one shape of it a write path still stores"
     }
   ],
   "refusedByWriter": [
@@ -216,6 +218,18 @@
       "field": "spotify",
       "value": "https://open.spotify.com@evil.test/x",
       "why": "userinfo spoofing the host; the hostname is evil.test in both parsers",
+      "rendersAnyway": false
+    },
+    {
+      "field": "spotify",
+      "value": "https://your-account-is-suspended-verify-now.example.com@open.spotify.com/artist/6cM2X9pUxJqL4z1234567",
+      "why": "userinfo on an anchored host: the click does land on the platform, but it is attacker-chosen text that reads as a domain in a right-truncated status bar and that sameAs would publish inside an identity claim, so both gates refuse it as the release-link gate does",
+      "rendersAnyway": false
+    },
+    {
+      "field": "instagram",
+      "value": "https://evil.test@instagram.com/x",
+      "why": "the shortest spelling of the same shape, on a field a crew tag carries",
       "rendersAnyway": false
     },
     {

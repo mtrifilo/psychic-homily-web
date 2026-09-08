@@ -44,6 +44,7 @@ function makePreview(overrides: Partial<MergeTagsPreview> = {}): MergeTagsPrevie
     source_aliases_count: 0,
     source_name: 'shoe-gaze',
     target_name: 'shoegaze',
+    discarded_links: [],
     ...overrides,
   }
 }
@@ -288,5 +289,73 @@ describe('MergeTagDialog', () => {
     })
     await waitFor(() => expect(screen.getByText('shoegaze')).toBeInTheDocument())
     expect(screen.queryByText('shoe-gaze-alias-entry')).toBeNull()
+  })
+
+  // The merge destroys the source row, so a link the target already answers for
+  // is gone with no way back. The warning is the only place an admin can learn
+  // that before confirming.
+  async function selectTargetWithPreview(preview: MergeTagsPreview | null) {
+    mockUseSearchTags.mockReturnValue({
+      data: { tags: [makeTag({ id: 2, name: 'shoegaze' })] },
+      isLoading: false,
+    })
+    mockUsePreview.mockReturnValue({
+      data: preview,
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(
+      <MergeTagDialog
+        open
+        sourceTagId={1}
+        sourceTagName="shoe-gaze"
+        onClose={vi.fn()}
+      />
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Type at least 2 characters/), {
+      target: { value: 'shoe' },
+    })
+    await waitFor(() => expect(screen.getByText('shoegaze')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('shoegaze'))
+  }
+
+  it('names every link the merge would discard, under its platform label', async () => {
+    await selectTargetWithPreview(
+      makePreview({
+        discarded_links: [
+          {
+            field: 'instagram',
+            source_value: 'https://instagram.com/sourcecrew',
+            target_value: 'https://instagram.com/targetcrew',
+          },
+          {
+            field: 'bandcamp',
+            source_value: 'https://sourcecrew.bandcamp.com',
+            target_value: 'https://targetcrew.bandcamp.com',
+          },
+        ],
+      })
+    )
+
+    const warning = await screen.findByTestId('merge-preview-discarded-links')
+    expect(warning).toHaveTextContent('Instagram: https://instagram.com/sourcecrew')
+    expect(warning).toHaveTextContent('kept: https://instagram.com/targetcrew')
+    expect(warning).toHaveTextContent('Bandcamp: https://sourcecrew.bandcamp.com')
+  })
+
+  it('shows no discard warning when nothing is lost', async () => {
+    await selectTargetWithPreview(makePreview({ discarded_links: [] }))
+
+    await screen.findByTestId('merge-preview')
+    expect(screen.queryByTestId('merge-preview-discarded-links')).toBeNull()
+  })
+
+  it('shows no discard warning when the field is null', async () => {
+    await selectTargetWithPreview(makePreview({ discarded_links: null }))
+
+    await screen.findByTestId('merge-preview')
+    expect(screen.queryByTestId('merge-preview-discarded-links')).toBeNull()
   })
 })

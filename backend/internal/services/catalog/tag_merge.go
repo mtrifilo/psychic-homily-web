@@ -68,7 +68,25 @@ func (s *TagService) PreviewMergeTags(sourceID, targetID uint) (*contracts.Merge
 	}
 	preview.SourceAliasesCount = aliasCount
 
+	preview.DiscardedLinks = discardedLinkPreview(source, target)
+
 	return preview, nil
+}
+
+// discardedLinkPreview names the outbound links a merge would destroy, from the
+// same resolution the merge itself runs, so the warning and the write cannot
+// disagree about which values survive.
+func discardedLinkPreview(source, target *catalogm.Tag) []contracts.MergeTagsDiscardedLink {
+	_, discarded := catalogm.ResolveTagLinkMerge(source, target)
+	links := make([]contracts.MergeTagsDiscardedLink, 0, len(discarded))
+	for _, d := range discarded {
+		links = append(links, contracts.MergeTagsDiscardedLink{
+			Field:       d.Field,
+			SourceValue: d.SourceValue,
+			TargetValue: d.TargetValue,
+		})
+	}
+	return links
 }
 
 // countVoteMovesBySign breaks the MovedVotes total into upvotes/downvotes so
@@ -124,6 +142,10 @@ func countVoteMovesBySign(db *gorm.DB, sourceID, targetID uint) (up, down int64,
 //   - is_official carries forward: if either source or target is official, the
 //     result is official (union semantics — safe default that never loses the
 //     official designation).
+//   - Outbound links carry forward per column: the target takes the source's
+//     website, instagram or bandcamp for each of those columns it holds none
+//     of. A column both hold keeps the target's value, and the source's is
+//     destroyed with the source row; PreviewMergeTags names each one.
 //
 // actorUserID is used only for the post-commit audit log (fire-and-forget).
 func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*contracts.MergeTagsResult, error) {
@@ -223,6 +245,17 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		if source.IsOfficial && !target.IsOfficial {
 			if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("is_official", true).Error; err != nil {
 				return fmt.Errorf("failed to carry official flag: %w", err)
+			}
+		}
+
+		// 8. Carry outbound links forward per column: the target takes the
+		// source's value for each column it holds none of. A column both hold
+		// keeps the target's value, and PreviewMergeTags names every source
+		// value that costs, from this same resolution.
+		carry, _ := catalogm.ResolveTagLinkMerge(source, target)
+		if len(carry) > 0 {
+			if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Updates(carry).Error; err != nil {
+				return fmt.Errorf("failed to carry outbound links: %w", err)
 			}
 		}
 

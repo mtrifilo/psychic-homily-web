@@ -374,6 +374,17 @@ var socialHostSuffixes = map[string][]string{
 // first, which is what rejects unparseable input, and answering "must be a link
 // on instagram.com" for a value that is not a URL at all would report the wrong
 // problem.
+//
+// A value carrying userinfo is refused even when its host is anchored, matching
+// ValidateReleaseLink and the render gate in frontend/lib/socialLinks.ts. The
+// host is where the click lands and the anchor already decides that; userinfo is
+// attacker-chosen text that no parser counts as part of the host, and it reads
+// as a domain wherever the stored value is printed. Refusing it here is what
+// keeps a value the render gate drops out of the column: a curator who saves one
+// otherwise sees a 200 and no link, with nothing naming the reason.
+//
+// The host is judged first so an off-platform value keeps the sentence naming
+// the accepted hosts, which is the problem to fix on that value.
 func ValidateSocialHost(field, fieldName, value string) error {
 	bases, restricted := socialHostSuffixes[field]
 	if !restricted || strings.TrimSpace(value) == "" {
@@ -383,10 +394,13 @@ func ValidateSocialHost(field, fieldName, value string) error {
 	if err != nil {
 		return nil
 	}
-	if hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
-		return nil
+	if !hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
+		return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
 	}
-	return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
+	if u.User != nil {
+		return fmt.Errorf("%s must not carry a username before the host", fieldName)
+	}
+	return nil
 }
 
 // hostMatchesAnyBase reports whether an already-lowercased host equals one of the

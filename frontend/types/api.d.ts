@@ -13976,6 +13976,11 @@ export interface components {
              */
             merge_from_artist_id: number;
         };
+        MergeTagsDiscardedLink: {
+            field: string;
+            source_value: string;
+            target_value: string;
+        };
         MergeTagsPreview: {
             /**
              * Format: uri
@@ -13983,6 +13988,7 @@ export interface components {
              * @example https://example.com/schemas/MergeTagsPreview.json
              */
             readonly $schema?: string;
+            discarded_links: components["schemas"]["MergeTagsDiscardedLink"][] | null;
             /** Format: int64 */
             moved_downvotes: number;
             /** Format: int64 */

@@ -77,3 +77,70 @@ func TestTagLinksApply(t *testing.T) {
 		assert.Equal(t, "https://crew.bandcamp.com", *tag.Bandcamp)
 	})
 }
+
+func TestResolveTagLinkMerge(t *testing.T) {
+	t.Run("a column the target has none of carries", func(t *testing.T) {
+		source := &Tag{
+			Website:   tagLinkPtr("https://source.test"),
+			Instagram: tagLinkPtr("https://instagram.com/source"),
+		}
+		carry, discarded := ResolveTagLinkMerge(source, &Tag{})
+		assert.Empty(t, discarded)
+		assert.Equal(t, map[string]any{
+			"website":   "https://source.test",
+			"instagram": "https://instagram.com/source",
+		}, carry)
+	})
+
+	t.Run("a column both hold keeps the target's value and reports the loss", func(t *testing.T) {
+		source := &Tag{Instagram: tagLinkPtr("https://instagram.com/source")}
+		target := &Tag{Instagram: tagLinkPtr("https://instagram.com/target")}
+		carry, discarded := ResolveTagLinkMerge(source, target)
+		assert.Empty(t, carry)
+		require.Len(t, discarded, 1)
+		assert.Equal(t, TagLinkDiscard{
+			Field:       "instagram",
+			SourceValue: "https://instagram.com/source",
+			TargetValue: "https://instagram.com/target",
+		}, discarded[0])
+	})
+
+	t.Run("the same value on both sides costs nothing", func(t *testing.T) {
+		same := "https://instagram.com/both"
+		carry, discarded := ResolveTagLinkMerge(&Tag{Instagram: &same}, &Tag{Instagram: &same})
+		assert.Empty(t, carry)
+		assert.Empty(t, discarded)
+	})
+
+	t.Run("a blank column is no link on either side", func(t *testing.T) {
+		blank := "   "
+		value := "https://source.test"
+		carry, discarded := ResolveTagLinkMerge(&Tag{Website: &blank}, &Tag{})
+		assert.Empty(t, carry, "a blank source value is nothing to carry")
+		assert.Empty(t, discarded)
+
+		carry, discarded = ResolveTagLinkMerge(&Tag{Website: &value}, &Tag{Website: &blank})
+		assert.Equal(t, map[string]any{"website": value}, carry,
+			"a blank target column is empty, so the source's value carries into it")
+		assert.Empty(t, discarded)
+	})
+
+	t.Run("every link column is resolved, in one order", func(t *testing.T) {
+		source := &Tag{
+			Website:   tagLinkPtr("https://source.test"),
+			Instagram: tagLinkPtr("https://instagram.com/source"),
+			Bandcamp:  tagLinkPtr("https://source.bandcamp.com"),
+		}
+		target := &Tag{
+			Website:   tagLinkPtr("https://target.test"),
+			Instagram: tagLinkPtr("https://instagram.com/target"),
+			Bandcamp:  tagLinkPtr("https://target.bandcamp.com"),
+		}
+		_, discarded := ResolveTagLinkMerge(source, target)
+		fields := make([]string, 0, len(discarded))
+		for _, d := range discarded {
+			fields = append(fields, d.Field)
+		}
+		assert.Equal(t, []string{"website", "instagram", "bandcamp"}, fields)
+	})
+}

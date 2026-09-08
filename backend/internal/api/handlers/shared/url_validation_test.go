@@ -133,12 +133,19 @@ func socialURLsByField(field, value string) error {
 func TestValidateSocialURLsCoversEveryCorpusField(t *testing.T) {
 	corpus := loadSocialCorpusFields(t)
 
-	for field := range corpus.Platforms {
+	for field, bases := range corpus.Platforms {
 		if err := socialURLsByField(field, "https://not-the-platform.evil.test/x"); err == nil {
 			t.Errorf("ValidateSocialURLs does not host-anchor %q", field)
 		}
 		if err := socialURLsByField(field, "javascript:alert(1)"); err == nil {
 			t.Errorf("ValidateSocialURLs does not scheme-check %q", field)
+		}
+		// Every entity whose handler reaches this function inherits the
+		// userinfo rule, on a value whose host is the platform's own: the
+		// render gate drops one, so a column that stored it would show a
+		// curator a 200 and no link.
+		if err := socialURLsByField(field, "https://evil.test@"+bases[0]+"/x"); err == nil {
+			t.Errorf("ValidateSocialURLs stores a userinfo value on %q", field)
 		}
 	}
 

@@ -498,3 +498,64 @@ func TestIsBandcampArtistHost(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateSocialHostRefusesUserinfo pins the userinfo rule and the sentence
+// each refusal reports, because the two refusals name different problems and a
+// curator acts on the sentence they are shown.
+func TestValidateSocialHostRefusesUserinfo(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{
+			"userinfo on the anchored host",
+			"https://evil.test@instagram.com/x",
+			"must not carry a username before the host",
+		},
+		{
+			"user and password on the anchored host",
+			"https://evil.test:pass@www.instagram.com/x",
+			"must not carry a username before the host",
+		},
+		{
+			"userinfo spoofing an off-platform host keeps the host sentence",
+			"https://instagram.com@evil.test/x",
+			"must be a link on instagram.com",
+		},
+		{
+			"an on-platform value with no userinfo passes",
+			"https://instagram.com/calexico",
+			"",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSocialHost("instagram", "Instagram URL", tc.value)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+
+	// The rule lives inside the host anchor, so an unanchored field never
+	// reaches it. The shared corpus carries this value as storable and
+	// unrenderable, which is where that gap is written down.
+	assert.NoError(t, ValidateSocialHost("website", "Website URL",
+		"https://evil.test@calexico.example.com/"))
+}
+
+// TestValidateSocialHostRefusesUserinfoOnEveryAnchoredField drives the rule from
+// the anchor table itself, so a platform added later inherits the assertion
+// rather than needing someone to remember this test.
+func TestValidateSocialHostRefusesUserinfoOnEveryAnchoredField(t *testing.T) {
+	for field, bases := range socialHostSuffixes {
+		value := "https://evil.test@" + bases[0] + "/x"
+		assert.Error(t, ValidateSocialHost(field, field, value),
+			"%q stores a userinfo value the render gate drops", field)
+	}
+}
