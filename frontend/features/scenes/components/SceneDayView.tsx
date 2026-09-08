@@ -4,7 +4,7 @@ import Link from 'next/link'
 // shared components into this route's module graph to use one of them.
 import { ShareButton } from '@/components/shared/ShareButton'
 import { ShowPrice } from '@/components/shared/ShowPrice'
-import { showDisplayTitle, showHref } from '../sceneWeek'
+import { looksLikeISOWeek, showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
   dayTrackedVenues,
@@ -110,7 +110,14 @@ function quietNightCopy(day: SceneDayResponse, hasUpcoming: boolean): string {
   return `${base}, or in the next few weeks. A room may have shows we haven't listed.`
 }
 
-function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string }) {
+function EmptyNight({
+  day,
+  weekHref,
+}: {
+  day: SceneDayResponse
+  /** Null when this night's week is not one the week route serves. */
+  weekHref: string | null
+}) {
   const nextShow = day.next_show
   const rooms = dayTrackedVenues(day)
 
@@ -134,11 +141,13 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
         </p>
       )}
 
-      <p className="mt-2">
-        <Link href={weekHref} className="underline underline-offset-4">
-          Full week in {day.city} →
-        </Link>
-      </p>
+      {weekHref && (
+        <p className="mt-2">
+          <Link href={weekHref} className="underline underline-offset-4">
+            Full week in {day.city} →
+          </Link>
+        </p>
+      )}
 
       {rooms.length > 0 && (
         <section className="mt-8">
@@ -196,9 +205,15 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
   // The rolling week for tonight, the dated week permalink otherwise — a page
   // about a night two months ago must not link to whatever week it happens to
   // be now.
+  //
+  // The dated form is null when the night's week key is one the week route does
+  // not serve. That is not a malformed payload: the last day this route serves
+  // can open the first week of a year past the week route's horizon, so the
+  // page is right and only this one link is unavailable.
+  const navigableWeek = navigablePeriodKey(day.iso_week, looksLikeISOWeek)
   const weekHref = day.is_tonight
     ? `/scenes/${day.slug}/week`
-    : `/scenes/${day.slug}/${day.iso_week}`
+    : navigableWeek && `/scenes/${day.slug}/${navigableWeek}`
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
@@ -222,9 +237,11 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
                 ← {formatDayChip(prevDay)}
               </Link>
             )}
-            <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
-              Full week
-            </Link>
+            {weekHref && (
+              <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
+                Full week
+              </Link>
+            )}
             {nextDay && (
               <Link
                 href={`/scenes/${day.slug}/${nextDay}`}

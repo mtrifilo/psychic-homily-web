@@ -5,7 +5,7 @@
 import { API_BASE_URL } from '@/lib/api-base'
 import { looksLikeSlug } from '@/lib/entity-slug'
 import { anyName, fetchScenePeriod } from './scenePeriodApi'
-import { isCalendarDate, looksLikeISOWeek } from './sceneWeek'
+import { isCalendarDate, isISOWeek } from './sceneWeek'
 import type { SceneDayResponse } from './sceneDay'
 
 function daySpec(slug: string) {
@@ -28,19 +28,20 @@ function daySpec(slug: string) {
     // canonical and the share-image URL, so each has to be one path segment
     // already; `city` is printed, and any name it carries is its own.
     //
-    // `isCalendarDate` rather than `sceneDay`'s year-bounded
-    // `looksLikeCalendarDate` (which states the difference): the day route
-    // already applies those bounds to the SEGMENT it serves, and this module is
-    // reached from the edge-runtime share-card route, where importing
-    // `sceneDay` for a second copy of the bound would pull the formatting stack
-    // in behind it. `iso_week` keeps the bounded rule because `sceneWeek` costs
-    // nothing to import and the value addresses a route applying that same
-    // bound.
+    // Both period fields take the UNBOUNDED rule, never the route's own. The
+    // week route's bounds do not describe a day's week key at all: a Monday,
+    // Tuesday or Wednesday 31 December opens week 01 of the following year, so
+    // the last day this route serves names a week the week route refuses, and
+    // bounding here would 404 the day rather than drop the link. `date` is
+    // unbounded for a different reason: the day route already applies the bound
+    // to the SEGMENT it serves, and this module is reached from the
+    // edge-runtime share card, where importing the bounded rule from `sceneDay`
+    // pulls the formatting stack in behind it.
     identityFields: [
       ['date', isCalendarDate],
       ['city', anyName],
       ['slug', looksLikeSlug],
-      ['iso_week', looksLikeISOWeek],
+      ['iso_week', isISOWeek],
     ] as const,
     // `prev_date` and `next_date` name the adjacent days, and they are EMPTY at
     // the edges of the servable window: there, emptiness IS the answer "no

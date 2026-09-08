@@ -10,7 +10,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
-import { namesSomething } from '@/features/scenes/scenePeriodApi'
+import { hasText } from '@/features/scenes/scenePeriodApi'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
 import { buildSceneSliceJsonLd } from '@/features/scenes/sceneSliceJsonLd'
@@ -47,8 +47,10 @@ interface ScenePageProps {
  * read for a room count (`SceneCalendar`'s quiet-slice copy). Everything else
  * on the payload is already optional-safe.
  *
- * `slug` is checked for a NAME only, not for `looksLikeSlug`: every link built
- * from it goes through `sceneWindowHref`, which encodes.
+ * The PAYLOAD's `slug` is checked for text only, not for `looksLikeSlug`: every
+ * link built from it goes through `sceneWindowHref`, which encodes. The route
+ * PARAM is a different value, and `generateMetadata` encodes it where it builds
+ * this page's canonical.
  */
 const REQUIRED_SCENE_NAMES = ['city', 'state', 'slug'] as const
 
@@ -72,7 +74,7 @@ function asScene(body: unknown, slug: string): SceneDetail | null {
   } else {
     const record = body as Record<string, unknown>
     rejected =
-      REQUIRED_SCENE_NAMES.find(field => !namesSomething(record[field])) ??
+      REQUIRED_SCENE_NAMES.find(field => !hasText(record[field])) ??
       (typeof record.stats === 'object' && record.stats !== null ? undefined : 'stats')
   }
   if (rejected === undefined) return body as SceneDetail
@@ -223,16 +225,21 @@ export async function generateMetadata({
       ? sceneDetailOgImages(week.slug, week.iso_week, generatedDescription)
       : undefined
 
+  // Encoded, because both of these interpolate the ROUTE PARAM, which Next has
+  // already decoded: a `%2F` in the address arrives here as a `/` and would
+  // otherwise offer crawlers a two-segment URL as this page's identity.
+  const path = `/scenes/${encodeURIComponent(slug)}`
+
   return {
     title,
     description,
     alternates: {
-      canonical: `https://psychichomily.com/scenes/${slug}`,
+      canonical: `https://psychichomily.com${path}`,
     },
     openGraph: {
       title: `${title} | Psychic Homily`,
       description,
-      url: `/scenes/${slug}`,
+      url: path,
       type: 'website',
       ...(ogImages ? { images: ogImages } : {}),
     },

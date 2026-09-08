@@ -197,16 +197,41 @@ describe('fetchSceneWeek', () => {
     }
   )
 
-  // An identity field that does not name something reaches a URL as `/scenes//`
-  // or as an address with a space in it, so it fails here rather than there.
+  // An identity field carrying no text reaches a URL as `/scenes//`, so it
+  // fails here rather than there.
   it.each(
     ['start_date', 'end_date', 'city', 'slug', 'iso_week'].flatMap(field =>
-      ['', '   ', ' 2026-W31', '2026-W31 '].map(bad => [field, bad] as const)
+      ['', '   '].map(bad => [field, bad] as const)
     )
   )('rejects a body whose %s is %j', async (field, bad) => {
     fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: bad }))
 
     await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // An untrimmed value on an ADDRESSED field names a page that does not exist.
+  // Each of these fields refuses it through its own shape rule; `city` is
+  // printed and is deliberately absent from this list.
+  it.each(
+    ['start_date', 'end_date', 'slug', 'iso_week'].flatMap(field =>
+      [' 2026-W31', '2026-W31 '].map(bad => [field, bad] as const)
+    )
+  )('rejects a body whose %s is untrimmed (%j)', async (field, bad) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: bad }))
+
+    await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // `venues.city` carries untrimmed values (see the note on `buildSceneSlug` in
+  // catalog/charts_service.go), and the display city is MIN(city) over the
+  // group. `city` is printed and addresses nothing, so surrounding space must
+  // not cost the scene its page.
+  it('serves a week whose printed city carries surrounding space', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(week({ city: ' Chicago' })))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject({ city: ' Chicago' })
   })
 
   // Naming something is not naming the right KIND of thing. `slug` and

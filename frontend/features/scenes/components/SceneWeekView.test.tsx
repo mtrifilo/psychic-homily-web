@@ -46,6 +46,18 @@ const weekLinks = (container: HTMLElement): string[] =>
     .map(a => a.getAttribute('href') ?? '')
     .filter(href => /^\/scenes\/[^/]+\/\d{4}-W\d{2}$/i.test(href))
 
+/**
+ * The label of every chip in the header's navigation row, in order.
+ *
+ * Reads the row rather than filtering hrefs by shape: a chip the guard should
+ * have suppressed carries a malformed href, which an href-shape filter cannot
+ * see, so an assertion built on one passes whether or not the guard exists.
+ */
+const chipLabels = (container: HTMLElement): string[] =>
+  [...(container.querySelector('header div.flex.gap-2')?.children ?? [])].map(el =>
+    (el.textContent ?? '').trim()
+  )
+
 describe('SceneWeekView — share affordance', () => {
   afterEach(() => {
     Reflect.deleteProperty(navigator, 'clipboard')
@@ -214,15 +226,17 @@ describe('SceneWeekView', () => {
   ])('renders no next-week chip when the key is %s', (_label, next_week) => {
     const { container } = render(<SceneWeekView week={week({ next_week })} />)
 
+    // Asserted on the CHIPS, not on hrefs matching the week shape: a filter
+    // that only admits well-formed week links cannot see the malformed one the
+    // guard exists to suppress, so it would pass with the guard deleted.
+    expect(chipLabels(container)).toEqual(['← 2026-W30', 'Tonight'])
     expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W30'])
-    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument()
-    // The row is never empty: "Tonight" is unconditional.
-    expect(screen.getByRole('link', { name: 'Tonight' })).toBeInTheDocument()
   })
 
   it('renders no previous-week chip when the key is absent', () => {
     const { container } = render(<SceneWeekView week={week({ prev_week: undefined })} />)
 
+    expect(chipLabels(container)).toEqual(['Tonight', '2026-W32 →'])
     expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W32'])
   })
 

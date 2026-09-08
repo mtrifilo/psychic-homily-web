@@ -26,18 +26,27 @@ export function addressesAnEntity(slug: string): boolean {
  * Characters that END or RE-TARGET a URL path segment.
  *
  * `/` and `\` open a second segment (browsers normalize the backslash), `?` and
- * `#` end the path, whitespace ends the URL in most parsers, and `%` is how an
- * encoded copy of any of the others reaches a decoder that has not run yet.
+ * `#` end the path, and `%` is how an encoded copy of any of the others reaches
+ * a decoder that has not run yet.
+ *
+ * Whitespace is NOT here. Surrounding space is handled below, where it names a
+ * different address; space INSIDE a slug does not take the value out of its
+ * segment, and the backend's slug rule only replaces U+0020, so a city carrying
+ * a non-breaking space produces a slug that addresses a page this site serves.
  */
-const SEGMENT_BREAKING = /[/\\?#%\s]/
+const SEGMENT_BREAKING = /[/\\?#%]/
 
 /**
  * Is this slug ALREADY one path segment, safe to interpolate without encoding?
  *
- * The question is whether the value stays inside the segment it is written
- * into, so the test is for the characters that would take it out of one.
- * `../..`, `phoenix-az?x` and `phoenix az` fail; `phoenix-az`, `st.-louis-mo`
- * and `española-nm` pass, and all three are slugs the backend's
+ * Two questions in one. The value must stay inside the segment it is written
+ * into, so the characters that would take it out are refused; and it must be
+ * the slug it appears to be, so a leading or trailing space is refused too,
+ * because `" phoenix-az"` and `"phoenix-az"` are different addresses and only
+ * one of them is a page.
+ *
+ * `../..`, `phoenix-az?x` and `" phoenix-az"` fail; `phoenix-az`,
+ * `st.-louis-mo` and `española-nm` pass, and all three are slugs the backend's
  * `lower(replace(city,' ','-')) || '-' || lower(state)` rule can produce.
  *
  * Deliberately NOT `encodeURIComponent(slug) === slug`, which is the stricter
@@ -46,5 +55,5 @@ const SEGMENT_BREAKING = /[/\\?#%\s]/
  * losing a traversal.
  */
 export function looksLikeSlug(slug: string): boolean {
-  return !SEGMENT_BREAKING.test(slug) && addressesAnEntity(slug)
+  return slug === slug.trim() && !SEGMENT_BREAKING.test(slug) && addressesAnEntity(slug)
 }

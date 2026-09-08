@@ -126,6 +126,20 @@ export function isCalendarDate(value: string): boolean {
 }
 
 /**
+ * Is this actually a `YYYY-Www` ISO week key?
+ *
+ * `looksLikeISOWeek`'s unbounded twin, and the one to reach for when the value
+ * is a payload field rather than a URL segment. A DAY's week key is not bounded
+ * by the day's own year: a Monday, Tuesday or Wednesday 31 December opens week
+ * 01 of the FOLLOWING year, so the last day the day route serves can name a
+ * week the week route would refuse. Bounding a payload field with the route's
+ * rule would 404 that day rather than drop the one link it cannot offer.
+ */
+export function isISOWeek(value: string): boolean {
+  return ISO_WEEK_KEY.test(value)
+}
+
+/**
  * The zone the cross-city week index names its week in.
  *
  * It names a heading, and that is a different question from resolving

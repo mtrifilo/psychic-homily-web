@@ -30,7 +30,8 @@ describe('looksLikeSlug', () => {
     }
   )
 
-  // The characters that take a value out of the segment it was written into.
+  // The characters that take a value out of the segment it was written into,
+  // plus the surrounding space that makes it a different address.
   it.each([
     ['../..', 'a path walk'],
     ['a/b', 'a second segment'],
@@ -38,9 +39,21 @@ describe('looksLikeSlug', () => {
     ['phoenix-az?x', 'a query'],
     ['phoenix-az#x', 'a fragment'],
     ['%2e%2e', 'an encoded path walk waiting for a decoder'],
-    ['phoenix az', 'a space'],
+    [' phoenix-az', 'a leading space'],
+    ['phoenix-az ', 'a trailing space'],
   ])('refuses %j: %s', slug => {
     expect(looksLikeSlug(slug)).toBe(false)
+  })
+
+  // Space INSIDE a slug does not take it out of its segment, and the backend's
+  // slug rule replaces only U+0020, so a city carrying any other space
+  // character produces a slug that still addresses a page this site serves.
+  // Refusing it would 404 that scene rather than stop an attack.
+  it.each([
+    ['new york-ny', 'a plain space'],
+    ['new\u00a0york-ny', 'a non-breaking space'],
+  ])('accepts %j, which carries %s inside', slug => {
+    expect(looksLikeSlug(slug)).toBe(true)
   })
 
   // Inherited from the index rule rather than restated: `.` breaks nothing in a
