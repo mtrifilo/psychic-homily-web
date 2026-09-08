@@ -4,6 +4,13 @@ import Link from 'next/link'
 import { useSceneGaps } from '../hooks'
 import { gapLineCopy } from '../sceneGapLine'
 import { sceneCityListHref } from '../sceneWindow'
+// Deep import, not the '@/features/artists' barrel: this module is rendered by
+// a scene page and the barrel pulls the artist feature's component graph with
+// it. Same reason SceneGraphVisualization deep-imports its hook.
+import {
+  ARTIST_MISSING_LISTEN,
+  ARTIST_MISSING_PARAM,
+} from '@/features/artists/api'
 import { SCENE_ACCENT_LINK_CLASS } from './sceneChrome'
 import type { SceneDetail } from '../types'
 
@@ -15,22 +22,14 @@ import type { SceneDetail } from '../types'
  * all reachable has nothing to ask for, and the two temporary states must not
  * flash a request for help the payload may not warrant.
  *
- * THE COUNT AND THE DESTINATION ARE TWO DIFFERENT POPULATIONS, and the link is
- * an approximate way in rather than the list of the bands the number counts.
- * `/artists` has no missing-link filter, so it shows every band it matches, not
- * only the ones with a gap. It matches on `city = ? AND state = ?` exactly and
- * case-sensitively (services/catalog/artist.go GetArtists), while the count is
- * taken over the scene roster, which matches case-insensitively and by METRO
- * membership. So the destination can also be NARROWER than the number: a Mesa
- * band counts under Phoenix and `?cities=Phoenix,AZ` does not return it, and a
- * scene whose display city is a metro principal name no artist row stores
- * verbatim lands on an empty list. Closing that gap is the follow-up ticket's
- * job, not something this line can spell around.
+ * The link carries `?missing=listen`, which is what makes the destination the
+ * bands this number counts rather than every band in the city: under that param
+ * the artist list scopes by the scene's roster (metro-aware, case-insensitive)
+ * and drops its upcoming-show gate, so its total is this count. Dropping the
+ * param on the destination page widens it back to the whole city.
  *
- * The destination is still the widest surface a reader can act from: an
- * authenticated reader edits an artist's links directly or through suggest-edit
- * from the artist page, and every band with a gap is reachable from some city's
- * list.
+ * A reader acts from there: an authenticated reader edits an artist's links
+ * directly or through suggest-edit from the artist page.
  *
  * Accent-toned, which is the locked mock's one departure from the page's
  * micro-caps register: this is the only line on the page asking the reader for
@@ -48,7 +47,9 @@ export function SceneGapLine({ scene }: { scene: SceneDetail }) {
   return (
     <div className="border-t border-border pt-4">
       <Link
-        href={sceneCityListHref('/artists', scene.city, scene.state)}
+        href={sceneCityListHref('/artists', scene.city, scene.state, {
+          [ARTIST_MISSING_PARAM]: ARTIST_MISSING_LISTEN,
+        })}
         className={SCENE_ACCENT_LINK_CLASS}
       >
         {gapLineCopy(count, scene.city)}

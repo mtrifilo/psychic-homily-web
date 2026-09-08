@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
@@ -142,7 +143,14 @@ type ListArtistsRequest struct {
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+	Missing  string `query:"missing" required:"false" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, scoped by SCENE ROSTER rather than by literal city: with it, a city named in cities/city means that scene's metro-aware, case-insensitive roster, and the default 'has an upcoming show' gate is dropped. These are the rows GET /scenes/{slug}/gaps counts as artists_missing_listen_link." example:"listen"`
 }
+
+// artistMissingListen is the only value GET /artists' `missing` parameter takes.
+// It must stay equal to the `enum:"listen"` tag above: the tag is what an HTTP
+// caller is held to, this is what the handler reads, and the two are asserted
+// together in artist_pagination_tags_test.go.
+const artistMissingListen = "listen"
 
 // ListArtistsResponse represents the response for listing artists.
 //
@@ -191,6 +199,19 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 			filters["city"] = req.City
 		}
 	}
+	// Fails closed on an unrecognised value rather than ignoring it. huma's enum
+	// rejects one on the wire before this runs, so this answers for the callers
+	// that build the struct directly; ignoring it would answer an unfiltered
+	// list under a request that asked for a filtered one, which is a wrong
+	// answer rather than a missing feature.
+	switch req.Missing {
+	case "":
+	case artistMissingListen:
+		filters[catalog.FilterMissingListenLink] = true
+	default:
+		return nil, huma.Error422UnprocessableEntity("Unsupported missing filter: " + req.Missing)
+	}
+
 	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
 		filters["tag_filter"] = tf
 		// PSY-495 (Bandcamp model): when a tag filter is engaged, drop the

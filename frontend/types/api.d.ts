@@ -22528,6 +22528,11 @@ export interface operations {
                  * @example all
                  */
                 tag_match?: "all" | "any";
+                /**
+                 * @description Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, scoped by SCENE ROSTER rather than by literal city: with it, a city named in cities/city means that scene's metro-aware, case-insensitive roster, and the default 'has an upcoming show' gate is dropped. These are the rows GET /scenes/{slug}/gaps counts as artists_missing_listen_link.
+                 * @example listen
+                 */
+                missing?: "listen";
             };
             header?: never;
             path?: never;

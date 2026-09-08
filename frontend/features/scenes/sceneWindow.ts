@@ -114,13 +114,21 @@ export interface SceneWindowData {
  *   no query string of its own. Never a computed or caller-supplied value: it
  *   is interpolated unencoded, so an absolute URL here would build an off-site
  *   link.
+ * @param extraParams Further params for the destination, appended in the order
+ *   given and encoded. Keys and values are for the caller's own literals, not
+ *   for anything a reader supplies.
  */
 export function sceneCityListHref(
   basePath: string,
   city: string,
-  state: string
+  state: string,
+  extraParams?: Record<string, string>
 ): string {
-  return `${basePath}?cities=${encodeURIComponent(`${city},${state}`)}`
+  const query = [`cities=${encodeURIComponent(`${city},${state}`)}`]
+  for (const [key, value] of Object.entries(extraParams ?? {})) {
+    query.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+  }
+  return `${basePath}?${query.join('&')}`
 }
 
 /**

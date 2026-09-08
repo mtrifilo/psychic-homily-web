@@ -4,6 +4,7 @@ import { ArtistList, ArtistListSkeleton } from '@/features/artists'
 import {
   ARTIST_LIST_FIRST_SCREEN_KEY,
   ARTIST_LIST_FIRST_SCREEN_URL,
+  ARTIST_MISSING_PARAM,
   artistEndpoints,
   artistQueryKeys,
 } from '@/features/artists/api'
@@ -58,7 +59,13 @@ export const metadata = {
  * exact and drift-proof; it needs the params→options mapping lifted out of
  * `ArtistList` first, which is a change of its own.
  */
-const FIRST_SCREEN_DEFEATING_PARAMS = ['page', 'cities', 'tags', 'tag_match'] as const
+const FIRST_SCREEN_DEFEATING_PARAMS = [
+  'page',
+  'cities',
+  'tags',
+  'tag_match',
+  ARTIST_MISSING_PARAM,
+] as const
 
 /**
  * Whether a URL's params keep it on the seeded first screen.

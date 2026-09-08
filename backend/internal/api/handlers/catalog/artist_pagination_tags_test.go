@@ -1,9 +1,18 @@
 package catalog
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"reflect"
 	"strconv"
 	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // TestListArtistsPaginationTags pins GET /artists' paging knobs to the house
@@ -75,5 +84,73 @@ func TestListArtistsDefaultLimitMatchesItsTag(t *testing.T) {
 	// is that the two sources of the default agree.
 	if got, want := field.Tag.Get("default"), strconv.Itoa(defaultArtistListLimit); got != want {
 		t.Fatalf("Limit default tag = %q, want %q (defaultArtistListLimit)", got, want)
+	}
+}
+
+// The `missing=` filter's enum tag is what rejects an unrecognised value on the
+// wire, before the handler runs. Pinned against the constant the handler reads:
+// the two are one contract, and a tag deleted from the struct is invisible to
+// every handler test in this package.
+func TestListArtistsMissingFilterEnumMatchesItsConstant(t *testing.T) {
+	field, ok := reflect.TypeOf(ListArtistsRequest{}).FieldByName("Missing")
+	if !ok {
+		t.Fatal("ListArtistsRequest is missing the Missing field")
+	}
+	if got := field.Tag.Get("query"); got != "missing" {
+		t.Errorf("Missing query name = %q, want %q", got, "missing")
+	}
+	if got := field.Tag.Get("enum"); got != artistMissingListen {
+		t.Errorf("Missing enum tag = %q, want %q (artistMissingListen)", got, artistMissingListen)
+	}
+}
+
+// A value huma's enum did not reject — a caller building the request struct
+// directly — fails closed. Ignoring it would answer with the whole city under a
+// request that asked for one gap population, which is a wrong answer rather
+// than a missing feature.
+func TestListArtistsRejectsAnUnknownMissingFilter(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			t.Error("the service must not be reached for an unsupported missing filter")
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{Missing: "bandcamp"})
+	if err == nil {
+		t.Fatal("expected an error for an unsupported missing filter")
+	}
+	var status huma.StatusError
+	if !errors.As(err, &status) {
+		t.Fatalf("expected a huma.StatusError, got %T", err)
+	}
+	if status.GetStatus() != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", status.GetStatus(), http.StatusUnprocessableEntity)
+	}
+}
+
+// The supported value reaches the service as the filter key the browse scope
+// reads. The handler and the scope spell that key once
+// (catalog.FilterMissingListenLink); this pins that the handler sets it, which
+// no other test in this package would notice.
+func TestListArtistsPassesTheMissingListenFilterThrough(t *testing.T) {
+	var got map[string]interface{}
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			got = filters
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	if _, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{
+		Missing: artistMissingListen,
+		Cities:  "Phoenix,AZ",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if engaged, _ := got[catalog.FilterMissingListenLink].(bool); !engaged {
+		t.Fatalf("filters = %v, want %s set", got, catalog.FilterMissingListenLink)
 	}
 }

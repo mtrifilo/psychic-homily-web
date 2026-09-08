@@ -11,8 +11,10 @@ import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import {
   ARTIST_LIST_PAGE_LIMIT,
+  ARTIST_MISSING_PARAM,
   artistEndpoints,
   artistQueryKeys,
+  type ArtistMissingFilter,
 } from '@/features/artists/api'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import { buildCitiesParam } from '@/components/filters/cityParams'
@@ -37,6 +39,12 @@ interface UseArtistsOptions {
   limit?: number
   /** Rows to skip. Defaults to 0 (the first page). */
   offset?: number
+  /**
+   * Restrict to one completeness gap (`?missing=`). Under it a `cities` entry
+   * means that scene's roster rather than a literal stored city, and artists
+   * with no upcoming show are included; see ARTIST_MISSING_LISTEN.
+   */
+  missing?: ArtistMissingFilter
 }
 
 /**
@@ -50,6 +58,7 @@ export function useArtists(options: UseArtistsOptions = {}) {
     cities,
     tags,
     tagMatch,
+    missing,
     limit = ARTIST_LIST_PAGE_LIMIT,
     offset = 0,
   } = options
@@ -65,6 +74,7 @@ export function useArtists(options: UseArtistsOptions = {}) {
     params.set('tags', tags.join(','))
     if (tagMatch === 'any') params.set('tag_match', 'any')
   }
+  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -81,6 +91,7 @@ export function useArtists(options: UseArtistsOptions = {}) {
       cities: cities ?? undefined,
       tags: tags && tags.length > 0 ? tags : undefined,
       tagMatch: tagMatch === 'any' ? 'any' : undefined,
+      missing: missing ?? undefined,
       limit,
       offset,
     } as Record<string, unknown>),

@@ -457,8 +457,16 @@ func (sc sceneScope) isMetro() bool { return sc.metro != "" }
 // A failed lookup returns the error: the geocoded scope holds a different room
 // set, so answering with it serves another scene's rooms.
 func (s *SceneService) scopeFor(city, state string) (sceneScope, error) {
-	geocoded := metroScopeFor(s.geocoder, city, state)
-	grp, ok, err := publishedSceneGroup(s.db, s.geocoder, buildSceneSlug(city, state), geocoded.metro)
+	return sceneScopeFor(s.db, s.geocoder, city, state)
+}
+
+// sceneScopeFor is scopeFor without a SceneService, so any service in this
+// package resolves a place to the SAME scope. ArtistService reads it for the
+// /artists missing-listen-link filter, whose whole contract is that its rows
+// are the rows GetSceneGaps counts.
+func sceneScopeFor(database *gorm.DB, g geo.Geocoder, city, state string) (sceneScope, error) {
+	geocoded := metroScopeFor(g, city, state)
+	grp, ok, err := publishedSceneGroup(database, g, buildSceneSlug(city, state), geocoded.metro)
 	if err != nil {
 		return sceneScope{}, err
 	}
@@ -674,6 +682,13 @@ func (sc sceneScope) venuePredicate(alias string) (string, []any) {
 // matches NULL-metro artists whose home (city, state) is any CBSA member place
 // from the geo dataset (Brooklyn↔New York City, Cambridge↔Boston, etc.).
 func (s *SceneService) artistPredicate(scope sceneScope, alias string) (string, []any) {
+	return scope.artistPredicate(alias)
+}
+
+// artistPredicate is the rule itself, on the scope rather than the service: it
+// reads nothing from the service, and ArtistService applies it to the /artists
+// missing-listen-link filter.
+func (scope sceneScope) artistPredicate(alias string) (string, []any) {
 	if scope.isMetro() {
 		pred := alias + ".metro = ?"
 		args := []any{scope.metro}
