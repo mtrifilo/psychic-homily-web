@@ -14,9 +14,9 @@ import (
 )
 
 // The re-authentication gates read the session's auth_at out of the request
-// context. These hold that every middleware here that resolves a session puts
-// it there, and that the value agrees with the minting service about when the
-// session last stood behind a factor.
+// context. These hold that each middleware below puts it there, and that the
+// value agrees with the minting service about when the session last stood
+// behind a factor.
 
 func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_CarriesSessionAuthTime() {
 	user := s.createActiveUser("huma-auth-time@test.com")
@@ -63,9 +63,9 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_RenewedSessionReportsTheOrig
 	s.Greater(time.Since(got), time.Hour, "renewal does not make a session recently authenticated")
 }
 
-// A session minted before the claim existed carries none, and the context says
-// so with the zero time rather than substituting the issue time.
-func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_LegacySessionCarriesNoAuthTime() {
+// A session carrying no auth_at reaches the handler with the zero time rather
+// than with its issue time substituted.
+func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_SessionWithoutAuthTimeCarriesZero() {
 	user := s.createActiveUser("huma-legacy-auth-time@test.com")
 	legacy, err := s.jwtService.RenewSessionToken(user, time.Time{})
 	s.Require().NoError(err)
@@ -82,7 +82,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_LegacySessionCarriesNoAuthTi
 		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
-	s.Require().NotNil(ctxUser, "a legacy session is still a valid session")
+	s.Require().NotNil(ctxUser, "a session without the claim is still a valid session")
 	s.Equal(user.ID, ctxUser.ID)
 	s.True(got.IsZero())
 }
@@ -142,6 +142,12 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CarriesSessionAuthTimeAcr
 	expiredJWTService := auth.NewJWTService(s.db, expiredCfg, usersvc.NewUserService(s.db))
 	token, err := expiredJWTService.CreateToken(user)
 	s.Require().NoError(err)
+	// exp has whole-second resolution, so wait past it: without this the token
+	// can still be valid and the middleware takes the strict path, leaving the
+	// grace window this test is named for unexercised.
+	time.Sleep(1100 * time.Millisecond)
+	_, _, strictErr := s.jwtService.ValidateSession(token)
+	s.Require().Error(strictErr, "the token must be expired for this to test the grace window")
 	_, minted, err := expiredJWTService.ValidateSessionLenient(token, 10*time.Minute)
 	s.Require().NoError(err)
 	s.Require().False(minted.IsZero())

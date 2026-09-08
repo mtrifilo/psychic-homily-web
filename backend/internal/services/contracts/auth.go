@@ -142,7 +142,6 @@ type JWTServiceInterface interface {
 	// session rather than a factor, carrying authAt through unchanged.
 	RenewSessionToken(user *authm.User, authAt time.Time) (string, error)
 	ValidateToken(tokenString string) (*authm.User, error)
-	RefreshToken(tokenString string) (string, error)
 	ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)

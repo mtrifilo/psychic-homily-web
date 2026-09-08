@@ -250,7 +250,13 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
 	parsed, err := url.Parse(w.Header().Get("Location"))
 	s.Require().NoError(err)
 	s.Equal("/auth", parsed.Path)
+	s.Contains(parsed.Query().Get("returnTo"), "tab=settings")
 	s.Nil(linkIntentCookie(w))
+
+	// Re-auth is checked before the token is spent, so the refusal leaves it
+	// usable for the trip back.
+	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
+		"a refusal for want of an authentication time must not burn the token")
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestLink_UnknownProviderRefused() {

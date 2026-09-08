@@ -24,9 +24,8 @@ type contextKey string
 const UserContextKey contextKey = "user"
 
 // SessionAuthTimeContextKey holds the time.Time an authentication factor last
-// completed for the request's session credential, when the credential carries
-// one. It is the token's auth_at claim, which a renewal copies through
-// unchanged, and never its issue time, which every mint moves.
+// completed for the request's session credential. The zero time means the
+// credential establishes none.
 const SessionAuthTimeContextKey contextKey = "session_auth_time"
 
 // JWTErrorResponse represents the error response for JWT authentication failures
@@ -199,8 +198,8 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 		)
 
 		var user *authm.User
-		// An API token carries no authentication time, so it is never treated
-		// as recently authenticated. The zero value says exactly that.
+		// Zero unless the JWT branch below establishes one: an API-token
+		// principal is never recently authenticated.
 		var authAt time.Time
 
 		// Check if this is an API token (starts with "phk_")
@@ -384,10 +383,9 @@ func SessionUserIDFromRequest(jwtService *auth.JWTService, r *http.Request) (uin
 }
 
 // GetSessionAuthTimeFromContext returns when an authentication factor last
-// completed for the request's session credential. The zero time means the
-// credential establishes no authentication time, which every caller treats as
-// "not recent" rather than as an error, so there is no second return value to
-// discard.
+// completed for the request's session credential, or the zero time when it
+// establishes none. Absence is not an error, so there is no second return
+// value.
 func GetSessionAuthTimeFromContext(ctx context.Context) time.Time {
 	authAt, _ := ctx.Value(SessionAuthTimeContextKey).(time.Time)
 	return authAt

@@ -322,65 +322,6 @@ func TestJWTService_ValidateToken_RejectsCrossTypeTokens(t *testing.T) {
 	})
 }
 
-// TestJWTService_RefreshToken tests JWT token refresh functionality
-func TestJWTService_RefreshToken(t *testing.T) {
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-789",
-			Expiry:    24,
-		},
-	}
-
-	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
-
-	t.Run("RefreshToken_InvalidToken", func(t *testing.T) {
-		invalidToken := "invalid.token.string"
-
-		refreshedToken, err := jwtService.RefreshToken(invalidToken)
-
-		assert.Error(t, err)
-		assert.Empty(t, refreshedToken)
-		assert.Contains(t, err.Error(), "TOKEN_INVALID")
-	})
-
-	t.Run("RefreshToken_EmptyToken", func(t *testing.T) {
-		refreshedToken, err := jwtService.RefreshToken("")
-
-		assert.Error(t, err)
-		assert.Empty(t, refreshedToken)
-		assert.Contains(t, err.Error(), "TOKEN_INVALID")
-	})
-
-	t.Run("RefreshToken_ExpiredToken", func(t *testing.T) {
-		// Create a token with immediate expiry
-		cfgShort := &config.Config{
-			JWT: config.JWTConfig{
-				SecretKey: "test-secret-key-789",
-				Expiry:    0, // 0 hours = immediate expiry
-			},
-		}
-		jwtServiceShort := NewJWTService(nil, cfgShort, newNilDBUserService())
-
-		user := &authm.User{
-			ID:    123,
-			Email: stringPtr("expired@example.com"),
-		}
-
-		expiredToken, err := jwtServiceShort.CreateToken(user)
-		require.NoError(t, err)
-
-		// Wait for token to expire
-		time.Sleep(100 * time.Millisecond)
-
-		// Try to refresh expired token
-		refreshedToken, err := jwtService.RefreshToken(expiredToken)
-
-		assert.Error(t, err)
-		assert.Empty(t, refreshedToken)
-		assert.Contains(t, err.Error(), "TOKEN_EXPIRED")
-	})
-}
-
 // =============================================================================
 // VERIFICATION TOKEN TESTS
 // =============================================================================

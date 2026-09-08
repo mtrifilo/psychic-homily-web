@@ -209,3 +209,22 @@ func newNilDBUserService() contracts.UserServiceInterface {
 func stringPtr(s string) *string {
 	return &s
 }
+
+// stubUserService answers GetUserByID with a fixed active account and defers
+// everything else to nilDBUserService. It exists so ValidateSession, which
+// loads the principal, can be exercised without a database.
+type stubUserService struct {
+	nilDBUserService
+	user *authm.User
+}
+
+func (s *stubUserService) GetUserByID(userID uint) (*authm.User, error) {
+	if s.user == nil || s.user.ID != userID {
+		return nil, fmt.Errorf("user not found")
+	}
+	return s.user, nil
+}
+
+func newStubUserService(user *authm.User) contracts.UserServiceInterface {
+	return &stubUserService{user: user}
+}

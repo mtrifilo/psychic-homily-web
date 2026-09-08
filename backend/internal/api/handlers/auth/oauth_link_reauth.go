@@ -50,18 +50,13 @@ const (
 // today, so this changes only the log label, not the decision.
 //
 // sessionAuthenticatedAt is when an authentication factor last completed for
-// the session credential, from the token's auth_at claim. A zero value means no
-// authentication time could be established, which is not evidence of freshness:
-// a session minted before the claim existed lands here and is refused until the
-// user signs in once more.
+// the session credential, from the token's auth_at claim rather than from its
+// issue time: a renewal moves the issue time with no factor behind it. A zero
+// value establishes no authentication time and is not evidence of freshness.
 //
-// It is deliberately not the credential's issue time. Renewing a session moves
-// iat with no factor behind it, so a gate reading iat would be satisfied by one
-// extra call to POST /auth/refresh, which a holder of a stolen token can make.
-//
-// A sessionAuthenticatedAt in the FUTURE counts as fresh, and deliberately:
-// clock skew between issuer and reader is ordinary, and the alternative is
-// refusing a user whose own clock is right.
+// A slightly future sessionAuthenticatedAt counts as fresh: the stamping clock
+// and the reading clock need not agree to the second. The reader that supplies
+// this value bounds how far ahead it may sit.
 func linkReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now time.Time) linkReauthFactor {
 	if !sessionAuthenticatedAt.IsZero() && now.Sub(sessionAuthenticatedAt) < recentSessionWindow {
 		return reauthAlreadySatisfied

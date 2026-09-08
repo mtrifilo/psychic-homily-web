@@ -10,11 +10,10 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
-// The two endpoints that mint a session from a session rather than from a
-// factor: POST /auth/refresh and the admin CLI-token mint. Both must hand the
-// authentication time of the presented session to the minting service, so that
-// a session too old to satisfy a re-authentication gate cannot renew its way
-// out of the refusal.
+// A handler that mints a session from a session rather than from a factor hands
+// the presented session's authentication time to the minting service, so that a
+// session too old to satisfy a re-authentication gate cannot renew its way out
+// of the refusal.
 
 // ctxWithSessionAuthTime builds what the JWT middlewares put in front of these
 // handlers: a principal and the time a factor last completed for the
@@ -115,5 +114,31 @@ func TestGenerateCLITokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) 
 	}
 	if resp.Body.Token != "cli-token" {
 		t.Errorf("expected token=cli-token, got %s", resp.Body.Token)
+	}
+}
+
+// The counterpart of the refresh case: a session carrying no authentication
+// time mints a CLI token that carries none either.
+func TestGenerateCLITokenHandler_SessionWithoutAuthTimeMintsWithout(t *testing.T) {
+	var got time.Time
+	var called bool
+	h := authHandler(func(ah *AuthHandler) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			RenewSessionTokenFn: func(u *authm.User, a time.Time) (string, error) {
+				called, got = true, a
+				return "cli-token", nil
+			},
+		}
+	})
+
+	ctx := ctxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, time.Time{})
+	if _, err := h.GenerateCLITokenHandler(ctx, &struct{}{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected the mint to reach the JWT service")
+	}
+	if !got.IsZero() {
+		t.Errorf("CLI mint got auth time %v, want the zero value", got)
 	}
 }

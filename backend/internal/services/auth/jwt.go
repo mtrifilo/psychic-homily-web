@@ -26,18 +26,14 @@ const (
 )
 
 // jwtAuthTimeClaim carries the moment an authentication FACTOR last completed
-// for the session. This is the one place the rule is stated in full; the code
-// that reads and writes it below assumes it rather than restating it.
+// for the session, as distinct from iat, which every mint moves.
 //
-// It is distinct from iat, which every mint moves. Renewing a session copies
-// auth_at through unchanged, so a caller holding only a session credential
-// cannot manufacture freshness by asking for a new token. Surfaces that refuse
-// to make a security-relevant change on the strength of an old cookie read this
-// claim and never iat.
+// Renewing a session copies auth_at through unchanged, so a caller holding only
+// a session credential cannot manufacture freshness by asking for a new token.
 //
-// A token carrying no auth_at establishes no authentication time. Readers get
-// the zero time and treat that as "not recent", which is the fail-closed
-// answer, and every token minted before the claim existed is of that shape.
+// A token carrying no auth_at establishes no authentication time: readers get
+// the zero time and treat it as not recent, which is the fail-closed answer.
+// API-token principals are of that shape.
 const jwtAuthTimeClaim = "auth_at"
 
 type JWTService struct {
@@ -136,13 +132,28 @@ func (s *JWTService) SessionUserID(tokenString string) (uint, bool) {
 	return uint(uid), true
 }
 
+// maxAuthTimeSkew is how far ahead of the reader's clock an authentication time
+// may sit and still be believed.
+//
+// Some tolerance is needed because the clock that stamped the claim is not
+// always the clock that reads it. A bound is needed because a renewal copies
+// auth_at forward untouched: a single mint under a clock running hours fast
+// would otherwise leave a session that every freshness gate accepts for those
+// hours, refreshed indefinitely, with no factor behind it. Beyond the bound the
+// claim is discarded rather than trusted, which costs the user one sign-in.
+const maxAuthTimeSkew = 2 * time.Minute
+
 // authTimeFromClaims reads auth_at out of already-verified session claims. A
-// missing, non-numeric, or non-positive value establishes no authentication
-// time, so the result is the zero time and callers treat the session as not
-// recently authenticated.
+// missing, non-numeric, non-positive, or implausibly future value establishes
+// no authentication time, so the result is the zero time and callers treat the
+// session as not recently authenticated.
 func authTimeFromClaims(claims jwt.MapClaims) time.Time {
 	authAt, ok := claims[jwtAuthTimeClaim].(float64)
-	if !ok || authAt <= 0 {
+	// Compared as a float, before any conversion: that bounds the value to the
+	// believable range and to int64 in one test, so the conversion below is
+	// always defined.
+	believableThrough := float64(time.Now().Add(maxAuthTimeSkew).Unix())
+	if !ok || authAt <= 0 || authAt > believableThrough {
 		return time.Time{}
 	}
 	return time.Unix(int64(authAt), 0).UTC()
@@ -152,9 +163,11 @@ func authTimeFromClaims(claims jwt.MapClaims) time.Time {
 // claims. The database is the authority on current admin status and on whether
 // the account is still active, neither of which the token can be trusted for.
 func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, error) {
+	// Rejecting id < 1 keeps this reader and SessionUserID agreeing on what a
+	// valid id is, and keeps a negative value out of the conversion to uint.
 	id, ok := claims["user_id"].(float64)
-	if !ok {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("missing or non-numeric user_id claim"))
+	if !ok || id < 1 {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("missing or invalid user_id claim"))
 	}
 
 	user, err := s.userService.GetUserByID(uint(id))
@@ -174,9 +187,9 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 // factor last completed for the session. A zero authAt means the token
 // establishes no authentication time.
 //
-// Callers that gate on freshness take it from here rather than re-reading the
-// token, so a request pays one signature verification and one notion of what a
-// valid session is.
+// Callers that gate on freshness take the time from here rather than re-reading
+// the token, so one parse serves both and there is one notion of what a valid
+// session is.
 func (s *JWTService) ValidateSession(tokenString string) (user *authm.User, authAt time.Time, err error) {
 	claims, err := s.parseSessionToken(tokenString)
 	if err != nil {
@@ -194,17 +207,6 @@ func (s *JWTService) ValidateSession(tokenString string) (user *authm.User, auth
 func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
 	user, _, err := s.ValidateSession(tokenString)
 	return user, err
-}
-
-// RefreshToken creates a new token with extended expiry, carrying the presented
-// token's auth_at through unchanged. Renewal is not a factor: the new token
-// says the session was last authenticated exactly when the old one said it was.
-func (s *JWTService) RefreshToken(tokenString string) (string, error) {
-	user, authAt, err := s.ValidateSession(tokenString)
-	if err != nil {
-		return "", err
-	}
-	return s.RenewSessionToken(user, authAt)
 }
 
 // ValidateSessionLenient is ValidateSession for the refresh path: it also

@@ -2180,7 +2180,6 @@ type MockJWTService struct {
 	CreateTokenFn                  func(*authm.User) (string, error)
 	RenewSessionTokenFn            func(*authm.User, time.Time) (string, error)
 	ValidateTokenFn                func(string) (*authm.User, error)
-	RefreshTokenFn                 func(string) (string, error)
 	ValidateTokenLenientFn         func(string, time.Duration) (*authm.User, error)
 	CreateVerificationTokenFn      func(uint, string) (string, error)
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
@@ -2207,12 +2206,6 @@ func (m *MockJWTService) ValidateToken(tokenString string) (*authm.User, error) 
 		return m.ValidateTokenFn(tokenString)
 	}
 	return nil, nil
-}
-func (m *MockJWTService) RefreshToken(tokenString string) (string, error) {
-	if m.RefreshTokenFn != nil {
-		return m.RefreshTokenFn(tokenString)
-	}
-	return "", nil
 }
 func (m *MockJWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error) {
 	if m.ValidateTokenLenientFn != nil {
