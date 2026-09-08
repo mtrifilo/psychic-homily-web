@@ -814,7 +814,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	//
 	// this_week_count is the sceneThisWeekDays-night slice of that same set
 	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it must share
-	// the scene scoping of the other counts — one more FILTER aggregate in the
+	// the scene scoping of the other counts: one more FILTER aggregate in the
 	// same pass, not a new query. Sharing the night-start anchor is what makes it
 	// a subset of upcoming_count rather than a number that can exceed it.
 	//

@@ -25,8 +25,13 @@ export interface SceneListItem {
   // account with measurements this one does not, and `CommunityPulseResponse`
   // has its own separate field. Do not assume editing here is sufficient.
   //
-  // A ROLLING window from now, so it is NOT the number /scenes/{slug}/week
-  // prints. Two rules follow, and they are separate:
+  // Seven venue-local NIGHTS counted from the night in progress, so it is NOT
+  // the number /scenes/{slug}/week prints, and not a span from the request
+  // instant either: its edges move once a night. Between midnight and 6am
+  // local the first night in it is the previous date, the same night
+  // `SceneStats.upcoming_show_count` holds, which is why this number can never
+  // exceed the `upcoming_show_count` beside it. Two rules follow, and they are
+  // separate:
   //   1. WHICH FIELD: anything rendered beside a link to that page reads
   //      shows_calendar_week, so the number agrees with its destination.
   //   2. WHICH WORDS: anything rendered FROM this field is worded "next 7

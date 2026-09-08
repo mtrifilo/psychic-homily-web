@@ -66,8 +66,9 @@ function CityRow({ scene }: { scene: SceneListItem }) {
  * its own venue timezone by `GET /scenes` — the same window, in the same zone,
  * that the page each row links to serves. A row's number therefore equals the
  * total on its destination, which is the whole point of the field existing:
- * `shows_this_week` is a ROLLING seven days from now and read 76 for Chicago
- * against that page's 96 on 2026-08-02.
+ * `shows_this_week` is a different seven days, counted as seven nights from
+ * the night in progress, and measured 76 for Chicago against that page's 96 on
+ * 2026-08-02.
  *
  * TWO THINGS STILL BLUR THAT EQUALITY, both bounded, neither hidden:
  *
