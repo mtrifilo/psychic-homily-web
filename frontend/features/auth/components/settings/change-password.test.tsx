@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { ChangePassword } from './change-password'
+import { ChangePassword, formatChangePasswordError } from './change-password'
 
 // --- Mocks ---
 
@@ -287,5 +287,51 @@ describe('ChangePassword', () => {
     renderForm()
 
     expect(screen.getByText('Failed to change password')).toBeInTheDocument()
+  })
+
+  it('renders throttle copy with a countdown when a 429 carries Retry-After', () => {
+    const error = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
+      retryAfter: 42,
+    })
+    mockMutationState = { isPending: false, isError: true, error }
+    renderForm()
+
+    expect(
+      screen.getByText('Too many password change attempts. Try again in 42s.')
+    ).toBeInTheDocument()
+  })
+
+  it('renders throttle copy without a countdown when Retry-After is unreadable', () => {
+    const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
+    mockMutationState = { isPending: false, isError: true, error }
+    renderForm()
+
+    expect(
+      screen.getByText('Too many password change attempts. Try again in a minute.')
+    ).toBeInTheDocument()
+  })
+})
+
+describe('formatChangePasswordError', () => {
+  it('keeps the server message for a non-429 failure', () => {
+    const error = Object.assign(new Error('Current password is incorrect'), {
+      status: 400,
+    })
+    expect(formatChangePasswordError(error)).toBe('Current password is incorrect')
+  })
+
+  it('drops an unusable retryAfter rather than printing NaN', () => {
+    const error = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
+      retryAfter: NaN,
+    })
+    expect(formatChangePasswordError(error)).toBe(
+      'Too many password change attempts. Try again in a minute.'
+    )
+  })
+
+  it('returns the fallback for a missing error', () => {
+    expect(formatChangePasswordError(null)).toBe('Failed to change password')
   })
 })

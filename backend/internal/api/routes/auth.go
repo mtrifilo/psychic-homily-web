@@ -109,20 +109,42 @@ func setupAuthRoutes(rc RouteContext) {
 // endpoint open as an email-bombing amplifier.
 const VerificationResendPerMinute = 5
 
-// verificationResendRateLimiter builds the limiter for the verification resend
-// endpoint, honoring the same DISABLE_AUTH_RATE_LIMITS escape hatch as the
-// public auth routes (PSY-475): every E2E worker shares 127.0.0.1, so a live
-// limiter here would 429 unrelated shards.
-func verificationResendRateLimiter() func(http.Handler) http.Handler {
+// ChangePasswordAttemptsPerMinute is the per-IP budget for POST
+// /auth/change-password. The handler verifies the current password before it
+// sets the new one, so an unbudgeted route lets a caller holding a session
+// guess that password at wire speed. A person changing their own password
+// submits once, a few times if they mistype the current one; the browser form
+// rejects short, mismatched and unchanged passwords before they cost a
+// request, so every request that reaches the limiter is a real attempt.
+const ChangePasswordAttemptsPerMinute = 5
+
+// authScopedRateLimiter builds a per-IP minute limiter for one authenticated
+// auth route, honoring the DISABLE_AUTH_RATE_LIMITS escape hatch (PSY-475):
+// every E2E worker shares 127.0.0.1, so a live limiter would 429 unrelated
+// shards. Each call returns a limiter with its OWN counter, which is what keeps
+// these budgets from draining each other or the public auth budget.
+func authScopedRateLimiter(requestsPerMinute int) func(http.Handler) http.Handler {
 	if IsAuthRateLimitDisabled(os.Getenv) {
 		return noopRateLimiter()
 	}
 	return httprate.Limit(
-		VerificationResendPerMinute,
+		requestsPerMinute,
 		1*time.Minute,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
 	)
+}
+
+// verificationResendRateLimiter builds the limiter for the verification resend
+// endpoint.
+func verificationResendRateLimiter() func(http.Handler) http.Handler {
+	return authScopedRateLimiter(VerificationResendPerMinute)
+}
+
+// changePasswordRateLimiter builds the limiter for the change-password
+// endpoint.
+func changePasswordRateLimiter() func(http.Handler) http.Handler {
+	return authScopedRateLimiter(ChangePasswordAttemptsPerMinute)
 }
 
 // setupProtectedAuthRoutes configures the auth-related Huma routes that run on
@@ -153,7 +175,18 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	verifyEmailGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
-	huma.Post(rc.Protected, "/auth/change-password", authHandler.ChangePasswordHandler)
+	// Change-password carries its own per-IP budget. The handler checks the
+	// current password before setting the new one, so the route answers the
+	// question "is this the password?" and needs the same throttle any other
+	// password oracle gets.
+	//
+	// The budget is separate from the 10/min public auth counter: sharing one
+	// would let failed change attempts lock the same person out of /auth/login.
+	// The group hangs off rc.Protected, so HumaJWTMiddleware runs first and an
+	// unauthenticated caller is refused before it can spend anyone's budget.
+	changePasswordGroup := huma.NewGroup(rc.Protected, "")
+	changePasswordGroup.UseMiddleware(humaFromHTTP(changePasswordRateLimiter()))
+	huma.Post(changePasswordGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
 	lenientGroup := huma.NewGroup(rc.API, "")

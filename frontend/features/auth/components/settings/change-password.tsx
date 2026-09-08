@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
+import type { ApiError } from '@/lib/api'
 
 // Password validation constants (same as auth page)
 const MIN_PASSWORD_LENGTH = 12
@@ -36,6 +37,30 @@ const changePasswordSchema = z
   })
 
 type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
+
+/**
+ * Turn a failed password change into one line a person can act on.
+ *
+ * The 429 branch is the one this exists for: the endpoint carries its own
+ * per-IP budget, and the raw limiter body reads as a server complaint rather
+ * than as "slow down, your password is fine". `ApiError.retryAfter` is only
+ * populated when the browser can read the `Retry-After` header, which it
+ * cannot cross-origin in production, so the headerless copy is the common path
+ * and names the window instead of a countdown.
+ */
+export function formatChangePasswordError(error: unknown): string {
+  const fallback = 'Failed to change password'
+  if (!error) return fallback
+  const apiErr = error as ApiError
+
+  if (apiErr.status === 429) {
+    if (apiErr.retryAfter && Number.isFinite(apiErr.retryAfter)) {
+      return `Too many password change attempts. Try again in ${apiErr.retryAfter}s.`
+    }
+    return 'Too many password change attempts. Try again in a minute.'
+  }
+  return apiErr.message || fallback
+}
 
 export function ChangePassword() {
   const changePasswordMutation = useChangePassword()
@@ -105,7 +130,7 @@ export function ChangePassword() {
           {changePasswordMutation.isError && (
             <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{changePasswordMutation.error?.message || 'Failed to change password'}</span>
+              <span>{formatChangePasswordError(changePasswordMutation.error)}</span>
             </div>
           )}
 
