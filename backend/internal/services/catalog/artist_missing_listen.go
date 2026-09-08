@@ -1,7 +1,7 @@
 package catalog
 
 import (
-	"strings"
+	"errors"
 
 	"gorm.io/gorm"
 
@@ -28,6 +28,18 @@ import (
 // same reason: the gap count applies no such gate, and a filter that answered
 // with only the bands playing soon would report a number the scene page never
 // stated.
+//
+// ONE PLACE PER REQUEST, for two reasons that point the same way. A gap count is
+// published per scene, so a union of several scenes' rosters is a total no
+// published number agrees with, and agreement is this filter's whole contract.
+// And a metro scope expands into one predicate term per member place, which for
+// the largest CBSAs in the shipped geo dataset is several hundred: unioning ten
+// of those would let one unauthenticated request build a predicate of thousands
+// of terms and have it planned twice, for the count and for the page.
+//
+// The scope rule applies to a PLACE, which is a (city, state) pair. A request
+// that names only a `state` names no place, so it keeps the browse list's own
+// literal, case-sensitive state match; the gap predicate still applies.
 
 // FilterMissingListenLink is the filters-map key GET /artists' `missing=listen`
 // sets. Value type bool. Exported so the handler that sets it and the scope
@@ -87,46 +99,62 @@ func browseCityPairs(filters map[string]interface{}) []artistCityPair {
 	return nil
 }
 
+// errGapFilterPlaces is returned when a gap-filtered request names places the
+// filter cannot answer for. The handler refuses these before the service is
+// reached; this is the service defending its own invariant for any other caller,
+// because the failure it prevents is silent: a request that named a place and
+// got a list scoped to somewhere else, or to nowhere.
+var errGapFilterPlaces = errors.New(
+	"the missing-listen-link filter scopes to exactly one complete (city, state) place")
+
+// browseGapPlace returns the single place a gap-filtered browse request scopes
+// to. The second return is false when the request names no place at all, which
+// is a request for every band with the gap and is allowed.
+//
+// It errors when the request names places the filter cannot answer for: more
+// than one, or one whose state is missing. See the file header for why one.
+func browseGapPlace(filters map[string]interface{}) (artistCityPair, bool, error) {
+	pairs := browseCityPairs(filters)
+	if len(pairs) > 1 {
+		return artistCityPair{}, false, errGapFilterPlaces
+	}
+	if len(pairs) == 1 {
+		return pairs[0], true, nil
+	}
+	if browseNamesACity(filters) {
+		return artistCityPair{}, false, errGapFilterPlaces
+	}
+	return artistCityPair{}, false, nil
+}
+
+// browseNamesACity reports whether the request asked to be scoped to a city at
+// all, however incompletely. It is what separates "no place named" from "a place
+// named that could not be read".
+func browseNamesACity(filters map[string]interface{}) bool {
+	if cities, ok := filters["cities"].([]map[string]string); ok {
+		return len(cities) > 0
+	}
+	city, _ := filters["city"].(string)
+	return city != ""
+}
+
 // sceneRosterPredicate returns the WHERE fragment (on the given artists alias)
-// selecting the union of the given places' scene rosters, plus its bind args.
-// An empty place list returns an empty fragment, which the caller reads as "do
-// not constrain by place".
+// selecting one place's scene roster, plus its bind args.
 //
-// Each place is resolved through sceneScopeFor, the same resolution
-// GetSceneGaps performs. Resolution reads the venue rows, so callers resolve
-// once and reuse the fragment across the count and the page.
-//
-// Resolved scopes are DEDUPLICATED, because several places collapse onto one:
-// every member city of a metro resolves to that metro's scope, and a metro
-// scope expands into one predicate term per member place. Without the dedup, a
-// ten-city request naming ten places in one metro would OR ten copies of the
-// same several-hundred-term predicate into both the count and the page.
+// The place is resolved through sceneScopeFor, the same resolution GetSceneGaps
+// performs, so the roster here is the roster counted there. Resolution reads the
+// venue rows, so callers resolve once and reuse the fragment across the count
+// and the page.
 func sceneRosterPredicate(
 	database *gorm.DB,
 	g geo.Geocoder,
-	pairs []artistCityPair,
+	place artistCityPair,
 	alias string,
 ) (string, []any, error) {
-	if len(pairs) == 0 {
-		return "", nil, nil
+	scope, err := sceneScopeFor(database, g, place.city, place.state)
+	if err != nil {
+		return "", nil, err
 	}
-
-	parts := make([]string, 0, len(pairs))
-	args := make([]any, 0, len(pairs))
-	seen := make(map[sceneScope]struct{}, len(pairs))
-	for _, pair := range pairs {
-		scope, err := sceneScopeFor(database, g, pair.city, pair.state)
-		if err != nil {
-			return "", nil, err
-		}
-		if _, dup := seen[scope]; dup {
-			continue
-		}
-		seen[scope] = struct{}{}
-
-		pred, predArgs := scope.artistPredicate(alias)
-		parts = append(parts, "("+pred+")")
-		args = append(args, predArgs...)
-	}
-	return strings.Join(parts, " OR "), args, nil
+	pred, args := scope.artistPredicate(alias)
+	return pred, args, nil
 }

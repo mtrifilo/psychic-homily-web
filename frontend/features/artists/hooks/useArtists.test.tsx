@@ -17,7 +17,14 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // Mock the feature api module
-vi.mock('@/features/artists/api', () => ({
+vi.mock('@/features/artists/api', async importOriginal => ({
+  // The gap-filter constants pass through REAL, because they are the API's own
+  // contract: a rename that this file mirrored would leave the assertion green
+  // while the client sent a param the endpoint answers 422 for.
+  ...(({ ARTIST_MISSING_PARAM, ARTIST_MISSING_LISTEN }) => ({
+    ARTIST_MISSING_PARAM,
+    ARTIST_MISSING_LISTEN,
+  }))(await importOriginal<typeof import('@/features/artists/api')>()),
   // Mirrors the real constant. This file mocks the api module, so it cannot
   // assert the real first-screen pair — useArtistsFirstScreen.test.tsx does
   // that against the genuine constants.
@@ -198,6 +205,51 @@ describe('useArtists', () => {
         wrapper: createWrapperWithClient(queryClient),
       })
       await waitFor(() => expect(firstPage.current.isSuccess).toBe(true))
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
+    })
+
+    // The param name and value are the API's contract, not this hook's: the
+    // backend answers 422 for anything else, so a rename here ships a client
+    // that only fails at runtime.
+    it('sends the gap filter as ?missing=', async () => {
+      mockApiRequest.mockResolvedValueOnce({ artists: [], total: 0, limit: 50, offset: 0 })
+
+      const { result } = renderHook(
+        () =>
+          useArtists({
+            cities: [{ city: 'Phoenix', state: 'AZ' }],
+            missing: 'listen',
+          }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/artists?cities=Phoenix%2CAZ&limit=50&missing=listen',
+        { method: 'GET' }
+      )
+    })
+
+    // The filtered view and the whole-city view are different answers for the
+    // same city, so they must not share a cache entry: without the filter in
+    // the key, whichever landed first would serve both for the whole staleTime.
+    it('keys the filtered view apart from the unfiltered one', async () => {
+      mockApiRequest.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
+      const queryClient = createTestQueryClient()
+      const cities = [{ city: 'Phoenix', state: 'AZ' }]
+
+      const { result: filtered } = renderHook(
+        () => useArtists({ cities, missing: 'listen' }),
+        { wrapper: createWrapperWithClient(queryClient) }
+      )
+      await waitFor(() => expect(filtered.current.isSuccess).toBe(true))
+
+      const { result: unfiltered } = renderHook(() => useArtists({ cities }), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+      await waitFor(() => expect(unfiltered.current.isSuccess).toBe(true))
+
       expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
     })
   })

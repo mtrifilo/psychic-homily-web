@@ -17,8 +17,9 @@ interface RemovableFilterChipProps {
  * remove affordance. This is the "active filter" register: it renders only
  * while the filter is on, and its only action is to turn it off.
  *
- * Shared so the filter chips that sit in one toolbar row cannot drift apart
- * visually.
+ * Shared so the surfaces that show an engaged filter cannot drift apart
+ * visually. `type="button"` because a chip lives wherever the filters do,
+ * which one day is inside a form, and a bare button submits it.
  */
 export function RemovableFilterChip({
   label,
@@ -34,6 +35,7 @@ export function RemovableFilterChip({
     >
       {label}
       <button
+        type="button"
         onClick={onRemove}
         className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5 transition-colors"
         aria-label={`Remove ${label} filter`}

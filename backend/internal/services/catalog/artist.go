@@ -774,12 +774,15 @@ func (s *ArtistService) artistBrowseScope(
 	var rosterPred string
 	var rosterArgs []any
 	if missingListenLink {
-		var err error
-		rosterPred, rosterArgs, err = sceneRosterPredicate(
-			s.db, s.sceneGeocoder(), browseCityPairs(filters), "artists",
-		)
+		place, scoped, err := browseGapPlace(filters)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve scene scope for the missing-listen-link filter: %w", err)
+			return nil, err
+		}
+		if scoped {
+			rosterPred, rosterArgs, err = sceneRosterPredicate(s.db, s.sceneGeocoder(), place, "artists")
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve scene scope for the missing-listen-link filter: %w", err)
+			}
 		}
 	}
 

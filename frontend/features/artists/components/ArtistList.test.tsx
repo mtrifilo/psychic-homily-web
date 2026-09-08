@@ -705,8 +705,10 @@ describe('ArtistList', () => {
       ).toBeInTheDocument()
     })
 
-    // Every page link carries it. Dropping it on click would silently widen the
-    // list to the whole city one page in.
+    // Every page link carries it, so a page change does not silently widen the
+    // list to the whole city. The carry is unconditional through OWNED_PARAMS;
+    // this asserts the outcome, which the length allowance for foreign params
+    // would also produce for a value this short.
     it('carries the filter into the page links', () => {
       mockGet.mockImplementation((key: string) => {
         if (key === 'missing') return 'listen'

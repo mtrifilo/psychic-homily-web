@@ -22529,7 +22529,7 @@ export interface operations {
                  */
                 tag_match?: "all" | "any";
                 /**
-                 * @description Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, scoped by SCENE ROSTER rather than by literal city: with it, a city named in cities/city means that scene's metro-aware, case-insensitive roster, and the default 'has an upcoming show' gate is dropped. These are the rows GET /scenes/{slug}/gaps counts as artists_missing_listen_link.
+                 * @description Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and takes AT MOST ONE city, which must name its state. That city is read as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string, and the default 'has an upcoming show' gate is dropped. Where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it; that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps this endpoint's own literal state matching.
                  * @example listen
                  */
                 missing?: "listen";

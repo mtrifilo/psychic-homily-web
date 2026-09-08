@@ -175,6 +175,37 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistsMissingListen_SingleCi
 	suite.Equal(int64(2), total)
 }
 
+// The service refuses places it cannot scope rather than answering under a
+// different rule. The handler refuses them first, so this is the service
+// defending its own invariant: without it, a request naming three places would
+// be answered for one of them, or for nowhere, with no signal either way.
+func (suite *SceneServiceIntegrationTestSuite) TestArtistsMissingListen_RefusesPlacesItCannotScope() {
+	suite.sceneWithTwoVenues()
+	suite.createArtist("Bare Phoenix Band")
+
+	artistService := NewArtistService(suite.db)
+	cases := map[string]map[string]interface{}{
+		"two places": {
+			"cities": []map[string]string{
+				{"city": "Phoenix", "state": "AZ"},
+				{"city": "Tucson", "state": "AZ"},
+			},
+		},
+		"a city with no state": {"city": "Phoenix"},
+		"a cities entry with no state": {
+			"cities": []map[string]string{{"city": "Phoenix"}},
+		},
+	}
+
+	for name, filters := range cases {
+		suite.Run(name, func() {
+			filters[FilterMissingListenLink] = true
+			_, _, err := artistService.GetArtistsWithShowCounts(filters, 50, 0)
+			suite.Require().ErrorIs(err, errGapFilterPlaces)
+		})
+	}
+}
+
 // A tag filter and the gap filter compose: both drop the activity gate, and
 // both constrain, so engaging one must not silently discard the other.
 func (suite *SceneServiceIntegrationTestSuite) TestArtistsMissingListen_ComposesWithATagFilter() {

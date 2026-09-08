@@ -130,15 +130,19 @@ func TestListArtistsRejectsAnUnknownMissingFilter(t *testing.T) {
 	}
 }
 
-// A city with no state resolves to no scene, so the filter cannot be honoured
-// as documented. Refused, rather than answered under the exact case-sensitive
-// city match the filter exists to replace, which would return a set that does
-// not equal the gap count while claiming to.
+// The filter answers for at most ONE complete place. Every other shape is
+// refused, because the `cities` parse discards what it cannot read and
+// truncates past its cap: answering anyway would scope the list to a subset of
+// the places the caller named, under a total the caller compares against the
+// sum of their gap counts.
 func TestListArtistsRejectsAPlaceItCannotScopeToAScene(t *testing.T) {
 	cases := map[string]ListArtistsRequest{
 		"single city without a state": {Missing: artistMissingListen, City: "Phoenix"},
 		"cities with no comma":        {Missing: artistMissingListen, Cities: "Phoenix"},
 		"cities with an empty state":  {Missing: artistMissingListen, Cities: "Phoenix,"},
+		"cities with an empty city":   {Missing: artistMissingListen, Cities: ",AZ"},
+		"two cities":                  {Missing: artistMissingListen, Cities: "Phoenix,AZ|Tucson,AZ"},
+		"one complete, one not":       {Missing: artistMissingListen, Cities: "Phoenix,AZ|Tucson"},
 	}
 	mock := &testhelpers.MockArtistService{
 		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
@@ -164,7 +168,12 @@ func TestListArtistsRejectsAPlaceItCannotScopeToAScene(t *testing.T) {
 
 // The same shapes are fine WITHOUT the filter: the guard is the filter's, not a
 // new bound on the city params.
-func TestListArtistsStillAcceptsAStatelessCityWithoutTheFilter(t *testing.T) {
+func TestListArtistsStillAcceptsThoseShapesWithoutTheFilter(t *testing.T) {
+	cases := map[string]ListArtistsRequest{
+		"stateless city": {City: "Phoenix"},
+		"two cities":     {Cities: "Phoenix,AZ|Tucson,AZ"},
+		"unparseable":    {Cities: "Phoenix"},
+	}
 	mock := &testhelpers.MockArtistService{
 		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
 			return nil, 0, nil
@@ -172,8 +181,12 @@ func TestListArtistsStillAcceptsAStatelessCityWithoutTheFilter(t *testing.T) {
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
 
-	if _, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{City: "Phoenix"}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := h.ListArtistsHandler(context.Background(), &req); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 
