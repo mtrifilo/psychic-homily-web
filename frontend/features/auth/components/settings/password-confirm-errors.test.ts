@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { formatPasswordConfirmError } from './password-confirm-errors'
+import { formatChangePasswordError } from './change-password'
+import { formatDeleteAccountError } from './delete-account-dialog'
 
 const copy = {
   fallback: 'Something went wrong',
@@ -56,5 +58,21 @@ describe('formatPasswordConfirmError', () => {
 
   it('returns the fallback for a missing error', () => {
     expect(formatPasswordConfirmError(null, copy)).toBe('Something went wrong')
+  })
+})
+
+// One budget meters both surfaces, so a person can be throttled on one by
+// traffic to the other. A throttle line naming the surface it appears on would
+// therefore name the wrong cause, which is why the sentence is passed in rather
+// than written per surface, and why it has to be the same sentence.
+describe('the throttle sentence is surface neutral', () => {
+  it('reads the same on every surface that shares the budget', () => {
+    const throttled = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
+      retryAfter: 30,
+    })
+    expect(formatDeleteAccountError(throttled)).toBe(
+      formatChangePasswordError(throttled)
+    )
   })
 })

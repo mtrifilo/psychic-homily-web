@@ -473,7 +473,14 @@ describe('DeleteAccountDialog', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
 
-    await waitFor(() => expect(mockDeleteMutateAsync).toHaveBeenCalled())
+    // Wait for the rejection to have been handled, not merely for the mutation
+    // to have been called: the call happens before the catch runs, so asserting
+    // on it would leave this passing by timing rather than by the guard.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Delete My Account' })
+      ).toBeEnabled()
+    )
     expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled()
   })
 

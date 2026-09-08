@@ -167,8 +167,10 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// counter.
 	//
 	// A route registered on rc.Protected instead of here carries no budget of
-	// its own; TestEveryAuthPostHasARateLimitDisposition makes a new POST under
-	// /auth/ say which budget meters it.
+	// its own. TestEveryMutatingAuthRouteHasARateLimitDisposition makes a new
+	// mutating route under /auth/ record which budget meters it; it checks that
+	// a disposition was written, not that the sentence is true, so the members
+	// above are what the router-level throttle test drives.
 	passwordConfirmGroup := huma.NewGroup(rc.Protected, "")
 	passwordConfirmGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(PasswordConfirmAttemptsPerMinute)))
 	huma.Post(passwordConfirmGroup, "/auth/change-password", authHandler.ChangePasswordHandler)

@@ -51,14 +51,19 @@ type passwordConfirmRoute struct {
 }
 
 // passwordConfirmBudgetRoutes is the membership of the shared budget as the
-// tests drive it, and it is one half of a closed loop:
+// tests drive it. Two guards sit either side of it:
 //
-//   - a route mounted on passwordConfirmGroup but missing here fails
-//     TestPasswordConfirmDispositionsCoverTheBudget, which compares this list
-//     against the router disposition table;
-//   - a route listed here but not mounted on the group fails
-//     TestPasswordConfirmRoutesThrottledThroughRouter, which expects it to be
-//     throttled by a budget the other members spent.
+//   - TestPasswordConfirmDispositionsCoverTheBudget requires this list and the
+//     rows dispositioned onto this budget in the route inventory to name the
+//     same routes, so a member recorded in one and not the other fails;
+//   - TestPasswordConfirmRoutesThrottledThroughRouter requires every route
+//     listed here to be throttled by a budget its siblings spent, so a member
+//     that is not actually mounted on the group fails.
+//
+// Neither reads the middleware chain, which a Huma group hides inside the
+// operation handler. A route mounted on the group and written down in neither
+// place is caught by the inventory sweep of the built router, which requires a
+// disposition for every mutating route under /auth/.
 var passwordConfirmBudgetRoutes = []passwordConfirmRoute{
 	{path: "/auth/change-password", body: passwordConfirmChangeBody, reached: passwordConfirmChangeReached},
 	{path: "/auth/account/delete", body: passwordConfirmDeleteBody, reached: passwordConfirmDeleteReached},
@@ -186,8 +191,9 @@ func TestPasswordConfirmRoutesThrottledThroughRouter(t *testing.T) {
 	// above can see it. The probe has to be a route registered AFTER the mount
 	// point, because a Huma group binds its middleware into an operation when
 	// that operation is registered: routes registered earlier would keep
-	// answering normally and prove nothing. /auth/preferences/alerts is
-	// registered after the group in setupProtectedAuthRoutes.
+	// answering normally and prove nothing. That ordering is the premise this
+	// assertion rests on, and TestPasswordConfirmOverReachProbeIsRegisteredAfterTheGroup
+	// fails when an edit to auth.go breaks it.
 	const probeIP = "198.51.100.90:4444"
 	sibling := sendAuthed(t, router, "GET", "/auth/preferences/alerts", "", probeIP, session)
 	if sibling.Code != http.StatusOK {

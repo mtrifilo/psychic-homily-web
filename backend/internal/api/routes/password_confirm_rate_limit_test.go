@@ -18,6 +18,10 @@ import (
 
 // limiterAttempt sends one request through a bare limiter chain, with no router
 // or handler behind it, so the recorded code is the limiter's own answer.
+//
+// The path it sends is arbitrary: the limiter keys on the client IP alone, which
+// TestPasswordConfirmKeyIgnoresTheRoute pins, so these tests cover the budget
+// rather than either member of it.
 func limiterAttempt(t *testing.T, limited http.Handler, ip string) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
