@@ -289,7 +289,7 @@ describe('ChangePassword', () => {
     expect(screen.getByText('Failed to change password')).toBeInTheDocument()
   })
 
-  it('renders throttle copy with the wait in seconds when a 429 carries Retry-After', () => {
+  it('renders throttle copy with the wait in seconds when Retry-After is readable', () => {
     const error = Object.assign(new Error('Rate limit exceeded.'), {
       status: 429,
       retryAfter: 42,
@@ -302,7 +302,7 @@ describe('ChangePassword', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders throttle copy naming the window when Retry-After is unreadable', () => {
+  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', () => {
     const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
     mockMutationState = { isPending: false, isError: true, error }
     renderForm()
@@ -315,15 +315,15 @@ describe('ChangePassword', () => {
 
 describe('formatChangePasswordError', () => {
   it('keeps the server message for a non-429 failure', () => {
-    const error = Object.assign(new Error('Current password is incorrect'), {
-      status: 400,
-    })
+    // The shape useChangePassword throws for a rejected password: the backend
+    // answers 200 with success:false, so the error carries no status at all.
+    const error = new Error('Current password is incorrect')
     expect(formatChangePasswordError(error)).toBe('Current password is incorrect')
   })
 
   it('names the window when retryAfter is absent', () => {
-    // A cross-origin call cannot read Retry-After, since the backend exposes no
-    // headers, so `retryAfter` stays undefined there.
+    // The deployed frontend calls the backend cross-origin, where Retry-After
+    // is not exposed, so `retryAfter` is undefined for real users.
     const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
     expect(formatChangePasswordError(error)).toBe(
       'Too many password change attempts. Try again in a minute.'

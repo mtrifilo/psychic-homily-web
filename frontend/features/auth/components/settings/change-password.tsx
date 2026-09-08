@@ -45,11 +45,15 @@ type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
  * per-IP budget, and the raw limiter body reads as a server complaint rather
  * than as "slow down, your password is fine".
  *
- * Both branches are live. `ApiError.retryAfter` is populated only when the
- * browser can read `Retry-After`, which it can through the same-origin `/api`
- * proxy and cannot on a cross-origin call, since the backend CORS config
- * exposes no headers. The number it prints is the wait the server named at the
- * moment of the response; it does not tick down.
+ * The headerless branch is the deployed one. `ApiError.retryAfter` is populated
+ * only when the browser can read `Retry-After`, and the deployed frontend calls
+ * the backend cross-origin, where no CORS config exposes that header; the
+ * same-origin `/api` proxy re-emits it, so the seconds branch is what
+ * development and the tests see. `lib/query-retry-policy.ts` carries the
+ * measurement.
+ *
+ * Either way the number is the whole window the limiter names, not the time
+ * left in the current one, and it does not tick down.
  */
 export function formatChangePasswordError(error: unknown): string {
   const fallback = 'Failed to change password'

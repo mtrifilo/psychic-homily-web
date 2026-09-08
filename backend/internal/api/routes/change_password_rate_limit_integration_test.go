@@ -16,12 +16,16 @@ import (
 // The throttle on POST /auth/change-password, driven through the ROUTER by a
 // caller holding a real session.
 //
-// The limiter-only tests in change_password_rate_limit_test.go prove the
-// budget, the key and the escape hatch, but they build the limiter themselves,
-// so they stay green if the middleware is never mounted on the route. Only an
-// authenticated request reaches it: HumaJWTMiddleware runs first and answers
-// every anonymous request with 401, so no unauthenticated test can see the
-// counter at all. That takes a session, which takes a database.
+// The budget, the key and the escape hatch are pinned in
+// change_password_rate_limit_test.go against a limiter that test builds itself,
+// so nothing there fails if the middleware is never mounted on the route, and
+// the one test in that file that does drive the router sends unauthenticated
+// requests, which stop at HumaJWTMiddleware before any counter. Reaching the
+// counter takes a session, and a session takes a database.
+//
+// What this covers is the MOUNTING and the reach of the mount, not the
+// credential path: the requests below never get as far as comparing a
+// password.
 func TestChangePasswordThrottledThroughRouter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -47,67 +51,75 @@ func TestChangePasswordThrottledThroughRouter(t *testing.T) {
 	router := chi.NewRouter()
 	SetupRoutes(router, sc, cfg)
 
-	// The two passwords are equal on purpose: the handler rejects that before
-	// it reaches the password validator, which queries HaveIBeenPwned over the
-	// network. What matters here is that the request reached the handler at
-	// all, not what the handler decided.
+	// The two passwords are equal on purpose: the handler rejects that before it
+	// reaches the password validator, which queries HaveIBeenPwned over the
+	// network. The reply it gives is asserted below, so a body the operation
+	// never accepted cannot pass for a request that reached the handler.
 	const attempt = `{"current_password":"same-password-value","new_password":"same-password-value"}`
+	const reachedHandler = "New password must be different"
 
-	post := func(t *testing.T, path, body, ip string) (int, string) {
+	send := func(t *testing.T, method, path, body, ip string, authenticate bool) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+session)
+		if authenticate {
+			req.Header.Set("Authorization", "Bearer "+session)
+		}
 		req.RemoteAddr = ip
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-		return w.Code, w.Body.String()
+		return w
 	}
 
 	const ip = "198.51.100.90:4444"
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {
-		code, body := post(t, "/auth/change-password", attempt, ip)
-		if code == http.StatusTooManyRequests {
+		w := send(t, "POST", "/auth/change-password", attempt, ip, true)
+		if w.Code == http.StatusTooManyRequests {
 			t.Fatalf("attempt %d/%d was limited early; the budget is tighter than %d",
 				i+1, ChangePasswordAttemptsPerMinute, ChangePasswordAttemptsPerMinute)
 		}
-		if code == http.StatusUnauthorized {
+		if w.Code == http.StatusUnauthorized {
 			t.Fatalf("attempt %d returned 401: the session was not accepted, so this test proves nothing", i+1)
 		}
-		assertReachedHandler(t, code, body, "/auth/change-password")
+		if !strings.Contains(w.Body.String(), reachedHandler) {
+			t.Fatalf("attempt %d did not reach the handler; body: %s", i+1, w.Body.String())
+		}
 	}
 
-	code, body := post(t, "/auth/change-password", attempt, ip)
-	if code != http.StatusTooManyRequests {
+	w := send(t, "POST", "/auth/change-password", attempt, ip, true)
+	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("attempt %d returned %d, want 429: the limiter is not mounted on the route",
-			ChangePasswordAttemptsPerMinute+1, code)
+			ChangePasswordAttemptsPerMinute+1, w.Code)
 	}
-	if got := w429RetryAfter(body); got == "" {
-		t.Errorf("the 429 body does not name a wait: %s", body)
+	// Asserted here rather than only on the bare limiter: the header has to
+	// survive humaFromHTTP and the protected group's response writer to reach a
+	// client, and only a request through the router proves that.
+	if got := w.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("429 through the router carried Retry-After %q, want 60", got)
 	}
 
-	// The same session, the same IP, a different budget. This is the ticket's
-	// second acceptance criterion, and only the router can answer it: the two
-	// limiters are separate objects by construction, but nothing else proves
-	// login is not ALSO behind the change-password one.
-	loginCode, loginBody := post(t, "/auth/login",
-		`{"email":"change-password-throttle@test.com","password":"whatever"}`, ip)
-	if loginCode == http.StatusTooManyRequests {
+	// The reach of the mount. Attaching the middleware to rc.Protected itself
+	// rather than to a child group is a one-token edit that would throttle
+	// authenticated routes across the app at this budget, and no assertion
+	// above can see it. The probe has to be a route registered AFTER the mount
+	// point, because a Huma group binds its middleware into an operation when
+	// that operation is registered: routes registered earlier would keep
+	// answering normally and prove nothing.
+	sibling := send(t, "GET", "/auth/account/deletion-summary", "", ip, true)
+	if sibling.Code == http.StatusTooManyRequests {
+		t.Error("GET /auth/account/deletion-summary returned 429 with only change-password exhausted; " +
+			"the limiter is mounted on the protected group rather than on the change-password group")
+	}
+
+	// The ticket's second acceptance criterion. Login is public, so it carries
+	// no session here; what matters is that the counter it draws on is not the
+	// one just exhausted.
+	login := send(t, "POST", "/auth/login",
+		`{"email":"change-password-throttle@test.com","password":"whatever"}`, ip, false)
+	if login.Code == http.StatusTooManyRequests {
 		t.Error("POST /auth/login returned 429 after change-password was exhausted from the same IP; " +
 			"the two routes share a counter")
 	}
-	assertReachedHandler(t, loginCode, loginBody, "/auth/login")
-}
-
-// w429RetryAfter returns the wait named in a rate-limit body, or "" if the body
-// does not carry one. The header is asserted in the limiter test; this checks
-// the body a client actually reads when CORS hides the header.
-func w429RetryAfter(body string) string {
-	const marker = "try again in "
-	i := strings.Index(strings.ToLower(body), marker)
-	if i < 0 {
-		return ""
-	}
-	return body[i+len(marker):]
+	assertReachedHandler(t, login.Code, login.Body.String(), "/auth/login")
 }

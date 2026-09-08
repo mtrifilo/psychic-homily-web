@@ -36,7 +36,7 @@ func TestChangePasswordRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
 	var served int
-	limited := changePasswordRateLimiter()(okHandler(&served))
+	limited := authScopedRateLimiter(ChangePasswordAttemptsPerMinute)(okHandler(&served))
 	const ip = "203.0.113.61:1234"
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {
@@ -63,7 +63,7 @@ func TestChangePasswordRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 func TestChangePasswordRateLimiter_IsPerIP(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
-	limited := changePasswordRateLimiter()(okHandler(nil))
+	limited := authScopedRateLimiter(ChangePasswordAttemptsPerMinute)(okHandler(nil))
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {
 		changePasswordAttempt(t, limited, "198.51.100.61:5000")
@@ -81,7 +81,7 @@ func TestChangePasswordRateLimiter_IsPerIP(t *testing.T) {
 func TestChangePasswordRateLimiter_HonorsDisableFlag(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
 
-	limited := changePasswordRateLimiter()(okHandler(nil))
+	limited := authScopedRateLimiter(ChangePasswordAttemptsPerMinute)(okHandler(nil))
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute*3; i++ {
 		if code := changePasswordAttempt(t, limited, "203.0.113.62:1234").Code; code != http.StatusOK {
@@ -90,15 +90,15 @@ func TestChangePasswordRateLimiter_HonorsDisableFlag(t *testing.T) {
 	}
 }
 
-// Each authScopedRateLimiter call owns its own counter, so spending one route's
-// budget leaves the other's untouched. Both routes sit behind the same session
-// and the same per-IP key, which is exactly the shape in which a shared store
-// would go unnoticed.
-func TestChangePasswordAndVerificationResendDoNotShareABudget(t *testing.T) {
+// Each authScopedRateLimiter call owns its own counter, so two budgets of the
+// same size on the same per-IP key do not drain each other. This is the
+// constructor's contract, not the routes': what the two mount sites were handed
+// is checked through the router.
+func TestAuthScopedLimitersOfTheSameSizeDoNotShareACounter(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
-	changePassword := changePasswordRateLimiter()(okHandler(nil))
-	resend := verificationResendRateLimiter()(okHandler(nil))
+	changePassword := authScopedRateLimiter(ChangePasswordAttemptsPerMinute)(okHandler(nil))
+	resend := authScopedRateLimiter(VerificationResendPerMinute)(okHandler(nil))
 	const ip = "203.0.113.63:1234"
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {

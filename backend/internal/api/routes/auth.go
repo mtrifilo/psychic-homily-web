@@ -123,19 +123,6 @@ func authScopedRateLimiter(requestsPerMinute int) func(http.Handler) http.Handle
 	)
 }
 
-// verificationResendRateLimiter builds a limiter on the verification-resend
-// budget. Both callers call it separately, so /auth/verify-email/send and
-// /auth/oauth/link-token each get their own counter at that size.
-func verificationResendRateLimiter() func(http.Handler) http.Handler {
-	return authScopedRateLimiter(VerificationResendPerMinute)
-}
-
-// changePasswordRateLimiter builds the limiter for the change-password
-// endpoint.
-func changePasswordRateLimiter() func(http.Handler) http.Handler {
-	return authScopedRateLimiter(ChangePasswordAttemptsPerMinute)
-}
-
 // setupProtectedAuthRoutes configures the auth-related Huma routes that run on
 // the protected group (or the public API for HMAC-signed unsubscribe endpoints
 // and the email-verify confirm endpoint). Split out of SetupRoutes during the
@@ -155,13 +142,13 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// one-click. Unthrottled, it is an inbox-bombing and Resend-quota vector
 	// for any authenticated caller.
 	//
-	// Budget is deliberately separate from the 10/min public auth budget: this
+	// Budget is deliberately separate from the public auth budget: this
 	// endpoint requires a session, and sharing a counter with /auth/login would
 	// let resend clicks lock a user out of logging in. Same per-IP key and same
 	// DISABLE_AUTH_RATE_LIMITS escape hatch as the public auth group, so E2E
 	// shards sharing 127.0.0.1 are unaffected.
 	verifyEmailGroup := huma.NewGroup(rc.Protected, "")
-	verifyEmailGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
+	verifyEmailGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(VerificationResendPerMinute)))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
 	// Change-password meters current-password attempts per client IP. Its
@@ -170,7 +157,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// rc.Protected, so HumaJWTMiddleware runs first and an unauthenticated
 	// caller is refused before it reaches the counter.
 	changePasswordGroup := huma.NewGroup(rc.Protected, "")
-	changePasswordGroup.UseMiddleware(humaFromHTTP(changePasswordRateLimiter()))
+	changePasswordGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(ChangePasswordAttemptsPerMinute)))
 	huma.Post(changePasswordGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
@@ -200,7 +187,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// own: it is an unauthenticated-shaped primitive behind a session, and
 	// nothing else bounds how fast a client can ask for signed tokens.
 	linkTokenGroup := huma.NewGroup(rc.Protected, "")
-	linkTokenGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
+	linkTokenGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(VerificationResendPerMinute)))
 	huma.Post(linkTokenGroup, "/auth/oauth/link-token", oauthAccountHandler.StartOAuthLinkHandler)
 
 	// User preferences endpoints

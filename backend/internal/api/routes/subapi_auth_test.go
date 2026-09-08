@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"psychic-homily-backend/internal/api/middleware"
 )
 
 // PSY-1598 step 3: the auth and passkey groups move off their own humachi.New
@@ -27,8 +29,8 @@ import (
 //     magic-link again, which is the exact regression PSY-475 fixed.
 
 const (
-	authLimitPerMinute    = 10 // auth.go, matching middleware.AuthRequestsPerMinute
-	passkeyLimitPerMinute = 20 // auth.go, matching middleware.PasskeyRequestsPerMinute
+	authLimitPerMinute    = middleware.AuthRequestsPerMinute
+	passkeyLimitPerMinute = middleware.PasskeyRequestsPerMinute
 )
 
 func TestAuthOperationsAreInMainSpec(t *testing.T) {
