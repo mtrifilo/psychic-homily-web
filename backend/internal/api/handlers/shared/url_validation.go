@@ -353,7 +353,8 @@ func validateShape(field, value string) error {
 // allowlist (PSY-1113) to the standard set of social URL fields shared by
 // artist, venue, label, and festival request bodies. Pass nil for fields the
 // surface doesn't accept (e.g. festival only takes Website, so the other 7 args
-// are nil). `website` is host-unrestricted (any https host).
+// are nil). `website` is host-unrestricted (any https host); the userinfo rule
+// inside utils.ValidateSocialHost still applies to it, as it does to all eight.
 //
 // Length is enforced separately by the request struct's maxLength tag at
 // JSON decode time.

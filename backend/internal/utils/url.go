@@ -345,7 +345,10 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 //
 // Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
 // intentionally excluded: they cannot be statically verified to land
-// on-platform, which is the point of the anchor. `website` is the escape hatch.
+// on-platform, which is the point of the anchor. `website` is the escape hatch
+// FROM THE HOST RULE ONLY: absent here it accepts any host, and it is still one
+// of the eight columns in SocialFieldLabels, which is what ValidateSocialHost
+// reads for the userinfo rule.
 //
 // It lives in utils, not beside the handler validator that reads it, because
 // its other consumers cannot import a handler package: the apply gate in

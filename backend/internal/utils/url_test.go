@@ -556,9 +556,10 @@ func TestValidateSocialHostRefusesUserinfo(t *testing.T) {
 }
 
 // TestValidateSocialHostRefusesUserinfoOnEveryColumn drives the rule from the
-// column table itself, so a column added later inherits the assertion rather
-// than needing someone to remember this test. It is the whole eight, which is
-// one more than the anchor covers.
+// column table itself, so a column ADDED later inherits the assertion. It reads
+// the same table the rule reads, so a column removed from that table leaves both
+// at once: TestSocialLinkCorpusPinsTheTable is what catches a removal, by
+// holding the key set to the shared corpus.
 func TestValidateSocialHostRefusesUserinfoOnEveryColumn(t *testing.T) {
 	for field := range SocialFieldLabels {
 		host := "calexico.example.com"

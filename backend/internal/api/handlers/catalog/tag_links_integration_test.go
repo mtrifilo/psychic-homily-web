@@ -203,11 +203,13 @@ func (s *TagHandlerIntegrationSuite) TestTagLinks_MergeCarriesLinksToAnEmptyTarg
 
 	website := "https://rubberbrotherrecords.test"
 	instagram := "https://instagram.com/rubberbrother"
+	description := "The source's prose, which the merge does not carry."
 	sourceReq := &CreateTagRequest{}
 	sourceReq.Body.Name = "Merge Source Crew"
 	sourceReq.Body.Category = catalogm.TagCategoryCrew
 	sourceReq.Body.Website = &website
 	sourceReq.Body.Instagram = &instagram
+	sourceReq.Body.Description = &description
 	source, err := s.handler.CreateTagHandler(ctx, sourceReq)
 	s.Require().NoError(err)
 
@@ -232,6 +234,7 @@ func (s *TagHandlerIntegrationSuite) TestTagLinks_MergeCarriesLinksToAnEmptyTarg
 	s.Require().NotNil(merged.Instagram)
 	s.Equal(instagram, *merged.Instagram)
 	s.Nil(merged.Bandcamp, "a column neither tag held stays empty")
+	s.Nil(merged.Description, "the links carry and the description does not, which is the line the inventory draws")
 
 	var sourceCount int64
 	s.deps.DB.Model(&catalogm.Tag{}).Where("id = ?", source.Body.ID).Count(&sourceCount)

@@ -26,11 +26,12 @@
     "             wrong page while every other assertion passed.",
     "storable   = the write boundary accepts it AND the reader must render it.",
     "storableButUnrenderable = the write boundary accepts it and the reader",
-    "             renders nothing, each row's `why` saying which reason: the",
-    "             browser's URL parser refuses the value outright, or the reader",
-    "             refuses it deliberately. Every one fails closed (no link), and",
-    "             pinning them here is what keeps the gap written down instead",
-    "             of merely true.",
+    "             renders nothing, because the browser's URL parser refuses the",
+    "             value outright where Go's does not. Every one fails closed (no",
+    "             link), and pinning them here is what keeps the gap written down",
+    "             instead of merely true. A value the reader refuses",
+    "             DELIBERATELY does not belong here: the writer is expected to",
+    "             refuse it too, so it goes in refusedByWriter.",
     "A blank or whitespace-only value is in no bucket: it is the clear-the-field",
     "gesture, which both sides read as no value rather than as a link, and the",
     "unit tests on each side cover it.",
@@ -382,6 +383,13 @@
       "field": "instagram",
       "value": "https://instagram.com\\evil.test/x",
       "why": "Go's parser refuses a backslash in the authority; the browser folds it into the path, so the click still lands on instagram.com",
+      "rendersAnyway": true,
+      "goParserRefuses": true
+    },
+    {
+      "field": "instagram",
+      "value": "https://@instagram.com/x",
+      "why": "an empty userinfo section: Go reports userinfo present and refuses, the browser reports an empty username and renders, so the two languages disagree about a value that carries no text to mislead anyone",
       "rendersAnyway": true,
       "goParserRefuses": true
     }

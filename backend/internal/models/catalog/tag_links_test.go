@@ -125,6 +125,24 @@ func TestResolveTagLinkMerge(t *testing.T) {
 		assert.Empty(t, discarded)
 	})
 
+	t.Run("a source value the write boundary refuses is carried nowhere", func(t *testing.T) {
+		// Stored before the rule that refuses it, and unrenderable on either
+		// row, so the merge does not move it and does not report it as a link
+		// the target cost anyone.
+		userinfo := "https://evil.test@instagram.com/x"
+		offPlatform := "https://instagram.com.evil.test/x"
+		for _, value := range []string{userinfo, offPlatform} {
+			carry, discarded := ResolveTagLinkMerge(&Tag{Instagram: &value}, &Tag{})
+			assert.Empty(t, carry, value)
+			assert.Empty(t, discarded, value)
+		}
+
+		// The unanchored column is judged by its own rules, so any host carries.
+		anyHost := "https://crew.example.test/"
+		carry, _ := ResolveTagLinkMerge(&Tag{Website: &anyHost}, &Tag{})
+		assert.Equal(t, map[string]any{"website": anyHost}, carry)
+	})
+
 	t.Run("every link column is resolved, in one order", func(t *testing.T) {
 		source := &Tag{
 			Website:   tagLinkPtr("https://source.test"),

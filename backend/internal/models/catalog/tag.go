@@ -142,6 +142,12 @@ type TagLinkDiscard struct {
 // A blank column is no link on either side: the write paths store NULL for the
 // clear gesture, and a legacy row holding "" means the same thing.
 //
+// A source value the row's own write boundary would refuse is carried nowhere:
+// the merge is the one writer of these columns that takes a value it did not
+// validate, so it re-asks. Such a value renders as no link on either row, so
+// leaving it on the deleted source costs the target nothing, and it is not
+// reported as discarded, which is about losing a link that worked.
+//
 // carry is never nil, so a caller may add its own columns to it before writing.
 func ResolveTagLinkMerge(source, target *Tag) (map[string]any, []TagLinkDiscard) {
 	carry := make(map[string]any, len(tagLinkColumns))
@@ -149,6 +155,9 @@ func ResolveTagLinkMerge(source, target *Tag) (map[string]any, []TagLinkDiscard)
 	for _, col := range tagLinkColumns {
 		sourceValue := utils.NilIfBlankPtr(col.read(source))
 		if sourceValue == nil {
+			continue
+		}
+		if utils.ValidateStoredSocialValue(col.name, utils.SocialFieldLabels[col.name], *sourceValue) != nil {
 			continue
 		}
 		targetValue := utils.NilIfBlankPtr(col.read(target))

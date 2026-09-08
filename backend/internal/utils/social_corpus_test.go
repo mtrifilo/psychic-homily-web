@@ -105,6 +105,14 @@ func TestSocialLinkCorpusPinsTheTable(t *testing.T) {
 		assert.False(t, anchored, "corpus calls %q unanchored but the Go table anchors it", field)
 	}
 
+	// SocialFieldLabels is the reach of the userinfo rule, so its key set is a
+	// gate and not only wording: a column dropped or renamed there leaves that
+	// rule silently. The corpus names the whole set, anchored plus unanchored.
+	assert.ElementsMatch(t,
+		slices.Concat(slices.Collect(maps.Keys(corpus.Platforms)), corpus.Unanchored),
+		slices.Collect(maps.Keys(SocialFieldLabels)),
+		"the corpus and SocialFieldLabels name different social columns")
+
 	// Table membership alone is not enough. The ElementsMatch above catches a
 	// field REMOVED from the table; this catches a field whose bases no parser
 	// is ever run against, which is how a host can be wrong in both languages
