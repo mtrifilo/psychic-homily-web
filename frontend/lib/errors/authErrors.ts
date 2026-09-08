@@ -198,6 +198,18 @@ export function isReauthRequired(error: unknown): boolean {
 }
 
 /**
+ * Copy for a failed credential mint. The re-authentication refusal names its
+ * own remedy; everything else falls back to the caller's copy for the thing it
+ * was minting.
+ *
+ * One function rather than the same ternary at each mint surface, so a second
+ * gated code is added in one place instead of found in four components.
+ */
+export function mintErrorMessage(error: unknown, fallback: string): string {
+  return isReauthRequired(error) ? REAUTH_REQUIRED_MESSAGE : fallback
+}
+
+/**
  * Get a user-friendly message for an error code
  */
 export function getAuthErrorMessage(code: AuthErrorCodeType): string {

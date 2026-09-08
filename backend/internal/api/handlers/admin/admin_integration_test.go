@@ -345,7 +345,6 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Pagination() {
 
 func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	// Minting an API token requires a recently authenticated session.
 	ctx := testhelpers.CtxWithSessionAuthTime(admin, time.Now())
 
 	req := &CreateAPITokenRequest{}
@@ -360,7 +359,6 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_Success() {
 
 func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_DefaultExpiration() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	// Minting an API token requires a recently authenticated session.
 	ctx := testhelpers.CtxWithSessionAuthTime(admin, time.Now())
 
 	req := &CreateAPITokenRequest{}
@@ -373,7 +371,6 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_DefaultExpiration() {
 
 func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_ExceededMaxDays() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	// Minting an API token requires a recently authenticated session.
 	ctx := testhelpers.CtxWithSessionAuthTime(admin, time.Now())
 
 	req := &CreateAPITokenRequest{}
@@ -387,7 +384,6 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_ExceededMaxDays() {
 
 func (s *AdminHandlerIntegrationSuite) TestListAPITokens_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	// Minting an API token requires a recently authenticated session.
 	ctx := testhelpers.CtxWithSessionAuthTime(admin, time.Now())
 
 	// Create a token first
@@ -408,7 +404,6 @@ func (s *AdminHandlerIntegrationSuite) TestListAPITokens_Success() {
 
 func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	// Minting an API token requires a recently authenticated session.
 	ctx := testhelpers.CtxWithSessionAuthTime(admin, time.Now())
 
 	// Create a token

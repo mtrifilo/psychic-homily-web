@@ -30,7 +30,8 @@ import {
 } from 'lucide-react'
 import { formatTokenDate, formatTokenDateTime, isTokenExpiringSoon } from './api-token-utils'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
-import { isReauthRequired, REAUTH_REQUIRED_MESSAGE } from '@/lib/errors'
+import { mintErrorMessage } from '@/lib/errors'
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 
 // How long the "copied ✓" confirmation stays up after copying a token.
 const TOKEN_COPIED_DISMISS_MS = 2000
@@ -184,11 +185,22 @@ export function APITokenManagement() {
 
   // Minting refuses a session that has not authenticated recently, and that
   // refusal names its own remedy rather than reporting a failure the user can
-  // only retry. Read once and rendered in two places: the dialog covers the
-  // card, so a failure raised from inside it has to be visible there.
-  const createErrorMessage = isReauthRequired(createToken.error)
-    ? REAUTH_REQUIRED_MESSAGE
-    : createToken.error?.message || 'Failed to create token. Please try again.'
+  // only retry.
+  //
+  // Built once and rendered in exactly one of two places: the dialog covers the
+  // card, so a failure raised from inside it has to be visible there, and
+  // rendering both would put two alerts with the same words in the DOM at once.
+  const createErrorBanner = createToken.isError ? (
+    <InlineErrorBanner className="flex items-start gap-2">
+      <AlertCircle className="h-4 w-4 shrink-0" />
+      <span>
+        {mintErrorMessage(
+          createToken.error,
+          createToken.error?.message || 'Failed to create token. Please try again.'
+        )}
+      </span>
+    </InlineErrorBanner>
+  ) : null
 
   return (
     <Card>
@@ -264,15 +276,7 @@ export function APITokenManagement() {
                       onChange={(e) => setDescription(e.target.value)}
                     />
                   </div>
-                  {createToken.isError && (
-                    <div
-                      role="alert"
-                      className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
-                    >
-                      <AlertCircle className="h-4 w-4 shrink-0" />
-                      <span>{createErrorMessage}</span>
-                    </div>
-                  )}
+                  {createErrorBanner}
                   <div className="space-y-2">
                     <Label htmlFor="expiration">Expiration (days)</Label>
                     <Input
@@ -368,12 +372,7 @@ export function APITokenManagement() {
             </div>
           </div>
 
-          {createToken.isError && (
-            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" />
-              <span>{createErrorMessage}</span>
-            </div>
-          )}
+          {!isCreateDialogOpen && createErrorBanner}
 
           {revokeToken.isError && (
             <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">

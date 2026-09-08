@@ -34,10 +34,6 @@ export function FollowsActivityFeedSection() {
   const { data: tokenStatus, isLoading } = useCalendarTokenStatus()
   const createToken = useCreateCalendarToken()
   const deleteToken = useDeleteCalendarToken()
-  // Enabling and regenerating both mint the personal feed token, and the mint
-  // refuses a session that has not authenticated recently. Rendered beside
-  // every control that can start one: without it the button is a dead click.
-  const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
   const [createdToken, setCreatedToken] = useState<{
     token: string
     follows_feed_url: string
@@ -116,6 +112,8 @@ export function FollowsActivityFeedSection() {
   if (isLoading) {
     return null
   }
+
+  const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
 
   if (createdToken) {
     return (

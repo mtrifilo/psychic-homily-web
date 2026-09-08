@@ -37,7 +37,7 @@ import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
 import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
-import { isReauthRequired, REAUTH_REQUIRED_MESSAGE } from '@/lib/errors'
+import { mintErrorMessage } from '@/lib/errors'
 
 // How long the "copied ✓" confirmation stays up after copying the CLI token.
 const TOKEN_COPIED_DISMISS_MS = 2000
@@ -348,10 +348,11 @@ export function SettingsPanel() {
                 <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4 shrink-0" />
                   <span>
-                    {isReauthRequired(generateCLIToken.error)
-                      ? REAUTH_REQUIRED_MESSAGE
-                      : generateCLIToken.error?.message ||
-                        'Failed to generate token. Please try again.'}
+                    {mintErrorMessage(
+                      generateCLIToken.error,
+                      generateCLIToken.error?.message ||
+                        'Failed to generate token. Please try again.'
+                    )}
                   </span>
                 </div>
               )}

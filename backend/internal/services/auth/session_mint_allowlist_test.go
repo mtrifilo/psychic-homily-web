@@ -60,11 +60,6 @@ var sessionMintAllowlist = map[string]string{
 	// The one deliberate time.Now() stamp, which is what CreateToken means.
 	"internal/services/auth/jwt.go:JWTService.CreateToken:RenewSessionToken": "the factor stamp itself",
 
-	// A test helper, which the walk sees because it lives in a non-test file so
-	// that every handler package can import it. It renews with a time its
-	// caller supplies and reaches no request.
-	"internal/api/handlers/shared/testhelpers/session_auth_time.go:SessionAuthTimeAfterRenewal:RenewSessionToken": "test helper, time from the caller",
-
 	// Unrelated services that happen to expose a CreateToken. Named so the walk
 	// needs no receiver heuristic to leave them alone.
 	"cmd/gen-api-token/main.go:main:CreateToken":                                                          "admin API token, not a session",

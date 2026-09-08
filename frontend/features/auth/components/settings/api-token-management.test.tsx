@@ -224,6 +224,25 @@ describe('APITokenManagement', () => {
     expect(screen.getByText(REAUTH_REQUIRED_MESSAGE)).toBeInTheDocument()
   })
 
+  // The dialog covers the card, so the same alert rendered in both would be two
+  // live regions announcing the same words.
+  it('renders the create error once, on the surface the user is looking at', async () => {
+    const user = userEvent.setup()
+    mockTokensData = { tokens: [] }
+    mockCreateMutationState = {
+      isPending: false,
+      isError: true,
+      error: new Error('Rate limit exceeded'),
+    }
+    renderWithProviders(<APITokenManagement />)
+
+    expect(screen.getAllByText('Rate limit exceeded')).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
+
+    expect(screen.getAllByText('Rate limit exceeded')).toHaveLength(1)
+  })
+
   it('shows revoke mutation error', () => {
     mockTokensData = { tokens: [] }
     mockRevokeMutationState = {

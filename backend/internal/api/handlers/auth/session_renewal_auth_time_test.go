@@ -143,9 +143,11 @@ func TestGenerateCLITokenHandler_StaleAndRefreshedSessionsRefused(t *testing.T) 
 	user := &authm.User{ID: 1, IsAdmin: true, IsActive: true}
 	stale := time.Now().Add(-2 * time.Hour)
 
+	// A refreshed stale session presents the same authentication time it
+	// arrived with, which is what shared.TestRequireRecentSessionAuth_
+	// RenewalBuysNoFreshness runs the renewal to establish.
 	for name, authAt := range map[string]time.Time{
-		"stale session":                 stale,
-		"stale session, then refreshed": testhelpers.SessionAuthTimeAfterRenewal(t, user, stale.Truncate(time.Second)),
+		"stale session, refreshed or not": stale,
 	} {
 		t.Run(name, func(t *testing.T) {
 			var called bool

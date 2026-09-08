@@ -12,8 +12,10 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	authsvc "psychic-homily-backend/internal/services/auth"
 )
 
 func userWithPassword() *authm.User {
@@ -117,13 +119,33 @@ func TestRequireRecentSessionAuth_SessionShapes(t *testing.T) {
 }
 
 // The bypass this gate exists to close: POST /auth/refresh renews a session
-// with no factor behind it, so a refusal that the extra request could buy a way
-// out of would be no refusal at all. The renewal is run for real.
+// with no factor behind it, so a refusal the extra request could buy a way out
+// of would be no refusal at all.
+//
+// The renewal and the middleware's read are both run for real here, which is
+// what lets the per-mint tests present a stale authentication time directly:
+// this test is the evidence that a refreshed session presents exactly that
+// same value.
 func TestRequireRecentSessionAuth_RenewalBuysNoFreshness(t *testing.T) {
 	user := userWithPassword()
 	stale := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
 
-	renewedAuthAt := testhelpers.SessionAuthTimeAfterRenewal(t, user, stale)
+	cfg := &config.Config{JWT: config.JWTConfig{
+		SecretKey: "test-secret-key-at-least-32-characters-long",
+		Expiry:    24,
+	}}
+	jwtService := authsvc.NewJWTService(nil, cfg, &testhelpers.MockUserService{
+		GetUserByIDFn: func(uint) (*authm.User, error) { return user, nil },
+	})
+
+	renewed, err := jwtService.RenewSessionToken(user, stale)
+	if err != nil {
+		t.Fatalf("renewing the session: %v", err)
+	}
+	_, renewedAuthAt, err := jwtService.ValidateSession(renewed)
+	if err != nil {
+		t.Fatalf("reading the renewed session: %v", err)
+	}
 	if !renewedAuthAt.Equal(stale) {
 		t.Fatalf("renewal moved the authentication time to %v, want %v", renewedAuthAt, stale)
 	}

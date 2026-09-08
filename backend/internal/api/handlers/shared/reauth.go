@@ -87,14 +87,15 @@ func AccountHasPassword(user *authm.User) bool {
 //
 // 403 rather than the browser redirect the OAuth link path uses: these are API
 // calls made by fetch and by the CLI, and neither can follow a redirect to a
-// sign-in page. The body carries error_code in the same shape the auth-layer
-// middleware denials use, so a surface renders copy it owns rather than server
-// prose.
+// sign-in page.
+//
+// The body is middleware.JWTErrorResponse, the shape the auth-layer middleware
+// denials already write, so the frontend parses one envelope for every such
+// refusal. Embedding it rather than restating its fields is what keeps that
+// true. Success is left at its zero value, which is the false the envelope
+// means.
 type ReauthRequiredError struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	ErrorCode string `json:"error_code"`
-	RequestID string `json:"request_id,omitempty"`
+	middleware.JWTErrorResponse
 }
 
 func (e *ReauthRequiredError) Error() string { return e.Message }
@@ -133,9 +134,9 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 		"required_factor", string(factor),
 	)
 
-	return &ReauthRequiredError{
+	return &ReauthRequiredError{JWTErrorResponse: middleware.JWTErrorResponse{
 		Message:   autherrors.ToExternalMessage(autherrors.CodeReauthRequired),
 		ErrorCode: autherrors.CodeReauthRequired,
 		RequestID: logger.GetRequestID(ctx),
-	}
+	}}
 }

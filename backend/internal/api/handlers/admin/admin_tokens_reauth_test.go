@@ -55,57 +55,30 @@ func TestCreateAPITokenHandler_FreshSessionMints(t *testing.T) {
 	}
 }
 
-func TestCreateAPITokenHandler_StaleSessionRefused(t *testing.T) {
-	var minted bool
-	h := tokenHandlerRecordingMints(&minted)
+// A refreshed stale session presents the same authentication time it arrived
+// with, which is what shared.TestRequireRecentSessionAuth_RenewalBuysNoFreshness
+// runs the renewal to establish. A phk_ bearer presents none at all, so one
+// cannot mint its own successor.
+func TestCreateAPITokenHandler_SessionsWithoutRecentAuthRefused(t *testing.T) {
+	for name, authAt := range map[string]time.Time{
+		"stale session, refreshed or not": time.Now().Add(-2 * time.Hour),
+		"api-token principal":             {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var minted bool
+			h := tokenHandlerRecordingMints(&minted)
 
-	_, err := h.CreateAPITokenHandler(
-		testhelpers.CtxWithSessionAuthTime(adminUser(), time.Now().Add(-2*time.Hour)),
-		createTokenRequest(),
-	)
-	var refusal *shared.ReauthRequiredError
-	if !errors.As(err, &refusal) {
-		t.Fatalf("expected a re-authentication refusal, got %v", err)
-	}
-	if minted {
-		t.Error("a refused request must not reach the token service")
-	}
-}
-
-// A phk_ bearer establishes no authentication time, so one cannot mint its own
-// successor.
-func TestCreateAPITokenHandler_APITokenPrincipalRefused(t *testing.T) {
-	var minted bool
-	h := tokenHandlerRecordingMints(&minted)
-
-	_, err := h.CreateAPITokenHandler(
-		testhelpers.CtxWithSessionAuthTime(adminUser(), time.Time{}),
-		createTokenRequest(),
-	)
-	if err == nil {
-		t.Fatal("a principal with no authentication time must be refused")
-	}
-	if minted {
-		t.Error("a refused request must not reach the token service")
-	}
-}
-
-// POST /auth/refresh renews the session with no factor behind it; the mint is
-// no more available afterwards than before.
-func TestCreateAPITokenHandler_RefreshedStaleSessionStillRefused(t *testing.T) {
-	user := adminUser()
-	renewedAuthAt := testhelpers.SessionAuthTimeAfterRenewal(t, user, time.Now().Add(-2*time.Hour))
-
-	var minted bool
-	h := tokenHandlerRecordingMints(&minted)
-
-	if _, err := h.CreateAPITokenHandler(
-		testhelpers.CtxWithSessionAuthTime(user, renewedAuthAt),
-		createTokenRequest(),
-	); err == nil {
-		t.Fatal("a refreshed stale session must still be refused")
-	}
-	if minted {
-		t.Error("a refused request must not reach the token service")
+			_, err := h.CreateAPITokenHandler(
+				testhelpers.CtxWithSessionAuthTime(adminUser(), authAt),
+				createTokenRequest(),
+			)
+			var refusal *shared.ReauthRequiredError
+			if !errors.As(err, &refusal) {
+				t.Fatalf("expected a re-authentication refusal, got %v", err)
+			}
+			if minted {
+				t.Error("a refused request must not reach the token service")
+			}
+		})
 	}
 }

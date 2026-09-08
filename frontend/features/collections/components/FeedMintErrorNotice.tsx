@@ -1,7 +1,8 @@
 'use client'
 
 import { AlertCircle } from 'lucide-react'
-import { isReauthRequired, REAUTH_REQUIRED_MESSAGE } from '@/lib/errors'
+import { mintErrorMessage } from '@/lib/errors'
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 
 interface FeedMintErrorNoticeProps {
   /** The create-token mutation's error, or null while it has not failed. */
@@ -21,16 +22,14 @@ export function FeedMintErrorNotice({ error }: FeedMintErrorNoticeProps) {
   if (!error) return null
 
   return (
-    <div
-      role="alert"
-      className="flex items-start gap-2 mt-3 text-xs text-destructive"
-    >
+    <InlineErrorBanner className="flex items-start gap-2 mt-3 p-2 text-xs">
       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
       <span>
-        {isReauthRequired(error)
-          ? REAUTH_REQUIRED_MESSAGE
-          : 'Could not update the feed. Please try again.'}
+        {mintErrorMessage(
+          error,
+          'Could not update the feed. Please try again.'
+        )}
       </span>
-    </div>
+    </InlineErrorBanner>
   )
 }

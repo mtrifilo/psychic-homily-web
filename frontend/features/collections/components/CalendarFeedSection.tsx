@@ -119,9 +119,6 @@ export function CalendarFeedSection({
 
   const isSettings = variant === 'settings'
 
-  // Enabling and regenerating both mint a feed token, and the mint refuses a
-  // session that has not authenticated recently. Rendered beside every control
-  // that can start one: without it the button is a dead click.
   const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
 
   // Just created / regenerated — show the feed URL (only moment plaintext is available)
