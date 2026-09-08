@@ -8,8 +8,8 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -58,7 +58,7 @@ func TestPasskeyRegistration_StaleSessionRefused(t *testing.T) {
 			h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 			ctx := testhelpers.CtxWithSessionAuthTime(passkeyUser(), authAt)
 
-			var refusal *shared.ReauthRequiredError
+			var refusal *middleware.ReauthRequiredError
 			_, beginErr := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
 			if !errors.As(beginErr, &refusal) {
 				t.Fatalf("expected a re-authentication refusal, got %v", beginErr)

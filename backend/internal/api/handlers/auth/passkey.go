@@ -12,7 +12,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -106,7 +105,7 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	// two the claim reader believes of a future stamp (maxAuthTimeSkew), plus
 	// these five. A passkey can land about seventeen minutes after the factor
 	// that allowed it.
-	if err := shared.RequireRecentSessionAuth(ctx, "passkey_register"); err != nil {
+	if err := middleware.RequireRecentSessionAuth(ctx, "passkey_register"); err != nil {
 		return nil, err
 	}
 

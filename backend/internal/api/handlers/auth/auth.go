@@ -13,7 +13,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -2248,7 +2247,7 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 	// The minted token is a session credential that leaves the browser for a
 	// terminal, where nothing revokes it early. A session that cannot be shown
 	// to be recently authenticated does not get to make one.
-	if err := shared.RequireRecentSessionAuth(ctx, "generate_cli_token"); err != nil {
+	if err := middleware.RequireRecentSessionAuth(ctx, "generate_cli_token"); err != nil {
 		return nil, err
 	}
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -52,7 +51,7 @@ func (h *AdminTokenHandler) CreateAPITokenHandler(ctx context.Context, req *Crea
 	// session's authentication time forward, so one that leaks within the
 	// window can be spent here. What the gate buys is that the leak has to be
 	// recent.
-	if err := shared.RequireRecentSessionAuth(ctx, "admin_create_api_token"); err != nil {
+	if err := middleware.RequireRecentSessionAuth(ctx, "admin_create_api_token"); err != nil {
 		return nil, err
 	}
 

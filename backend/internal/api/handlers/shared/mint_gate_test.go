@@ -34,7 +34,7 @@ import (
 //     verified password), so the freshness the gate asks for is what this
 //     request just established: list it below with the factor
 //   - anything else issues on the strength of a credential the caller already
-//     holds: call shared.RequireRecentSessionAuth first
+//     holds: call middleware.RequireRecentSessionAuth first
 //
 // It also does not follow calls: it sees the function that names the method,
 // not every path that reaches it, so a new caller of an already-listed helper
@@ -169,7 +169,7 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 	}
 	sort.Strings(sites)
 	for _, site := range sites {
-		t.Errorf("%s names %s and does not call shared.%s.\n"+
+		t.Errorf("%s names %s and does not call middleware.%s.\n"+
 			"A credential issued on the strength of a session the caller already holds\n"+
 			"must ask the gate first. If an authentication factor completed in this\n"+
 			"request instead, add the site to mintGateExemptions with the factor named.",
@@ -186,8 +186,8 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 // inspectFunc reports whether fn names a credential-issuing method or function,
 // which one, and whether it also names the gate.
 //
-// The gate is always reached as shared.RequireRecentSessionAuth from outside
-// this package, so the selector arm sees it; the identifier arm is what catches
+// The gate is always reached as middleware.RequireRecentSessionAuth, so the
+// selector arm sees it; the identifier arm is what catches
 // a package-level issuer such as mintOAuthLinkToken.
 func inspectFunc(fn *ast.FuncDecl) (issues bool, method string, gated bool) {
 	ast.Inspect(fn, func(n ast.Node) bool {

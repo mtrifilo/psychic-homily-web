@@ -140,7 +140,7 @@ func TestGenerateCLITokenHandler_SessionWithoutAuthTimeRefused(t *testing.T) {
 // hands such a session a token carrying that same authentication time, so it
 // arrives here as this exact value and is refused the same way; that the
 // renewal carries it rather than moving it is established by
-// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared, which
+// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in api/middleware, which
 // runs the renewal against the JWT service.
 func TestGenerateCLITokenHandler_StaleSessionRefused(t *testing.T) {
 	user := &authm.User{ID: 1, IsAdmin: true, IsActive: true}

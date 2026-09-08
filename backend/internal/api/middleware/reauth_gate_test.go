@@ -1,4 +1,10 @@
-package shared_test
+// package middleware_test, not middleware, and that is load-bearing: this file
+// imports handlers/shared/testhelpers, which imports middleware. An EXTERNAL
+// test package may do that; an internal one may not, and moving these tests to
+// package middleware would close the cycle this file's subject was moved here
+// to escape.
+
+package middleware_test
 
 import (
 	"context"
@@ -10,8 +16,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -26,7 +32,7 @@ func userWithPassword() *authm.User {
 // The refusal has to be readable by a caller that cannot follow a redirect, so
 // the status and the code are part of the contract, not incidental.
 func TestRequireRecentSessionAuth_RefusalCarriesTheCode(t *testing.T) {
-	err := shared.RequireRecentSessionAuth(
+	err := middleware.RequireRecentSessionAuth(
 		testhelpers.CtxWithSessionAuthTime(userWithPassword(), time.Now().Add(-2*time.Hour)),
 		"test_mint",
 	)
@@ -107,7 +113,7 @@ func TestRequireRecentSessionAuth_SessionShapes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := shared.RequireRecentSessionAuth(tc.ctx, "test_mint")
+			err := middleware.RequireRecentSessionAuth(tc.ctx, "test_mint")
 			if tc.allowed && err != nil {
 				t.Fatalf("expected the mint to be allowed, got %v", err)
 			}
@@ -128,9 +134,10 @@ func TestRequireRecentSessionAuth_SessionShapes(t *testing.T) {
 // time directly: this is the evidence that a refreshed session presents exactly
 // that same value.
 //
-// The middleware is not in this path. That it writes the value this gate reads
-// is held by JWTMiddlewareIntegrationSuite/TestHumaJWT_CarriesSessionAuthTime
-// and its siblings in internal/api/middleware.
+// The middlewares this package also defines are not in this path. That they
+// write the value this gate reads is held by
+// JWTMiddlewareIntegrationSuite/TestHumaJWT_CarriesSessionAuthTime and its
+// siblings.
 func TestRequireRecentSessionAuth_RenewalBuysNoFreshness(t *testing.T) {
 	user := userWithPassword()
 	stale := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
@@ -154,7 +161,7 @@ func TestRequireRecentSessionAuth_RenewalBuysNoFreshness(t *testing.T) {
 	if !renewedAuthAt.Equal(stale) {
 		t.Fatalf("renewal moved the authentication time to %v, want %v", renewedAuthAt, stale)
 	}
-	if err := shared.RequireRecentSessionAuth(testhelpers.CtxWithSessionAuthTime(user, renewedAuthAt), "test_mint"); err == nil {
+	if err := middleware.RequireRecentSessionAuth(testhelpers.CtxWithSessionAuthTime(user, renewedAuthAt), "test_mint"); err == nil {
 		t.Error("a refreshed stale session must still be refused")
 	}
 }

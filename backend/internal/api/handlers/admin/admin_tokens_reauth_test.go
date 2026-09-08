@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -61,7 +61,7 @@ func TestCreateAPITokenHandler_FreshSessionMints(t *testing.T) {
 // A refreshed session arrives carrying the same authentication time it had, so
 // it reaches this handler as the stale value below; that the renewal carries
 // rather than moves it is established by
-// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared. A
+// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in api/middleware. A
 // phk_ bearer presents none at all, so one cannot mint its own successor.
 func TestCreateAPITokenHandler_SessionsWithoutRecentAuthRefused(t *testing.T) {
 	for name, authAt := range map[string]time.Time{
@@ -76,7 +76,7 @@ func TestCreateAPITokenHandler_SessionsWithoutRecentAuthRefused(t *testing.T) {
 				testhelpers.CtxWithSessionAuthTime(adminUser(), authAt),
 				createTokenRequest(),
 			)
-			var refusal *shared.ReauthRequiredError
+			var refusal *middleware.ReauthRequiredError
 			if !errors.As(err, &refusal) {
 				t.Fatalf("expected a re-authentication refusal, got %v", err)
 			}

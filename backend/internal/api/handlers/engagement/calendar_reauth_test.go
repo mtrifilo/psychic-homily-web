@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -55,7 +55,7 @@ func TestCreateCalendarTokenHandler_StaleAndRefreshedSessionsRefused(t *testing.
 	// A refreshed session arrives carrying the same authentication time it had,
 	// so it reaches this handler as the stale value below; that the renewal
 	// carries rather than moves it is established by
-	// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared.
+	// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in api/middleware.
 	for name, authAt := range map[string]time.Time{
 		"stale session":                 stale,
 		"no authentication time at all": {},
@@ -68,7 +68,7 @@ func TestCreateCalendarTokenHandler_StaleAndRefreshedSessionsRefused(t *testing.
 				testhelpers.CtxWithSessionAuthTime(user, authAt),
 				&CreateCalendarTokenRequest{},
 			)
-			var refusal *shared.ReauthRequiredError
+			var refusal *middleware.ReauthRequiredError
 			if !errors.As(err, &refusal) {
 				t.Fatalf("expected a re-authentication refusal, got %v", err)
 			}

@@ -1,4 +1,4 @@
-package shared_test
+package middleware_test
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 )
@@ -39,7 +38,7 @@ func TestReauthRefusalOverTheWire(t *testing.T) {
 			next(ctx)
 		}},
 	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
-		if err := shared.RequireRecentSessionAuth(ctx, "wire_test_mint"); err != nil {
+		if err := middleware.RequireRecentSessionAuth(ctx, "wire_test_mint"); err != nil {
 			return nil, err
 		}
 		return &struct{}{}, nil
@@ -86,7 +85,7 @@ func TestReauthGateLetsAFreshSessionThrough(t *testing.T) {
 			next(ctx)
 		}},
 	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
-		if err := shared.RequireRecentSessionAuth(ctx, "wire_test_mint"); err != nil {
+		if err := middleware.RequireRecentSessionAuth(ctx, "wire_test_mint"); err != nil {
 			return nil, err
 		}
 		return &struct{}{}, nil

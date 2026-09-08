@@ -1,16 +1,22 @@
-package shared
+package middleware
 
 import (
 	"context"
 	"net/http"
 	"time"
 
-	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
+// This rule lives beside the session-credential readers it asks, and NOT in
+// api/handlers/shared, which is where a handler helper would otherwise go.
+// That package must not import this one: this package imports services/admin,
+// and services/admin's internal tests import handlers/shared, so an import of
+// middleware there closes a cycle in the admin test binary. The same
+// constraint is stated on ShowSubResourceVisible in that package.
+//
 // Issuing a credential, or attaching a new way to sign in, is the kind of
 // change a stolen session must not be able to make on its own. The caller has
 // to have proven the account recently.
@@ -104,13 +110,12 @@ func AccountHasPassword(user *authm.User) bool {
 // calls made by fetch and by the CLI, and neither can follow a redirect to a
 // sign-in page.
 //
-// The body is middleware.JWTErrorResponse, the shape the auth-layer middleware
-// denials already write, so the frontend parses one envelope for every such
-// refusal. Embedding it rather than restating its fields is what keeps that
-// true. Success is left at its zero value, which is the false the envelope
-// means.
+// The body is JWTErrorResponse, the shape this package's other auth denials
+// already write, so the frontend parses one envelope for every such refusal.
+// Embedding it rather than restating its fields is what keeps that true.
+// Success is left at its zero value, which is the false the envelope means.
 type ReauthRequiredError struct {
-	middleware.JWTErrorResponse
+	JWTErrorResponse
 }
 
 func (e *ReauthRequiredError) Error() string { return e.Message }
@@ -126,13 +131,13 @@ func (e *ReauthRequiredError) GetStatus() int { return http.StatusForbidden }
 // so every gated operation asks the same question of the same facts. operation
 // names the one that was refused, in the log.
 func RequireRecentSessionAuth(ctx context.Context, operation string) error {
-	user := middleware.GetUserFromContext(ctx)
+	user := GetUserFromContext(ctx)
 
 	// hasPasskey is false: see the KNOWN GAP on ReauthFactorFor.
 	factor := ReauthFactorFor(
 		AccountHasPassword(user),
 		false,
-		middleware.GetSessionAuthTimeFromContext(ctx),
+		GetSessionAuthTimeFromContext(ctx),
 		time.Now(),
 	)
 	if factor == ReauthAlreadySatisfied {
@@ -149,7 +154,7 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 		"required_factor", string(factor),
 	)
 
-	return &ReauthRequiredError{JWTErrorResponse: middleware.JWTErrorResponse{
+	return &ReauthRequiredError{JWTErrorResponse: JWTErrorResponse{
 		Message:   autherrors.ToExternalMessage(autherrors.CodeReauthRequired),
 		ErrorCode: autherrors.CodeReauthRequired,
 		RequestID: logger.GetRequestID(ctx),

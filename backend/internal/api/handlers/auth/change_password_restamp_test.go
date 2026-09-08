@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -171,7 +171,7 @@ func TestChangePasswordHandler_FailedChangeDoesNotRestamp(t *testing.T) {
 	}
 
 	// And the mint stays refused, which is what the stamp would have changed.
-	if err := shared.RequireRecentSessionAuth(ctx, "generate_cli_token"); err == nil {
+	if err := middleware.RequireRecentSessionAuth(ctx, "generate_cli_token"); err == nil {
 		t.Error("the session must still be too old to mint")
 	}
 }
