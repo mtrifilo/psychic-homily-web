@@ -161,6 +161,10 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
 		       MIN(v.state) AS state`
 
+// noExtraJoins is sceneQualifyingGroupingSQL's argument for a caller that
+// projects no venue-local bound and so needs no zone lateral.
+const noExtraJoins = ""
+
 // sceneQualifyingGroupingSQL is everything after the select list in "the
 // qualifying scene set": eligible venues LEFT JOINed to their approved shows,
 // grouped by sceneGroupKeySQL, keeping the groups that clear both floors. The
@@ -187,10 +191,6 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 // can move its own half of that set without moving the other, and the rows
 // still scan either way. The charts summary's activeSceneCount deliberately
 // does NOT use it: that surface is window-bounded with no floor at all.
-// noExtraJoins is sceneQualifyingGroupingSQL's argument for a caller that
-// projects no venue-local bound and so needs no zone lateral.
-const noExtraJoins = ""
-
 func sceneQualifyingGroupingSQL(extraJoins string) string {
 	return `
 		FROM venues v
