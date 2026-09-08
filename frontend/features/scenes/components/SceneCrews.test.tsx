@@ -53,14 +53,16 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
 }
 
 /**
- * Arrival order is deliberately neither the show-count order nor the name
- * order, so a client-side re-sort by either one fails the order case below.
+ * Arrival order matches no sort of this fixture: the counts (5, 2, 3) are
+ * monotonic in neither direction and the names are in neither alphabetical
+ * order, so a client-side re-sort by either field fails the order case below.
  * The real endpoint ranks by count then name; the component's contract is to
  * print what it was handed, whatever that is.
  */
 const CREWS: SceneCrewSummary[] = [
-  { slug: 'relax-attack-jazz-series', name: 'Relax Attack Jazz Series', show_count: 1 },
-  { slug: 'pleiades-series', name: 'Pleiades Series', show_count: 4 },
+  { slug: 'pleiades-series', name: 'Pleiades Series', show_count: 5 },
+  { slug: 'relax-attack-jazz-series', name: 'Relax Attack Jazz Series', show_count: 2 },
+  { slug: 'improvised-music-series', name: 'Improvised Music Series', show_count: 3 },
 ]
 
 /** `null` is the absent payload, which is how both loading and error arrive. */
@@ -103,7 +105,7 @@ describe('SceneCrews', () => {
     const names = screen
       .getAllByRole('listitem')
       .map(item => item.textContent)
-    expect(names).toEqual(['Relax Attack Jazz Series', 'Pleiades Series'])
+    expect(names).toEqual(CREWS.map(crew => crew.name))
   })
 
   // No cap: a crowded scene names every crew booking in it.
@@ -155,6 +157,26 @@ describe('SceneCrews', () => {
   // The wire type is `crews: SceneCrewSummary[] | null`, which the local
   // response type narrows away; the guard has to hold against the shape the
   // API actually allows.
+  // `name` is required on the wire, so this needs a blank stored tag name. An
+  // empty chip would be a focusable box with no accessible name.
+  it('drops a crew it cannot name', () => {
+    renderCrews([
+      { slug: 'nameless', name: '   ', show_count: 9 },
+      ...CREWS,
+    ])
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(CREWS.length)
+    expect(
+      screen.queryByRole('link', { name: '' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides when every crew it was handed is nameless', () => {
+    const { container } = renderCrews([{ slug: 'nameless', name: '', show_count: 1 }])
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('hides when the payload carries a null list', () => {
     mockUseSceneCrews.mockReturnValue({ data: { crews: null } })
     const { container } = renderWithProviders(<SceneCrews scene={buildScene()} />)

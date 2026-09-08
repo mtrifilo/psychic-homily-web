@@ -258,6 +258,17 @@ describe('scenes/[slug] calendar slice', () => {
     return node.props ? findJsonLd(node.props.children) : []
   }
 
+  /** A 200 answer whose body cannot be parsed, e.g. an edge error page. */
+  function unparsableResponse(): Response {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON')
+      },
+    } as unknown as Response
+  }
+
   const CREWS = {
     crews: [{ slug: 'pleiades-series', name: 'Pleiades Series', show_count: 4 }],
   }
@@ -300,30 +311,47 @@ describe('scenes/[slug] calendar slice', () => {
   // A member-city URL renders its metro's scene, and the row keys on the slug
   // the SCENE payload carries. Seeding the requested spelling would leave the
   // entry orphaned and the row unseeded on exactly those URLs.
+  //
+  // Slugs of its own, because the server query client is a module singleton
+  // under jsdom and a seeded entry is not overwritten while it is fresh:
+  // asserting a key another case already seeded would pass without this route
+  // seeding anything.
   it('seeds the crews row under the canonical slug, not the requested one', async () => {
-    stubByUrl(buildScene({ slug: 'phoenix-az' }))
+    const metroCrews = {
+      crews: [{ slug: 'silent-barn-presents', name: 'Silent Barn Presents', show_count: 2 }],
+    }
+    stubByUrl(buildScene({ slug: 'new-york-city-ny' }), okResponse(metroCrews))
 
-    const tree = await ScenePage({ params: Promise.resolve({ slug: 'tempe-az' }) })
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'new-york-ny' }) })
 
     expect(
-      fetchedUrls().some(u => u.endsWith('/scenes/phoenix-az/crews'))
+      fetchedUrls().some(u => u.endsWith('/scenes/new-york-city-ny/crews'))
     ).toBe(true)
-    expect(dehydratedData(tree, ['scenes', 'crews', 'phoenix-az'])).toEqual(CREWS)
-    expect(dehydratedKeys(tree)).not.toContainEqual(['scenes', 'crews', 'tempe-az'])
+    expect(dehydratedData(tree, ['scenes', 'crews', 'new-york-city-ny'])).toEqual(
+      metroCrews
+    )
+    expect(dehydratedKeys(tree)).not.toContainEqual([
+      'scenes',
+      'crews',
+      'new-york-ny',
+    ])
   })
 
-  // The slice is the page's substance and its chain is several requests deep,
-  // so it is issued first. Pinned because the ordering is array order, which a
-  // reorder would change silently.
-  it('issues the slice chain before the crews read', async () => {
+  // The slice is the page's substance, so its chain STARTS first: its head
+  // request is issued before the crews read, and the rest of the chain runs
+  // alongside it. Pinned because the ordering is array order, which a reorder
+  // would change silently.
+  it('starts the slice chain before the crews read', async () => {
     stubByUrl(buildScene())
 
     await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
 
     const urls = fetchedUrls()
-    expect(urls.findIndex(u => u.includes('/day'))).toBeLessThan(
-      urls.findIndex(u => u.endsWith('/crews'))
-    )
+    const dayIndex = urls.findIndex(u => u.includes('/day'))
+    // Asserted present, or the comparison below would be satisfied by the -1
+    // a missing slice request returns.
+    expect(dayIndex).toBeGreaterThanOrEqual(0)
+    expect(dayIndex).toBeLessThan(urls.findIndex(u => u.endsWith('/crews')))
   })
 
   // The row must degrade to its own client fetch, never hydrate an empty list
@@ -334,6 +362,9 @@ describe('scenes/[slug] calendar slice', () => {
   it.each([
     ['a non-2xx answer', 'tucson-az', errorResponse(500)],
     ['a failed request', 'flagstaff-az', new Error('network down')],
+    // A 200 whose body is not JSON: the body is awaited inside the try, so it
+    // drops one row instead of rejecting out of the route.
+    ['a malformed body', 'sedona-az', unparsableResponse()],
   ])('seeds no crews entry on %s', async (_label, slug, crews) => {
     stubByUrl(buildScene({ slug }), crews as Response | Error)
 

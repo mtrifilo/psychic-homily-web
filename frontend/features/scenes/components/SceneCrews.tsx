@@ -60,7 +60,11 @@ const CREW_CHIP_LINK_CLASS = cn(
  * into the crew rather than a leaderboard.
  */
 export function SceneCrews({ scene }: { scene: SceneDetail }) {
-  const crews = useSceneCrews(scene.slug).data?.crews
+  const data = useSceneCrews(scene.slug).data
+  // A nameless crew is dropped rather than drawn. The slugless case is still
+  // NAMED, because the name is what the chip is for; a chip with neither is an
+  // empty box in the tab order with no accessible name.
+  const crews = data?.crews?.filter(crew => crew.name.trim())
   if (!crews?.length) return null
 
   return (

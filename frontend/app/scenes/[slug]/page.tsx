@@ -332,15 +332,15 @@ export default async function ScenePage({ params }: ScenePageProps) {
   // CONCURRENT, because neither needs the other's answer. The page waits for
   // both: the slice is a serial chain (`sceneSliceApi` states why it is
   // serial, `sceneSlice` how many calls deep it runs) and the crews row is one
-  // request. The slice is listed FIRST so its chain is issued first, which the
-  // route suite pins.
+  // request. The slice is listed FIRST so its chain STARTS first: its head
+  // request goes out before the crews read, and the route suite pins that.
   //
   // `scene.slug` is the CANONICAL spelling, which is what the crews row keys
-  // on; the requested slug can be a member city of the same metro.
-  const canonicalSlug = scene.slug || slug
+  // on; the requested slug can be a member city of the same metro. It carries
+  // text or `asScene` would have rejected the payload above.
   const [slice, crews] = await Promise.all([
     getSceneSlice(slug),
-    getSceneCrews(canonicalSlug),
+    getSceneCrews(scene.slug),
   ])
 
   // Both seeds are anonymous reads whose payload does not vary by viewer,
@@ -350,7 +350,7 @@ export default async function ScenePage({ params }: ScenePageProps) {
   // seeds the entry `useSceneDetail` picks up.
   const dehydratedState = await prefetchEntities([
     { queryKey: queryKeys.scenes.detail(slug), data: scene },
-    { queryKey: queryKeys.scenes.crews(canonicalSlug), data: crews },
+    { queryKey: queryKeys.scenes.crews(scene.slug), data: crews },
   ])
 
   // ONE slice payload feeds both the structured data and the rows

@@ -468,7 +468,12 @@ export const API_ENDPOINTS = {
      * tag, then by name. Takes no parameters and applies no cap; 404s below
      * the scene venue threshold, like COLLECTIONS and GAPS.
      */
-    CREWS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/crews`,
+    // Encoded, unlike its neighbours here: a stored city carrying `?`, `#` or
+    // `/` reaches the canonical slug unchanged, and this request is sent with
+    // credentials, so an unencoded one would splice a query string or an extra
+    // segment onto a cookie-bearing call.
+    CREWS: (slug: string) =>
+      `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/crews`,
   },
 
   // Community endpoints (public)

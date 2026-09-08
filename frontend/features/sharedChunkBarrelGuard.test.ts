@@ -39,8 +39,8 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
     // makes listing it here worse than it was: a `'use client'` barrel export
     // would drag a server-only module into the client chunk every route loads.
     //
-    // SceneRooms / SceneNewBands / SceneRoster / SceneCollections / SceneGapLine
-    // join it for the same reason. They are named HERE and not only in the
+    // SceneRooms / SceneNewBands / SceneRoster / SceneCollections /
+    // SceneGapLine / SceneCrews join it for the same reason. They are named HERE and not only in the
     // barrel's own comment because a comment does not fail a build: without
     // these entries a future `export { SceneRoster }` typechecks, passes every
     // test, and ships the whole roster surface into the global chunk silently.
