@@ -423,15 +423,19 @@ func VenueLocalDateCondition(timeFilter string) string {
 //
 // Before it, the night in progress is still the PREVIOUS calendar date: a night
 // is named by the date it BEGAN on, so at 01:00 on Saturday the night people are
-// out on is Friday's. Everything a scene page counts as "still to come" is
-// bounded here rather than at midnight, so the count and the tonight listing it
-// sits beside name the same night. catalog/scene_day.go's tonightDate is the Go
-// statement of the same rule and reads this constant rather than restating it.
+// out on is Friday's. The scene page's headline count and its rooms leaderboard
+// are bounded here rather than at midnight, so they and the tonight listing they
+// sit beside name the same night. Its per-band roster count is NOT: the
+// inventory at the top of this file says which surface takes which bound.
+// catalog/scene_day.go's tonightDate is the Go statement of the same rule and
+// reads this constant rather than restating it.
 //
-// It unifies the HOUR, not the clock. The bucket applies it to the SCENE's zone
-// and the conditions here apply it per row to the VENUE's, so the two answers
-// coincide wherever a scope resolves to one zone (every scope today) and can
-// differ for one night edge in a scope that spans two.
+// It unifies the HOUR, not the clock. The tonight bucket applies it to the
+// scene's zone, which is the modal stored zone of the scene's verified rooms;
+// the conditions here apply it per row to the show's primary venue's. The two
+// coincide wherever those resolve alike, and can disagree for one night edge
+// where they do not: a metro spanning a timezone line (several US states hold
+// two), or a room whose stored zone differs from its neighbours'.
 const NightStartHour = 6
 
 // nightStartDateSQL renders the night-start rule over an expression that already
@@ -453,18 +457,26 @@ func nightStartDateSQL(localNowExpr string) string {
 
 // venueLocalNightStartDateSQL is the night-start date on the primary venue's
 // own clock.
-var venueLocalNightStartDateSQL = nightStartDateSQL(`now() AT TIME ZONE ` + venueLocalZoneSQL)
+var venueLocalNightStartDateSQL = nightStartDateSQL(venueLocalNowSQL)
 
 // nightUpcomingCoarseBound is the sargable UTC bound that is lossless with
 // respect to the exact night condition below, for the same reason and in the
 // same way as upcomingCoarseBound.
 //
-// THREE days rather than two. The earliest instant that can satisfy the night
-// condition is local midnight on the night-start date, which before
-// NightStartHour is YESTERDAY, so a qualifying row can sit a full local day
-// further back than under the midnight bound, and the margin has to absorb that
-// day on top of the one upcomingCoarseBound already absorbs plus its slack for
-// a local day that is not 24 hours long.
+// The earliest instant that can satisfy the night condition is local midnight
+// on the night-start date, which before NightStartHour is YESTERDAY. That is at
+// most NightStartHour plus one local day behind now, and a local day can run 25
+// hours across a fall-back transition, so 31 hours is the widest real gap.
+//
+// THREE days is therefore slack rather than arithmetic necessity: two would
+// cover it. It keeps the same one-extra-day cushion upcomingCoarseBound takes
+// over its own 25-hour worst case, and an extra day of already-past shows costs
+// nothing in selectivity against an open-ended upper side.
+//
+// The guard on it is arithmetic over the same constants the fragment is
+// rendered from. It is weaker than upcomingCoarseBound's, which is pinned
+// against real Postgres across the inhabited offset range: an edit to the EXACT
+// condition rather than to these constants would not fail anything here.
 const nightCoarseMarginDays = 3
 
 var nightUpcomingCoarseBound = `shows.event_date >= now() - interval '` +

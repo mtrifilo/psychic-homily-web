@@ -74,8 +74,7 @@ func (s *SceneService) sceneVenueLeaderboard(scope sceneScope) ([]contracts.Scen
 	// own venue zone.
 	//
 	// The derived table's shows must be UNALIASED: shared.VenueTZJoin's lateral
-	// correlates on `shows.id`, and the aliased form fails at query time on a
-	// live scene page rather than at build.
+	// correlates on `shows.id`.
 	args := append([]any{catalogm.ShowStatusApproved}, innerArgs...)
 	args = append(args, outerArgs...)
 

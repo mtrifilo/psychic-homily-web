@@ -1711,9 +1711,10 @@ type SceneVenueSummary struct {
 	// on a Philadelphia page. Same pair the venue charts carry (ActiveVenue).
 	State string `json:"state"`
 	// UpcomingShowCount is the room's approved shows still to come, bounded at
-	// the NIGHT in progress in the show's own venue zone. See
-	// sceneVenueLeaderboard for why an instant bound would zero out a room whose
-	// only show is tonight.
+	// the NIGHT in progress. The zone deciding which night a show falls on is its
+	// PRIMARY venue's, which for a bill split across two rooms is not necessarily
+	// this room's. See sceneVenueLeaderboard for why an instant bound would zero
+	// out a room whose only show is tonight.
 	//
 	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in both
 	// directions on purpose:
@@ -2138,6 +2139,11 @@ type SceneStats struct {
 	//
 	// The night is the unit because the status band prints this beside a count
 	// of the shows on tonight, and that bucket holds a night until 06:00 local.
+	//
+	// So between midnight and 06:00 it counts the whole of the previous local
+	// date, an afternoon matinee that finished twelve hours ago included. That is
+	// the same set the tonight listing holds, which is the point, but it is not
+	// "shows that have not started".
 	//
 	// It counts shows at UNVERIFIED rooms too, which the per-room leaderboard
 	// beside it cannot; see SceneVenueSummary.UpcomingShowCount.

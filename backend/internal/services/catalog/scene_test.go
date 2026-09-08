@@ -1647,10 +1647,15 @@ func sceneNightFixture() (*time.Location, calendarDate) {
 	return loc, tonightDate(time.Now().In(loc))
 }
 
+// showInstantOn is a show at `hour` on the venue's local clock on `date`.
+func showInstantOn(date calendarDate, hour int, loc *time.Location) time.Time {
+	return time.Date(date.year, date.month, date.day, hour, 0, 0, 0, loc)
+}
+
 // dateOnlyShowInstant is where a date-only listing for `date` is stored: 20:00 on
 // the venue's local clock, the repo's write-side convention (utils.DateOnlyEventHour).
 func dateOnlyShowInstant(date calendarDate, loc *time.Location) time.Time {
-	return time.Date(date.year, date.month, date.day, utils.DateOnlyEventHour, 0, 0, 0, loc)
+	return showInstantOn(date, utils.DateOnlyEventHour, loc)
 }
 
 // A set that has already STARTED is still on tonight, and the counts have to say
@@ -1668,9 +1673,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsHoldShow
 	band := suite.createArtist("Tonight Band")
 
 	loc, tonight := sceneNightFixture()
-	startedAnHourAgo := time.Now().Add(-time.Hour)
-	suite.Require().True(startedAnHourAgo.Before(time.Now()), "the defect only bites once the set has begun")
-	suite.createApprovedShow("Doors Already Open", v.ID, band.ID, user.ID, startedAnHourAgo)
+	suite.createApprovedShow("Doors Already Open", v.ID, band.ID, user.ID, time.Now().Add(-time.Hour))
 	// The previous night, which no bound on this page still holds.
 	suite.createApprovedShow("Last Night", dark.ID, band.ID, user.ID,
 		dateOnlyShowInstant(tonight.addDays(-1), loc))
@@ -1701,10 +1704,19 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsAgreeWit
 	band := suite.createArtist("Tonight Band")
 
 	loc, tonight := sceneNightFixture()
-	// One set under way, one date-only listing, both at the same room, plus a
-	// booking well ahead so "upcoming" is not trivially equal to "tonight".
-	suite.createApprovedShow("Doors Already Open", room.ID, band.ID, user.ID, time.Now().Add(-time.Hour))
+	// Both of tonight's rows are anchored to the DATE, at hours that put them
+	// inside the day payload's window whatever time this runs. That window is a
+	// strict calendar day and NOT the 06:00-to-06:00 span the counts are bounded
+	// on (see scene_day.go), so a row placed at "an hour ago" would fall on the
+	// FOLLOWING date's page between midnight and 06:00, and this comparison would
+	// hold for eighteen hours and fail for six.
+	//
+	// The 02:00 set is a late one that has always already ended: tonight is
+	// today's date only once the clock is past 06:00 and is yesterday's before
+	// that, so 02:00 on it is behind the reader either way.
+	suite.createApprovedShow("Set Already Over", room.ID, band.ID, user.ID, showInstantOn(tonight, 2, loc))
 	suite.createApprovedShow("Date Only Tonight", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	// A booking well ahead, so "upcoming" is not trivially equal to "tonight".
 	suite.createApprovedShow("Next Month", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(30), loc))
 	// The previous night, which the tonight bucket and the counts must both drop.
 	suite.createApprovedShow("Last Night", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(-1), loc))
@@ -1713,6 +1725,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsAgreeWit
 	suite.Require().NoError(err)
 	suite.Require().True(day.IsTonight)
 	suite.Equal(tonight.String(), day.Date)
+	// The premise this comparison rests on: the bucket resolved the SAME zone the
+	// fixture placed its rows in. Where the two differ they can name different
+	// nights, and this is what says the fixture is not exercising that case.
+	suite.Require().NotNil(day.Timezone)
+	suite.Equal(loc.String(), *day.Timezone)
 	suite.Equal(2, day.ShowCount, "the two rows on tonight")
 
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")

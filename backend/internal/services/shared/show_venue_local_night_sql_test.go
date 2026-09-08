@@ -65,17 +65,15 @@ func TestNightStartDateSQL_NamesTheNightInProgress(t *testing.T) {
 // decides membership: every instant the exact condition keeps has to be inside
 // it.
 //
-// The worst case is the widest gap between "now" and the earliest qualifying
-// instant: a venue at the far end of the inhabited offset range, read a moment
-// before NightStartHour, when the night in progress began the previous local
-// day. This asserts the bound covers that gap with room to spare rather than
-// asserting the literal, which would just restate the constant.
+// It reasons about nightCoarseMarginDays, the constant the SQL fragment is
+// RENDERED from, so the number under test and the number shipped are the same
+// number and there is no literal to keep in step.
 func TestNightUpcomingCoarseBound_CoversTheEarliestQualifyingInstant(t *testing.T) {
-	// Local midnight on the night-start date is at most this far behind now:
-	// NightStartHour short of a full local day back to that midnight, plus the
-	// local day before it, with each of those days allowed to run 25 hours
-	// because a fall-back transition stretches one.
-	worstCaseLag := 2*25*time.Hour - NightStartHour*time.Hour
+	// The earliest instant the exact condition keeps is local midnight on the
+	// night-start date. Read just before NightStartHour that date is yesterday,
+	// putting the instant NightStartHour plus one local day back, and a local day
+	// runs 25 hours across a fall-back transition.
+	worstCaseLag := NightStartHour*time.Hour + 25*time.Hour
 	margin := nightCoarseMarginDays * 24 * time.Hour
 	if worstCaseLag >= margin {
 		t.Errorf("the coarse bound (%v) does not cover the earliest qualifying instant (%v behind now)",
