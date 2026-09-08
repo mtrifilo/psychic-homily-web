@@ -618,8 +618,9 @@ describe('sceneTooltipLabel', () => {
     shows_this_week: 76,
   }
 
-  // What these pin is the RULE, not the phrasing: shows_this_week is a ROLLING
-  // window, so calendar-week wording must not come back here (PSY-1732).
+  // What these pin is the RULE, not the phrasing: shows_this_week is a seven-
+  // night window and not the calendar week, so calendar-week wording must not
+  // come back here (PSY-1732).
   // Refining the copy is fine — updating these strings to match is the expected
   // cost of that, not a regression.
   it('words the rolling count as "in the next 7 days", never "this week"', () => {

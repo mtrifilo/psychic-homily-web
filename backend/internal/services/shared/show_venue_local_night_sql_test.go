@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -56,6 +57,61 @@ func TestNightStartDateSQL_NamesTheNightInProgress(t *testing.T) {
 			}
 			if formatted := got.Format("2006-01-02"); formatted != tc.want {
 				t.Errorf("local clock %s: night-start date = %s, want %s", tc.localNow, formatted, tc.want)
+			}
+		})
+	}
+}
+
+// The seven-night window's EDGES, evaluated by POSTGRES against a stated clock,
+// for the same reason the night-start rule above is pinned here: every surface
+// that consumes it reads now(), so an integration test can only exercise the
+// hours it happens to run in.
+//
+// It evaluates the expressions VenueLocalNightWindowCondition renders, over a
+// stated local clock and a stated venue-local show date, so an edit to the edge
+// operator or the window length fails in the package that owns the rule rather
+// than only in a database-backed catalog test.
+func TestVenueLocalNightWindow_HoldsTheNightInProgressAndSixMore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	const nights = 7
+	nightStart := nightStartDateSQL("?::timestamp")
+	// Placeholders bind in SQL TEXT order: show date, clock, show date, clock.
+	query := "SELECT ?::date >= " + nightStart +
+		" AND ?::date < (" + nightStart + " + " + strconv.Itoa(nights) + ")"
+
+	cases := []struct {
+		name      string
+		localNow  string
+		showDate  string
+		wantInSet bool
+	}{
+		{"tonight, read in the evening", "2026-09-07 21:30:00", "2026-09-07", true},
+		{"the previous night, read in the evening", "2026-09-07 21:30:00", "2026-09-06", false},
+		{"the sixth night after, read in the evening", "2026-09-07 21:30:00", "2026-09-13", true},
+		{"the seventh night after, read in the evening", "2026-09-07 21:30:00", "2026-09-14", false},
+		// After midnight the night in progress is still the PREVIOUS date, and
+		// the whole window moves back with it rather than only its lower edge.
+		{"the night in progress, read after midnight", "2026-09-08 03:15:00", "2026-09-07", true},
+		{"the coming night, read after midnight", "2026-09-08 03:15:00", "2026-09-08", true},
+		{"the night before, read after midnight", "2026-09-08 03:15:00", "2026-09-06", false},
+		{"the seventh night after, read after midnight", "2026-09-08 03:15:00", "2026-09-14", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			if err := td.DB.Raw(query, tc.showDate, tc.localNow, tc.showDate, tc.localNow).
+				Scan(&got).Error; err != nil {
+				t.Fatalf("evaluating the night window: %v", err)
+			}
+			if got != tc.wantInSet {
+				t.Errorf("clock %s, show on %s: in window = %v, want %v",
+					tc.localNow, tc.showDate, got, tc.wantInSet)
 			}
 		})
 	}

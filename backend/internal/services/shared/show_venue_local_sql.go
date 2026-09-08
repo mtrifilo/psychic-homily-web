@@ -38,12 +38,17 @@ import (
 //     GetSceneDetail) and its rooms leaderboard (catalog/scene_venues.go), on
 //     the NIGHT bound (VenueLocalNightDateCondition), which is the rule the
 //     tonight bucket those two sit beside is drawn on.
+//   - the scenes DIRECTORY's upcoming_count (catalog/scene.go ListScenes), on
+//     that same NIGHT bound, because a card links to the page printing the
+//     headline above. The two draw one boundary over different room sets: the
+//     directory counts verified rooms only. Its this_week_count slices the same
+//     night set through VenueLocalNightWindowCondition, so the pair is nested
+//     at every hour.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
 // several of them draw their own boundary: the /venues list's
-// upcoming_show_count (catalog/venue.go), the scenes DIRECTORY's upcoming_count
-// and this_week_count (catalog/scene.go ListScenes), catalog/venue_rail.go,
+// upcoming_show_count (catalog/venue.go), catalog/venue_rail.go,
 // graph_overview.go, charts_rank.go and sitemap.go. Do not read a surface's
 // absence here as a claim that it already agrees with this file.
 //
@@ -495,6 +500,26 @@ var nightUpcomingCoarseBound = `shows.event_date >= now() - interval '` +
 // Postgres per row against that row's own venue zone.
 var VenueLocalNightDateCondition = nightUpcomingCoarseBound + " AND " +
 	VenueLocalDateSQL + " >= " + venueLocalNightStartDateSQL
+
+// VenueLocalNightWindowCondition returns the WHERE fragment selecting the shows
+// on the night in progress and the nights-1 nights that follow it, each row
+// judged on its own venue's clock.
+//
+// Both edges are drawn from the SAME night-start date, so the set is a subset of
+// VenueLocalNightDateCondition's by construction rather than by argument: a
+// surface printing this beside that one cannot lead with a window count larger
+// than the total it slices, whatever hour it is read at. It is a window of whole
+// venue-local NIGHTS rather than a span from the request instant, so its edges
+// move once a night and two readers minutes apart see one number.
+//
+// nights is rendered by strconv.Itoa, which emits only digits and a sign, so
+// the interpolation is safe for any int a caller can pass. Fewer than one night
+// renders an unsatisfiable window and counts nothing rather than erroring.
+// Carries no bind parameters, like the conditions above it.
+func VenueLocalNightWindowCondition(nights int) string {
+	return VenueLocalNightDateCondition + " AND " + VenueLocalDateSQL + " < (" +
+		venueLocalNightStartDateSQL + " + " + strconv.Itoa(nights) + ")"
+}
 
 // yearCoarseMargin widens the sargable UTC bounds below far enough that no
 // venue-local instant of the requested year can fall outside them. The inhabited

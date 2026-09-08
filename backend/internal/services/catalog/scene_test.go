@@ -445,10 +445,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MeetsThreshold() {
 	suite.GreaterOrEqual(scene.UpcomingShowCount, 3)
 }
 
-// TestListScenes_ShowsThisWeek (PSY-1309): the ≤7-day slice counts only shows
-// inside [now, now+7d). Dates are owned by this test and kept WELL clear of the
-// window boundary — seedSceneData's first show sits at exactly now+7d, which
-// races the service's own clock (its weekAhead is computed milliseconds later).
+// TestListScenes_ShowsThisWeek (PSY-1309): the seven-night slice holds the near
+// bookings and drops the far ones. Dates are owned by this test and kept WELL
+// clear of both edges, so what it pins is membership rather than either
+// boundary; the boundary itself is pinned by the span test below.
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeek() {
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
@@ -469,6 +469,121 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeek() {
 	suite.Require().Len(scenes, 1)
 	suite.Equal(2, scenes[0].ShowsThisWeek, "only the two <7d shows count")
 	suite.Equal(5, scenes[0].UpcomingShowCount, "next-7-days shows are also upcoming")
+}
+
+// A set that has already STARTED is still to come on the directory card, and
+// the card prints the number the page it opens prints: both are bounded at the
+// night in progress.
+//
+// The card and the detail page are asserted against EACH OTHER rather than
+// against two fixed numbers, which is what ties them; fixed values on both
+// sides would let the pair drift together.
+//
+// The excluded fixture is the night BEFORE the one in progress, not
+// "yesterday": before NightStartHour those are different dates, and holding the
+// earlier one is the whole point of the bound.
+//
+// The date-only row is stored at 20:00 on the venue's clock, so it sits behind
+// the request instant for the whole late evening while still being the thing a
+// reader is on their way to.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHoldsTonightAndMatchesTheScenePage() {
+	user := suite.createUser()
+	room := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
+	dark := suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
+	// A verified room that has never hosted an approved show. It counts toward
+	// the venue floor and resolves no zone, so it is the row that would vanish
+	// if the join the counts ride on stopped being a LEFT one.
+	suite.createVerifiedVenue("Never Booked", "Phoenix", "AZ")
+	band := suite.createArtist("Tonight Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Doors Already Open", room.ID, band.ID, user.ID, time.Now().Add(-time.Hour))
+	suite.createApprovedShow("Date Only Tonight", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	suite.createApprovedShow("Next Month", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(30), loc))
+	suite.createApprovedShow("Last Night", dark.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(-1), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Require().Equal("phoenix-az", scenes[0].Slug, "the card links to the page asserted against below")
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(3, scenes[0].VenueCount, "the room with nothing booked still clears the venue floor")
+	suite.Equal(4, scenes[0].TotalShowCount, "the lifetime count keeps the previous night")
+	suite.Equal(3, scenes[0].UpcomingShowCount, "tonight's two, plus the one next month")
+	suite.Equal(detail.Stats.UpcomingShowCount, scenes[0].UpcomingShowCount,
+		"the card and the page it opens count the same night")
+	suite.Equal(2, scenes[0].ShowsThisWeek, "tonight's two; next month is outside the seven nights")
+	suite.LessOrEqual(scenes[0].ShowsThisWeek, scenes[0].UpcomingShowCount,
+		"the seven-night slice cannot exceed the set it slices")
+}
+
+// SEEDBED for the equality above: the card and the page share a night bound,
+// not a room set. The directory reaches verified rooms only
+// (sceneVenueEligibilitySQL); GetSceneDetail's headline scope carries no such
+// filter, so a scene holding an unverified room with a booking reads LOWER on
+// its card than on the page that card opens.
+//
+// Asserted rather than left to the fixture, because the sibling test above
+// proves equality only over a corpus where every room is verified, and a reader
+// who takes that for the general rule will file the gap below as a bug.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountReachesOnlyVerifiedRooms() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	unverified := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
+	band := suite.createArtist("Eligibility Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Verified 1", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(2), loc))
+	suite.createApprovedShow("Verified 2", v2.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(3), loc))
+	suite.createApprovedShow("Verified 3", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(4), loc))
+	suite.createApprovedShow("Unverified Room", unverified.ID, band.ID, user.ID,
+		dateOnlyShowInstant(tonight.addDays(2), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(2, scenes[0].VenueCount, "the unverified room is not one of the scene's rooms")
+	suite.Equal(3, scenes[0].UpcomingShowCount, "the card counts the verified rooms' bookings")
+	suite.Equal(4, detail.Stats.UpcomingShowCount, "the page counts the unverified room's booking too")
+	suite.Less(scenes[0].UpcomingShowCount, detail.Stats.UpcomingShowCount,
+		"the two share a night bound, not a room set")
+}
+
+// The FAR edge: the night in progress and the six after it are in, the seventh
+// is out. That is what this test owns at every hour of the day.
+//
+// It does NOT discriminate the anchor. Between 06:00 and 20:00 local these same
+// fixtures land the same way under a window measured from the request instant,
+// so a revert of the anchor alone would leave this green. The anchor is owned by
+// the Doors Already Open fixture in the test above, which is behind the clock
+// whatever time it runs.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeekSpansSevenNightsFromTonight() {
+	user := suite.createUser()
+	room := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	other := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	band := suite.createArtist("Week Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Tonight", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	suite.createApprovedShow("Last Night In Window", other.ID, band.ID, user.ID,
+		dateOnlyShowInstant(tonight.addDays(sceneThisWeekDays-1), loc))
+	suite.createApprovedShow("First Night Out", room.ID, band.ID, user.ID,
+		dateOnlyShowInstant(tonight.addDays(sceneThisWeekDays), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	suite.Equal(3, scenes[0].UpcomingShowCount, "all three nights are still to come")
+	suite.Equal(2, scenes[0].ShowsThisWeek, "the night in progress and the sixth after it")
 }
 
 // The invariant PSY-1623 exists for: a count shown NEXT TO a link to

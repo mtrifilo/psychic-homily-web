@@ -69,14 +69,19 @@ const (
 	// RosterTruncated surface the full roster size.
 	sceneGraphRosterLimit = 75
 
-	// sceneThisWeekDays is the rolling next-7-days window (PSY-1309): the
-	// ≤7-day slice of a scene's upcoming shows that drives the Atlas globe's
-	// pulse treatment and the preview panel's "Next 7 days" row.
+	// sceneThisWeekDays is the seven-day length of the "next 7 days" window
+	// (PSY-1309): the slice of a scene's upcoming shows that drives the Atlas
+	// globe's pulse treatment and the preview panel's "Next 7 days" row.
 	//
-	// The NAME says "this week" and the UI says "next 7 days" (PSY-1732). The
-	// UI half is the correct one: this window rolls from now, so it is not the
-	// week /scenes/{slug}/week serves. Nothing outside this package reads the
-	// name, so it is renameable if it ever misleads someone.
+	// A LENGTH, not a window: each consumer supplies its own anchor, and they
+	// differ. The scenes directory counts seven venue-local NIGHTS from the night
+	// in progress (shared.VenueLocalNightWindowCondition), so its edges move once
+	// a night rather than with every request.
+	//
+	// The NAME says "this week" and the UI says "next 7 days" (PSY-1732). The UI
+	// half is the correct one: no consumer's window is the Monday-to-Sunday week
+	// /scenes/{slug}/week serves. Nothing outside this package reads the name, so
+	// it is renameable if it ever misleads someone.
 	sceneThisWeekDays = 7
 
 	// sceneRosterActiveOrderBy is the canonical active-first roster ordering,
@@ -156,6 +161,10 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
 		       MIN(v.state) AS state`
 
+// noExtraJoins is sceneQualifyingGroupingSQL's argument for a caller that
+// projects no venue-local bound and so needs no zone lateral.
+const noExtraJoins = ""
+
 // sceneQualifyingGroupingSQL is everything after the select list in "the
 // qualifying scene set": eligible venues LEFT JOINed to their approved shows,
 // grouped by sceneGroupKeySQL, keeping the groups that clear both floors. The
@@ -166,20 +175,34 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 // the venue and show minima. A caller's own select-list placeholders bind ahead
 // of them.
 //
+// The shows table is UNALIASED, and call sites project from `shows` rather than
+// from a short alias of their own, because shared.VenueTZJoin's lateral
+// correlates on `shows.id`. extraJoins is spliced between that join and the
+// WHERE so a caller wanting venue-local bounds passes it there; it is
+// interpolated, never bound, so it must be a compile-time literal.
+//
+// The show_venues alias is scene_sv, not sv, because shared.VenueTZJoin opens
+// its own `show_venues sv` inside the lateral. Distinct names mean a reader of
+// either fragment is looking at the row set it names, and a subquery spliced in
+// here can reference the outer join without first having to be un-shadowed.
+//
 // Shared by ListScenes below and sitemap.go's listQualifyingScenes, which
 // publish one scene set between them. A call site spelling this body out again
 // can move its own half of that set without moving the other, and the rows
 // still scan either way. The charts summary's activeSceneCount deliberately
 // does NOT use it: that surface is window-bounded with no floor at all.
-const sceneQualifyingGroupingSQL = `
+func sceneQualifyingGroupingSQL(extraJoins string) string {
+	return `
 		FROM venues v
-		LEFT JOIN show_venues sv ON sv.venue_id = v.id
-		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
+		LEFT JOIN show_venues scene_sv ON scene_sv.venue_id = v.id
+		LEFT JOIN shows ON shows.id = scene_sv.show_id AND shows.status = ?
+		` + extraJoins + `
 		WHERE true
 		  ` + sceneVenueEligibilitySQL + `
 		GROUP BY ` + sceneGroupKeySQL + `
 		HAVING COUNT(DISTINCT v.id) >= ?
-		   AND COUNT(DISTINCT s.id) >= ?`
+		   AND COUNT(DISTINCT shows.id) >= ?`
+}
 
 // sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
 // (empty for a fallback group), its literal city/state, the counts ListScenes
@@ -766,6 +789,30 @@ func (s *SceneService) sceneGenreCounts() (map[string][]contracts.GenreCount, er
 	return out, nil
 }
 
+// sceneDirectoryCountsSQL is the directory's one grouped pass: distinct venues,
+// approved shows, and the two night-bounded subsets, per scene.
+//
+// Rendered once at init rather than per request: it carries no runtime input,
+// and every night condition in it expands the venue-local zone chain, so
+// building it per call would rebuild several KB of that CASE on every
+// GET /scenes.
+//
+// The counts are FILTER aggregates over a scan with no date bound of its own,
+// so the lateral fires once per (verified venue x approved show ever) row. The
+// growth axis is lifetime show volume, not upcoming volume.
+//
+// COST on postgres:18 at 8000 approved shows: 20-21 ms warm. Most of it is JIT
+// compiling the zone expansions, not the lateral, which costs 0.002 ms per row,
+// so the lever is shrinking the rendered expression rather than reordering the
+// joins.
+var sceneDirectoryCountsSQL = `
+		SELECT ` + sceneGroupIdentitySQL + `,
+		       COUNT(DISTINCT v.id) AS venue_count,
+		       COUNT(DISTINCT shows.id) AS show_count,
+		       COUNT(DISTINCT shows.id) FILTER (WHERE ` + shared.VenueLocalNightDateCondition + `) AS upcoming_count,
+		       COUNT(DISTINCT shows.id) FILTER (WHERE ` + shared.VenueLocalNightWindowCondition(sceneThisWeekDays) + `) AS this_week_count` +
+	sceneQualifyingGroupingSQL(shared.VenueTZJoin)
+
 // ListScenes returns the metros — and non-US / no-CBSA fallback cities — that
 // meet scene thresholds: 2+ verified venues AND 3+ approved shows (past or
 // upcoming). Verified venues roll up to their Census CBSA (PSY-1255 step C), so
@@ -785,20 +832,26 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// metro group displays its principal city instead, so its MIN city goes
 	// unread unless that CBSA no longer resolves in the embedded dataset, which
 	// is metroDisplayIdentity's fallback.
-	// this_week_count is the ≤sceneThisWeekDays slice of the upcoming set
-	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it
-	// must share the scene scoping of the other counts — one more FILTER
-	// aggregate in the same pass, not a new query.
-	weekAhead := now.AddDate(0, 0, sceneThisWeekDays)
+	//
+	// Both count filters are bounded at the NIGHT in progress in each show's own
+	// venue zone, which is the boundary GetSceneDetail's headline figure takes. A
+	// card here links to that page, so the two numbers must name the same night.
+	//
+	// The NIGHT is all they share. This count reaches only verified rooms
+	// (sceneVenueEligibilitySQL); the detail page's scope has no such filter, so
+	// a scene holding an unverified room with upcoming shows reads lower here.
+	//
+	// this_week_count is the sceneThisWeekDays-night slice of that same set
+	// (PSY-1309), driving the Atlas globe's pulse: one more FILTER aggregate in
+	// the same pass, not a new query. It shares the night-start anchor, which is
+	// what makes it a subset of upcoming_count rather than a number that can
+	// exceed it.
+	//
+	// A verified room with no approved show yields no lateral row; its NULL
+	// event_date fails both filters, so the zone resolved for it is never read.
 	var groups []sceneVenueGroup
-	err := s.db.Raw(`
-		SELECT `+sceneGroupIdentitySQL+`,
-		       COUNT(DISTINCT v.id) AS venue_count,
-		       COUNT(DISTINCT s.id) AS show_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count`+
-		sceneQualifyingGroupingSQL,
-		now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
+	err := s.db.Raw(sceneDirectoryCountsSQL,
+		catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}

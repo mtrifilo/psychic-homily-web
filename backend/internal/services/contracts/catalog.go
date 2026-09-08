@@ -855,13 +855,15 @@ type VenueConfirmationResponse struct {
 type VenueWithShowCountResponse struct {
 	VenueDetailResponse
 	UpcomingShowCount int `json:"upcoming_show_count"`
-	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount — same
-	// definition SceneListResponse.ShowsThisWeek uses at scene scope. Drives
-	// the rail's "Next 7 days" filter chip and its header stat.
+	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount, driving the
+	// rail's "Next 7 days" filter chip and its header stat.
 	//
-	// ROLLING from now, so both of those are worded "next 7 days" and neither
-	// says "this week" (PSY-1732). The field NAME is the stale half of that
-	// mismatch; the labels are the correct half.
+	// ROLLING from now. It shares its LENGTH with
+	// SceneListResponse.ShowsThisWeek and not that field's anchor, which is the
+	// venue-local night in progress, so the two count different sets near both
+	// edges. Both are worded "next 7 days" and neither says "this week"
+	// (PSY-1732). The field NAME is the stale half of that mismatch; the labels
+	// are the correct half.
 	ShowsThisWeek int `json:"shows_this_week"`
 	// NextShowDate is the soonest upcoming approved show's date as an ISO
 	// YYYY-MM-DD string, rendered in the VENUE's timezone (not UTC, not the
@@ -1454,19 +1456,29 @@ type MergeArtistResult struct {
 // (PSY-1255 step C) City/State are the metro's PRINCIPAL city/state (or the
 // literal city for a non-US / no-CBSA fallback scene).
 type SceneListResponse struct {
-	City              string `json:"city"`
-	State             string `json:"state"`
-	Slug              string `json:"slug"`
-	VenueCount        int    `json:"venue_count"`
-	UpcomingShowCount int    `json:"upcoming_show_count"`
-	TotalShowCount    int    `json:"total_show_count"`
-	// ShowsThisWeek is the ≤7-day slice of UpcomingShowCount (PSY-1309) — the
-	// next-7-days activity signal that drives the Atlas globe's pulse
+	City       string `json:"city"`
+	State      string `json:"state"`
+	Slug       string `json:"slug"`
+	VenueCount int    `json:"venue_count"`
+	// UpcomingShowCount is the scene's approved shows still to come, bounded at
+	// the venue-local NIGHT in progress: a set that started an hour ago still
+	// counts until that night ends. SceneStats.UpcomingShowCount is drawn on the
+	// same boundary, so a card and the page it links to name one night.
+	//
+	// They are not the same SET, and the difference is venue eligibility, not
+	// time: this count reaches only VERIFIED rooms, the detail page's reaches
+	// every room in the scope. A metro holding an unverified room with upcoming
+	// shows reads lower here than on its own page.
+	UpcomingShowCount int `json:"upcoming_show_count"`
+	TotalShowCount    int `json:"total_show_count"`
+	// ShowsThisWeek is the seven-night slice of UpcomingShowCount (PSY-1309) —
+	// the next-7-days activity signal that drives the Atlas globe's pulse
 	// treatment. Same scene scoping as the other counts.
 	//
-	// A ROLLING window: [now, now+7d) in UTC. It is NOT the week any
-	// /scenes/{slug}/week page serves, and the two disagree by a lot midweek —
-	// use ShowsCalendarWeek for anything that LINKS to that page.
+	// Seven venue-local NIGHTS from the same night start UpcomingShowCount is
+	// bounded at, which is what keeps it a subset of that number. It is NOT the
+	// week any /scenes/{slug}/week page serves, and the two disagree by a lot
+	// midweek — use ShowsCalendarWeek for anything that LINKS to that page.
 	ShowsThisWeek int `json:"shows_this_week"`
 	// ShowsCalendarWeek is the count of shows the scene's
 	// /scenes/{slug}/week page reports for the CURRENT week: the Monday-Sunday
