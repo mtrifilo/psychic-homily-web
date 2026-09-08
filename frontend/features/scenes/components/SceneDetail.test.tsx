@@ -257,11 +257,32 @@ describe('SceneDetailView', () => {
       expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
     })
 
-    // The window opens at NOW, so any tonight count taken from it undercounts
-    // once doors open, and names YESTERDAY between midnight and 6am. Both
-    // spellings contradicted /scenes/{slug}/tonight one click away.
-    it('carries no tonight count', () => {
-      renderScene({ slug: 'phoenix-az' })
+    // The clause the reader is scanning for, so it leads. Asserted as the LEAD
+    // rather than against the whole band, so a later edit to the clauses after
+    // it fails its own case and not this one.
+    // "tonight" is the noun the number counts against, so one reads the same as
+    // nine and there is no plural to get wrong.
+    it.each([
+      [4, '4 tonight · '],
+      [1, '1 tonight · '],
+    ])('leads with the count of %i tonight', (count, lead) => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount: count })
+      expect(screen.getByTestId('scene-status-band')).toHaveTextContent(
+        new RegExp(`^${lead}45 upcoming shows`)
+      )
+    })
+
+    // Zero would read as a claim about the city rather than about this page's
+    // calendar, and a count nothing answered for is not a zero. Both draw the
+    // same band, which says nothing about tonight at all.
+    it.each([
+      ['a quiet night', 0],
+      ['a count nothing answered for', undefined],
+    ])('omits the clause on %s', (_label, tonightShowCount) => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount })
+      expect(
+        screen.getByText('45 upcoming shows · 12 rooms tracked · all times MST')
+      ).toBeInTheDocument()
       expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
     })
   })

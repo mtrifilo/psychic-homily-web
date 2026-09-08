@@ -42,11 +42,23 @@ interface SceneDetailProps {
    * with nothing booked still names its clock.
    */
   timeZone?: string
+  /**
+   * Shows listed for tonight, from the same day payload the calendar slot
+   * renders.
+   *
+   * A plain number rather than the slice itself, for the reason `calendarSlot`
+   * is a slot: passing the payload across this client boundary would serialize
+   * every row of it into the flight payload a second time.
+   *
+   * Absent when nothing answered for tonight. The band draws the clause only
+   * for a count above zero, so absent and zero reach the reader alike.
+   */
+  tonightShowCount?: number
 }
 
 /**
- * Quiet metadata under the site nav: how much is here, how many rooms this
- * page speaks for, and which clock every time below is on.
+ * Quiet metadata under the site nav: what is on tonight, how much is here, how
+ * many rooms this page speaks for, and which clock every time below is on.
  *
  * Wave 1A copied ShowStatusStripe's inverse fill (`bg-foreground
  * text-background`). That token swap matches Figma DENSE 1335:16 in light
@@ -62,40 +74,34 @@ interface SceneDetailProps {
  * stat line also carries, and so does the mock: the band is read at a glance
  * and the stat line is read as a sentence.
  *
- * TWO clauses the mock draws are deliberately absent, both because no honest
- * number exists for them here:
+ * The TONIGHT clause LEADS, because it is the clause a reader opening this page
+ * is scanning for. It is drawn only above zero, never as "NOTHING TONIGHT":
+ * this band speaks for the rooms this page tracks, and a zero in it would read
+ * as a claim about the city. So a quiet night and a night nothing answered for
+ * are one rendering, and neither states a number.
  *
- *  - `THIS WEEK n`. `GET /scenes/{slug}` carries no calendar-week field; only
- *    `GET /scenes` does (`shows_calendar_week`). Labelling `upcoming_show_count`
- *    "this week" would put 328 against a week page that says 22, the exact
- *    defect PSY-1623 removed from two other surfaces. Counting the fetched rows
- *    would have been wrong the other way, because that window was capped.
- *  - `TONIGHT n SHOWS` / `NOTHING TONIGHT`. The calendar window opened at NOW,
- *    so a show whose doors had opened was already out of the payload, and
- *    between midnight and 6am the night named by the boundary is yesterday,
- *    which a forward window can never contain. Every spelling of this clause
- *    was therefore either an undercount or a flat "nothing tonight" on a night
- *    that had shows, contradicting `/scenes/{slug}/tonight` one click away in
- *    the window strip.
- *
- *    NOW UNBLOCKED, and deliberately not taken here. PSY-1850 moved this page
- *    onto the day payload, so an honest tonight count is one field away
- *    (`slice.days[0].shows.length`) and the PSY-1807 objection no longer holds.
- *    What is missing is the COPY decision — which of the mock's spellings, and
- *    what it says on a scene whose night is quiet — and inventing one here
- *    would be exactly the speculative call this band's history warns against.
+ * ONE clause the mock draws is absent, because no honest number exists for it
+ * here: `THIS WEEK n`. `GET /scenes/{slug}` carries no calendar-week field;
+ * only `GET /scenes` does (`shows_calendar_week`). Labelling
+ * `upcoming_show_count` "this week" would put 328 against a week page that
+ * says 22.
  */
 function SceneStatusBand({
   scene,
   timeZone,
+  tonightShowCount,
 }: {
   scene: SceneDetail
   timeZone?: string
+  tonightShowCount?: number
 }) {
   const zoneLabel = timeZone ? formatTimeZoneLabel(new Date(), timeZone) : null
 
   const { stats } = scene
   const parts = [
+    // No plural branch: "tonight" is the noun the number counts against, and it
+    // reads the same at one as at nine.
+    tonightShowCount ? `${tonightShowCount} tonight` : null,
     `${stats.upcoming_show_count} upcoming show${stats.upcoming_show_count === 1 ? '' : 's'}`,
     `${stats.venue_count} room${stats.venue_count === 1 ? '' : 's'} tracked`,
     zoneLabel && `all times ${zoneLabel}`,
@@ -117,7 +123,12 @@ function SceneStatusBand({
   )
 }
 
-export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailProps) {
+export function SceneDetailView({
+  slug,
+  calendarSlot,
+  timeZone,
+  tonightShowCount,
+}: SceneDetailProps) {
   const { data: scene, isLoading, error } = useSceneDetail(slug)
 
   if (isLoading) {
@@ -152,7 +163,11 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
 
   return (
     <div>
-      <SceneStatusBand scene={scene} timeZone={timeZone} />
+      <SceneStatusBand
+        scene={scene}
+        timeZone={timeZone}
+        tonightShowCount={tonightShowCount}
+      />
 
       <header>
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
