@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
+import { formatPasswordConfirmError } from './password-confirm-errors'
 
 interface DeleteAccountDialogProps {
   open: boolean
@@ -38,6 +39,19 @@ interface DeleteAccountDialogProps {
 }
 
 type Step = 'warning' | 'confirm' | 'success'
+
+/**
+ * This dialog's spelling of the shared password-confirm copy. The throttle
+ * sentence names the password rather than the deletion because the budget is
+ * shared with the settings password form, so it can already be spent when the
+ * first attempt lands here.
+ */
+export function formatDeleteAccountError(error: unknown): string {
+  return formatPasswordConfirmError(error, {
+    fallback: 'Failed to delete account. Please try again.',
+    throttled: 'Too many password attempts.',
+  })
+}
 
 export function DeleteAccountDialog({
   open,
@@ -311,9 +325,11 @@ export function DeleteAccountDialog({
 
               {/* Error Message */}
               {deleteAccount.isError && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                  {deleteAccount.error?.message ||
-                    'Failed to delete account. Please try again.'}
+                <div
+                  role="alert"
+                  className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+                >
+                  {formatDeleteAccountError(deleteAccount.error)}
                 </div>
               )}
             </div>

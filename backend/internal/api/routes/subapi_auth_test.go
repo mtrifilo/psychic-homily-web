@@ -51,6 +51,7 @@ func TestAuthOperationsAreInMainSpec(t *testing.T) {
 		"/auth/passkey/signup/begin",
 		"/auth/passkey/signup/finish",
 		"/auth/change-password",
+		"/auth/account/delete",
 	} {
 		item, ok := paths[p]
 		if !ok {

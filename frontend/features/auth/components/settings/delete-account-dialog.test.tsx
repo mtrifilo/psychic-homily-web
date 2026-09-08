@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { DeleteAccountDialog } from './delete-account-dialog'
+import {
+  DeleteAccountDialog,
+  formatDeleteAccountError,
+} from './delete-account-dialog'
 
 // --- Mocks ---
 
@@ -415,5 +418,70 @@ describe('DeleteAccountDialog', () => {
     expect(
       screen.getByText('Failed to delete account. Please try again.')
     ).toBeInTheDocument()
+  })
+
+  it('renders throttle copy with the wait in seconds when Retry-After is readable', async () => {
+    mockDeleteMutationState = {
+      ...mockDeleteMutationState,
+      isError: true,
+      error: Object.assign(new Error('Rate limit exceeded.'), {
+        status: 429,
+        retryAfter: 42,
+      }),
+    }
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    // Read through the role rather than the text: the throttle line is the one
+    // error in this dialog a screen reader has to announce without the user
+    // moving focus.
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Too many password attempts. Try again in 42s.'
+    )
+  })
+
+  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', async () => {
+    mockDeleteMutationState = {
+      ...mockDeleteMutationState,
+      isError: true,
+      error: Object.assign(new Error('Rate limit exceeded.'), { status: 429 }),
+    }
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    expect(
+      screen.getByText('Too many password attempts. Try again in a minute.')
+    ).toBeInTheDocument()
+  })
+})
+
+describe('formatDeleteAccountError', () => {
+  it('keeps the server message for a non-429 failure', () => {
+    // The shape useDeleteAccount throws for a wrong password: the backend
+    // answers 200 with success:false, and the hook turns that into an AuthError
+    // carrying status 400.
+    const error = Object.assign(new Error('Password is incorrect'), {
+      status: 400,
+    })
+    expect(formatDeleteAccountError(error)).toBe('Password is incorrect')
+  })
+
+  it('names the window when retryAfter is absent', () => {
+    // The deployed frontend calls the backend cross-origin, where Retry-After
+    // is not exposed, so `retryAfter` is undefined for real users.
+    const error = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
+    })
+    expect(formatDeleteAccountError(error)).toBe(
+      'Too many password attempts. Try again in a minute.'
+    )
+  })
+
+  it('returns the fallback for a missing error', () => {
+    expect(formatDeleteAccountError(null)).toBe(
+      'Failed to delete account. Please try again.'
+    )
   })
 })
