@@ -765,6 +765,7 @@ func (s *ArtistService) artistBrowseScope(
 	now time.Time,
 ) (func() *gorm.DB, error) {
 	skipActiveFilter := browseSkipsActiveGate(filters)
+	missingListenLink := missingListenLinkEngaged(filters)
 
 	// The scene rosters are resolved BEFORE the builder, and once: resolving a
 	// place reads the venue rows, and the builder runs per query (the count,
@@ -772,7 +773,7 @@ func (s *ArtistService) artistBrowseScope(
 	// resolving it here keeps the builder itself infallible.
 	var rosterPred string
 	var rosterArgs []any
-	if missingListenLinkEngaged(filters) {
+	if missingListenLink {
 		var err error
 		rosterPred, rosterArgs, err = sceneRosterPredicate(
 			s.db, s.sceneGeocoder(), browseCityPairs(filters), "artists",
@@ -801,14 +802,15 @@ func (s *ArtistService) artistBrowseScope(
 			// is the half of this filter that makes its total equal the gap
 			// count. See artist_missing_listen.go.
 			query = query.Where(rosterPred, rosterArgs...)
-		} else if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
+		} else if _, ok := filters["cities"].([]map[string]string); ok {
+			// Read through browseCityPairs, the same reader the roster branch
+			// above uses, so the two cannot disagree about which places a
+			// request named.
 			var conditions []string
 			var args []interface{}
-			for _, cs := range cities {
-				if cs["city"] != "" && cs["state"] != "" {
-					conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
-					args = append(args, cs["city"], cs["state"])
-				}
+			for _, pair := range browseCityPairs(filters) {
+				conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
+				args = append(args, pair.city, pair.state)
 			}
 			if len(conditions) > 0 {
 				query = query.Where(strings.Join(conditions, " OR "), args...)
@@ -824,7 +826,7 @@ func (s *ArtistService) artistBrowseScope(
 		if tf, ok := filters["tag_filter"].(TagFilter); ok {
 			query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
 		}
-		if missingListenLinkEngaged(filters) {
+		if missingListenLink {
 			query = query.Where(noListenLinkSQL("artists"))
 		}
 

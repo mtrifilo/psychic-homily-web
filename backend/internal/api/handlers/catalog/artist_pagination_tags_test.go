@@ -130,6 +130,77 @@ func TestListArtistsRejectsAnUnknownMissingFilter(t *testing.T) {
 	}
 }
 
+// A city with no state resolves to no scene, so the filter cannot be honoured
+// as documented. Refused, rather than answered under the exact case-sensitive
+// city match the filter exists to replace, which would return a set that does
+// not equal the gap count while claiming to.
+func TestListArtistsRejectsAPlaceItCannotScopeToAScene(t *testing.T) {
+	cases := map[string]ListArtistsRequest{
+		"single city without a state": {Missing: artistMissingListen, City: "Phoenix"},
+		"cities with no comma":        {Missing: artistMissingListen, Cities: "Phoenix"},
+		"cities with an empty state":  {Missing: artistMissingListen, Cities: "Phoenix,"},
+	}
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			t.Error("the service must not be reached for a place with no scene")
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := h.ListArtistsHandler(context.Background(), &req)
+			var status huma.StatusError
+			if !errors.As(err, &status) {
+				t.Fatalf("expected a huma.StatusError, got %v", err)
+			}
+			if status.GetStatus() != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want %d", status.GetStatus(), http.StatusUnprocessableEntity)
+			}
+		})
+	}
+}
+
+// The same shapes are fine WITHOUT the filter: the guard is the filter's, not a
+// new bound on the city params.
+func TestListArtistsStillAcceptsAStatelessCityWithoutTheFilter(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	if _, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{City: "Phoenix"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// A state with no city names no scene either, but it also names no city, so it
+// is a place-less request rather than an unscopeable one: the gap filter still
+// applies, across every band in the state.
+func TestListArtistsAcceptsAStateOnlyRequestUnderTheFilter(t *testing.T) {
+	var got map[string]interface{}
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			got = filters
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	if _, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{
+		Missing: artistMissingListen,
+		State:   "AZ",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if engaged, _ := got[catalog.FilterMissingListenLink].(bool); !engaged {
+		t.Fatalf("filters = %v, want %s set", got, catalog.FilterMissingListenLink)
+	}
+}
+
 // The supported value reaches the service as the filter key the browse scope
 // reads. The handler and the scope spell that key once
 // (catalog.FilterMissingListenLink); this pins that the handler sets it, which

@@ -33,6 +33,9 @@ import (
 // sets. Value type bool. Exported so the handler that sets it and the scope
 // that reads it spell it once: a typo here is a filter that silently does
 // nothing, which reads as an unfiltered list rather than as an error.
+//
+// Honoured by artistBrowseScope, so by the two paged browse reads. GetArtists,
+// which reads the same map, does not honour it.
 const FilterMissingListenLink = "missing_listen_link"
 
 // artistCityPair is one place a browse request scopes to.
@@ -90,9 +93,14 @@ func browseCityPairs(filters map[string]interface{}) []artistCityPair {
 // not constrain by place".
 //
 // Each place is resolved through sceneScopeFor, the same resolution
-// GetSceneGaps performs, so a metro scene's roster here is the roster counted
-// there. Resolution reads the venue rows, so callers resolve once and reuse the
-// fragment across the count and the page.
+// GetSceneGaps performs. Resolution reads the venue rows, so callers resolve
+// once and reuse the fragment across the count and the page.
+//
+// Resolved scopes are DEDUPLICATED, because several places collapse onto one:
+// every member city of a metro resolves to that metro's scope, and a metro
+// scope expands into one predicate term per member place. Without the dedup, a
+// ten-city request naming ten places in one metro would OR ten copies of the
+// same several-hundred-term predicate into both the count and the page.
 func sceneRosterPredicate(
 	database *gorm.DB,
 	g geo.Geocoder,
@@ -105,11 +113,17 @@ func sceneRosterPredicate(
 
 	parts := make([]string, 0, len(pairs))
 	args := make([]any, 0, len(pairs))
+	seen := make(map[sceneScope]struct{}, len(pairs))
 	for _, pair := range pairs {
 		scope, err := sceneScopeFor(database, g, pair.city, pair.state)
 		if err != nil {
 			return "", nil, err
 		}
+		if _, dup := seen[scope]; dup {
+			continue
+		}
+		seen[scope] = struct{}{}
+
 		pred, predArgs := scope.artistPredicate(alias)
 		parts = append(parts, "("+pred+")")
 		args = append(args, predArgs...)

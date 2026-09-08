@@ -215,15 +215,13 @@ export const artistQueryKeys = {
 export const ARTIST_MISSING_PARAM = 'missing'
 
 /**
- * The only value that param takes: bands with none of spotify, bandcamp,
- * youtube or soundcloud.
+ * The only value that param takes: bands with no listen link.
  *
- * Under it a city means the SCENE'S ROSTER rather than a literal stored city —
- * metro-aware and case-insensitive — and the list's default "has an upcoming
- * show" gate is dropped, so the total is the number
- * `GET /scenes/{slug}/gaps` publishes as `artists_missing_listen_link`. That
- * equality is the filter's whole reason to exist: the scene page states the
- * count in a sentence and links here.
+ * Under it a city means that SCENE'S ROSTER rather than a literal stored city,
+ * so the list's total equals the count `GET /scenes/{slug}/gaps` publishes as
+ * `artists_missing_listen_link`. That equality is the filter's whole reason to
+ * exist: the scene page states the count in a sentence and links here. The
+ * scoping rules are spelled once, in the endpoint's own documentation.
  */
 export const ARTIST_MISSING_LISTEN = 'listen'
 

@@ -78,7 +78,10 @@ vi.mock('./ArtistSearch', () => ({
   ArtistSearch: () => <div data-testid="artist-search">ArtistSearch</div>,
 }))
 
-vi.mock('@/components/filters', () => ({
+// Partial mock: `RemovableFilterChip` stays REAL, because the chip's label and
+// its remove control are what the gap-filter tests assert.
+vi.mock('@/components/filters', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/components/filters')>()),
   CityFilters: ({
     onFilterChange,
     selectedCities,

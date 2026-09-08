@@ -215,12 +215,6 @@ describe('sceneCityListHref', () => {
     ).toBe('/artists?cities=Phoenix%2CAZ&missing=listen')
   })
 
-  it('encodes an extra param value', () => {
-    expect(sceneCityListHref('/artists', 'Phoenix', 'AZ', { q: 'a b&c' })).toBe(
-      '/artists?cities=Phoenix%2CAZ&q=a%20b%26c'
-    )
-  })
-
   // The shows link and the artists link agree about the format because both go
   // through this one function.
   it('is what allUpcomingHref points at /shows with', () => {

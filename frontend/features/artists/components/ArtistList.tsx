@@ -4,7 +4,6 @@ import { useCallback, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { parseAsInteger, parseAsStringLiteral, useQueryState } from 'nuqs'
-import { X } from 'lucide-react'
 import { useArtists, useArtistCities } from '../hooks/useArtists'
 import {
   ARTIST_LIST_PAGE_LIMIT,
@@ -14,13 +13,17 @@ import {
 } from '../api'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
-import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
+import {
+  CityFilters,
+  RemovableFilterChip,
+  type CityWithCount,
+  type CityState,
+} from '@/components/filters'
 import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
 import { LoadingSpinner, DensityToggle, Pagination } from '@/components/shared'
 import { formatCount } from '@/components/shared/paginationChrome'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   TagFacetPanel,
   TagFacetSheet,
@@ -125,9 +128,7 @@ export function ArtistList() {
   const currentPage = Math.min(Math.max(1, pageParam), MAX_ARTIST_PAGE)
   const offset = (currentPage - 1) * ARTIST_LIST_PAGE_LIMIT
 
-  // `?missing=` — the scene gap line's destination. It reshapes the city rule
-  // server-side (scene roster, not literal city) and drops the upcoming-show
-  // gate, so the total equals the count the gap line states.
+  // `?missing=` — the scene gap line's destination; see ARTIST_MISSING_LISTEN.
   const [missing, setMissing] = useQueryState(
     ARTIST_MISSING_PARAM,
     missingParser.withOptions({ history: 'push', startTransition })
@@ -352,26 +353,16 @@ export function ArtistList() {
             onFilterChange={handleFilterChange}
           />
         )}
-        {/* The engaged gap filter, in the city chips' own idiom: the reader
-            arrives here from a sentence on the scene page, so the page has to
-            name what it is showing and offer the way back to the whole city. */}
+        {/* The reader arrives here from a sentence on the scene page, so the
+            page names what it is showing and offers the way back to the whole
+            city. */}
         {missing !== null && (
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant="secondary"
-              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium cursor-default"
+            <RemovableFilterChip
+              label={ARTIST_MISSING_LABELS[missing]}
+              onRemove={handleClearMissing}
               data-testid="artist-missing-chip"
-            >
-              {ARTIST_MISSING_LABELS[missing]}
-              <button
-                onClick={handleClearMissing}
-                className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5 transition-colors"
-                aria-label={`Remove ${ARTIST_MISSING_LABELS[missing]} filter`}
-                data-testid="artist-missing-chip-remove"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
+            />
           </div>
         )}
       </div>

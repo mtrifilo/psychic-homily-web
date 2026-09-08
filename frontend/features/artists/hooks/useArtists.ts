@@ -39,11 +39,7 @@ interface UseArtistsOptions {
   limit?: number
   /** Rows to skip. Defaults to 0 (the first page). */
   offset?: number
-  /**
-   * Restrict to one completeness gap (`?missing=`). Under it a `cities` entry
-   * means that scene's roster rather than a literal stored city, and artists
-   * with no upcoming show are included; see ARTIST_MISSING_LISTEN.
-   */
+  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
   missing?: ArtistMissingFilter
 }
 

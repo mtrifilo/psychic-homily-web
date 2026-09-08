@@ -199,17 +199,33 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 			filters["city"] = req.City
 		}
 	}
-	// Fails closed on an unrecognised value rather than ignoring it. huma's enum
-	// rejects one on the wire before this runs, so this answers for the callers
-	// that build the struct directly; ignoring it would answer an unfiltered
-	// list under a request that asked for a filtered one, which is a wrong
-	// answer rather than a missing feature.
+	// Both guards below fail closed. Answering a request that named a filter
+	// with a list built under a different rule is a wrong answer rather than a
+	// missing feature, and neither shape is visible to the reader once it
+	// renders.
+	//
+	// huma's enum rejects an unrecognised value on the wire before this runs,
+	// so the first guard answers for callers that build the struct directly.
 	switch req.Missing {
 	case "":
 	case artistMissingListen:
 		filters[catalog.FilterMissingListenLink] = true
 	default:
 		return nil, huma.Error422UnprocessableEntity("Unsupported missing filter: " + req.Missing)
+	}
+
+	// The second: this filter scopes a place by its SCENE, and a scene is a
+	// (city, state) pair. A city named without its state resolves to no scene,
+	// and the browse list's fallback for it is the exact, case-sensitive match
+	// the filter exists to replace.
+	if req.Missing != "" {
+		_, placesResolved := filters["cities"]
+		namedMultiCity := req.Cities != ""
+		if (namedMultiCity && !placesResolved) ||
+			(!namedMultiCity && req.City != "" && req.State == "") {
+			return nil, huma.Error422UnprocessableEntity(
+				"The missing filter needs every city to name its state: cities=City,ST, or city= with state=")
+		}
 	}
 
 	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {

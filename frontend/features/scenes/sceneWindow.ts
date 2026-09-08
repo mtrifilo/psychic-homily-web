@@ -124,8 +124,11 @@ export function sceneCityListHref(
   state: string,
   extraParams?: Record<string, string>
 ): string {
-  const query = [`cities=${encodeURIComponent(`${city},${state}`)}`]
-  for (const [key, value] of Object.entries(extraParams ?? {})) {
+  const cities = `cities=${encodeURIComponent(`${city},${state}`)}`
+  if (!extraParams) return `${basePath}?${cities}`
+
+  const query = [cities]
+  for (const [key, value] of Object.entries(extraParams)) {
     query.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
   }
   return `${basePath}?${query.join('&')}`
