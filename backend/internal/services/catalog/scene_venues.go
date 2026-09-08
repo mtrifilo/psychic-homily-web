@@ -43,8 +43,12 @@ func trackedVenuePredicate(scope sceneScope, alias string) (string, []any) {
 //
 // SceneStats.UpcomingShowCount is drawn on the same boundary, so the two agree
 // about which nights they are counting. They still differ in WHAT they count:
-// see the contract on SceneVenueSummary.UpcomingShowCount for the directions
-// that divergence runs in.
+// see the contract on SceneVenueSummary.UpcomingShowCount.
+//
+// The zone that dates a row is the show's PRIMARY venue's, not v2's, because
+// the boundary is the repo's shared one. For a bill split across two rooms the
+// second room's tally is drawn on the first room's clock, which matters only
+// where a scope spans a timezone line.
 //
 // Name breaks a count tie and id breaks a name tie, so the order is total: the
 // rooms with nothing booked (most of them, in a sparse scene) come back in a
@@ -68,6 +72,10 @@ func (s *SceneService) sceneVenueLeaderboard(scope sceneScope) ([]contracts.Scen
 	// WHERE's. The scope args appear TWICE because the predicate does. The night
 	// condition binds nothing: Postgres evaluates it per row against that row's
 	// own venue zone.
+	//
+	// The derived table's shows must be UNALIASED: shared.VenueTZJoin's lateral
+	// correlates on `shows.id`, and the aliased form fails at query time on a
+	// live scene page rather than at build.
 	args := append([]any{catalogm.ShowStatusApproved}, innerArgs...)
 	args = append(args, outerArgs...)
 
@@ -92,7 +100,7 @@ func (s *SceneService) sceneVenueLeaderboard(scope sceneScope) ([]contracts.Scen
 			JOIN venues v2 ON v2.id = sv.venue_id
 			`+shared.VenueTZJoin+`
 			WHERE shows.status = ?
-			  AND `+shared.VenueLocalNightDateCondition()+`
+			  AND `+shared.VenueLocalNightDateCondition+`
 			  AND `+inner+`
 			GROUP BY sv.venue_id
 		) show_counts ON show_counts.venue_id = v.id

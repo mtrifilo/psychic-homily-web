@@ -1720,10 +1720,9 @@ type SceneVenueSummary struct {
 	//   - PAST it, because a show billed to two rooms is counted by both.
 	//   - SHORT of it, because the scene total counts shows at UNVERIFIED rooms,
 	//     which are not tracked and so have no row here.
-	// The BOUNDARY is no longer one of those directions: both are drawn at the
-	// same night start, so neither holds a night the other has let go of. Do not
-	// "reconcile" the remaining two by editing the scene total: that silently
-	// changes a number already being served.
+	// Both are drawn at the same night start, so the BOUNDARY is not one of the
+	// directions they differ in. Do not "reconcile" the two that remain by
+	// editing the scene total: that silently changes a number already served.
 	//
 	// CANCELLED shows are counted, because they are still `approved` — the same
 	// convention the scene total and the day/week payloads follow (those ship
@@ -2137,11 +2136,8 @@ type SceneStats struct {
 	// the NIGHT in progress in each show's own venue zone rather than at the
 	// request instant.
 	//
-	// The night is the unit because of what this number is printed beside: the
-	// status band leads with a count of the shows on tonight, and the tonight
-	// bucket runs until 06:00 local. Bounded at the instant, this reads lower
-	// than the count next to it and lower than the rows underneath it for the
-	// whole evening, which is the reader's own evening.
+	// The night is the unit because the status band prints this beside a count
+	// of the shows on tonight, and that bucket holds a night until 06:00 local.
 	//
 	// It counts shows at UNVERIFIED rooms too, which the per-room leaderboard
 	// beside it cannot; see SceneVenueSummary.UpcomingShowCount.

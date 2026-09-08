@@ -30,9 +30,9 @@ const sceneDayShowCap = 100
 // permalink disagrees with. Do not "fix" this by widening the window without
 // revisiting that decision.
 //
-// The value is shared.NightStartHour, which the scene page's upcoming counts
-// are bounded at in SQL. One constant is what keeps a count from dropping a
-// show the tonight listing beside it still names.
+// The hour comes from shared.NightStartHour, which the scene page's upcoming
+// counts are bounded at in SQL. That constant's doc states what the two do and
+// do not share.
 const nightStartHour = shared.NightStartHour
 
 // sceneDayNextShowWindowDays bounds the look-ahead behind a quiet night's

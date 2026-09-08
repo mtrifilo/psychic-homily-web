@@ -71,20 +71,14 @@ func TestNightStartDateSQL_NamesTheNightInProgress(t *testing.T) {
 // day. This asserts the bound covers that gap with room to spare rather than
 // asserting the literal, which would just restate the constant.
 func TestNightUpcomingCoarseBound_CoversTheEarliestQualifyingInstant(t *testing.T) {
-	const coarseMarginDays = 3
-
 	// Local midnight on the night-start date is at most this far behind now:
 	// NightStartHour short of a full local day back to that midnight, plus the
-	// local day before it, plus the hour a fall-back transition can add to
-	// either.
-	worstCaseLag := time.Duration(2)*25*time.Hour - time.Duration(NightStartHour)*time.Hour
-	if margin := time.Duration(coarseMarginDays) * 24 * time.Hour; worstCaseLag >= margin {
+	// local day before it, with each of those days allowed to run 25 hours
+	// because a fall-back transition stretches one.
+	worstCaseLag := 2*25*time.Hour - NightStartHour*time.Hour
+	margin := nightCoarseMarginDays * 24 * time.Hour
+	if worstCaseLag >= margin {
 		t.Errorf("the coarse bound (%v) does not cover the earliest qualifying instant (%v behind now)",
 			margin, worstCaseLag)
-	}
-	want := "shows.event_date >= now() - interval '3 days'"
-	if nightUpcomingCoarseBound != want {
-		t.Errorf("coarse bound = %q, want %q; the margin above is reasoned against 3 days",
-			nightUpcomingCoarseBound, want)
 	}
 }

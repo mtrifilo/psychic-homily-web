@@ -969,29 +969,36 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	}
 
 	// Upcoming show count (metro-wide), bounded at the NIGHT in progress rather
-	// than at this instant.
+	// than at the request instant. The status band prints this figure beside a
+	// count of the shows on tonight, and the tonight bucket holds a night until
+	// 06:00 local, so a boundary drawn anywhere earlier reports fewer shows to
+	// come than the page lists under it.
 	//
-	// The status band prints this number beside a count of the shows on tonight,
-	// and the tonight bucket is the night that BEGAN yesterday evening until
-	// 06:00 (scene_day.go). An instant bound drops every set that has already
-	// started, so a reader standing in a room at 23:00 reads `2 TONIGHT ·
-	// 0 UPCOMING SHOWS`, a headline that contradicts the two rows printed under
-	// it. shared.VenueLocalNightDateCondition is the same boundary expressed in
-	// SQL, per show, in its own venue's zone.
+	// The scene test is an EXISTS rather than a join, so a show booked into two
+	// metro rooms contributes ONE row and the zone lateral resolves once per
+	// show rather than once per room. Same shape, and the same reason, as
+	// batchRosterUpcoming.
 	//
-	// The shows table must be UNALIASED here: shared.VenueTZJoin's lateral
-	// correlates on `shows.id`.
+	// The shows table must be UNALIASED: shared.VenueTZJoin's lateral correlates
+	// on `shows.id`.
+	//
+	// Placeholder order: status, then the scope's venue args. The night
+	// condition binds nothing.
+	upcomingArgs := append([]any{catalogm.ShowStatusApproved}, vargs...)
 	var upcomingShowCount int64
 	if err := s.db.Raw(`
-		SELECT COUNT(DISTINCT shows.id)
+		SELECT COUNT(*)
 		FROM shows
-		JOIN show_venues sv ON sv.show_id = shows.id
-		JOIN venues v ON v.id = sv.venue_id
 		`+shared.VenueTZJoin+`
-		WHERE `+vp+`
-		  AND shows.status = ?
-		  AND `+shared.VenueLocalNightDateCondition()+`
-	`, venueArgs(catalogm.ShowStatusApproved)...).Scan(&upcomingShowCount).Error; err != nil {
+		WHERE shows.status = ?
+		  AND `+shared.VenueLocalNightDateCondition+`
+		  AND EXISTS (
+			SELECT 1
+			FROM show_venues sv
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE sv.show_id = shows.id AND `+vp+`
+		  )
+	`, upcomingArgs...).Scan(&upcomingShowCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 

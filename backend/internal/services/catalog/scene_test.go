@@ -1635,14 +1635,14 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenueCountsDou
 }
 
 // sceneNightFixture is the clock every count on the scene page is judged
-// against: the scene's zone, and the calendar date a reader standing in it right
-// now would call tonight.
+// against: the suite's scene zone, and the calendar date a reader standing in it
+// right now would call tonight.
 //
 // The suite runs at whatever time of day CI reaches it, so a fixture pinned to a
-// wall-clock hour is a fixture that passes for eighteen hours and fails for six.
+// wall-clock hour is one that passes for eighteen hours and fails for six.
 // Anchoring on tonightDate (the same function the day payload resolves its date
 // with) makes every case below independent of when it runs.
-func (suite *SceneServiceIntegrationTestSuite) sceneNightFixture() (*time.Location, calendarDate) {
+func sceneNightFixture() (*time.Location, calendarDate) {
 	loc := utils.EventLocation(nil, "AZ")
 	return loc, tonightDate(time.Now().In(loc))
 }
@@ -1667,7 +1667,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsHoldShow
 	dark := suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
 	band := suite.createArtist("Tonight Band")
 
-	loc, tonight := suite.sceneNightFixture()
+	loc, tonight := sceneNightFixture()
 	startedAnHourAgo := time.Now().Add(-time.Hour)
 	suite.Require().True(startedAnHourAgo.Before(time.Now()), "the defect only bites once the set has begun")
 	suite.createApprovedShow("Doors Already Open", v.ID, band.ID, user.ID, startedAnHourAgo)
@@ -1686,38 +1686,21 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsHoldShow
 	suite.Equal(1, detail.Stats.UpcomingShowCount, "the headline holds the same night the rooms do")
 }
 
-// A date-only listing for tonight is stored at 20:00 on the venue's clock, so it
-// spends the whole late evening behind the request instant while still being the
-// thing a reader is on their way to.
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsHoldTonightsDateOnlyShow() {
-	user := suite.createUser()
-	v := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
-	suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
-	band := suite.createArtist("Tonight Band")
-
-	loc, tonight := suite.sceneNightFixture()
-	suite.createApprovedShow("Date Only Tonight", v.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
-
-	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
-	suite.Require().NoError(err)
-	suite.Require().Len(detail.Venues, 2)
-
-	suite.Equal("Tonight Only", detail.Venues[0].Name)
-	suite.Equal(1, detail.Venues[0].UpcomingShowCount)
-	suite.Equal(1, detail.Stats.UpcomingShowCount)
-}
-
 // The three numbers a reader sees at once on the scene root, on ONE fixture: the
 // count of shows on tonight, the headline upcoming figure, and the rooms
 // leaderboard. The band cannot lead with more shows tonight than it claims are
 // still to come, which is exactly what it printed before this bound.
+//
+// A date-only listing for tonight is one of the seeded rows. It is stored at
+// 20:00 on the venue's clock, so it sits behind the request instant for the
+// whole late evening while still being the thing a reader is on their way to.
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_CountsAgreeWithTheTonightBucket() {
 	user := suite.createUser()
 	room := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
 	suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
 	band := suite.createArtist("Tonight Band")
 
-	loc, tonight := suite.sceneNightFixture()
+	loc, tonight := sceneNightFixture()
 	// One set under way, one date-only listing, both at the same room, plus a
 	// booking well ahead so "upcoming" is not trivially equal to "tonight".
 	suite.createApprovedShow("Doors Already Open", room.ID, band.ID, user.ID, time.Now().Add(-time.Hour))
