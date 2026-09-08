@@ -480,7 +480,7 @@ type MockAuthService struct {
 	OAuthCallbackWithConsentFn func(http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent) (*authm.User, string, error)
 	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
 	GetUserProfileFn           func(uint) (*authm.User, error)
-	RefreshUserTokenFn         func(*authm.User) (string, error)
+	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
 	LogoutFn                   func(http.ResponseWriter, *http.Request) error
 	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
 }
@@ -515,9 +515,9 @@ func (m *MockAuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	}
 	return nil, nil
 }
-func (m *MockAuthService) RefreshUserToken(user *authm.User) (string, error) {
+func (m *MockAuthService) RefreshUserToken(user *authm.User, authAt time.Time) (string, error) {
 	if m.RefreshUserTokenFn != nil {
-		return m.RefreshUserTokenFn(user)
+		return m.RefreshUserTokenFn(user, authAt)
 	}
 	return "", nil
 }
@@ -2178,6 +2178,7 @@ func (m *MockGraphOverviewService) GetGraphStartingPoints() ([]contracts.GraphSt
 
 type MockJWTService struct {
 	CreateTokenFn                  func(*authm.User) (string, error)
+	RenewSessionTokenFn            func(*authm.User, time.Time) (string, error)
 	ValidateTokenFn                func(string) (*authm.User, error)
 	RefreshTokenFn                 func(string) (string, error)
 	ValidateTokenLenientFn         func(string, time.Duration) (*authm.User, error)
@@ -2192,6 +2193,12 @@ type MockJWTService struct {
 func (m *MockJWTService) CreateToken(user *authm.User) (string, error) {
 	if m.CreateTokenFn != nil {
 		return m.CreateTokenFn(user)
+	}
+	return "", nil
+}
+func (m *MockJWTService) RenewSessionToken(user *authm.User, authAt time.Time) (string, error) {
+	if m.RenewSessionTokenFn != nil {
+		return m.RenewSessionTokenFn(user, authAt)
 	}
 	return "", nil
 }

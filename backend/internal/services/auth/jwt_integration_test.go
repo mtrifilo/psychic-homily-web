@@ -348,6 +348,70 @@ func (s *JWTIntegrationSuite) TestRefreshToken_FullFlow() {
 	s.Greater(refreshExp, origExp, "refreshed token should have a later expiry")
 }
 
+// Refresh renews a session without asking for anything, so the token it hands
+// back must report the same authentication time the presented one did. If it
+// stamped a new one, a holder of a stolen session could satisfy every
+// re-authentication gate with one extra request.
+func (s *JWTIntegrationSuite) TestRefreshToken_DoesNotMoveAuthTime() {
+	user := s.createActiveUser("refresh-auth-at@example.com")
+
+	original, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	originalAuthAt, ok := s.svc.SessionAuthTime(original)
+	s.Require().True(ok)
+
+	time.Sleep(1100 * time.Millisecond)
+
+	refreshed, err := s.svc.RefreshToken(original)
+	s.Require().NoError(err)
+
+	refreshedAuthAt, ok := s.svc.SessionAuthTime(refreshed)
+	s.Require().True(ok)
+	s.True(refreshedAuthAt.Equal(originalAuthAt))
+
+	// The renewal is genuinely a new token: iat moved, auth_at did not.
+	parseClaims := func(t string) jwt.MapClaims {
+		parsed, parseErr := jwt.Parse(t, func(token *jwt.Token) (interface{}, error) {
+			return []byte(s.cfg.JWT.SecretKey), nil
+		})
+		s.Require().NoError(parseErr)
+		claims, claimsOK := parsed.Claims.(jwt.MapClaims)
+		s.Require().True(claimsOK)
+		return claims
+	}
+	s.Greater(
+		int64(parseClaims(refreshed)["iat"].(float64)),
+		int64(parseClaims(original)["iat"].(float64)),
+	)
+
+	// Repeated renewals do not walk it forward either.
+	again, err := s.svc.RefreshToken(refreshed)
+	s.Require().NoError(err)
+	againAuthAt, ok := s.svc.SessionAuthTime(again)
+	s.Require().True(ok)
+	s.True(againAuthAt.Equal(originalAuthAt))
+}
+
+// A session minted before the claim existed renews without acquiring one.
+func (s *JWTIntegrationSuite) TestRefreshToken_LegacyTokenStaysWithoutAuthTime() {
+	user := s.createActiveUser("refresh-legacy@example.com")
+
+	legacy, err := s.svc.RenewSessionToken(user, time.Time{})
+	s.Require().NoError(err)
+	_, ok := s.svc.SessionAuthTime(legacy)
+	s.Require().False(ok)
+
+	refreshed, err := s.svc.RefreshToken(legacy)
+	s.Require().NoError(err)
+
+	// Still a working session, still carrying no authentication time.
+	validated, err := s.svc.ValidateToken(refreshed)
+	s.Require().NoError(err)
+	s.Equal(user.ID, validated.ID)
+	_, ok = s.svc.SessionAuthTime(refreshed)
+	s.False(ok)
+}
+
 func (s *JWTIntegrationSuite) TestRefreshToken_InvalidToken() {
 	refreshed, err := s.svc.RefreshToken("not.a.valid.token")
 	s.Empty(refreshed)

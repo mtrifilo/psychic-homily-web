@@ -63,7 +63,7 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider str
 	ctx := context.Background()
 	if user != nil {
 		ctx = testhelpers.CtxWithUser(user)
-		ctx = context.WithValue(ctx, middleware.SessionIssuedAtContextKey, time.Now())
+		ctx = context.WithValue(ctx, middleware.SessionAuthTimeContextKey, time.Now())
 	}
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", provider)
@@ -203,7 +203,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	// Older than recentSessionWindow: the account has a password, so the rule
 	// asks for that rather than accepting the cookie.
 	req = req.WithContext(context.WithValue(req.Context(),
-		middleware.SessionIssuedAtContextKey, time.Now().Add(-2*time.Hour)))
+		middleware.SessionAuthTimeContextKey, time.Now().Add(-2*time.Hour)))
 
 	handler.OAuthLinkHTTPHandler(w, req)
 
@@ -220,6 +220,41 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	// for the trip back.
 	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
 		"a stale-session refusal must not burn the token")
+}
+
+// A session carrying no authentication time at all: an API-token principal, or
+// a session minted before the auth_at claim existed. Absence is not evidence of
+// freshness, so the gate refuses and the user signs in once more.
+func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
+	hash := "$2a$not-a-real-hash"
+	user := &authm.User{
+		Email:        strPtr("link-no-auth-time@test.com"),
+		IsActive:     true,
+		PasswordHash: &hash,
+	}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := s.oauthLinkRequestWithoutToken("google", user)
+	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
+	s.Require().NoError(err)
+	q := req.URL.Query()
+	q.Set(oauthLinkTokenParam, token)
+	req.URL.RawQuery = q.Encode()
+	// The principal is there; the authentication time is not. oauthLinkRequest
+	// puts one in, so this drops it explicitly.
+	ctx := testhelpers.CtxWithUser(user)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("provider", "google")
+	req = req.WithContext(context.WithValue(ctx, chi.RouteCtxKey, rctx))
+
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Equal(http.StatusTemporaryRedirect, w.Code)
+	parsed, err := url.Parse(w.Header().Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/auth", parsed.Path)
+	s.Nil(linkIntentCookie(w))
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestLink_UnknownProviderRefused() {

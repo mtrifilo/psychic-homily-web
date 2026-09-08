@@ -19,7 +19,8 @@ const recentSessionWindow = 10 * time.Minute
 type linkReauthFactor string
 
 const (
-	// reauthAlreadySatisfied: the session itself is fresh enough to count.
+	// reauthAlreadySatisfied: the session's own authentication is recent
+	// enough to count.
 	reauthAlreadySatisfied linkReauthFactor = "recent_session"
 	reauthPassword         linkReauthFactor = "password"
 	reauthPasskey          linkReauthFactor = "passkey"
@@ -31,7 +32,7 @@ const (
 //
 // The rule:
 //
-//   - a session younger than recentSessionWindow counts on its own
+//   - a session authenticated within recentSessionWindow counts on its own
 //   - otherwise the account's own factor: its password if one is set, else a
 //     passkey if one is registered, else a magic-link confirmation
 //
@@ -48,14 +49,21 @@ const (
 // reported as magic_link. Every non-satisfied factor takes the same path
 // today, so this changes only the log label, not the decision.
 //
-// sessionIssuedAt is the session credential's issue time. A zero value means
-// the age could not be established, which is not evidence of freshness.
+// sessionAuthenticatedAt is when an authentication factor last completed for
+// the session credential, from the token's auth_at claim. A zero value means no
+// authentication time could be established, which is not evidence of freshness:
+// a session minted before the claim existed lands here and is refused until the
+// user signs in once more.
 //
-// A sessionIssuedAt in the FUTURE counts as fresh, and deliberately: clock
-// skew between issuer and reader is ordinary, and the alternative is refusing
-// a user whose own clock is right.
-func linkReauthFactorFor(hasPassword, hasPasskey bool, sessionIssuedAt, now time.Time) linkReauthFactor {
-	if !sessionIssuedAt.IsZero() && now.Sub(sessionIssuedAt) < recentSessionWindow {
+// It is deliberately not the credential's issue time. Renewing a session moves
+// iat with no factor behind it, so a gate reading iat would be satisfied by one
+// extra call to POST /auth/refresh, which a holder of a stolen token can make.
+//
+// A sessionAuthenticatedAt in the FUTURE counts as fresh, and deliberately:
+// clock skew between issuer and reader is ordinary, and the alternative is
+// refusing a user whose own clock is right.
+func linkReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now time.Time) linkReauthFactor {
+	if !sessionAuthenticatedAt.IsZero() && now.Sub(sessionAuthenticatedAt) < recentSessionWindow {
 		return reauthAlreadySatisfied
 	}
 	if hasPassword {

@@ -23,9 +23,11 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
-// SessionIssuedAtContextKey holds the time.Time the session credential was
-// issued, when the credential carries one.
-const SessionIssuedAtContextKey contextKey = "session_issued_at"
+// SessionAuthTimeContextKey holds the time.Time an authentication factor last
+// completed for the request's session credential, when the credential carries
+// one. It is the token's auth_at claim, which a renewal copies through
+// unchanged, and never its issue time, which every mint moves.
+const SessionAuthTimeContextKey contextKey = "session_auth_time"
 
 // JWTErrorResponse represents the error response for JWT authentication failures
 type JWTErrorResponse struct {
@@ -86,12 +88,13 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 
 			// Add user to context
 			ctx = context.WithValue(ctx, UserContextKey, user)
-			// The credential's own age, for the surfaces that refuse to make a
-			// security-relevant change on the strength of an old cookie. Absent
-			// for an API token, which carries no issue time and is therefore
-			// never treated as fresh.
-			if issuedAt, ok := jwtService.SessionIssuedAt(token); ok {
-				ctx = context.WithValue(ctx, SessionIssuedAtContextKey, issuedAt)
+			// When the session last stood behind a factor, for the surfaces
+			// that refuse to make a security-relevant change on the strength of
+			// an old cookie. Absent for an API token and for a session minted
+			// before the claim existed, both of which are therefore never
+			// treated as recently authenticated.
+			if authAt, ok := jwtService.SessionAuthTime(token); ok {
+				ctx = context.WithValue(ctx, SessionAuthTimeContextKey, authAt)
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -251,6 +254,15 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 		// Store user in context for handlers to access
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
 
+		// An API token takes the branch above and carries no authentication
+		// time, so it is never treated as recently authenticated. Reading the
+		// claim off the credential here is what lets a handler that re-mints a
+		// session (the admin CLI token) carry the standing forward rather than
+		// stamp a new one.
+		if authAt, ok := jwtService.SessionAuthTime(token); ok {
+			ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
+		}
+
 		next(ctxWithUser)
 	}
 }
@@ -310,6 +322,15 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 		)
 
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
+
+		// The refresh handler renews the session, which is not a factor, so it
+		// has to copy the presented token's authentication time into the token
+		// it mints. Read with the same grace period the validation above used,
+		// or a token renewed after expiry would silently lose the claim.
+		if authAt, ok := jwtService.SessionAuthTimeLenient(token, gracePeriod); ok {
+			ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
+		}
+
 		next(ctxWithUser)
 	}
 }
@@ -379,12 +400,13 @@ func SessionUserIDFromRequest(jwtService *auth.JWTService, r *http.Request) (uin
 	return jwtService.SessionUserID(token)
 }
 
-// GetSessionIssuedAtFromContext returns when the request's session credential
-// was issued. ok is false when the credential carries no issue time, which the
-// callers treat as "not recent" rather than as an error.
-func GetSessionIssuedAtFromContext(ctx context.Context) (time.Time, bool) {
-	issuedAt, ok := ctx.Value(SessionIssuedAtContextKey).(time.Time)
-	return issuedAt, ok
+// GetSessionAuthTimeFromContext returns when an authentication factor last
+// completed for the request's session credential. ok is false when the
+// credential carries no authentication time, which the callers treat as "not
+// recent" rather than as an error.
+func GetSessionAuthTimeFromContext(ctx context.Context) (time.Time, bool) {
+	authAt, ok := ctx.Value(SessionAuthTimeContextKey).(time.Time)
+	return authAt, ok
 }
 
 func GetUserFromContext(ctx context.Context) *authm.User {
