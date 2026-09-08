@@ -298,7 +298,7 @@ describe('ChangePassword', () => {
     renderForm()
 
     expect(
-      screen.getByText('Too many password change attempts. Try again in 42s.')
+      screen.getByText('Too many password attempts. Try again in 42s.')
     ).toBeInTheDocument()
   })
 
@@ -308,32 +308,31 @@ describe('ChangePassword', () => {
     renderForm()
 
     expect(
-      screen.getByText('Too many password change attempts. Try again in a minute.')
+      screen.getByText('Too many password attempts. Try again in a minute.')
     ).toBeInTheDocument()
   })
 })
 
+// The branches of the shared formatter are pinned in
+// password-confirm-errors.test.ts; what is this surface's own is the copy it
+// binds.
 describe('formatChangePasswordError', () => {
-  it('keeps the server message for a non-429 failure', () => {
-    // The shape useChangePassword throws for a rejected password: the backend
-    // answers 200 with success:false, and the hook turns that into an AuthError
-    // carrying status 400.
-    const error = Object.assign(new Error('Current password is incorrect'), {
-      status: 400,
+  it('binds this form fallback, and passes the throttle and message branches through', () => {
+    const throttled = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
     })
-    expect(formatChangePasswordError(error)).toBe('Current password is incorrect')
-  })
-
-  it('names the window when retryAfter is absent', () => {
-    // The deployed frontend calls the backend cross-origin, where Retry-After
-    // is not exposed, so `retryAfter` is undefined for real users.
-    const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
-    expect(formatChangePasswordError(error)).toBe(
-      'Too many password change attempts. Try again in a minute.'
+    expect(formatChangePasswordError(throttled)).toBe(
+      'Too many password attempts. Try again in a minute.'
     )
-  })
-
-  it('returns the fallback for a missing error', () => {
     expect(formatChangePasswordError(null)).toBe('Failed to change password')
+    // The wrong-current-password reply, which is what this surface answers most
+    // often.
+    const wrongPassword = Object.assign(
+      new Error('Current password is incorrect'),
+      { status: 400 }
+    )
+    expect(formatChangePasswordError(wrongPassword)).toBe(
+      'Current password is incorrect'
+    )
   })
 })

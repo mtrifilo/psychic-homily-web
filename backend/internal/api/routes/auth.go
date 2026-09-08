@@ -90,18 +90,16 @@ func setupAuthRoutes(rc RouteContext) {
 // endpoint open as an email-bombing amplifier.
 const VerificationResendPerMinute = 5
 
-// ChangePasswordAttemptsPerMinute is the per-IP budget for POST
-// /auth/change-password, which verifies the current password before setting the
-// new one. It matches the resend budget on its own counter, so tuning one does
-// not tune the other.
+// PasswordConfirmAttemptsPerMinute is the per-IP budget shared by the routes on
+// passwordConfirmGroup, each of which takes the account password as
+// confirmation. It matches the resend budget on its own counter, so tuning one
+// does not tune the other.
 //
-// Not every attempt it counts is a guess: a new password the server rejects on
-// policy spends one too, and the breach-list half of that policy is a lookup
-// the browser form cannot make, so a user iterating on a new password costs the
-// same as an attacker iterating on the current one. Five per minute per IP is a
-// floor against unsophisticated abuse, not a bound on a determined caller, who
-// can rotate source addresses for a fresh counter each time.
-const ChangePasswordAttemptsPerMinute = 5
+// The counter meters requests, not guesses. A new password the server rejects
+// on policy spends one on change-password, and an account with no password
+// spends one on the delete route before anything is compared. Sharing means one
+// of those surfaces can refuse the other, per source address, for a window.
+const PasswordConfirmAttemptsPerMinute = 5
 
 // authScopedRateLimiter builds a per-IP minute limiter for an auth route,
 // honoring the DISABLE_AUTH_RATE_LIMITS escape hatch: every E2E worker shares
@@ -150,23 +148,30 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	verifyEmailGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(VerificationResendPerMinute)))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
-	// Change-password meters current-password attempts per client IP. Its
-	// counter is separate from the public auth budget, so attempts here cannot
-	// lock the same person out of /auth/login. The group hangs off
-	// rc.Protected, so HumaJWTMiddleware runs first and an unauthenticated
-	// caller is refused before it reaches the counter.
-	changePasswordGroup := huma.NewGroup(rc.Protected, "")
-	changePasswordGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(ChangePasswordAttemptsPerMinute)))
-	huma.Post(changePasswordGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
+	// Every route on this group takes the account password as confirmation, and
+	// one group means one counter: a wrong guess at any of them spends from the
+	// same per-IP budget. That counter is separate from the public auth budget,
+	// so attempts here cannot lock the same person out of /auth/login. The group
+	// hangs off rc.Protected, so HumaJWTMiddleware runs first and an
+	// unauthenticated caller is refused before reaching the counter.
+	//
+	// A route registered on rc.Protected instead of here carries no budget of
+	// its own. The route inventory guard requires every mutating route under
+	// /auth/ to record which budget meters it.
+	passwordConfirmGroup := huma.NewGroup(rc.Protected, "")
+	passwordConfirmGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(PasswordConfirmAttemptsPerMinute)))
+	huma.Post(passwordConfirmGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
 	lenientGroup := huma.NewGroup(rc.API, "")
 	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(rc.SC.JWT, 7*24*time.Hour))
 	huma.Post(lenientGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 
-	// Account deletion endpoints
+	// Account deletion endpoints. The delete route takes the account password,
+	// so it is on passwordConfirmGroup; the summary read takes none, so putting
+	// it there would spend a password guess on opening the dialog.
 	huma.Get(rc.Protected, "/auth/account/deletion-summary", authHandler.GetDeletionSummaryHandler)
-	huma.Post(rc.Protected, "/auth/account/delete", authHandler.DeleteAccountHandler)
+	huma.Post(passwordConfirmGroup, "/auth/account/delete", authHandler.DeleteAccountHandler)
 
 	// Data export endpoint (GDPR Right to Portability)
 	huma.Get(rc.Protected, "/auth/account/export", authHandler.ExportDataHandler)

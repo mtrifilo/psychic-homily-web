@@ -31,6 +31,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
+import { formatPasswordConfirmError } from './password-confirm-errors'
+import type { ApiError } from '@/lib/api'
 
 interface DeleteAccountDialogProps {
   open: boolean
@@ -38,6 +40,16 @@ interface DeleteAccountDialogProps {
 }
 
 type Step = 'warning' | 'confirm' | 'success'
+
+/**
+ * This dialog's spelling of the shared password-confirm copy. The throttle
+ * sentence is the shared one; only the fallback is this dialog's own.
+ */
+export function formatDeleteAccountError(error: unknown): string {
+  return formatPasswordConfirmError(error, {
+    fallback: 'Failed to delete account. Please try again.',
+  })
+}
 
 export function DeleteAccountDialog({
   open,
@@ -100,6 +112,12 @@ export function DeleteAccountDialog({
         setStep('success')
       }
     } catch (error) {
+      // A 429 is the limiter working, not an account-deletion fault. It is
+      // still reported: lib/api.ts records every 429 through
+      // recordRateLimitHit, which breadcrumbs each one and promotes a sampled
+      // event tagged error_type: rate_limited. What is given up here is the
+      // per-occurrence event tagged service: account-deletion.
+      if ((error as ApiError)?.status === 429) return
       Sentry.captureException(error, {
         level: 'warning',
         tags: { service: 'account-deletion' },
@@ -132,7 +150,10 @@ export function DeleteAccountDialog({
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : deletionSummary.isError ? (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                <div
+                  role="alert"
+                  className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+                >
                   Failed to load account data. Please try again.
                 </div>
               ) : (
@@ -311,9 +332,11 @@ export function DeleteAccountDialog({
 
               {/* Error Message */}
               {deleteAccount.isError && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                  {deleteAccount.error?.message ||
-                    'Failed to delete account. Please try again.'}
+                <div
+                  role="alert"
+                  className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+                >
+                  {formatDeleteAccountError(deleteAccount.error)}
                 </div>
               )}
             </div>

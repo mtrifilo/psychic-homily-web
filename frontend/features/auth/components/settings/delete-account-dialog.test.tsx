@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import * as Sentry from '@sentry/nextjs'
 import { renderWithProviders } from '@/test/utils'
-import { DeleteAccountDialog } from './delete-account-dialog'
+import {
+  DeleteAccountDialog,
+  formatDeleteAccountError,
+} from './delete-account-dialog'
 
 // --- Mocks ---
 
@@ -415,5 +419,111 @@ describe('DeleteAccountDialog', () => {
     expect(
       screen.getByText('Failed to delete account. Please try again.')
     ).toBeInTheDocument()
+  })
+
+  it('renders throttle copy with the wait in seconds when Retry-After is readable', async () => {
+    mockDeleteMutationState = {
+      ...mockDeleteMutationState,
+      isError: true,
+      error: Object.assign(new Error('Rate limit exceeded.'), {
+        status: 429,
+        retryAfter: 42,
+      }),
+    }
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    // Read the text, then require it to sit in a live region: this dialog has a
+    // second role="alert" on the warning step, so a bare getByRole would go
+    // ambiguous the day both can render at once.
+    const line = screen.getByText(
+      'Too many password attempts. Try again in 42s.'
+    )
+    expect(line.closest('[role="alert"]')).not.toBeNull()
+  })
+
+  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', async () => {
+    // The deployed frontend calls the backend cross-origin, where no CORS
+    // config exposes Retry-After, so this is the branch real users see.
+    mockDeleteMutationState = {
+      ...mockDeleteMutationState,
+      isError: true,
+      error: Object.assign(new Error('Rate limit exceeded.'), { status: 429 }),
+    }
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    expect(
+      screen.getByText('Too many password attempts. Try again in a minute.')
+    ).toBeInTheDocument()
+  })
+
+  it('does not report a throttled deletion to Sentry', async () => {
+    mockDeleteMutateAsync.mockRejectedValue(
+      Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
+    )
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+    await user.type(screen.getByLabelText('Password'), 'wrong-password')
+    await user.click(
+      screen.getByLabelText(/I understand that my account will be deactivated/)
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
+
+    // The catch runs in the promise chain the click started, so the assertion
+    // has to come after that chain settles rather than after the call: waiting
+    // on rendered state would not do it, because the mutation state this test
+    // renders from is a static mock. The paired 503 case is the control that
+    // this synchronization can observe a capture at all.
+    await waitFor(() => expect(mockDeleteMutateAsync).toHaveBeenCalled())
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled()
+  })
+
+  it('reports a deletion failure that is not a throttle to Sentry', async () => {
+    mockDeleteMutateAsync.mockRejectedValue(
+      Object.assign(new Error('Service unavailable'), { status: 503 })
+    )
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+    await user.type(screen.getByLabelText('Password'), 'wrong-password')
+    await user.click(
+      screen.getByLabelText(/I understand that my account will be deactivated/)
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete My Account' }))
+
+    await waitFor(() =>
+      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalled()
+    )
+  })
+})
+
+// The branches of the shared formatter are pinned in
+// password-confirm-errors.test.ts; what is this surface's own is the copy it
+// binds.
+describe('formatDeleteAccountError', () => {
+  it('binds this dialog fallback, and passes the throttle and message branches through', () => {
+    const throttled = Object.assign(new Error('Rate limit exceeded.'), {
+      status: 429,
+    })
+    expect(formatDeleteAccountError(throttled)).toBe(
+      'Too many password attempts. Try again in a minute.'
+    )
+    expect(formatDeleteAccountError(null)).toBe(
+      'Failed to delete account. Please try again.'
+    )
+    // The wrong-password reply, which is what this surface answers most often.
+    const wrongPassword = Object.assign(new Error('Password is incorrect'), {
+      status: 400,
+    })
+    expect(formatDeleteAccountError(wrongPassword)).toBe(
+      'Password is incorrect'
+    )
   })
 })
