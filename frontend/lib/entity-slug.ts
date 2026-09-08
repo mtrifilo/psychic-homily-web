@@ -9,18 +9,17 @@
  */
 
 /**
- * Slug values that address an entity INDEX rather than an entity.
+ * Does this slug address an entity rather than that entity type's index?
  *
- * Entity slugs are NULLABLE and `GenerateSlug` can return `""`, and `/artists/`
- * resolves to `/artists` rather than 404ing. `.` and `..` survive
- * `encodeURIComponent` untouched, so `/collections/..` walks back up to
- * `/collections`.
+ * Three values do not. Entity slugs are NULLABLE and `GenerateSlug` can return
+ * `""`, and `/artists/` resolves to `/artists` rather than 404ing; `.` and `..`
+ * survive `encodeURIComponent` untouched, so `/collections/..` walks back up to
+ * `/collections`. Trimmed first, because whitespace around any of the three
+ * addresses the index just as surely.
  */
-const INDEX_ADDRESSING_SLUGS: ReadonlySet<string> = new Set(['', '.', '..'])
-
-/** Does this slug address an entity rather than that entity type's index? */
 export function addressesAnEntity(slug: string): boolean {
-  return !INDEX_ADDRESSING_SLUGS.has(slug.trim())
+  const trimmed = slug.trim()
+  return trimmed !== '' && trimmed !== '.' && trimmed !== '..'
 }
 
 /**
@@ -47,5 +46,5 @@ const SEGMENT_BREAKING = /[/\\?#%\s]/
  * losing a traversal.
  */
 export function looksLikeSlug(slug: string): boolean {
-  return addressesAnEntity(slug) && !SEGMENT_BREAKING.test(slug)
+  return !SEGMENT_BREAKING.test(slug) && addressesAnEntity(slug)
 }

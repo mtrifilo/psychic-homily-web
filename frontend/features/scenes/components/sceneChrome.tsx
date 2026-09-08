@@ -107,9 +107,28 @@ export function entityHref(
   basePath: string,
   slug?: string | null
 ): string | null {
-  const trimmed = slug?.trim()
-  if (!trimmed || !addressesAnEntity(trimmed)) return null
+  const trimmed = slug?.trim() ?? ''
+  if (!addressesAnEntity(trimmed)) return null
   return `${basePath}/${encodeURIComponent(trimmed)}`
+}
+
+/**
+ * A neighbouring period key this page can link to, or null.
+ *
+ * Both surfaces face the same question about their prev/next fields, and both
+ * answer it the same way: a key the route would reject is not a link, it is a
+ * 404 wearing a chip's label, and an absent one renders the word `undefined`
+ * into the href and the label alike. `hasShape` is the ROUTE's own rule for
+ * that segment, so a chip exists exactly when the page behind it does.
+ *
+ * `''` is a legitimate answer here — the backend sends it for a day at the
+ * edges of the servable window — and falls out of the same test.
+ */
+export function navigablePeriodKey(
+  key: string | undefined,
+  hasShape: (value: string) => boolean
+): string | null {
+  return key && hasShape(key) ? key : null
 }
 
 /**

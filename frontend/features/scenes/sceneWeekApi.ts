@@ -33,13 +33,12 @@ function weekSpec(slug: string, service: SceneWeekService) {
     // canonical and the share-image URL, so each of those two has to be one
     // path segment already.
     //
-    // `isCalendarDate`, deliberately, and NOT `sceneDay`'s
-    // `looksLikeCalendarDate`: that one also bounds the year to cap the URL
-    // cache-key space, and a week's range dates address no URL and legitimately
-    // fall outside those bounds. The first servable week starts 2014-12-29 and
-    // the last one ends in the January after it. `iso_week` keeps the bounded
-    // predicate because it DOES address a URL, one the week route rejects
-    // outside exactly those bounds.
+    // `isCalendarDate` states why it is not `looksLikeCalendarDate`. The reason
+    // bites hardest here: a week's range dates address no URL and fall outside
+    // the year bound at both ends of the servable window, the first week
+    // starting 2014-12-29 and the last ending in the January after it.
+    // `iso_week` keeps the bounded predicate because it DOES address a URL, one
+    // the week route rejects outside exactly those bounds.
     identityFields: [
       ['start_date', isCalendarDate],
       ['end_date', isCalendarDate],

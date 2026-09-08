@@ -5,8 +5,8 @@
 import { API_BASE_URL } from '@/lib/api-base'
 import { looksLikeSlug } from '@/lib/entity-slug'
 import { anyName, fetchScenePeriod } from './scenePeriodApi'
-import { looksLikeISOWeek } from './sceneWeek'
-import { looksLikeCalendarDate, type SceneDayResponse } from './sceneDay'
+import { isCalendarDate, looksLikeISOWeek } from './sceneWeek'
+import type { SceneDayResponse } from './sceneDay'
 
 function daySpec(slug: string) {
   return {
@@ -28,12 +28,16 @@ function daySpec(slug: string) {
     // canonical and the share-image URL, so each has to be one path segment
     // already; `city` is printed, and any name it carries is its own.
     //
-    // The year-bounded predicates are the right ones for both addressed
-    // fields: each names a URL this site has to serve, and the day and week
-    // routes reject a segment outside those bounds. A payload naming a period
-    // outside them names a page that 404s.
+    // `isCalendarDate` rather than `sceneDay`'s year-bounded
+    // `looksLikeCalendarDate` (which states the difference): the day route
+    // already applies those bounds to the SEGMENT it serves, and this module is
+    // reached from the edge-runtime share-card route, where importing
+    // `sceneDay` for a second copy of the bound would pull the formatting stack
+    // in behind it. `iso_week` keeps the bounded rule because `sceneWeek` costs
+    // nothing to import and the value addresses a route applying that same
+    // bound.
     identityFields: [
-      ['date', looksLikeCalendarDate],
+      ['date', isCalendarDate],
       ['city', anyName],
       ['slug', looksLikeSlug],
       ['iso_week', looksLikeISOWeek],

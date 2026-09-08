@@ -228,7 +228,6 @@ describe('fetchSceneDay', () => {
   it.each([
     ['a date that is a word', { date: 'tonight' }],
     ['a date with no day', { date: '2026-07' }],
-    ['a date outside the servable years', { date: '1998-07-31' }],
     ['a week key that is not one', { iso_week: '2026-31' }],
     ['a week key outside the servable years', { iso_week: '2014-W52' }],
     ['a slug that walks up the path', { slug: '../..' }],
@@ -251,6 +250,18 @@ describe('fetchSceneDay', () => {
       await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({ slug })
     }
   )
+
+  // `date` is checked for shape and not for the day route's year bounds: the
+  // route already applies those to the segment it serves, and importing the
+  // bounded rule here would pull the day formatting stack into the edge-runtime
+  // share card.
+  it('serves a well-formed date outside the day route year bounds', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(day({ date: '1998-07-31' })))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({
+      date: '1998-07-31',
+    })
+  })
 
   // A rejected 200 is otherwise invisible: no status check fires, and the body
   // stays cached for the caller's whole window.

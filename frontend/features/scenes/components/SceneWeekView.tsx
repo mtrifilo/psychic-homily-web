@@ -15,6 +15,7 @@ import {
 } from '../sceneWeek'
 import {
   SCENE_NAV_CHIP_CLASS,
+  navigablePeriodKey,
   SceneBreadcrumb,
   SceneCityHeading,
   ShowStatusBadge,
@@ -91,24 +92,12 @@ function DayGroup({ date, shows }: { date: string; shows: SceneWeekShow[] }) {
   )
 }
 
-/**
- * The neighbouring week key, or null when this page cannot link to one.
- *
- * A key the week route would reject is not a link, it is a 404 wearing a
- * chip's label, and an absent one renders the word `undefined` into both the
- * href and the chip. The shape rule is the route's own, so a chip exists
- * exactly when the page behind it does.
- */
-function navigableWeek(key: string | undefined): string | null {
-  return key !== undefined && looksLikeISOWeek(key) ? key : null
-}
-
 export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
   const days = week.days ?? []
   const rooms = week.tracked_venues ?? []
   const total = countShows(week)
-  const prevWeek = navigableWeek(week.prev_week)
-  const nextWeek = navigableWeek(week.next_week)
+  const prevWeek = navigablePeriodKey(week.prev_week, looksLikeISOWeek)
+  const nextWeek = navigablePeriodKey(week.next_week, looksLikeISOWeek)
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">

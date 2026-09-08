@@ -10,6 +10,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+import { namesSomething } from '@/features/scenes/scenePeriodApi'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
 import { buildSceneSliceJsonLd } from '@/features/scenes/sceneSliceJsonLd'
@@ -39,6 +40,52 @@ interface ScenePageProps {
 }
 
 /**
+ * The scene fields this route dereferences without a guard.
+ *
+ * `city` and `state` name the page in its title and its description; `slug`
+ * reaches `SceneCalendar`, which builds the window links from it; `stats` is
+ * read for a room count (`SceneCalendar`'s quiet-slice copy). Everything else
+ * on the payload is already optional-safe.
+ *
+ * `slug` is checked for a NAME only, not for `looksLikeSlug`: every link built
+ * from it goes through `sceneWindowHref`, which encodes.
+ */
+const REQUIRED_SCENE_NAMES = ['city', 'state', 'slug'] as const
+
+/**
+ * Accept a 200 body only if it is actually a scene.
+ *
+ * A 200 is not proof of the right endpoint: a redirect, a CDN error page, or a
+ * future API change can all answer 200 with something else, and this route's
+ * whole job is to be the existence check the rest of the page trusts. A body
+ * missing any field above renders a scene page that is not about a scene.
+ *
+ * Rejecting reaches the same `notFound()` a 404 does. Reported, naming the
+ * offending field, because nothing else can see this: the response was a 200,
+ * so no status check fires, and Next stores it for the whole revalidate
+ * window. The body itself is not sent.
+ */
+function asScene(body: unknown, slug: string): SceneDetail | null {
+  let rejected: string | undefined
+  if (!body || typeof body !== 'object') {
+    rejected = 'body'
+  } else {
+    const record = body as Record<string, unknown>
+    rejected =
+      REQUIRED_SCENE_NAMES.find(field => !namesSomething(record[field])) ??
+      (typeof record.stats === 'object' && record.stats !== null ? undefined : 'stats')
+  }
+  if (rejected === undefined) return body as SceneDetail
+
+  Sentry.captureMessage(`Scene page: rejected a payload on \`${rejected}\``, {
+    level: 'error',
+    tags: { service: 'scene-page' },
+    extra: { slug, field: rejected },
+  })
+  return null
+}
+
+/**
  * Scenes are DERIVED from location data (verified venues + the artists/shows
  * at them), not a stored slug entity, so any string could otherwise be
  * title-cased into a real-looking "City, ST Music Scene" page (PSY-906).
@@ -58,45 +105,6 @@ interface ScenePageProps {
  * null for non-2xx (404 expected for bogus slugs) so the page can call
  * `notFound()`.
  */
-/**
- * Accept a 200 body only if it is actually a scene.
- *
- * A 200 is not proof of the right endpoint: a redirect, a CDN error page, or a
- * future API change can all answer 200 with something else, and this route's
- * whole job is to be the existence check the rest of the page trusts. The
- * fields tested are the ones read WITHOUT a guard — `city` and `state` name the
- * page in its title, description and canonical, `slug` builds every window
- * link, and `stats` is dereferenced for a room count — so a body missing any of
- * them renders a scene page that is not about a scene. Anything else on the
- * payload is already optional-safe.
- *
- * Rejecting reaches the same `notFound()` a 404 does. Reported because nothing
- * else can see it: the response was a 200, so no status check fires, and Next
- * stores it for the whole revalidate window.
- */
-function asScene(body: unknown, slug: string): SceneDetail | null {
-  const record = body as Record<string, unknown> | null
-  const named = (value: unknown) => typeof value === 'string' && value.trim() !== ''
-  if (
-    record &&
-    typeof record === 'object' &&
-    named(record.city) &&
-    named(record.state) &&
-    named(record.slug) &&
-    typeof record.stats === 'object' &&
-    record.stats !== null
-  ) {
-    return body as SceneDetail
-  }
-
-  Sentry.captureMessage('Scene page: rejected a payload', {
-    level: 'error',
-    tags: { service: 'scene-page' },
-    extra: { slug },
-  })
-  return null
-}
-
 const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
   try {
     // The slug is attacker-controlled: Next decodes route params before this

@@ -88,8 +88,12 @@ interface ScenePeriodSpec<T> {
  * Trimmed rather than merely non-empty, because these values are interpolated
  * into URLs: `" phoenix-az"` and `"phoenix-az"` are different addresses, and
  * only one of them is a page.
+ *
+ * Exported so a surface reading a different scene payload asks the same
+ * question in the same words. A second spelling of this would answer
+ * differently on the untrimmed case, which is the case it exists for.
  */
-function namesSomething(value: unknown): value is string {
+export function namesSomething(value: unknown): value is string {
   return typeof value === 'string' && value !== '' && value === value.trim()
 }
 
