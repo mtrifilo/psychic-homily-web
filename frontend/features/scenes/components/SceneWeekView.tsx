@@ -7,6 +7,7 @@ import {
   countShows,
   formatDayHeading,
   formatWeekRange,
+  looksLikeISOWeek,
   showDisplayTitle,
   showHref,
   type SceneWeekResponse,
@@ -14,6 +15,7 @@ import {
 } from '../sceneWeek'
 import {
   SCENE_NAV_CHIP_CLASS,
+  navigablePeriodKey,
   SceneBreadcrumb,
   SceneCityHeading,
   ShowStatusBadge,
@@ -94,6 +96,8 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
   const days = week.days ?? []
   const rooms = week.tracked_venues ?? []
   const total = countShows(week)
+  const prevWeek = navigablePeriodKey(week.prev_week, looksLikeISOWeek)
+  const nextWeek = navigablePeriodKey(week.next_week, looksLikeISOWeek)
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
@@ -103,16 +107,19 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <SceneCityHeading city={week.city} state={week.state} />
 
-          {/* Three chips share the row here, so each stretches at mobile widths
-              — the nightly page's two dates and "Full week" do not need to. */}
+          {/* Up to three chips share the row here, so each stretches at mobile
+              widths — the nightly page's two dates and "Full week" do not need
+              to. "Tonight" is always one of them, so the row is never empty. */}
           <div className="flex gap-2">
-            <Link
-              href={`/scenes/${week.slug}/${week.prev_week}`}
-              className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
-              rel="prev"
-            >
-              ← {week.prev_week}
-            </Link>
+            {prevWeek && (
+              <Link
+                href={`/scenes/${week.slug}/${prevWeek}`}
+                className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
+                rel="prev"
+              >
+                ← {prevWeek}
+              </Link>
+            )}
             {/* The reciprocal of the nightly page's "Full week" chip. Kept on
                 archived weeks too: a reader who lands on last March still
                 wants the way back to what is on now. */}
@@ -122,13 +129,15 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
             >
               Tonight
             </Link>
-            <Link
-              href={`/scenes/${week.slug}/${week.next_week}`}
-              className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
-              rel="next"
-            >
-              {week.next_week} →
-            </Link>
+            {nextWeek && (
+              <Link
+                href={`/scenes/${week.slug}/${nextWeek}`}
+                className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
+                rel="next"
+              >
+                {nextWeek} →
+              </Link>
+            )}
           </div>
         </div>
 
@@ -163,11 +172,19 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
 
       {total === 0 ? (
         <p className="py-10 text-muted-foreground">
-          No shows at the {week.city} rooms we track this week.{' '}
-          <Link href={`/scenes/${week.slug}/${week.next_week}`} className="underline">
-            Try next week
-          </Link>
-          .
+          No shows at the {week.city} rooms we track this week.
+          {/* The pointer onward is dropped whole, trailing stop included, when
+              there is no next week to point at: a bare "." on its own line
+              would read as a typo. */}
+          {nextWeek && (
+            <>
+              {' '}
+              <Link href={`/scenes/${week.slug}/${nextWeek}`} className="underline">
+                Try next week
+              </Link>
+              .
+            </>
+          )}
         </p>
       ) : (
         days.map(day => <DayGroup key={day.date} date={day.date} shows={day.shows ?? []} />)

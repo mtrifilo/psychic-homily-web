@@ -10,6 +10,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+import { hasText } from '@/features/scenes/scenePeriodApi'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
 import { buildSceneSliceJsonLd } from '@/features/scenes/sceneSliceJsonLd'
@@ -39,6 +40,54 @@ interface ScenePageProps {
 }
 
 /**
+ * The scene fields this route dereferences without a guard.
+ *
+ * `city` and `state` name the page in its title and its description; `slug`
+ * reaches `SceneCalendar`, which builds the window links from it; `stats` is
+ * read for a room count (`SceneCalendar`'s quiet-slice copy). Everything else
+ * on the payload is already optional-safe.
+ *
+ * The PAYLOAD's `slug` is checked for text only, not for `looksLikeSlug`: every
+ * link built from it goes through `sceneWindowHref`, which encodes. The route
+ * PARAM is a different value, and `generateMetadata` encodes it where it builds
+ * this page's canonical.
+ */
+const REQUIRED_SCENE_NAMES = ['city', 'state', 'slug'] as const
+
+/**
+ * Accept a 200 body only if it is actually a scene.
+ *
+ * A 200 is not proof of the right endpoint: a redirect, a CDN error page, or a
+ * future API change can all answer 200 with something else, and this route's
+ * whole job is to be the existence check the rest of the page trusts. A body
+ * missing any field above renders a scene page that is not about a scene.
+ *
+ * Rejecting reaches the same `notFound()` a 404 does. Reported, naming the
+ * offending field, because nothing else can see this: the response was a 200,
+ * so no status check fires, and Next stores it for the whole revalidate
+ * window. The body itself is not sent.
+ */
+function asScene(body: unknown, slug: string): SceneDetail | null {
+  let rejected: string | undefined
+  if (!body || typeof body !== 'object') {
+    rejected = 'body'
+  } else {
+    const record = body as Record<string, unknown>
+    rejected =
+      REQUIRED_SCENE_NAMES.find(field => !hasText(record[field])) ??
+      (typeof record.stats === 'object' && record.stats !== null ? undefined : 'stats')
+  }
+  if (rejected === undefined) return body as SceneDetail
+
+  Sentry.captureMessage(`Scene page: rejected a payload on \`${rejected}\``, {
+    level: 'error',
+    tags: { service: 'scene-page' },
+    extra: { slug, field: rejected },
+  })
+  return null
+}
+
+/**
  * Scenes are DERIVED from location data (verified venues + the artists/shows
  * at them), not a stored slug entity, so any string could otherwise be
  * title-cased into a real-looking "City, ST Music Scene" page (PSY-906).
@@ -60,11 +109,17 @@ interface ScenePageProps {
  */
 const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/scenes/${slug}`, {
-      next: { revalidate: 3600 },
-    })
+    // The slug is attacker-controlled: Next decodes route params before this
+    // runs, so `phoenix-az?x` or `phoenix-az/../artists` would truncate or walk
+    // this path and send the request to a DIFFERENT endpoint, one that can
+    // answer 200 with a shape this page then renders as a scene. The period
+    // fetches encode for the same reason.
+    const res = await fetch(
+      `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}`,
+      { next: { revalidate: 3600 } }
+    )
     if (res.ok) {
-      return res.json()
+      return asScene(await res.json(), slug)
     }
     // Don't report 404s — they're the expected response for invalid /
     // below-threshold slugs (the whole point of this check).
@@ -170,16 +225,21 @@ export async function generateMetadata({
       ? sceneDetailOgImages(week.slug, week.iso_week, generatedDescription)
       : undefined
 
+  // Encoded, because both of these interpolate the ROUTE PARAM, which Next has
+  // already decoded: a `%2F` in the address arrives here as a `/` and would
+  // otherwise offer crawlers a two-segment URL as this page's identity.
+  const path = `/scenes/${encodeURIComponent(slug)}`
+
   return {
     title,
     description,
     alternates: {
-      canonical: `https://psychichomily.com/scenes/${slug}`,
+      canonical: `https://psychichomily.com${path}`,
     },
     openGraph: {
       title: `${title} | Psychic Homily`,
       description,
-      url: `/scenes/${slug}`,
+      url: path,
       type: 'website',
       ...(ogImages ? { images: ogImages } : {}),
     },

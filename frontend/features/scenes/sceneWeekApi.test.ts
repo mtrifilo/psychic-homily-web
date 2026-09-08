@@ -197,16 +197,86 @@ describe('fetchSceneWeek', () => {
     }
   )
 
-  // An identity field that does not name something reaches a URL as `/scenes//`
-  // or as an address with a space in it, so it fails here rather than there.
+  // An identity field carrying no text reaches a URL as `/scenes//`, so it
+  // fails here rather than there.
   it.each(
     ['start_date', 'end_date', 'city', 'slug', 'iso_week'].flatMap(field =>
-      ['', '   ', ' 2026-W31', '2026-W31 '].map(bad => [field, bad] as const)
+      ['', '   '].map(bad => [field, bad] as const)
     )
   )('rejects a body whose %s is %j', async (field, bad) => {
     fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: bad }))
 
     await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // An untrimmed value on an ADDRESSED field names a page that does not exist.
+  // Each of these fields refuses it through its own shape rule; `city` is
+  // printed and is deliberately absent from this list.
+  it.each(
+    ['start_date', 'end_date', 'slug', 'iso_week'].flatMap(field =>
+      [' 2026-W31', '2026-W31 '].map(bad => [field, bad] as const)
+    )
+  )('rejects a body whose %s is untrimmed (%j)', async (field, bad) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...week(), [field]: bad }))
+
+    await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // `venues.city` carries untrimmed values (see the note on `buildSceneSlug` in
+  // catalog/charts_service.go), and the display city is MIN(city) over the
+  // group. `city` is printed and addresses nothing, so surrounding space must
+  // not cost the scene its page.
+  it('serves a week whose printed city carries surrounding space', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(week({ city: ' Chicago' })))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject({ city: ' Chicago' })
+  })
+
+  // Naming something is not naming the right KIND of thing. `slug` and
+  // `iso_week` are interpolated raw into the canonical and the share-image URL,
+  // and the range dates are split into date maths that answers with a year-1900
+  // Date for anything else.
+  it.each([
+    ['a week key that is not one', { iso_week: 'this-week' }],
+    ['a week key with no week', { iso_week: '2026-W' }],
+    ['a week key outside the servable years', { iso_week: '2014-W52' }],
+    ['a start date that is a word', { start_date: 'monday' }],
+    ['an end date with no day', { end_date: '2026-08' }],
+    ['a slug that walks up the path', { slug: '../..' }],
+    ['a slug carrying a fragment', { slug: 'chicago-il#x' }],
+    ['a slug that is the index', { slug: '..' }],
+  ])('rejects a body carrying %s', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(week(over)))
+
+    await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // The range dates address no URL, so the week route's year bounds do not
+  // apply to them — and the first and last servable weeks each straddle one of
+  // those bounds. Checking a range date with the bounded rule that guards
+  // `iso_week` would 404 both pages. Derived from the clock rather than written
+  // out, because the upper bound moves with it.
+  it.each([
+    ['the first', { iso_week: '2015-W01', start_date: '2014-12-29', end_date: '2015-01-04' }],
+    [
+      'the last',
+      (() => {
+        const lastYear = new Date().getUTCFullYear() + 1
+        return {
+          iso_week: `${lastYear}-W52`,
+          start_date: `${lastYear}-12-27`,
+          end_date: `${lastYear + 1}-01-02`,
+        }
+      })(),
+    ],
+  ])('serves %s servable week, whose range crosses the year bound', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(week({ ...over, is_past_week: true })))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject(over)
   })
 
   // The week's navigation keys are outside this contract, so a payload that

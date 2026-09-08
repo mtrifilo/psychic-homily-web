@@ -483,26 +483,43 @@ describe('SceneDayView — a night that has already happened', () => {
 })
 
 describe('SceneDayView — the edges of the servable window', () => {
+  /** Every href on the page that addresses a dated day permalink, in order. */
+  const datedLinks = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll('a[href]')]
+      .map(a => a.getAttribute('href') ?? '')
+      .filter(href => /^\/scenes\/[^/]+\/\d{4}-\d{2}-\d{2}$/.test(href))
+
   // The server sends an empty adjacent date when there is no servable day that
   // way. Rendering the chip anyway would advertise a link the site 404s.
   it('renders no chip for an adjacent day the server did not offer', () => {
     const { container } = render(<SceneDayView day={day({ prev_date: '', next_date: '' })} />)
 
-    const datedLinks = [...container.querySelectorAll('a[href]')].filter(a =>
-      /^\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/.test(a.getAttribute('href') ?? '')
-    )
-    expect(datedLinks).toHaveLength(0)
+    expect(datedLinks(container)).toEqual([])
     // The way out is still there.
+    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+  })
+
+  // A date the day route would reject is the same answer as no date, arrived at
+  // differently: the chip would carry a label read off `parseCalendarDate`'s
+  // year-1900 fallback and link to a page that 404s.
+  it.each([
+    ['absent', undefined],
+    ['not a date', 'yesterday'],
+    ['before the servable years', '1998-07-30'],
+  ])('renders no adjacent-day chip for a date that is %s', (_label, adjacent) => {
+    const { container } = render(
+      <SceneDayView day={day({ prev_date: adjacent, next_date: adjacent })} />
+    )
+
+    expect(datedLinks(container)).toEqual([])
+    expect(container.innerHTML).not.toContain('undefined')
     expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
   })
 
   it('renders both chips when the server offers both dates', () => {
     const { container } = render(<SceneDayView day={day()} />)
 
-    const datedLinks = [...container.querySelectorAll('a[href]')]
-      .map(a => a.getAttribute('href'))
-      .filter(href => /^\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/.test(href ?? ''))
-    expect(datedLinks).toEqual([
+    expect(datedLinks(container)).toEqual([
       '/scenes/phoenix-az/2026-07-30',
       '/scenes/phoenix-az/2026-08-01',
     ])

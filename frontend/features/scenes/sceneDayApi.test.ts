@@ -183,15 +183,27 @@ describe('fetchSceneDay', () => {
     }
   )
 
-  // An identity field that does not name something reaches a URL as `/scenes//`
-  // or as an address with a space in it, so it fails here rather than there.
-  // The untrimmed cases matter as much as the blank ones: they are truthy at
-  // every consumer and name a page that does not exist.
+  // An identity field carrying no text reaches a URL as `/scenes//`, so it
+  // fails here rather than there.
   it.each(
     ['date', 'city', 'slug', 'iso_week'].flatMap(field =>
-      ['', '   ', ' 2026-07-31', '2026-07-31 '].map(bad => [field, bad] as const)
+      ['', '   '].map(bad => [field, bad] as const)
     )
   )('rejects a body whose %s is %j', async (field, bad) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: bad }))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+  })
+
+  // An untrimmed value on an ADDRESSED field names a page that does not exist,
+  // and it is truthy at every consumer. Each of these fields refuses it through
+  // its own shape rule; `city` is printed and is deliberately absent from this
+  // list.
+  it.each(
+    ['date', 'slug', 'iso_week'].flatMap(field =>
+      [' 2026-07-31', '2026-07-31 '].map(bad => [field, bad] as const)
+    )
+  )('rejects a body whose %s is untrimmed (%j)', async (field, bad) => {
     fetchMock.mockResolvedValue(jsonResponse({ ...day(), [field]: bad }))
 
     await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
@@ -220,6 +232,72 @@ describe('fetchSceneDay', () => {
     fetchMock.mockResolvedValue(jsonResponse(day(over)))
 
     await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+  })
+
+  // Naming something is not naming the right KIND of thing. Each of these
+  // survives every truthiness and trim check and then reaches a URL
+  // interpolation that has no second chance to look at it.
+  it.each([
+    ['a date that is a word', { date: 'tonight' }],
+    ['a date with no day', { date: '2026-07' }],
+    ['a week key that is not one', { iso_week: '2026-31' }],
+    ['a week key with no week', { iso_week: '2026-W' }],
+    ['a slug that walks up the path', { slug: '../..' }],
+    ['a slug carrying a query', { slug: 'phoenix-az?x' }],
+    ['a slug that is the index', { slug: '.' }],
+  ])('rejects a body carrying %s', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(day(over)))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+  })
+
+  // The shapes a US scene slug legitimately takes. `lower(replace(city,' ','-'))`
+  // keeps whatever punctuation and accents the city name carries, and losing
+  // those pages would be a worse bug than the one the rule above closes.
+  it.each([['st.-louis-mo'], ['española-nm'], ["coeur-d'alene-id"]])(
+    'serves a day whose slug is %s',
+    async slug => {
+      fetchMock.mockResolvedValue(jsonResponse(day({ slug })))
+
+      await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({ slug })
+    }
+  )
+
+  // `date` is checked for shape and not for the day route's year bounds: the
+  // route already applies those to the segment it serves, and importing the
+  // bounded rule here would pull the day formatting stack into the edge-runtime
+  // share card.
+  it('serves a well-formed date outside the day route year bounds', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(day({ date: '1998-07-31' })))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({
+      date: '1998-07-31',
+    })
+  })
+
+  // A day's week key is NOT bounded by the day's own year: a Monday, Tuesday or
+  // Wednesday 31 December opens week 01 of the following year, so the last day
+  // this route serves names a week the WEEK route refuses. Bounding it here
+  // would 404 that day. The view drops the one link it cannot offer instead.
+  it('serves a day whose week key is past the week route horizon', async () => {
+    const beyond = `${new Date().getUTCFullYear() + 2}-W01`
+    fetchMock.mockResolvedValue(jsonResponse(day({ iso_week: beyond })))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({
+      iso_week: beyond,
+    })
+  })
+
+  // `venues.city` carries untrimmed values (see the note on `buildSceneSlug` in
+  // catalog/charts_service.go), and the display city is MIN(city) over the
+  // group. `city` is printed and addresses nothing, so surrounding space must
+  // not cost the scene its page.
+  it('serves a day whose printed city carries surrounding space', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(day({ city: ' Phoenix' })))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({
+      city: ' Phoenix',
+    })
   })
 
   // A rejected 200 is otherwise invisible: no status check fires, and the body
