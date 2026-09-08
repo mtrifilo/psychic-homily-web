@@ -3,7 +3,11 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
 import { TEST_API_BASE } from '@/test/mocks/handlers'
-import { createWrapper } from '@/test/utils'
+import {
+  createWrapper,
+  createWrapperWithClient,
+  createTestQueryClient,
+} from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
 import {
   useScenes,
@@ -312,16 +316,28 @@ describe('useSceneCrews', () => {
 
   // The page caches every scene query by SLUG, never by the numeric scene id
   // (the PSY-1109 key-drift class). Nothing else is in the key: the endpoint
-  // takes no parameter and no viewer.
-  it('keys by slug alone under the scenes prefix', () => {
+  // takes no parameter and no viewer. Read back off the RENDERED query, so a
+  // hook that stopped using this key builder fails here.
+  it('keys the query by slug alone under the scenes prefix', async () => {
+    stubCrews()
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(() => useSceneCrews('phoenix-az'), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(queryKeys.scenes.crews('phoenix-az')).toEqual([
       'scenes',
       'crews',
       'phoenix-az',
     ])
+    expect(
+      queryClient.getQueryData(queryKeys.scenes.crews('phoenix-az'))
+    ).toEqual({ crews: [] })
   })
 
-  it('surfaces a 404 as an error rather than an empty row', async () => {
+  it('surfaces a 404 as an error rather than a payload', async () => {
     server.use(
       http.get(`${TEST_API_BASE}/scenes/:slug/crews`, () =>
         HttpResponse.json({ message: 'scene not found' }, { status: 404 })

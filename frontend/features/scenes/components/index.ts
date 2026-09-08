@@ -40,10 +40,10 @@ export { SceneList } from './SceneList'
 // NOT because of MusicEmbed, which an earlier version of this note claimed:
 // MusicEmbed is ALREADY global (layout -> @/components/layout -> AppShell ->
 // CommandPalette -> the @/components/shared barrel, which exports it). The
-// three modules deep-import their shared primitives anyway, which is the habit
-// that keeps that from being load-bearing in the wrong direction later.
+// evicted modules deep-import their shared primitives anyway, which is the
+// habit that keeps that from being load-bearing in the wrong direction later.
 //
-// All three are also named in features/sharedChunkBarrelGuard.test.ts, because
-// this comment cannot fail a build and that list can.
+// Every one of them is also named in features/sharedChunkBarrelGuard.test.ts,
+// because this comment cannot fail a build and that list can.
 export { AtlasGlobe } from './AtlasGlobe'
 export { ScenePreviewPanel } from './ScenePreviewPanel'

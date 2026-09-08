@@ -1,9 +1,8 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-// Deep-imported rather than through `@/features/tags`, the same rule
-// SceneCollections follows: that barrel is `'use client'` and carries the whole
-// tag surface, so naming it here would pull it into this route's chunk.
+// Deep-imported, not through a barrel — see the note in
+// features/scenes/components/index.ts.
 import {
   getCategoryChipClasses,
   TAG_CATEGORY_CREW,
@@ -13,14 +12,20 @@ import { EntityNameLink } from './sceneChrome'
 import type { SceneDetail } from '../types'
 
 /**
- * The chip, composed once. Everything ABOUT the crew category (unfilled,
- * hairline, square, mono uppercase, muted) comes from the shared treatment;
- * the size is this surface's, because that treatment carries no font size
- * precisely so each surface keeps its own, and this page's micro-caps register
- * is 11px.
+ * The chip, composed once.
+ *
+ * The crew category's own look (no fill, square corners, mono uppercase
+ * letterspaced, muted) comes from the shared treatment. This surface adds the
+ * border width, the 8px/4px padding and the 11px size: the shared treatment
+ * carries no font size precisely so each surface keeps its own density, and
+ * this page's micro-caps register is 11px.
+ *
+ * `break-words` is the guard on a crew name long enough to exceed the content
+ * column on a narrow screen. `tags.name` allows 100 characters, and a single
+ * unbroken token that cannot fit a line would otherwise widen the page.
  */
 const CREW_CHIP_CLASS = cn(
-  'inline-flex items-center border px-2 py-1 text-[11px] leading-none',
+  'inline-flex max-w-full items-center break-words border px-2 py-1 text-[11px] leading-none',
   getCategoryChipClasses(TAG_CATEGORY_CREW)
 )
 
@@ -41,7 +46,13 @@ const CREW_CHIP_LINK_CLASS = cn(
  * The row is absent, with no heading and no scaffold, when the endpoint
  * returns nothing and while the request is in flight or failed. Most scenes
  * carry no crew tag, and a heading over empty space would report a gap in the
- * catalog as a fact about the town.
+ * catalog as a fact about the town. The mock draws no heading over the row
+ * even where there is data, which is why the label below is the only naming
+ * it gets.
+ *
+ * `role="list"` is explicit because the list marker is off: a list styled
+ * `list-style: none` loses its list semantics in WebKit, and a generic
+ * element drops the `aria-label` with them.
  *
  * The rows are drawn in the order they arrive, uncapped, wrapping. The
  * endpoint ranks them by how many of the scene's shows carry each tag; the
@@ -54,7 +65,8 @@ export function SceneCrews({ scene }: { scene: SceneDetail }) {
 
   return (
     <ul
-      aria-label={`Crews booking in ${scene.city}`}
+      role="list"
+      aria-label={`Crews booking in ${scene.city}, ${scene.state}`}
       className="mt-3 flex flex-wrap gap-1.5"
     >
       {crews.map(crew => (

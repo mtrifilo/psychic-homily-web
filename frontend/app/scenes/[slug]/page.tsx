@@ -6,10 +6,11 @@ import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
 import type { SceneDetail } from '@/features/scenes'
+import type { SceneCrewsResponse } from '@/features/scenes/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntity } from '@/lib/query-hydration'
+import { prefetchEntities } from '@/lib/query-hydration'
 import { hasText } from '@/features/scenes/scenePeriodApi'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
@@ -170,6 +171,49 @@ const getSceneWeek = cache((slug: string) =>
  */
 const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
+/**
+ * The crew tags booking in this scene, for the header's chip row.
+ *
+ * Read HERE rather than left to the row's own client query, unlike every
+ * module below the calendar: the row sits inside the header, so a client fetch
+ * inserts it under content that has already painted and pushes the calendar
+ * down. Seeded, the chips are in the first HTML and nothing moves.
+ *
+ * An hour, matching the scene read above: a crew's standing in a town is its
+ * whole history there, so the list moves on the cadence of curation rather
+ * than of the calendar.
+ *
+ * Returns null on any failure, which `prefetchEntities` SKIPS — the row then
+ * falls through to its own client fetch and its own hide-on-error rule rather
+ * than hydrating into a permanent empty.
+ */
+const getSceneCrews = cache(
+  async (slug: string): Promise<SceneCrewsResponse | null> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/scenes/${slug}/crews`, {
+        next: { revalidate: 3600 },
+      })
+      if (res.ok) {
+        return res.json()
+      }
+      if (res.status >= 500) {
+        Sentry.captureMessage(`Scene crews: API returned ${res.status}`, {
+          level: 'error',
+          tags: { service: 'scene-page' },
+          extra: { slug, status: res.status },
+        })
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'scene-page' },
+        extra: { slug },
+      })
+    }
+    return null
+  }
+)
+
 export async function generateMetadata({
   params,
 }: ScenePageProps): Promise<Metadata> {
@@ -274,14 +318,21 @@ export default async function ScenePage({ params }: ScenePageProps) {
   // CONCURRENT, because neither needs the other's answer, which leaves the
   // slice's serial fetch chain (`sceneSliceApi` states why it is serial,
   // `sceneSlice` how many calls deep it runs) as the only thing on the
-  // critical path.
-  //
-  // `prefetchEntity` is a no-op cache write: `cache()` above guarantees the
-  // scene fetch already happened, so this only seeds the entry `useSceneDetail`
-  // picks up.
-  const [dehydratedState, slice] = await Promise.all([
-    prefetchEntity(queryKeys.scenes.detail(slug), scene),
+  // critical path. The crews read is one request and hides behind it, and it
+  // is issued SECOND so the slice's chain starts first.
+  const [slice, crews] = await Promise.all([
     getSceneSlice(slug),
+    getSceneCrews(slug),
+  ])
+
+  // Both seeds are anonymous reads whose payload does not vary by viewer,
+  // which is the condition `prefetchEntities` states for stamping them fetched
+  // now rather than revalidating on the first commit. The scene seed costs no
+  // request: `cache()` guarantees the fetch above already happened, so it only
+  // seeds the entry `useSceneDetail` picks up.
+  const dehydratedState = await prefetchEntities([
+    { queryKey: queryKeys.scenes.detail(slug), data: scene },
+    { queryKey: queryKeys.scenes.crews(slug), data: crews },
   ])
 
   // ONE slice payload feeds both the structured data and the rows

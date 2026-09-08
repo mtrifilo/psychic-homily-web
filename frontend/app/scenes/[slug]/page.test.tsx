@@ -218,6 +218,23 @@ describe('scenes/[slug] calendar slice', () => {
     return props ? findCalendarSlot(props.children) : undefined
   }
 
+  /** The query keys the route seeded into its `<HydrationBoundary>`. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function dehydratedKeys(node: any): unknown[][] {
+    if (!node || typeof node !== 'object') return []
+    if (Array.isArray(node)) return node.flatMap(dehydratedKeys)
+    const props = (node as Node)?.props
+    if (props && 'state' in props) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const queries = (props.state as any)?.queries
+      if (Array.isArray(queries)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return queries.map((q: any) => q.queryKey)
+      }
+    }
+    return props ? dehydratedKeys(props.children) : []
+  }
+
   /** Every payload handed to a `<JsonLd>` in the returned tree. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function findJsonLd(node: any): any[] {
@@ -226,6 +243,21 @@ describe('scenes/[slug] calendar slice', () => {
     if (node.type === JsonLd) return [node.props.data]
     return node.props ? findJsonLd(node.props.children) : []
   }
+
+  // The crews chip row sits INSIDE the header, so a client-only fetch would
+  // insert it under painted content and push the calendar down. Read here, the
+  // chips are in the first HTML.
+  it('reads the crews row server-side and hands it down hydrated', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+    fetchMock.mockResolvedValue(okResponse(buildDay()))
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(
+      fetchedUrls().some(u => u.endsWith('/scenes/phoenix-az/crews'))
+    ).toBe(true)
+    expect(dehydratedKeys(tree)).toContainEqual(['scenes', 'crews', 'phoenix-az'])
+  })
 
   it('reads tonight and the next full day from the day endpoint', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildScene()))

@@ -52,10 +52,15 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
   }
 }
 
-/** The endpoint's own order: most of the scene's shows first, then name. */
+/**
+ * Arrival order is deliberately neither the show-count order nor the name
+ * order, so a client-side re-sort by either one fails the order case below.
+ * The real endpoint ranks by count then name; the component's contract is to
+ * print what it was handed, whatever that is.
+ */
 const CREWS: SceneCrewSummary[] = [
-  { slug: 'relax-attack-jazz-series', name: 'Relax Attack Jazz Series', show_count: 3 },
-  { slug: 'pleiades-series', name: 'Pleiades Series', show_count: 1 },
+  { slug: 'relax-attack-jazz-series', name: 'Relax Attack Jazz Series', show_count: 1 },
+  { slug: 'pleiades-series', name: 'Pleiades Series', show_count: 4 },
 ]
 
 /** `null` is the absent payload, which is how both loading and error arrive. */
@@ -134,6 +139,16 @@ describe('SceneCrews', () => {
     ).toEqual(CREWS.map(crew => crew.name))
   })
 
+  // The wire type is `crews: SceneCrewSummary[] | null`, which the local
+  // response type narrows away; the guard has to hold against the shape the
+  // API actually allows.
+  it('hides when the payload carries a null list', () => {
+    mockUseSceneCrews.mockReturnValue({ data: { crews: null } })
+    const { container } = renderWithProviders(<SceneCrews scene={buildScene()} />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('hides completely when the scene has no crew tags', () => {
     const { container } = renderCrews([])
 
@@ -158,11 +173,21 @@ describe('SceneCrews', () => {
     expect(within(item).queryByRole('link')).not.toBeInTheDocument()
   })
 
+  // City AND state, the spelling every other identity string on the page uses:
+  // the catalog carries same-named cities in different states.
   it('names the row after the scene the page is on', () => {
     renderCrews()
 
     expect(
-      screen.getByRole('list', { name: 'Crews booking in Phoenix' })
+      screen.getByRole('list', { name: 'Crews booking in Phoenix, AZ' })
     ).toBeInTheDocument()
+  })
+
+  // `list-style: none` costs a `ul` its list semantics in WebKit, and a
+  // generic element drops the label with them, which is invisible to jsdom.
+  it('carries an explicit list role', () => {
+    renderCrews()
+
+    expect(screen.getByRole('list')).toHaveAttribute('role', 'list')
   })
 })
