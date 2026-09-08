@@ -485,13 +485,14 @@ export function alsoTonightSeeAllHref(
 /**
  * A rail row's `/shows/...` target, from either rail's payload shape.
  *
- * This is `sceneWeek.showHref` widened by one degree: that one is typed to
- * `SceneWeekShow`, which requires `starts_at`, and `VenueShow` does not carry
- * it — so the venue rail cannot call it. Rather than let the two rails address
- * shows through two different rules, both go through this structural version.
- * The rule itself must stay identical to its cousin's: an empty slug is a
- * modeled case here, and `/shows/` resolves to the INDEX rather than 404ing
- * (PSY-1754), so the id fallback is load-bearing, not merely defensive.
+ * Separate from `sceneWeek.showHref` because the two payloads spell a missing
+ * slug differently: this one accepts `string | null`, which `VenueShow` sends
+ * and that signature does not take. Both apply the same rule, and nothing but
+ * this comment holds them to it.
+ *
+ * An empty slug is a modeled case: `/shows/` resolves to the INDEX rather than
+ * 404ing (PSY-1754), so the id fallback is load-bearing, not merely
+ * defensive.
  */
 function railShowHref(show: { slug?: string | null; id: number }): string {
   return show.slug ? `/shows/${show.slug}` : `/shows/${show.id}`

@@ -202,8 +202,16 @@ export type TrackedRoom = {
   slug?: string
 }
 
-/** Rooms read as prose links, unlike the medium-weight entity names elsewhere. */
-const ROOM_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
+/**
+ * The scene page's prose-link treatment: a carried underline in the running
+ * tone, rather than the medium-weight entity name `EntityNameLink` defaults to.
+ *
+ * It is what a link wears when it is NOT the primary name of its row — a room
+ * in a comma-free list, a player caption, a clause under a band's name. The
+ * underline is carried rather than left to hover, because a touch reader never
+ * hovers and would see no affordance at all.
+ */
+export const SCENE_PROSE_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
 
 /** Enough to name an entity and, when it has a slug, link to its own page. */
 export type NamedEntity = {
@@ -265,7 +273,7 @@ export function RoomList({ venues }: { venues: TrackedRoom[] }) {
       <EntityNameList
         items={venues}
         basePath="/venues"
-        className={ROOM_LINK_CLASS}
+        className={SCENE_PROSE_LINK_CLASS}
         unlinkedClassName=""
       />
     </p>

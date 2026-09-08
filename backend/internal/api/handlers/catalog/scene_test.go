@@ -2,7 +2,10 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -638,5 +641,120 @@ func TestGetSceneGenres_ServiceError(t *testing.T) {
 	h := NewSceneHandler(mock)
 	req := &GetSceneGenresRequest{Slug: "phoenix-az"}
 	_, err := h.GetSceneGenresHandler(context.Background(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// Roster upcoming figures (PSY-1813)
+// ============================================================================
+
+// The per-band upcoming figures are OPT-IN: filling them costs a query, and the
+// atlas hover preview and the mobile scene list read this same endpoint while
+// drawing names only.
+func TestGetSceneActiveArtists_IncludeUpcomingIsOptIn(t *testing.T) {
+	enriched := 0
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{{ID: 1, Slug: "band-a", Name: "Band A"}}, 1, nil
+		},
+		EnrichRosterUpcomingFn: func(city, state string, page []*contracts.SceneArtistResponse) error {
+			enriched++
+			return nil
+		},
+	}
+	h := NewSceneHandler(mock)
+
+	if _, err := h.GetSceneActiveArtistsHandler(context.Background(),
+		&GetSceneActiveArtistsRequest{Slug: "phoenix-az", Limit: 20}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enriched != 0 {
+		t.Fatalf("a caller that did not ask must not pay the query; enriched %d times", enriched)
+	}
+
+	if _, err := h.GetSceneActiveArtistsHandler(context.Background(),
+		&GetSceneActiveArtistsRequest{Slug: "phoenix-az", Limit: 20, IncludeUpcoming: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enriched != 1 {
+		t.Fatalf("expected exactly one enrich call, got %d", enriched)
+	}
+}
+
+// The two fields reach the wire under the names the generated frontend types
+// read, and next_show is OMITTED rather than sent as null for a band with
+// nothing booked. Asserting the JSON rather than the struct is the point: the
+// tags are the contract, and `omitempty` on the pointer is what makes the
+// absent state absent.
+func TestGetSceneActiveArtists_SerializesUpcomingFields(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{
+				{ID: 1, Slug: "booked", Name: "Booked Band"},
+				{ID: 2, Slug: "quiet", Name: "Quiet Band"},
+			}, 2, nil
+		},
+		EnrichRosterUpcomingFn: func(city, state string, page []*contracts.SceneArtistResponse) error {
+			page[0].UpcomingShowCount = 2
+			page[0].NextShow = &contracts.SceneArtistNextShow{
+				ID:        42,
+				Slug:      "gatecreeper-valley-bar",
+				EventDate: "2026-09-09",
+				VenueName: "Valley Bar",
+				VenueSlug: "valley-bar",
+			}
+			return nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	resp, err := h.GetSceneActiveArtistsHandler(context.Background(),
+		&GetSceneActiveArtistsRequest{Slug: "phoenix-az", Limit: 20, IncludeUpcoming: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	encoded, err := json.Marshal(resp.Body.Artists)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(encoded)
+	for _, want := range []string{
+		`"upcoming_show_count":2`,
+		`"next_show":{"id":42,"slug":"gatecreeper-valley-bar","event_date":"2026-09-09","venue_name":"Valley Bar","venue_slug":"valley-bar"}`,
+		`"upcoming_show_count":0`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("payload is missing %s\ngot: %s", want, got)
+		}
+	}
+	if strings.Contains(got, `"next_show":null`) {
+		t.Errorf("a band with nothing booked must OMIT next_show, not send null\ngot: %s", got)
+	}
+}
+
+// A failure filling the counts fails the request rather than serving zeros. A
+// count silently reported as zero states something false about a band, which is
+// why this is not treated like the representative embed's best-effort lookup.
+func TestGetSceneActiveArtists_UpcomingFailureIsFatal(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{{ID: 1, Slug: "band-a", Name: "Band A"}}, 1, nil
+		},
+		EnrichRosterUpcomingFn: func(city, state string, page []*contracts.SceneArtistResponse) error {
+			return errors.New("boom")
+		},
+	}
+	h := NewSceneHandler(mock)
+	_, err := h.GetSceneActiveArtistsHandler(context.Background(),
+		&GetSceneActiveArtistsRequest{Slug: "phoenix-az", Limit: 20, IncludeUpcoming: true})
 	testhelpers.AssertHumaError(t, err, 500)
 }

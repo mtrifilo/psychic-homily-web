@@ -2199,6 +2199,57 @@ type SceneArtistResponse struct {
 	// RepresentativeEmbed (PSY-1294) rather than scanning this per-artist field,
 	// but it stays on the roster payload.
 	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
+	// UpcomingShowCount is how many approved, non-cancelled shows the band has
+	// ahead of it AT ROOMS THIS SCENE TRACKS. It is scene-scoped like every
+	// other figure on this payload, so a band touring elsewhere carries no
+	// number here for shows the scene has nothing to do with.
+	//
+	// A DIFFERENT question from ShowCount above, which is every approved show
+	// all time and anywhere, and from IsActive, which a band keeps for months
+	// after its last gig.
+	//
+	// The boundary is the venue's own calendar (shared.VenueLocalDateCondition):
+	// a show leaves this count at venue-local midnight, not at its start instant,
+	// so a band playing tonight still counts one all evening.
+	// Cancelled shows are excluded here and from NextShow, matching
+	// SceneNewArtistShow: neither row carries a status badge, so a cancelled
+	// show would read as a date a reader can turn up to.
+	//
+	// ZERO IS ALSO THE UNASKED ANSWER. This field and NextShow are filled only
+	// when the request asks for them (include_upcoming); a consumer that does
+	// not ask receives 0 and nil, which it cannot tell from a band with nothing
+	// booked. Ask, or read neither.
+	UpcomingShowCount int `json:"upcoming_show_count"`
+	// NextShow is the soonest of exactly those shows, so within one enriched
+	// response it is non-nil if and only if UpcomingShowCount is above zero. One
+	// query over one boundary decides both, which is what makes that hold.
+	NextShow *SceneArtistNextShow `json:"next_show,omitempty"`
+}
+
+// SceneArtistNextShow is the one show attached to a scene roster row: the
+// band's soonest upcoming approved show AT A ROOM THIS SCENE TRACKS, absent
+// when it has none.
+//
+// Deliberately roster-local and thinner than SceneNewArtistShow, the closest
+// match on the wire. That type carries IsUpcoming because its endpoint falls
+// back to a PAST show; this one never does, so the flag would be a constant
+// true and a reader would branch on it for nothing. It also carries StartsAt,
+// which this row has no use for: the roster line prints a date and no time.
+type SceneArtistNextShow struct {
+	ID uint `json:"id"`
+	// Slug is the canonical /shows/{slug} target; "" when the show has none, and
+	// clients fall back to the id.
+	Slug string `json:"slug,omitempty"`
+	// EventDate is the calendar date at the VENUE, in the venue's own zone. It is
+	// rendered by the SAME expression that decided the show was upcoming
+	// (shared.VenueLocalDateSQL), so the date printed cannot contradict the
+	// filter that selected it.
+	EventDate string `json:"event_date"`
+	// The billed venue, empty when the show has no venue row. Both halves come
+	// from ONE venue row: a show booked into two rooms resolves here to the same
+	// room whose zone dated it.
+	VenueName string `json:"venue_name,omitempty"`
+	VenueSlug string `json:"venue_slug,omitempty"`
 }
 
 // SceneRepresentativeEmbed identifies the single band whose Bandcamp embed the
@@ -2765,6 +2816,15 @@ type SceneServiceInterface interface {
 	// recency window (a band is active if it has a show within it or upcoming);
 	// it is NOT a membership filter, so the returned total is the whole roster.
 	GetActiveArtists(city, state string, activeWindowDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
+	// EnrichRosterUpcoming fills UpcomingShowCount and NextShow on an already
+	// fetched page of GetActiveArtists rows, in place and in one query.
+	//
+	// Separate from the roster read because most consumers of that roster draw
+	// names only, and this is the one query they would otherwise pay for
+	// without printing anything from it. A caller that does not invoke it gets
+	// the zero value on both fields, which does NOT mean the band has nothing
+	// booked; see SceneArtistResponse.UpcomingShowCount.
+	EnrichRosterUpcoming(city, state string, page []*SceneArtistResponse) error
 	// GetRepresentativeEmbed returns the single band whose Bandcamp embed
 	// represents the scene — the first band with a non-null bandcamp_embed_url in
 	// the roster's active-first ordering, computed over the FULL metro roster (not

@@ -28,6 +28,11 @@ import (
 // and the whole tag page — its entity counts (catalog/tag_intersection.go) and
 // the per-entity upcoming_show_count its cards print (PSY-1760).
 //
+// One COUNT surface also builds through here, and is named separately so the
+// scope paragraph below stays true of the list surfaces it is about: the scene
+// roster's per-band upcoming count and next-show pick
+// (catalog/scene_roster_upcoming.go).
+//
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
 // several of them draw their own boundary: the /venues list's

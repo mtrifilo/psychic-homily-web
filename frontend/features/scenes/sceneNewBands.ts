@@ -7,23 +7,8 @@
  * two possible tenses they are wording.
  */
 
-import { isCalendarDate, parseCalendarDate } from './sceneWeek'
+import { formatCalendarMonthDay } from './sceneWeek'
 import type { SceneNewArtistShow } from './types'
-
-/**
- * `Aug 22` from a `YYYY-MM-DD` calendar date, or null when it is not one.
- *
- * The SHAPE is the whole guard, and it has to run first — see `isCalendarDate`
- * for why a post-hoc NaN check would never fire.
- */
-function formatCalendarMonthDay(iso: string): string | null {
-  const trimmed = iso.trim()
-  if (!isCalendarDate(trimmed)) return null
-  return parseCalendarDate(trimmed).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
-}
 
 /**
  * `first listed Jul 14` — the catalog bookkeeping timestamp, read in UTC.

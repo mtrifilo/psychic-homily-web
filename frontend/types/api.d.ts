@@ -15693,6 +15693,14 @@ export interface components {
             updated_at: string;
             venues: components["schemas"]["VenueResponse"][] | null;
         };
+        SceneArtistNextShow: {
+            event_date: string;
+            /** Format: int64 */
+            id: number;
+            slug?: string;
+            venue_name?: string;
+            venue_slug?: string;
+        };
         SceneArtistResponse: {
             bandcamp_embed_url: string | null;
             city: string | null;
@@ -15700,10 +15708,13 @@ export interface components {
             id: number;
             is_active: boolean;
             name: string;
+            next_show?: components["schemas"]["SceneArtistNextShow"];
             /** Format: int64 */
             show_count: number;
             slug: string;
             state: string | null;
+            /** Format: int64 */
+            upcoming_show_count: number;
         };
         SceneCollectionSummary: {
             /** Format: int64 */
@@ -32650,6 +32661,8 @@ export interface operations {
                 limit?: number;
                 /** @description Offset for pagination */
                 offset?: number;
+                /** @description Fill upcoming_show_count and next_show per band, scoped to this scene's rooms. Costs an extra query, so ask only when rendering them. */
+                include_upcoming?: boolean;
             };
             header?: never;
             path: {

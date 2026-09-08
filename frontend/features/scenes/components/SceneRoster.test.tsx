@@ -178,8 +178,10 @@ describe('SceneRoster', () => {
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       const line = screen.getByText(/Gatecreeper/).closest('p')
+      // The trailing control is the one way into the dated rows and is
+      // asserted on its own below; the NAMES half is what this pins.
       expect(line?.textContent).toBe(
-        'Gatecreeper · Diners · Playboy Manbaby'
+        'Gatecreeper · Diners · Playboy Manbaby [Show upcoming →]'
       )
     })
 
@@ -191,7 +193,7 @@ describe('SceneRoster', () => {
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       expect(screen.getByText('Gatecreeper').closest('p')).toHaveTextContent(
-        /^Gatecreeper$/
+        /^Gatecreeper \[Show upcoming →\]$/
       )
     })
 
@@ -389,11 +391,15 @@ describe('SceneRoster', () => {
       )
     })
 
-    it('stops offering the control once the ceiling is what is withholding bands', () => {
+    it('stops offering to widen once the ceiling is what is withholding bands', () => {
       givenRoster(rosterOf(100), 340)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
-      expect(screen.queryByRole('button', { name: /Show/ })).toBeNull()
+      // No widening control: another fetch cannot deliver band 101. The
+      // reader can still open what they DO have, which is a different offer
+      // and is labelled as one.
+      expect(screen.queryByRole('button', { name: /Show all|Show \d+ of/ })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Show upcoming →' })).toBeInTheDocument()
       expect(
         screen.getByText('Showing 100 of 340 bands based in Phoenix')
       ).toBeInTheDocument()
@@ -453,6 +459,267 @@ describe('SceneRoster', () => {
 
       expect(screen.queryByRole('button', { name: /Show/ })).toBeNull()
       expect(container.textContent).not.toContain('…')
+    })
+  })
+
+  // The per-band line renders on the EXPANDED roster only; the preview stays an
+  // identity line of names. That is why every assertion below is paired with
+  // one that the same payload prints nothing extra before the reader asks.
+  describe('the expanded roster', () => {
+    const BOOKED = artist({
+      id: 1,
+      slug: 'gatecreeper',
+      name: 'Gatecreeper',
+      upcoming_show_count: 2,
+      next_show: {
+        id: 42,
+        slug: 'gatecreeper-valley-bar',
+        event_date: '2026-09-09',
+        venue_name: 'Valley Bar',
+        venue_slug: 'valley-bar',
+      },
+    })
+    const QUIET = artist({
+      id: 2,
+      slug: 'diners',
+      name: 'Diners',
+      upcoming_show_count: 0,
+      show_count: 12,
+      is_active: true,
+    })
+
+    /**
+     * Open the roster on a scene that OVERFLOWS the first page: the control
+     * both widens and dates. `head` is the bands under test; the roster is
+     * padded past the first page size so there is something to expand into.
+     */
+    async function expand(head: SceneArtist[]) {
+      const roster = [...head, ...rosterOf(12).slice(head.length)]
+      const user = userEvent.setup()
+      givenRosterByLimit({
+        10: { artists: roster.slice(0, 10), total: roster.length, embed: null },
+        12: { artists: roster, total: roster.length, embed: null },
+      })
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+      await user.click(screen.getByRole('button', { name: 'Show all 12 →' }))
+    }
+
+    function rowOf(name: string): HTMLElement {
+      const row = screen.getByText(name).closest('li')
+      expect(row).not.toBeNull()
+      return row as HTMLElement
+    }
+
+    it('states what each band has booked, and links the date and the room', async () => {
+      await expand([BOOKED])
+
+      expect(rowOf('Gatecreeper')).toHaveTextContent(
+        '2 upcoming · next Sep 9, Valley Bar'
+      )
+      expect(screen.getByRole('link', { name: 'Sep 9' })).toHaveAttribute(
+        'href',
+        '/shows/gatecreeper-valley-bar'
+      )
+      expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveAttribute(
+        'href',
+        '/venues/valley-bar'
+      )
+    })
+
+    // Anchored to the whole row rather than blocklisting spellings: a blocklist
+    // passes on the next one.
+    it('gives a band with nothing booked its name and nothing else', async () => {
+      await expand([BOOKED, QUIET])
+      expect(rowOf('Diners')).toHaveTextContent(/^Diners$/)
+    })
+
+    it('leaves the preview a names line even when the payload is dated', () => {
+      givenRoster([BOOKED, QUIET], 2)
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(screen.getByText('Gatecreeper').closest('p')?.textContent).toBe(
+        'Gatecreeper · Diners [Show upcoming →]'
+      )
+      expect(screen.queryByText(/\d+ upcoming/)).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Valley Bar' })).toBeNull()
+    })
+
+    it('dates a show with no room without a dangling comma', async () => {
+      const roomless = artist({
+        id: 1,
+        slug: 'gatecreeper',
+        name: 'Gatecreeper',
+        upcoming_show_count: 1,
+        next_show: { id: 42, event_date: '2026-09-09' },
+      })
+      await expand([roomless])
+      expect(rowOf('Gatecreeper')).toHaveTextContent('1 upcoming · next Sep 9')
+      expect(rowOf('Gatecreeper').textContent).not.toContain(',')
+    })
+
+    it('names a room it cannot date without reading as a date', async () => {
+      const undateable = artist({
+        id: 1,
+        slug: 'gatecreeper',
+        name: 'Gatecreeper',
+        upcoming_show_count: 1,
+        next_show: { id: 42, event_date: '', venue_name: 'Valley Bar', venue_slug: 'valley-bar' },
+      })
+      await expand([undateable])
+      expect(rowOf('Gatecreeper')).toHaveTextContent('1 upcoming · next at Valley Bar')
+    })
+
+    // Show slugs are nullable, and `/shows/` with an empty one resolves to the
+    // index rather than 404ing.
+    it('links a slugless show by id', async () => {
+      const noSlug = artist({
+        id: 1,
+        slug: 'gatecreeper',
+        name: 'Gatecreeper',
+        upcoming_show_count: 1,
+        next_show: { id: 42, event_date: '2026-09-09', venue_name: 'Valley Bar' },
+      })
+      await expand([noSlug])
+      expect(screen.getByRole('link', { name: 'Sep 9' })).toHaveAttribute('href', '/shows/42')
+      expect(screen.queryByRole('link', { name: 'Valley Bar' })).toBeNull()
+      expect(rowOf('Gatecreeper')).toHaveTextContent('1 upcoming · next Sep 9, Valley Bar')
+    })
+
+    // A widening that FAILS leaves the reader in the shape they asked for, over
+    // the page already on screen, rather than snapping back to a preview.
+    it('keeps the expanded shape when the widening fails', async () => {
+      const user = userEvent.setup()
+      givenRosterByLimit({
+        10: { artists: [BOOKED, ...rosterOf(10).slice(1)], total: 340, embed: null },
+        100: 'error',
+      })
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show 100 of 340 →' }))
+
+      expect(rowOf('Gatecreeper')).toHaveTextContent(
+        '2 upcoming · next Sep 9, Valley Bar'
+      )
+      expect(
+        screen.getByText('Showing 10 of 340 bands based in Phoenix')
+      ).toBeInTheDocument()
+    })
+
+    // A count the payload states with no show attached still tells the reader
+    // how much is booked. The two halves of the line drop independently, so
+    // this must not swallow the count with the clause.
+    it('keeps the count when the payload attaches no show', async () => {
+      const countOnly = artist({
+        id: 1,
+        slug: 'gatecreeper',
+        name: 'Gatecreeper',
+        upcoming_show_count: 3,
+        next_show: null,
+      })
+      await expand([countOnly])
+      expect(rowOf('Gatecreeper')).toHaveTextContent(/^Gatecreeper3 upcoming$/)
+    })
+
+    // The dated fields cost the backend a query, so they are asked for only
+    // once the reader has opened the roster. Before that every call must leave
+    // them off, including the separate first-page read the player uses.
+    it('asks for the dated fields only after the reader opens the roster', async () => {
+      const user = userEvent.setup()
+      givenRosterByLimit({
+        10: { artists: [BOOKED, ...rosterOf(10).slice(1)], total: 12, embed: null },
+        12: { artists: [BOOKED, ...rosterOf(12).slice(1)], total: 12, embed: null },
+      })
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(mockUseSceneArtists).not.toHaveBeenCalledWith(
+        expect.objectContaining({ includeUpcoming: true })
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Show all 12 →' }))
+
+      expect(mockUseSceneArtists).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 12, includeUpcoming: true })
+      )
+      // The player's first-page read is a separate question and must stay off
+      // it, or expanding would refetch the entry the iframe is pinned to.
+      expect(mockUseSceneArtists).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 10, includeUpcoming: false })
+      )
+    })
+  })
+
+  // A scene whose whole roster fits the first page has nothing to widen. It
+  // still gets ONE control into the dated rows, or the feature would be
+  // unreachable on every small scene in the catalogue.
+  describe('a roster that already fits', () => {
+    const SMALL = [
+      artist({
+        id: 1,
+        slug: 'gatecreeper',
+        name: 'Gatecreeper',
+        upcoming_show_count: 2,
+        next_show: {
+          id: 42,
+          slug: 'gatecreeper-valley-bar',
+          event_date: '2026-09-09',
+          venue_name: 'Valley Bar',
+          venue_slug: 'valley-bar',
+        },
+      }),
+      artist({ id: 2, slug: 'diners', name: 'Diners', upcoming_show_count: 0 }),
+    ]
+
+    function givenSmallRoster() {
+      mockUseSceneArtists.mockImplementation((options: { includeUpcoming?: boolean }) => ({
+        data: {
+          artists: options.includeUpcoming
+            ? SMALL
+            : SMALL.map(a => ({ ...a, upcoming_show_count: undefined, next_show: undefined })),
+          total: SMALL.length,
+          representative_embed: null,
+        },
+        isLoading: false,
+        isError: false,
+      }))
+    }
+
+    it('offers the control without promising to widen anything', () => {
+      givenSmallRoster()
+      const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(screen.getByRole('button', { name: 'Show upcoming →' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Show all/ })).toBeNull()
+      // The ellipsis marks withheld names; this control withholds none.
+      expect(container.textContent).not.toContain('…')
+    })
+
+    it('switches to dated rows without changing the page size', async () => {
+      const user = userEvent.setup()
+      givenSmallRoster()
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show upcoming →' }))
+
+      expect(screen.getByText('Gatecreeper').closest('li')).toHaveTextContent(
+        '2 upcoming · next Sep 9, Valley Bar'
+      )
+      expect(screen.getByText('Diners').closest('li')).toHaveTextContent(/^Diners$/)
+      expect(mockUseSceneArtists).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 10, includeUpcoming: true })
+      )
+      expect(mockUseSceneArtists).not.toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 2 })
+      )
+    })
+
+    it('withdraws the control once the roster is open', async () => {
+      const user = userEvent.setup()
+      givenSmallRoster()
+      renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      await user.click(screen.getByRole('button', { name: 'Show upcoming →' }))
+
+      expect(screen.queryByRole('button', { name: /Show/ })).toBeNull()
     })
   })
 

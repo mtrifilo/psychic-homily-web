@@ -683,8 +683,13 @@ export const queryKeys = {
     all: ['scenes'] as const,
     list: ['scenes', 'list'] as const,
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
-    artists: (slug: string, period?: number, limit?: number) =>
-      ['scenes', 'artists', slug, period, limit] as const,
+    // `includeUpcoming` is part of the key because it changes the SHAPE of each
+    // row, not just which rows come back: without it every band's
+    // upcoming_show_count is 0 and next_show is absent, which a reader cannot
+    // tell from a genuinely quiet roster. Two callers asking different questions
+    // must not share one entry.
+    artists: (slug: string, period?: number, limit?: number, includeUpcoming?: boolean) =>
+      ['scenes', 'artists', slug, period, limit, includeUpcoming] as const,
     // limit is part of the key for the same reason it is on `artists` and
     // `shows`: the cap changes WHICH bands come back, so two callers asking
     // different questions must not share one entry. There is no `days` — the

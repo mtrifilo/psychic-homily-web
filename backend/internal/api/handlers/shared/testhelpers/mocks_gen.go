@@ -3339,6 +3339,7 @@ type MockSceneService struct {
 	ListScenesFn                func() ([]*contracts.SceneListResponse, error)
 	GetSceneDetailFn            func(string, string) (*contracts.SceneDetailResponse, error)
 	GetActiveArtistsFn          func(string, string, int, int, int) ([]*contracts.SceneArtistResponse, int64, error)
+	EnrichRosterUpcomingFn      func(string, string, []*contracts.SceneArtistResponse) error
 	GetRepresentativeEmbedFn    func(string, string, int) (*contracts.SceneRepresentativeEmbed, error)
 	ParseSceneSlugFn            func(string) (string, string, error)
 	GetOrCreateSceneIDFn        func(string) (uint, error)
@@ -3376,6 +3377,12 @@ func (m *MockSceneService) GetActiveArtists(city string, state string, activeWin
 		return m.GetActiveArtistsFn(city, state, activeWindowDays, limit, offset)
 	}
 	return []*contracts.SceneArtistResponse{}, 0, nil
+}
+func (m *MockSceneService) EnrichRosterUpcoming(city string, state string, page []*contracts.SceneArtistResponse) error {
+	if m.EnrichRosterUpcomingFn != nil {
+		return m.EnrichRosterUpcomingFn(city, state, page)
+	}
+	return nil
 }
 func (m *MockSceneService) GetRepresentativeEmbed(city string, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
 	if m.GetRepresentativeEmbedFn != nil {

@@ -116,6 +116,11 @@ type GetSceneActiveArtistsRequest struct {
 	Period int    `query:"period" default:"180" minimum:"7" maximum:"365" doc:"Active window in days — a roster band is flagged active when it has a show within this window or upcoming (default ~6 months)"`
 	Limit  int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Maximum number of artists to return"`
 	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	// IncludeUpcoming is opt-in because filling it costs a query, and most
+	// consumers of this roster (the atlas hover preview, the mobile scene list)
+	// draw names only. Omitting it leaves both fields at their zero value, which
+	// is NOT a claim that a band has nothing booked.
+	IncludeUpcoming bool `query:"include_upcoming" default:"false" doc:"Fill upcoming_show_count and next_show per band, scoped to this scene's rooms. Costs an extra query, so ask only when rendering them."`
 }
 
 // GetSceneActiveArtistsResponse represents the response for a scene's roster.
@@ -157,6 +162,19 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 
 	if artists == nil {
 		artists = []*contracts.SceneArtistResponse{}
+	}
+
+	// Fatal, unlike the representative embed below. The embed is secondary
+	// payoff, so losing it costs a player; these two fields are a COUNT the row
+	// prints, and a count silently served as zero states something false about
+	// the band.
+	if req.IncludeUpcoming {
+		if err := h.sceneService.EnrichRosterUpcoming(city, state, artists); err != nil {
+			if mapped := shared.MapSceneError(err); mapped != nil {
+				return nil, mapped
+			}
+			return nil, huma.Error500InternalServerError("Failed to get roster upcoming shows", err)
+		}
 	}
 
 	resp := &GetSceneActiveArtistsResponse{}
@@ -221,8 +239,8 @@ func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state stri
 
 // GetSceneShowsRequest represents the request for a scene's next upcoming shows.
 type GetSceneShowsRequest struct {
-	Slug  string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
-	Days  int    `query:"days" default:"7" minimum:"1" maximum:"30" doc:"Window in days — shows with event_date inside [now, now+days)"`
+	Slug string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
+	Days int    `query:"days" default:"7" minimum:"1" maximum:"30" doc:"Window in days — shows with event_date inside [now, now+days)"`
 	// The 20-row ceiling this replaces was sized for the Atlas preview's
 	// three-row peek, and was raised to 200 for a four-week scene-page
 	// calendar that NO LONGER EXISTS: the scene root now reads the day
