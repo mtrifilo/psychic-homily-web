@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import { formatTokenDate, formatTokenDateTime, isTokenExpiringSoon } from './api-token-utils'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
-import { MintErrorMessage } from '@/components/shared/MintErrorMessage'
+import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessage'
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 
 // How long the "copied ✓" confirmation stays up after copying a token.
@@ -194,7 +194,7 @@ export function APITokenManagement() {
     <InlineErrorBanner className="flex items-start gap-2">
       <AlertCircle className="h-4 w-4 shrink-0" />
       <span>
-        <MintErrorMessage
+        <CredentialErrorMessage
           error={createToken.error}
           fallback={
             createToken.error?.message ||

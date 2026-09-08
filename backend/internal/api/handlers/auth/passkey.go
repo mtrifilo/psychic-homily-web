@@ -85,8 +85,16 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	// this account, which is the same change the OAuth link path is gated for
 	// and a larger one than any token mint: an attacker who attaches one owns
 	// the account, and signing in with it stamps the freshness every other gate
-	// asks for. Refused at begin so no challenge is issued, and again at finish
-	// so a challenge cannot outlive the freshness that obtained it.
+	// asks for.
+	//
+	// The refusal belongs at BEGIN, not at finish. No challenge is issued
+	// without a recent factor, and a challenge lives five minutes
+	// (webauthn.go StoreChallenge), so that is the bound on how far past a
+	// passing check a registration can land. Asking again at finish would put
+	// the refusal after the user has completed the biometric or security-key
+	// ceremony, and the authenticator has already written the credential to the
+	// device by then: they would be left holding a passkey the server never
+	// recorded.
 	if err := shared.RequireRecentSessionAuth(ctx, "passkey_register"); err != nil {
 		return nil, err
 	}
@@ -175,13 +183,6 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		resp.Body.Message = "Authentication required"
 		resp.Body.ErrorCode = autherrors.CodeUnauthorized
 		return resp, nil
-	}
-
-	// See the gate on BeginRegisterHandler. Asked again because this is the
-	// step that attaches the credential: a challenge obtained while the session
-	// was fresh must not still be spendable once that freshness has lapsed.
-	if err := shared.RequireRecentSessionAuth(ctx, "passkey_register"); err != nil {
-		return nil, err
 	}
 
 	logger.AuthDebug(ctx, "passkey_register_finish",

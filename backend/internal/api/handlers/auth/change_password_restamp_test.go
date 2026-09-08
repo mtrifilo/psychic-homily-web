@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	authsvc "psychic-homily-backend/internal/services/auth"
 )
 
 // Changing a password verifies the current one, which is the same factor a
@@ -63,37 +64,48 @@ func TestChangePasswordHandler_RestampsTheSession(t *testing.T) {
 	}
 }
 
-// The restamped session is what the credential mints accept, which is the whole
-// point of restamping: the two are driven end to end here rather than asserted
-// against each other's descriptions.
+// The restamped session is what the gates accept afterwards, and the link
+// between the two is the token in the cookie: a real JWT service mints it, the
+// reader the middleware uses parses it, and the authentication time that comes
+// back is what the next request is given. Hand-building a "fresh" context here
+// instead would pass with the re-stamp deleted.
 func TestChangePasswordHandler_RestampSatisfiesTheMintGate(t *testing.T) {
+	user := &authm.User{ID: 1, IsAdmin: true, IsActive: true}
+
+	cfg := testConfig()
+	jwtService := authsvc.NewJWTService(nil, cfg, &testhelpers.MockUserService{
+		GetUserByIDFn: func(uint) (*authm.User, error) { return user, nil },
+	})
+
 	h := authHandler(func(ah *AuthHandler) {
+		ah.config = cfg
 		ah.userService = &testhelpers.MockUserService{
 			UpdatePasswordFn: func(uint, string, string) error { return nil },
 		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateTokenFn: func(*authm.User) (string, error) { return "restamped-token", nil },
-			RenewSessionTokenFn: func(*authm.User, time.Time) (string, error) {
-				return "cli-token", nil
-			},
-		}
+		ah.jwtService = jwtService
 	})
 
-	user := &authm.User{ID: 1, IsAdmin: true}
 	staleCtx := testhelpers.CtxWithSessionAuthTime(user, time.Now().Add(-2*time.Hour))
-
 	if _, err := h.GenerateCLITokenHandler(staleCtx, &struct{}{}); err == nil {
 		t.Fatal("the stale session must be refused before the password change")
 	}
 
-	if _, err := h.ChangePasswordHandler(staleCtx, changePasswordInput()); err != nil {
+	resp, err := h.ChangePasswordHandler(staleCtx, changePasswordInput())
+	if err != nil {
 		t.Fatalf("changing the password: %v", err)
 	}
+	if resp.SetCookie.Value == "" {
+		t.Fatal("the change must hand back a session")
+	}
 
-	// The session the caller now holds: the handler stamped it at the moment
-	// the factor verified, which is what the next request presents.
-	freshCtx := testhelpers.CtxWithSessionAuthTime(user, time.Now())
-	if _, err := h.GenerateCLITokenHandler(freshCtx, &struct{}{}); err != nil {
+	// Exactly what the JWT middleware does with the cookie on the next request.
+	_, authAt, err := jwtService.ValidateSession(resp.SetCookie.Value)
+	if err != nil {
+		t.Fatalf("reading the restamped session: %v", err)
+	}
+	if _, err := h.GenerateCLITokenHandler(
+		testhelpers.CtxWithSessionAuthTime(user, authAt), &struct{}{},
+	); err != nil {
 		t.Fatalf("the restamped session must mint: %v", err)
 	}
 }

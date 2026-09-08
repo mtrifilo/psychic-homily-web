@@ -202,6 +202,11 @@ const (
 	// the remedy is the one challenge every account shape holds. Names no
 	// particular operation: the same refusal answers a token mint, a feed-token
 	// rotation and a passkey registration.
+	//
+	// The browser surfaces render REAUTH_REQUIRED_MESSAGE
+	// (frontend/lib/errors/authErrors.ts) rather than this string, so a copy
+	// edit here changes only what a CLI or a curl reader sees. Keep the two
+	// saying the same thing.
 	reauthRequiredMessage = "For security, sign in again before making this change."
 )
 

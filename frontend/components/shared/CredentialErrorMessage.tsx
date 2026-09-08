@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { isReauthRequired, REAUTH_REQUIRED_MESSAGE } from '@/lib/errors'
 import { buildReauthHref, FALLBACK_RETURN_TO } from '@/lib/auth-href'
 
-export interface MintErrorMessageProps {
+export interface CredentialErrorMessageProps {
   /** The failed mutation's error. */
   error: unknown
   /** Copy for every failure that is not the re-authentication refusal. */
@@ -13,7 +13,11 @@ export interface MintErrorMessageProps {
 }
 
 /**
- * What a surface renders when adding a credential fails.
+ * What a surface renders when a credential operation fails.
+ *
+ * Named for credentials rather than for mints because the passkey card routes
+ * its delete failures through it too: adding is what the gate refuses, but a
+ * card with one alert region has one place to render every failure.
  *
  * The re-authentication refusal is the one failure whose remedy is not "try
  * again": the reader is still signed in, so nothing else on the page would let
@@ -26,7 +30,7 @@ export interface MintErrorMessageProps {
  * reliable. The settings surfaces come back to /profile rather than to the
  * Settings tab, which is one click, not a dead end.
  */
-export function MintErrorMessage({ error, fallback }: MintErrorMessageProps) {
+export function CredentialErrorMessage({ error, fallback }: CredentialErrorMessageProps) {
   const pathname = usePathname()
 
   if (!isReauthRequired(error)) return <>{fallback}</>

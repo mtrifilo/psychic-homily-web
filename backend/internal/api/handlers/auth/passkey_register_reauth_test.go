@@ -24,15 +24,11 @@ func passkeyUser() *authm.User {
 }
 
 func TestPasskeyRegistration_FreshSessionProceeds(t *testing.T) {
-	var began, finished bool
+	var began bool
 	mockWA := &testhelpers.MockWebAuthnService{
 		BeginRegistrationFn: func(*authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 			began = true
 			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
-		},
-		GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-			finished = true
-			return nil, 0, errors.New("challenge lookup is past the gate")
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -43,13 +39,6 @@ func TestPasskeyRegistration_FreshSessionProceeds(t *testing.T) {
 	}
 	if !began {
 		t.Error("expected the webauthn service to be reached")
-	}
-
-	if _, err := h.FinishRegisterHandler(ctx, &FinishRegisterRequest{}); err != nil {
-		t.Fatalf("a fresh session must be allowed to finish: %v", err)
-	}
-	if !finished {
-		t.Error("expected finish to reach the challenge lookup")
 	}
 }
 
@@ -65,30 +54,43 @@ func TestPasskeyRegistration_StaleSessionRefused(t *testing.T) {
 					reached = true
 					return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
 				},
-				GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-					reached = true
-					return &webauthn.SessionData{}, 4, nil
-				},
 			}
 			h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 			ctx := testhelpers.CtxWithSessionAuthTime(passkeyUser(), authAt)
 
 			var refusal *shared.ReauthRequiredError
-
 			_, beginErr := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
 			if !errors.As(beginErr, &refusal) {
-				t.Fatalf("begin: expected a re-authentication refusal, got %v", beginErr)
+				t.Fatalf("expected a re-authentication refusal, got %v", beginErr)
 			}
-
-			_, finishErr := h.FinishRegisterHandler(ctx, &FinishRegisterRequest{})
-			if !errors.As(finishErr, &refusal) {
-				t.Fatalf("finish: expected a re-authentication refusal, got %v", finishErr)
-			}
-
 			if reached {
 				t.Error("a refused request must not reach the webauthn service")
 			}
 		})
+	}
+}
+
+// Finish is deliberately NOT gated. The user has completed the ceremony by the
+// time it runs and their authenticator has already written the credential, so a
+// refusal here would leave them holding a passkey the server never recorded.
+// What bounds it instead is that begin is gated and a challenge lives five
+// minutes; this pins the decision so it is not re-litigated as an oversight.
+func TestPasskeyRegistration_FinishIsNotGated(t *testing.T) {
+	var reachedChallenge bool
+	mockWA := &testhelpers.MockWebAuthnService{
+		GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+			reachedChallenge = true
+			return nil, 0, errors.New("challenge lookup is past the gate")
+		},
+	}
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
+	ctx := testhelpers.CtxWithSessionAuthTime(passkeyUser(), time.Now().Add(-2*time.Hour))
+
+	if _, err := h.FinishRegisterHandler(ctx, &FinishRegisterRequest{}); err != nil {
+		t.Fatalf("finish must not refuse a session that has aged mid-ceremony: %v", err)
+	}
+	if !reachedChallenge {
+		t.Error("expected finish to reach the challenge lookup")
 	}
 }
 

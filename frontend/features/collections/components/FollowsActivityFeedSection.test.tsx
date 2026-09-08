@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 const mockCreateToken = vi.fn()
 const mockDeleteToken = vi.fn()
 let mockHasToken = false
+let mockCreateError: Error | null = null
 
 vi.mock('@/features/auth', () => ({
   useCalendarTokenStatus: () => ({
@@ -14,6 +15,8 @@ vi.mock('@/features/auth', () => ({
   useCreateCalendarToken: () => ({
     mutateAsync: mockCreateToken,
     isPending: false,
+    isError: mockCreateError !== null,
+    error: mockCreateError,
   }),
   useDeleteCalendarToken: () => ({
     mutateAsync: mockDeleteToken,
@@ -22,17 +25,40 @@ vi.mock('@/features/auth', () => ({
 }))
 
 import { FollowsActivityFeedSection } from './FollowsActivityFeedSection'
+import {
+  AuthError,
+  AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
+} from '@/lib/errors'
 
 describe('FollowsActivityFeedSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockHasToken = false
+    mockCreateError = null
     mockCreateToken.mockResolvedValue({
       token: 'phcal_test',
       feed_url: 'https://api.example.com/feeds/phcal_test/saved-shows.ics',
       follows_feed_url:
         'https://api.example.com/feeds/phcal_test/follows.atom',
     })
+  })
+
+  // This card rotates the same personal feed token as the calendar card, so the
+  // refusal has to reach it too. Without this the Enable button is a dead click.
+  it('renders the sign-in-again copy when the feed mint refuses a stale session', () => {
+    mockCreateError = new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, {
+      status: 403,
+    })
+    renderWithProviders(<FollowsActivityFeedSection />)
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      REAUTH_REQUIRED_MESSAGE
+    )
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('reason=REAUTH_REQUIRED')
+    )
   })
 
   it('enables and shows the Atom URL with leakage copy', async () => {

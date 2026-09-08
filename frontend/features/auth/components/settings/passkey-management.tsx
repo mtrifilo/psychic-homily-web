@@ -12,7 +12,7 @@ import {
   useWebAuthnSupport,
 } from '@/features/auth'
 import { isAuthError } from '@/lib/errors'
-import { MintErrorMessage } from '@/components/shared/MintErrorMessage'
+import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessage'
 
 export function PasskeyManagement() {
   const supportsWebAuthn = useWebAuthnSupport()
@@ -52,7 +52,12 @@ export function PasskeyManagement() {
     setActionError(null)
     deletePasskey.mutate(credentialId, {
       onSuccess: () => setActionError(null),
-      onError: err => setActionError(err),
+      // Wrapped rather than passed through so a non-Error rejection keeps the
+      // copy this control has always shown for a failed delete.
+      onError: err =>
+        setActionError(
+          err instanceof Error ? err : new Error('Failed to delete passkey')
+        ),
     })
   }
 
@@ -89,7 +94,7 @@ export function PasskeyManagement() {
           <Alert variant="destructive" className="mb-4">
             <AlertDescription>
               {actionError ? (
-                <MintErrorMessage
+                <CredentialErrorMessage
                   error={actionError}
                   fallback={
                     actionError instanceof Error

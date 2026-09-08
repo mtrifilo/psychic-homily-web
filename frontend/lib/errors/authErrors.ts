@@ -201,7 +201,6 @@ export function isReauthRequired(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.REAUTH_REQUIRED
 }
 
-
 /**
  * Get a user-friendly message for an error code
  */

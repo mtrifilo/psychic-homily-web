@@ -40,15 +40,25 @@ import (
 // not every path that reaches it, so a new caller of an already-listed helper
 // is on the author.
 var mintGateExemptions = map[string]string{
-	"auth/auth.go:AuthHandler.LoginHandler":                    "password verified in this request",
-	"auth/auth.go:AuthHandler.RegisterHandler":                 "registration sets the password",
-	"auth/auth.go:AuthHandler.VerifyMagicLinkHandler":          "emailed magic link",
-	"auth/auth.go:AuthHandler.RecoverAccountHandler":           "email plus password",
-	"auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler":   "emailed recovery token",
-	"auth/auth.go:AuthHandler.ChangePasswordHandler":           "current password verified in this request",
-	"auth/passkey.go:PasskeyHandler.FinishLoginHandler":        "webauthn assertion",
-	"auth/passkey.go:PasskeyHandler.FinishSignupHandler":       "webauthn registration at signup",
-	"auth/apple_auth.go:AppleAuthHandler.AppleCallbackHandler": "apple identity token, verified in this request",
+	"auth/auth.go:AuthHandler.LoginHandler":                  "password verified in this request",
+	"auth/auth.go:AuthHandler.RegisterHandler":               "registration sets the password",
+	"auth/auth.go:AuthHandler.VerifyMagicLinkHandler":        "emailed magic link",
+	"auth/auth.go:AuthHandler.RecoverAccountHandler":         "email plus password",
+	"auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler": "emailed recovery token",
+	"auth/auth.go:AuthHandler.ChangePasswordHandler":         "current password verified in this request",
+	"auth/passkey.go:PasskeyHandler.FinishLoginHandler":      "webauthn assertion",
+	"auth/passkey.go:PasskeyHandler.FinishSignupHandler":     "webauthn registration at signup",
+	// The begin step is gated, so no challenge exists without a recent factor,
+	// and a challenge lives five minutes. Refusing here instead would land
+	// after the user completed the ceremony and their authenticator had already
+	// written the credential.
+	"auth/passkey.go:PasskeyHandler.FinishRegisterHandler": "spends a challenge BeginRegisterHandler only issues behind the gate",
+	// Its own definition, which issues nothing until a handler calls it.
+	"auth/oauth_link_token.go:mintOAuthLinkToken": "the mint itself, not a request",
+	// The token this mints is unspendable on its own: /auth/link/{provider}
+	// asks the gate before it consumes one.
+	"auth/oauth_account.go:OAuthAccountHandler.StartOAuthLinkHandler": "one-time token; the link it unlocks is gated",
+	"auth/apple_auth.go:AppleAuthHandler.AppleCallbackHandler":        "apple identity token, verified in this request",
 }
 
 // credentialIssuingMethods are the service methods a handler names when it
@@ -71,8 +81,15 @@ var credentialIssuingMethods = map[string]bool{
 	"CreateToken":                       true,
 	"RenewSessionToken":                 true,
 	"GenerateToken":                     true,
+	"BeginRegistration":                 true,
 	"FinishRegistration":                true,
 	"FinishSignupRegistrationWithLegal": true,
+}
+
+// credentialIssuingFuncs are the same thing spelled as a package-level function
+// rather than a method, which the selector walk above cannot see.
+var credentialIssuingFuncs = map[string]bool{
+	"mintOAuthLinkToken": true,
 }
 
 const gateFunc = "RequireRecentSessionAuth"
@@ -92,7 +109,11 @@ func TestCredentialMintsAskTheReauthGate(t *testing.T) {
 			return err
 		}
 		if info.IsDir() {
-			if info.Name() == "testdata" {
+			// testhelpers holds generated mocks that declare these method names
+			// in a non-test file. Nothing routes a request to them, and a
+			// generator change that made one forward to a real method would
+			// otherwise read as an ungated handler.
+			if name := info.Name(); name == "testdata" || name == "testhelpers" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -117,27 +138,7 @@ func TestCredentialMintsAskTheReauthGate(t *testing.T) {
 				continue
 			}
 
-			var issues bool
-			var gated bool
-			var method string
-			ast.Inspect(fn, func(n ast.Node) bool {
-				sel, ok := n.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				if credentialIssuingMethods[sel.Sel.Name] {
-					issues, method = true, sel.Sel.Name
-				}
-				if sel.Sel.Name == gateFunc {
-					gated = true
-				}
-				return true
-			})
-			// The gate is called unqualified inside this package, so the
-			// selector walk above does not see it there.
-			if !gated {
-				gated = callsUnqualified(fn, gateFunc)
-			}
+			issues, method, gated := inspectFunc(fn)
 			if !issues {
 				continue
 			}
@@ -182,17 +183,30 @@ func TestCredentialMintsAskTheReauthGate(t *testing.T) {
 	}
 }
 
-// callsUnqualified reports whether fn names ident as a bare function call,
-// which is how a function in this package reaches the gate.
-func callsUnqualified(fn *ast.FuncDecl, ident string) bool {
-	found := false
+// inspectFunc reports whether fn names a credential-issuing method or function,
+// which one, and whether it also names the gate.
+//
+// The gate is always reached as shared.RequireRecentSessionAuth from outside
+// this package, so the selector arm sees it; the identifier arm is what catches
+// a package-level issuer such as mintOAuthLinkToken.
+func inspectFunc(fn *ast.FuncDecl) (issues bool, method string, gated bool) {
 	ast.Inspect(fn, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && id.Name == ident {
-			found = true
+		switch node := n.(type) {
+		case *ast.SelectorExpr:
+			if credentialIssuingMethods[node.Sel.Name] {
+				issues, method = true, node.Sel.Name
+			}
+			if node.Sel.Name == gateFunc {
+				gated = true
+			}
+		case *ast.Ident:
+			if credentialIssuingFuncs[node.Name] {
+				issues, method = true, node.Name
+			}
 		}
 		return true
 	})
-	return found
+	return issues, method, gated
 }
 
 // funcName is "Receiver.Name" for a method and "Name" for a plain function, so
@@ -221,22 +235,19 @@ func siteExists(t *testing.T, root, site string) bool {
 		return false
 	}
 	fset := token.NewFileSet()
+	// A file that will not parse is a broken tree, not a removed exemption.
+	// Reporting it as absent would tell a maintainer mid-refactor to delete a
+	// live security exemption.
 	file, err := parser.ParseFile(fset, filepath.Join(root, rel), nil, 0)
 	if err != nil {
-		return false
+		t.Fatalf("parsing %s for exemption %s: %v", rel, site, err)
 	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || funcName(fn) != name {
 			continue
 		}
-		issues := false
-		ast.Inspect(fn, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && credentialIssuingMethods[sel.Sel.Name] {
-				issues = true
-			}
-			return true
-		})
+		issues, _, _ := inspectFunc(fn)
 		return issues
 	}
 	return false

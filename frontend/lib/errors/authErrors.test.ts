@@ -252,9 +252,17 @@ describe('isReauthRequired', () => {
   })
 
   // The refusal leaves the session valid, so nothing may read it as a sign-out.
+  // Asserted with no status as well as with 403: any defined status other than
+  // 401 short-circuits before the code is read, so the 403 case alone would
+  // stay green if REAUTH_REQUIRED were ever added to the token-code list that
+  // the status-less branch consults. PasskeyRegisterButton builds exactly that
+  // status-less shape.
   it('is not a definitive unauthenticated answer', () => {
+    expect(isDefinitiveUnauthenticated(403, AuthErrorCode.REAUTH_REQUIRED)).toBe(
+      false
+    )
     expect(
-      isDefinitiveUnauthenticated(403, AuthErrorCode.REAUTH_REQUIRED)
+      isDefinitiveUnauthenticated(undefined, AuthErrorCode.REAUTH_REQUIRED)
     ).toBe(false)
   })
 

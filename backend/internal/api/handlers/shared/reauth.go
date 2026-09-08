@@ -15,6 +15,11 @@ import (
 // change a stolen session must not be able to make on its own. The caller has
 // to have proven the account recently.
 //
+// ADDING is the whole of what this covers. Removing a credential (a passkey, a
+// provider identity, a feed token, an API token) is not gated: revocation has
+// to stay available to someone who has just realised a credential leaked, and
+// whether the downgrade side deserves its own rule is a separate decision.
+//
 // RecentSessionWindow is what "recently" means. A user who just signed in and
 // walked to Settings is inside it; a week-old cookie riding in a browser
 // someone else is sitting at is not.

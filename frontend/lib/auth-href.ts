@@ -61,10 +61,11 @@ export function buildAuthHref(returnTo: string): string {
  * is why a render-time sign-in href is built from the pathname alone instead
  * (`features/auth/components/SignInPrompt.tsx` states that constraint).
  *
- * That render-time grade has three call sites and no function of its own,
+ * That render-time grade has four call sites and no function of its own,
  * because it is just the pathname: `SignInPrompt`, `nav/UserMenu`'s
- * `SignInLink`, and `nav/BottomTabBar`'s Account cell. A fourth belongs beside
- * them, not as a fresh formula.
+ * `SignInLink`, `nav/BottomTabBar`'s Account cell, and
+ * `components/shared/CredentialErrorMessage`. A fifth belongs beside them, not
+ * as a fresh formula.
  */
 export function currentLocationReturnTo(pathname: string): string {
   const search = typeof window === 'undefined' ? '' : window.location.search
