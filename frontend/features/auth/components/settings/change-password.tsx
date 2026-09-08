@@ -46,7 +46,8 @@ type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
  * than as "slow down, your password is fine". `ApiError.retryAfter` is only
  * populated when the browser can read the `Retry-After` header, which it
  * cannot cross-origin in production, so the headerless copy is the common path
- * and names the window instead of a countdown.
+ * and names the window instead of a countdown. The number it prints is the
+ * wait at the moment of the response; it does not tick down.
  */
 export function formatChangePasswordError(error: unknown): string {
   const fallback = 'Failed to change password'
@@ -54,8 +55,9 @@ export function formatChangePasswordError(error: unknown): string {
   const apiErr = error as ApiError
 
   if (apiErr.status === 429) {
-    if (apiErr.retryAfter && Number.isFinite(apiErr.retryAfter)) {
-      return `Too many password change attempts. Try again in ${apiErr.retryAfter}s.`
+    const retryAfter = apiErr.retryAfter
+    if (typeof retryAfter === 'number' && retryAfter > 0) {
+      return `Too many password change attempts. Try again in ${Math.ceil(retryAfter)}s.`
     }
     return 'Too many password change attempts. Try again in a minute.'
   }

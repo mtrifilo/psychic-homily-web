@@ -18,29 +18,11 @@ func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
 	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.SC.JWT, rc.Cfg)
 
-	// Create rate limiter for auth endpoints: 10 requests per minute per IP
-	// This helps prevent:
-	// - Brute force attacks on login
-	// - Credential stuffing
-	// - Email bombing via magic links
-	// - Spam account creation
-	//
-	// PSY-475: replaced with a no-op when DISABLE_AUTH_RATE_LIMITS=1 in a
-	// whitelisted ENVIRONMENT. All E2E workers share 127.0.0.1, so the
-	// 10/min budget got exhausted and broke register/magic-link tests on
-	// shard 3. Default-deny env check in cmd/server/main.go refuses to
-	// boot with the flag set anywhere other than test/ci/development.
-	var authRateLimiter func(http.Handler) http.Handler
-	if IsAuthRateLimitDisabled(os.Getenv) {
-		authRateLimiter = noopRateLimiter()
-	} else {
-		authRateLimiter = httprate.Limit(
-			10,            // requests
-			1*time.Minute, // per duration
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		)
-	}
+	// The public auth budget: brute force on login, credential stuffing,
+	// email bombing via magic links, and spam account creation all draw on this
+	// one per-IP counter. Built once and shared by the chi OAuth groups below
+	// and by rateLimitedAuthGroup, which is what keeps them on one budget.
+	authRateLimiter := authScopedRateLimiter(middleware.AuthRequestsPerMinute)
 
 	// Rate-limited OAuth routes
 	rc.Router.Group(func(r chi.Router) {
@@ -110,12 +92,12 @@ func setupAuthRoutes(rc RouteContext) {
 const VerificationResendPerMinute = 5
 
 // ChangePasswordAttemptsPerMinute is the per-IP budget for POST
-// /auth/change-password. The handler verifies the current password before it
-// sets the new one, so an unbudgeted route lets a caller holding a session
-// guess that password at wire speed. A person changing their own password
-// submits once, a few times if they mistype the current one; the browser form
-// rejects short, mismatched and unchanged passwords before they cost a
-// request, so every request that reaches the limiter is a real attempt.
+// /auth/change-password, which verifies the current password before setting the
+// new one. A person changing their own password submits once, a few times if
+// they mistype the current one, and the browser form rejects short, mismatched
+// and unchanged passwords before they cost a request, so every request that
+// reaches the limiter is a real attempt. It matches the resend budget; it is a
+// separate counter, so tuning one does not tune the other.
 const ChangePasswordAttemptsPerMinute = 5
 
 // authScopedRateLimiter builds a per-IP minute limiter for one authenticated
@@ -175,15 +157,11 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	verifyEmailGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
-	// Change-password carries its own per-IP budget. The handler checks the
-	// current password before setting the new one, so the route answers the
-	// question "is this the password?" and needs the same throttle any other
-	// password oracle gets.
-	//
-	// The budget is separate from the 10/min public auth counter: sharing one
-	// would let failed change attempts lock the same person out of /auth/login.
-	// The group hangs off rc.Protected, so HumaJWTMiddleware runs first and an
-	// unauthenticated caller is refused before it can spend anyone's budget.
+	// Change-password bounds current-password guesses per client IP. Its
+	// counter is separate from the public auth budget, so failed attempts here
+	// cannot lock the same person out of /auth/login. The group hangs off
+	// rc.Protected, so HumaJWTMiddleware runs first and an unauthenticated
+	// caller is refused before it reaches the counter.
 	changePasswordGroup := huma.NewGroup(rc.Protected, "")
 	changePasswordGroup.UseMiddleware(humaFromHTTP(changePasswordRateLimiter()))
 	huma.Post(changePasswordGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
@@ -284,20 +262,10 @@ func setupPasskeyRoutes(rc RouteContext) {
 
 	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.Cfg)
 
-	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
-	// Slightly more lenient than auth due to multi-step WebAuthn flow.
-	// PSY-475: same env-flagged no-op gate as the auth limiter.
-	var passkeyRateLimiter func(http.Handler) http.Handler
-	if IsAuthRateLimitDisabled(os.Getenv) {
-		passkeyRateLimiter = noopRateLimiter()
-	} else {
-		passkeyRateLimiter = httprate.Limit(
-			20,            // requests
-			1*time.Minute, // per duration
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		)
-	}
+	// Passkey gets its own budget, more lenient than the auth one because a
+	// WebAuthn flow is several requests. Built once and shared across the four
+	// public passkey operations.
+	passkeyRateLimiter := authScopedRateLimiter(middleware.PasskeyRequestsPerMinute)
 
 	// Rate-limited public passkey endpoints.
 	//

@@ -12,31 +12,40 @@ import (
 // make the budget safe to add: it is not the public auth counter, and an
 // unauthenticated caller cannot spend it.
 
+// changePasswordAttempt sends one request through a bare limiter chain, with no
+// router or handler behind it, so the recorded code is the limiter's own answer.
+func changePasswordAttempt(t *testing.T, limited http.Handler, ip string) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
+	req.RemoteAddr = ip
+	limited.ServeHTTP(w, req)
+	return w
+}
+
+func okHandler(served *int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if served != nil {
+			*served++
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
 func TestChangePasswordRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
 	var served int
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		served++
-		w.WriteHeader(http.StatusOK)
-	})
-	wrapped := changePasswordRateLimiter()(next)
+	limited := changePasswordRateLimiter()(okHandler(&served))
+	const ip = "203.0.113.61:1234"
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-		req.RemoteAddr = "203.0.113.61:1234"
-		wrapped.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("request %d within budget: want 200 got %d", i+1, w.Code)
+		if code := changePasswordAttempt(t, limited, ip).Code; code != http.StatusOK {
+			t.Fatalf("request %d within budget: want 200 got %d", i+1, code)
 		}
 	}
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-	req.RemoteAddr = "203.0.113.61:1234"
-	wrapped.ServeHTTP(w, req)
-
+	w := changePasswordAttempt(t, limited, ip)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("request past budget: want 429 got %d", w.Code)
 	}
@@ -54,30 +63,15 @@ func TestChangePasswordRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 func TestChangePasswordRateLimiter_IsPerIP(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	wrapped := changePasswordRateLimiter()(next)
+	limited := changePasswordRateLimiter()(okHandler(nil))
 
-	for i := 0; i <= ChangePasswordAttemptsPerMinute; i++ {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-		req.RemoteAddr = "198.51.100.61:5000"
-		wrapped.ServeHTTP(w, req)
+	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {
+		changePasswordAttempt(t, limited, "198.51.100.61:5000")
 	}
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-	req.RemoteAddr = "198.51.100.61:5000"
-	wrapped.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("first client should be exhausted: want 429 got %d", w.Code)
+	if code := changePasswordAttempt(t, limited, "198.51.100.61:5000").Code; code != http.StatusTooManyRequests {
+		t.Fatalf("first client should be exhausted: want 429 got %d", code)
 	}
-
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-	req.RemoteAddr = "198.51.100.62:5000"
-	wrapped.ServeHTTP(w, req)
-	if w.Code == http.StatusTooManyRequests {
+	if code := changePasswordAttempt(t, limited, "198.51.100.62:5000").Code; code == http.StatusTooManyRequests {
 		t.Error("a second IP was limited by the first client's budget; the limiter is not keyed by client IP")
 	}
 }
@@ -87,52 +81,35 @@ func TestChangePasswordRateLimiter_IsPerIP(t *testing.T) {
 func TestChangePasswordRateLimiter_HonorsDisableFlag(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	wrapped := changePasswordRateLimiter()(next)
+	limited := changePasswordRateLimiter()(okHandler(nil))
 
 	for i := 0; i < ChangePasswordAttemptsPerMinute*3; i++ {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-		req.RemoteAddr = "203.0.113.62:1234"
-		wrapped.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("request %d with limits disabled: want 200 got %d", i+1, w.Code)
+		if code := changePasswordAttempt(t, limited, "203.0.113.62:1234").Code; code != http.StatusOK {
+			t.Fatalf("request %d with limits disabled: want 200 got %d", i+1, code)
 		}
 	}
 }
 
-// Each constructor call owns its own counter, so spending one route's budget
-// leaves the other's untouched. Both routes sit behind the same session and the
-// same per-IP key, which is exactly the shape in which a shared store would go
-// unnoticed.
+// Each authScopedRateLimiter call owns its own counter, so spending one route's
+// budget leaves the other's untouched. Both routes sit behind the same session
+// and the same per-IP key, which is exactly the shape in which a shared store
+// would go unnoticed.
 func TestChangePasswordAndVerificationResendDoNotShareABudget(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	changePassword := changePasswordRateLimiter()(next)
-	resend := verificationResendRateLimiter()(next)
-
+	changePassword := changePasswordRateLimiter()(okHandler(nil))
+	resend := verificationResendRateLimiter()(okHandler(nil))
 	const ip = "203.0.113.63:1234"
-	for i := 0; i <= ChangePasswordAttemptsPerMinute; i++ {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-		req.RemoteAddr = ip
-		changePassword.ServeHTTP(w, req)
+
+	for i := 0; i < ChangePasswordAttemptsPerMinute; i++ {
+		changePasswordAttempt(t, changePassword, ip)
 	}
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
-	req.RemoteAddr = ip
-	changePassword.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("change-password budget should be exhausted: want 429 got %d", w.Code)
+	if code := changePasswordAttempt(t, changePassword, ip).Code; code != http.StatusTooManyRequests {
+		t.Fatalf("change-password budget should be exhausted: want 429 got %d", code)
 	}
 
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/auth/verify-email/send", nil)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email/send", nil)
 	req.RemoteAddr = ip
 	resend.ServeHTTP(w, req)
 	if w.Code == http.StatusTooManyRequests {
@@ -170,7 +147,7 @@ func TestChangePasswordDoesNotSpendThePublicAuthBudget(t *testing.T) {
 	router := newTestRouter(t)
 	const ip = "203.0.113.65:1234"
 
-	for i := 0; i < authLimitPerMinute*2; i++ {
+	for i := 0; i <= authLimitPerMinute; i++ {
 		send(t, router, "POST", "/auth/change-password", ip, nil)
 	}
 
@@ -180,19 +157,4 @@ func TestChangePasswordDoesNotSpendThePublicAuthBudget(t *testing.T) {
 			"the change-password route is on the public auth counter")
 	}
 	assertReachedHandler(t, code, body, "/auth/login")
-}
-
-// The route keeps its place in the one published document. A group conversion
-// that dropped it from the spec would leave the endpoint reachable and
-// undocumented, which is the failure PSY-1598 exists to prevent.
-func TestChangePasswordIsInMainSpec(t *testing.T) {
-	paths := servedSpecPaths(t, newTestRouter(t))
-
-	item, ok := paths["/auth/change-password"]
-	if !ok {
-		t.Fatal("/auth/change-password is missing from the served spec")
-	}
-	if _, ok := item["post"]; !ok {
-		t.Error("expected a documented POST operation for /auth/change-password")
-	}
 }

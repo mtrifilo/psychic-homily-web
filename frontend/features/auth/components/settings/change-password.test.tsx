@@ -321,11 +321,10 @@ describe('formatChangePasswordError', () => {
     expect(formatChangePasswordError(error)).toBe('Current password is incorrect')
   })
 
-  it('drops an unusable retryAfter rather than printing NaN', () => {
-    const error = Object.assign(new Error('Rate limit exceeded.'), {
-      status: 429,
-      retryAfter: NaN,
-    })
+  it('names the window when retryAfter is absent, the production path', () => {
+    // Retry-After is not CORS-exposed, so a browser on the production origin
+    // never reads it and `retryAfter` stays undefined.
+    const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
     expect(formatChangePasswordError(error)).toBe(
       'Too many password change attempts. Try again in a minute.'
     )
