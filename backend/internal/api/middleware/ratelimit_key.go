@@ -6,12 +6,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/go-chi/httprate"
 )
 
 // TrustedProxyHopsEnvVar tunes how many proxies are assumed to sit in front of
@@ -85,18 +84,71 @@ func trustedProxyHops() int {
 // Falls back to RemoteAddr when the header is absent or unusable, so a
 // misconfigured proxy degrades to the previous behaviour rather than to no
 // limiting at all.
+//
+// # Canonical keys
+//
+// Both paths run the observed address through canonicalizeRateLimitKey, so one
+// client keys the same whether it arrives through the proxy chain or on a
+// direct connection.
+//
+// The error is always nil. It exists because httprate.KeyFunc requires it, and
+// an error here would fail the request with 428 rather than meter it.
 func KeyByClientIP(r *http.Request) (string, error) {
 	xff := r.Header.Get("X-Forwarded-For")
 	hops := trustedProxyHops()
 
 	if ip := clientIPFromForwardedFor(xff, hops); ip != "" {
 		observeProxyTrust(r, xff, hops, "x-forwarded-for", ip)
-		return ip, nil
+		return canonicalizeRateLimitKey(ip), nil
 	}
 
-	key, err := httprate.KeyByIP(r)
-	observeProxyTrust(r, xff, hops, "remote-addr", key)
-	return key, err
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	observeProxyTrust(r, xff, hops, "remote-addr", host)
+	return canonicalizeRateLimitKey(host), nil
+}
+
+// rateLimitIPv6PrefixBits is the width of the IPv6 block that shares one
+// rate-limit bucket.
+//
+// A residential or mobile IPv6 subscriber is delegated at least a /64 and can
+// source from any address inside it with no network change and no cost, so an
+// address-exact key is one bucket per REQUEST rather than one per client, and
+// every per-IP limiter keyed by this function is bypassed by rotating the low
+// 64 bits. /64 is the narrowest block that is always a single subscriber:
+// carriers delegate /64 or wider (/56, /48), never narrower, so masking further
+// left would put unrelated subscribers in one bucket.
+const rateLimitIPv6PrefixBits = 64
+
+// canonicalizeRateLimitKey maps a client address to the bucket it shares.
+//
+// IPv4 addresses are returned verbatim. IPv6 addresses are masked to
+// rateLimitIPv6PrefixBits. An IPv4-mapped IPv6 address (::ffff:203.0.113.9,
+// which some proxies emit on dual-stack sockets) keys on its dotted quad, so it
+// lands in the same bucket as the same client written in IPv4 form.
+//
+// Input that does not parse as an address is returned unchanged rather than
+// rejected: the caller has already validated the X-Forwarded-For path, and on
+// the RemoteAddr path an unparseable value still has to meter as SOMETHING.
+// Collapsing it to a constant would put every such client in one bucket.
+func canonicalizeRateLimitKey(observed string) string {
+	addr, err := netip.ParseAddr(observed)
+	if err != nil {
+		return observed
+	}
+	if addr.Is4() {
+		return observed
+	}
+	if addr.Is4In6() {
+		return addr.Unmap().String()
+	}
+	prefix, err := addr.Prefix(rateLimitIPv6PrefixBits)
+	if err != nil {
+		return observed
+	}
+	return prefix.Addr().String()
 }
 
 var proxyTrustOnce sync.Once
@@ -112,10 +164,12 @@ var proxyTrustOnce sync.Once
 // Logged once (sync.Once) rather than per request: this is a topology fact, not
 // an event, so repeating it would be noise on a hot path.
 //
-// The derived key is HASHED and truncated. Comparing fingerprints across a burst
-// answers the only question that matters — same bucket or different — without
-// writing client IP addresses into logs.
-func observeProxyTrust(r *http.Request, xff string, hops int, source, key string) {
+// The fingerprint covers the address this process OBSERVED, before the /64
+// canonicalisation KeyByClientIP applies to the bucket key, so a client rotating
+// addresses inside one bucket still reads as varying here. It is hashed and
+// truncated, so the comparison works without writing client IP addresses into
+// logs.
+func observeProxyTrust(r *http.Request, xff string, hops int, source, observed string) {
 	proxyTrustOnce.Do(func() {
 		chain := 0
 		if xff != "" {
@@ -129,7 +183,7 @@ func observeProxyTrust(r *http.Request, xff string, hops int, source, key string
 			"has_x_real_ip", r.Header.Get("X-Real-IP") != "",
 			"has_true_client_ip", r.Header.Get("True-Client-IP") != "",
 			"has_envoy_external", r.Header.Get("X-Envoy-External-Address") != "",
-			"key_fingerprint", fingerprint(key),
+			"key_fingerprint", fingerprint(observed),
 		)
 	})
 }
