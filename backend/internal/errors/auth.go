@@ -62,11 +62,11 @@ const (
 	// CodeOAuthLinkExpired indicates a link attempt arrived at the callback
 	// without a live link intent, so the account to attach to is unknown.
 	CodeOAuthLinkExpired = "OAUTH_LINK_EXPIRED"
-	// CodeReauthRequired indicates a credential mint was refused because the
-	// request's session did not authenticate recently enough. Distinct from
-	// CodeUnauthorized: the caller IS the account owner and the session IS
-	// valid, so a surface that reads this must offer a fresh sign-in rather
-	// than report a permission failure or clear the session.
+	// CodeReauthRequired indicates that adding a credential to the account was
+	// refused because the request's session did not authenticate recently
+	// enough. Distinct from CodeUnauthorized: the caller IS the account owner
+	// and the session IS valid, so a surface that reads this must offer a fresh
+	// sign-in rather than report a permission failure or clear the session.
 	CodeReauthRequired = "REAUTH_REQUIRED"
 	// CodeUnknownHomeMetro indicates a home-area metro code that does not resolve
 	// in the CBSA dataset venue and artist metros are drawn from. Typed so the
@@ -199,8 +199,10 @@ const (
 	oauthProviderAlreadyLinkedMessage = "Your account is already connected to a different account from this provider. Disconnect it first, then connect this one."
 	oauthLinkExpiredMessage           = "That connection request expired. Start it again from Settings."
 	// The refusal is about the age of the sign-in, not about permission, and
-	// the remedy is the one challenge every account shape holds.
-	reauthRequiredMessage = "For security, sign in again before creating a new token."
+	// the remedy is the one challenge every account shape holds. Names no
+	// particular operation: the same refusal answers a token mint, a feed-token
+	// rotation and a passkey registration.
+	reauthRequiredMessage = "For security, sign in again before making this change."
 )
 
 // ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its

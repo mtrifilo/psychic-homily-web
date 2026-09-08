@@ -122,10 +122,15 @@ func TestRequireRecentSessionAuth_SessionShapes(t *testing.T) {
 // with no factor behind it, so a refusal the extra request could buy a way out
 // of would be no refusal at all.
 //
-// The renewal and the middleware's read are both run for real here, which is
-// what lets the per-mint tests present a stale authentication time directly:
-// this test is the evidence that a refreshed session presents exactly that
-// same value.
+// The renewal and the claim read are both run for real here, against the JWT
+// service the refresh endpoint composes rather than against a restatement of
+// the rule. That is what lets the per-mint tests present a stale authentication
+// time directly: this is the evidence that a refreshed session presents exactly
+// that same value.
+//
+// The middleware is not in this path. That it writes the value this gate reads
+// is held by JWTMiddlewareIntegrationSuite/TestHumaJWT_CarriesSessionAuthTime
+// and its siblings in internal/api/middleware.
 func TestRequireRecentSessionAuth_RenewalBuysNoFreshness(t *testing.T) {
 	user := userWithPassword()
 	stale := time.Now().Add(-2 * time.Hour).Truncate(time.Second)

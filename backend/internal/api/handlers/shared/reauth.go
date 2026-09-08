@@ -18,9 +18,17 @@ import (
 // RecentSessionWindow is what "recently" means. A user who just signed in and
 // walked to Settings is inside it; a week-old cookie riding in a browser
 // someone else is sitting at is not.
+//
+// The window an account actually gets is this plus whatever future stamp the
+// claim reader still believes (maxAuthTimeSkew, internal/services/auth/jwt.go):
+// this value bounds the past, not the total.
 const RecentSessionWindow = 10 * time.Minute
 
 // ReauthFactor is what the caller must present before the operation is allowed.
+//
+// It is a LOG LABEL. Every non-satisfied value takes the same path, and the
+// passkey case is not resolved (see the KNOWN GAP below), so rendering one as
+// user-facing copy would tell a passkey-only account to check its email.
 type ReauthFactor string
 
 const (
@@ -104,12 +112,12 @@ func (e *ReauthRequiredError) Error() string { return e.Message }
 // this value as the response body rather than wrapping it in an ErrorModel.
 func (e *ReauthRequiredError) GetStatus() int { return http.StatusForbidden }
 
-// RequireRecentSessionAuth returns nil when the request may mint a credential,
-// and a *ReauthRequiredError when it may not.
+// RequireRecentSessionAuth returns nil when the request may add a credential to
+// the account, and a *ReauthRequiredError when it may not.
 //
 // It reads the principal and the authentication time from the request context,
-// so every mint asks the same question of the same facts. operation names the
-// mint in the refusal log.
+// so every gated operation asks the same question of the same facts. operation
+// names the one that was refused, in the log.
 func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 	user := middleware.GetUserFromContext(ctx)
 

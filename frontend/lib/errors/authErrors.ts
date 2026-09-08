@@ -182,13 +182,17 @@ export function isAuthError(error: unknown): error is AuthError {
 }
 
 /**
- * Copy for the re-authentication refusal, in one place because three surfaces
- * render it: the API-token dialog, the CLI-token card, and the calendar feed.
- * It names the remedy rather than the rule, and it is authored here rather than
- * taken from the response so the words are the frontend's own.
+ * Copy for the re-authentication refusal, in one place because every surface
+ * that adds a credential renders it: the API-token dialog, the CLI-token card,
+ * the passkey card, and both feed cards.
+ *
+ * It names the remedy rather than the rule, names no particular operation so
+ * that Regenerate and Add a passkey read as truly as Create token, and it is
+ * authored here rather than taken from the response so the words are the
+ * frontend's own.
  */
 export const REAUTH_REQUIRED_MESSAGE =
-  'For security, sign in again before creating a new token.'
+  'For security, sign in again before making this change.'
 
 /**
  * Does this failure mean the account is fine but the sign-in is too old?
@@ -197,17 +201,6 @@ export function isReauthRequired(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.REAUTH_REQUIRED
 }
 
-/**
- * Copy for a failed credential mint. The re-authentication refusal names its
- * own remedy; everything else falls back to the caller's copy for the thing it
- * was minting.
- *
- * One function rather than the same ternary at each mint surface, so a second
- * gated code is added in one place instead of found in four components.
- */
-export function mintErrorMessage(error: unknown, fallback: string): string {
-  return isReauthRequired(error) ? REAUTH_REQUIRED_MESSAGE : fallback
-}
 
 /**
  * Get a user-friendly message for an error code

@@ -6,7 +6,6 @@ import {
   isDefinitiveUnauthenticated,
   getAuthErrorMessage,
   isReauthRequired,
-  mintErrorMessage,
   REAUTH_REQUIRED_MESSAGE,
 } from './authErrors'
 
@@ -264,24 +263,6 @@ describe('isReauthRequired', () => {
       new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED)
         .shouldRedirectToLogin
     ).toBe(false)
-  })
-})
-
-describe('mintErrorMessage', () => {
-  it('answers the refusal with its own remedy', () => {
-    expect(
-      mintErrorMessage(
-        new AuthError('server copy', AuthErrorCode.REAUTH_REQUIRED, {
-          status: 403,
-        }),
-        'Failed to create token. Please try again.'
-      )
-    ).toBe(REAUTH_REQUIRED_MESSAGE)
-  })
-
-  it('leaves every other failure to the caller copy', () => {
-    expect(mintErrorMessage(new Error('boom'), 'fallback')).toBe('fallback')
-    expect(mintErrorMessage(null, 'fallback')).toBe('fallback')
   })
 })
 

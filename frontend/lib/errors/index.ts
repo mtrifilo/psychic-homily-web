@@ -4,7 +4,6 @@ export {
   isAuthError,
   isDefinitiveUnauthenticated,
   isReauthRequired,
-  mintErrorMessage,
   getAuthErrorMessage,
   REAUTH_REQUIRED_MESSAGE,
   type AuthErrorCodeType,

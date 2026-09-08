@@ -82,3 +82,38 @@ export function currentLocationReturnTo(pathname: string): string {
  * to the control that just refused them with nothing changed.
  */
 export const REAUTH_REASON_OAUTH_LINK = 'OAUTH_LINK_REAUTH_REQUIRED'
+
+/**
+ * The reason a credential mint refuses with. It is the backend error code
+ * verbatim (autherrors.CodeReauthRequired), so the API refusal and the link the
+ * surface offers name the same thing rather than two spellings of it.
+ *
+ * The auth page reads it exactly as it reads REAUTH_REASON_OAUTH_LINK: to
+ * suppress its authenticated-reader bounce, which would otherwise return the
+ * reader to the control that just refused them with nothing changed.
+ */
+export const REAUTH_REASON_CREDENTIAL_MINT = 'REAUTH_REQUIRED'
+
+/** Every reason that means "an already-signed-in reader must prove the account". */
+export const REAUTH_REASONS: readonly string[] = [
+  REAUTH_REASON_OAUTH_LINK,
+  REAUTH_REASON_CREDENTIAL_MINT,
+]
+
+export function isReauthReason(reason: string | null): boolean {
+  return reason !== null && REAUTH_REASONS.includes(reason)
+}
+
+/**
+ * The auth-page href for a reader who is signed in and has to prove it again.
+ *
+ * Carries the reason so the page shows them the form instead of bouncing them,
+ * and returnTo so completing a factor puts them back on the control that
+ * refused them. Built on buildAuthHref, so a destination that sanitizeReturnTo
+ * would discard is dropped the same way it is everywhere else.
+ */
+export function buildReauthHref(returnTo: string): string {
+  const base = buildAuthHref(returnTo)
+  const separator = base.includes('?') ? '&' : '?'
+  return `${base}${separator}reason=${REAUTH_REASON_CREDENTIAL_MINT}`
+}

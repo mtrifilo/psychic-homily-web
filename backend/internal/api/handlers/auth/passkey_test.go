@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -71,7 +72,7 @@ func TestBeginRegisterHandler_Success(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	input := &BeginRegisterRequest{}
 	input.Body.DisplayName = "My MacBook"
@@ -98,7 +99,7 @@ func TestBeginRegisterHandler_BeginRegistrationFails(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	resp, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
 	if err != nil {
@@ -122,7 +123,7 @@ func TestBeginRegisterHandler_StoreChallengeFailure(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	resp, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
 	if err != nil {
@@ -166,7 +167,7 @@ func TestFinishRegisterHandler_InvalidChallenge(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	input := &FinishRegisterRequest{}
 	input.Body.ChallengeID = "bad-challenge-id"
@@ -194,7 +195,7 @@ func TestFinishRegisterHandler_ChallengeBelongsToDifferentUser(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	input := &FinishRegisterRequest{}
 	input.Body.ChallengeID = "valid-challenge"
@@ -221,7 +222,7 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	input := &FinishRegisterRequest{}
 	input.Body.ChallengeID = "valid-challenge"
@@ -265,7 +266,7 @@ func TestFinishRegisterHandler_DefaultDisplayName(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	input := &FinishRegisterRequest{}
 	input.Body.ChallengeID = "valid-challenge"
@@ -1274,7 +1275,7 @@ func TestBeginRegisterHandler_PassesCorrectUserToService(t *testing.T) {
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 42})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 42}, time.Now())
 
 	_, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
 	if err != nil {

@@ -12,6 +12,7 @@ import {
   useWebAuthnSupport,
 } from '@/features/auth'
 import { isAuthError } from '@/lib/errors'
+import { MintErrorMessage } from '@/components/shared/MintErrorMessage'
 
 export function PasskeyManagement() {
   const supportsWebAuthn = useWebAuthnSupport()
@@ -26,7 +27,11 @@ export function PasskeyManagement() {
   // Action errors (delete failures + register-button callbacks) are surfaced
   // separately from the load error so a failed delete doesn't read as "failed
   // to load passkeys" and vice versa.
-  const [actionError, setActionError] = useState<string | null>(null)
+  //
+  // The error itself, not its message: registering a passkey is refused when
+  // the session has not authenticated recently, and only the error object
+  // carries the code that tells that refusal from an ordinary failure.
+  const [actionError, setActionError] = useState<unknown>(null)
 
   const credentials = credentialsQuery.data ?? []
   const isLoading = credentialsQuery.isLoading
@@ -38,7 +43,6 @@ export function PasskeyManagement() {
       ? credentialsQuery.error.message
       : 'Failed to load passkeys'
     : null
-  const error = actionError ?? loadError
 
   const handleDelete = (credentialId: number) => {
     if (!confirm('Are you sure you want to remove this passkey?')) {
@@ -48,9 +52,7 @@ export function PasskeyManagement() {
     setActionError(null)
     deletePasskey.mutate(credentialId, {
       onSuccess: () => setActionError(null),
-      onError: err => {
-        setActionError(err instanceof Error ? err.message : 'Failed to delete passkey')
-      },
+      onError: err => setActionError(err),
     })
   }
 
@@ -83,9 +85,22 @@ export function PasskeyManagement() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {error && (
+        {(actionError || loadError) && (
           <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>
+              {actionError ? (
+                <MintErrorMessage
+                  error={actionError}
+                  fallback={
+                    actionError instanceof Error
+                      ? actionError.message
+                      : 'Something went wrong. Please try again.'
+                  }
+                />
+              ) : (
+                loadError
+              )}
+            </AlertDescription>
           </Alert>
         )}
 

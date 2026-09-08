@@ -29,7 +29,7 @@ import {
   SignupIntentPanel,
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
-import { REAUTH_REASON_OAUTH_LINK } from '@/lib/auth-href'
+import { isReauthReason } from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -634,12 +634,13 @@ function AuthPageContent() {
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
 
-  // A re-authentication, not a sign-in. The backend sends an ALREADY
-  // authenticated user here when a security-relevant change needs the account
-  // proved again, so the redirect below has to be held back: bouncing them
-  // straight to returnTo would return them to the control that just refused
-  // them, with nothing changed and no way to tell why.
-  const isReauth = searchParams.get('reason') === REAUTH_REASON_OAUTH_LINK
+  // A re-authentication, not a sign-in. The reader arrives here already
+  // authenticated when a security-relevant change needs the account proved
+  // again: the OAuth link path redirects them, and a refused credential mint
+  // offers them the link. Either way the redirect below has to be held back,
+  // because bouncing them straight to returnTo would return them to the control
+  // that just refused them, with nothing changed and no way to tell why.
+  const isReauth = isReauthReason(searchParams.get('reason'))
 
   // Redirect if already authenticated.
   //

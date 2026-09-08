@@ -1,7 +1,7 @@
 'use client'
 
 import { AlertCircle } from 'lucide-react'
-import { mintErrorMessage } from '@/lib/errors'
+import { MintErrorMessage } from '@/components/shared/MintErrorMessage'
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 
 interface FeedMintErrorNoticeProps {
@@ -25,10 +25,10 @@ export function FeedMintErrorNotice({ error }: FeedMintErrorNoticeProps) {
     <InlineErrorBanner className="flex items-start gap-2 mt-3 p-2 text-xs">
       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
       <span>
-        {mintErrorMessage(
-          error,
-          'Could not update the feed. Please try again.'
-        )}
+        <MintErrorMessage
+          error={error}
+          fallback="Could not update the feed. Please try again."
+        />
       </span>
     </InlineErrorBanner>
   )

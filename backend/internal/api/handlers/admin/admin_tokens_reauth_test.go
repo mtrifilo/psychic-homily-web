@@ -56,9 +56,9 @@ func TestCreateAPITokenHandler_FreshSessionMints(t *testing.T) {
 }
 
 // A refreshed stale session presents the same authentication time it arrived
-// with, which is what shared.TestRequireRecentSessionAuth_RenewalBuysNoFreshness
-// runs the renewal to establish. A phk_ bearer presents none at all, so one
-// cannot mint its own successor.
+// with; TestRequireRecentSessionAuth_RenewalBuysNoFreshness in handlers/shared
+// runs the renewal against the JWT service to establish that. A phk_ bearer
+// presents none at all, so one cannot mint its own successor.
 func TestCreateAPITokenHandler_SessionsWithoutRecentAuthRefused(t *testing.T) {
 	for name, authAt := range map[string]time.Time{
 		"stale session, refreshed or not": time.Now().Add(-2 * time.Hour),

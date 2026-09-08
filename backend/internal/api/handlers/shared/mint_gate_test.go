@@ -13,10 +13,16 @@ import (
 
 // Issuing a credential to whoever presents a session is the operation
 // RequireRecentSessionAuth guards, and a handler that forgets to call it is not
-// a compile error. This test is the enforcement: it parses every non-test .go
+// a compile error. This test is what catches that: it parses every non-test .go
 // file under the handler tree, finds every function that names a
 // credential-issuing service method, and fails when that function does not also
 // name RequireRecentSessionAuth.
+//
+// What it checks is that the NAME appears in the same function. It does not
+// check that the gate is called, that its error is returned, or that it runs
+// before the issuance, so a site that reached for it and dropped the result
+// passes. Read as a spelling check on a list of names, not as proof that the
+// gate runs.
 //
 // The sibling walk in internal/services/auth/session_mint_allowlist_test.go
 // asks a different question about the same method names: whether a mint claims
@@ -30,30 +36,43 @@ import (
 //   - anything else issues on the strength of a credential the caller already
 //     holds: call shared.RequireRecentSessionAuth first
 //
-// What it does NOT do is follow calls. It sees the function that names the
-// method, not every path that reaches it, so a new caller of an already-listed
-// helper is on the author.
+// It also does not follow calls: it sees the function that names the method,
+// not every path that reaches it, so a new caller of an already-listed helper
+// is on the author.
 var mintGateExemptions = map[string]string{
-	"auth/auth.go:AuthHandler.LoginHandler":                  "password verified in this request",
-	"auth/auth.go:AuthHandler.RegisterHandler":               "registration sets the password",
-	"auth/auth.go:AuthHandler.VerifyMagicLinkHandler":        "emailed magic link",
-	"auth/auth.go:AuthHandler.RecoverAccountHandler":         "email plus password",
-	"auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler": "emailed recovery token",
-	"auth/auth.go:AuthHandler.ChangePasswordHandler":         "current password verified in this request",
-	"auth/passkey.go:PasskeyHandler.FinishLoginHandler":      "webauthn assertion",
-	"auth/passkey.go:PasskeyHandler.FinishSignupHandler":     "webauthn registration at signup",
+	"auth/auth.go:AuthHandler.LoginHandler":                    "password verified in this request",
+	"auth/auth.go:AuthHandler.RegisterHandler":                 "registration sets the password",
+	"auth/auth.go:AuthHandler.VerifyMagicLinkHandler":          "emailed magic link",
+	"auth/auth.go:AuthHandler.RecoverAccountHandler":           "email plus password",
+	"auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler":   "emailed recovery token",
+	"auth/auth.go:AuthHandler.ChangePasswordHandler":           "current password verified in this request",
+	"auth/passkey.go:PasskeyHandler.FinishLoginHandler":        "webauthn assertion",
+	"auth/passkey.go:PasskeyHandler.FinishSignupHandler":       "webauthn registration at signup",
+	"auth/apple_auth.go:AppleAuthHandler.AppleCallbackHandler": "apple identity token, verified in this request",
 }
 
-// credentialIssuingMethods are the service methods that hand a caller a new
-// credential. Matched by name alone, with no guess about the receiver, so a
-// mention the walk cannot classify is reported rather than skipped.
+// credentialIssuingMethods are the service methods a handler names when it
+// hands a caller something that can act as the account afterwards: a session
+// token, a bearer token, a feed token, a passkey. Matched by name alone, with
+// no guess about the receiver, so a mention the walk cannot classify is
+// reported rather than skipped.
+//
+// This is a HAND-MAINTAINED list of names, which is the check's real limit. A
+// service that spells its issuance "Issue", "Mint" or "Rotate" is outside the
+// walk until someone adds it here, and renaming an existing one out of the list
+// makes its site silently disappear rather than fail. The list is the thing to
+// review when a new credential type lands.
+//
 // AuthService.RefreshUserToken is deliberately absent: POST /auth/refresh
 // carries the presented session's authentication time forward unchanged, so it
 // hands back a token that grants exactly what the one it replaced granted. The
 // sibling walk in services/auth is what holds that property.
 var credentialIssuingMethods = map[string]bool{
-	"CreateToken":       true,
-	"RenewSessionToken": true,
+	"CreateToken":                       true,
+	"RenewSessionToken":                 true,
+	"GenerateToken":                     true,
+	"FinishRegistration":                true,
+	"FinishSignupRegistrationWithLegal": true,
 }
 
 const gateFunc = "RequireRecentSessionAuth"

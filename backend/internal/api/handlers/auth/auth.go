@@ -1334,9 +1334,14 @@ type ChangePasswordRequest struct {
 
 // ChangePasswordResponse represents a password change response
 type ChangePasswordResponse struct {
-	// Set on success only. The caller just proved the account's password, so
-	// the session it goes on with carries a fresh authentication time; see the
-	// re-stamp in ChangePasswordHandler.
+	// Carries a token on success only. The caller just proved the account's
+	// password, so the session it goes on with carries a fresh authentication
+	// time; see the re-stamp in ChangePasswordHandler.
+	//
+	// Every other path leaves it zero, which huma writes as an empty Set-Cookie
+	// header. RFC 6265 section 5.2 discards a set-cookie-string with no "=", so
+	// it clears nothing; LoginHandler's failure paths have emitted the same
+	// header for as long as they have existed.
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
 		Success   bool   `json:"success" example:"true" doc:"Success status"`
@@ -1480,6 +1485,15 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 	// changed, so reporting failure would misdescribe what happened. The
 	// caller keeps its existing session and is asked to sign in again the next
 	// time a gate wants a recent factor, which refuses rather than grants.
+	//
+	// 24 hours matches the token's own expiry and every other cookie this
+	// package sets. The OAuth callback sets a seven-day cookie instead, so an
+	// account holding both a password and a provider identity, signed in
+	// through the provider, has its cookie shortened by changing its password.
+	// The token inside that cookie expires in 24 hours either way; what the
+	// longer cookie buys is the seven-day lenient refresh window, and this
+	// trades it for one consistent lifetime rather than guessing which sign-in
+	// the caller used.
 	if token, err := h.jwtService.CreateToken(contextUser); err != nil {
 		logger.AuthError(ctx, "change_password_restamp_failed", err,
 			"user_id", contextUser.ID,
@@ -2238,8 +2252,9 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 	// Generate a fresh JWT token for CLI use, expiring after the configured
 	// session lifetime. This mints a session from a credential the caller
 	// already holds rather than from a factor, so it carries that credential's
-	// authentication time forward. An API-token caller reaches here with none,
-	// and the token it gets carries none.
+	// authentication time forward. The gate above means that time is present
+	// and recent, so the CLI token ages out of the re-authentication window
+	// when the session that asked for it would have.
 	//
 	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
 	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides

@@ -213,15 +213,21 @@ describe('APITokenManagement', () => {
     mockCreateMutationState = {
       isPending: false,
       isError: true,
-      error: new AuthError(
-        'For security, sign in again before creating a new token.',
-        AuthErrorCode.REAUTH_REQUIRED,
-        { status: 403 }
-      ),
+      // A server message deliberately unlike the copy under test: the surface
+      // must render words it owns, not the sentence the response carried.
+      error: new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, {
+        status: 403,
+      }),
     }
     renderWithProviders(<APITokenManagement />)
 
-    expect(screen.getByText(REAUTH_REQUIRED_MESSAGE)).toBeInTheDocument()
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain(REAUTH_REQUIRED_MESSAGE)
+    expect(alert.textContent).not.toContain('refused')
+    // The remedy the copy names has to be reachable from where it is named.
+    expect(
+      screen.getByRole('link', { name: 'Sign in again' })
+    ).toHaveAttribute('href', expect.stringContaining('reason=REAUTH_REQUIRED'))
   })
 
   // The dialog covers the card, so the same alert rendered in both would be two

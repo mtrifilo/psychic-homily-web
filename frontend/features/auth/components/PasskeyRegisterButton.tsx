@@ -17,13 +17,37 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
 interface PasskeyRegisterButtonProps {
   onSuccess?: () => void
-  onError?: (error: string) => void
+  /**
+   * The failure itself, not its sentence: registration is gated on a recent
+   * sign-in, and the caller can only offer the remedy for that refusal if it
+   * can read the error code off the error.
+   */
+  onError?: (error: unknown) => void
   className?: string
+}
+
+/**
+ * Both registration steps answer a failure with success:false plus a message
+ * and, for typed refusals, an error_code. The re-authentication refusal is the
+ * one a caller has to tell apart, so this carries the code through instead of
+ * flattening the response to its sentence.
+ */
+function registrationError(
+  body: { message?: string; error_code?: string },
+  fallback: string
+): Error {
+  const message = body.message || fallback
+  if (!body.error_code) return new Error(message)
+  return new AuthError(
+    message,
+    (body.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN
+  )
 }
 
 export function PasskeyRegisterButton({ onSuccess, onError, className }: PasskeyRegisterButtonProps) {
@@ -35,7 +59,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
 
   const handleRegister = async () => {
     if (!supportsWebAuthn) {
-      onError?.('Your browser does not support passkeys')
+      onError?.(new Error('Your browser does not support passkeys'))
       return
     }
 
@@ -53,7 +77,10 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
       const beginData = await beginResponse.json()
 
       if (!beginData.success) {
-        throw new Error(beginData.message || 'Failed to start passkey registration')
+        throw registrationError(
+          beginData,
+          'Failed to start passkey registration'
+        )
       }
 
       // Step 2: Perform WebAuthn registration
@@ -76,7 +103,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
       const finishData = await finishResponse.json()
 
       if (!finishData.success) {
-        throw new Error(finishData.message || 'Failed to register passkey')
+        throw registrationError(finishData, 'Failed to register passkey')
       }
 
       // Success
@@ -93,13 +120,13 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'registration_failed' },
         })
-        onError?.(error.message)
+        onError?.(error)
       } else {
         Sentry.captureException(error, {
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'registration_failed' },
         })
-        onError?.('An unexpected error occurred')
+        onError?.(new Error('An unexpected error occurred'))
       }
     } finally {
       setIsLoading(false)
