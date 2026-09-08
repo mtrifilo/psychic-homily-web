@@ -602,14 +602,17 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 // showless venue's row contributes nothing to it. shows.updated_at is NOT NULL
 // and the grouping's show floor keeps at least one show row per surviving
 // group, so the aggregate is non-null on every row scanned here.
+//
+// No extra joins: the sitemap projects no venue-local bound, so it pays for no
+// zone lateral.
 func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneVenueGroup, error) {
 	var groups []sceneVenueGroup
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT `+sceneGroupIdentitySQL+`,
-		       COUNT(DISTINCT v.id) AS venue_count,
-		       COUNT(DISTINCT s.id) AS show_count,
-		       MAX(s.updated_at)    AS updated_at`+
-		sceneQualifyingGroupingSQL,
+		       COUNT(DISTINCT v.id)     AS venue_count,
+		       COUNT(DISTINCT shows.id) AS show_count,
+		       MAX(shows.updated_at)    AS updated_at`+
+		sceneQualifyingGroupingSQL(""),
 		catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, err

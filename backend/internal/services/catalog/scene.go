@@ -69,14 +69,20 @@ const (
 	// RosterTruncated surface the full roster size.
 	sceneGraphRosterLimit = 75
 
-	// sceneThisWeekDays is the rolling next-7-days window (PSY-1309): the
-	// ≤7-day slice of a scene's upcoming shows that drives the Atlas globe's
-	// pulse treatment and the preview panel's "Next 7 days" row.
+	// sceneThisWeekDays is the seven-day length of the "next 7 days" window
+	// (PSY-1309): the slice of a scene's upcoming shows that drives the Atlas
+	// globe's pulse treatment and the preview panel's "Next 7 days" row.
 	//
-	// The NAME says "this week" and the UI says "next 7 days" (PSY-1732). The
-	// UI half is the correct one: this window rolls from now, so it is not the
-	// week /scenes/{slug}/week serves. Nothing outside this package reads the
-	// name, so it is renameable if it ever misleads someone.
+	// A LENGTH, not a window. Each consumer supplies its own anchor, and they
+	// differ: the scenes directory counts seven venue-local NIGHTS from the night
+	// in progress (shared.VenueLocalNightWindowCondition), so its edges move once
+	// a night rather than with every request; venue_rail.go and the charts
+	// summary anchor their own seven days at their own instants.
+	//
+	// The NAME says "this week" and the UI says "next 7 days" (PSY-1732). The UI
+	// half is the correct one: no consumer's window is the Monday-to-Sunday week
+	// /scenes/{slug}/week serves. Nothing outside this package reads the name, so
+	// it is renameable if it ever misleads someone.
 	sceneThisWeekDays = 7
 
 	// sceneRosterActiveOrderBy is the canonical active-first roster ordering,
@@ -166,20 +172,34 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 // the venue and show minima. A caller's own select-list placeholders bind ahead
 // of them.
 //
+// The shows table is UNALIASED, and call sites project from `shows` rather than
+// from a short alias of their own, because shared.VenueTZJoin's lateral
+// correlates on `shows.id`. extraJoins is spliced between that join and the
+// WHERE so a caller wanting venue-local bounds passes it there; it is
+// interpolated, never bound, so it must be a compile-time literal.
+//
+// The show_venues alias is scene_sv, not sv: shared.VenueTZJoin opens its own
+// `show_venues sv` inside the lateral, and an inner alias repeating an outer one
+// shadows it for every reference in that subquery. Distinct names mean a reader
+// of either fragment is looking at the row set it names.
+//
 // Shared by ListScenes below and sitemap.go's listQualifyingScenes, which
 // publish one scene set between them. A call site spelling this body out again
 // can move its own half of that set without moving the other, and the rows
 // still scan either way. The charts summary's activeSceneCount deliberately
 // does NOT use it: that surface is window-bounded with no floor at all.
-const sceneQualifyingGroupingSQL = `
+func sceneQualifyingGroupingSQL(extraJoins string) string {
+	return `
 		FROM venues v
-		LEFT JOIN show_venues sv ON sv.venue_id = v.id
-		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
+		LEFT JOIN show_venues scene_sv ON scene_sv.venue_id = v.id
+		LEFT JOIN shows ON shows.id = scene_sv.show_id AND shows.status = ?
+		` + extraJoins + `
 		WHERE true
 		  ` + sceneVenueEligibilitySQL + `
 		GROUP BY ` + sceneGroupKeySQL + `
 		HAVING COUNT(DISTINCT v.id) >= ?
-		   AND COUNT(DISTINCT s.id) >= ?`
+		   AND COUNT(DISTINCT shows.id) >= ?`
+}
 
 // sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
 // (empty for a fallback group), its literal city/state, the counts ListScenes
@@ -785,20 +805,32 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// metro group displays its principal city instead, so its MIN city goes
 	// unread unless that CBSA no longer resolves in the embedded dataset, which
 	// is metroDisplayIdentity's fallback.
-	// this_week_count is the ≤sceneThisWeekDays slice of the upcoming set
-	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it
-	// must share the scene scoping of the other counts — one more FILTER
-	// aggregate in the same pass, not a new query.
-	weekAhead := now.AddDate(0, 0, sceneThisWeekDays)
+	//
+	// Both count filters are bounded at the NIGHT in progress in each show's own
+	// venue zone, the boundary GetSceneDetail's headline figure takes. A card in
+	// this directory links to that page, so a reader holds the two numbers against
+	// each other; bounded at the request instant this one reports fewer shows to
+	// come than the page it opens, by exactly what is on that night.
+	//
+	// this_week_count is the sceneThisWeekDays-night slice of that same set
+	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it must share
+	// the scene scoping of the other counts — one more FILTER aggregate in the
+	// same pass, not a new query. Sharing the night-start anchor is what makes it
+	// a subset of upcoming_count rather than a number that can exceed it.
+	//
+	// The shows table is UNALIASED and shared.VenueTZJoin rides in through the
+	// grouping fragment, whose doc says why. The lateral resolves one zone per
+	// scanned row and yields nothing for a verified room with no approved show,
+	// whose NULL event_date fails both filters anyway.
 	var groups []sceneVenueGroup
 	err := s.db.Raw(`
 		SELECT `+sceneGroupIdentitySQL+`,
 		       COUNT(DISTINCT v.id) AS venue_count,
-		       COUNT(DISTINCT s.id) AS show_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count,
-		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ? AND s.event_date < ?) AS this_week_count`+
-		sceneQualifyingGroupingSQL,
-		now, now, weekAhead, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
+		       COUNT(DISTINCT shows.id) AS show_count,
+		       COUNT(DISTINCT shows.id) FILTER (WHERE `+shared.VenueLocalNightDateCondition+`) AS upcoming_count,
+		       COUNT(DISTINCT shows.id) FILTER (WHERE `+shared.VenueLocalNightWindowCondition(sceneThisWeekDays)+`) AS this_week_count`+
+		sceneQualifyingGroupingSQL(shared.VenueTZJoin),
+		catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}

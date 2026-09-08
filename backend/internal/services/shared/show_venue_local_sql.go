@@ -38,12 +38,16 @@ import (
 //     GetSceneDetail) and its rooms leaderboard (catalog/scene_venues.go), on
 //     the NIGHT bound (VenueLocalNightDateCondition), which is the rule the
 //     tonight bucket those two sit beside is drawn on.
+//   - the scenes DIRECTORY's upcoming_count (catalog/scene.go ListScenes), on
+//     that same NIGHT bound, because a card links to the page printing the
+//     headline above and the two numbers are read against each other. Its
+//     this_week_count slices the same night set through
+//     VenueLocalNightWindowCondition, so the pair is nested at every hour.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
 // several of them draw their own boundary: the /venues list's
-// upcoming_show_count (catalog/venue.go), the scenes DIRECTORY's upcoming_count
-// and this_week_count (catalog/scene.go ListScenes), catalog/venue_rail.go,
+// upcoming_show_count (catalog/venue.go), catalog/venue_rail.go,
 // graph_overview.go, charts_rank.go and sitemap.go. Do not read a surface's
 // absence here as a claim that it already agrees with this file.
 //
@@ -495,6 +499,32 @@ var nightUpcomingCoarseBound = `shows.event_date >= now() - interval '` +
 // Postgres per row against that row's own venue zone.
 var VenueLocalNightDateCondition = nightUpcomingCoarseBound + " AND " +
 	VenueLocalDateSQL + " >= " + venueLocalNightStartDateSQL
+
+// VenueLocalNightWindowCondition returns the WHERE fragment selecting the shows
+// on the night in progress and the nights-1 nights that follow it, each row
+// judged on its own venue's clock.
+//
+// Both edges are drawn from the SAME night-start date, so the set is a subset of
+// VenueLocalNightDateCondition's by construction rather than by argument. A
+// surface printing this beside that one cannot lead with a window count larger
+// than the total it slices, whatever hour it is read at.
+//
+// It is a window of whole venue-local NIGHTS, not a rolling span from the
+// request instant: the upper edge lands at the same hour of the day as the lower
+// one whenever the page is loaded, so two readers minutes apart see the same
+// number. Between midnight and NightStartHour the first night in it is the
+// previous calendar date, exactly as in the condition it extends.
+//
+// `date + integer` is date arithmetic in Postgres, so the upper edge is a date
+// and the comparison stays date-to-date. nights renders through strconv.Itoa
+// from a caller-side constant; nothing here interpolates request input. Zero or
+// fewer nights selects nothing.
+//
+// Carries no bind parameters, like the conditions above it.
+func VenueLocalNightWindowCondition(nights int) string {
+	return VenueLocalNightDateCondition + " AND " + VenueLocalDateSQL + " < (" +
+		venueLocalNightStartDateSQL + " + " + strconv.Itoa(nights) + ")"
+}
 
 // yearCoarseMargin widens the sargable UTC bounds below far enough that no
 // venue-local instant of the requested year can fall outside them. The inhabited

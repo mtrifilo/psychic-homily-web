@@ -471,6 +471,94 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeek() {
 	suite.Equal(5, scenes[0].UpcomingShowCount, "next-7-days shows are also upcoming")
 }
 
+// A set that has already STARTED is still to come on the directory card, the
+// same way it is on the page that card opens: both are bounded at the night in
+// progress. Bounded at the request instant, this card dropped every show under
+// way while the page it links to still counted them.
+//
+// The excluded fixture is the night BEFORE the one in progress, not
+// "yesterday": before NightStartHour those are different dates, and holding the
+// earlier one is the whole point of the bound.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHoldsShowsAlreadyUnderWay() {
+	user := suite.createUser()
+	room := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
+	dark := suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
+	band := suite.createArtist("Tonight Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Doors Already Open", room.ID, band.ID, user.ID, time.Now().Add(-time.Hour))
+	suite.createApprovedShow("Next Month", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(30), loc))
+	suite.createApprovedShow("Last Night", dark.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(-1), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	suite.Equal(3, scenes[0].TotalShowCount, "the lifetime count keeps the previous night")
+	suite.Equal(2, scenes[0].UpcomingShowCount, "the set under way, plus the booking next month")
+	suite.Equal(1, scenes[0].ShowsThisWeek, "the set under way; next month is outside the seven nights")
+	suite.LessOrEqual(scenes[0].ShowsThisWeek, scenes[0].UpcomingShowCount,
+		"the seven-night slice cannot exceed the set it slices")
+}
+
+// The number on the card IS the number on the page it opens. Asserting the two
+// services against each other is what ties them: a fixed expected value on each
+// side would let both drift together.
+//
+// A date-only listing for tonight is one of the seeded rows. It is stored at
+// 20:00 on the venue's clock, so it sits behind the request instant for the
+// whole late evening while still being the thing a reader is on their way to.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountMatchesSceneDetailHeadline() {
+	user := suite.createUser()
+	room := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
+	dark := suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
+	band := suite.createArtist("Tonight Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Doors Already Open", room.ID, band.ID, user.ID, time.Now().Add(-time.Hour))
+	suite.createApprovedShow("Date Only Tonight", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	suite.createApprovedShow("Next Month", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(30), loc))
+	suite.createApprovedShow("Last Night", dark.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(-1), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Require().Equal("phoenix-az", scenes[0].Slug, "the card links to the page asserted against below")
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(detail.Stats.UpcomingShowCount, scenes[0].UpcomingShowCount,
+		"the card and the page it opens count the same night")
+	suite.Equal(3, scenes[0].UpcomingShowCount, "tonight's two, plus the one next month")
+	suite.LessOrEqual(scenes[0].ShowsThisWeek, scenes[0].UpcomingShowCount)
+}
+
+// The seven days are seven venue-local NIGHTS counted from the night in
+// progress, so both edges move once a night rather than with every request and
+// two readers minutes apart see one number. The night in progress and the six
+// after it are in; the seventh after it is the first one out.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeekSpansSevenNightsFromTonight() {
+	user := suite.createUser()
+	room := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	other := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	band := suite.createArtist("Week Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Tonight", room.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	suite.createApprovedShow("Last Night In Window", other.ID, band.ID, user.ID,
+		dateOnlyShowInstant(tonight.addDays(sceneThisWeekDays-1), loc))
+	suite.createApprovedShow("First Night Out", room.ID, band.ID, user.ID,
+		dateOnlyShowInstant(tonight.addDays(sceneThisWeekDays), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	suite.Equal(3, scenes[0].UpcomingShowCount, "all three nights are still to come")
+	suite.Equal(2, scenes[0].ShowsThisWeek, "the night in progress and the sixth after it")
+}
+
 // The invariant PSY-1623 exists for: a count shown NEXT TO a link to
 // /scenes/{slug}/week must be that page's own total. Asserting the two service
 // calls against each other is what keeps them tied — a fixed expected number
