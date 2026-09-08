@@ -3,7 +3,9 @@
  * period fetch, and nothing else.
  */
 import { API_BASE_URL } from '@/lib/api-base'
-import { fetchScenePeriod } from './scenePeriodApi'
+import { looksLikeSlug } from '@/lib/entity-slug'
+import { anyName, fetchScenePeriod } from './scenePeriodApi'
+import { isCalendarDate, isISOWeek } from './sceneWeek'
 import type { SceneDayResponse } from './sceneDay'
 
 function daySpec(slug: string) {
@@ -19,12 +21,28 @@ function daySpec(slug: string) {
       date
         ? `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/day/${encodeURIComponent(date)}`
         : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/day`,
-    // Fields a consumer reads WITHOUT a null guard, split by what a blank one
-    // would mean. `date` goes straight into `parseCalendarDate`, which splits
-    // the string, and into the day permalink; `slug` and `iso_week` build the
-    // canonical and the share-image URL; `city` is printed. None of them has a
-    // blank form this surface can serve.
-    identityFields: ['date', 'city', 'slug', 'iso_week'] as const,
+    // Fields a consumer reads WITHOUT a null guard, each with the shape it has
+    // to have. `date` goes straight into `parseCalendarDate`, which splits the
+    // string and answers with a year-1900 Date for anything else, and into the
+    // day permalink; `slug` and `iso_week` are interpolated RAW into the
+    // canonical and the share-image URL, so each has to be one path segment
+    // already; `city` is printed, and any name it carries is its own.
+    //
+    // Both period fields take the UNBOUNDED rule, never the route's own. The
+    // week route's bounds do not describe a day's week key at all: a Monday,
+    // Tuesday or Wednesday 31 December opens week 01 of the following year, so
+    // the last day this route serves names a week the week route refuses, and
+    // bounding here would 404 the day rather than drop the link. `date` is
+    // unbounded for a different reason: the day route already applies the bound
+    // to the SEGMENT it serves, and this module is reached from the
+    // edge-runtime share card, where importing the bounded rule from `sceneDay`
+    // pulls the formatting stack in behind it.
+    identityFields: [
+      ['date', isCalendarDate],
+      ['city', anyName],
+      ['slug', looksLikeSlug],
+      ['iso_week', isISOWeek],
+    ] as const,
     // `prev_date` and `next_date` name the adjacent days, and they are EMPTY at
     // the edges of the servable window: there, emptiness IS the answer "no
     // neighbour in this direction", so it must not fail the payload. Absence is

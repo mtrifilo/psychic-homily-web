@@ -48,16 +48,30 @@ interface ScenePeriodSpec<T> {
   /** The API URL for this period key, or for the CURRENT period when omitted. */
   buildUrl: (key: string | undefined) => string
   /**
-   * Fields that NAME the period. Each must be a string that names something:
-   * present, not empty, and carrying no leading or trailing space. A blank one
-   * is worse than an absent one, because it survives every truthiness check
-   * downstream and collapses `/scenes/x/y` shapes into `/scenes//`, which names
-   * a different page; an untrimmed one names a different page outright.
+   * Fields that NAME the period, each paired with the shape its value must
+   * have.
    *
-   * This is a check on emptiness, not on format. A value that names SOMETHING
-   * passes here even when it names the wrong thing.
+   * Every value must first carry text: present, and not empty or all space. A
+   * blank one is worse than an absent one, because it survives every truthiness
+   * check downstream and collapses `/scenes/x/y` shapes into `/scenes//`, which
+   * names a different page.
+   *
+   * The paired predicate then says what KIND of name it has to be, because
+   * carrying text is not the same as naming something of the right kind:
+   * `date: "tonight"` and `slug: "../.."` both carry text and both reach a URL
+   * interpolation that has no second chance to check them. Refusing an
+   * untrimmed value is part of that job, not of the base check: every addressed
+   * field's shape is anchored, and a printed field has no stake in it.
+   *
+   * Shape is still not existence. `2026-02-30` and `2025-W53` pass every
+   * predicate here and are not real periods; only the backend, which owns the
+   * calendar maths and the scene's timezone, can say so.
+   *
+   * Pairs rather than a record so a misspelled or misplaced field is a compile
+   * error at the `fetchScenePeriod<T>` call rather than a silently disabled
+   * check.
    */
-  identityFields: readonly (keyof T & string)[]
+  identityFields: readonly (readonly [keyof T & string, (value: string) => boolean])[]
   /**
    * Fields whose EMPTY value is itself an answer. `''` passes; anything else
    * must name something, on the same terms as an identity field. A body that
@@ -72,12 +86,42 @@ interface ScenePeriodSpec<T> {
 /**
  * Does this wire value name something?
  *
- * Trimmed rather than merely non-empty, because these values are interpolated
- * into URLs: `" phoenix-az"` and `"phoenix-az"` are different addresses, and
- * only one of them is a page.
+ * Trimmed rather than merely non-empty, because a presence field's value is
+ * interpolated into a URL with no further check: `" 2026-08-01"` and
+ * `"2026-08-01"` are different addresses, and only one of them is a page.
  */
 function namesSomething(value: unknown): value is string {
   return typeof value === 'string' && value !== '' && value === value.trim()
+}
+
+/**
+ * Is there a value here at all?
+ *
+ * The base an identity field has to clear before its own shape rule runs, and
+ * deliberately weaker than `namesSomething`: whether surrounding space is fatal
+ * is a question about what the field is FOR, so it belongs to the shape rule,
+ * which is the only thing that knows. Every addressed field's shape is an
+ * anchored pattern and refuses an untrimmed value on its own; a PRINTED field
+ * has no such stake, and `venues.city` is documented as carrying untrimmed
+ * values (`catalog/charts_service.go`, on `buildSceneSlug`), so requiring a
+ * trimmed one there would take a real scene's page down over a display string.
+ *
+ * Exported so a surface reading a different scene payload asks the same
+ * question in the same words.
+ */
+export function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+/**
+ * The shape rule for an identity field that is PRINTED, never addressed.
+ *
+ * Naming something is the whole requirement for such a field, and stating that
+ * as its own predicate is what keeps every entry in `identityFields` an
+ * explicit answer to "what kind of name is this".
+ */
+export function anyName(): boolean {
+  return true
 }
 
 /**
@@ -99,7 +143,10 @@ function asPayload<T>(
   // The two lists differ over one value: `''` is an answer for a presence field
   // and no answer at all for an identity field.
   const rejected =
-    spec.identityFields.find(field => !namesSomething(record[field])) ??
+    spec.identityFields.find(([field, hasShape]) => {
+      const value = record[field]
+      return !hasText(value) || !hasShape(value)
+    })?.[0] ??
     spec.presenceFields.find(
       field => record[field] !== '' && !namesSomething(record[field])
     )
