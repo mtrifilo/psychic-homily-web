@@ -257,11 +257,44 @@ describe('SceneDetailView', () => {
       expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
     })
 
-    // The window opens at NOW, so any tonight count taken from it undercounts
-    // once doors open, and names YESTERDAY between midnight and 6am. Both
-    // spellings contradicted /scenes/{slug}/tonight one click away.
-    it('carries no tonight count', () => {
+    // The clause the reader is scanning for, so it leads.
+    it('leads with the tonight count', () => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount: 4 })
+      expect(
+        screen.getByText(
+          '4 tonight · 45 upcoming shows · 12 rooms tracked · all times MST'
+        )
+      ).toBeInTheDocument()
+    })
+
+    // "tonight" is the noun the number counts against, so one reads the same
+    // as nine and there is no plural to get wrong.
+    it('does not pluralize a single show tonight', () => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount: 1 })
+      expect(
+        screen.getByText(
+          '1 tonight · 45 upcoming shows · 12 rooms tracked · all times MST'
+        )
+      ).toBeInTheDocument()
+    })
+
+    // A zero here would be a claim about the city, not about this page's
+    // calendar. The band says nothing rather than "nothing tonight".
+    it('omits the clause on a quiet night', () => {
+      renderScene({ slug: 'phoenix-az', tonightShowCount: 0 })
+      expect(
+        screen.getByText('45 upcoming shows · 12 rooms tracked · all times MST')
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
+    })
+
+    // A slice that did not load has no count. That is a different answer from
+    // zero, and neither is drawn.
+    it('omits the clause when the count is absent', () => {
       renderScene({ slug: 'phoenix-az' })
+      expect(
+        screen.getByText('45 upcoming shows · 12 rooms tracked · all times MST')
+      ).toBeInTheDocument()
       expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
     })
   })

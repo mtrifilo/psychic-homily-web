@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest'
-import { buildSceneSlice, sceneSliceIsQuiet } from './sceneSlice'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import {
+  buildSceneSlice,
+  sceneSliceIsQuiet,
+  sceneSliceTonightCount,
+} from './sceneSlice'
 import { countWindowShows } from './sceneWindow'
 import type { SceneDayResponse } from './sceneDay'
 import type { SceneShowSummary } from './types'
@@ -149,5 +153,81 @@ describe('sceneSliceIsQuiet', () => {
       buildDay({ date: '2026-08-18', is_tonight: false, shows: [buildShow()] })
     )
     expect(sceneSliceIsQuiet(slice!)).toBe(false)
+  })
+})
+
+describe('sceneSliceTonightCount', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('counts the rows on the night the payload marks tonight', () => {
+    const slice = buildSceneSlice(
+      buildDay({
+        shows: [buildShow({ id: 1 }), buildShow({ id: 2 }), buildShow({ id: 3 })],
+      }),
+      buildDay({
+        date: '2026-08-18',
+        is_tonight: false,
+        shows: [buildShow({ id: 4 })],
+      })
+    )
+    expect(sceneSliceTonightCount(slice!)).toBe(3)
+  })
+
+  it('counts one', () => {
+    const slice = buildSceneSlice(buildDay({ shows: [buildShow()] }), null)
+    expect(sceneSliceTonightCount(slice!)).toBe(1)
+  })
+
+  it('is zero on a quiet night even when the next day has shows', () => {
+    const slice = buildSceneSlice(
+      buildDay({ shows: [] }),
+      buildDay({ date: '2026-08-18', is_tonight: false, shows: [buildShow()] })
+    )
+    expect(sceneSliceTonightCount(slice!)).toBe(0)
+  })
+
+  it('treats a null shows array as no shows', () => {
+    const slice = buildSceneSlice(buildDay({ shows: null }), null)
+    expect(sceneSliceTonightCount(slice!)).toBe(0)
+  })
+
+  // The night boundary is the scene's 6am, resolved by the backend. At 02:00 in
+  // Chicago the night a reader is standing in is still the PREVIOUS calendar
+  // date, so a count taken from a clock on this side would name the wrong
+  // bucket and report the next day's rows. The flag decides, and no clock here
+  // is read at all.
+  it('counts the previous calendar date between midnight and 6am', () => {
+    vi.useFakeTimers()
+    // 02:00 America/Chicago on 2026-08-18 (CDT, UTC-5).
+    vi.setSystemTime(new Date('2026-08-18T07:00:00Z'))
+
+    const slice = buildSceneSlice(
+      buildDay({
+        date: '2026-08-17',
+        is_tonight: true,
+        shows: [buildShow({ id: 1 }), buildShow({ id: 2 })],
+      }),
+      buildDay({
+        date: '2026-08-18',
+        is_tonight: false,
+        shows: [buildShow({ id: 3 }), buildShow({ id: 4 }), buildShow({ id: 5 })],
+      })
+    )
+
+    expect(slice?.days[0].date).toBe('2026-08-17')
+    expect(sceneSliceTonightCount(slice!)).toBe(2)
+  })
+
+  // A slice that cannot name its own live night has no honest count, and zero
+  // is the value the band omits rather than printing a number nobody checked.
+  it('is zero when no day carries the flag', () => {
+    expect(
+      sceneSliceTonightCount({
+        timezone: 'America/Chicago',
+        days: [buildDay({ is_tonight: false, shows: [buildShow()] })],
+      })
+    ).toBe(0)
   })
 })

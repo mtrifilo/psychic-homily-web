@@ -36,7 +36,7 @@
  * CLIENT fetch, so the reader pays less either way.
  */
 
-import { looksLikeCalendarDate, type SceneDayResponse } from './sceneDay'
+import { dayShows, looksLikeCalendarDate, type SceneDayResponse } from './sceneDay'
 import { countWindowShows } from './sceneWindow'
 
 /**
@@ -129,4 +129,26 @@ export function buildSceneSlice(
  */
 export function sceneSliceIsQuiet(slice: SceneSliceData): boolean {
   return countWindowShows(slice.days) === 0
+}
+
+/**
+ * How many shows the slice lists for TONIGHT.
+ *
+ * Read off the day the BACKEND marked `is_tonight`, which is the same field the
+ * calendar heads TONIGHT and the same field `/scenes/{slug}/tonight` renders
+ * against. So the count and the night it names come from one answer, and the
+ * scene's 6am boundary is never re-derived on this side. Between midnight and
+ * 06:00 that day is YESTERDAY's calendar date, which is the night a reader
+ * standing in the scene is still in.
+ *
+ * Counts the ROWS, for the reason `dayShows` gives: the rows are what the page
+ * renders, so a count taken from them cannot state a number the reader has no
+ * way to see.
+ *
+ * Zero when no day carries the flag. A slice that cannot name its own live
+ * night has no honest count, and zero is the value the band omits.
+ */
+export function sceneSliceTonightCount(slice: SceneSliceData): number {
+  const tonight = slice.days.find(day => day.is_tonight)
+  return tonight ? dayShows(tonight).length : 0
 }

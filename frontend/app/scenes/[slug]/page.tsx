@@ -14,6 +14,7 @@ import { prefetchEntities } from '@/lib/query-hydration'
 import { hasText } from '@/features/scenes/scenePeriodApi'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
 import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
+import { sceneSliceTonightCount } from '@/features/scenes/sceneSlice'
 import { buildSceneSliceJsonLd } from '@/features/scenes/sceneSliceJsonLd'
 import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
 // Deep-imported from the component FILE for the same reason SceneDetailView is:
@@ -166,8 +167,8 @@ const getSceneWeek = cache((slug: string) =>
  * than here, so a second consumer cannot re-derive them; this wrapper only adds
  * the per-request dedupe its two neighbours above already have. `cache()` is
  * currently redundant — the page body is the only caller — and kept for the
- * caller this page will plausibly grow: `generateMetadata` can now state a real
- * tonight count, which the old forward window could not supply (PSY-1807).
+ * caller this page will plausibly grow: `generateMetadata` can state a real
+ * tonight count off this same payload.
  */
 const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
@@ -373,6 +374,12 @@ export default async function ScenePage({ params }: ScenePageProps) {
             <SceneDetailView
               slug={slug}
               timeZone={slice?.timezone}
+              /* Derived HERE, off the one slice both this prop and the calendar
+                 slot below read, so the band's count and the rows under the
+                 calendar's TONIGHT heading can never come from two fetches.
+                 `undefined` when the slice failed: a missing count is not a
+                 zero, and the band draws neither. */
+              tonightShowCount={slice ? sceneSliceTonightCount(slice) : undefined}
               calendarSlot={<SceneCalendar scene={scene} slice={slice} />}
             />
           </Suspense>
