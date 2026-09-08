@@ -106,9 +106,8 @@ describe('SceneCrews', () => {
     expect(names).toEqual(['Relax Attack Jazz Series', 'Pleiades Series'])
   })
 
-  // No cap: the row wraps rather than truncating, so a crowded scene names
-  // every crew booking in it.
-  it('caps nothing', () => {
+  // No cap: a crowded scene names every crew booking in it.
+  it('renders every crew the endpoint returns', () => {
     const many = Array.from({ length: 14 }, (_, i) => ({
       slug: `crew-${i}`,
       name: `Crew ${i}`,
@@ -117,6 +116,20 @@ describe('SceneCrews', () => {
     renderCrews(many)
 
     expect(screen.getAllByRole('listitem')).toHaveLength(14)
+  })
+
+  // The mock's row WRAPS rather than truncating, and a name too long for the
+  // column breaks inside its chip instead of widening the page. Neither comes
+  // from the shared category treatment, so neither is covered by the classes
+  // case below.
+  it('wraps the row and breaks a name too long for the column', () => {
+    renderCrews()
+
+    expect(screen.getByRole('list')).toHaveClass('flex-wrap')
+    const chip = screen.getByRole('link', { name: 'Relax Attack Jazz Series' })
+    expect(chip).toHaveClass('break-words')
+    expect(chip).toHaveClass('max-w-full')
+    expect(chip).not.toHaveClass('truncate')
   })
 
   it('wears the crew category chip treatment', () => {
@@ -128,15 +141,15 @@ describe('SceneCrews', () => {
     }
   })
 
-  // The show counts rank the row; they are not the reader's business. Asserted
-  // as "each chip is exactly its crew's name", which stays true of a crew whose
-  // name happens to contain a digit.
-  it('prints the crew names alone, never the ranking counts', () => {
-    renderCrews()
+  // The show counts rank the row; they are not the reader's business. The
+  // fixture's counts are digits no crew name in it contains, so a chip that
+  // printed its rank would show up here.
+  it('never prints the ranking counts', () => {
+    const { container } = renderCrews()
 
-    expect(
-      screen.getAllByRole('listitem').map(item => item.textContent)
-    ).toEqual(CREWS.map(crew => crew.name))
+    for (const crew of CREWS) {
+      expect(container.textContent).not.toContain(String(crew.show_count))
+    }
   })
 
   // The wire type is `crews: SceneCrewSummary[] | null`, which the local

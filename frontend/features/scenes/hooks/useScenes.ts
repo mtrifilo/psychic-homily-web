@@ -235,10 +235,12 @@ export function useSceneGaps(slug: string) {
  * to pass and nothing to re-rank: the rows arrive ranked, and the ranking rule
  * is documented on `API_ENDPOINTS.SCENES.CREWS`.
  *
- * Ten minutes, matching `useSceneGaps`, and nothing invalidates the key: a
- * reader who tags a show with a crew sees the row as it was until the entry
- * expires. The row is a standing fact about the town rather than a live
- * figure, so it reads the same at ten minutes stale.
+ * Ten minutes, matching `useSceneGaps`, and no mutation invalidates this key
+ * today: a reader who tags a show with a crew sees the row as it was until the
+ * entry expires. The row is a standing fact about the town rather than a live
+ * figure, so it reads the same at ten minutes stale. The scene route seeds
+ * this key from a read cached for the same window, and the two windows add up
+ * for a reader served from both.
  */
 export function useSceneCrews(slug: string) {
   return useQuery({

@@ -25,7 +25,7 @@ import { SceneCalendar } from '@/features/scenes/components/SceneCalendar'
 
 // Imported from the component FILE, never a `@/features/scenes` barrel — see
 // the note in features/scenes/components/index.ts for why the barrel would undo
-// this. `ssr: true` preserves the prefetchEntity + HydrationBoundary server
+// this. `ssr: true` preserves the prefetchEntities + HydrationBoundary server
 // render; the page's own <Suspense> below is the boundary this lazy resolves
 // against.
 const SceneDetailView = dynamic(
@@ -103,7 +103,7 @@ function asScene(body: unknown, slug: string): SceneDetail | null {
  *
  * Wrapped in `React.cache()` so `generateMetadata` and the page body share
  * ONE backend round-trip per request. The result also seeds the TanStack
- * Query cache via `prefetchEntity` below so the matching `useSceneDetail`
+ * Query cache via `prefetchEntities` below so the matching `useSceneDetail`
  * hook resolves from cache instead of refetching on first paint. Returns
  * null for non-2xx (404 expected for bogus slugs) so the page can call
  * `notFound()`.
@@ -174,14 +174,21 @@ const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 /**
  * The crew tags booking in this scene, for the header's chip row.
  *
- * Read HERE rather than left to the row's own client query, unlike every
- * module below the calendar: the row sits inside the header, so a client fetch
- * inserts it under content that has already painted and pushes the calendar
- * down. Seeded, the chips are in the first HTML and nothing moves.
+ * Read HERE rather than left to the row's own client query: the row sits
+ * inside the header, so a client fetch inserts it under content that has
+ * already painted and pushes the calendar down. Seeded, the chips are in the
+ * first HTML and nothing moves.
  *
- * An hour, matching the scene read above: a crew's standing in a town is its
- * whole history there, so the list moves on the cadence of curation rather
- * than of the calendar.
+ * Ten minutes, which is the SAME window `useSceneCrews` holds the seeded entry
+ * for. The two compose: `prefetchEntities` stamps the seed "fetched now", so a
+ * reader's worst case is this window plus that one, and a longer window here
+ * would make the hook's promise about staleness untrue.
+ *
+ * Called with the CANONICAL scene slug, not the requested one. A member-city
+ * URL resolves to its metro (`/scenes/tempe-az` renders Phoenix), and the row
+ * subscribes under the slug the scene payload carries — seeding the requested
+ * spelling would leave the entry orphaned and the row unseeded on exactly
+ * those URLs.
  *
  * Returns null on any failure, which `prefetchEntities` SKIPS — the row then
  * falls through to its own client fetch and its own hide-on-error rule rather
@@ -190,11 +197,18 @@ const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 const getSceneCrews = cache(
   async (slug: string): Promise<SceneCrewsResponse | null> => {
     try {
-      const res = await fetch(`${API_BASE_URL}/scenes/${slug}/crews`, {
-        next: { revalidate: 3600 },
-      })
+      // Encoded, the same rule `sceneDayApi` and `sceneWeekApi` follow: a slug
+      // carrying `?`, `#` or `/` would otherwise splice a query string or an
+      // extra segment onto the URL and send this request somewhere else.
+      const res = await fetch(
+        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/crews`,
+        { next: { revalidate: 600 } }
+      )
+      // `await` is load-bearing: `return res.json()` adopts the promise after
+      // the try block exits, so a malformed body would reject past this catch
+      // and 500 the whole scene page instead of dropping one row.
       if (res.ok) {
-        return res.json()
+        return await res.json()
       }
       if (res.status >= 500) {
         Sentry.captureMessage(`Scene crews: API returned ${res.status}`, {
@@ -315,14 +329,18 @@ export default async function ScenePage({ params }: ScenePageProps) {
     notFound()
   }
 
-  // CONCURRENT, because neither needs the other's answer, which leaves the
-  // slice's serial fetch chain (`sceneSliceApi` states why it is serial,
-  // `sceneSlice` how many calls deep it runs) as the only thing on the
-  // critical path. The crews read is one request and hides behind it, and it
-  // is issued SECOND so the slice's chain starts first.
+  // CONCURRENT, because neither needs the other's answer. The page waits for
+  // both: the slice is a serial chain (`sceneSliceApi` states why it is
+  // serial, `sceneSlice` how many calls deep it runs) and the crews row is one
+  // request. The slice is listed FIRST so its chain is issued first, which the
+  // route suite pins.
+  //
+  // `scene.slug` is the CANONICAL spelling, which is what the crews row keys
+  // on; the requested slug can be a member city of the same metro.
+  const canonicalSlug = scene.slug || slug
   const [slice, crews] = await Promise.all([
     getSceneSlice(slug),
-    getSceneCrews(slug),
+    getSceneCrews(canonicalSlug),
   ])
 
   // Both seeds are anonymous reads whose payload does not vary by viewer,
@@ -332,7 +350,7 @@ export default async function ScenePage({ params }: ScenePageProps) {
   // seeds the entry `useSceneDetail` picks up.
   const dehydratedState = await prefetchEntities([
     { queryKey: queryKeys.scenes.detail(slug), data: scene },
-    { queryKey: queryKeys.scenes.crews(slug), data: crews },
+    { queryKey: queryKeys.scenes.crews(canonicalSlug), data: crews },
   ])
 
   // ONE slice payload feeds both the structured data and the rows

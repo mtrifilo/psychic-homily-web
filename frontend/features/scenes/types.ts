@@ -214,7 +214,8 @@ export interface SceneCollectionsResponse {
  *
  * `show_count` counts the scene's approved shows carrying this tag, over all
  * dates, and so is scoped to one city where the usage figure on the /tags
- * surfaces is global. The two numbers describe different sets and will differ.
+ * surfaces is global. The two count different sets and can disagree; they
+ * coincide only for a crew whose every application is an approved show here.
  */
 export type SceneCrewSummary = components['schemas']['SceneCrewSummary']
 

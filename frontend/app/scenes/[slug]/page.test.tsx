@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { okResponse } from '@/lib/seo/test-helpers'
+import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
 
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
@@ -218,21 +218,35 @@ describe('scenes/[slug] calendar slice', () => {
     return props ? findCalendarSlot(props.children) : undefined
   }
 
-  /** The query keys the route seeded into its `<HydrationBoundary>`. */
+  /** Every query the route dehydrated into its `<HydrationBoundary>`. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function dehydratedKeys(node: any): unknown[][] {
+  function dehydratedQueries(node: any): any[] {
     if (!node || typeof node !== 'object') return []
-    if (Array.isArray(node)) return node.flatMap(dehydratedKeys)
+    if (Array.isArray(node)) return node.flatMap(dehydratedQueries)
     const props = (node as Node)?.props
     if (props && 'state' in props) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const queries = (props.state as any)?.queries
-      if (Array.isArray(queries)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return queries.map((q: any) => q.queryKey)
-      }
+      if (Array.isArray(queries)) return queries
     }
-    return props ? dehydratedKeys(props.children) : []
+    return props ? dehydratedQueries(props.children) : []
+  }
+
+  /** The query keys the route seeded into its `<HydrationBoundary>`. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function dehydratedKeys(node: any): unknown[][] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return dehydratedQueries(node).map((q: any) => q.queryKey)
+  }
+
+  /** The payload seeded under one dehydrated key, or undefined. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function dehydratedData(node: any, key: unknown[]): unknown {
+    const found = dehydratedQueries(node).find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (q: any) => JSON.stringify(q.queryKey) === JSON.stringify(key)
+    )
+    return found?.state?.data
   }
 
   /** Every payload handed to a `<JsonLd>` in the returned tree. */
@@ -244,19 +258,90 @@ describe('scenes/[slug] calendar slice', () => {
     return node.props ? findJsonLd(node.props.children) : []
   }
 
+  const CREWS = {
+    crews: [{ slug: 'pleiades-series', name: 'Pleiades Series', show_count: 4 }],
+  }
+
+  /**
+   * Answer by URL rather than by call order, so a case about the crews read
+   * cannot be moved by a change in how many requests the slice makes.
+   *
+   * `crews` is what the crews URL answers with: a Response, or a rejection.
+   */
+  function stubByUrl(
+    scene: Record<string, unknown>,
+    crews: Response | Error = okResponse(CREWS)
+  ) {
+    fetchMock.mockImplementation(async (input: unknown) => {
+      const url = String(input)
+      if (url.endsWith('/crews')) {
+        if (crews instanceof Error) throw crews
+        return crews
+      }
+      if (/\/scenes\/[^/]+$/.test(url)) return okResponse(scene)
+      return okResponse(buildDay())
+    })
+  }
+
   // The crews chip row sits INSIDE the header, so a client-only fetch would
   // insert it under painted content and push the calendar down. Read here, the
-  // chips are in the first HTML.
-  it('reads the crews row server-side and hands it down hydrated', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
-    fetchMock.mockResolvedValue(okResponse(buildDay()))
+  // payload is seeded under the key the row subscribes to.
+  it('seeds the crews row from the server read', async () => {
+    stubByUrl(buildScene())
 
     const tree = await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
 
     expect(
       fetchedUrls().some(u => u.endsWith('/scenes/phoenix-az/crews'))
     ).toBe(true)
-    expect(dehydratedKeys(tree)).toContainEqual(['scenes', 'crews', 'phoenix-az'])
+    expect(dehydratedData(tree, ['scenes', 'crews', 'phoenix-az'])).toEqual(CREWS)
+  })
+
+  // A member-city URL renders its metro's scene, and the row keys on the slug
+  // the SCENE payload carries. Seeding the requested spelling would leave the
+  // entry orphaned and the row unseeded on exactly those URLs.
+  it('seeds the crews row under the canonical slug, not the requested one', async () => {
+    stubByUrl(buildScene({ slug: 'phoenix-az' }))
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug: 'tempe-az' }) })
+
+    expect(
+      fetchedUrls().some(u => u.endsWith('/scenes/phoenix-az/crews'))
+    ).toBe(true)
+    expect(dehydratedData(tree, ['scenes', 'crews', 'phoenix-az'])).toEqual(CREWS)
+    expect(dehydratedKeys(tree)).not.toContainEqual(['scenes', 'crews', 'tempe-az'])
+  })
+
+  // The slice is the page's substance and its chain is several requests deep,
+  // so it is issued first. Pinned because the ordering is array order, which a
+  // reorder would change silently.
+  it('issues the slice chain before the crews read', async () => {
+    stubByUrl(buildScene())
+
+    await ScenePage({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    const urls = fetchedUrls()
+    expect(urls.findIndex(u => u.includes('/day'))).toBeLessThan(
+      urls.findIndex(u => u.endsWith('/crews'))
+    )
+  })
+
+  // The row must degrade to its own client fetch, never hydrate an empty list
+  // and never take the page down with it.
+  //
+  // A slug of its own per case: the server query client is a module singleton
+  // under jsdom, so a key another case seeded would still be in this tree.
+  it.each([
+    ['a non-2xx answer', 'tucson-az', errorResponse(500)],
+    ['a failed request', 'flagstaff-az', new Error('network down')],
+  ])('seeds no crews entry on %s', async (_label, slug, crews) => {
+    stubByUrl(buildScene({ slug }), crews as Response | Error)
+
+    const tree = await ScenePage({ params: Promise.resolve({ slug }) })
+
+    expect(tree).toBeTruthy()
+    expect(dehydratedData(tree, ['scenes', 'crews', slug])).toBeUndefined()
+    expect(dehydratedData(tree, ['scenes', 'detail', slug])).toBeTruthy()
   })
 
   it('reads tonight and the next full day from the day endpoint', async () => {

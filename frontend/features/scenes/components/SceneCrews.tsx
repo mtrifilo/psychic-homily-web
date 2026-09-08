@@ -46,13 +46,13 @@ const CREW_CHIP_LINK_CLASS = cn(
  * The row is absent, with no heading and no scaffold, when the endpoint
  * returns nothing and while the request is in flight or failed. Most scenes
  * carry no crew tag, and a heading over empty space would report a gap in the
- * catalog as a fact about the town. The mock draws no heading over the row
- * even where there is data, which is why the label below is the only naming
- * it gets.
+ * catalog as a fact about the town. Figma `1402:788` draws the row as chips
+ * alone, with no heading over them even where there is data, which is why the
+ * label below is the only naming it gets.
  *
- * `role="list"` is explicit because the list marker is off: a list styled
- * `list-style: none` loses its list semantics in WebKit, and a generic
- * element drops the `aria-label` with them.
+ * `role="list"` is explicit on this element because the label depends on it:
+ * a list whose markers are off loses its list semantics in WebKit, and a
+ * generic element drops the `aria-label` with them.
  *
  * The rows are drawn in the order they arrive, uncapped, wrapping. The
  * endpoint ranks them by how many of the scene's shows carry each tag; the
