@@ -90,12 +90,10 @@ func setupAuthRoutes(rc RouteContext) {
 // endpoint open as an email-bombing amplifier.
 const VerificationResendPerMinute = 5
 
-// PasswordConfirmAttemptsPerMinute is the per-IP budget shared by the two
-// routes that verify a submitted password before acting on it: POST
-// /auth/change-password and POST /auth/account/delete. Both answer "is this the
-// password?" to whoever holds the session, so one counter meters both and a
-// guess spent on either is spent on the other. It matches the resend budget on
-// its own counter, so tuning one does not tune the other.
+// PasswordConfirmAttemptsPerMinute is the per-IP budget shared by the routes
+// that verify a submitted password before acting on it: POST
+// /auth/change-password and POST /auth/account/delete. It matches the resend
+// budget on its own counter, so tuning one does not tune the other.
 //
 // Not every attempt it counts is a guess: a new password the server rejects on
 // policy spends one too, and the breach-list half of that policy is a lookup
@@ -167,9 +165,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(rc.SC.JWT, 7*24*time.Hour))
 	huma.Post(lenientGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 
-	// Account deletion endpoints. The delete route verifies the account password
-	// before the destructive step, so it is registered on passwordConfirmGroup
-	// and draws on the same budget as /auth/change-password.
+	// Account deletion endpoints.
 	huma.Get(rc.Protected, "/auth/account/deletion-summary", authHandler.GetDeletionSummaryHandler)
 	huma.Post(passwordConfirmGroup, "/auth/account/delete", authHandler.DeleteAccountHandler)
 

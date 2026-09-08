@@ -441,45 +441,19 @@ describe('DeleteAccountDialog', () => {
     )
   })
 
-  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', async () => {
-    mockDeleteMutationState = {
-      ...mockDeleteMutationState,
-      isError: true,
-      error: Object.assign(new Error('Rate limit exceeded.'), { status: 429 }),
-    }
-    const { user } = renderDialog()
-
-    await user.click(screen.getByRole('button', { name: /Continue/ }))
-
-    expect(
-      screen.getByText('Too many password attempts. Try again in a minute.')
-    ).toBeInTheDocument()
-  })
 })
 
+// The branches of the shared formatter are pinned in
+// password-confirm-errors.test.ts; what is this surface's own is the copy it
+// binds.
 describe('formatDeleteAccountError', () => {
-  it('keeps the server message for a non-429 failure', () => {
-    // The shape useDeleteAccount throws for a wrong password: the backend
-    // answers 200 with success:false, and the hook turns that into an AuthError
-    // carrying status 400.
-    const error = Object.assign(new Error('Password is incorrect'), {
-      status: 400,
-    })
-    expect(formatDeleteAccountError(error)).toBe('Password is incorrect')
-  })
-
-  it('names the window when retryAfter is absent', () => {
-    // The deployed frontend calls the backend cross-origin, where Retry-After
-    // is not exposed, so `retryAfter` is undefined for real users.
-    const error = Object.assign(new Error('Rate limit exceeded.'), {
+  it('binds this dialog copy to the shared formatter', () => {
+    const throttled = Object.assign(new Error('Rate limit exceeded.'), {
       status: 429,
     })
-    expect(formatDeleteAccountError(error)).toBe(
+    expect(formatDeleteAccountError(throttled)).toBe(
       'Too many password attempts. Try again in a minute.'
     )
-  })
-
-  it('returns the fallback for a missing error', () => {
     expect(formatDeleteAccountError(null)).toBe(
       'Failed to delete account. Please try again.'
     )

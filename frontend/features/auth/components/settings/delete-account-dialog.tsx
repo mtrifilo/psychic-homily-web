@@ -146,7 +146,10 @@ export function DeleteAccountDialog({
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : deletionSummary.isError ? (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                <div
+                  role="alert"
+                  className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+                >
                   Failed to load account data. Please try again.
                 </div>
               ) : (

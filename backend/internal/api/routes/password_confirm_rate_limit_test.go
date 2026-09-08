@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"psychic-homily-backend/internal/api/middleware"
 )
 
 // POST /auth/change-password verifies the current password before setting the
@@ -15,10 +17,10 @@ import (
 
 // limiterAttempt sends one request through a bare limiter chain, with no router
 // or handler behind it, so the recorded code is the limiter's own answer.
-func limiterAttempt(t *testing.T, limited http.Handler, path, ip string) *httptest.ResponseRecorder {
+func limiterAttempt(t *testing.T, limited http.Handler, ip string) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", nil)
 	req.RemoteAddr = ip
 	limited.ServeHTTP(w, req)
 	return w
@@ -41,12 +43,12 @@ func TestPasswordConfirmRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	const ip = "203.0.113.61:1234"
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
-		if code := limiterAttempt(t, limited, "/auth/change-password", ip).Code; code != http.StatusOK {
+		if code := limiterAttempt(t, limited, ip).Code; code != http.StatusOK {
 			t.Fatalf("request %d within budget: want 200 got %d", i+1, code)
 		}
 	}
 
-	w := limiterAttempt(t, limited, "/auth/change-password", ip)
+	w := limiterAttempt(t, limited, ip)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("request past budget: want 429 got %d", w.Code)
 	}
@@ -61,29 +63,26 @@ func TestPasswordConfirmRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	}
 }
 
-// The key carries no path component, so one limiter handed to two routes meters
-// both: the budget is spent by the pair, not by each. This is the constructor
-// property the shared mount relies on; that both routes were handed this one
-// limiter is checked through the router.
-func TestPasswordConfirmRateLimiter_CountsBothRoutesOnOneCounter(t *testing.T) {
-	t.Setenv(DisableAuthRateLimitsEnvVar, "")
-
-	var served int
-	limited := authScopedRateLimiter(PasswordConfirmAttemptsPerMinute)(okHandler(&served))
+// The key carries no path component, which is what lets one limiter meter two
+// routes: the budget is spent by the pair, not by each. A key that included the
+// route would silently give each of them a full budget while every other
+// assertion in this file still passed.
+func TestPasswordConfirmKeyIgnoresTheRoute(t *testing.T) {
 	const ip = "203.0.113.65:1234"
 
-	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
-		if code := limiterAttempt(t, limited, "/auth/change-password", ip).Code; code != http.StatusOK {
-			t.Fatalf("change-password request %d within budget: want 200 got %d", i+1, code)
+	key := func(path string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.RemoteAddr = ip
+		k, err := middleware.KeyByClientIP(req)
+		if err != nil {
+			t.Fatalf("key for %s: %v", path, err)
 		}
+		return k
 	}
-	if code := limiterAttempt(t, limited, "/auth/account/delete", ip).Code; code != http.StatusTooManyRequests {
-		t.Fatalf("account-delete after the budget was spent on change-password: want 429 got %d; "+
-			"the limiter keys on something narrower than the client IP, so the two routes would each "+
-			"carry a full budget", code)
-	}
-	if served != PasswordConfirmAttemptsPerMinute {
-		t.Errorf("handler served %d requests, want %d", served, PasswordConfirmAttemptsPerMinute)
+
+	if change, del := key("/auth/change-password"), key("/auth/account/delete"); change != del {
+		t.Fatalf("the two routes key differently from one client (%q vs %q); one limiter cannot meter both", change, del)
 	}
 }
 
@@ -95,12 +94,12 @@ func TestPasswordConfirmRateLimiter_IsPerIP(t *testing.T) {
 	limited := authScopedRateLimiter(PasswordConfirmAttemptsPerMinute)(okHandler(nil))
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
-		limiterAttempt(t, limited, "/auth/change-password", "198.51.100.61:5000")
+		limiterAttempt(t, limited, "198.51.100.61:5000")
 	}
-	if code := limiterAttempt(t, limited, "/auth/change-password", "198.51.100.61:5000").Code; code != http.StatusTooManyRequests {
+	if code := limiterAttempt(t, limited, "198.51.100.61:5000").Code; code != http.StatusTooManyRequests {
 		t.Fatalf("first client should be exhausted: want 429 got %d", code)
 	}
-	if code := limiterAttempt(t, limited, "/auth/change-password", "198.51.100.62:5000").Code; code == http.StatusTooManyRequests {
+	if code := limiterAttempt(t, limited, "198.51.100.62:5000").Code; code == http.StatusTooManyRequests {
 		t.Error("a second IP was limited by the first client's budget; the limiter is not keyed by client IP")
 	}
 }
@@ -113,7 +112,7 @@ func TestPasswordConfirmRateLimiter_HonorsDisableFlag(t *testing.T) {
 	limited := authScopedRateLimiter(PasswordConfirmAttemptsPerMinute)(okHandler(nil))
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute*3; i++ {
-		if code := limiterAttempt(t, limited, "/auth/change-password", "203.0.113.62:1234").Code; code != http.StatusOK {
+		if code := limiterAttempt(t, limited, "203.0.113.62:1234").Code; code != http.StatusOK {
 			t.Fatalf("request %d with limits disabled: want 200 got %d", i+1, code)
 		}
 	}
@@ -131,13 +130,13 @@ func TestAuthScopedLimitersOfTheSameSizeDoNotShareACounter(t *testing.T) {
 	const ip = "203.0.113.63:1234"
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
-		limiterAttempt(t, passwordConfirm, "/auth/change-password", ip)
+		limiterAttempt(t, passwordConfirm, ip)
 	}
-	if code := limiterAttempt(t, passwordConfirm, "/auth/change-password", ip).Code; code != http.StatusTooManyRequests {
+	if code := limiterAttempt(t, passwordConfirm, ip).Code; code != http.StatusTooManyRequests {
 		t.Fatalf("password-confirm budget should be exhausted: want 429 got %d", code)
 	}
 
-	if code := limiterAttempt(t, resend, "/auth/verify-email/send", ip).Code; code == http.StatusTooManyRequests {
+	if code := limiterAttempt(t, resend, ip).Code; code == http.StatusTooManyRequests {
 		t.Error("verification resend was limited by the password-confirm budget; the two limiters share a counter")
 	}
 }

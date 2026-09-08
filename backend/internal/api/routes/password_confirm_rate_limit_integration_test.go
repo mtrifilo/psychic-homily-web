@@ -68,14 +68,10 @@ func passwordConfirmFixture(t *testing.T, email string) (*chi.Mux, string) {
 	if err := td.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session, err := sc.JWT.CreateToken(user)
-	if err != nil {
-		t.Fatalf("create session token: %v", err)
-	}
 
 	router := chi.NewRouter()
 	SetupRoutes(router, sc, cfg)
-	return router, session
+	return router, mintToken(t, sc, user)
 }
 
 func sendAuthed(t *testing.T, router *chi.Mux, method, path, body, ip, session string) *httptest.ResponseRecorder {
@@ -95,13 +91,13 @@ func sendAuthed(t *testing.T, router *chi.Mux, method, path, body, ip, session s
 // reply to a rejected guess. A 200 with an empty body is the signature of a
 // broken humaFromHTTP, which returns without calling next, so the operation
 // never runs and every not-429 assertion still passes.
-func assertPasswordConfirmAttemptLanded(t *testing.T, w *httptest.ResponseRecorder, path, reached, when string) {
+func assertPasswordConfirmAttemptLanded(t *testing.T, w *httptest.ResponseRecorder, path, reached string) {
 	t.Helper()
 	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("%s %s returned 401: the session was not accepted, so this test proves nothing", path, when)
+		t.Fatalf("%s returned 401: the session was not accepted, so this test proves nothing", path)
 	}
 	if !strings.Contains(w.Body.String(), reached) {
-		t.Fatalf("%s %s did not reach the handler; body: %q", path, when, w.Body.String())
+		t.Fatalf("%s did not reach the handler; body: %q", path, w.Body.String())
 	}
 }
 
@@ -115,7 +111,7 @@ func spendBudget(t *testing.T, router *chi.Mux, session, path, body, reached, ip
 			t.Fatalf("%s attempt %d/%d was limited early; the budget is tighter than %d",
 				path, i+1, PasswordConfirmAttemptsPerMinute, PasswordConfirmAttemptsPerMinute)
 		}
-		assertPasswordConfirmAttemptLanded(t, w, path, reached, "within budget")
+		assertPasswordConfirmAttemptLanded(t, w, path, reached)
 	}
 }
 
@@ -231,13 +227,16 @@ func TestPasswordConfirmDisableFlagIsHonoredAtTheRoutes(t *testing.T) {
 		{"/auth/change-password", changePasswordAttempt, changePasswordReached, "198.51.100.91:4444"},
 		{"/auth/account/delete", accountDeleteAttempt, accountDeleteReached, "198.51.100.94:4444"},
 	} {
-		for i := 0; i < PasswordConfirmAttemptsPerMinute*3; i++ {
+		// One past the budget is the whole assertion: that request is the first
+		// one a live limiter would refuse. Each delete attempt past it costs a
+		// bcrypt comparison and proves nothing further.
+		for i := 0; i <= PasswordConfirmAttemptsPerMinute; i++ {
 			w := sendAuthed(t, router, "POST", route.path, route.body, route.ip, session)
 			if w.Code == http.StatusTooManyRequests {
 				t.Fatalf("%s request %d returned 429 with %s=1: the route carries a limiter the flag does not reach",
 					route.path, i+1, DisableAuthRateLimitsEnvVar)
 			}
-			assertPasswordConfirmAttemptLanded(t, w, route.path, route.reached, "with limits disabled")
+			assertPasswordConfirmAttemptLanded(t, w, route.path, route.reached)
 		}
 	}
 }
