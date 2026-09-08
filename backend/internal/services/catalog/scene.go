@@ -968,23 +968,43 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	// Upcoming show count (metro-wide)
+	// Upcoming show count (metro-wide), bounded at the NIGHT in progress rather
+	// than at the request instant. The status band prints this figure beside a
+	// count of the shows on tonight, and the tonight bucket holds a night until
+	// 06:00 local, so a boundary drawn anywhere earlier reports fewer shows to
+	// come than the page lists under it.
+	//
+	// The scene test is an EXISTS rather than a join, so a show booked into two
+	// metro rooms contributes ONE row and the zone lateral resolves once per
+	// show rather than once per room. Same shape, and the same reason, as
+	// batchRosterUpcoming.
+	//
+	// The shows table must be UNALIASED: shared.VenueTZJoin's lateral correlates
+	// on `shows.id`.
+	//
+	// Placeholder order: status, then the scope's venue args. The night
+	// condition binds nothing.
+	upcomingArgs := append([]any{catalogm.ShowStatusApproved}, vargs...)
 	var upcomingShowCount int64
 	if err := s.db.Raw(`
-		SELECT COUNT(DISTINCT s.id)
-		FROM shows s
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE `+vp+`
-		  AND s.status = ?
-		  AND s.event_date >= ?
-	`, venueArgs(catalogm.ShowStatusApproved, now)...).Scan(&upcomingShowCount).Error; err != nil {
+		SELECT COUNT(*)
+		FROM shows
+		`+shared.VenueTZJoin+`
+		WHERE shows.status = ?
+		  AND `+shared.VenueLocalNightDateCondition+`
+		  AND EXISTS (
+			SELECT 1
+			FROM show_venues sv
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE sv.show_id = shows.id AND `+vp+`
+		  )
+	`, upcomingArgs...).Scan(&upcomingShowCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
-	// The rooms leaderboard, counted at the SAME `now` as the headline upcoming
+	// The rooms leaderboard, drawn on the same night boundary as the headline
 	// figure above so a reader cannot find the two disagreeing.
-	venues, err := s.sceneVenueLeaderboard(scope, now)
+	venues, err := s.sceneVenueLeaderboard(scope)
 	if err != nil {
 		return nil, err
 	}

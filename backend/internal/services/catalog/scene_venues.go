@@ -2,10 +2,10 @@ package catalog
 
 import (
 	"fmt"
-	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // trackedVenuePredicate returns a WHERE fragment (on the given venues alias)
@@ -35,17 +35,20 @@ func trackedVenuePredicate(scope sceneScope, alias string) (string, []any) {
 // sceneVenueLeaderboard lists the scene's tracked rooms with each one's count of
 // approved shows still to come, busiest first.
 //
-// The count is bounded at the START OF `now`'s UTC day, not at the instant
-// itself. A date-only show is stored at UTC midnight (parseEventDate), so an
-// instant bound would drop tonight's shows the moment that midnight passes —
-// and a room whose only booking is TONIGHT reading 0, ranked below a room with
-// one show in November, is precisely the failure a leaderboard cannot have. The
-// charts take the same bound for the same reason; see mostAnticipatedHorizon.
+// The count is bounded at the NIGHT in progress in each show's own venue zone
+// (shared.VenueLocalNightDateCondition), not at the caller's instant. A room
+// whose only booking is TONIGHT reading 0, ranked below a room with one show in
+// November, is precisely the failure a leaderboard cannot have, and an instant
+// bound produces it from the moment the first set starts.
 //
-// This is why the count is NOT taken at the caller's exact instant, and so can
-// exceed SceneStats.UpcomingShowCount by whatever is on today. That figure has
-// the same midnight problem and is already being served; correcting it changes a
-// published number and belongs to its own change.
+// SceneStats.UpcomingShowCount is drawn on the same boundary, so the two agree
+// about which nights they are counting. They still differ in WHAT they count:
+// see the contract on SceneVenueSummary.UpcomingShowCount.
+//
+// The zone that dates a row is the show's PRIMARY venue's, not v2's, because
+// the boundary is the repo's shared one. For a bill split across two rooms the
+// second room's tally is drawn on the first room's clock, which matters only
+// where a scope spans a timezone line.
 //
 // Name breaks a count tie and id breaks a name tie, so the order is total: the
 // rooms with nothing booked (most of them, in a sparse scene) come back in a
@@ -53,7 +56,7 @@ func trackedVenuePredicate(scope sceneScope, alias string) (string, []any) {
 // belt-and-braces — venue names are unique only per city
 // (idx_venues_name_city_unique), and a metro scope spans several, so one scene
 // really can hold two rooms of the same name.
-func (s *SceneService) sceneVenueLeaderboard(scope sceneScope, now time.Time) ([]contracts.SceneVenueSummary, error) {
+func (s *SceneService) sceneVenueLeaderboard(scope sceneScope) ([]contracts.SceneVenueSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -65,10 +68,14 @@ func (s *SceneService) sceneVenueLeaderboard(scope sceneScope, now time.Time) ([
 	inner, innerArgs := trackedVenuePredicate(scope, "v2")
 	outer, outerArgs := trackedVenuePredicate(scope, "v")
 
-	dayStart := now.UTC().Truncate(24 * time.Hour)
 	// Placeholders bind in SQL TEXT order: the derived table's, then the outer
-	// WHERE's. The scope args appear TWICE because the predicate does.
-	args := append([]any{catalogm.ShowStatusApproved, dayStart}, innerArgs...)
+	// WHERE's. The scope args appear TWICE because the predicate does. The night
+	// condition binds nothing: Postgres evaluates it per row against that row's
+	// own venue zone.
+	//
+	// The derived table's shows must be UNALIASED: shared.VenueTZJoin's lateral
+	// correlates on `shows.id`.
+	args := append([]any{catalogm.ShowStatusApproved}, innerArgs...)
 	args = append(args, outerArgs...)
 
 	// LEFT JOIN + COALESCE, not an inner join: a room whose shows are all in the
@@ -86,12 +93,13 @@ func (s *SceneService) sceneVenueLeaderboard(scope sceneScope, now time.Time) ([
 		       COALESCE(show_counts.cnt, 0) AS upcoming_show_count
 		FROM venues v
 		LEFT JOIN (
-			SELECT sv.venue_id, COUNT(DISTINCT s.id) AS cnt
+			SELECT sv.venue_id, COUNT(DISTINCT shows.id) AS cnt
 			FROM show_venues sv
-			JOIN shows s ON s.id = sv.show_id
+			JOIN shows ON shows.id = sv.show_id
 			JOIN venues v2 ON v2.id = sv.venue_id
-			WHERE s.status = ?
-			  AND s.event_date >= ?
+			`+shared.VenueTZJoin+`
+			WHERE shows.status = ?
+			  AND `+shared.VenueLocalNightDateCondition+`
 			  AND `+inner+`
 			GROUP BY sv.venue_id
 		) show_counts ON show_counts.venue_id = v.id

@@ -1710,18 +1710,20 @@ type SceneVenueSummary struct {
 	// and New York's into New Jersey, so a city-only row renders a bare "Camden"
 	// on a Philadelphia page. Same pair the venue charts carry (ActiveVenue).
 	State string `json:"state"`
-	// UpcomingShowCount is the room's approved shows still to come, counted from
-	// the START of the current UTC day — see sceneVenueLeaderboard for why an
-	// instant bound would zero out a room whose only show is tonight.
+	// UpcomingShowCount is the room's approved shows still to come, bounded at
+	// the NIGHT in progress. The zone deciding which night a show falls on is its
+	// PRIMARY venue's, which for a bill split across two rooms is not necessarily
+	// this room's. See sceneVenueLeaderboard for why an instant bound would zero
+	// out a room whose only show is tonight.
 	//
-	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in EVERY
-	// direction, all three on purpose:
-	//   - PAST it, because a show billed to two rooms is counted by both, and
-	//     because today's shows are inside this bound and outside that one.
+	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in both
+	// directions on purpose:
+	//   - PAST it, because a show billed to two rooms is counted by both.
 	//   - SHORT of it, because the scene total counts shows at UNVERIFIED rooms,
 	//     which are not tracked and so have no row here.
-	// Do not "reconcile" the two by editing the scene total: that silently
-	// changes a number already being served.
+	// Both are drawn at the same night start, so the BOUNDARY is not one of the
+	// directions they differ in. Do not "reconcile" the two that remain by
+	// editing the scene total: that silently changes a number already served.
 	//
 	// CANCELLED shows are counted, because they are still `approved` — the same
 	// convention the scene total and the day/week payloads follow (those ship
@@ -2129,8 +2131,22 @@ type SceneDetailResponse struct {
 
 // SceneStats holds aggregate counts for a scene
 type SceneStats struct {
-	VenueCount        int `json:"venue_count"`
-	ArtistCount       int `json:"artist_count"`
+	VenueCount  int `json:"venue_count"`
+	ArtistCount int `json:"artist_count"`
+	// UpcomingShowCount is the scene's approved shows still to come, bounded at
+	// the NIGHT in progress in each show's own venue zone rather than at the
+	// request instant.
+	//
+	// The night is the unit because the status band prints this beside a count
+	// of the shows on tonight, and that bucket holds a night until 06:00 local.
+	//
+	// So between midnight and 06:00 it counts the whole of the previous local
+	// date, an afternoon matinee that finished twelve hours ago included. That is
+	// the same set the tonight listing holds, which is the point, but it is not
+	// "shows that have not started".
+	//
+	// It counts shows at UNVERIFIED rooms too, which the per-room leaderboard
+	// beside it cannot; see SceneVenueSummary.UpcomingShowCount.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	FestivalCount     int `json:"festival_count"`
 }
