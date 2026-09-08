@@ -20,11 +20,11 @@ import (
 
 func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_CarriesSessionAuthTime() {
 	user := s.createActiveUser("huma-auth-time@test.com")
-	token, err := s.jwtService.CreateToken(user)
+	// Stamped with a value chosen here, so the assertion cannot pass by the
+	// middleware and the expectation reading the token the same wrong way.
+	minted := time.Now().Add(-90 * time.Second).Truncate(time.Second)
+	token, err := s.jwtService.RenewSessionToken(user, minted)
 	s.Require().NoError(err)
-	_, minted, err := s.jwtService.ValidateSession(token)
-	s.Require().NoError(err)
-	s.Require().False(minted.IsZero())
 
 	mw := HumaJWTMiddleware(s.jwtService)
 	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
@@ -36,7 +36,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_CarriesSessionAuthTime() {
 		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
-	s.True(got.Equal(minted))
+	s.True(got.Equal(minted.UTC()))
 }
 
 // A session renewed by the refresh path reports the authentication time of the
@@ -140,7 +140,8 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CarriesSessionAuthTimeAcr
 		},
 	}
 	expiredJWTService := auth.NewJWTService(s.db, expiredCfg, usersvc.NewUserService(s.db))
-	token, err := expiredJWTService.CreateToken(user)
+	minted := time.Now().Add(-3 * time.Minute).Truncate(time.Second)
+	token, err := expiredJWTService.RenewSessionToken(user, minted)
 	s.Require().NoError(err)
 	// exp has whole-second resolution, so wait past it: without this the token
 	// can still be valid and the middleware takes the strict path, leaving the
@@ -148,9 +149,6 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CarriesSessionAuthTimeAcr
 	time.Sleep(1100 * time.Millisecond)
 	_, _, strictErr := s.jwtService.ValidateSession(token)
 	s.Require().Error(strictErr, "the token must be expired for this to test the grace window")
-	_, minted, err := expiredJWTService.ValidateSessionLenient(token, 10*time.Minute)
-	s.Require().NoError(err)
-	s.Require().False(minted.IsZero())
 
 	mw := LenientHumaJWTMiddleware(s.jwtService, 10*time.Minute)
 	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
@@ -162,5 +160,5 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CarriesSessionAuthTimeAcr
 		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
-	s.True(got.Equal(minted))
+	s.True(got.Equal(minted.UTC()))
 }

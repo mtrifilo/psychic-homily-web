@@ -141,8 +141,11 @@ type JWTServiceInterface interface {
 	// RenewSessionToken mints a session for a caller presenting an existing
 	// session rather than a factor, carrying authAt through unchanged.
 	RenewSessionToken(user *authm.User, authAt time.Time) (string, error)
+	// ValidateSession is the reader that also yields the session's
+	// authentication time; ValidateToken discards it.
+	ValidateSession(tokenString string) (*authm.User, time.Time, error)
+	ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error)
 	ValidateToken(tokenString string) (*authm.User, error)
-	ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)
 	CreateMagicLinkToken(userID uint, email string) (string, error)

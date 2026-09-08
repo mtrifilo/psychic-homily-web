@@ -2179,8 +2179,9 @@ func (m *MockGraphOverviewService) GetGraphStartingPoints() ([]contracts.GraphSt
 type MockJWTService struct {
 	CreateTokenFn                  func(*authm.User) (string, error)
 	RenewSessionTokenFn            func(*authm.User, time.Time) (string, error)
+	ValidateSessionFn              func(string) (*authm.User, time.Time, error)
+	ValidateSessionLenientFn       func(string, time.Duration) (*authm.User, time.Time, error)
 	ValidateTokenFn                func(string) (*authm.User, error)
-	ValidateTokenLenientFn         func(string, time.Duration) (*authm.User, error)
 	CreateVerificationTokenFn      func(uint, string) (string, error)
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
 	CreateMagicLinkTokenFn         func(uint, string) (string, error)
@@ -2201,15 +2202,21 @@ func (m *MockJWTService) RenewSessionToken(user *authm.User, authAt time.Time) (
 	}
 	return "", nil
 }
+func (m *MockJWTService) ValidateSession(tokenString string) (*authm.User, time.Time, error) {
+	if m.ValidateSessionFn != nil {
+		return m.ValidateSessionFn(tokenString)
+	}
+	return nil, time.Time{}, nil
+}
+func (m *MockJWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error) {
+	if m.ValidateSessionLenientFn != nil {
+		return m.ValidateSessionLenientFn(tokenString, gracePeriod)
+	}
+	return nil, time.Time{}, nil
+}
 func (m *MockJWTService) ValidateToken(tokenString string) (*authm.User, error) {
 	if m.ValidateTokenFn != nil {
 		return m.ValidateTokenFn(tokenString)
-	}
-	return nil, nil
-}
-func (m *MockJWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error) {
-	if m.ValidateTokenLenientFn != nil {
-		return m.ValidateTokenLenientFn(tokenString, gracePeriod)
 	}
 	return nil, nil
 }

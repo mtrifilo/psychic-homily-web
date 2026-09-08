@@ -11,40 +11,76 @@ import (
 	"testing"
 )
 
-// CreateToken stamps auth_at with the current time, so calling it is a claim
-// that an authentication factor just completed. A path that issues a session on
-// the strength of a session the caller already holds must call
-// RenewSessionToken instead; calling CreateToken there hands that caller a way
-// to manufacture the freshness the re-authentication gates require.
+// CreateToken stamps auth_at with the current time, so naming it asserts that
+// an authentication factor just completed. RenewSessionToken takes the time
+// from its caller, so passing time.Now() there asserts the same thing while
+// looking like a renewal. A path that issues a session on the strength of a
+// session the caller already holds must do neither, or it hands that caller a
+// way to manufacture the freshness the re-authentication gates require.
 //
-// Nothing in the type system says so, so this test says it: it walks the built
-// tree for calls to CreateToken on a JWT service and fails when the set differs
-// from the allowlist below.
+// Nothing in the type system says so, so this test does: it parses every
+// non-test .go file under backend/ for mentions of either method and fails when
+// the set differs from the allowlist below.
 //
-// If you add a call site, choose one:
-//   - a real factor completed in this request (password, passkey, magic link,
-//     provider sign-in, account recovery) — add it here with the factor named
-//   - anything else — use RenewSessionToken and carry the caller's
-//     authentication time forward
-var sessionFactorMintAllowlist = map[string]string{
-	"internal/api/handlers/auth/auth.go:LoginHandler":                  "password",
-	"internal/api/handlers/auth/auth.go:RegisterHandler":               "registration sets the password",
-	"internal/api/handlers/auth/auth.go:VerifyMagicLinkHandler":        "emailed magic link",
-	"internal/api/handlers/auth/auth.go:RecoverAccountHandler":         "email plus password",
-	"internal/api/handlers/auth/auth.go:ConfirmAccountRecoveryHandler": "emailed recovery token",
-	"internal/api/handlers/auth/passkey.go:FinishLoginHandler":         "webauthn assertion",
-	"internal/api/handlers/auth/passkey.go:FinishSignupHandler":        "webauthn registration at signup",
-	"internal/services/auth/apple.go:GenerateToken":                    "apple identity token, verified by the caller",
-	"internal/services/auth/oauth.go:oauthCallbackInternal":            "provider handshake",
+// The walk matches the method NAME alone and makes no guess about the receiver,
+// so a mention it cannot classify is reported rather than skipped. That is why
+// unrelated services' CreateToken sites are listed here too: naming them is
+// what lets the check be total. It matches selectors whether or not they are
+// immediately called, so taking a method value does not evade it.
+//
+// What it does NOT do is follow calls: it sees the site that names the method,
+// not every path that can reach that site. A new caller of an already-listed
+// wrapper (AppleAuthService.GenerateToken, AuthService.OAuthCallback) is not
+// reported here and is on the author.
+//
+// If you add a site, choose one:
+//   - an authentication factor completed in this request (password, passkey,
+//     magic link, provider sign-in, account recovery): name CreateToken and add
+//     the site here with the factor
+//   - anything else: name RenewSessionToken and pass the authentication time
+//     the caller's own credential established, never time.Now()
+var sessionMintAllowlist = map[string]string{
+	// Session mints behind a real factor.
+	"internal/api/handlers/auth/auth.go:AuthHandler.LoginHandler:CreateToken":                  "password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.RegisterHandler:CreateToken":               "registration sets the password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.VerifyMagicLinkHandler:CreateToken":        "emailed magic link",
+	"internal/api/handlers/auth/auth.go:AuthHandler.RecoverAccountHandler:CreateToken":         "email plus password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler:CreateToken": "emailed recovery token",
+	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishLoginHandler:CreateToken":      "webauthn assertion",
+	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishSignupHandler:CreateToken":     "webauthn registration at signup",
+	"internal/services/auth/apple.go:AppleAuthService.GenerateToken:CreateToken":               "apple identity token, verified by AppleCallbackHandler before this runs",
+	"internal/services/auth/oauth.go:AuthService.oauthCallbackInternal:CreateToken":            "provider handshake",
+
+	// Session renewals: the authentication time comes from the caller's own
+	// credential, so these mint no freshness.
+	"internal/api/handlers/auth/auth.go:AuthHandler.GenerateCLITokenHandler:RenewSessionToken": "renewal, time from the request context",
+	"internal/services/auth/oauth.go:AuthService.RefreshUserToken:RenewSessionToken":           "renewal, time from the caller",
+
+	// The one deliberate time.Now() stamp, which is what CreateToken means.
+	"internal/services/auth/jwt.go:JWTService.CreateToken:RenewSessionToken": "the factor stamp itself",
+
+	// Unrelated services that happen to expose a CreateToken. Named so the walk
+	// needs no receiver heuristic to leave them alone.
+	"cmd/gen-api-token/main.go:main:CreateToken":                                                          "admin API token, not a session",
+	"internal/api/handlers/admin/admin_tokens.go:AdminTokenHandler.CreateAPITokenHandler:CreateToken":     "admin API token, not a session",
+	"internal/api/handlers/engagement/calendar.go:CalendarHandler.CreateCalendarTokenHandler:CreateToken": "calendar feed token, not a session",
 }
 
-func TestCreateTokenIsOnlyCalledByAuthenticationFactors(t *testing.T) {
+// mintedNames are the methods the walk looks for.
+var mintedNames = map[string]bool{"CreateToken": true, "RenewSessionToken": true}
+
+// factorStampSite is the single site allowed to pass time.Now() as an
+// authentication time, because that is the definition of a factor stamp.
+const factorStampSite = "internal/services/auth/jwt.go:JWTService.CreateToken:RenewSessionToken"
+
+func TestSessionMintsAreOnlyMadeByAuthenticationFactors(t *testing.T) {
 	backendRoot, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatalf("resolving backend root: %v", err)
 	}
 
 	found := map[string]bool{}
+	stampsNow := map[string]bool{}
 	fset := token.NewFileSet()
 
 	walkErr := filepath.Walk(backendRoot, func(path string, info os.FileInfo, err error) error {
@@ -52,8 +88,9 @@ func TestCreateTokenIsOnlyCalledByAuthenticationFactors(t *testing.T) {
 			return err
 		}
 		if info.IsDir() {
-			// Vendored and generated trees are not ours to police.
-			if name := info.Name(); name == "vendor" || name == "node_modules" || name == ".git" {
+			// testdata is skipped the way the go tool skips it: fixtures there
+			// need not parse, and a broken one is not this test's business.
+			if name := info.Name(); name == "vendor" || name == "node_modules" || name == ".git" || name == "testdata" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -66,70 +103,121 @@ func TestCreateTokenIsOnlyCalledByAuthenticationFactors(t *testing.T) {
 		if parseErr != nil {
 			return parseErr
 		}
-
 		rel, relErr := filepath.Rel(backendRoot, path)
 		if relErr != nil {
 			return relErr
 		}
 		rel = filepath.ToSlash(rel)
 
-		var enclosing string
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.FuncDecl:
-				enclosing = node.Name.Name
-			case *ast.CallExpr:
-				sel, ok := node.Fun.(*ast.SelectorExpr)
-				if !ok || sel.Sel.Name != "CreateToken" {
-					return true
-				}
-				// Other services expose an unrelated CreateToken (API tokens,
-				// calendar feed tokens). Only a JWT-service receiver mints a
-				// session.
-				if !isJWTServiceReceiver(sel.X) {
-					return true
-				}
-				found[rel+":"+enclosing] = true
+		// Walked per declaration, so the enclosing name is always the function
+		// the mention sits in rather than whichever one was seen last.
+		for _, decl := range file.Decls {
+			enclosing := "<file scope>"
+			if fn, ok := decl.(*ast.FuncDecl); ok {
+				enclosing = funcDeclName(fn)
 			}
-			return true
-		})
+			ast.Inspect(decl, func(n ast.Node) bool {
+				// Selectors, not calls: `mint := x.CreateToken` names the
+				// method just as surely as calling it.
+				if sel, ok := n.(*ast.SelectorExpr); ok && mintedNames[sel.Sel.Name] {
+					found[rel+":"+enclosing+":"+sel.Sel.Name] = true
+				}
+				if call, ok := n.(*ast.CallExpr); ok {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok &&
+						sel.Sel.Name == "RenewSessionToken" && callStampsNow(call) {
+						stampsNow[rel+":"+enclosing+":"+sel.Sel.Name] = true
+					}
+				}
+				return true
+			})
+		}
 		return nil
 	})
 	if walkErr != nil {
 		t.Fatalf("walking %s: %v", backendRoot, walkErr)
 	}
 
+	// A walk that found nothing means the root is wrong, not that every mint was
+	// deleted. Without this the stale-entry loop below would tell a reader to
+	// delete the whole allowlist.
+	if len(found) == 0 {
+		t.Fatalf("no session-minting sites found under %s; the walk root is wrong", backendRoot)
+	}
+
+	var unknown []string
 	for site := range found {
-		if _, ok := sessionFactorMintAllowlist[site]; !ok {
-			t.Errorf("%s calls CreateToken, which stamps a fresh auth_at.\n"+
-				"If an authentication factor completed here, add it to sessionFactorMintAllowlist with the factor named.\n"+
-				"If this renews a session the caller already holds, call RenewSessionToken and pass the caller's authentication time.", site)
+		if _, ok := sessionMintAllowlist[site]; !ok {
+			unknown = append(unknown, site)
 		}
+	}
+	sort.Strings(unknown)
+	for _, site := range unknown {
+		t.Errorf("%s names a session-minting method and is not in sessionMintAllowlist.\n"+
+			"If an authentication factor completed here, add it with the factor named.\n"+
+			"If this renews a session the caller already holds, name RenewSessionToken\n"+
+			"and pass the authentication time from that caller's credential.", site)
+	}
+
+	var nowStamps []string
+	for site := range stampsNow {
+		if site != factorStampSite {
+			nowStamps = append(nowStamps, site)
+		}
+	}
+	sort.Strings(nowStamps)
+	for _, site := range nowStamps {
+		t.Errorf("%s calls RenewSessionToken with time.Now(), which stamps a fresh\n"+
+			"authentication time onto a session that completed no factor. Pass the time\n"+
+			"the caller's own credential established, or call CreateToken if a factor\n"+
+			"really did complete here.", site)
 	}
 
 	var stale []string
-	for site := range sessionFactorMintAllowlist {
+	for site := range sessionMintAllowlist {
 		if !found[site] {
 			stale = append(stale, site)
 		}
 	}
 	sort.Strings(stale)
 	for _, site := range stale {
-		t.Errorf("sessionFactorMintAllowlist lists %s, which no longer calls CreateToken; remove the entry", site)
+		t.Errorf("sessionMintAllowlist lists %s, which no longer names a session-minting method; remove the entry", site)
 	}
 }
 
-// isJWTServiceReceiver reports whether an expression names the JWT service.
-// Matched by identifier rather than by type so the check needs no type
-// information: every mint in the tree reaches it through a field or variable
-// spelled this way, and a receiver spelled otherwise fails the allowlist as an
-// unknown site rather than passing silently.
-func isJWTServiceReceiver(x ast.Expr) bool {
-	switch e := x.(type) {
-	case *ast.Ident:
-		return strings.Contains(strings.ToLower(e.Name), "jwt")
-	case *ast.SelectorExpr:
-		return strings.Contains(strings.ToLower(e.Sel.Name), "jwt")
+// funcDeclName renders a declaration as Receiver.Name, or just Name for a plain
+// function, so two methods of the same name in one file stay distinct.
+func funcDeclName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
 	}
-	return false
+	return receiverTypeName(fn.Recv.List[0].Type) + "." + fn.Name.Name
+}
+
+func receiverTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return receiverTypeName(t.X)
+	case *ast.Ident:
+		return t.Name
+	case *ast.IndexExpr:
+		return receiverTypeName(t.X)
+	}
+	return "?"
+}
+
+// callStampsNow reports whether the call's authAt argument is time.Now().
+func callStampsNow(call *ast.CallExpr) bool {
+	if len(call.Args) < 2 {
+		return false
+	}
+	inner, ok := call.Args[1].(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := inner.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Now" {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "time"
 }

@@ -133,14 +133,20 @@ func (s *JWTService) SessionUserID(tokenString string) (uint, bool) {
 }
 
 // maxAuthTimeSkew is how far ahead of the reader's clock an authentication time
-// may sit and still be believed.
+// may sit and still be believed. Some tolerance is needed because the clock that
+// stamped the claim is not always the clock that reads it.
 //
-// Some tolerance is needed because the clock that stamped the claim is not
-// always the clock that reads it. A bound is needed because a renewal copies
-// auth_at forward untouched: a single mint under a clock running hours fast
-// would otherwise leave a session that every freshness gate accepts for those
-// hours, refreshed indefinitely, with no factor behind it. Beyond the bound the
-// claim is discarded rather than trusted, which costs the user one sign-in.
+// The bound is what stops a renewal from carrying a bad stamp forever: a stamp
+// further ahead than this reads as no authentication time at all, and
+// RenewSessionToken writes no claim for a zero time, so the next renewal drops
+// it permanently. That is the mitigation, and it is why the window a
+// fast-clock mint can grant is bounded by the original token's own life rather
+// than by the session's.
+//
+// Note what it does NOT do. The bound is applied when the claim is read, so a
+// stamp far in the future is discarded now and believed later, once the
+// reader's clock reaches it. A gate combining this with its own recency window
+// therefore accepts up to maxAuthTimeSkew beyond that window.
 const maxAuthTimeSkew = 2 * time.Minute
 
 // authTimeFromClaims reads auth_at out of already-verified session claims. A
@@ -149,9 +155,10 @@ const maxAuthTimeSkew = 2 * time.Minute
 // session as not recently authenticated.
 func authTimeFromClaims(claims jwt.MapClaims) time.Time {
 	authAt, ok := claims[jwtAuthTimeClaim].(float64)
-	// Compared as a float, before any conversion: that bounds the value to the
-	// believable range and to int64 in one test, so the conversion below is
-	// always defined.
+	// Compared as a float, before any conversion: one test bounds the value to
+	// both the believable range and int64, so the conversion below is on a
+	// value in range. (A NaN would pass both comparisons, and encoding/json
+	// cannot produce one.)
 	believableThrough := float64(time.Now().Add(maxAuthTimeSkew).Unix())
 	if !ok || authAt <= 0 || authAt > believableThrough {
 		return time.Time{}
@@ -227,14 +234,6 @@ func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time
 		return nil, time.Time{}, err
 	}
 	return user, authTimeFromClaims(claims), nil
-}
-
-// ValidateTokenLenient validates a JWT but allows tokens that expired within a grace period.
-// This is used for token refresh — the client sends an expired token to get a new one.
-// The grace period prevents forcing re-login when the token expired recently.
-func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error) {
-	user, _, err := s.ValidateSessionLenient(tokenString, gracePeriod)
-	return user, err
 }
 
 // parseSessionTokenLenient verifies a session JWT's signature and claims the way

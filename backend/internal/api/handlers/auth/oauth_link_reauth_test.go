@@ -60,10 +60,10 @@ func TestLinkReauthFactorFor(t *testing.T) {
 		},
 		{
 			// The reader's clock and the stamping clock need not agree to the
-			// second, so a slightly future time still counts. Anything further
-			// ahead never reaches this function: authTimeFromClaims discards it
-			// past maxAuthTimeSkew and the caller sees the zero value.
-			name:                   "a slightly future authentication time counts as fresh",
+			// second, so a future time still counts here. How far ahead a stamp
+			// may sit before it is discarded is decided by the reader that
+			// supplies this value, not by this function.
+			name:                   "a future authentication time counts as fresh",
 			hasPassword:            true,
 			sessionAuthenticatedAt: now.Add(1 * time.Minute),
 			want:                   reauthAlreadySatisfied,

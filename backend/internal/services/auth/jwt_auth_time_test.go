@@ -204,15 +204,36 @@ func TestValidateSession_ImplausibleAuthTimeEstablishesNone(t *testing.T) {
 
 // Inside the skew allowance a future stamp still counts, so a reader whose clock
 // trails the minting clock by a moment does not refuse its own fresh sessions.
-func TestValidateSession_SlightlyFutureAuthTimeIsBelieved(t *testing.T) {
+// Just outside it, the stamp is discarded.
+func TestValidateSession_FutureAuthTimeIsBelievedOnlyWithinTheSkewAllowance(t *testing.T) {
 	svc := authTimeTestService(t, authTimeTestSecret, 24)
 
-	stamped := time.Now().Add(maxAuthTimeSkew / 2).Truncate(time.Second)
-	signed := signSessionClaims(t, authTimeTestSecret, jwt.MapClaims{"auth_at": stamped.Unix()})
+	believe := func(t *testing.T, stamped time.Time) time.Time {
+		t.Helper()
+		signed := signSessionClaims(t, authTimeTestSecret, jwt.MapClaims{"auth_at": stamped.Unix()})
+		_, authAt, err := svc.ValidateSession(signed)
+		require.NoError(t, err)
+		return authAt
+	}
 
-	_, authAt, err := svc.ValidateSession(signed)
-	require.NoError(t, err)
-	assert.True(t, authAt.Equal(stamped.UTC()))
+	t.Run("half the allowance", func(t *testing.T) {
+		stamped := time.Now().Add(maxAuthTimeSkew / 2).Truncate(time.Second)
+		assert.True(t, believe(t, stamped).Equal(stamped.UTC()))
+	})
+
+	// The comparison is against now+skew at read time, so a stamp a few seconds
+	// inside the edge is believed and one a few seconds outside is not. The
+	// margin keeps the two cases either side of the boundary despite the clock
+	// moving between building the token and reading it.
+	t.Run("just inside the edge", func(t *testing.T) {
+		stamped := time.Now().Add(maxAuthTimeSkew - 5*time.Second).Truncate(time.Second)
+		assert.False(t, believe(t, stamped).IsZero())
+	})
+
+	t.Run("just outside the edge", func(t *testing.T) {
+		stamped := time.Now().Add(maxAuthTimeSkew + 5*time.Second).Truncate(time.Second)
+		assert.True(t, believe(t, stamped).IsZero())
+	})
 }
 
 // A single-purpose token (magic link, verification, recovery) must not be read

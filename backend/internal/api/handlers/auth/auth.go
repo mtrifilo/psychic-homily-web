@@ -2207,9 +2207,11 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 		"user_id", contextUser.ID,
 	)
 
-	// Generate a fresh JWT token for CLI use (24 hour expiry). This mints a
-	// session from a session rather than from a factor, so it carries the
-	// caller's authentication time forward.
+	// Generate a fresh JWT token for CLI use, expiring after the configured
+	// session lifetime. This mints a session from a credential the caller
+	// already holds rather than from a factor, so it carries that credential's
+	// authentication time forward. An API-token caller reaches here with none,
+	// and the token it gets carries none.
 	//
 	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
 	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides
