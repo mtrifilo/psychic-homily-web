@@ -247,27 +247,27 @@ export function MergeTagDialog({
                     &quot;{preview.target_name}&quot;.
                   </p>
                   {discardedLinks.length > 0 && (
-                    <InlineErrorBanner
-                      testId="merge-preview-discarded-links"
-                      className="space-y-1"
+                    <div
+                      data-testid="merge-preview-discarded-links"
+                      className="space-y-1 text-destructive"
                     >
                       <p>
                         {discardedLinks.length === 1
                           ? 'This link on '
                           : 'These links on '}
                         &quot;{preview.source_name}&quot; will be lost.
-                        &quot;{preview.target_name}&quot; already has its own
-                        and keeps it.
+                        &quot;{preview.target_name}&quot; keeps the value it
+                        already has.
                       </p>
                       <ul className="list-disc space-y-1 pl-5">
                         {discardedLinks.map(link => (
-                          <li key={link.field} className="break-all">
+                          <li key={link.field} className="break-words">
                             {linkFieldLabel(link.field)}: {link.source_value}{' '}
                             (kept: {link.target_value})
                           </li>
                         ))}
                       </ul>
-                    </InlineErrorBanner>
+                    </div>
                   )}
                 </div>
               )}
