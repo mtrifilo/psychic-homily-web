@@ -717,11 +717,7 @@ export const queryKeys = {
     // parameter and no viewer: the counts are a fact about the place, so every
     // caller and every viewer share one entry.
     gaps: (slug: string) => ['scenes', 'gaps', slug] as const,
-    // Keyed by SLUG and nothing else, for the same reasons as `gaps`:
-    // `GET /scenes/{slug}/crews` takes no parameter and no viewer, and the
-    // ranking it returns is a fact about the place, so every caller and every
-    // viewer share one entry. The scene id the page never holds is not a key
-    // here and must not become one (the PSY-1109 key-drift class).
+    // Slug alone, for the reasons stated on `gaps` above.
     crews: (slug: string) => ['scenes', 'crews', slug] as const,
     // clusterBy is the literal union (not string) so a drifted value at an
     // invalidation/prefetch site is a compile error, not a silent key

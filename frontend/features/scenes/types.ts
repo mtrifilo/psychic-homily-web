@@ -213,9 +213,9 @@ export interface SceneCollectionsResponse {
  * DERIVED from the generated schema, the same rule as `SceneCollectionSummary`.
  *
  * `show_count` counts the scene's approved shows carrying this tag, over all
- * dates. It ORDERS the list and is not the tag's global usage figure from the
- * /tags facets, which reaches shows transitively through their billed artists
- * and so counts a different set.
+ * dates. It is NOT the tag's global usage figure from the /tags facets, which
+ * reaches shows transitively through their billed artists and so counts a
+ * different set.
  */
 export type SceneCrewSummary = components['schemas']['SceneCrewSummary']
 

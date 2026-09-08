@@ -58,10 +58,12 @@ const CREWS: SceneCrewSummary[] = [
   { slug: 'pleiades-series', name: 'Pleiades Series', show_count: 1 },
 ]
 
-function mockCrews(crews: SceneCrewSummary[] | undefined) {
+/** `null` is the absent payload, which is how both loading and error arrive. */
+function renderCrews(crews: SceneCrewSummary[] | null = CREWS) {
   mockUseSceneCrews.mockReturnValue({
-    data: crews === undefined ? undefined : { crews },
+    data: crews === null ? undefined : { crews },
   })
+  return renderWithProviders(<SceneCrews scene={buildScene()} />)
 }
 
 beforeEach(() => {
@@ -70,15 +72,13 @@ beforeEach(() => {
 
 describe('SceneCrews', () => {
   it('keys the hook by slug', () => {
-    mockCrews(CREWS)
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews()
 
     expect(mockUseSceneCrews).toHaveBeenCalledWith('phoenix-az')
   })
 
   it('links each chip to the crew tag page', () => {
-    mockCrews(CREWS)
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews()
 
     expect(
       screen.getByRole('link', { name: 'Relax Attack Jazz Series' })
@@ -93,8 +93,7 @@ describe('SceneCrews', () => {
   // Re-sorting here would publish a different ranking than the one the payload
   // documents.
   it('renders the chips in the order the endpoint returned them', () => {
-    mockCrews(CREWS)
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews()
 
     const names = screen
       .getAllByRole('listitem')
@@ -110,15 +109,13 @@ describe('SceneCrews', () => {
       name: `Crew ${i}`,
       show_count: 14 - i,
     }))
-    mockCrews(many)
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews(many)
 
     expect(screen.getAllByRole('listitem')).toHaveLength(14)
   })
 
   it('wears the crew category chip treatment', () => {
-    mockCrews(CREWS)
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews()
 
     const chip = screen.getByRole('link', { name: 'Relax Attack Jazz Series' })
     for (const cls of getCategoryChipClasses('crew').split(' ')) {
@@ -126,17 +123,19 @@ describe('SceneCrews', () => {
     }
   })
 
-  // The show counts rank the row; they are not the reader's business.
-  it('does not print the ranking counts', () => {
-    mockCrews(CREWS)
-    const { container } = renderWithProviders(<SceneCrews scene={buildScene()} />)
+  // The show counts rank the row; they are not the reader's business. Asserted
+  // as "each chip is exactly its crew's name", which stays true of a crew whose
+  // name happens to contain a digit.
+  it('prints the crew names alone, never the ranking counts', () => {
+    renderCrews()
 
-    expect(container.textContent).not.toMatch(/\d/)
+    expect(
+      screen.getAllByRole('listitem').map(item => item.textContent)
+    ).toEqual(CREWS.map(crew => crew.name))
   })
 
   it('hides completely when the scene has no crew tags', () => {
-    mockCrews([])
-    const { container } = renderWithProviders(<SceneCrews scene={buildScene()} />)
+    const { container } = renderCrews([])
 
     expect(container).toBeEmptyDOMElement()
   })
@@ -144,8 +143,7 @@ describe('SceneCrews', () => {
   // Loading and error both arrive as absent data, and neither may flash a row
   // the payload may not warrant.
   it('hides while there is no payload', () => {
-    mockCrews(undefined)
-    const { container } = renderWithProviders(<SceneCrews scene={buildScene()} />)
+    const { container } = renderCrews(null)
 
     expect(container).toBeEmptyDOMElement()
   })
@@ -153,8 +151,7 @@ describe('SceneCrews', () => {
   // A slug that resolves to the tag INDEX rather than to the crew: the chip is
   // still named, and it is not a link.
   it('names a crew it cannot link, without linking it', () => {
-    mockCrews([{ slug: '', name: 'Unslugged Crew', show_count: 2 }])
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews([{ slug: '', name: 'Unslugged Crew', show_count: 2 }])
 
     const item = screen.getByRole('listitem')
     expect(item).toHaveTextContent('Unslugged Crew')
@@ -162,8 +159,7 @@ describe('SceneCrews', () => {
   })
 
   it('names the row after the scene the page is on', () => {
-    mockCrews(CREWS)
-    renderWithProviders(<SceneCrews scene={buildScene()} />)
+    renderCrews()
 
     expect(
       screen.getByRole('list', { name: 'Crews booking in Phoenix' })

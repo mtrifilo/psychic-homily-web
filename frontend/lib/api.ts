@@ -463,9 +463,10 @@ export const API_ENDPOINTS = {
      */
     GAPS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/gaps`,
     /**
-     * The crew tags booking in this scene, most of the scene's shows first
-     * (PSY-1884). Takes no parameters and applies no cap. 404s below the scene
-     * venue threshold, like COLLECTIONS and GAPS.
+     * The crew tags booking in this scene: a tag applied to a show at one of
+     * the scene's rooms. Ranked by how many of the scene's shows carry each
+     * tag, then by name. Takes no parameters and applies no cap; 404s below
+     * the scene venue threshold, like COLLECTIONS and GAPS.
      */
     CREWS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/crews`,
   },

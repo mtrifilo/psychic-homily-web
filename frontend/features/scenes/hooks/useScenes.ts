@@ -229,19 +229,15 @@ export function useSceneGaps(slug: string) {
 }
 
 /**
- * Hook to fetch the crew tags booking in this scene (PSY-1884).
+ * Hook to fetch the crew tags booking in this scene.
  *
  * The endpoint takes no parameter and applies no cap, so the caller has nothing
- * to pass and nothing to re-rank: the rows arrive ordered by how many of the
- * scene's shows carry each tag, then by name.
+ * to pass and nothing to re-rank: the rows arrive ranked, and the ranking rule
+ * is documented on `API_ENDPOINTS.SCENES.CREWS`.
  *
- * Ten minutes. The list moves when someone tags a show with a crew, not when a
- * show is booked, and the chip row reads the same at ten minutes stale.
- *
- * This endpoint 404s on a parseable place below the scene venue threshold,
- * where the sibling new-artists endpoint answers 200 with an empty list. The
- * caller renders nothing in either case, so the difference does not reach the
- * page.
+ * Ten minutes, matching `useSceneGaps`: the list moves when someone tags a show
+ * with a crew, not when a show is booked, and the chip row reads the same at
+ * ten minutes stale.
  */
 export function useSceneCrews(slug: string) {
   return useQuery({

@@ -384,23 +384,14 @@ describe('SceneDetailView', () => {
       expect(screen.getByTestId('scene-add-to-calendar')).toHaveTextContent('phoenix-az')
     })
 
-    // The row is the last thing in the header, under the action row, and it is
-    // handed the scene the page is on rather than the route's slug argument:
-    // a member-city slug and the canonical one are not the same string.
+    // The row is the LAST thing in the header, and it is handed the scene the
+    // page resolved to rather than the route's slug argument: a member-city
+    // slug and the canonical one are not the same string.
     it('puts the crews chip row at the end of the header', () => {
-      renderScene({ slug: 'tempe-az' })
+      const { container } = renderScene({ slug: 'tempe-az' })
       const crews = screen.getByTestId('scene-crews')
+      expect(container.querySelector('header')?.lastElementChild).toBe(crews)
       expect(crews).toHaveTextContent('phoenix-az')
-      expect(crews.closest('header')).not.toBeNull()
-      expect(
-        screen
-          .getByTestId('share-button')
-          .compareDocumentPosition(crews) & Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
-      expect(
-        crews.compareDocumentPosition(screen.getByTestId('scene-calendar')) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
     })
 
     it('does not render editorial scaffolding in the reserved slot', () => {
