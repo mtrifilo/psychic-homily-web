@@ -17,15 +17,14 @@ import (
 // not move the first, or a caller holding only a stolen session can satisfy a
 // re-authentication gate by asking for a new token.
 
-func authTimeTestService(t *testing.T, expiryHours int64) (*JWTService, *config.Config) {
+const authTimeTestSecret = "auth-time-test-secret-key-32-characters"
+
+func authTimeTestService(t *testing.T, secret string, expiryHours int64) *JWTService {
 	t.Helper()
 	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "auth-time-test-secret-key-32-characters",
-			Expiry:    expiryHours,
-		},
+		JWT: config.JWTConfig{SecretKey: secret, Expiry: expiryHours},
 	}
-	return NewJWTService(nil, cfg, newNilDBUserService()), cfg
+	return NewJWTService(nil, cfg, newNilDBUserService())
 }
 
 // claimsOf parses a token with the given secret and returns its claims without
@@ -42,8 +41,19 @@ func claimsOf(t *testing.T, secret, token string) jwt.MapClaims {
 	return claims
 }
 
+// sessionAuthTime is what the middlewares get from ValidateSession, without the
+// database lookup those tests would otherwise need.
+func sessionAuthTime(t *testing.T, svc *JWTService, token string) (time.Time, error) {
+	t.Helper()
+	claims, err := svc.parseSessionToken(token)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return authTimeFromClaims(claims), nil
+}
+
 func TestCreateToken_StampsAuthTime(t *testing.T) {
-	svc, cfg := authTimeTestService(t, 24)
+	svc := authTimeTestService(t, authTimeTestSecret, 24)
 	user := &authm.User{ID: 7, Email: stringPtr("factor@example.com")}
 
 	before := time.Now().Add(-time.Second)
@@ -51,31 +61,30 @@ func TestCreateToken_StampsAuthTime(t *testing.T) {
 	require.NoError(t, err)
 	after := time.Now().Add(time.Second)
 
-	claims := claimsOf(t, cfg.JWT.SecretKey, token)
-	require.Contains(t, claims, "auth_at", "a factor mint must state when the factor completed")
+	require.Contains(t, claimsOf(t, authTimeTestSecret, token), "auth_at",
+		"a factor mint must state when the factor completed")
 
-	authAt, ok := svc.SessionAuthTime(token)
-	require.True(t, ok)
+	authAt, err := sessionAuthTime(t, svc, token)
+	require.NoError(t, err)
 	assert.False(t, authAt.Before(before))
 	assert.False(t, authAt.After(after))
 }
 
 func TestRenewSessionToken_CarriesAuthTimeThroughUnchanged(t *testing.T) {
-	svc, cfg := authTimeTestService(t, 24)
+	svc := authTimeTestService(t, authTimeTestSecret, 24)
 	user := &authm.User{ID: 8, Email: stringPtr("renew@example.com")}
 
 	authAt := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
 	renewed, err := svc.RenewSessionToken(user, authAt)
 	require.NoError(t, err)
 
-	got, ok := svc.SessionAuthTime(renewed)
-	require.True(t, ok)
+	got, err := sessionAuthTime(t, svc, renewed)
+	require.NoError(t, err)
 	assert.True(t, got.Equal(authAt.UTC()), "renewal must not move auth_at")
 
 	// iat is the claim renewal DOES move; the point of auth_at is that the two
 	// now disagree.
-	claims := claimsOf(t, cfg.JWT.SecretKey, renewed)
-	issuedAt := time.Unix(int64(claims["iat"].(float64)), 0)
+	issuedAt := time.Unix(int64(claimsOf(t, authTimeTestSecret, renewed)["iat"].(float64)), 0)
 	assert.True(t, issuedAt.After(got.Add(time.Hour)),
 		"the renewed token is freshly issued but not freshly authenticated")
 }
@@ -84,17 +93,17 @@ func TestRenewSessionToken_CarriesAuthTimeThroughUnchanged(t *testing.T) {
 // This is the migration case: every token minted before this change is such a
 // session.
 func TestRenewSessionToken_ZeroAuthTimeWritesNoClaim(t *testing.T) {
-	svc, cfg := authTimeTestService(t, 24)
+	svc := authTimeTestService(t, authTimeTestSecret, 24)
 	user := &authm.User{ID: 9, Email: stringPtr("legacy@example.com")}
 
 	legacy, err := svc.RenewSessionToken(user, time.Time{})
 	require.NoError(t, err)
 
-	claims := claimsOf(t, cfg.JWT.SecretKey, legacy)
-	assert.NotContains(t, claims, "auth_at")
+	assert.NotContains(t, claimsOf(t, authTimeTestSecret, legacy), "auth_at")
 
-	_, ok := svc.SessionAuthTime(legacy)
-	assert.False(t, ok, "absence of the claim is not evidence of freshness")
+	authAt, err := sessionAuthTime(t, svc, legacy)
+	require.NoError(t, err)
+	assert.True(t, authAt.IsZero(), "absence of the claim is not evidence of freshness")
 
 	// It is still an ordinary, usable session token: the claim gates the
 	// security-relevant surfaces, not authentication itself.
@@ -104,41 +113,38 @@ func TestRenewSessionToken_ZeroAuthTimeWritesNoClaim(t *testing.T) {
 
 	renewedAgain, err := svc.RenewSessionToken(user, time.Time{})
 	require.NoError(t, err)
-	_, ok = svc.SessionAuthTime(renewedAgain)
-	assert.False(t, ok, "renewing a legacy session must not manufacture an auth time")
+	authAt, err = sessionAuthTime(t, svc, renewedAgain)
+	require.NoError(t, err)
+	assert.True(t, authAt.IsZero(), "renewing a legacy session must not manufacture an auth time")
 }
 
 func TestSessionAuthTime_RefusesTokensItCannotVouchFor(t *testing.T) {
-	svc, _ := authTimeTestService(t, 24)
+	svc := authTimeTestService(t, authTimeTestSecret, 24)
 	user := &authm.User{ID: 10, Email: stringPtr("refuse@example.com")}
 
 	t.Run("garbage", func(t *testing.T) {
-		_, ok := svc.SessionAuthTime("not-a-jwt")
-		assert.False(t, ok)
+		_, err := sessionAuthTime(t, svc, "not-a-jwt")
+		assert.Error(t, err)
 	})
 
 	t.Run("empty", func(t *testing.T) {
-		_, ok := svc.SessionAuthTime("")
-		assert.False(t, ok)
+		_, err := sessionAuthTime(t, svc, "")
+		assert.Error(t, err)
 	})
 
 	t.Run("signed with another secret", func(t *testing.T) {
-		other, _ := authTimeTestService(t, 24)
-		other.config.JWT.SecretKey = "a-completely-different-secret-value"
-		forged, err := other.CreateToken(user)
+		forged, err := authTimeTestService(t, "a-completely-different-secret-value", 24).CreateToken(user)
 		require.NoError(t, err)
-		_, ok := svc.SessionAuthTime(forged)
-		assert.False(t, ok, "an auth time is only as good as the signature over it")
+		_, err = sessionAuthTime(t, svc, forged)
+		assert.Error(t, err, "an auth time is only as good as the signature over it")
 	})
 
 	t.Run("expired", func(t *testing.T) {
-		expiredSvc, _ := authTimeTestService(t, 0)
-		expiredSvc.config.JWT.SecretKey = svc.config.JWT.SecretKey
-		token, err := expiredSvc.CreateToken(user)
+		token, err := authTimeTestService(t, authTimeTestSecret, 0).CreateToken(user)
 		require.NoError(t, err)
 		time.Sleep(1100 * time.Millisecond)
-		_, ok := svc.SessionAuthTime(token)
-		assert.False(t, ok)
+		_, err = sessionAuthTime(t, svc, token)
+		assert.Error(t, err)
 	})
 
 	t.Run("non-positive claim value", func(t *testing.T) {
@@ -151,47 +157,44 @@ func TestSessionAuthTime_RefusesTokensItCannotVouchFor(t *testing.T) {
 			"sub":     jwtSessionSubject,
 			"auth_at": 0,
 		})
-		signed, err := zeroStamped.SignedString([]byte(svc.config.JWT.SecretKey))
+		signed, err := zeroStamped.SignedString([]byte(authTimeTestSecret))
 		require.NoError(t, err)
-		_, ok := svc.SessionAuthTime(signed)
-		assert.False(t, ok, "epoch zero is an unset stamp, not a 1970 authentication")
+		authAt, err := sessionAuthTime(t, svc, signed)
+		require.NoError(t, err)
+		assert.True(t, authAt.IsZero(), "epoch zero is an unset stamp, not a 1970 authentication")
 	})
 }
 
-// The refresh endpoint reads the presented token through the same grace period
-// its validation uses. Without the lenient read, a session renewed after expiry
-// would silently lose the claim and the user would be asked to sign in again
-// for no reason.
-func TestSessionAuthTimeLenient_ReadsAnExpiredTokenInsideTheGrace(t *testing.T) {
-	svc, _ := authTimeTestService(t, 24)
-	expiredSvc, _ := authTimeTestService(t, 0)
-	expiredSvc.config.JWT.SecretKey = svc.config.JWT.SecretKey
-
-	user := &authm.User{ID: 11, Email: stringPtr("grace@example.com")}
-	token, err := expiredSvc.CreateToken(user)
-	require.NoError(t, err)
-	time.Sleep(1100 * time.Millisecond)
-
-	_, ok := svc.SessionAuthTime(token)
-	require.False(t, ok, "strict read refuses an expired token")
-
-	authAt, ok := svc.SessionAuthTimeLenient(token, time.Hour)
-	require.True(t, ok)
-	assert.WithinDuration(t, time.Now(), authAt, 10*time.Second)
-
-	_, ok = svc.SessionAuthTimeLenient(token, time.Nanosecond)
-	assert.False(t, ok, "past the grace period it is refused like any other expired token")
-}
-
-// A single-purpose token (magic link, verification, recovery) caught inside the
-// grace window must not be read as a session, on this path any more than on the
-// validation path it shares.
-func TestSessionAuthTimeLenient_RefusesCrossTypeTokens(t *testing.T) {
-	svc, _ := authTimeTestService(t, 24)
+// A single-purpose token (magic link, verification, recovery) must not be read
+// as a session on the lenient path any more than on the strict one.
+func TestParseSessionTokenLenient_RefusesCrossTypeTokens(t *testing.T) {
+	svc := authTimeTestService(t, authTimeTestSecret, 24)
 
 	magicLink, err := svc.CreateMagicLinkToken(12, "cross@example.com")
 	require.NoError(t, err)
 
-	_, ok := svc.SessionAuthTimeLenient(magicLink, time.Hour)
-	assert.False(t, ok)
+	_, err = svc.parseSessionTokenLenient(magicLink, time.Hour)
+	assert.Error(t, err)
+}
+
+// The lenient path reads a token that expired inside the grace window, which is
+// the shape POST /auth/refresh receives. Losing the claim there would strip the
+// standing from every session that renews late.
+func TestParseSessionTokenLenient_ReadsAuthTimeAcrossExpiry(t *testing.T) {
+	svc := authTimeTestService(t, authTimeTestSecret, 24)
+
+	user := &authm.User{ID: 11, Email: stringPtr("grace@example.com")}
+	token, err := authTimeTestService(t, authTimeTestSecret, 0).CreateToken(user)
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond)
+
+	_, err = svc.parseSessionToken(token)
+	require.Error(t, err, "the strict parse refuses an expired token")
+
+	claims, err := svc.parseSessionTokenLenient(token, time.Hour)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), authTimeFromClaims(claims), 10*time.Second)
+
+	_, err = svc.parseSessionTokenLenient(token, time.Nanosecond)
+	assert.Error(t, err, "past the grace period it is refused like any other expired token")
 }

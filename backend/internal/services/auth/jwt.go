@@ -26,17 +26,18 @@ const (
 )
 
 // jwtAuthTimeClaim carries the moment an authentication FACTOR last completed
-// for the session: a password login, a passkey assertion, a magic-link
-// confirmation, an OAuth or Apple sign-in, or an account recovery.
+// for the session. This is the one place the rule is stated in full; the code
+// that reads and writes it below assumes it rather than restating it.
 //
 // It is distinct from iat, which every mint moves. Renewing a session copies
-// this claim through unchanged, so a caller holding only a session credential
+// auth_at through unchanged, so a caller holding only a session credential
 // cannot manufacture freshness by asking for a new token. Surfaces that refuse
-// to make a security-relevant change on the strength of an old cookie read
-// this claim and never iat.
+// to make a security-relevant change on the strength of an old cookie read this
+// claim and never iat.
 //
 // A token carrying no auth_at establishes no authentication time. Readers get
-// ok=false and treat that as "not recent", which is the fail-closed answer.
+// the zero time and treat that as "not recent", which is the fail-closed
+// answer, and every token minted before the claim existed is of that shape.
 const jwtAuthTimeClaim = "auth_at"
 
 type JWTService struct {
@@ -52,33 +53,16 @@ func NewJWTService(database interface{}, cfg *config.Config, userService contrac
 }
 
 // CreateToken mints a session JWT for a caller that has JUST completed an
-// authentication factor, and stamps auth_at with the current time.
-//
-// Every caller of this method is a factor: password login, registration,
-// passkey login, passkey signup, magic-link confirmation, OAuth sign-in, Apple
-// sign-in, account recovery, account-recovery confirmation. A path that issues
-// a session on the strength of a session the caller already holds is a renewal
-// and must use RenewSessionToken instead, or it hands that caller a way to
-// manufacture the freshness the re-authentication gates require.
+// authentication factor, stamping auth_at with the current time. A path that
+// issues a session on the strength of a session the caller already holds is a
+// renewal and must use RenewSessionToken.
 func (s *JWTService) CreateToken(user *authm.User) (string, error) {
-	return s.createSessionToken(user, time.Now())
+	return s.RenewSessionToken(user, time.Now())
 }
 
-// RenewSessionToken mints a session JWT that carries an authentication time
-// established earlier, for the paths that issue a token to a caller who
-// presents an existing session rather than a factor: POST /auth/refresh and
-// the admin CLI-token mint.
-//
-// A zero authAt writes no auth_at claim, so a token minted before the claim
-// existed stays without one across a renewal rather than acquiring a freshness
-// it never earned.
+// RenewSessionToken mints a session JWT carrying authAt as its auth_at claim.
+// A zero authAt writes no claim at all.
 func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (string, error) {
-	return s.createSessionToken(user, authAt)
-}
-
-// createSessionToken builds and signs the session JWT. authAt is written as
-// the auth_at claim, and omitted entirely when zero.
-func (s *JWTService) createSessionToken(user *authm.User, authAt time.Time) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,
@@ -152,59 +136,28 @@ func (s *JWTService) SessionUserID(tokenString string) (uint, bool) {
 	return uint(uid), true
 }
 
-// SessionAuthTime returns when an authentication factor last completed for a
-// validly-signed, unexpired session token. ok is false for any invalid token
-// and for one carrying no usable auth_at claim.
-//
-// Read by the surfaces that refuse to make a security-relevant change on the
-// strength of an old cookie alone, chiefly the OAuth link path. The time comes
-// from the token rather than from a database column because it is the
-// CREDENTIAL's standing that matters, not the account's, and from auth_at
-// rather than iat because a renewal moves iat without any factor.
-func (s *JWTService) SessionAuthTime(tokenString string) (time.Time, bool) {
-	claims, err := s.parseSessionToken(tokenString)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return authTimeFromClaims(claims)
-}
-
-// SessionAuthTimeLenient is SessionAuthTime for the refresh path, which reads a
-// token that may have expired inside gracePeriod. It accepts exactly what
-// ValidateTokenLenient accepts.
-func (s *JWTService) SessionAuthTimeLenient(tokenString string, gracePeriod time.Duration) (time.Time, bool) {
-	claims, err := s.parseSessionTokenLenient(tokenString, gracePeriod)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return authTimeFromClaims(claims)
-}
-
 // authTimeFromClaims reads auth_at out of already-verified session claims. A
 // missing, non-numeric, or non-positive value establishes no authentication
-// time, so ok is false and callers treat the session as not recently
-// authenticated.
-func authTimeFromClaims(claims jwt.MapClaims) (time.Time, bool) {
+// time, so the result is the zero time and callers treat the session as not
+// recently authenticated.
+func authTimeFromClaims(claims jwt.MapClaims) time.Time {
 	authAt, ok := claims[jwtAuthTimeClaim].(float64)
 	if !ok || authAt <= 0 {
-		return time.Time{}, false
+		return time.Time{}
 	}
-	return time.Unix(int64(authAt), 0).UTC(), true
+	return time.Unix(int64(authAt), 0).UTC()
 }
 
-// ValidateToken validates and extracts user info from JWT
-// Fetches the full user from the database to ensure we have current admin status
-func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
-	claims, err := s.parseSessionToken(tokenString)
-	if err != nil {
-		return nil, err
+// userFromSessionClaims loads the principal named by already-verified session
+// claims. The database is the authority on current admin status and on whether
+// the account is still active, neither of which the token can be trusted for.
+func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, error) {
+	id, ok := claims["user_id"].(float64)
+	if !ok {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("missing or non-numeric user_id claim"))
 	}
 
-	userID := uint(claims["user_id"].(float64))
-
-	// Fetch full user from database to get current admin status and other fields
-	// This ensures we always have the most up-to-date user information
-	user, err := s.userService.GetUserByID(userID)
+	user, err := s.userService.GetUserByID(uint(id))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
@@ -216,45 +169,70 @@ func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
 	return user, nil
 }
 
+// ValidateSession validates a session JWT and returns both facts a caller can
+// establish from it in one parse: the principal, and when an authentication
+// factor last completed for the session. A zero authAt means the token
+// establishes no authentication time.
+//
+// Callers that gate on freshness take it from here rather than re-reading the
+// token, so a request pays one signature verification and one notion of what a
+// valid session is.
+func (s *JWTService) ValidateSession(tokenString string) (user *authm.User, authAt time.Time, err error) {
+	claims, err := s.parseSessionToken(tokenString)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	user, err = s.userFromSessionClaims(claims)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return user, authTimeFromClaims(claims), nil
+}
+
+// ValidateToken validates and extracts user info from JWT
+// Fetches the full user from the database to ensure we have current admin status
+func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
+	user, _, err := s.ValidateSession(tokenString)
+	return user, err
+}
+
 // RefreshToken creates a new token with extended expiry, carrying the presented
 // token's auth_at through unchanged. Renewal is not a factor: the new token
 // says the session was last authenticated exactly when the old one said it was.
 func (s *JWTService) RefreshToken(tokenString string) (string, error) {
-	user, err := s.ValidateToken(tokenString)
+	user, authAt, err := s.ValidateSession(tokenString)
 	if err != nil {
 		return "", err
 	}
-
-	authAt, _ := s.SessionAuthTime(tokenString)
 	return s.RenewSessionToken(user, authAt)
+}
+
+// ValidateSessionLenient is ValidateSession for the refresh path: it also
+// accepts a token whose expiry is at most gracePeriod in the past, so a client
+// whose session lapsed recently can renew rather than sign in again.
+func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error) {
+	// The unexpired case is the common one and needs no second parse.
+	if user, authAt, err := s.ValidateSession(tokenString); err == nil {
+		return user, authAt, nil
+	}
+
+	claims, err := s.parseSessionTokenLenient(tokenString, gracePeriod)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	user, err := s.userFromSessionClaims(claims)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return user, authTimeFromClaims(claims), nil
 }
 
 // ValidateTokenLenient validates a JWT but allows tokens that expired within a grace period.
 // This is used for token refresh — the client sends an expired token to get a new one.
 // The grace period prevents forcing re-login when the token expired recently.
 func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error) {
-	// First try strict validation (covers the case where token is still valid)
-	user, err := s.ValidateToken(tokenString)
-	if err == nil {
-		return user, nil
-	}
-
-	claims, err := s.parseSessionTokenLenient(tokenString, gracePeriod)
-	if err != nil {
-		return nil, err
-	}
-
-	userID := uint(claims["user_id"].(float64))
-	user, userErr := s.userService.GetUserByID(userID)
-	if userErr != nil {
-		return nil, fmt.Errorf("failed to get user: %w", userErr)
-	}
-
-	if !user.IsActive {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
-	}
-
-	return user, nil
+	user, _, err := s.ValidateSessionLenient(tokenString, gracePeriod)
+	return user, err
 }
 
 // parseSessionTokenLenient verifies a session JWT's signature and claims the way
@@ -299,10 +277,6 @@ func (s *JWTService) parseSessionTokenLenient(tokenString string, gracePeriod ti
 	aud, _ := claims["aud"].(string)
 	if sub != jwtSessionSubject || iss != jwtIssuer || aud != jwtAudience {
 		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("invalid token subject, issuer, or audience"))
-	}
-
-	if _, ok := claims["user_id"].(float64); !ok {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("missing or non-numeric user_id claim"))
 	}
 
 	return claims, nil

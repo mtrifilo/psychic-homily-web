@@ -38,7 +38,7 @@ func (s *OAuthHandlerIntegrationSuite) parseLinkRedirect(location string) url.Va
 // that exercise one of them drop it explicitly.
 func (s *OAuthHandlerIntegrationSuite) oauthLinkRequest(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
 	s.T().Helper()
-	w, req := s.oauthLinkRequestWithoutToken(provider, user)
+	w, req := s.oauthLinkRequestWithoutToken(provider, user, time.Now())
 	if user != nil {
 		token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 		s.Require().NoError(err)
@@ -50,7 +50,9 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequest(provider string, user *a
 }
 
 // oauthLinkRequestWithoutToken is the same request with no link token on it.
-func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
+// authAt is when the session last authenticated; the zero value is a credential
+// that carries no authentication time at all.
+func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider string, user *authm.User, authAt time.Time) (*httptest.ResponseRecorder, *http.Request) {
 	s.T().Helper()
 	req := httptest.NewRequest("GET", "/auth/link/"+provider, nil)
 	// A browser navigating from our own Settings page says so; the start
@@ -58,12 +60,13 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider str
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Origin", testFrontendOrigin)
 
-	// The principal and the credential's age go in the way the JWT middleware
-	// puts them there, so this exercises the same reads the handler makes.
+	// The principal and the session's authentication time go in the way the JWT
+	// middleware puts them there, so this exercises the same reads the handler
+	// makes.
 	ctx := context.Background()
 	if user != nil {
 		ctx = testhelpers.CtxWithUser(user)
-		ctx = context.WithValue(ctx, middleware.SessionAuthTimeContextKey, time.Now())
+		ctx = context.WithValue(ctx, middleware.SessionAuthTimeContextKey, authAt)
 	}
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", provider)
@@ -116,7 +119,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_WithoutTokenRefused() {
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", user)
+	w, req := s.oauthLinkRequestWithoutToken("google", user, time.Now())
 	handler.OAuthLinkHTTPHandler(w, req)
 
 	s.assertLinkRefusal(w, oauthLinkErrorNotFromSettings)
@@ -135,7 +138,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_TokenFromAnotherAccountRefused()
 	s.Require().NoError(err)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", owner)
+	w, req := s.oauthLinkRequestWithoutToken("google", owner, time.Now())
 	q := req.URL.Query()
 	q.Set(oauthLinkTokenParam, othersToken)
 	req.URL.RawQuery = q.Encode()
@@ -156,7 +159,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_TokenIsSingleUse() {
 	handler.OAuthLinkHTTPHandler(w, req)
 	s.Require().NotNil(linkIntentCookie(w))
 
-	replayW, replayReq := s.oauthLinkRequestWithoutToken("google", user)
+	replayW, replayReq := s.oauthLinkRequestWithoutToken("google", user, time.Now())
 	replayReq.URL.RawQuery = req.URL.RawQuery
 	handler.OAuthLinkHTTPHandler(replayW, replayReq)
 
@@ -194,16 +197,14 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", user)
+	// Older than recentSessionWindow: the account has a password, so the rule
+	// asks for that rather than accepting the cookie.
+	w, req := s.oauthLinkRequestWithoutToken("google", user, time.Now().Add(-2*time.Hour))
 	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 	s.Require().NoError(err)
 	q := req.URL.Query()
 	q.Set(oauthLinkTokenParam, token)
 	req.URL.RawQuery = q.Encode()
-	// Older than recentSessionWindow: the account has a password, so the rule
-	// asks for that rather than accepting the cookie.
-	req = req.WithContext(context.WithValue(req.Context(),
-		middleware.SessionAuthTimeContextKey, time.Now().Add(-2*time.Hour)))
 
 	handler.OAuthLinkHTTPHandler(w, req)
 
@@ -235,18 +236,13 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", user)
+	// The principal is there; the authentication time is not.
+	w, req := s.oauthLinkRequestWithoutToken("google", user, time.Time{})
 	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 	s.Require().NoError(err)
 	q := req.URL.Query()
 	q.Set(oauthLinkTokenParam, token)
 	req.URL.RawQuery = q.Encode()
-	// The principal is there; the authentication time is not. oauthLinkRequest
-	// puts one in, so this drops it explicitly.
-	ctx := testhelpers.CtxWithUser(user)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(ctx, chi.RouteCtxKey, rctx))
 
 	handler.OAuthLinkHTTPHandler(w, req)
 

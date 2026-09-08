@@ -17,14 +17,10 @@ import (
 // out of the refusal.
 
 // ctxWithSessionAuthTime builds what the JWT middlewares put in front of these
-// handlers: a principal and, when the credential carries one, the time a
-// factor last completed for it.
+// handlers: a principal and the time a factor last completed for the
+// credential, zero when it carries none.
 func ctxWithSessionAuthTime(user *authm.User, authAt time.Time) context.Context {
-	ctx := testhelpers.CtxWithUser(user)
-	if authAt.IsZero() {
-		return ctx
-	}
-	return context.WithValue(ctx, middleware.SessionAuthTimeContextKey, authAt)
+	return context.WithValue(testhelpers.CtxWithUser(user), middleware.SessionAuthTimeContextKey, authAt)
 }
 
 func TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) {
@@ -76,7 +72,8 @@ func TestRefreshTokenHandler_LegacySessionRenewsWithNoAuthTime(t *testing.T) {
 		}
 	})
 
-	if _, err := h.RefreshTokenHandler(testhelpers.CtxWithUser(&authm.User{ID: 1}), &struct{}{}); err != nil {
+	ctx := ctxWithSessionAuthTime(&authm.User{ID: 1}, time.Time{})
+	if _, err := h.RefreshTokenHandler(ctx, &struct{}{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !called {

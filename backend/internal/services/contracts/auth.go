@@ -123,9 +123,7 @@ type AuthServiceInterface interface {
 	// AuthErrors UserServiceInterface.LinkOAuthAccountToUser documents.
 	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
-	// RefreshUserToken renews a session, carrying authAt (the presented
-	// token's authentication time) through unchanged. A zero authAt renews a
-	// session that carries no authentication time and leaves it without one.
+	// RefreshUserToken renews a session, carrying authAt through unchanged.
 	RefreshUserToken(user *authm.User, authAt time.Time) (string, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
 	SetOAuthCompleter(completer OAuthCompleter)
@@ -141,8 +139,7 @@ type JWTServiceInterface interface {
 	// authentication factor, stamping auth_at with the current time.
 	CreateToken(user *authm.User) (string, error)
 	// RenewSessionToken mints a session for a caller presenting an existing
-	// session rather than a factor, carrying authAt through unchanged. A zero
-	// authAt writes no auth_at claim.
+	// session rather than a factor, carrying authAt through unchanged.
 	RenewSessionToken(user *authm.User, authAt time.Time) (string, error)
 	ValidateToken(tokenString string) (*authm.User, error)
 	RefreshToken(tokenString string) (string, error)

@@ -181,12 +181,8 @@ func (s *AuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	return user, nil
 }
 
-// RefreshUserToken generates a new JWT token for the user, carrying forward the
-// authentication time the caller read off the presented session.
-//
-// Renewal is not an authentication factor, so authAt is passed in rather than
-// stamped here. A zero authAt renews a session that never carried the claim and
-// leaves it without one, so the re-authentication gates keep refusing it.
+// RefreshUserToken generates a new JWT token for the user, carrying authAt (the
+// presented session's authentication time) through unchanged.
 func (s *AuthService) RefreshUserToken(user *authm.User, authAt time.Time) (string, error) {
 	return s.jwtService.RenewSessionToken(user, authAt)
 }

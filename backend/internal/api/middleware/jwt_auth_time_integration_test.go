@@ -13,17 +13,18 @@ import (
 	usersvc "psychic-homily-backend/internal/services/user"
 )
 
-// The re-authentication gates read the auth_at claim out of the request
-// context. These hold that every middleware that authenticates a session puts
-// it there, and that the readers agree with the minting service about when a
+// The re-authentication gates read the session's auth_at out of the request
+// context. These hold that every middleware here that resolves a session puts
+// it there, and that the value agrees with the minting service about when the
 // session last stood behind a factor.
 
 func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_CarriesSessionAuthTime() {
 	user := s.createActiveUser("huma-auth-time@test.com")
 	token, err := s.jwtService.CreateToken(user)
 	s.Require().NoError(err)
-	minted, ok := s.jwtService.SessionAuthTime(token)
-	s.Require().True(ok)
+	_, minted, err := s.jwtService.ValidateSession(token)
+	s.Require().NoError(err)
+	s.Require().False(minted.IsZero())
 
 	mw := HumaJWTMiddleware(s.jwtService)
 	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
@@ -31,12 +32,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_CarriesSessionAuthTime() {
 	ctx, _ := newHumaContext(s.T(), req)
 
 	var got time.Time
-	var present bool
 	mw(ctx, func(next huma.Context) {
-		got, present = GetSessionAuthTimeFromContext(next.Context())
+		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
-	s.Require().True(present)
 	s.True(got.Equal(minted))
 }
 
@@ -56,18 +55,16 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_RenewedSessionReportsTheOrig
 	ctx, _ := newHumaContext(s.T(), req)
 
 	var got time.Time
-	var present bool
 	mw(ctx, func(next huma.Context) {
-		got, present = GetSessionAuthTimeFromContext(next.Context())
+		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
-	s.Require().True(present)
 	s.True(got.Equal(authAt.UTC()))
 	s.Greater(time.Since(got), time.Hour, "renewal does not make a session recently authenticated")
 }
 
-// A session minted before the claim existed carries none, and the readers say
-// so rather than substituting the issue time.
+// A session minted before the claim existed carries none, and the context says
+// so with the zero time rather than substituting the issue time.
 func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_LegacySessionCarriesNoAuthTime() {
 	user := s.createActiveUser("huma-legacy-auth-time@test.com")
 	legacy, err := s.jwtService.RenewSessionToken(user, time.Time{})
@@ -79,15 +76,15 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_LegacySessionCarriesNoAuthTi
 	ctx, _ := newHumaContext(s.T(), req)
 
 	var ctxUser *authm.User
-	var present bool
+	var got time.Time
 	mw(ctx, func(next huma.Context) {
 		ctxUser, _ = next.Context().Value(UserContextKey).(*authm.User)
-		_, present = GetSessionAuthTimeFromContext(next.Context())
+		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
 	s.Require().NotNil(ctxUser, "a legacy session is still a valid session")
 	s.Equal(user.ID, ctxUser.ID)
-	s.False(present)
+	s.True(got.IsZero())
 }
 
 func (s *JWTMiddlewareIntegrationSuite) TestChiJWT_CarriesSessionAuthTime() {
@@ -98,9 +95,8 @@ func (s *JWTMiddlewareIntegrationSuite) TestChiJWT_CarriesSessionAuthTime() {
 	s.Require().NoError(err)
 
 	var got time.Time
-	var present bool
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, present = GetSessionAuthTimeFromContext(r.Context())
+		got = GetSessionAuthTimeFromContext(r.Context())
 	})
 	handler := JWTMiddleware(s.jwtService)(inner)
 
@@ -108,7 +104,26 @@ func (s *JWTMiddlewareIntegrationSuite) TestChiJWT_CarriesSessionAuthTime() {
 	req.Header.Set("Authorization", "Bearer "+token)
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	s.Require().True(present)
+	s.True(got.Equal(authAt.UTC()))
+}
+
+func (s *JWTMiddlewareIntegrationSuite) TestOptionalJWT_CarriesSessionAuthTime() {
+	user := s.createActiveUser("optional-auth-time@test.com")
+
+	authAt := time.Now().Add(-45 * time.Minute).Truncate(time.Second)
+	token, err := s.jwtService.RenewSessionToken(user, authAt)
+	s.Require().NoError(err)
+
+	mw := OptionalHumaJWTMiddleware(s.jwtService)
+	req := httptest.NewRequest(http.MethodGet, "/api/public", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	ctx, _ := newHumaContext(s.T(), req)
+
+	var got time.Time
+	mw(ctx, func(next huma.Context) {
+		got = GetSessionAuthTimeFromContext(next.Context())
+	})
+
 	s.True(got.Equal(authAt.UTC()))
 }
 
@@ -127,8 +142,9 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CarriesSessionAuthTimeAcr
 	expiredJWTService := auth.NewJWTService(s.db, expiredCfg, usersvc.NewUserService(s.db))
 	token, err := expiredJWTService.CreateToken(user)
 	s.Require().NoError(err)
-	minted, ok := expiredJWTService.SessionAuthTimeLenient(token, 10*time.Minute)
-	s.Require().True(ok)
+	_, minted, err := expiredJWTService.ValidateSessionLenient(token, 10*time.Minute)
+	s.Require().NoError(err)
+	s.Require().False(minted.IsZero())
 
 	mw := LenientHumaJWTMiddleware(s.jwtService, 10*time.Minute)
 	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
@@ -136,11 +152,9 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CarriesSessionAuthTimeAcr
 	ctx, _ := newHumaContext(s.T(), req)
 
 	var got time.Time
-	var present bool
 	mw(ctx, func(next huma.Context) {
-		got, present = GetSessionAuthTimeFromContext(next.Context())
+		got = GetSessionAuthTimeFromContext(next.Context())
 	})
 
-	s.Require().True(present)
 	s.True(got.Equal(minted))
 }

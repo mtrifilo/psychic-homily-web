@@ -529,19 +529,14 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		return resp, svcErr
 	}
 
-	// Generate new JWT token using the JWT service.
-	//
-	// The presented session's authentication time goes into the new token
-	// unchanged. Refresh asks for no factor, so it must not be able to report
-	// one: a gate that refuses an old session has to keep refusing it however
-	// many times the holder renews. A session that carries no authentication
-	// time renews without one and stays refused.
+	// Generate new JWT token using the JWT service. Refresh asks for no factor,
+	// so it carries the presented session's authentication time rather than
+	// stamping one.
 	//
 	// Fail-closed: same rationale as the profile-fetch branch above — JWT
 	// service outages must surface as 5xx, not as HTTP 200 with a sad-path
 	// body.
-	sessionAuthAt, _ := middleware.GetSessionAuthTimeFromContext(ctx)
-	newToken, err := h.authService.RefreshUserToken(user, sessionAuthAt)
+	newToken, err := h.authService.RefreshUserToken(user, middleware.GetSessionAuthTimeFromContext(ctx))
 	if err != nil {
 		authErr := autherrors.ErrServiceUnavailable("refresh_token_generation", err)
 		logger.AuthError(ctx, "refresh_token_generation_failed", err,
@@ -2212,19 +2207,15 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 		"user_id", contextUser.ID,
 	)
 
-	// Generate a fresh JWT token for CLI use (24 hour expiry).
-	//
-	// This mints a session from a session, not from a factor, so it carries the
-	// caller's authentication time forward rather than stamping a new one.
-	// Stamping here would let an admin session that is too old to link a
-	// provider mint itself a token that is not.
+	// Generate a fresh JWT token for CLI use (24 hour expiry). This mints a
+	// session from a session rather than from a factor, so it carries the
+	// caller's authentication time forward.
 	//
 	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
 	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides
 	// the incident from monitoring; propagating a 5xx keeps the response body
 	// byte-identical with the prior path and forces on-call visibility.
-	sessionAuthAt, _ := middleware.GetSessionAuthTimeFromContext(ctx)
-	token, err := h.jwtService.RenewSessionToken(contextUser, sessionAuthAt)
+	token, err := h.jwtService.RenewSessionToken(contextUser, middleware.GetSessionAuthTimeFromContext(ctx))
 	if err != nil {
 		authErr := autherrors.ErrServiceUnavailable("generate_cli_token", err)
 		logger.AuthError(ctx, "generate_cli_token_failed", err,
