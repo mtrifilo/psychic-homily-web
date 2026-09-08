@@ -495,9 +495,11 @@ export interface CityRailStats {
 
 /**
  * The header's counts, derived from the SAME venue rows the rail lists below
- * it, rather than from the scene's own venue/show counts. Since PSY-1574 the
- * two describe the same metro, so they no longer contradict each other — but
- * deriving stays right regardless: the rows are one capped page, and a header
+ * it, rather than from the scene's own venue/show counts. The two describe the
+ * same metro but not the same window: these per-venue counts are bounded at the
+ * request instant, while the scene page's own upcoming figure is bounded at the
+ * night in progress, so they differ by whatever is on tonight. Deriving is right
+ * regardless: the rows are one capped page, and a header
  * quoting an uncapped scene total over a truncated list would overstate what
  * is actually on screen (the "showing the N busiest of M" line is where the
  * uncapped total belongs). "Local artists" is genuinely a scene-level stat and

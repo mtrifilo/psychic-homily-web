@@ -2,6 +2,7 @@ package shared
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,18 +29,23 @@ import (
 // and the whole tag page — its entity counts (catalog/tag_intersection.go) and
 // the per-entity upcoming_show_count its cards print (PSY-1760).
 //
-// One COUNT surface also builds through here, and is named separately so the
-// scope paragraph below stays true of the list surfaces it is about: the scene
-// roster's per-band upcoming count and next-show pick
-// (catalog/scene_roster_upcoming.go).
+// COUNT surfaces also build through here, and are named separately so the scope
+// paragraph below stays true of the list surfaces it is about:
+//   - the scene roster's per-band upcoming count and next-show pick
+//     (catalog/scene_roster_upcoming.go), on the MIDNIGHT bound
+//     (VenueLocalDateCondition).
+//   - the scene page's headline upcoming_show_count (catalog/scene.go
+//     GetSceneDetail) and its rooms leaderboard (catalog/scene_venues.go), on
+//     the NIGHT bound (VenueLocalNightDateCondition), which is the rule the
+//     tonight bucket those two sit beside is drawn on.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
 // several of them draw their own boundary: the /venues list's
-// upcoming_show_count (catalog/venue.go), /scenes' upcoming_count and
-// this_week_count (catalog/scene.go), catalog/venue_rail.go, graph_overview.go,
-// charts_rank.go and sitemap.go. Do not read a surface's absence here as a
-// claim that it already agrees with this file.
+// upcoming_show_count (catalog/venue.go), the scenes DIRECTORY's upcoming_count
+// and this_week_count (catalog/scene.go ListScenes), catalog/venue_rail.go,
+// graph_overview.go, charts_rank.go and sitemap.go. Do not read a surface's
+// absence here as a claim that it already agrees with this file.
 //
 // NOT migrated — do not read the paragraph above as a description of the whole
 // repo, because these still draw their own boundary:
@@ -345,7 +351,17 @@ var VenueLocalMonthSQL = `EXTRACT(MONTH FROM ` + VenueLocalDateSQL + `)::int`
 // progress is therefore still an upcoming listing, which is what listing
 // surfaces want and emphatically NOT what a ticket offer wants — offers gate on
 // the start instant (frontend showTiming.hasShowStarted).
-var VenueLocalTodaySQL = `(now() AT TIME ZONE ` + venueLocalZoneSQL + `)::date`
+var VenueLocalTodaySQL = `(` + venueLocalNowSQL + `)::date`
+
+// venueLocalNowSQL is this instant on the primary venue's own wall clock, as a
+// timestamp WITHOUT time zone.
+//
+// Every boundary below is derived from it rather than respelling it. The two
+// that partition upcoming from past (VenueLocalTodaySQL and
+// venueLocalNightStartDateSQL) differ only in the rule applied to this clock,
+// and an edit to the zone chain that reached one spelling and not the other
+// would reopen exactly the disagreement this file exists to close.
+var venueLocalNowSQL = `now() AT TIME ZONE ` + venueLocalZoneSQL
 
 // Coarse bounds on shows.event_date that are LOSSLESS with respect to the exact
 // venue-local conditions below, and unlike them are sargable against
@@ -385,6 +401,13 @@ const (
 //
 // Unknown filters fall through to "upcoming", matching the handlers' own default
 // for an omitted time_filter.
+//
+// "upcoming" here means FROM MIDNIGHT. A surface printed beside a listing of
+// tonight wants VenueLocalNightDateCondition instead, which holds the night in
+// progress until NightStartHour. The two are the same answer for eighteen hours
+// a day, so a surface that takes the wrong one looks correct in most of its
+// screenshots; pick on what the number sits next to, not on what it returns
+// when you look at it.
 func VenueLocalDateCondition(timeFilter string) string {
 	switch timeFilter {
 	case "past":
@@ -395,6 +418,83 @@ func VenueLocalDateCondition(timeFilter string) string {
 		return upcomingCoarseBound + " AND " + VenueLocalDateSQL + " >= " + VenueLocalTodaySQL
 	}
 }
+
+// NightStartHour is the local hour at which a new night begins.
+//
+// Before it, the night in progress is still the PREVIOUS calendar date: a night
+// is named by the date it BEGAN on, so at 01:00 on Saturday the night people are
+// out on is Friday's. The scene page's headline count and its rooms leaderboard
+// are bounded here rather than at midnight, so they and the tonight listing they
+// sit beside name the same night. Its per-band roster count is NOT: the
+// inventory at the top of this file says which surface takes which bound.
+// catalog/scene_day.go's tonightDate is the Go statement of the same rule and
+// reads this constant rather than restating it.
+//
+// It unifies the HOUR, not the clock. The tonight bucket applies it to the
+// scene's zone, which is the modal stored zone of the scene's verified rooms;
+// the conditions here apply it per row to the show's primary venue's. The two
+// coincide wherever those resolve alike, and can disagree for one night edge
+// where they do not: a metro spanning a timezone line (several US states hold
+// two), or a room whose stored zone differs from its neighbours'.
+const NightStartHour = 6
+
+// nightStartDateSQL renders the night-start rule over an expression that already
+// yields a venue-LOCAL wall clock: the local date, or the one before it when
+// that clock has not yet reached NightStartHour.
+//
+// Shifting the wall clock back NightStartHour hours and truncating states the
+// rule in one expression. localNowExpr must be a timestamp WITHOUT time zone,
+// the offset already resolved, so the subtraction is pure wall-clock arithmetic
+// and no DST transition can carry the result onto a neighbouring date. That is
+// the same wall clock catalog's tonightDate compares with Hour().
+//
+// Taken as a parameter rather than hardcoding `now()` so the rule can be
+// evaluated by Postgres against a stated clock in a test; production has one
+// caller and it passes now().
+func nightStartDateSQL(localNowExpr string) string {
+	return `((` + localNowExpr + `) - interval '` + strconv.Itoa(NightStartHour) + ` hours')::date`
+}
+
+// venueLocalNightStartDateSQL is the night-start date on the primary venue's
+// own clock.
+var venueLocalNightStartDateSQL = nightStartDateSQL(venueLocalNowSQL)
+
+// nightUpcomingCoarseBound is the sargable UTC bound that is lossless with
+// respect to the exact night condition below, for the same reason and in the
+// same way as upcomingCoarseBound.
+//
+// The earliest instant that can satisfy the night condition is local midnight
+// on the night-start date, which before NightStartHour is YESTERDAY. That is at
+// most NightStartHour plus one local day behind now, and a local day can run 25
+// hours across a fall-back transition, so 31 hours is the widest real gap.
+//
+// THREE days is therefore slack rather than arithmetic necessity: two would
+// cover it. It keeps the same one-extra-day cushion upcomingCoarseBound takes
+// over its own 25-hour worst case, and an extra day of already-past shows costs
+// nothing in selectivity against an open-ended upper side.
+//
+// The guard on it is arithmetic over the same constants the fragment is
+// rendered from. It is weaker than upcomingCoarseBound's, which is pinned
+// against real Postgres across the inhabited offset range: an edit to the EXACT
+// condition rather than to these constants would not fail anything here.
+const nightCoarseMarginDays = 3
+
+var nightUpcomingCoarseBound = `shows.event_date >= now() - interval '` +
+	strconv.Itoa(nightCoarseMarginDays) + ` days'`
+
+// VenueLocalNightDateCondition returns the WHERE fragment selecting the shows a
+// scene surface counts as still to come: those whose venue-local date is on or
+// after the night in progress.
+//
+// It differs from VenueLocalDateCondition("upcoming") only between midnight and
+// NightStartHour, where it still holds the night that is under way. A surface
+// that prints a DATE should think before taking it: between those hours this
+// keeps a row whose date reads as yesterday's.
+//
+// Carries no bind parameters, like its midnight twin: "now" is evaluated by
+// Postgres per row against that row's own venue zone.
+var VenueLocalNightDateCondition = nightUpcomingCoarseBound + " AND " +
+	VenueLocalDateSQL + " >= " + venueLocalNightStartDateSQL
 
 // yearCoarseMargin widens the sargable UTC bounds below far enough that no
 // venue-local instant of the requested year can fall outside them. The inhabited
