@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
@@ -146,7 +147,7 @@ func TestAuthService_RefreshUserToken(t *testing.T) {
 			ID:    1,
 			Email: stringPtr("test@example.com"),
 		}
-		token, err := authService.RefreshUserToken(user)
+		token, err := authService.RefreshUserToken(user, time.Now())
 
 		// JWT creation doesn't require DB, so this should succeed
 		if err != nil {
@@ -161,7 +162,7 @@ func TestAuthService_RefreshUserToken(t *testing.T) {
 			ID:    2,
 			Email: nil,
 		}
-		token, err := authService.RefreshUserToken(user)
+		token, err := authService.RefreshUserToken(user, time.Now())
 
 		// Should handle nil email without panicking
 		if err != nil {

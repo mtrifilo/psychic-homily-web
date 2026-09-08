@@ -480,7 +480,7 @@ type MockAuthService struct {
 	OAuthCallbackWithConsentFn func(http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent) (*authm.User, string, error)
 	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
 	GetUserProfileFn           func(uint) (*authm.User, error)
-	RefreshUserTokenFn         func(*authm.User) (string, error)
+	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
 	LogoutFn                   func(http.ResponseWriter, *http.Request) error
 	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
 }
@@ -515,9 +515,9 @@ func (m *MockAuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	}
 	return nil, nil
 }
-func (m *MockAuthService) RefreshUserToken(user *authm.User) (string, error) {
+func (m *MockAuthService) RefreshUserToken(user *authm.User, authAt time.Time) (string, error) {
 	if m.RefreshUserTokenFn != nil {
-		return m.RefreshUserTokenFn(user)
+		return m.RefreshUserTokenFn(user, authAt)
 	}
 	return "", nil
 }
@@ -2178,9 +2178,10 @@ func (m *MockGraphOverviewService) GetGraphStartingPoints() ([]contracts.GraphSt
 
 type MockJWTService struct {
 	CreateTokenFn                  func(*authm.User) (string, error)
+	RenewSessionTokenFn            func(*authm.User, time.Time) (string, error)
+	ValidateSessionFn              func(string) (*authm.User, time.Time, error)
+	ValidateSessionLenientFn       func(string, time.Duration) (*authm.User, time.Time, error)
 	ValidateTokenFn                func(string) (*authm.User, error)
-	RefreshTokenFn                 func(string) (string, error)
-	ValidateTokenLenientFn         func(string, time.Duration) (*authm.User, error)
 	CreateVerificationTokenFn      func(uint, string) (string, error)
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
 	CreateMagicLinkTokenFn         func(uint, string) (string, error)
@@ -2195,21 +2196,27 @@ func (m *MockJWTService) CreateToken(user *authm.User) (string, error) {
 	}
 	return "", nil
 }
-func (m *MockJWTService) ValidateToken(tokenString string) (*authm.User, error) {
-	if m.ValidateTokenFn != nil {
-		return m.ValidateTokenFn(tokenString)
-	}
-	return nil, nil
-}
-func (m *MockJWTService) RefreshToken(tokenString string) (string, error) {
-	if m.RefreshTokenFn != nil {
-		return m.RefreshTokenFn(tokenString)
+func (m *MockJWTService) RenewSessionToken(user *authm.User, authAt time.Time) (string, error) {
+	if m.RenewSessionTokenFn != nil {
+		return m.RenewSessionTokenFn(user, authAt)
 	}
 	return "", nil
 }
-func (m *MockJWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error) {
-	if m.ValidateTokenLenientFn != nil {
-		return m.ValidateTokenLenientFn(tokenString, gracePeriod)
+func (m *MockJWTService) ValidateSession(tokenString string) (*authm.User, time.Time, error) {
+	if m.ValidateSessionFn != nil {
+		return m.ValidateSessionFn(tokenString)
+	}
+	return nil, time.Time{}, nil
+}
+func (m *MockJWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error) {
+	if m.ValidateSessionLenientFn != nil {
+		return m.ValidateSessionLenientFn(tokenString, gracePeriod)
+	}
+	return nil, time.Time{}, nil
+}
+func (m *MockJWTService) ValidateToken(tokenString string) (*authm.User, error) {
+	if m.ValidateTokenFn != nil {
+		return m.ValidateTokenFn(tokenString)
 	}
 	return nil, nil
 }

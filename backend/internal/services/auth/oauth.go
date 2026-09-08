@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
@@ -180,9 +181,10 @@ func (s *AuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	return user, nil
 }
 
-// RefreshUserToken generates a new JWT token for the user
-func (s *AuthService) RefreshUserToken(user *authm.User) (string, error) {
-	return s.jwtService.CreateToken(user)
+// RefreshUserToken generates a new JWT token for the user, carrying authAt (the
+// presented session's authentication time) through unchanged.
+func (s *AuthService) RefreshUserToken(user *authm.User, authAt time.Time) (string, error) {
+	return s.jwtService.RenewSessionToken(user, authAt)
 }
 
 // Logout handles user logout (JWT tokens are stateless, so just return success)

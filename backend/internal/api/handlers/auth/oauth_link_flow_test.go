@@ -38,7 +38,7 @@ func (s *OAuthHandlerIntegrationSuite) parseLinkRedirect(location string) url.Va
 // that exercise one of them drop it explicitly.
 func (s *OAuthHandlerIntegrationSuite) oauthLinkRequest(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
 	s.T().Helper()
-	w, req := s.oauthLinkRequestWithoutToken(provider, user)
+	w, req := s.oauthLinkRequestWithoutToken(provider, user, time.Now())
 	if user != nil {
 		token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 		s.Require().NoError(err)
@@ -50,7 +50,9 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequest(provider string, user *a
 }
 
 // oauthLinkRequestWithoutToken is the same request with no link token on it.
-func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider string, user *authm.User) (*httptest.ResponseRecorder, *http.Request) {
+// authAt is when the session last authenticated; the zero value is a credential
+// that carries no authentication time at all.
+func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider string, user *authm.User, authAt time.Time) (*httptest.ResponseRecorder, *http.Request) {
 	s.T().Helper()
 	req := httptest.NewRequest("GET", "/auth/link/"+provider, nil)
 	// A browser navigating from our own Settings page says so; the start
@@ -58,12 +60,13 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider str
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Origin", testFrontendOrigin)
 
-	// The principal and the credential's age go in the way the JWT middleware
-	// puts them there, so this exercises the same reads the handler makes.
+	// The principal and the session's authentication time go in the way the JWT
+	// middleware puts them there, so this exercises the same reads the handler
+	// makes.
 	ctx := context.Background()
 	if user != nil {
 		ctx = testhelpers.CtxWithUser(user)
-		ctx = context.WithValue(ctx, middleware.SessionIssuedAtContextKey, time.Now())
+		ctx = context.WithValue(ctx, middleware.SessionAuthTimeContextKey, authAt)
 	}
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", provider)
@@ -116,7 +119,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_WithoutTokenRefused() {
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", user)
+	w, req := s.oauthLinkRequestWithoutToken("google", user, time.Now())
 	handler.OAuthLinkHTTPHandler(w, req)
 
 	s.assertLinkRefusal(w, oauthLinkErrorNotFromSettings)
@@ -135,7 +138,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_TokenFromAnotherAccountRefused()
 	s.Require().NoError(err)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", owner)
+	w, req := s.oauthLinkRequestWithoutToken("google", owner, time.Now())
 	q := req.URL.Query()
 	q.Set(oauthLinkTokenParam, othersToken)
 	req.URL.RawQuery = q.Encode()
@@ -156,7 +159,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_TokenIsSingleUse() {
 	handler.OAuthLinkHTTPHandler(w, req)
 	s.Require().NotNil(linkIntentCookie(w))
 
-	replayW, replayReq := s.oauthLinkRequestWithoutToken("google", user)
+	replayW, replayReq := s.oauthLinkRequestWithoutToken("google", user, time.Now())
 	replayReq.URL.RawQuery = req.URL.RawQuery
 	handler.OAuthLinkHTTPHandler(replayW, replayReq)
 
@@ -194,16 +197,14 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{})
-	w, req := s.oauthLinkRequestWithoutToken("google", user)
+	// Older than recentSessionWindow: the account has a password, so the rule
+	// asks for that rather than accepting the cookie.
+	w, req := s.oauthLinkRequestWithoutToken("google", user, time.Now().Add(-2*time.Hour))
 	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
 	s.Require().NoError(err)
 	q := req.URL.Query()
 	q.Set(oauthLinkTokenParam, token)
 	req.URL.RawQuery = q.Encode()
-	// Older than recentSessionWindow: the account has a password, so the rule
-	// asks for that rather than accepting the cookie.
-	req = req.WithContext(context.WithValue(req.Context(),
-		middleware.SessionIssuedAtContextKey, time.Now().Add(-2*time.Hour)))
 
 	handler.OAuthLinkHTTPHandler(w, req)
 
@@ -220,6 +221,42 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	// for the trip back.
 	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
 		"a stale-session refusal must not burn the token")
+}
+
+// A session carrying no authentication time at all: an API-token principal, or
+// a session minted before the auth_at claim existed. Absence is not evidence of
+// freshness, so the gate refuses and the user signs in once more.
+func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
+	hash := "$2a$not-a-real-hash"
+	user := &authm.User{
+		Email:        strPtr("link-no-auth-time@test.com"),
+		IsActive:     true,
+		PasswordHash: &hash,
+	}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	// The principal is there; the authentication time is not.
+	w, req := s.oauthLinkRequestWithoutToken("google", user, time.Time{})
+	token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
+	s.Require().NoError(err)
+	q := req.URL.Query()
+	q.Set(oauthLinkTokenParam, token)
+	req.URL.RawQuery = q.Encode()
+
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Equal(http.StatusTemporaryRedirect, w.Code)
+	parsed, err := url.Parse(w.Header().Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/auth", parsed.Path)
+	s.Contains(parsed.Query().Get("returnTo"), "tab=settings")
+	s.Nil(linkIntentCookie(w))
+
+	// Re-auth is checked before the token is spent, so the refusal leaves it
+	// usable for the trip back.
+	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
+		"a refusal for want of an authentication time must not burn the token")
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestLink_UnknownProviderRefused() {

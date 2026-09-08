@@ -23,11 +23,16 @@ import (
 // This covers the security-critical path that unit tests cannot exercise due to nil DB.
 type JWTIntegrationSuite struct {
 	suite.Suite
-	db     *gorm.DB
-	testDB *testutil.TestDatabase
-	cfg    *config.Config
-	svc    *JWTService
+	db      *gorm.DB
+	testDB  *testutil.TestDatabase
+	cfg     *config.Config
+	svc     *JWTService
+	authSvc *AuthService
 }
+
+// refreshGracePeriod is a grace window wide enough that these tests exercise the
+// lenient branch rather than the expiry bound.
+const refreshGracePeriod = 7 * 24 * time.Hour
 
 func TestJWTIntegrationSuite(t *testing.T) {
 	if testing.Short() {
@@ -47,6 +52,7 @@ func (s *JWTIntegrationSuite) SetupSuite() {
 		},
 	}
 	s.svc = NewJWTService(s.db, s.cfg, usersvc.NewUserService(s.db))
+	s.authSvc = NewAuthService(s.db, s.cfg, usersvc.NewUserService(s.db))
 }
 
 func (s *JWTIntegrationSuite) TearDownTest() {
@@ -308,8 +314,25 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeletedAfterTokenCreation() 
 // =============================================================================
 // REFRESH FLOW
 // =============================================================================
+//
+// These exercise the two service calls the refresh endpoint makes, the lenient
+// read and the renewal, against a real database. They do NOT run the middleware
+// or the handler: that the handler hands the read's result to the renewal is
+// pinned separately by TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough
+// in the handlers package.
 
-func (s *JWTIntegrationSuite) TestRefreshToken_FullFlow() {
+// renewLikeTheRefreshEndpoint reads the presented credential the way the lenient
+// middleware does, then renews with what that read established.
+func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpoint(token string) (string, error) {
+	s.T().Helper()
+	user, authAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
+	if err != nil {
+		return "", err
+	}
+	return s.authSvc.RefreshUserToken(user, authAt)
+}
+
+func (s *JWTIntegrationSuite) TestRefreshFlow_IssuesAUsableTokenWithALaterExpiry() {
 	user := s.createActiveUser("refresh@example.com")
 
 	original, err := s.svc.CreateToken(user)
@@ -318,66 +341,134 @@ func (s *JWTIntegrationSuite) TestRefreshToken_FullFlow() {
 	// Brief pause so timestamps differ
 	time.Sleep(1100 * time.Millisecond)
 
-	refreshed, err := s.svc.RefreshToken(original)
+	refreshed, err := s.renewLikeTheRefreshEndpoint(original)
 	s.Require().NoError(err)
 	s.NotEmpty(refreshed)
 	s.NotEqual(original, refreshed, "refreshed token should differ (different iat/exp)")
 
-	// Validate the refreshed token
 	validated, err := s.svc.ValidateToken(refreshed)
 	s.Require().NoError(err)
 	s.Equal(user.ID, validated.ID)
 	s.Equal("refresh@example.com", *validated.Email)
 
-	// Verify the refreshed token has a later expiry
-	parseToken := func(t string) jwt.MapClaims {
-		parsed, parseErr := jwt.Parse(t, func(token *jwt.Token) (interface{}, error) {
-			return []byte(s.cfg.JWT.SecretKey), nil
-		})
-		s.Require().NoError(parseErr)
-		claims, ok := parsed.Claims.(jwt.MapClaims)
-		s.Require().True(ok)
-		return claims
-	}
-
-	origClaims := parseToken(original)
-	refreshClaims := parseToken(refreshed)
-
-	origExp := int64(origClaims["exp"].(float64))
-	refreshExp := int64(refreshClaims["exp"].(float64))
-	s.Greater(refreshExp, origExp, "refreshed token should have a later expiry")
+	s.Greater(
+		int64(claimsOf(s.T(), s.cfg.JWT.SecretKey, refreshed)["exp"].(float64)),
+		int64(claimsOf(s.T(), s.cfg.JWT.SecretKey, original)["exp"].(float64)),
+		"refreshed token should have a later expiry",
+	)
 }
 
-func (s *JWTIntegrationSuite) TestRefreshToken_InvalidToken() {
-	refreshed, err := s.svc.RefreshToken("not.a.valid.token")
+// Refresh renews a session without asking for anything, so the token it hands
+// back reports the same authentication time the presented one did. Stamping a
+// new one would let a holder of a stolen session satisfy every freshness gate
+// with one extra request.
+func (s *JWTIntegrationSuite) TestRefreshFlow_DoesNotMoveAuthTime() {
+	user := s.createActiveUser("refresh-auth-at@example.com")
+
+	original, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	_, originalAuthAt, err := s.svc.ValidateSession(original)
+	s.Require().NoError(err)
+	s.Require().False(originalAuthAt.IsZero())
+
+	time.Sleep(1100 * time.Millisecond)
+
+	refreshed, err := s.renewLikeTheRefreshEndpoint(original)
+	s.Require().NoError(err)
+
+	_, refreshedAuthAt, err := s.svc.ValidateSession(refreshed)
+	s.Require().NoError(err)
+	s.True(refreshedAuthAt.Equal(originalAuthAt))
+
+	// The renewal is genuinely a new token: iat moved, auth_at did not.
+	s.Greater(
+		int64(claimsOf(s.T(), s.cfg.JWT.SecretKey, refreshed)["iat"].(float64)),
+		int64(claimsOf(s.T(), s.cfg.JWT.SecretKey, original)["iat"].(float64)),
+	)
+
+	// Repeated renewals do not walk it forward either.
+	again, err := s.renewLikeTheRefreshEndpoint(refreshed)
+	s.Require().NoError(err)
+	_, againAuthAt, err := s.svc.ValidateSession(again)
+	s.Require().NoError(err)
+	s.True(againAuthAt.Equal(originalAuthAt))
+}
+
+// The grace window is the case a service-level shorthand would miss: a token
+// already expired when it arrives still renews, and still does not gain
+// freshness by doing so.
+func (s *JWTIntegrationSuite) TestRefreshFlow_ExpiredWithinGraceKeepsItsAuthTime() {
+	user := s.createActiveUser("refresh-grace-auth-at@example.com")
+
+	shortSvc := NewJWTService(s.db, &config.Config{
+		JWT: config.JWTConfig{SecretKey: s.cfg.JWT.SecretKey, Expiry: 0},
+	}, usersvc.NewUserService(s.db))
+
+	token, err := shortSvc.CreateToken(user)
+	s.Require().NoError(err)
+	time.Sleep(1100 * time.Millisecond)
+
+	_, _, err = s.svc.ValidateSession(token)
+	s.Require().Error(err, "the token is expired for strict validation")
+
+	_, presentedAuthAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
+	s.Require().NoError(err)
+	s.Require().False(presentedAuthAt.IsZero())
+
+	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
+	s.Require().NoError(err)
+
+	_, refreshedAuthAt, err := s.svc.ValidateSession(refreshed)
+	s.Require().NoError(err)
+	s.True(refreshedAuthAt.Equal(presentedAuthAt),
+		"renewing after expiry must neither stamp nor drop the authentication time")
+}
+
+// A session carrying no authentication time renews without acquiring one.
+func (s *JWTIntegrationSuite) TestRefreshFlow_SessionWithoutAuthTimeStaysWithout() {
+	user := s.createActiveUser("refresh-legacy@example.com")
+
+	legacy, err := s.svc.RenewSessionToken(user, time.Time{})
+	s.Require().NoError(err)
+	_, legacyAuthAt, err := s.svc.ValidateSession(legacy)
+	s.Require().NoError(err)
+	s.Require().True(legacyAuthAt.IsZero())
+
+	refreshed, err := s.renewLikeTheRefreshEndpoint(legacy)
+	s.Require().NoError(err)
+
+	// Still a working session, still carrying no authentication time.
+	validated, refreshedAuthAt, err := s.svc.ValidateSession(refreshed)
+	s.Require().NoError(err)
+	s.Equal(user.ID, validated.ID)
+	s.True(refreshedAuthAt.IsZero())
+}
+
+func (s *JWTIntegrationSuite) TestRefreshFlow_InvalidToken() {
+	refreshed, err := s.renewLikeTheRefreshEndpoint("not.a.valid.token")
 	s.Empty(refreshed)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
-func (s *JWTIntegrationSuite) TestRefreshToken_ExpiredToken() {
+func (s *JWTIntegrationSuite) TestLenientRead_ExpiredBeyondGraceIsRefused() {
 	user := s.createActiveUser("refresh-expired@example.com")
 
-	shortCfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: s.cfg.JWT.SecretKey,
-			Expiry:    0,
-		},
-	}
-	shortSvc := NewJWTService(s.db, shortCfg, usersvc.NewUserService(s.db))
+	shortSvc := NewJWTService(s.db, &config.Config{
+		JWT: config.JWTConfig{SecretKey: s.cfg.JWT.SecretKey, Expiry: 0},
+	}, usersvc.NewUserService(s.db))
 
 	token, err := shortSvc.CreateToken(user)
 	s.Require().NoError(err)
+	time.Sleep(1100 * time.Millisecond)
 
-	time.Sleep(100 * time.Millisecond)
-
-	refreshed, err := s.svc.RefreshToken(token)
-	s.Empty(refreshed)
+	user2, _, err := s.svc.ValidateSessionLenient(token, time.Nanosecond)
+	s.Nil(user2)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_EXPIRED")
 }
 
-func (s *JWTIntegrationSuite) TestRefreshToken_InactiveUser() {
+func (s *JWTIntegrationSuite) TestRefreshFlow_InactiveUser() {
 	user := s.createActiveUser("refresh-inactive@example.com")
 
 	token, err := s.svc.CreateToken(user)
@@ -386,7 +477,7 @@ func (s *JWTIntegrationSuite) TestRefreshToken_InactiveUser() {
 	// Deactivate user after token creation
 	s.Require().NoError(s.db.Model(user).Update("is_active", false).Error)
 
-	refreshed, err := s.svc.RefreshToken(token)
+	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
 	s.Empty(refreshed)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
@@ -396,19 +487,19 @@ func (s *JWTIntegrationSuite) TestRefreshToken_InactiveUser() {
 // VALIDATE TOKEN LENIENT (grace period for recently-expired tokens)
 // =============================================================================
 
-func (s *JWTIntegrationSuite) TestValidateTokenLenient_ValidToken() {
+func (s *JWTIntegrationSuite) TestValidateSessionLenient_ValidToken() {
 	user := s.createActiveUser("lenient-valid@example.com")
 
 	token, err := s.svc.CreateToken(user)
 	s.Require().NoError(err)
 
 	// A valid (non-expired) token should pass lenient validation
-	validated, err := s.svc.ValidateTokenLenient(token, 5*time.Minute)
+	validated, _, err := s.svc.ValidateSessionLenient(token, 5*time.Minute)
 	s.Require().NoError(err)
 	s.Equal(user.ID, validated.ID)
 }
 
-func (s *JWTIntegrationSuite) TestValidateTokenLenient_RecentlyExpiredWithinGrace() {
+func (s *JWTIntegrationSuite) TestValidateSessionLenient_RecentlyExpiredWithinGrace() {
 	user := s.createActiveUser("lenient-grace@example.com")
 
 	// Create a token that expires immediately
@@ -431,13 +522,13 @@ func (s *JWTIntegrationSuite) TestValidateTokenLenient_RecentlyExpiredWithinGrac
 	s.Contains(strictErr.Error(), "TOKEN_EXPIRED")
 
 	// Lenient validation with generous grace period should succeed
-	validated, err := s.svc.ValidateTokenLenient(token, 1*time.Minute)
+	validated, _, err := s.svc.ValidateSessionLenient(token, 1*time.Minute)
 	s.Require().NoError(err)
 	s.Equal(user.ID, validated.ID)
 	s.Equal("lenient-grace@example.com", *validated.Email)
 }
 
-func (s *JWTIntegrationSuite) TestValidateTokenLenient_ExpiredBeyondGrace() {
+func (s *JWTIntegrationSuite) TestValidateSessionLenient_ExpiredBeyondGrace() {
 	user := s.createActiveUser("lenient-beyond@example.com")
 
 	// Manually craft a token that expired 10 minutes ago
@@ -454,13 +545,13 @@ func (s *JWTIntegrationSuite) TestValidateTokenLenient_ExpiredBeyondGrace() {
 	s.Require().NoError(err)
 
 	// Grace period of 5 minutes is not enough for a token that expired 10 min ago
-	validated, err := s.svc.ValidateTokenLenient(tokenStr, 5*time.Minute)
+	validated, _, err := s.svc.ValidateSessionLenient(tokenStr, 5*time.Minute)
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_EXPIRED")
 }
 
-func (s *JWTIntegrationSuite) TestValidateTokenLenient_InactiveUser() {
+func (s *JWTIntegrationSuite) TestValidateSessionLenient_InactiveUser() {
 	user := s.createInactiveUser("lenient-inactive@example.com")
 
 	// Craft a recently-expired token
@@ -477,13 +568,13 @@ func (s *JWTIntegrationSuite) TestValidateTokenLenient_InactiveUser() {
 	s.Require().NoError(err)
 
 	// Even within grace period, inactive user should be rejected
-	validated, err := s.svc.ValidateTokenLenient(tokenStr, 5*time.Minute)
+	validated, _, err := s.svc.ValidateSessionLenient(tokenStr, 5*time.Minute)
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
-func (s *JWTIntegrationSuite) TestValidateTokenLenient_TamperedToken() {
+func (s *JWTIntegrationSuite) TestValidateSessionLenient_TamperedToken() {
 	user := s.createActiveUser("lenient-tampered@example.com")
 
 	token, err := s.svc.CreateToken(user)
@@ -492,7 +583,7 @@ func (s *JWTIntegrationSuite) TestValidateTokenLenient_TamperedToken() {
 	// Tamper with the signature
 	tampered := token[:len(token)-5] + "XXXXX"
 
-	validated, err := s.svc.ValidateTokenLenient(tampered, 5*time.Minute)
+	validated, _, err := s.svc.ValidateSessionLenient(tampered, 5*time.Minute)
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")

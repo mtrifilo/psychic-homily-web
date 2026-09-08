@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -1733,7 +1734,7 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
 				return &authm.User{ID: userID}, nil
 			},
-			RefreshUserTokenFn: func(user *authm.User) (string, error) {
+			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
 				return "new-token", nil
 			},
 		}
@@ -1865,7 +1866,7 @@ func TestRefreshTokenHandler_TokenFails(t *testing.T) {
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
 				return &authm.User{ID: userID}, nil
 			},
-			RefreshUserTokenFn: func(user *authm.User) (string, error) {
+			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
 				return "", rawErr
 			},
 		}
@@ -3675,7 +3676,7 @@ func TestConfirmAccountRecoveryHandler_TokenFailsClosed(t *testing.T) {
 func TestGenerateCLITokenHandler_Success(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &testhelpers.MockJWTService{
-			CreateTokenFn: func(u *authm.User) (string, error) {
+			RenewSessionTokenFn: func(u *authm.User, authAt time.Time) (string, error) {
 				return "cli-token-123", nil
 			},
 		}
@@ -3705,7 +3706,7 @@ func TestGenerateCLITokenHandler_Success(t *testing.T) {
 func TestGenerateCLITokenHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &testhelpers.MockJWTService{
-			CreateTokenFn: func(u *authm.User) (string, error) {
+			RenewSessionTokenFn: func(u *authm.User, authAt time.Time) (string, error) {
 				return "", fmt.Errorf("jwt error")
 			},
 		}

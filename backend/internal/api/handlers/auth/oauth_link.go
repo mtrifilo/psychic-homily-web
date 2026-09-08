@@ -202,9 +202,9 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	// shape already has: password, passkey, provider or magic link, whichever
 	// it holds. linkReauthFactorFor names the factor for the log so the rule
 	// stays legible and in one place.
-	sessionIssuedAt, _ := middleware.GetSessionIssuedAtFromContext(ctx)
 	// hasPasskey is false: see the KNOWN GAP on linkReauthFactorFor.
-	if factor := linkReauthFactorFor(accountHasPassword(user), false, sessionIssuedAt, time.Now()); factor != reauthAlreadySatisfied {
+	sessionAuthAt := middleware.GetSessionAuthTimeFromContext(ctx)
+	if factor := linkReauthFactorFor(accountHasPassword(user), false, sessionAuthAt, time.Now()); factor != reauthAlreadySatisfied {
 		logger.AuthWarn(ctx, "oauth_link_refused_stale_session",
 			"provider", provider,
 			"user_id", user.ID,

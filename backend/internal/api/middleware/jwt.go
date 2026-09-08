@@ -23,9 +23,10 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
-// SessionIssuedAtContextKey holds the time.Time the session credential was
-// issued, when the credential carries one.
-const SessionIssuedAtContextKey contextKey = "session_issued_at"
+// SessionAuthTimeContextKey holds the time.Time an authentication factor last
+// completed for the request's session credential. The zero time means the
+// credential establishes none.
+const SessionAuthTimeContextKey contextKey = "session_auth_time"
 
 // JWTErrorResponse represents the error response for JWT authentication failures
 type JWTErrorResponse struct {
@@ -61,7 +62,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 			)
 
 			// Validate token
-			user, err := jwtService.ValidateToken(token)
+			user, authAt, err := jwtService.ValidateSession(token)
 			if err != nil {
 				errorCode := autherrors.CodeTokenInvalid
 				message := "Invalid token"
@@ -86,13 +87,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 
 			// Add user to context
 			ctx = context.WithValue(ctx, UserContextKey, user)
-			// The credential's own age, for the surfaces that refuse to make a
-			// security-relevant change on the strength of an old cookie. Absent
-			// for an API token, which carries no issue time and is therefore
-			// never treated as fresh.
-			if issuedAt, ok := jwtService.SessionIssuedAt(token); ok {
-				ctx = context.WithValue(ctx, SessionIssuedAtContextKey, issuedAt)
-			}
+			ctx = context.WithValue(ctx, SessionAuthTimeContextKey, authAt)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -203,6 +198,9 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 		)
 
 		var user *authm.User
+		// Zero unless the JWT branch below establishes one: an API-token
+		// principal is never recently authenticated.
+		var authAt time.Time
 
 		// Check if this is an API token (starts with "phk_")
 		if strings.HasPrefix(token, APITokenPrefix) {
@@ -222,7 +220,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 			)
 		} else {
 			// Validate JWT token
-			jwtUser, err := jwtService.ValidateToken(token)
+			jwtUser, jwtAuthAt, err := jwtService.ValidateSession(token)
 			if err != nil {
 				errorCode := autherrors.CodeTokenInvalid
 				message := "Invalid token"
@@ -242,7 +240,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 				return
 			}
 
-			user = jwtUser
+			user, authAt = jwtUser, jwtAuthAt
 			logger.AuthInfo(ctx.Context(), "huma_jwt_validation_success",
 				"user_id", user.ID,
 			)
@@ -250,6 +248,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 
 		// Store user in context for handlers to access
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
+		ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
 
 		next(ctxWithUser)
 	}
@@ -286,7 +285,7 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 		)
 
 		// Validate with grace period for expired tokens
-		user, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		user, authAt, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		if err != nil {
 			errorCode := autherrors.CodeTokenInvalid
 			message := "Invalid token"
@@ -310,6 +309,8 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 		)
 
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
+		ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
+
 		next(ctxWithUser)
 	}
 }
@@ -330,6 +331,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 		}
 
 		var user *authm.User
+		var authAt time.Time
 
 		if strings.HasPrefix(token, APITokenPrefix) {
 			apiUser, _, err := apiTokenService.ValidateToken(token)
@@ -342,7 +344,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 			}
 			user = apiUser
 		} else {
-			jwtUser, err := jwtService.ValidateToken(token)
+			jwtUser, jwtAuthAt, err := jwtService.ValidateSession(token)
 			if err != nil {
 				logger.AuthDebug(ctx.Context(), "optional_auth_jwt_invalid",
 					"error", err.Error(),
@@ -350,10 +352,11 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 				next(ctx)
 				return
 			}
-			user = jwtUser
+			user, authAt = jwtUser, jwtAuthAt
 		}
 
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
+		ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
 		next(ctxWithUser)
 	}
 }
@@ -379,12 +382,13 @@ func SessionUserIDFromRequest(jwtService *auth.JWTService, r *http.Request) (uin
 	return jwtService.SessionUserID(token)
 }
 
-// GetSessionIssuedAtFromContext returns when the request's session credential
-// was issued. ok is false when the credential carries no issue time, which the
-// callers treat as "not recent" rather than as an error.
-func GetSessionIssuedAtFromContext(ctx context.Context) (time.Time, bool) {
-	issuedAt, ok := ctx.Value(SessionIssuedAtContextKey).(time.Time)
-	return issuedAt, ok
+// GetSessionAuthTimeFromContext returns when an authentication factor last
+// completed for the request's session credential, or the zero time when it
+// establishes none. Absence is not an error, so there is no second return
+// value.
+func GetSessionAuthTimeFromContext(ctx context.Context) time.Time {
+	authAt, _ := ctx.Value(SessionAuthTimeContextKey).(time.Time)
+	return authAt
 }
 
 func GetUserFromContext(ctx context.Context) *authm.User {

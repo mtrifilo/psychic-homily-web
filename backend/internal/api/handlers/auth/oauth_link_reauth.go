@@ -19,7 +19,8 @@ const recentSessionWindow = 10 * time.Minute
 type linkReauthFactor string
 
 const (
-	// reauthAlreadySatisfied: the session itself is fresh enough to count.
+	// reauthAlreadySatisfied: the session's own authentication is recent
+	// enough to count.
 	reauthAlreadySatisfied linkReauthFactor = "recent_session"
 	reauthPassword         linkReauthFactor = "password"
 	reauthPasskey          linkReauthFactor = "passkey"
@@ -31,7 +32,7 @@ const (
 //
 // The rule:
 //
-//   - a session younger than recentSessionWindow counts on its own
+//   - a session authenticated within recentSessionWindow counts on its own
 //   - otherwise the account's own factor: its password if one is set, else a
 //     passkey if one is registered, else a magic-link confirmation
 //
@@ -48,14 +49,16 @@ const (
 // reported as magic_link. Every non-satisfied factor takes the same path
 // today, so this changes only the log label, not the decision.
 //
-// sessionIssuedAt is the session credential's issue time. A zero value means
-// the age could not be established, which is not evidence of freshness.
+// sessionAuthenticatedAt is when an authentication factor last completed for
+// the session credential, from the token's auth_at claim rather than from its
+// issue time: a renewal moves the issue time with no factor behind it. A zero
+// value establishes no authentication time and is not evidence of freshness.
 //
-// A sessionIssuedAt in the FUTURE counts as fresh, and deliberately: clock
-// skew between issuer and reader is ordinary, and the alternative is refusing
-// a user whose own clock is right.
-func linkReauthFactorFor(hasPassword, hasPasskey bool, sessionIssuedAt, now time.Time) linkReauthFactor {
-	if !sessionIssuedAt.IsZero() && now.Sub(sessionIssuedAt) < recentSessionWindow {
+// A slightly future sessionAuthenticatedAt counts as fresh: the stamping clock
+// and the reading clock need not agree to the second. The reader that supplies
+// this value bounds how far ahead it may sit.
+func linkReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now time.Time) linkReauthFactor {
+	if !sessionAuthenticatedAt.IsZero() && now.Sub(sessionAuthenticatedAt) < recentSessionWindow {
 		return reauthAlreadySatisfied
 	}
 	if hasPassword {

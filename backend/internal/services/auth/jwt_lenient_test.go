@@ -11,8 +11,8 @@ import (
 	"psychic-homily-backend/internal/config"
 )
 
-// TestValidateTokenLenient tests the lenient token validation for refresh flows
-func TestValidateTokenLenient(t *testing.T) {
+// TestValidateSessionLenient tests the lenient token validation for refresh flows
+func TestValidateSessionLenient(t *testing.T) {
 	secretKey := "test-secret-key-lenient-tests"
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
@@ -27,10 +27,10 @@ func TestValidateTokenLenient(t *testing.T) {
 		// A non-expired token should pass through strict validation
 		token := createTestToken(t, secretKey, 123, "test@example.com", time.Now().Add(1*time.Hour))
 
-		// ValidateTokenLenient calls ValidateToken first, which needs DB access.
+		// ValidateSessionLenient calls ValidateToken first, which needs DB access.
 		// Since we have no DB, it will fail on the user lookup even if the token parses.
 		// This tests that the lenient path handles the fallback correctly.
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		// We expect an error because there's no DB, but not a token-related error
 		assert.Error(t, err)
 		// The error should be about the database, not about token validity
@@ -41,7 +41,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		// Token expired 1 hour ago — well within 7-day grace period
 		token := createTestToken(t, secretKey, 456, "grace@example.com", time.Now().Add(-1*time.Hour))
 
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		// Should get past token validation to the user lookup stage
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
@@ -51,7 +51,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		// Token expired 8 days ago — beyond 7-day grace period
 		token := createTestToken(t, secretKey, 789, "expired@example.com", time.Now().Add(-8*24*time.Hour))
 
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "expired beyond grace period")
 	})
@@ -60,7 +60,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		// Token expired exactly 7 days + 1 second ago
 		token := createTestToken(t, secretKey, 100, "boundary@example.com", time.Now().Add(-gracePeriod-1*time.Second))
 
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "expired beyond grace period")
 	})
@@ -70,19 +70,19 @@ func TestValidateTokenLenient(t *testing.T) {
 		wrongKey := "wrong-secret-key-12345678"
 		token := createTestToken(t, wrongKey, 123, "wrong@example.com", time.Now().Add(-1*time.Hour))
 
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "TOKEN_INVALID")
 	})
 
 	t.Run("malformed_token_rejected", func(t *testing.T) {
-		_, err := jwtService.ValidateTokenLenient("not-a-jwt", gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient("not-a-jwt", gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "TOKEN_INVALID")
 	})
 
 	t.Run("empty_token_rejected", func(t *testing.T) {
-		_, err := jwtService.ValidateTokenLenient("", gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient("", gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "TOKEN_INVALID")
 	})
@@ -102,7 +102,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		tokenStr, err := token.SignedString([]byte(secretKey))
 		require.NoError(t, err)
 
-		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
+		_, _, err = jwtService.ValidateSessionLenient(tokenStr, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid token subject, issuer, or audience")
 	})
@@ -122,7 +122,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		tokenStr, err := token.SignedString([]byte(secretKey))
 		require.NoError(t, err)
 
-		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
+		_, _, err = jwtService.ValidateSessionLenient(tokenStr, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid token subject, issuer, or audience")
 	})
@@ -143,7 +143,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		tokenStr, err := token.SignedString([]byte(secretKey))
 		require.NoError(t, err)
 
-		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
+		_, _, err = jwtService.ValidateSessionLenient(tokenStr, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid token subject, issuer, or audience")
 	})
@@ -162,7 +162,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		tokenStr, err := token.SignedString([]byte(secretKey))
 		require.NoError(t, err)
 
-		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
+		_, _, err = jwtService.ValidateSessionLenient(tokenStr, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "missing expiration claim")
 	})
@@ -171,7 +171,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		// Token expired 1 day ago — within grace period
 		token := createTestToken(t, secretKey, 555, "oneday@example.com", time.Now().Add(-24*time.Hour))
 
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		assert.Error(t, err)
 		// Should fail at user lookup, not at token validation
 		assert.Contains(t, err.Error(), "failed to get user")
@@ -181,7 +181,7 @@ func TestValidateTokenLenient(t *testing.T) {
 		// Token expired 6 days ago — within grace period
 		token := createTestToken(t, secretKey, 666, "sixdays@example.com", time.Now().Add(-6*24*time.Hour))
 
-		_, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 	})

@@ -14,64 +14,65 @@ func TestLinkReauthFactorFor(t *testing.T) {
 	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
 
 	cases := []struct {
-		name            string
-		hasPassword     bool
-		hasPasskey      bool
-		sessionIssuedAt time.Time
-		want            linkReauthFactor
+		name                   string
+		hasPassword            bool
+		hasPasskey             bool
+		sessionAuthenticatedAt time.Time
+		want                   linkReauthFactor
 	}{
 		{
-			name:            "fresh session counts on its own",
-			hasPassword:     true,
-			sessionIssuedAt: now.Add(-1 * time.Minute),
-			want:            reauthAlreadySatisfied,
+			name:                   "fresh session counts on its own",
+			hasPassword:            true,
+			sessionAuthenticatedAt: now.Add(-1 * time.Minute),
+			want:                   reauthAlreadySatisfied,
 		},
 		{
-			name:            "a session at the window edge no longer counts",
-			hasPassword:     true,
-			sessionIssuedAt: now.Add(-recentSessionWindow),
-			want:            reauthPassword,
+			name:                   "a session at the window edge no longer counts",
+			hasPassword:            true,
+			sessionAuthenticatedAt: now.Add(-recentSessionWindow),
+			want:                   reauthPassword,
 		},
 		{
-			name:            "stale session, account has a password",
-			hasPassword:     true,
-			sessionIssuedAt: now.Add(-2 * time.Hour),
-			want:            reauthPassword,
+			name:                   "stale session, account has a password",
+			hasPassword:            true,
+			sessionAuthenticatedAt: now.Add(-2 * time.Hour),
+			want:                   reauthPassword,
 		},
 		{
-			name:            "stale session, no password but a passkey",
-			hasPasskey:      true,
-			sessionIssuedAt: now.Add(-2 * time.Hour),
-			want:            reauthPasskey,
+			name:                   "stale session, no password but a passkey",
+			hasPasskey:             true,
+			sessionAuthenticatedAt: now.Add(-2 * time.Hour),
+			want:                   reauthPasskey,
 		},
 		{
-			name:            "stale session, neither: the magic link is the floor",
-			sessionIssuedAt: now.Add(-2 * time.Hour),
-			want:            reauthMagicLink,
+			name:                   "stale session, neither: the magic link is the floor",
+			sessionAuthenticatedAt: now.Add(-2 * time.Hour),
+			want:                   reauthMagicLink,
 		},
 		{
-			// An API token carries no issue time. Unknown age is not evidence
-			// of freshness, so it must fall to the account's own factor.
-			name:            "unknown session age is not freshness",
-			hasPassword:     true,
-			sessionIssuedAt: time.Time{},
-			want:            reauthPassword,
+			// A credential that establishes no authentication time at all: an
+			// API token, or a session carrying no auth_at claim. Absence is not
+			// evidence of freshness, so it falls to the account's own factor.
+			name:                   "no authentication time is not freshness",
+			hasPassword:            true,
+			sessionAuthenticatedAt: time.Time{},
+			want:                   reauthPassword,
 		},
 		{
-			// Clock skew between issuer and reader is ordinary, so a future
-			// issue time counts as fresh rather than being refused. It stays
-			// fresh for as long as the skew lasts, which is the accepted
-			// trade and is documented on the function.
-			name:            "a future issue time counts as fresh",
-			hasPassword:     true,
-			sessionIssuedAt: now.Add(1 * time.Minute),
-			want:            reauthAlreadySatisfied,
+			// The reader's clock and the stamping clock need not agree to the
+			// second, so a future time still counts here. How far ahead a stamp
+			// may sit before it is discarded is decided by the reader that
+			// supplies this value, not by this function.
+			name:                   "a future authentication time counts as fresh",
+			hasPassword:            true,
+			sessionAuthenticatedAt: now.Add(1 * time.Minute),
+			want:                   reauthAlreadySatisfied,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := linkReauthFactorFor(tc.hasPassword, tc.hasPasskey, tc.sessionIssuedAt, now); got != tc.want {
+			if got := linkReauthFactorFor(tc.hasPassword, tc.hasPasskey, tc.sessionAuthenticatedAt, now); got != tc.want {
 				t.Errorf("linkReauthFactorFor = %q, want %q", got, tc.want)
 			}
 		})

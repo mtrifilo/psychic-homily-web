@@ -529,11 +529,14 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		return resp, svcErr
 	}
 
-	// Generate new JWT token using the JWT service.
+	// Generate new JWT token using the JWT service. Refresh asks for no factor,
+	// so it carries the presented session's authentication time rather than
+	// stamping one.
+	//
 	// Fail-closed: same rationale as the profile-fetch branch above — JWT
 	// service outages must surface as 5xx, not as HTTP 200 with a sad-path
 	// body.
-	newToken, err := h.authService.RefreshUserToken(user)
+	newToken, err := h.authService.RefreshUserToken(user, middleware.GetSessionAuthTimeFromContext(ctx))
 	if err != nil {
 		authErr := autherrors.ErrServiceUnavailable("refresh_token_generation", err)
 		logger.AuthError(ctx, "refresh_token_generation_failed", err,
@@ -2204,12 +2207,17 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 		"user_id", contextUser.ID,
 	)
 
-	// Generate a fresh JWT token for CLI use (24 hour expiry).
+	// Generate a fresh JWT token for CLI use, expiring after the configured
+	// session lifetime. This mints a session from a credential the caller
+	// already holds rather than from a factor, so it carries that credential's
+	// authentication time forward. An API-token caller reaches here with none,
+	// and the token it gets carries none.
+	//
 	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
 	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides
 	// the incident from monitoring; propagating a 5xx keeps the response body
 	// byte-identical with the prior path and forces on-call visibility.
-	token, err := h.jwtService.CreateToken(contextUser)
+	token, err := h.jwtService.RenewSessionToken(contextUser, middleware.GetSessionAuthTimeFromContext(ctx))
 	if err != nil {
 		authErr := autherrors.ErrServiceUnavailable("generate_cli_token", err)
 		logger.AuthError(ctx, "generate_cli_token_failed", err,

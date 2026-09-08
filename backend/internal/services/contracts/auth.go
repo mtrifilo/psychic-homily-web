@@ -123,7 +123,8 @@ type AuthServiceInterface interface {
 	// AuthErrors UserServiceInterface.LinkOAuthAccountToUser documents.
 	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
-	RefreshUserToken(user *authm.User) (string, error)
+	// RefreshUserToken renews a session, carrying authAt through unchanged.
+	RefreshUserToken(user *authm.User, authAt time.Time) (string, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
 	SetOAuthCompleter(completer OAuthCompleter)
 }
@@ -134,10 +135,17 @@ type AuthServiceInterface interface {
 
 // JWTServiceInterface defines the contract for JWT token operations.
 type JWTServiceInterface interface {
+	// CreateToken mints a session for a caller that has just completed an
+	// authentication factor, stamping auth_at with the current time.
 	CreateToken(user *authm.User) (string, error)
+	// RenewSessionToken mints a session for a caller presenting an existing
+	// session rather than a factor, carrying authAt through unchanged.
+	RenewSessionToken(user *authm.User, authAt time.Time) (string, error)
+	// ValidateSession is the reader that also yields the session's
+	// authentication time; ValidateToken discards it.
+	ValidateSession(tokenString string) (*authm.User, time.Time, error)
+	ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error)
 	ValidateToken(tokenString string) (*authm.User, error)
-	RefreshToken(tokenString string) (string, error)
-	ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)
 	CreateMagicLinkToken(userID uint, email string) (string, error)
