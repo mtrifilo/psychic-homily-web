@@ -37,6 +37,14 @@ func adminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
+// recentlyAuthenticatedAdminCtx is adminCtx plus the authentication time the
+// JWT middleware supplies, for the handlers that refuse a session which cannot
+// show one. adminCtx stays without it: that is what an API-token principal
+// presents, and most admin handlers are indifferent to the difference.
+func recentlyAuthenticatedAdminCtx() context.Context {
+	return testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, time.Now())
+}
+
 // ============================================================================
 // Admin Guard: all handlers require admin access
 // Tests both nil-user and non-admin user scenarios for every admin handler.
@@ -172,7 +180,7 @@ func TestCreateAPITokenHandler_ExpirationTooLong(t *testing.T) {
 	req := &CreateAPITokenRequest{}
 	req.Body.ExpirationDays = 400
 
-	_, err := h.CreateAPITokenHandler(adminCtx(), req)
+	_, err := h.CreateAPITokenHandler(recentlyAuthenticatedAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
@@ -788,7 +796,7 @@ func TestCreateAPITokenHandler_Success(t *testing.T) {
 	})
 	req := &CreateAPITokenRequest{}
 	req.Body.ExpirationDays = 90
-	resp, err := h.CreateAPITokenHandler(adminCtx(), req)
+	resp, err := h.CreateAPITokenHandler(recentlyAuthenticatedAdminCtx(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -807,7 +815,7 @@ func TestCreateAPITokenHandler_ServiceError(t *testing.T) {
 	})
 	req := &CreateAPITokenRequest{}
 	req.Body.ExpirationDays = 90
-	_, err := h.CreateAPITokenHandler(adminCtx(), req)
+	_, err := h.CreateAPITokenHandler(recentlyAuthenticatedAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 500)
 }
 

@@ -19,6 +19,13 @@ export const AuthErrorCode = {
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN: 'UNKNOWN',
+  /**
+   * A credential mint (API token, CLI token, calendar feed) refused because the
+   * session did not authenticate recently enough. The session is still valid
+   * and the caller is still the owner, so the remedy is a fresh sign-in, never
+   * a sign-out or a permission message.
+   */
+  REAUTH_REQUIRED: 'REAUTH_REQUIRED',
 } as const
 
 export type AuthErrorCodeType =
@@ -175,6 +182,26 @@ export function isAuthError(error: unknown): error is AuthError {
 }
 
 /**
+ * Copy for the re-authentication refusal, in one place because every surface
+ * that adds a credential renders it: the API-token dialog, the CLI-token card,
+ * the passkey card, and both feed cards.
+ *
+ * It names the remedy rather than the rule, names no particular operation so
+ * that Regenerate and Add a passkey read as truly as Create token, and it is
+ * authored here rather than taken from the response so the words are the
+ * frontend's own.
+ */
+export const REAUTH_REQUIRED_MESSAGE =
+  'For security, sign in again before making this change.'
+
+/**
+ * Does this failure mean the account is fine but the sign-in is too old?
+ */
+export function isReauthRequired(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.REAUTH_REQUIRED
+}
+
+/**
  * Get a user-friendly message for an error code
  */
 export function getAuthErrorMessage(code: AuthErrorCodeType): string {
@@ -195,6 +222,8 @@ export function getAuthErrorMessage(code: AuthErrorCodeType): string {
       return 'Validation failed'
     case AuthErrorCode.UNAUTHORIZED:
       return 'You are not authorized to perform this action'
+    case AuthErrorCode.REAUTH_REQUIRED:
+      return REAUTH_REQUIRED_MESSAGE
     default:
       return 'An error occurred'
   }

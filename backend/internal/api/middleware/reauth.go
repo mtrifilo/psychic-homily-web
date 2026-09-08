@@ -1,0 +1,162 @@
+package middleware
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
+)
+
+// This rule lives beside the session-credential readers it asks, and NOT in
+// api/handlers/shared, which is where a handler helper would otherwise go.
+// That package must not import this one: this package imports services/admin,
+// and services/admin's internal tests import handlers/shared, so an import of
+// middleware there closes a cycle in the admin test binary. The same
+// constraint is stated on ShowSubResourceVisible in that package.
+//
+// Issuing a credential, or attaching a new way to sign in, is the kind of
+// change a stolen session must not be able to make on its own. The caller has
+// to have proven the account recently.
+//
+// ADDING is the whole of what this covers. Removing a credential (a passkey, a
+// provider identity, a feed token, an API token) is not gated: revocation has
+// to stay available to someone who has just realised a credential leaked, and
+// whether the downgrade side deserves its own rule is a separate decision.
+//
+// RecentSessionWindow is what "recently" means. A user who just signed in and
+// walked to Settings is inside it; a week-old cookie riding in a browser
+// someone else is sitting at is not.
+//
+// The window an account actually gets is this plus whatever future stamp the
+// claim reader still believes (maxAuthTimeSkew, internal/services/auth/jwt.go):
+// this value bounds the past, not the total.
+const RecentSessionWindow = 10 * time.Minute
+
+// ReauthFactor is what the caller must present before the operation is allowed.
+//
+// It is a LOG LABEL. Every non-satisfied value takes the same path, and the
+// passkey case is not resolved (see the KNOWN GAP below), so rendering one as
+// user-facing copy would tell a passkey-only account to check its email.
+type ReauthFactor string
+
+const (
+	// ReauthAlreadySatisfied: the session's own authentication is recent
+	// enough to count.
+	ReauthAlreadySatisfied ReauthFactor = "recent_session"
+	ReauthPassword         ReauthFactor = "password"
+	ReauthPasskey          ReauthFactor = "passkey"
+	ReauthMagicLink        ReauthFactor = "magic_link"
+)
+
+// ReauthFactorFor decides what a caller must present to add a credential to an
+// account. It is the one place that DECISION is made: RequireRecentSessionAuth
+// asks it for every API mint, and the OAuth link path asks it directly because
+// its refusal is a browser redirect rather than a 403. Two refusals, one rule;
+// a third caller answers the question here or it is a second rule.
+//
+// The rule:
+//
+//   - a session authenticated within RecentSessionWindow counts on its own
+//   - otherwise the account's own factor: its password if one is set, else a
+//     passkey if one is registered, else a magic-link confirmation
+//
+// The fallback order is by what the account actually holds, not by preference:
+// an OAuth-only account has no password and need not have a passkey, and
+// demanding one it does not hold would lock exactly those users out.
+//
+// The facts are parameters rather than a *User because the principal the JWT
+// middleware supplies is loaded without its passkey relation, so a version
+// that read the model would silently answer magic_link for every passkey
+// account. Callers state what they know.
+//
+// KNOWN GAP: no caller resolves hasPasskey, so a passkey-only account is
+// reported as magic_link. Every non-satisfied factor takes the same path, so
+// this changes the log label, not the decision.
+//
+// sessionAuthenticatedAt is when an authentication factor last completed for
+// the session credential, from the token's auth_at claim rather than from its
+// issue time: a renewal moves the issue time with no factor behind it. A zero
+// value establishes no authentication time and is not evidence of freshness,
+// which is also what an API-token principal presents.
+//
+// A slightly future sessionAuthenticatedAt counts as fresh: the stamping clock
+// and the reading clock need not agree to the second. The reader that supplies
+// this value bounds how far ahead it may sit.
+func ReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now time.Time) ReauthFactor {
+	if !sessionAuthenticatedAt.IsZero() && now.Sub(sessionAuthenticatedAt) < RecentSessionWindow {
+		return ReauthAlreadySatisfied
+	}
+	if hasPassword {
+		return ReauthPassword
+	}
+	if hasPasskey {
+		return ReauthPasskey
+	}
+	return ReauthMagicLink
+}
+
+// AccountHasPassword reports whether user can be challenged for a password.
+func AccountHasPassword(user *authm.User) bool {
+	return user != nil && user.PasswordHash != nil && *user.PasswordHash != ""
+}
+
+// ReauthRequiredError is the refusal a credential mint answers with when the
+// request's session did not authenticate recently enough.
+//
+// 403 rather than the browser redirect the OAuth link path uses: these are API
+// calls made by fetch and by the CLI, and neither can follow a redirect to a
+// sign-in page.
+//
+// The body is JWTErrorResponse, the shape this package's other auth denials
+// already write, so the frontend parses one envelope for every such refusal.
+// Embedding it rather than restating its fields is what keeps that true.
+// Success is left at its zero value, which is the false the envelope means.
+type ReauthRequiredError struct {
+	JWTErrorResponse
+}
+
+func (e *ReauthRequiredError) Error() string { return e.Message }
+
+// GetStatus satisfies huma.StatusError, which is what makes huma serialize
+// this value as the response body rather than wrapping it in an ErrorModel.
+func (e *ReauthRequiredError) GetStatus() int { return http.StatusForbidden }
+
+// RequireRecentSessionAuth returns nil when the request may add a credential to
+// the account, and a *ReauthRequiredError when it may not.
+//
+// It reads the principal and the authentication time from the request context,
+// so every gated operation asks the same question of the same facts. operation
+// names the one that was refused, in the log.
+func RequireRecentSessionAuth(ctx context.Context, operation string) error {
+	user := GetUserFromContext(ctx)
+
+	// hasPasskey is false: see the KNOWN GAP on ReauthFactorFor.
+	factor := ReauthFactorFor(
+		AccountHasPassword(user),
+		false,
+		GetSessionAuthTimeFromContext(ctx),
+		time.Now(),
+	)
+	if factor == ReauthAlreadySatisfied {
+		return nil
+	}
+
+	var userID uint
+	if user != nil {
+		userID = user.ID
+	}
+	logger.AuthWarn(ctx, "credential_mint_refused_stale_session",
+		"operation", operation,
+		"user_id", userID,
+		"required_factor", string(factor),
+	)
+
+	return &ReauthRequiredError{JWTErrorResponse: JWTErrorResponse{
+		Message:   autherrors.ToExternalMessage(autherrors.CodeReauthRequired),
+		ErrorCode: autherrors.CodeReauthRequired,
+		RequestID: logger.GetRequestID(ctx),
+	}}
+}

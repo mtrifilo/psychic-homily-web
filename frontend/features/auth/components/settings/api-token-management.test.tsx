@@ -3,6 +3,11 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { APITokenManagement } from './api-token-management'
+import {
+  AuthError,
+  AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
+} from '@/lib/errors'
 
 // --- Mocks ---
 
@@ -201,6 +206,47 @@ describe('APITokenManagement', () => {
     renderWithProviders(<APITokenManagement />)
 
     expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument()
+  })
+
+  it('renders the sign-in-again copy when the mint refuses a stale session', () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutationState = {
+      isPending: false,
+      isError: true,
+      // A server message deliberately unlike the copy under test: the surface
+      // must render words it owns, not the sentence the response carried.
+      error: new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, {
+        status: 403,
+      }),
+    }
+    renderWithProviders(<APITokenManagement />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain(REAUTH_REQUIRED_MESSAGE)
+    expect(alert.textContent).not.toContain('refused')
+    // The remedy the copy names has to be reachable from where it is named.
+    expect(
+      screen.getByRole('link', { name: 'Sign in again' })
+    ).toHaveAttribute('href', expect.stringContaining('reason=REAUTH_REQUIRED'))
+  })
+
+  // The dialog covers the card, so the same alert rendered in both would be two
+  // live regions announcing the same words.
+  it('renders the create error once, on the surface the user is looking at', async () => {
+    const user = userEvent.setup()
+    mockTokensData = { tokens: [] }
+    mockCreateMutationState = {
+      isPending: false,
+      isError: true,
+      error: new Error('Rate limit exceeded'),
+    }
+    renderWithProviders(<APITokenManagement />)
+
+    expect(screen.getAllByText('Rate limit exceeded')).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: /Generate new token/ }))
+
+    expect(screen.getAllByText('Rate limit exceeded')).toHaveLength(1)
   })
 
   it('shows revoke mutation error', () => {

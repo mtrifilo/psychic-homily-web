@@ -200,11 +200,11 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	//
 	// Re-authenticating is "sign in again", the one challenge every account
 	// shape already has: password, passkey, provider or magic link, whichever
-	// it holds. linkReauthFactorFor names the factor for the log so the rule
+	// it holds. middleware.ReauthFactorFor names the factor for the log so the rule
 	// stays legible and in one place.
-	// hasPasskey is false: see the KNOWN GAP on linkReauthFactorFor.
+	// hasPasskey is false: see the KNOWN GAP on middleware.ReauthFactorFor.
 	sessionAuthAt := middleware.GetSessionAuthTimeFromContext(ctx)
-	if factor := linkReauthFactorFor(accountHasPassword(user), false, sessionAuthAt, time.Now()); factor != reauthAlreadySatisfied {
+	if factor := middleware.ReauthFactorFor(middleware.AccountHasPassword(user), false, sessionAuthAt, time.Now()); factor != middleware.ReauthAlreadySatisfied {
 		logger.AuthWarn(ctx, "oauth_link_refused_stale_session",
 			"provider", provider,
 			"user_id", user.ID,
@@ -330,7 +330,7 @@ func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, c
 
 // redirectToReauth sends the browser to the sign-in page with a destination
 // that brings it back to the control it started from. Signing in mints a fresh
-// session, which is what satisfies linkReauthFactorFor on the next attempt.
+// session, which is what satisfies middleware.ReauthFactorFor on the next attempt.
 //
 // returnTo is the contract app/auth reads through sanitizeReturnTo, which
 // requires a same-origin path; the Settings tab qualifies.

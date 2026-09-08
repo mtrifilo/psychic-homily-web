@@ -41,8 +41,21 @@ type CreateAPITokenResponse struct {
 
 // CreateAPITokenHandler handles POST /admin/tokens
 func (h *AdminTokenHandler) CreateAPITokenHandler(ctx context.Context, req *CreateAPITokenRequest) (*CreateAPITokenResponse, error) {
-	requestID := logger.GetRequestID(ctx)
+	// A phk_ bearer lives for up to a year, so a session that can mint one is
+	// worth more than the session itself. Asked before anything else this
+	// handler does.
+	//
+	// It refuses a phk_ principal, which establishes no authentication time, so
+	// one of those cannot mint another. It does NOT make the year-long token
+	// unreachable from a shorter-lived credential: a CLI token carries its
+	// session's authentication time forward, so one that leaks within the
+	// window can be spent here. What the gate buys is that the leak has to be
+	// recent.
+	if err := middleware.RequireRecentSessionAuth(ctx, "admin_create_api_token"); err != nil {
+		return nil, err
+	}
 
+	requestID := logger.GetRequestID(ctx)
 	user := middleware.GetUserFromContext(ctx)
 
 	// Validate expiration days

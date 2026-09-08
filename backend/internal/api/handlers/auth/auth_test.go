@@ -3681,7 +3681,7 @@ func TestGenerateCLITokenHandler_Success(t *testing.T) {
 			},
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, time.Now())
 
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -3711,7 +3711,7 @@ func TestGenerateCLITokenHandler_TokenFails(t *testing.T) {
 			},
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, time.Now())
 
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
 

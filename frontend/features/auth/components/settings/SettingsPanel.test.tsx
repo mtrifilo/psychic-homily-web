@@ -3,6 +3,11 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { SettingsPanel } from './SettingsPanel'
+import {
+  AuthError,
+  AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
+} from '@/lib/errors'
 
 // --- Mocks ---
 
@@ -424,6 +429,26 @@ describe('SettingsPanel', () => {
     expect(
       screen.getByRole('button', { name: /Generate CLI token/ })
     ).toBeInTheDocument()
+  })
+
+  it('renders the sign-in-again copy when the CLI mint refuses a stale session', () => {
+    mockUser = {
+      email: 'admin@example.com',
+      email_verified: true,
+      is_admin: true,
+    }
+    mockGenerateCLITokenState = {
+      isPending: false,
+      isError: true,
+      error: new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, {
+        status: 403,
+      }),
+    }
+    renderWithProviders(<SettingsPanel />)
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      REAUTH_REQUIRED_MESSAGE
+    )
   })
 
   // --- Danger Zone ---

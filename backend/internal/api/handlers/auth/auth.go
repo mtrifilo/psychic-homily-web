@@ -1333,7 +1333,16 @@ type ChangePasswordRequest struct {
 
 // ChangePasswordResponse represents a password change response
 type ChangePasswordResponse struct {
-	Body struct {
+	// Carries a token on success only. The caller just proved the account's
+	// password, so the session it goes on with carries a fresh authentication
+	// time; see the re-stamp in ChangePasswordHandler.
+	//
+	// Every other path leaves it zero, which huma writes as an empty Set-Cookie
+	// header. RFC 6265 section 5.2 discards a set-cookie-string with no "=", so
+	// it clears nothing; LoginHandler's failure paths have emitted the same
+	// header for as long as they have existed.
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	Body      struct {
 		Success   bool   `json:"success" example:"true" doc:"Success status"`
 		Message   string `json:"message" example:"Password changed successfully" doc:"Response message"`
 		ErrorCode string `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
@@ -1465,6 +1474,38 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, autherrors.ErrServiceUnavailable("change_password", err)
+	}
+
+	// The caller presented the account's password and it verified, which is
+	// the same factor a sign-in proves. The session gets a token stamped with
+	// that, so the gates that ask when a factor last completed see this one.
+	//
+	// This is the one path on which a principal that establishes no
+	// authentication time, an API token, comes away with a session that does.
+	// It costs the account's current password, which UpdatePassword verified
+	// above and which an OAuth-only account cannot supply, so it hands over
+	// nothing the caller had not already proven.
+	//
+	// A mint failure here is logged and not surfaced: the password is already
+	// changed, so reporting failure would misdescribe what happened. The
+	// caller keeps its existing session and is asked to sign in again the next
+	// time a gate wants a recent factor, which refuses rather than grants.
+	//
+	// 24 hours is what every other cookie this package sets uses, and what the
+	// token's own expiry defaults to (JWT_EXPIRY_HOURS). Raising that env var
+	// moves the token and not the cookie, at all eleven of those sites alike. The OAuth callback sets a seven-day cookie instead, so an
+	// account holding both a password and a provider identity, signed in
+	// through the provider, has its cookie shortened by changing its password.
+	// The token inside that cookie expires in 24 hours either way; what the
+	// longer cookie buys is the seven-day lenient refresh window, and this
+	// trades it for one consistent lifetime rather than guessing which sign-in
+	// the caller used.
+	if token, err := h.jwtService.CreateToken(contextUser); err != nil {
+		logger.AuthError(ctx, "change_password_restamp_failed", err,
+			"user_id", contextUser.ID,
+		)
+	} else {
+		resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 	}
 
 	logger.AuthInfo(ctx, "change_password_success",
@@ -2203,6 +2244,13 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 		return resp, nil
 	}
 
+	// The minted token is a session credential that leaves the browser for a
+	// terminal, where nothing revokes it early. A session that cannot be shown
+	// to be recently authenticated does not get to make one.
+	if err := middleware.RequireRecentSessionAuth(ctx, "generate_cli_token"); err != nil {
+		return nil, err
+	}
+
 	logger.AuthDebug(ctx, "generate_cli_token_attempt",
 		"user_id", contextUser.ID,
 	)
@@ -2210,8 +2258,9 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 	// Generate a fresh JWT token for CLI use, expiring after the configured
 	// session lifetime. This mints a session from a credential the caller
 	// already holds rather than from a factor, so it carries that credential's
-	// authentication time forward. An API-token caller reaches here with none,
-	// and the token it gets carries none.
+	// authentication time forward. The gate above means that time is present
+	// and recent, so the CLI token ages out of the re-authentication window
+	// when the session that asked for it would have.
 	//
 	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
 	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides

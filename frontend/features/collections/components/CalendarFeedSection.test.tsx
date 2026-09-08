@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 const mockCreateToken = vi.fn()
 const mockDeleteToken = vi.fn()
 let mockHasToken = false
+let mockCreateError: Error | null = null
 
 vi.mock('@/features/auth', () => ({
   useCalendarTokenStatus: () => ({
@@ -14,6 +15,8 @@ vi.mock('@/features/auth', () => ({
   useCreateCalendarToken: () => ({
     mutateAsync: mockCreateToken,
     isPending: false,
+    isError: mockCreateError !== null,
+    error: mockCreateError,
   }),
   useDeleteCalendarToken: () => ({
     mutateAsync: mockDeleteToken,
@@ -22,17 +25,38 @@ vi.mock('@/features/auth', () => ({
 }))
 
 import { CalendarFeedSection } from './CalendarFeedSection'
+import {
+  AuthError,
+  AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
+} from '@/lib/errors'
 
 describe('CalendarFeedSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockHasToken = false
+    mockCreateError = null
     mockCreateToken.mockResolvedValue({
       token: 'phcal_test',
       feed_url: 'https://api.example.com/feeds/phcal_test/saved-shows.ics',
       follows_feed_url:
         'https://api.example.com/feeds/phcal_test/follows.atom',
     })
+  })
+
+  // Without this the Enable button is a dead click: the mutation fails and the
+  // card renders exactly what it rendered before.
+  it('renders the sign-in-again copy when the feed mint refuses a stale session', () => {
+    mockCreateError = new AuthError(
+      'refused',
+      AuthErrorCode.REAUTH_REQUIRED,
+      { status: 403 }
+    )
+    renderWithProviders(<CalendarFeedSection variant="settings" />)
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      REAUTH_REQUIRED_MESSAGE
+    )
   })
 
   it('renders the compact library setup card and keeps Enable functional', async () => {

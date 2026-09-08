@@ -3,7 +3,11 @@ import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import {
   AUTH_PATH,
   buildAuthHref,
+  buildReauthHref,
   currentLocationReturnTo,
+  isReauthReason,
+  REAUTH_REASON_CREDENTIAL_MINT,
+  REAUTH_REASON_OAUTH_LINK,
 } from './auth-href'
 
 describe('buildAuthHref', () => {
@@ -70,5 +74,42 @@ describe('currentLocationReturnTo', () => {
       'returnTo'
     )
     expect(sanitizeReturnTo(returnTo)).toBe('/users/alice?tab=bio')
+  })
+})
+
+// A refused credential mint offers a link here. Two things have to hold or the
+// remedy the copy names is a dead end: the reason has to be one the auth page
+// recognizes, and returnTo has to bring the reader back to the control.
+describe('buildReauthHref', () => {
+  it('carries a reason the auth page treats as a re-authentication', () => {
+    const href = buildReauthHref('/profile')
+    expect(isReauthReason(new URL(href, 'https://x').searchParams.get('reason'))).toBe(
+      true
+    )
+  })
+
+  it('returns the reader to where they were refused', () => {
+    const params = new URL(buildReauthHref('/profile?tab=settings'), 'https://x')
+      .searchParams
+    expect(sanitizeReturnTo(params.get('returnTo'))).toBe('/profile?tab=settings')
+  })
+
+  it('still carries the reason when there is no destination worth keeping', () => {
+    const href = buildReauthHref('/')
+    expect(new URL(href, 'https://x').searchParams.get('reason')).toBe(
+      REAUTH_REASON_CREDENTIAL_MINT
+    )
+  })
+})
+
+describe('isReauthReason', () => {
+  it('accepts both reasons the backend and the surfaces emit', () => {
+    expect(isReauthReason(REAUTH_REASON_OAUTH_LINK)).toBe(true)
+    expect(isReauthReason(REAUTH_REASON_CREDENTIAL_MINT)).toBe(true)
+  })
+
+  it('rejects an absent or unknown reason, which must not suppress the bounce', () => {
+    expect(isReauthReason(null)).toBe(false)
+    expect(isReauthReason('SOMETHING_ELSE')).toBe(false)
   })
 })

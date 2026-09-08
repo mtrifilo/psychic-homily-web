@@ -3,10 +3,16 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { PasskeyManagement } from './passkey-management'
+import {
+  AuthError,
+  AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
+} from '@/lib/errors'
 
 // --- Mocks ---
 
 let mockSupportsWebAuthn = true
+let mockRegisterError: unknown = new Error('boom')
 
 vi.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: () => mockSupportsWebAuthn,
@@ -19,10 +25,25 @@ vi.mock('@simplewebauthn/browser', () => ({
 // below exercises them end-to-end.
 vi.mock('@/features/auth', async importActual => ({
   ...(await importActual<typeof import('@/features/auth')>()),
-  PasskeyRegisterButton: ({ onSuccess }: { onSuccess: () => void; onError: (err: string) => void }) => (
-    <button onClick={() => onSuccess()} data-testid="register-passkey-btn">
-      Add Passkey
-    </button>
+  PasskeyRegisterButton: ({
+    onSuccess,
+    onError,
+  }: {
+    onSuccess: () => void
+    onError: (error: unknown) => void
+  }) => (
+    <>
+      <button onClick={() => onSuccess()} data-testid="register-passkey-btn">
+        Add Passkey
+      </button>
+      {/* The refusal the real button forwards when registration is gated. */}
+      <button
+        onClick={() => onError(mockRegisterError)}
+        data-testid="fail-register-passkey-btn"
+      >
+        Fail Register
+      </button>
+    </>
   ),
 }))
 
@@ -404,5 +425,53 @@ describe('PasskeyManagement', () => {
       expect(screen.getByText('Newly registered')).toBeInTheDocument()
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+// Registering a passkey attaches a permanent way to sign in, so it is gated on
+// a recent sign-in like every other credential. The refusal has to reach this
+// card with its remedy, not as a bare sentence.
+describe('PasskeyManagement re-authentication refusal', () => {
+  it('renders the sign-in-again copy and a way to do it', async () => {
+    const user = userEvent.setup()
+    mockRegisterError = new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, {
+      status: 403,
+    })
+    global.fetch = vi.fn().mockResolvedValue(
+      jsonResponse({ success: true, credentials: [] })
+    ) as unknown as typeof fetch
+
+    renderWithProviders(<PasskeyManagement />)
+
+    await user.click(await screen.findByTestId('fail-register-passkey-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain(
+        REAUTH_REQUIRED_MESSAGE
+      )
+    })
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('reason=REAUTH_REQUIRED')
+    )
+  })
+
+  it('leaves an ordinary failure to its own message', async () => {
+    const user = userEvent.setup()
+    mockRegisterError = new Error('Authenticator refused the request')
+    global.fetch = vi.fn().mockResolvedValue(
+      jsonResponse({ success: true, credentials: [] })
+    ) as unknown as typeof fetch
+
+    renderWithProviders(<PasskeyManagement />)
+
+    await user.click(await screen.findByTestId('fail-register-passkey-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain(
+        'Authenticator refused the request'
+      )
+    })
+    expect(screen.queryByRole('link', { name: 'Sign in again' })).toBeNull()
   })
 })

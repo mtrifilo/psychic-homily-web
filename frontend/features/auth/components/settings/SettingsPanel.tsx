@@ -37,6 +37,7 @@ import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
 import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
+import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessage'
 
 // How long the "copied ✓" confirmation stays up after copying the CLI token.
 const TOKEN_COPIED_DISMISS_MS = 2000
@@ -347,8 +348,13 @@ export function SettingsPanel() {
                 <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4 shrink-0" />
                   <span>
-                    {generateCLIToken.error?.message ||
-                      'Failed to generate token. Please try again.'}
+                    <CredentialErrorMessage
+                      error={generateCLIToken.error}
+                      fallback={
+                        generateCLIToken.error?.message ||
+                        'Failed to generate token. Please try again.'
+                      }
+                    />
                   </span>
                 </div>
               )}

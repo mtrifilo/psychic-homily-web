@@ -5,6 +5,8 @@ import {
   isAuthError,
   isDefinitiveUnauthenticated,
   getAuthErrorMessage,
+  isReauthRequired,
+  REAUTH_REQUIRED_MESSAGE,
 } from './authErrors'
 
 describe('AuthError', () => {
@@ -232,7 +234,53 @@ describe('isAuthError', () => {
   })
 })
 
+describe('isReauthRequired', () => {
+  it('recognizes the credential-mint refusal', () => {
+    expect(
+      isReauthRequired(
+        new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, { status: 403 })
+      )
+    ).toBe(true)
+  })
+
+  it('does not treat other auth failures as a stale sign-in', () => {
+    expect(
+      isReauthRequired(new AuthError('nope', AuthErrorCode.UNAUTHORIZED))
+    ).toBe(false)
+    expect(isReauthRequired(new Error('network'))).toBe(false)
+    expect(isReauthRequired(null)).toBe(false)
+  })
+
+  // The refusal leaves the session valid, so nothing may read it as a sign-out.
+  // Asserted with no status as well as with 403: any defined status other than
+  // 401 short-circuits before the code is read, so the 403 case alone would
+  // stay green if REAUTH_REQUIRED were ever added to the token-code list that
+  // the status-less branch consults. PasskeyRegisterButton builds exactly that
+  // status-less shape.
+  it('is not a definitive unauthenticated answer', () => {
+    expect(isDefinitiveUnauthenticated(403, AuthErrorCode.REAUTH_REQUIRED)).toBe(
+      false
+    )
+    expect(
+      isDefinitiveUnauthenticated(undefined, AuthErrorCode.REAUTH_REQUIRED)
+    ).toBe(false)
+  })
+
+  it('does not send the viewer to the login screen', () => {
+    expect(
+      new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED)
+        .shouldRedirectToLogin
+    ).toBe(false)
+  })
+})
+
 describe('getAuthErrorMessage', () => {
+  it('maps the re-authentication refusal to its own copy', () => {
+    expect(getAuthErrorMessage(AuthErrorCode.REAUTH_REQUIRED)).toBe(
+      REAUTH_REQUIRED_MESSAGE
+    )
+  })
+
   it('returns correct message for INVALID_CREDENTIALS', () => {
     expect(getAuthErrorMessage(AuthErrorCode.INVALID_CREDENTIALS)).toBe(
       'Invalid email or password'

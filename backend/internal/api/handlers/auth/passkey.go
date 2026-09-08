@@ -80,6 +80,35 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 		return resp, nil
 	}
 
+	// A passkey attached here is a permanent, independent way to sign in as
+	// this account, which is the same change the OAuth link path is gated for
+	// and a larger one than any token mint: an attacker who attaches one owns
+	// the account, and signing in with it stamps the freshness every other gate
+	// asks for.
+	//
+	// The refusal belongs at BEGIN, not at finish. Asking again at finish would
+	// put it after the user completed the biometric or security-key ceremony,
+	// by which point their authenticator has already written the credential:
+	// they would be left holding a passkey the server never recorded.
+	//
+	// What that leaves, stated exactly: no challenge is issued without a recent
+	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), it
+	// is spent once, and FinishRegisterHandler will only spend it for the user
+	// it was issued to. It is NOT bound to the session that passed this gate,
+	// so within those five minutes any live session of that account can spend
+	// a challenge some other session obtained. Reaching that needs the
+	// challenge id, which is returned only in the response to the request that
+	// passed here. Binding the challenge to the authentication time that
+	// obtained it would close it and needs a column to store one.
+	//
+	// Composed, the terms add up: RecentSessionWindow's ten minutes, plus the
+	// two the claim reader believes of a future stamp (maxAuthTimeSkew), plus
+	// these five. A passkey can land about seventeen minutes after the factor
+	// that allowed it.
+	if err := middleware.RequireRecentSessionAuth(ctx, "passkey_register"); err != nil {
+		return nil, err
+	}
+
 	logger.AuthDebug(ctx, "passkey_register_begin",
 		"user_id", contextUser.ID,
 	)

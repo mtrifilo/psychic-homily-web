@@ -45,6 +45,7 @@ var sessionMintAllowlist = map[string]string{
 	"internal/api/handlers/auth/auth.go:AuthHandler.RegisterHandler:CreateToken":               "registration sets the password",
 	"internal/api/handlers/auth/auth.go:AuthHandler.VerifyMagicLinkHandler:CreateToken":        "emailed magic link",
 	"internal/api/handlers/auth/auth.go:AuthHandler.RecoverAccountHandler:CreateToken":         "email plus password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.ChangePasswordHandler:CreateToken":         "current password verified in this request",
 	"internal/api/handlers/auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler:CreateToken": "emailed recovery token",
 	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishLoginHandler:CreateToken":      "webauthn assertion",
 	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishSignupHandler:CreateToken":     "webauthn registration at signup",
