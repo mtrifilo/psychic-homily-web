@@ -43,11 +43,13 @@ type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
  *
  * The 429 branch is the one this exists for: the endpoint carries its own
  * per-IP budget, and the raw limiter body reads as a server complaint rather
- * than as "slow down, your password is fine". `ApiError.retryAfter` is only
- * populated when the browser can read the `Retry-After` header, which it
- * cannot cross-origin in production, so the headerless copy is the common path
- * and names the window instead of a countdown. The number it prints is the
- * wait at the moment of the response; it does not tick down.
+ * than as "slow down, your password is fine".
+ *
+ * Both branches are live. `ApiError.retryAfter` is populated only when the
+ * browser can read `Retry-After`, which it can through the same-origin `/api`
+ * proxy and cannot on a cross-origin call, since the backend CORS config
+ * exposes no headers. The number it prints is the wait the server named at the
+ * moment of the response; it does not tick down.
  */
 export function formatChangePasswordError(error: unknown): string {
   const fallback = 'Failed to change password'

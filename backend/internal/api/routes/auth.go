@@ -93,18 +93,24 @@ const VerificationResendPerMinute = 5
 
 // ChangePasswordAttemptsPerMinute is the per-IP budget for POST
 // /auth/change-password, which verifies the current password before setting the
-// new one. A person changing their own password submits once, a few times if
-// they mistype the current one, and the browser form rejects short, mismatched
-// and unchanged passwords before they cost a request, so every request that
-// reaches the limiter is a real attempt. It matches the resend budget; it is a
-// separate counter, so tuning one does not tune the other.
+// new one. It matches the resend budget on its own counter, so tuning one does
+// not tune the other.
+//
+// The whole budget is not guesses: a new password the server rejects on policy
+// (breach-list and common-password checks the browser form cannot run) spends
+// an attempt too, so a user iterating on a password costs the same as an
+// attacker iterating on the current one. Five per minute per IP is a floor
+// against unsophisticated abuse, not a bound on a determined caller, who can
+// rotate source addresses for a fresh counter each time.
 const ChangePasswordAttemptsPerMinute = 5
 
-// authScopedRateLimiter builds a per-IP minute limiter for one authenticated
-// auth route, honoring the DISABLE_AUTH_RATE_LIMITS escape hatch (PSY-475):
-// every E2E worker shares 127.0.0.1, so a live limiter would 429 unrelated
-// shards. Each call returns a limiter with its OWN counter, which is what keeps
-// these budgets from draining each other or the public auth budget.
+// authScopedRateLimiter builds a per-IP minute limiter for an auth route,
+// honoring the DISABLE_AUTH_RATE_LIMITS escape hatch: every E2E worker shares
+// 127.0.0.1, so a live limiter would 429 unrelated shards.
+//
+// Each CALL returns a limiter with its own counter, so routes share a budget
+// only when they are handed the same value. The counters are per process, so a
+// deployment of N replicas serves N times the budget per IP.
 func authScopedRateLimiter(requestsPerMinute int) func(http.Handler) http.Handler {
 	if IsAuthRateLimitDisabled(os.Getenv) {
 		return noopRateLimiter()
@@ -117,8 +123,9 @@ func authScopedRateLimiter(requestsPerMinute int) func(http.Handler) http.Handle
 	)
 }
 
-// verificationResendRateLimiter builds the limiter for the verification resend
-// endpoint.
+// verificationResendRateLimiter builds a limiter on the verification-resend
+// budget. Both callers call it separately, so /auth/verify-email/send and
+// /auth/oauth/link-token each get their own counter at that size.
 func verificationResendRateLimiter() func(http.Handler) http.Handler {
 	return authScopedRateLimiter(VerificationResendPerMinute)
 }
@@ -157,9 +164,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	verifyEmailGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
-	// Change-password bounds current-password guesses per client IP. Its
-	// counter is separate from the public auth budget, so failed attempts here
-	// cannot lock the same person out of /auth/login. The group hangs off
+	// Change-password meters current-password attempts per client IP. Its
+	// counter is separate from the public auth budget, so attempts here cannot
+	// lock the same person out of /auth/login. The group hangs off
 	// rc.Protected, so HumaJWTMiddleware runs first and an unauthenticated
 	// caller is refused before it reaches the counter.
 	changePasswordGroup := huma.NewGroup(rc.Protected, "")
@@ -189,9 +196,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// Mints the one-time token /auth/link/{provider} requires. Same-origin and
 	// authenticated, which is what that route cannot verify for itself.
 	//
-	// Rate limited on the same per-IP budget as the rest of the auth surface:
-	// it is an unauthenticated-shaped primitive behind a session, and nothing
-	// else bounds how fast a client can ask for signed tokens.
+	// Rate limited per IP at the verification-resend size, on a counter of its
+	// own: it is an unauthenticated-shaped primitive behind a session, and
+	// nothing else bounds how fast a client can ask for signed tokens.
 	linkTokenGroup := huma.NewGroup(rc.Protected, "")
 	linkTokenGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
 	huma.Post(linkTokenGroup, "/auth/oauth/link-token", oauthAccountHandler.StartOAuthLinkHandler)

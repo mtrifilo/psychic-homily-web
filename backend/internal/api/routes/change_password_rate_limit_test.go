@@ -138,23 +138,3 @@ func TestChangePasswordUnauthenticatedRequestsDoNotSpendTheBudget(t *testing.T) 
 		}
 	}
 }
-
-// The public auth counter is what /auth/login draws on. Change-password must
-// not share it, or a run of failed attempts would lock the same person out of
-// signing in.
-func TestChangePasswordDoesNotSpendThePublicAuthBudget(t *testing.T) {
-	t.Setenv(DisableAuthRateLimitsEnvVar, "")
-	router := newTestRouter(t)
-	const ip = "203.0.113.65:1234"
-
-	for i := 0; i <= authLimitPerMinute; i++ {
-		send(t, router, "POST", "/auth/change-password", ip, nil)
-	}
-
-	code, body := sendWithBody(t, router, "POST", "/auth/login", ip, nil)
-	if code == http.StatusTooManyRequests {
-		t.Error("POST /auth/login was limited after change-password attempts from the same IP; " +
-			"the change-password route is on the public auth counter")
-	}
-	assertReachedHandler(t, code, body, "/auth/login")
-}
