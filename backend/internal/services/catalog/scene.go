@@ -73,11 +73,10 @@ const (
 	// (PSY-1309): the slice of a scene's upcoming shows that drives the Atlas
 	// globe's pulse treatment and the preview panel's "Next 7 days" row.
 	//
-	// A LENGTH, not a window. Each consumer supplies its own anchor, and they
-	// differ: the scenes directory counts seven venue-local NIGHTS from the night
+	// A LENGTH, not a window: each consumer supplies its own anchor, and they
+	// differ. The scenes directory counts seven venue-local NIGHTS from the night
 	// in progress (shared.VenueLocalNightWindowCondition), so its edges move once
-	// a night rather than with every request; venue_rail.go and the charts
-	// summary anchor their own seven days at their own instants.
+	// a night rather than with every request.
 	//
 	// The NAME says "this week" and the UI says "next 7 days" (PSY-1732). The UI
 	// half is the correct one: no consumer's window is the Monday-to-Sunday week
@@ -178,16 +177,20 @@ const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 // WHERE so a caller wanting venue-local bounds passes it there; it is
 // interpolated, never bound, so it must be a compile-time literal.
 //
-// The show_venues alias is scene_sv, not sv: shared.VenueTZJoin opens its own
-// `show_venues sv` inside the lateral, and an inner alias repeating an outer one
-// shadows it for every reference in that subquery. Distinct names mean a reader
-// of either fragment is looking at the row set it names.
+// The show_venues alias is scene_sv, not sv, because shared.VenueTZJoin opens
+// its own `show_venues sv` inside the lateral. Distinct names mean a reader of
+// either fragment is looking at the row set it names, and a subquery spliced in
+// here can reference the outer join without first having to be un-shadowed.
 //
 // Shared by ListScenes below and sitemap.go's listQualifyingScenes, which
 // publish one scene set between them. A call site spelling this body out again
 // can move its own half of that set without moving the other, and the rows
 // still scan either way. The charts summary's activeSceneCount deliberately
 // does NOT use it: that surface is window-bounded with no floor at all.
+// noExtraJoins is sceneQualifyingGroupingSQL's argument for a caller that
+// projects no venue-local bound and so needs no zone lateral.
+const noExtraJoins = ""
+
 func sceneQualifyingGroupingSQL(extraJoins string) string {
 	return `
 		FROM venues v
@@ -786,6 +789,29 @@ func (s *SceneService) sceneGenreCounts() (map[string][]contracts.GenreCount, er
 	return out, nil
 }
 
+// sceneDirectoryCountsSQL is the directory's one grouped pass: distinct venues,
+// approved shows, and the two night-bounded subsets, per scene.
+//
+// Rendered once at init rather than per request. It carries no runtime input,
+// and the conditions below each expand the venue-local zone chain, so building
+// it per call would concatenate that ~2KB CASE six times for every GET /scenes.
+// The package-level fragments it is built from are vars for the same reason.
+//
+// COST, measured on postgres:18 at 8000 approved shows: 20-21 ms warm against
+// 6 ms for the instant-bounded form it replaced, most of it JIT compiling the
+// six zone expansions rather than the lateral, which costs 0.002 ms per row.
+// The lever, if this needs to come down, is projecting the local date and the
+// night start from VenueTZJoin's lateral so the zone resolves once per row; it
+// is not a rider on this query, because that projection feeds every migrated
+// surface and each one has to be re-checked for loops=1.
+var sceneDirectoryCountsSQL = `
+		SELECT ` + sceneGroupIdentitySQL + `,
+		       COUNT(DISTINCT v.id) AS venue_count,
+		       COUNT(DISTINCT shows.id) AS show_count,
+		       COUNT(DISTINCT shows.id) FILTER (WHERE ` + shared.VenueLocalNightDateCondition + `) AS upcoming_count,
+		       COUNT(DISTINCT shows.id) FILTER (WHERE ` + shared.VenueLocalNightWindowCondition(sceneThisWeekDays) + `) AS this_week_count` +
+	sceneQualifyingGroupingSQL(shared.VenueTZJoin)
+
 // ListScenes returns the metros — and non-US / no-CBSA fallback cities — that
 // meet scene thresholds: 2+ verified venues AND 3+ approved shows (past or
 // upcoming). Verified venues roll up to their Census CBSA (PSY-1255 step C), so
@@ -807,29 +833,20 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// is metroDisplayIdentity's fallback.
 	//
 	// Both count filters are bounded at the NIGHT in progress in each show's own
-	// venue zone, the boundary GetSceneDetail's headline figure takes. A card in
-	// this directory links to that page, so a reader holds the two numbers against
-	// each other; bounded at the request instant this one reports fewer shows to
-	// come than the page it opens, by exactly what is on that night.
+	// venue zone, which is the boundary GetSceneDetail's headline figure takes. A
+	// card here links to that page, so the two numbers are read against each
+	// other and must name the same night.
 	//
 	// this_week_count is the sceneThisWeekDays-night slice of that same set
-	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it must share
-	// the scene scoping of the other counts: one more FILTER aggregate in the
-	// same pass, not a new query. Sharing the night-start anchor is what makes it
-	// a subset of upcoming_count rather than a number that can exceed it.
+	// (PSY-1309), driving the Atlas globe's pulse: one more FILTER aggregate in
+	// the same pass, not a new query. It shares the night-start anchor, which is
+	// what makes it a subset of upcoming_count rather than a number that can
+	// exceed it.
 	//
-	// The shows table is UNALIASED and shared.VenueTZJoin rides in through the
-	// grouping fragment, whose doc says why. The lateral resolves one zone per
-	// scanned row and yields nothing for a verified room with no approved show,
-	// whose NULL event_date fails both filters anyway.
+	// A verified room with no approved show yields no lateral row; its NULL
+	// event_date fails both filters, so the zone resolved for it is never read.
 	var groups []sceneVenueGroup
-	err := s.db.Raw(`
-		SELECT `+sceneGroupIdentitySQL+`,
-		       COUNT(DISTINCT v.id) AS venue_count,
-		       COUNT(DISTINCT shows.id) AS show_count,
-		       COUNT(DISTINCT shows.id) FILTER (WHERE `+shared.VenueLocalNightDateCondition+`) AS upcoming_count,
-		       COUNT(DISTINCT shows.id) FILTER (WHERE `+shared.VenueLocalNightWindowCondition(sceneThisWeekDays)+`) AS this_week_count`+
-		sceneQualifyingGroupingSQL(shared.VenueTZJoin),
+	err := s.db.Raw(sceneDirectoryCountsSQL,
 		catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&groups).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)

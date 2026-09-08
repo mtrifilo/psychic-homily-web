@@ -34,9 +34,13 @@ type venueNextShow struct {
 }
 
 // venueUpcomingWeekCounts returns, per venue ID, how many of its upcoming
-// approved shows fall inside the rolling next-7-days window. Same window
-// length the scene list uses (sceneThisWeekDays), so a venue row's "Next 7
-// days" chip and its scene's pulse agree on what the window is.
+// approved shows fall inside the rolling next-7-days window.
+//
+// It shares sceneThisWeekDays with the scene list's pulse but not that count's
+// ANCHOR: this window runs from the request instant, the scene list's from the
+// venue-local night in progress. The two sets can therefore differ at both
+// edges by up to a night, and a venue chip can read lower than the scene card
+// above it for a show already under way.
 //
 // Rolling from now, not Monday-to-Sunday, which is why the rail says "next 7
 // days" rather than "this week" (PSY-1732).

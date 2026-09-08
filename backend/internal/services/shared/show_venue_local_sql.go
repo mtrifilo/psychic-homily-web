@@ -505,22 +505,15 @@ var VenueLocalNightDateCondition = nightUpcomingCoarseBound + " AND " +
 // judged on its own venue's clock.
 //
 // Both edges are drawn from the SAME night-start date, so the set is a subset of
-// VenueLocalNightDateCondition's by construction rather than by argument. A
+// VenueLocalNightDateCondition's by construction rather than by argument: a
 // surface printing this beside that one cannot lead with a window count larger
-// than the total it slices, whatever hour it is read at.
+// than the total it slices, whatever hour it is read at. It is a window of whole
+// venue-local NIGHTS rather than a span from the request instant, so its edges
+// move once a night and two readers minutes apart see one number.
 //
-// It is a window of whole venue-local NIGHTS, not a rolling span from the
-// request instant: the upper edge lands at the same hour of the day as the lower
-// one whenever the page is loaded, so two readers minutes apart see the same
-// number. Between midnight and NightStartHour the first night in it is the
-// previous calendar date, exactly as in the condition it extends.
-//
-// `date + integer` is date arithmetic in Postgres, so the upper edge is a date
-// and the comparison stays date-to-date. nights renders through strconv.Itoa
-// from a caller-side constant; nothing here interpolates request input. Zero or
-// fewer nights selects nothing.
-//
-// Carries no bind parameters, like the conditions above it.
+// nights renders through strconv.Itoa from a caller-side constant; nothing here
+// interpolates request input. Carries no bind parameters, like the conditions
+// above it.
 func VenueLocalNightWindowCondition(nights int) string {
 	return VenueLocalNightDateCondition + " AND " + VenueLocalDateSQL + " < (" +
 		venueLocalNightStartDateSQL + " + " + strconv.Itoa(nights) + ")"
