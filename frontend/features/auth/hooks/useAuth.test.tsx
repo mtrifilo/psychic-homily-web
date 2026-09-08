@@ -816,6 +816,37 @@ describe('useAuth hooks', () => {
       )
     })
 
+    it('lets a 429 through unwrapped, so the form can read status and retryAfter', async () => {
+      // The settings form picks its throttle copy from `status` and
+      // `retryAfter`. apiRequest rejects a 429 with those set (pinned in
+      // lib/api.test.ts); this pins that the hook passes the rejection along
+      // rather than rewrapping it the way it rewraps a success:false body.
+      const throttled = Object.assign(new Error('Rate limit exceeded.'), {
+        status: 429,
+        retryAfter: 60,
+      })
+      mockApiRequest.mockRejectedValueOnce(throttled)
+
+      const { result } = renderHook(() => useChangePassword(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          current_password: 'old123',
+          new_password: 'new456',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      const error = result.current.error as Error & {
+        status?: number
+        retryAfter?: number
+      }
+      expect(error.status).toBe(429)
+      expect(error.retryAfter).toBe(60)
+    })
+
     it('throws AuthError when current password is wrong', async () => {
       mockApiRequest.mockResolvedValueOnce({
         success: false,

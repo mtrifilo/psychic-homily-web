@@ -316,8 +316,11 @@ describe('ChangePassword', () => {
 describe('formatChangePasswordError', () => {
   it('keeps the server message for a non-429 failure', () => {
     // The shape useChangePassword throws for a rejected password: the backend
-    // answers 200 with success:false, so the error carries no status at all.
-    const error = new Error('Current password is incorrect')
+    // answers 200 with success:false, and the hook turns that into an AuthError
+    // carrying status 400.
+    const error = Object.assign(new Error('Current password is incorrect'), {
+      status: 400,
+    })
     expect(formatChangePasswordError(error)).toBe('Current password is incorrect')
   })
 

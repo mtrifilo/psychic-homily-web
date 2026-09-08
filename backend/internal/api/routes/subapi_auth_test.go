@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-
-	"psychic-homily-backend/internal/api/middleware"
 )
 
 // PSY-1598 step 3: the auth and passkey groups move off their own humachi.New
@@ -28,9 +26,12 @@ import (
 //     E2E shard — all sharing 127.0.0.1 — would start failing register and
 //     magic-link again, which is the exact regression PSY-475 fixed.
 
+// Written out rather than read from middleware, which is what makes them an
+// oracle: auth.go builds its limiters from those constants, so a budget widened
+// there and not here fails this file instead of passing silently.
 const (
-	authLimitPerMinute    = middleware.AuthRequestsPerMinute
-	passkeyLimitPerMinute = middleware.PasskeyRequestsPerMinute
+	authLimitPerMinute    = 10 // middleware.AuthRequestsPerMinute
+	passkeyLimitPerMinute = 20 // middleware.PasskeyRequestsPerMinute
 )
 
 func TestAuthOperationsAreInMainSpec(t *testing.T) {

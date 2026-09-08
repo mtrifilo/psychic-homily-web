@@ -63,7 +63,7 @@ export function formatChangePasswordError(error: unknown): string {
   if (apiErr.status === 429) {
     const retryAfter = apiErr.retryAfter
     if (typeof retryAfter === 'number' && retryAfter > 0) {
-      return `Too many password change attempts. Try again in ${Math.ceil(retryAfter)}s.`
+      return `Too many password change attempts. Try again in ${retryAfter}s.`
     }
     return 'Too many password change attempts. Try again in a minute.'
   }

@@ -49,9 +49,11 @@ func TestChangePasswordRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("request past budget: want 429 got %d", w.Code)
 	}
-	// Retry-After is what the frontend surfaces as ApiError.retryAfter.
-	if got := w.Header().Get("Retry-After"); got == "" {
-		t.Error("429 must carry Retry-After so the client can render a wait")
+	// Retry-After is what the frontend surfaces as ApiError.retryAfter, and the
+	// value it renders. Pinned here as well as through the router so a machine
+	// without docker still covers it.
+	if got := w.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("429 carried Retry-After %q, want 60: the client renders this as the wait", got)
 	}
 	if served != ChangePasswordAttemptsPerMinute {
 		t.Errorf("handler served %d requests, want %d", served, ChangePasswordAttemptsPerMinute)

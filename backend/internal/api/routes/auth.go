@@ -18,10 +18,9 @@ func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
 	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.SC.JWT, rc.Cfg)
 
-	// The public auth budget: brute force on login, credential stuffing,
-	// email bombing via magic links, and spam account creation all draw on this
-	// one per-IP counter. Built once and shared by the chi OAuth groups below
-	// and by rateLimitedAuthGroup, which is what keeps them on one budget.
+	// The public auth budget: brute force on login, credential stuffing, email
+	// bombing via magic links, and spam account creation all draw on this one
+	// per-IP counter.
 	authRateLimiter := authScopedRateLimiter(middleware.AuthRequestsPerMinute)
 
 	// Rate-limited OAuth routes
@@ -96,12 +95,12 @@ const VerificationResendPerMinute = 5
 // new one. It matches the resend budget on its own counter, so tuning one does
 // not tune the other.
 //
-// The whole budget is not guesses: a new password the server rejects on policy
-// (breach-list and common-password checks the browser form cannot run) spends
-// an attempt too, so a user iterating on a password costs the same as an
-// attacker iterating on the current one. Five per minute per IP is a floor
-// against unsophisticated abuse, not a bound on a determined caller, who can
-// rotate source addresses for a fresh counter each time.
+// Not every attempt it counts is a guess: a new password the server rejects on
+// policy spends one too, and the breach-list half of that policy is a lookup
+// the browser form cannot make, so a user iterating on a new password costs the
+// same as an attacker iterating on the current one. Five per minute per IP is a
+// floor against unsophisticated abuse, not a bound on a determined caller, who
+// can rotate source addresses for a fresh counter each time.
 const ChangePasswordAttemptsPerMinute = 5
 
 // authScopedRateLimiter builds a per-IP minute limiter for an auth route,
@@ -257,8 +256,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.Cfg)
 
 	// Passkey gets its own budget, more lenient than the auth one because a
-	// WebAuthn flow is several requests. Built once and shared across the four
-	// public passkey operations.
+	// WebAuthn flow is several requests.
 	passkeyRateLimiter := authScopedRateLimiter(middleware.PasskeyRequestsPerMinute)
 
 	// Rate-limited public passkey endpoints.
