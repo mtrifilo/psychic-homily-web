@@ -3,7 +3,9 @@ export {
   AuthErrorCode,
   isAuthError,
   isDefinitiveUnauthenticated,
+  isReauthRequired,
   getAuthErrorMessage,
+  REAUTH_REQUIRED_MESSAGE,
   type AuthErrorCodeType,
 } from './authErrors'
 

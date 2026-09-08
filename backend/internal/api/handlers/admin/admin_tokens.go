@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -42,6 +43,14 @@ type CreateAPITokenResponse struct {
 // CreateAPITokenHandler handles POST /admin/tokens
 func (h *AdminTokenHandler) CreateAPITokenHandler(ctx context.Context, req *CreateAPITokenRequest) (*CreateAPITokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
+
+	// A phk_ bearer lives for up to a year, so a session that can mint one is
+	// worth more than the session itself. Refused before the request is read,
+	// and before an API-token principal (which establishes no authentication
+	// time) can mint its own successor.
+	if err := shared.RequireRecentSessionAuth(ctx, "admin_create_api_token"); err != nil {
+		return nil, err
+	}
 
 	user := middleware.GetUserFromContext(ctx)
 

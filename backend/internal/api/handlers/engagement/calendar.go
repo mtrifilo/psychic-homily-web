@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
@@ -132,6 +133,14 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
 		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// The feed URL carries a bearer token in its query string, readable by
+	// anything the user pastes it into, and this endpoint also rotates an
+	// existing one. Both are credential issuance, so both need the account
+	// proven recently.
+	if err := shared.RequireRecentSessionAuth(ctx, "create_calendar_token"); err != nil {
+		return nil, err
 	}
 
 	// Feed URLs use the API domain, not the frontend domain.

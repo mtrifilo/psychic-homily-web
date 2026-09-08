@@ -45,6 +45,7 @@ var sessionMintAllowlist = map[string]string{
 	"internal/api/handlers/auth/auth.go:AuthHandler.RegisterHandler:CreateToken":               "registration sets the password",
 	"internal/api/handlers/auth/auth.go:AuthHandler.VerifyMagicLinkHandler:CreateToken":        "emailed magic link",
 	"internal/api/handlers/auth/auth.go:AuthHandler.RecoverAccountHandler:CreateToken":         "email plus password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.ChangePasswordHandler:CreateToken":         "current password verified in this request",
 	"internal/api/handlers/auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler:CreateToken": "emailed recovery token",
 	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishLoginHandler:CreateToken":      "webauthn assertion",
 	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishSignupHandler:CreateToken":     "webauthn registration at signup",
@@ -58,6 +59,11 @@ var sessionMintAllowlist = map[string]string{
 
 	// The one deliberate time.Now() stamp, which is what CreateToken means.
 	"internal/services/auth/jwt.go:JWTService.CreateToken:RenewSessionToken": "the factor stamp itself",
+
+	// A test helper, which the walk sees because it lives in a non-test file so
+	// that every handler package can import it. It renews with a time its
+	// caller supplies and reaches no request.
+	"internal/api/handlers/shared/testhelpers/session_auth_time.go:SessionAuthTimeAfterRenewal:RenewSessionToken": "test helper, time from the caller",
 
 	// Unrelated services that happen to expose a CreateToken. Named so the walk
 	// needs no receiver heuristic to leave them alone.

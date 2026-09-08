@@ -20,6 +20,7 @@ import {
 import type { CalendarTokenCreateResponse } from '@/features/shows'
 import { PERSONAL_FEED_TOKEN_ROTATED_EVENT, PERSONAL_FEED_TOKEN_REVOKED_EVENT } from './personalFeedTokenEvents'
 import { useAutoDismissFlag } from '@/lib/hooks/common'
+import { FeedMintErrorNotice } from './FeedMintErrorNotice'
 
 // How long the "copied ✓" confirmation stays up after copying the feed URL.
 const COPIED_DISMISS_MS = 2000
@@ -33,6 +34,10 @@ export function FollowsActivityFeedSection() {
   const { data: tokenStatus, isLoading } = useCalendarTokenStatus()
   const createToken = useCreateCalendarToken()
   const deleteToken = useDeleteCalendarToken()
+  // Enabling and regenerating both mint the personal feed token, and the mint
+  // refuses a session that has not authenticated recently. Rendered beside
+  // every control that can start one: without it the button is a dead click.
+  const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
   const [createdToken, setCreatedToken] = useState<{
     token: string
     follows_feed_url: string
@@ -187,6 +192,7 @@ export function FollowsActivityFeedSection() {
             Disable
           </Button>
         </div>
+        {mintErrorNotice}
       </div>
     )
   }
@@ -246,6 +252,7 @@ export function FollowsActivityFeedSection() {
             </Button>
           </div>
         </div>
+        {mintErrorNotice}
       </div>
     )
   }
@@ -273,6 +280,7 @@ export function FollowsActivityFeedSection() {
           {createToken.isPending ? 'Enabling…' : 'Enable'}
         </Button>
       </div>
+      {mintErrorNotice}
     </div>
   )
 }

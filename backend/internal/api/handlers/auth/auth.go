@@ -13,6 +13,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -1333,7 +1334,11 @@ type ChangePasswordRequest struct {
 
 // ChangePasswordResponse represents a password change response
 type ChangePasswordResponse struct {
-	Body struct {
+	// Set on success only. The caller just proved the account's password, so
+	// the session it goes on with carries a fresh authentication time; see the
+	// re-stamp in ChangePasswordHandler.
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	Body      struct {
 		Success   bool   `json:"success" example:"true" doc:"Success status"`
 		Message   string `json:"message" example:"Password changed successfully" doc:"Response message"`
 		ErrorCode string `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
@@ -1465,6 +1470,22 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, autherrors.ErrServiceUnavailable("change_password", err)
+	}
+
+	// The caller presented the account's password and it verified, which is
+	// the same factor a sign-in proves. The session gets a token stamped with
+	// that, so the gates that ask when a factor last completed see this one.
+	//
+	// A mint failure here is logged and not surfaced: the password is already
+	// changed, so reporting failure would misdescribe what happened. The
+	// caller keeps its existing session and is asked to sign in again the next
+	// time a gate wants a recent factor, which refuses rather than grants.
+	if token, err := h.jwtService.CreateToken(contextUser); err != nil {
+		logger.AuthError(ctx, "change_password_restamp_failed", err,
+			"user_id", contextUser.ID,
+		)
+	} else {
+		resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 	}
 
 	logger.AuthInfo(ctx, "change_password_success",
@@ -2201,6 +2222,13 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 		resp.Body.Message = "User not found in context"
 		resp.Body.ErrorCode = autherrors.CodeUnauthorized
 		return resp, nil
+	}
+
+	// The minted token is a session credential that leaves the browser for a
+	// terminal, where nothing revokes it early. A session that cannot be shown
+	// to be recently authenticated does not get to make one.
+	if err := shared.RequireRecentSessionAuth(ctx, "generate_cli_token"); err != nil {
+		return nil, err
 	}
 
 	logger.AuthDebug(ctx, "generate_cli_token_attempt",

@@ -26,6 +26,7 @@ import {
 import type { CalendarTokenCreateResponse } from '@/features/shows'
 import { PERSONAL_FEED_TOKEN_ROTATED_EVENT, PERSONAL_FEED_TOKEN_REVOKED_EVENT } from './personalFeedTokenEvents'
 import { useAutoDismissFlag } from '@/lib/hooks/common'
+import { FeedMintErrorNotice } from './FeedMintErrorNotice'
 
 // How long the "copied ✓" confirmation stays up after copying the feed URL.
 const COPIED_DISMISS_MS = 2000
@@ -117,6 +118,11 @@ export function CalendarFeedSection({
   }
 
   const isSettings = variant === 'settings'
+
+  // Enabling and regenerating both mint a feed token, and the mint refuses a
+  // session that has not authenticated recently. Rendered beside every control
+  // that can start one: without it the button is a dead click.
+  const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
 
   // Just created / regenerated — show the feed URL (only moment plaintext is available)
   if (createdToken) {
@@ -233,6 +239,7 @@ export function CalendarFeedSection({
             .
           </p>
         )}
+        {mintErrorNotice}
       </div>
     )
   }
@@ -294,6 +301,7 @@ export function CalendarFeedSection({
               </Button>
             </div>
           </div>
+          {mintErrorNotice}
         </div>
       )
     }
@@ -363,6 +371,7 @@ export function CalendarFeedSection({
           {createToken.isPending ? 'Enabling…' : 'Enable'}
         </Button>
       </div>
+      {mintErrorNotice}
     </div>
   )
 }

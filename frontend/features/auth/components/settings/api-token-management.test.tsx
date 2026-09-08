@@ -3,6 +3,11 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { APITokenManagement } from './api-token-management'
+import {
+  AuthError,
+  AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
+} from '@/lib/errors'
 
 // --- Mocks ---
 
@@ -201,6 +206,22 @@ describe('APITokenManagement', () => {
     renderWithProviders(<APITokenManagement />)
 
     expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument()
+  })
+
+  it('renders the sign-in-again copy when the mint refuses a stale session', () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutationState = {
+      isPending: false,
+      isError: true,
+      error: new AuthError(
+        'For security, sign in again before creating a new token.',
+        AuthErrorCode.REAUTH_REQUIRED,
+        { status: 403 }
+      ),
+    }
+    renderWithProviders(<APITokenManagement />)
+
+    expect(screen.getByText(REAUTH_REQUIRED_MESSAGE)).toBeInTheDocument()
   })
 
   it('shows revoke mutation error', () => {

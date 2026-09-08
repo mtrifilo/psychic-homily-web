@@ -1,12 +1,10 @@
 package auth
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -14,13 +12,6 @@ import (
 // the presented session's authentication time to the minting service, so that a
 // session too old to satisfy a re-authentication gate cannot renew its way out
 // of the refusal.
-
-// ctxWithSessionAuthTime builds what the JWT middlewares put in front of these
-// handlers: a principal and the time a factor last completed for the
-// credential, zero when it carries none.
-func ctxWithSessionAuthTime(user *authm.User, authAt time.Time) context.Context {
-	return context.WithValue(testhelpers.CtxWithUser(user), middleware.SessionAuthTimeContextKey, authAt)
-}
 
 func TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) {
 	authAt := time.Now().Add(-90 * time.Minute).UTC()
@@ -39,7 +30,7 @@ func TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) {
 		}
 	})
 
-	resp, err := h.RefreshTokenHandler(ctxWithSessionAuthTime(&authm.User{ID: 1}, authAt), &struct{}{})
+	resp, err := h.RefreshTokenHandler(testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, authAt), &struct{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +62,7 @@ func TestRefreshTokenHandler_LegacySessionRenewsWithNoAuthTime(t *testing.T) {
 		}
 	})
 
-	ctx := ctxWithSessionAuthTime(&authm.User{ID: 1}, time.Time{})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Time{})
 	if _, err := h.RefreshTokenHandler(ctx, &struct{}{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +75,11 @@ func TestRefreshTokenHandler_LegacySessionRenewsWithNoAuthTime(t *testing.T) {
 }
 
 func TestGenerateCLITokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) {
-	authAt := time.Now().Add(-4 * time.Hour).UTC()
+	// Inside the re-authentication window, because the mint refuses anything
+	// older. The point stands within it: the CLI token carries the session's
+	// own authentication time rather than a fresh stamp, so it ages out of the
+	// window when that session would have.
+	authAt := time.Now().Add(-1 * time.Minute).UTC()
 
 	var got time.Time
 	var stamped bool
@@ -101,7 +96,7 @@ func TestGenerateCLITokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) 
 		}
 	})
 
-	ctx := ctxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, authAt)
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, authAt)
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -117,28 +112,58 @@ func TestGenerateCLITokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) 
 	}
 }
 
-// The counterpart of the refresh case: a session carrying no authentication
-// time mints a CLI token that carries none either.
-func TestGenerateCLITokenHandler_SessionWithoutAuthTimeMintsWithout(t *testing.T) {
-	var got time.Time
+// A credential that establishes no authentication time reaches no mint: an API
+// token, and a session issued before the auth_at claim existed, both present
+// the zero value and are refused here. The renewal service keeps its own
+// handling of a zero authentication time; nothing routes one to it from here.
+func TestGenerateCLITokenHandler_SessionWithoutAuthTimeRefused(t *testing.T) {
 	var called bool
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &testhelpers.MockJWTService{
 			RenewSessionTokenFn: func(u *authm.User, a time.Time) (string, error) {
-				called, got = true, a
+				called = true
 				return "cli-token", nil
 			},
 		}
 	})
 
-	ctx := ctxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, time.Time{})
-	if _, err := h.GenerateCLITokenHandler(ctx, &struct{}{}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, IsAdmin: true}, time.Time{})
+	if _, err := h.GenerateCLITokenHandler(ctx, &struct{}{}); err == nil {
+		t.Fatal("a session establishing no authentication time must be refused")
 	}
-	if !called {
-		t.Fatal("expected the mint to reach the JWT service")
+	if called {
+		t.Error("a refused request must not reach the JWT service")
 	}
-	if !got.IsZero() {
-		t.Errorf("CLI mint got auth time %v, want the zero value", got)
+}
+
+// The stale session, and the same session after POST /auth/refresh renewed it.
+// The renewal is what the gate exists to see through: it moves the issue time
+// with no factor behind it, so it must buy no access to the mint.
+func TestGenerateCLITokenHandler_StaleAndRefreshedSessionsRefused(t *testing.T) {
+	user := &authm.User{ID: 1, IsAdmin: true, IsActive: true}
+	stale := time.Now().Add(-2 * time.Hour)
+
+	for name, authAt := range map[string]time.Time{
+		"stale session":                 stale,
+		"stale session, then refreshed": testhelpers.SessionAuthTimeAfterRenewal(t, user, stale.Truncate(time.Second)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var called bool
+			h := authHandler(func(ah *AuthHandler) {
+				ah.jwtService = &testhelpers.MockJWTService{
+					RenewSessionTokenFn: func(u *authm.User, a time.Time) (string, error) {
+						called = true
+						return "cli-token", nil
+					},
+				}
+			})
+
+			if _, err := h.GenerateCLITokenHandler(testhelpers.CtxWithSessionAuthTime(user, authAt), &struct{}{}); err == nil {
+				t.Fatal("expected the mint to be refused")
+			}
+			if called {
+				t.Error("a refused request must not reach the JWT service")
+			}
+		})
 	}
 }

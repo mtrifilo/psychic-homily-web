@@ -61,7 +61,7 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	resp, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
 	_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
