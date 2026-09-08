@@ -58,13 +58,58 @@ interface ScenePageProps {
  * null for non-2xx (404 expected for bogus slugs) so the page can call
  * `notFound()`.
  */
+/**
+ * Accept a 200 body only if it is actually a scene.
+ *
+ * A 200 is not proof of the right endpoint: a redirect, a CDN error page, or a
+ * future API change can all answer 200 with something else, and this route's
+ * whole job is to be the existence check the rest of the page trusts. The
+ * fields tested are the ones read WITHOUT a guard — `city` and `state` name the
+ * page in its title, description and canonical, `slug` builds every window
+ * link, and `stats` is dereferenced for a room count — so a body missing any of
+ * them renders a scene page that is not about a scene. Anything else on the
+ * payload is already optional-safe.
+ *
+ * Rejecting reaches the same `notFound()` a 404 does. Reported because nothing
+ * else can see it: the response was a 200, so no status check fires, and Next
+ * stores it for the whole revalidate window.
+ */
+function asScene(body: unknown, slug: string): SceneDetail | null {
+  const record = body as Record<string, unknown> | null
+  const named = (value: unknown) => typeof value === 'string' && value.trim() !== ''
+  if (
+    record &&
+    typeof record === 'object' &&
+    named(record.city) &&
+    named(record.state) &&
+    named(record.slug) &&
+    typeof record.stats === 'object' &&
+    record.stats !== null
+  ) {
+    return body as SceneDetail
+  }
+
+  Sentry.captureMessage('Scene page: rejected a payload', {
+    level: 'error',
+    tags: { service: 'scene-page' },
+    extra: { slug },
+  })
+  return null
+}
+
 const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/scenes/${slug}`, {
-      next: { revalidate: 3600 },
-    })
+    // The slug is attacker-controlled: Next decodes route params before this
+    // runs, so `phoenix-az?x` or `phoenix-az/../artists` would truncate or walk
+    // this path and send the request to a DIFFERENT endpoint, one that can
+    // answer 200 with a shape this page then renders as a scene. The period
+    // fetches encode for the same reason.
+    const res = await fetch(
+      `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}`,
+      { next: { revalidate: 3600 } }
+    )
     if (res.ok) {
-      return res.json()
+      return asScene(await res.json(), slug)
     }
     // Don't report 404s — they're the expected response for invalid /
     // below-threshold slugs (the whole point of this check).

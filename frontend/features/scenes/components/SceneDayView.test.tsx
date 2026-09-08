@@ -496,6 +496,27 @@ describe('SceneDayView — the edges of the servable window', () => {
     expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
   })
 
+  // A date the day route would reject is the same answer as no date, arrived at
+  // differently: the chip would carry a label read off `parseCalendarDate`'s
+  // year-1900 fallback and link to a page that 404s.
+  it.each([
+    ['absent', undefined],
+    ['not a date', 'yesterday'],
+    ['before the servable years', '1998-07-30'],
+  ])('renders no adjacent-day chip for a date that is %s', (_label, adjacent) => {
+    const { container } = render(
+      <SceneDayView day={day({ prev_date: adjacent, next_date: adjacent })} />
+    )
+
+    const datedLinks = [...container.querySelectorAll('a[href]')].filter(a =>
+      (a.getAttribute('href') ?? '').startsWith('/scenes/phoenix-az/')
+    )
+    expect(datedLinks.map(a => a.getAttribute('href'))).not.toContain(
+      `/scenes/phoenix-az/${adjacent}`
+    )
+    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+  })
+
   it('renders both chips when the server offers both dates', () => {
     const { container } = render(<SceneDayView day={day()} />)
 

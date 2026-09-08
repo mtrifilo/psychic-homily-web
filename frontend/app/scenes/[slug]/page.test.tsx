@@ -347,3 +347,64 @@ describe('scenes/[slug] calendar slice', () => {
   })
 
 })
+
+// This route is the existence check the rest of the page trusts, so what it
+// asks for and what it accepts back are both part of the guarantee.
+describe('scenes/[slug] existence check', () => {
+  /** The title the route emits when it has no scene to describe. */
+  const NOT_FOUND_TITLE = 'Scene not found'
+
+  // Next decodes route params before this runs, so an unescaped slug would walk
+  // out of the path and hit a different backend endpoint.
+  it('encodes the slug into the backend URL', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az/../artists' }) })
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      '/scenes/phoenix-az%2F..%2Fartists'
+    )
+  })
+
+  // A 200 is not proof of the right endpoint. A body missing any field the page
+  // dereferences would render a scene page that is not about a scene.
+  it.each([
+    ['a body that is not an object', 'phoenix'],
+    ['a null body', null],
+    ['a body with no city', buildScene({ city: undefined })],
+    ['a body with a blank city', buildScene({ city: '   ' })],
+    ['a body with no state', buildScene({ state: undefined })],
+    ['a body with no slug', buildScene({ slug: '' })],
+    ['a body with no stats', buildScene({ stats: undefined })],
+  ])('refuses %s', async (_label, body) => {
+    fetchMock.mockResolvedValueOnce(okResponse(body))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(meta.title).toBe(NOT_FOUND_TITLE)
+  })
+
+  // A malformed body used to reject PAST the fetch's catch, because the promise
+  // was adopted after the try block exited.
+  it('refuses a body that is not JSON at all', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON')
+      },
+    })
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(meta.title).toBe(NOT_FOUND_TITLE)
+  })
+
+  it('serves an ordinary scene', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildScene()))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'phoenix-az' }) })
+
+    expect(meta.title).toBe('Phoenix, AZ Music Scene')
+  })
+})

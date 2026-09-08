@@ -222,6 +222,36 @@ describe('fetchSceneDay', () => {
     await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
   })
 
+  // Naming something is not naming the right KIND of thing. Each of these
+  // survives every truthiness and trim check and then reaches a URL
+  // interpolation that has no second chance to look at it.
+  it.each([
+    ['a date that is a word', { date: 'tonight' }],
+    ['a date with no day', { date: '2026-07' }],
+    ['a date outside the servable years', { date: '1998-07-31' }],
+    ['a week key that is not one', { iso_week: '2026-31' }],
+    ['a week key outside the servable years', { iso_week: '2014-W52' }],
+    ['a slug that walks up the path', { slug: '../..' }],
+    ['a slug carrying a query', { slug: 'phoenix-az?x' }],
+    ['a slug that is the index', { slug: '.' }],
+  ])('rejects a body carrying %s', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(day(over)))
+
+    await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
+  })
+
+  // The shapes a US scene slug legitimately takes. `lower(replace(city,' ','-'))`
+  // keeps whatever punctuation and accents the city name carries, and losing
+  // those pages would be a worse bug than the one the rule above closes.
+  it.each([['st.-louis-mo'], ['española-nm'], ["coeur-d'alene-id"]])(
+    'serves a day whose slug is %s',
+    async slug => {
+      fetchMock.mockResolvedValue(jsonResponse(day({ slug })))
+
+      await expect(fetchSceneDay('phoenix-az')).resolves.toMatchObject({ slug })
+    }
+  )
+
   // A rejected 200 is otherwise invisible: no status check fires, and the body
   // stays cached for the caller's whole window.
   it('reports which field a rejected payload failed on', async () => {

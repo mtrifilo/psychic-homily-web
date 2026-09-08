@@ -209,6 +209,51 @@ describe('fetchSceneWeek', () => {
     await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
   })
 
+  // Naming something is not naming the right KIND of thing. `slug` and
+  // `iso_week` are interpolated raw into the canonical and the share-image URL,
+  // and the range dates are split into date maths that answers with a year-1900
+  // Date for anything else.
+  it.each([
+    ['a week key that is not one', { iso_week: 'this-week' }],
+    ['a week key with no week', { iso_week: '2026-W' }],
+    ['a week key outside the servable years', { iso_week: '2014-W52' }],
+    ['a start date that is a word', { start_date: 'monday' }],
+    ['an end date with no day', { end_date: '2026-08' }],
+    ['a slug that walks up the path', { slug: '../..' }],
+    ['a slug carrying a fragment', { slug: 'chicago-il#x' }],
+    ['a slug that is the index', { slug: '..' }],
+  ])('rejects a body carrying %s', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(week(over)))
+
+    await expect(fetchSceneWeek('chicago-il', undefined, 'scene-week')).resolves.toBeNull()
+  })
+
+  // The range dates address no URL, so the week route's year bounds do not
+  // apply to them — and the first and last servable weeks each straddle one of
+  // those bounds. Checking a range date with the bounded rule that guards
+  // `iso_week` would 404 both pages. Derived from the clock rather than written
+  // out, because the upper bound moves with it.
+  it.each([
+    ['the first', { iso_week: '2015-W01', start_date: '2014-12-29', end_date: '2015-01-04' }],
+    [
+      'the last',
+      (() => {
+        const lastYear = new Date().getUTCFullYear() + 1
+        return {
+          iso_week: `${lastYear}-W52`,
+          start_date: `${lastYear}-12-27`,
+          end_date: `${lastYear + 1}-01-02`,
+        }
+      })(),
+    ],
+  ])('serves %s servable week, whose range crosses the year bound', async (_label, over) => {
+    fetchMock.mockResolvedValue(jsonResponse(week({ ...over, is_past_week: true })))
+
+    await expect(
+      fetchSceneWeek('chicago-il', undefined, 'scene-week')
+    ).resolves.toMatchObject(over)
+  })
+
   // The week's navigation keys are outside this contract, so a payload that
   // omits them is still served: the gap they leave belongs to the view.
   it('serves a week that omits its navigation keys', async () => {

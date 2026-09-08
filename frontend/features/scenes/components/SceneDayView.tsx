@@ -13,6 +13,7 @@ import {
   formatDayFull,
   formatPointerDay,
   formatShowStartTime,
+  looksLikeCalendarDate,
   orderNightShows,
   type SceneDayResponse,
   type SceneDayShow,
@@ -170,6 +171,19 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
   )
 }
 
+/**
+ * The neighbouring date, or null when this page cannot link to one.
+ *
+ * `''` is the server's way of saying there is no neighbour in this direction,
+ * at the edges of the servable window. A date the day route would reject is
+ * the same answer arrived at differently: it is not a link, it is a 404 behind
+ * a chip labelled from `parseCalendarDate`'s year-1900 fallback. The shape rule
+ * is the route's own, so a chip exists exactly when the page behind it does.
+ */
+function navigableDay(date: string | undefined): string | null {
+  return date !== undefined && looksLikeCalendarDate(date) ? date : null
+}
+
 export function SceneDayView({ day }: { day: SceneDayResponse }) {
   // On the LIVE night the rows a reader can still get to lead, and the ones
   // already under way sink beneath them in the order they started (user
@@ -188,6 +202,8 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
   const shows = orderNightShows(dayShows(day), day.is_tonight)
   const rooms = dayTrackedVenues(day)
   const total = shows.length
+  const prevDay = navigableDay(day.prev_date)
+  const nextDay = navigableDay(day.next_date)
 
   // The rolling week for tonight, the dated week permalink otherwise — a page
   // about a night two months ago must not link to whatever week it happens to
@@ -204,30 +220,30 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <SceneCityHeading city={day.city} state={day.state} />
 
-          {/* The adjacent-day chips render only when the server offered a
-              date. At the edges of the servable window there is no next day to
-              go to, and a chip pointing at a URL this site 404s is a worse
-              answer than no chip. */}
+          {/* The adjacent-day chips render only when the server offered a date
+              this site can serve. At the edges of the servable window there is
+              no next day to go to, and a chip pointing at a URL this site 404s
+              is a worse answer than no chip. */}
           <div className="flex gap-2">
-            {day.prev_date && (
+            {prevDay && (
               <Link
-                href={`/scenes/${day.slug}/${day.prev_date}`}
+                href={`/scenes/${day.slug}/${prevDay}`}
                 className={SCENE_NAV_CHIP_CLASS}
                 rel="prev"
               >
-                ← {formatDayChip(day.prev_date)}
+                ← {formatDayChip(prevDay)}
               </Link>
             )}
             <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
               Full week
             </Link>
-            {day.next_date && (
+            {nextDay && (
               <Link
-                href={`/scenes/${day.slug}/${day.next_date}`}
+                href={`/scenes/${day.slug}/${nextDay}`}
                 className={SCENE_NAV_CHIP_CLASS}
                 rel="next"
               >
-                {formatDayChip(day.next_date)} →
+                {formatDayChip(nextDay)} →
               </Link>
             )}
           </div>

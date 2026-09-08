@@ -7,8 +7,9 @@
  * JSON-LD helpers into that bundle for no reason.
  */
 import { API_BASE_URL } from '@/lib/api-base'
-import { fetchScenePeriod, type ScenePeriodService } from './scenePeriodApi'
-import type { SceneWeekResponse } from './sceneWeek'
+import { looksLikeSlug } from '@/lib/entity-slug'
+import { anyName, fetchScenePeriod, type ScenePeriodService } from './scenePeriodApi'
+import { isCalendarDate, looksLikeISOWeek, type SceneWeekResponse } from './sceneWeek'
 
 /** Which surface a failure came from, so Sentry triage can tell them apart. */
 type SceneWeekService = Extract<ScenePeriodService, 'scene-week' | 'og-image'>
@@ -26,15 +27,30 @@ function weekSpec(slug: string, service: SceneWeekService) {
       week
         ? `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week/${encodeURIComponent(week)}`
         : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`,
-    // Every field here is one a consumer reads WITHOUT a null guard: the dates
-    // go straight into date maths, `city` into string measurement, and
-    // `slug`/`iso_week` into the canonical and share-image URLs. A blank one
-    // would survive every truthiness check and produce a URL naming a different
-    // page, so blank is rejected alongside absent.
-    identityFields: ['start_date', 'end_date', 'city', 'slug', 'iso_week'] as const,
-    // Empty. `prev_week`/`next_week` are outside this contract: the week view
-    // interpolates them into hrefs unguarded, so refusing the payload would
-    // trade a broken chip for a dead page. That gap belongs to the view.
+    // Every field here is one a consumer reads WITHOUT a null guard, each with
+    // the shape it has to have: the range dates go straight into date maths,
+    // `city` into string measurement, and `slug`/`iso_week` RAW into the
+    // canonical and the share-image URL, so each of those two has to be one
+    // path segment already.
+    //
+    // `isCalendarDate`, deliberately, and NOT `sceneDay`'s
+    // `looksLikeCalendarDate`: that one also bounds the year to cap the URL
+    // cache-key space, and a week's range dates address no URL and legitimately
+    // fall outside those bounds. The first servable week starts 2014-12-29 and
+    // the last one ends in the January after it. `iso_week` keeps the bounded
+    // predicate because it DOES address a URL, one the week route rejects
+    // outside exactly those bounds.
+    identityFields: [
+      ['start_date', isCalendarDate],
+      ['end_date', isCalendarDate],
+      ['city', anyName],
+      ['slug', looksLikeSlug],
+      ['iso_week', looksLikeISOWeek],
+    ] as const,
+    // Empty. `prev_week`/`next_week` are outside this contract: refusing the
+    // whole payload over a neighbour would trade a missing chip for a dead
+    // page, so the week view decides per chip whether it has a week key it can
+    // link to, exactly as the day view does for its neighbouring dates.
     presenceFields: [] as const,
     // `=== true` rather than a truthy test, because this reads an untrusted
     // wire payload. The type says boolean; a body that says anything else must

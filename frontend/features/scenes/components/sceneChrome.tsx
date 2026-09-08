@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import Link from 'next/link'
+import { addressesAnEntity } from '@/lib/entity-slug'
 
 /**
  * The chrome the weekly and nightly city pages share.
@@ -107,7 +108,7 @@ export function entityHref(
   slug?: string | null
 ): string | null {
   const trimmed = slug?.trim()
-  if (!trimmed || trimmed === '.' || trimmed === '..') return null
+  if (!trimmed || !addressesAnEntity(trimmed)) return null
   return `${basePath}/${encodeURIComponent(trimmed)}`
 }
 

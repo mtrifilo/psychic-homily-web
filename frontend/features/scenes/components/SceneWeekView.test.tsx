@@ -40,6 +40,12 @@ const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
     ...over,
   }) as SceneWeekResponse
 
+/** Every href on the page that addresses a dated week permalink, in order. */
+const weekLinks = (container: HTMLElement): string[] =>
+  [...container.querySelectorAll('a[href]')]
+    .map(a => a.getAttribute('href') ?? '')
+    .filter(href => /^\/scenes\/[^/]+\/\d{4}-W\d{2}$/i.test(href))
+
 describe('SceneWeekView — share affordance', () => {
   afterEach(() => {
     Reflect.deleteProperty(navigator, 'clipboard')
@@ -195,6 +201,44 @@ describe('SceneWeekView', () => {
       'href',
       '/scenes/chicago-il/2026-W32'
     )
+  })
+
+  // A key this site cannot serve is not navigation. An absent one renders the
+  // word `undefined` into both the label and the href; one outside the week
+  // route's year bounds renders a chip whose page 404s.
+  it.each([
+    ['absent', undefined],
+    ['blank', '   '],
+    ['not a week key', 'next'],
+    ['before the servable years', '2014-W52'],
+  ])('renders no next-week chip when the key is %s', (_label, next_week) => {
+    const { container } = render(<SceneWeekView week={week({ next_week })} />)
+
+    expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W30'])
+    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument()
+    // The row is never empty: "Tonight" is unconditional.
+    expect(screen.getByRole('link', { name: 'Tonight' })).toBeInTheDocument()
+  })
+
+  it('renders no previous-week chip when the key is absent', () => {
+    const { container } = render(<SceneWeekView week={week({ prev_week: undefined })} />)
+
+    expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W32'])
+  })
+
+  // The pointer onward goes with the link, trailing stop included: a bare "."
+  // after the sentence would read as a typo.
+  it('drops the way forward on an empty week with no next week to offer', () => {
+    render(
+      <SceneWeekView
+        week={week({ show_count: 0, days: [], tracked_venues: [room()], next_week: undefined })}
+      />
+    )
+
+    expect(screen.queryByRole('link', { name: /Try next week/ })).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/No shows at the Chicago rooms we track this week\.$/)
+    ).toBeInTheDocument()
   })
 
   // Load-bearing: the two pages are read as a pair, and this chip is the half
