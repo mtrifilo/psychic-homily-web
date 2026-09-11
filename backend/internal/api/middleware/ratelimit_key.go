@@ -88,11 +88,12 @@ func trustedProxyHops() int {
 // # Canonical keys
 //
 // Both paths run the observed address through canonicalizeRateLimitKey, so one
-// client keys the same whether it arrives through the proxy chain or on a
-// direct connection.
+// client keys the same whether it arrives through the proxy chain or on a direct
+// connection. The RemoteAddr path derives the host itself rather than calling
+// httprate.KeyByIP, whose canonicalisation differs on IPv4-mapped addresses.
 //
-// The error is always nil. It exists because httprate.KeyFunc requires it, and
-// an error here would fail the request with 428 rather than meter it.
+// The error is always nil. It exists because httprate.KeyFunc requires one, and
+// a non-nil error fails the request with 428 instead of metering it.
 func KeyByClientIP(r *http.Request) (string, error) {
 	xff := r.Header.Get("X-Forwarded-For")
 	hops := trustedProxyHops()
@@ -122,12 +123,15 @@ func KeyByClientIP(r *http.Request) (string, error) {
 // left would put unrelated subscribers in one bucket.
 const rateLimitIPv6PrefixBits = 64
 
-// canonicalizeRateLimitKey maps a client address to the bucket it shares.
+// canonicalizeRateLimitKey maps a client address to the bucket it shares: an
+// IPv4 address keys on itself, an IPv6 address on its rateLimitIPv6PrefixBits
+// prefix.
 //
-// IPv4 addresses are returned verbatim. IPv6 addresses are masked to
-// rateLimitIPv6PrefixBits. An IPv4-mapped IPv6 address (::ffff:203.0.113.9,
-// which some proxies emit on dual-stack sockets) keys on its dotted quad, so it
-// lands in the same bucket as the same client written in IPv4 form.
+// An IPv4-mapped IPv6 address (::ffff:203.0.113.9, which some proxies emit on
+// dual-stack sockets) is unmapped first, so it keys on the dotted quad. Masking
+// it as IPv6 instead would send EVERY such client to one key, because the form
+// fixes the leading 96 bits. This is the one place the key deliberately differs
+// from httprate.KeyByIP, which does mask it.
 //
 // Input that does not parse as an address is returned unchanged rather than
 // rejected: the caller has already validated the X-Forwarded-For path, and on
@@ -138,17 +142,10 @@ func canonicalizeRateLimitKey(observed string) string {
 	if err != nil {
 		return observed
 	}
-	if addr.Is4() {
-		return observed
+	if addr = addr.Unmap(); addr.Is4() {
+		return addr.String()
 	}
-	if addr.Is4In6() {
-		return addr.Unmap().String()
-	}
-	prefix, err := addr.Prefix(rateLimitIPv6PrefixBits)
-	if err != nil {
-		return observed
-	}
-	return prefix.Addr().String()
+	return netip.PrefixFrom(addr, rateLimitIPv6PrefixBits).Masked().Addr().String()
 }
 
 var proxyTrustOnce sync.Once

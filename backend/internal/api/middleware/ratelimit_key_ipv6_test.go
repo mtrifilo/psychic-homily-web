@@ -81,31 +81,90 @@ func TestCanonicalizeRateLimitKey_UnparseableIsPassedThrough(t *testing.T) {
 	}
 }
 
+// addressExactKeys hold the two keying strategies KeyByClientIP must NOT use, so
+// the tests below can state the difference as an assertion rather than a claim:
+// the header path returning the observed address as-is, and httprate's
+// canonicalisation of the RemoteAddr host.
+var addressExactKeys = struct {
+	forwardedFor func(*http.Request) string
+	remoteAddr   func(*http.Request) string
+}{
+	forwardedFor: func(r *http.Request) string {
+		return clientIPFromForwardedFor(r.Header.Get("X-Forwarded-For"), trustedProxyHops())
+	},
+	remoteAddr: func(r *http.Request) string {
+		key, _ := httprate.KeyByIP(r)
+		return key
+	},
+}
+
 // TestKeyByClientIP_IPv6RotationInsideAPrefixSharesABucket states the fix on the
-// header path an attacker actually reaches.
+// header path an attacker actually reaches, against the address-exact key it
+// replaces.
 func TestKeyByClientIP_IPv6RotationInsideAPrefixSharesABucket(t *testing.T) {
 	t.Setenv(TrustedProxyHopsEnvVar, "1")
 
-	key := func(clientIP string) string {
-		t.Helper()
+	req := func(clientIP string) *http.Request {
 		r := httptest.NewRequest("POST", "/auth/login", nil)
 		r.RemoteAddr = "10.0.0.1:4000"
 		r.Header.Set("X-Forwarded-For", clientIP)
-		got, err := KeyByClientIP(r)
+		return r
+	}
+	key := func(clientIP string) string {
+		t.Helper()
+		got, err := KeyByClientIP(req(clientIP))
 		if err != nil {
 			t.Fatalf("KeyByClientIP(%s): %v", clientIP, err)
 		}
 		return got
 	}
 
-	a := key("2001:db8:abcd:1::1")
-	b := key("2001:db8:abcd:1:dead:beef:cafe:f00d")
+	const (
+		first  = "2001:db8:abcd:1::1"
+		second = "2001:db8:abcd:1:dead:beef:cafe:f00d"
+	)
+
+	if a, b := addressExactKeys.forwardedFor(req(first)), addressExactKeys.forwardedFor(req(second)); a == b {
+		t.Fatalf("the address-exact key collapsed %s and %s to %q; this test can no longer tell the two strategies apart", first, second, a)
+	}
+
+	a, b := key(first), key(second)
 	if a != b {
 		t.Errorf("two addresses in one /64 keyed %q and %q; rotating the low 64 bits still mints fresh buckets", a, b)
 	}
 
 	if other := key("2001:db8:abcd:2::1"); other == a {
 		t.Errorf("a different /64 shares the key %q; unrelated subscribers would meter as one", a)
+	}
+}
+
+// TestKeyByClientIP_IPv4MappedRemoteAddrIsNotCollapsed: httprate's
+// canonicalisation masks ::ffff:a.b.c.d as IPv6, which fixes the leading 96 bits
+// and sends every dual-stack client to the key "::". The RemoteAddr path must not
+// inherit that, or one client exhausts the budget for all of them.
+func TestKeyByClientIP_IPv4MappedRemoteAddrIsNotCollapsed(t *testing.T) {
+	req := func(hostPort string) *http.Request {
+		r := httptest.NewRequest("POST", "/auth/login", nil)
+		r.RemoteAddr = hostPort
+		return r
+	}
+
+	const (
+		one = "[::ffff:203.0.113.9]:1234"
+		two = "[::ffff:198.51.100.4]:1234"
+	)
+
+	if a, b := addressExactKeys.remoteAddr(req(one)), addressExactKeys.remoteAddr(req(two)); a != b {
+		t.Fatalf("httprate keyed the two mapped clients %q and %q; this test can no longer tell the two strategies apart", a, b)
+	}
+
+	a, _ := KeyByClientIP(req(one))
+	b, _ := KeyByClientIP(req(two))
+	if a == b {
+		t.Fatalf("two mapped IPv4 clients share the key %q", a)
+	}
+	if a != "203.0.113.9" {
+		t.Errorf("mapped client keyed %q, want the dotted quad 203.0.113.9", a)
 	}
 }
 
