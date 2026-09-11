@@ -9,13 +9,37 @@ import (
 	"github.com/go-chi/httprate"
 )
 
-// TestCanonicalizeRateLimitKey_IPv4IsVerbatim: an IPv4 key is the address
-// itself. Every IPv4 fixture in this package depends on it, and a normalisation
-// applied here would silently re-bucket every existing IPv4 client.
+// TestCanonicalizeRateLimitKey_IPv4IsVerbatim: an IPv4 key is the address itself.
+// A normalisation applied here would re-bucket every IPv4 client at deploy.
 func TestCanonicalizeRateLimitKey_IPv4IsVerbatim(t *testing.T) {
 	for _, ip := range []string{"203.0.113.9", "198.51.100.1", "10.0.0.1", "127.0.0.1", "0.0.0.0"} {
 		if got := canonicalizeRateLimitKey(ip); got != ip {
 			t.Errorf("canonicalizeRateLimitKey(%q) = %q, want the address unchanged", ip, got)
+		}
+	}
+}
+
+// TestKeyByClientIP_IPv4RemoteAddrFormsAreUnchanged pins the IPv4 keys of the
+// RemoteAddr path against the forms httprate.KeyByIP used to handle there: with a
+// port, without one, and a value that is not an address at all.
+func TestKeyByClientIP_IPv4RemoteAddrFormsAreUnchanged(t *testing.T) {
+	cases := []struct {
+		remoteAddr string
+		want       string
+	}{
+		{remoteAddr: "203.0.113.9:1234", want: "203.0.113.9"},
+		{remoteAddr: "203.0.113.9", want: "203.0.113.9"},
+		{remoteAddr: "not-an-address", want: "not-an-address"},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest("POST", "/auth/login", nil)
+		r.RemoteAddr = tc.remoteAddr
+		got, err := KeyByClientIP(r)
+		if err != nil {
+			t.Fatalf("KeyByClientIP(%q): %v", tc.remoteAddr, err)
+		}
+		if got != tc.want {
+			t.Errorf("RemoteAddr %q keyed %q, want %q", tc.remoteAddr, got, tc.want)
 		}
 	}
 }
@@ -35,9 +59,34 @@ func TestCanonicalizeRateLimitKey_IPv6CollapsesToThePrefix(t *testing.T) {
 		{name: "the prefix itself is already canonical", ip: "2001:db8:1:2::", want: "2001:db8:1:2::"},
 		{name: "a neighbouring /64 is a different bucket", ip: "2001:db8:1:3::1", want: "2001:db8:1:3::"},
 		{name: "uppercase and expanded forms canonicalise alike", ip: "2001:0DB8:0001:0002:0000:0000:0000:0009", want: "2001:db8:1:2::"},
+		{name: "link-local", ip: "fe80::1ff:fe23:4567:890a", want: "fe80::"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canonicalizeRateLimitKey(tc.ip); got != tc.want {
+				t.Errorf("canonicalizeRateLimitKey(%q) = %q, want %q", tc.ip, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCanonicalizeRateLimitKey_NothingRoutableSharesTheZeroPrefix records the one
+// prefix that holds several unrelated address forms: ::/64 carries loopback, the
+// unspecified address, and the IPv4-compatible and IPv4-translated spellings, so
+// all of them key on "::". None is a routable source address, and httprate
+// collapses them the same way, so they share a bucket rather than getting a
+// special case.
+func TestCanonicalizeRateLimitKey_NothingRoutableSharesTheZeroPrefix(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+		want string
+	}{
 		{name: "loopback", ip: "::1", want: "::"},
 		{name: "unspecified", ip: "::", want: "::"},
-		{name: "link-local", ip: "fe80::1ff:fe23:4567:890a", want: "fe80::"},
+		{name: "IPv4-compatible", ip: "::203.0.113.9", want: "::"},
+		{name: "IPv4-translated", ip: "::ffff:0:203.0.113.9", want: "::"},
 	}
 
 	for _, tc := range cases {
@@ -74,18 +123,31 @@ func TestCanonicalizeRateLimitKey_IPv4MappedKeysOnTheQuad(t *testing.T) {
 // an address still has to meter as itself. Collapsing it to a constant would put
 // every such caller in one bucket.
 func TestCanonicalizeRateLimitKey_UnparseableIsPassedThrough(t *testing.T) {
-	for _, in := range []string{"", "not-an-ip", "pipe", "2001:db8::1/64"} {
+	for _, in := range []string{"", "not-an-ip", "2001:db8::1/64", "203.0.113.9:1234"} {
 		if got := canonicalizeRateLimitKey(in); got != in {
 			t.Errorf("canonicalizeRateLimitKey(%q) = %q, want it unchanged", in, got)
 		}
 	}
 }
 
-// addressExactKeys hold the two keying strategies KeyByClientIP must NOT use, so
+// TestCanonicalizeRateLimitKey_ZoneIsDropped: a zone identifier names an
+// interface on THIS host, not the client, so masking drops it and two zones of
+// one link-local prefix key alike. clientIPFromForwardedFor rejects zoned entries
+// before they reach here (net.ParseIP does not accept them), so this is reachable
+// only from a RemoteAddr on a link-local listener.
+func TestCanonicalizeRateLimitKey_ZoneIsDropped(t *testing.T) {
+	for _, in := range []string{"fe80::1%eth0", "fe80::2%eth1"} {
+		if got := canonicalizeRateLimitKey(in); got != "fe80::" {
+			t.Errorf("canonicalizeRateLimitKey(%q) = %q, want fe80::", in, got)
+		}
+	}
+}
+
+// replacedKeys hold the two keying strategies KeyByClientIP no longer uses, so
 // the tests below can state the difference as an assertion rather than a claim:
 // the header path returning the observed address as-is, and httprate's
 // canonicalisation of the RemoteAddr host.
-var addressExactKeys = struct {
+var replacedKeys = struct {
 	forwardedFor func(*http.Request) string
 	remoteAddr   func(*http.Request) string
 }{
@@ -124,7 +186,7 @@ func TestKeyByClientIP_IPv6RotationInsideAPrefixSharesABucket(t *testing.T) {
 		second = "2001:db8:abcd:1:dead:beef:cafe:f00d"
 	)
 
-	if a, b := addressExactKeys.forwardedFor(req(first)), addressExactKeys.forwardedFor(req(second)); a == b {
+	if a, b := replacedKeys.forwardedFor(req(first)), replacedKeys.forwardedFor(req(second)); a == b {
 		t.Fatalf("the address-exact key collapsed %s and %s to %q; this test can no longer tell the two strategies apart", first, second, a)
 	}
 
@@ -154,7 +216,7 @@ func TestKeyByClientIP_IPv4MappedRemoteAddrIsNotCollapsed(t *testing.T) {
 		two = "[::ffff:198.51.100.4]:1234"
 	)
 
-	if a, b := addressExactKeys.remoteAddr(req(one)), addressExactKeys.remoteAddr(req(two)); a != b {
+	if a, b := replacedKeys.remoteAddr(req(one)), replacedKeys.remoteAddr(req(two)); a != b {
 		t.Fatalf("httprate keyed the two mapped clients %q and %q; this test can no longer tell the two strategies apart", a, b)
 	}
 
@@ -191,18 +253,49 @@ func TestKeyByClientIP_BothPathsAgree(t *testing.T) {
 	}
 
 	cases := []struct {
+		name     string
 		clientIP string
 		hostPort string
 	}{
-		{clientIP: "198.51.100.7", hostPort: "198.51.100.7:1234"},
-		{clientIP: "2001:db8:abcd:1::1", hostPort: "[2001:db8:abcd:1::1]:1234"},
-		{clientIP: "2001:db8:abcd:1:2:3:4:5", hostPort: "[2001:db8:abcd:1::1]:1234"},
-		{clientIP: "::ffff:198.51.100.7", hostPort: "198.51.100.7:1234"},
+		{name: "one IPv4 client", clientIP: "198.51.100.7", hostPort: "198.51.100.7:1234"},
+		{name: "one IPv6 client", clientIP: "2001:db8:abcd:1::1", hostPort: "[2001:db8:abcd:1::1]:1234"},
+		{name: "different addresses in one /64", clientIP: "2001:db8:abcd:1:2:3:4:5", hostPort: "[2001:db8:abcd:1::1]:1234"},
+		{name: "the mapped and dotted spellings of one IPv4 client", clientIP: "::ffff:198.51.100.7", hostPort: "198.51.100.7:1234"},
+		{name: "the header entry carries a port", clientIP: "[2001:db8:abcd:1::9]:443", hostPort: "[2001:db8:abcd:1::1]:1234"},
 	}
 	for _, tc := range cases {
-		if h, ra := viaHeader(tc.clientIP), viaRemoteAddr(tc.hostPort); h != ra {
-			t.Errorf("client %s keyed %q through the header and %q through RemoteAddr", tc.clientIP, h, ra)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if h, ra := viaHeader(tc.clientIP), viaRemoteAddr(tc.hostPort); h != ra {
+				t.Errorf("%s keyed %q through the header and %q through RemoteAddr", tc.clientIP, h, ra)
+			}
+		})
+	}
+}
+
+// TestKeyByClientIP_IPv6ThroughTheProductionHopCount: the deployed topology
+// appends two hops, so the client sits at index len-2. The prefix collapse has to
+// hold on that chain, not only on the single-hop one.
+func TestKeyByClientIP_IPv6ThroughTheProductionHopCount(t *testing.T) {
+	t.Setenv(TrustedProxyHopsEnvVar, "")
+	if trustedProxyHops() != 2 {
+		t.Fatalf("this test is written for a default of 2 hops, got %d", trustedProxyHops())
+	}
+
+	key := func(clientIP string) string {
+		t.Helper()
+		r := httptest.NewRequest("POST", "/auth/login", nil)
+		r.RemoteAddr = "10.0.0.1:4000"
+		r.Header.Set("X-Forwarded-For", "2001:db8:9999:9999::ff, "+clientIP+", 10.0.0.1")
+		got, _ := KeyByClientIP(r)
+		return got
+	}
+
+	a, b := key("2001:db8:abcd:7::1"), key("2001:db8:abcd:7:5:6:7:8")
+	if a != b {
+		t.Errorf("two addresses in one /64 keyed %q and %q behind two hops", a, b)
+	}
+	if a != "2001:db8:abcd:7::" {
+		t.Errorf("key = %q, want the /64 of the entry at index len-2", a)
 	}
 }
 
