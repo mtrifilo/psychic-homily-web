@@ -17,7 +17,10 @@ import (
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 )
 
-// Rate limit configurations for different endpoint types
+// Rate limit configurations for different endpoint types.
+//
+// "per IP" below means one KeyByClientIP bucket: an IPv4 address, or the /64 an
+// IPv6 client sits in.
 const (
 	// AuthRequestsPerMinute is the rate limit for auth endpoints (login, register, magic-link)
 	// Strict limit to prevent brute force and credential stuffing
@@ -300,7 +303,7 @@ func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 
 // RateLimitPublicReadAuthenticatedIPCeiling is the COARSE per-IP backstop for
 // authenticated public reads (PSY-1378): PublicReadAuthenticatedIPCeilingPerMinute
-// per IP, keyed by r.RemoteAddr. It is chained on the authenticated path of
+// per IP, keyed by KeyByClientIP. It is chained on the authenticated path of
 // RateLimitPublicReadsByAuthState INSIDE the per-user limiter (see the ORDER note
 // there) so that one IP running many scripted accounts is bounded in aggregate —
 // the per-user cap alone only meters a single account. Its own httprate store means

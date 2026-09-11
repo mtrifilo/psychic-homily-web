@@ -6,12 +6,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/go-chi/httprate"
 )
 
 // TrustedProxyHopsEnvVar tunes how many proxies are assumed to sit in front of
@@ -83,20 +82,84 @@ func trustedProxyHops() int {
 //	                                        ^ index len-N, N=1
 //
 // Falls back to RemoteAddr when the header is absent or unusable, so a
-// misconfigured proxy degrades to the previous behaviour rather than to no
-// limiting at all.
+// misconfigured proxy degrades to the connection's own address rather than to no
+// limiting at all. That fallback keys on the PROXY when a proxy is in front, so
+// the two paths agree on one client only while the header path yields an address.
+//
+// # Canonical keys
+//
+// Both paths run the observed address through canonicalizeRateLimitKey before
+// returning it, and the observation below reports that same key. The RemoteAddr
+// path derives the host itself rather than calling httprate.KeyByIP, whose
+// canonicalisation differs on IPv4-mapped addresses.
+//
+// The error is always nil. It exists because httprate.KeyFunc requires one, and
+// a non-nil error fails the request with 428 instead of metering it.
 func KeyByClientIP(r *http.Request) (string, error) {
 	xff := r.Header.Get("X-Forwarded-For")
 	hops := trustedProxyHops()
 
 	if ip := clientIPFromForwardedFor(xff, hops); ip != "" {
-		observeProxyTrust(r, xff, hops, "x-forwarded-for", ip)
-		return ip, nil
+		key := canonicalizeRateLimitKey(ip)
+		observeProxyTrust(r, xff, hops, "x-forwarded-for", key)
+		return key, nil
 	}
 
-	key, err := httprate.KeyByIP(r)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	key := canonicalizeRateLimitKey(host)
 	observeProxyTrust(r, xff, hops, "remote-addr", key)
-	return key, err
+	return key, nil
+}
+
+// rateLimitIPv6PrefixBits is the width of the IPv6 block that shares one
+// rate-limit bucket.
+//
+// An IPv6 client is delegated at least a /64 and can source from any address
+// inside it with no network change and no cost, so an address-exact key would be
+// one bucket per REQUEST rather than one per client, and every per-IP limiter
+// keyed by this function would be bypassed by rotating the low 64 bits. /64 is
+// the smallest block a client is delegated, so masking further left would merge
+// unrelated subscribers.
+//
+// Two consequences are accepted rather than solved here. Hosts that share one
+// /64 because they share a LAN segment (an office, a campus, a VPN exit) share a
+// bucket, which is the trade IPv4 NAT already makes. And a client delegated a
+// block WIDER than a /64 still holds one bucket per /64 inside it, so this raises
+// the cost of minting buckets without removing the ability.
+const rateLimitIPv6PrefixBits = 64
+
+// canonicalizeRateLimitKey maps a client address to the bucket it shares: an
+// IPv4 address keys on itself, an IPv6 address on its rateLimitIPv6PrefixBits
+// prefix.
+//
+// An IPv4-mapped IPv6 address (::ffff:203.0.113.9, which some proxies emit on
+// dual-stack sockets) is unmapped first, so it keys on the dotted quad. Masking
+// it as IPv6 instead would send EVERY such client to one key, because the form
+// fixes the leading 96 bits. httprate.KeyByIP masks it; this deliberately does
+// not.
+//
+// The other IPv4-in-IPv6 forms (::203.0.113.9, ::ffff:0:203.0.113.9) and the
+// loopback and unspecified addresses all sit in ::/64 and so share the key "::".
+// Nothing routable is addressed from ::/64, and httprate collapses them the same
+// way.
+//
+// Input that does not parse as an address is returned unchanged rather than
+// rejected: clientIPFromForwardedFor has already rejected anything net.ParseIP
+// cannot read, and on the RemoteAddr path an unparseable value still has to meter
+// as SOMETHING. Collapsing it to a constant would put every such client in one
+// bucket.
+func canonicalizeRateLimitKey(observed string) string {
+	addr, err := netip.ParseAddr(observed)
+	if err != nil {
+		return observed
+	}
+	if addr = addr.Unmap(); addr.Is4() {
+		return addr.String()
+	}
+	return netip.PrefixFrom(addr, rateLimitIPv6PrefixBits).Masked().Addr().String()
 }
 
 var proxyTrustOnce sync.Once
@@ -112,9 +175,9 @@ var proxyTrustOnce sync.Once
 // Logged once (sync.Once) rather than per request: this is a topology fact, not
 // an event, so repeating it would be noise on a hot path.
 //
-// The derived key is HASHED and truncated. Comparing fingerprints across a burst
-// answers the only question that matters — same bucket or different — without
-// writing client IP addresses into logs.
+// The key is the canonical one the limiter meters on, hashed and truncated: the
+// line identifies the bucket one sample landed in without writing a client IP
+// address into logs.
 func observeProxyTrust(r *http.Request, xff string, hops int, source, key string) {
 	proxyTrustOnce.Do(func() {
 		chain := 0
