@@ -1,38 +1,31 @@
 import type { ReactNode } from 'react'
-import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 
 import { GraphSkeleton } from './GraphSkeleton'
 
 /**
  * GraphStateCard — the shared visible card for a graph surface's non-canvas
- * terminal states (settled fetch error, sub-640px mobile teaser).
+ * terminal states (settled fetch error).
  *
  * Complements GraphSkeleton (the loading placeholder): same bordered/muted
  * box language, but with visible, announced content instead of a pulse.
  * Standardized across SceneGraph, StationGraph, CollectionGraph, and
- * VenueBillNetwork so the states can't drift apart per surface again.
+ * VenueBillNetwork so the states can't drift apart per surface. Those
+ * four sections put MobileGraphTeaser, not this card, in the slot a canvas
+ * would occupy below the gate; this card is what a settled failure renders
+ * there instead, at every width.
  *
  * - Error states pass `role="alert"` so the settled failure is announced.
- * - Mobile teasers pass a `linkHref`/`linkLabel` pair to point the visitor at
- *   a browse-able alternative (PSY-1472): the four Section detail-page teasers
- *   (scene / station / venue / collection) now scroll to that page's own list
- *   (`#scene-artists`, `#recent-playlists`, `#venue-shows`, `#items`), and the
- *   homepage teaser links to the scene page. Error-state cards omit the link.
  * - Sizing is the caller's via `className` (same contract as GraphSkeleton)
  *   so each surface can match its own canvas/skeleton height budget.
  */
 export function GraphStateCard({
   message,
   role,
-  linkHref,
-  linkLabel,
   className = '',
 }: {
   message: string
   role?: 'alert'
-  linkHref?: string
-  linkLabel?: string
   className?: string
 }) {
   return (
@@ -41,14 +34,6 @@ export function GraphStateCard({
       className={`w-full rounded-lg border border-border/50 bg-muted/10 flex flex-col items-center justify-center text-center p-6 gap-3 ${className}`}
     >
       <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
-      {linkHref && linkLabel && (
-        <Link
-          href={linkHref}
-          className="text-sm text-primary hover:underline underline-offset-4"
-        >
-          {linkLabel}
-        </Link>
-      )}
     </div>
   )
 }
@@ -63,6 +48,26 @@ export function GraphStateCard({
  * trade-off as HomeSceneGraph's PLACEHOLDER_HEIGHT_CLASS).
  */
 export const GRAPH_BOX_HEIGHT_CLASS = 'h-[240px] sm:h-[400px] md:h-[560px]'
+
+/**
+ * The reserved box a graph SECTION holds open while it settles: the height
+ * contract above the gate, and nothing at all below it.
+ *
+ * Below 640px a graph section is one line of link (MobileGraphTeaser), so a
+ * box reserved there is a phantom the settle then collapses. It carries no
+ * narrow-width height for that reason: the one in GRAPH_BOX_HEIGHT_CLASS could
+ * never apply here.
+ *
+ * The gate is viewport-keyed where the canvas gate is container-keyed; they
+ * disagree only in the narrow band where a padded column measures under 640px
+ * on a wider viewport, and in that band the box shows until the measurement
+ * replaces it with the one-line form.
+ *
+ * For a RESERVED box only. A state that must be read below the gate (a settled
+ * error, an empty message) uses GRAPH_BOX_HEIGHT_CLASS: this one would hide it
+ * on every phone with nothing to say so.
+ */
+export const GRAPH_BOX_ABOVE_GATE_CLASS = 'hidden sm:block sm:h-[400px] md:h-[560px]'
 
 /**
  * Announced loading box for a graph that is being fetched or built — the
@@ -138,6 +143,3 @@ export function graphCanvasHeight(containerWidth: number): number {
  * values in lockstep with GRAPH_BOX_HEIGHT_CLASS above.
  */
 export const GRAPH_BOX_MIN_HEIGHT_CLASS = 'min-h-[240px] sm:min-h-[400px] md:min-h-[560px]'
-
-/** Height for the sub-640px mobile teaser card (HomeSceneGraph precedent). */
-export const GRAPH_TEASER_HEIGHT_CLASS = 'h-[240px]'

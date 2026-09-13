@@ -32,9 +32,16 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import {
   GraphStateCard,
   GRAPH_BOX_HEIGHT_CLASS,
-  GRAPH_TEASER_HEIGHT_CLASS,
+  GRAPH_BOX_ABOVE_GATE_CLASS,
 } from '@/components/graph/GraphStateCard'
-import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
+import { graphRootHref } from '@/features/graph/graphRootLink'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_CLASS,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
+} from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import { useVenueBillNetwork } from '../hooks/useVenues'
@@ -45,9 +52,8 @@ const MIN_GRAPH_NODES = 3 // mirror SceneGraph — under 3 connected artists is 
 const MIN_GRAPH_SHOWS = 10 // PSY-365 ticket: empty state for "<10 shows at the venue"
 
 /**
- * The scroll-anchor id for the mobile teaser's "Browse shows" link-out
- * (PSY-1472). Single-sourced here so this component's `linkHref` and the
- * VenueDetail wrapper's `id` can't drift apart.
+ * The scroll-anchor id hung off the venue's shows block. Stamped by
+ * VenueDetail; nothing in this component links to it.
  */
 export const VENUE_SHOWS_ANCHOR = 'venue-shows'
 
@@ -69,7 +75,11 @@ interface VenueBillNetworkProps {
 export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkProps) {
   const [window, setWindowState] = useState<VenueBillNetworkWindow>('all')
   const [yearSelection, setYearSelection] = useState<number>(() => new Date().getFullYear())
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+  const {
+    refCallback: containerRefCallback,
+    containerWidth,
+    isBelowGraphBreakpoint,
+  } = useContainerWidth()
 
   const { data, isLoading, isError } = useVenueBillNetwork({
     venueIdOrSlug,
@@ -171,9 +181,11 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
   // of returning null — a null here shifts every section below when the
   // canvas lands. keepPreviousData means this only fires on the initial load.
+  // The reservation is viewport-keyed here because this branch has no measured
+  // container: the measuring wrapper lives on the settled tree.
   if (isLoading) {
     return (
-      <div className="mt-8 px-4 md:px-0">
+      <div className="mt-8 px-4 md:px-0 hidden sm:block">
         <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
         <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
       </div>
@@ -216,8 +228,10 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // node lives for the component's lifetime; only its children are width-gated.
   // Desktop still shows the header + filter (below) so the user understands
   // WHY the graph isn't drawing and can re-scope the window.
-  const hideSection =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
+  const hideSection = isBelowGraphBreakpoint && tooSparse
+  // Narrow AND there is a network worth linking to. Sparse windows are
+  // `hideSection` above, so the two flags are mutually exclusive.
+  const showMobileTeaser = isBelowGraphBreakpoint && !tooSparse
 
   // PSY-1476: a capped roster must say so — "150 artists" on a 312-artist
   // venue reads as the whole history. Mirrors the scene graph's shipped
@@ -299,55 +313,66 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
             id="graph"
             className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              {sectionHeader}
-              {expandButton}
-            </div>
+            {showMobileTeaser ? (
+              /* The section's sub-640px form: the header, the scale line and
+                 the window filter all go with the canvas. */
+              <MobileGraphTeaser
+                href={graphRootHref()}
+              >{`See who shares bills at ${venueName} on the music map`}</MobileGraphTeaser>
+            ) : (
+              <>
+                {/* Unmeasured, this branch is what a phone's server HTML
+                    carries, and the measurement is about to replace it with one
+                    line. */}
+                <div
+                  className={`${
+                    containerWidth === null ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS : 'flex'
+                  } flex-wrap items-center justify-between gap-2 mb-2`}
+                >
+                  {sectionHeader}
+                  {expandButton}
+                </div>
 
-            <div className="mb-3">{windowFilter}</div>
+                <div
+                  className={`mb-3 ${
+                    containerWidth === null ? GRAPH_CHROME_UNMEASURED_CLASS : ''
+                  }`}
+                >
+                  {windowFilter}
+                </div>
 
-            {tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Not enough booked-together activity yet to draw the network. Try a
-                wider window or check back as more shows are approved.
-              </p>
-            )}
+                {tooSparse &&
+                  containerWidth !== null &&
+                  containerWidth >= GRAPH_BREAKPOINT_PX && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Not enough booked-together activity yet to draw the network. Try a
+                    wider window or check back as more shows are approved.
+                  </p>
+                )}
 
-            {/* Pre-measurement: hold the box height so the settle can't
-                shift the sections below (HomeSceneGraph precedent). */}
-            {!tooSparse && containerWidth === null && (
-              <GraphSkeleton className={`mt-2 ${GRAPH_BOX_HEIGHT_CLASS}`} />
-            )}
+                {/* Pre-measurement: hold the box height so the settle can't
+                    shift the sections below (HomeSceneGraph precedent). */}
+                {!tooSparse && containerWidth === null && (
+                  <GraphSkeleton className={`mt-2 ${GRAPH_BOX_ABOVE_GATE_CLASS}`} />
+                )}
 
-            {/* Sub-640px, non-sparse: shared teaser card (PSY-1446) — says WHY
-                + gives a way forward (PSY-1472). Link-out scrolls to the
-                venue's show list on this page (#venue-shows, VenueDetail). */}
-            {!tooSparse &&
-              containerWidth !== null &&
-              containerWidth < GRAPH_BREAKPOINT_PX && (
-                <GraphStateCard
-                  className={`mt-2 ${GRAPH_TEASER_HEIGHT_CLASS}`}
-                  message={`Who plays ${venueName} together, mapped by shared bills here. Needs a larger screen.`}
-                  linkHref={`#${VENUE_SHOWS_ANCHOR}`}
-                  linkLabel={`Browse shows at ${venueName} →`}
-                />
-              )}
+                {graphAvailable && !isFullscreen && (
+                  <div className="space-y-3 mt-2">
+                    <SceneGraphVisualizationStyleAdapter
+                      data={data}
+                      venueName={venueName}
+                      countPhrase={artistCountPhrase}
+                      containerWidth={containerWidth!}
+                    />
 
-            {graphAvailable && !isFullscreen && (
-              <div className="space-y-3 mt-2">
-                <SceneGraphVisualizationStyleAdapter
-                  data={data}
-                  venueName={venueName}
-                  countPhrase={artistCountPhrase}
-                  containerWidth={containerWidth!}
-                />
-
-                <p className="text-xs text-muted-foreground">
-                  Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
-                  shared shows AT THIS VENUE in the active window. Click any artist for their
-                  details.
-                </p>
-              </div>
+                    <p className="text-xs text-muted-foreground">
+                      Showing artists who&apos;ve played approved shows at {venueName}. Edge
+                      weight = shared shows AT THIS VENUE in the active window. Click any
+                      artist for their details.
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

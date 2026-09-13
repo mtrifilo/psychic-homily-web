@@ -171,7 +171,7 @@ describe('VenueBillNetwork', () => {
     expect(screen.queryByText(/Top 4 of/)).not.toBeInTheDocument()
   })
 
-  it('hides the canvas below the 640px breakpoint', () => {
+  it('collapses to a one-line map teaser below the 640px breakpoint', () => {
     ro.setWidth(500)
     const { container } = renderWithProviders(
       <VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />,
@@ -179,15 +179,26 @@ describe('VenueBillNetwork', () => {
     // Even when the venue is non-sparse, the canvas is gated; on this
     // dataset (4 artists, 25 shows) it's non-sparse but mobile-gated.
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
-    // PSY-1472: non-sparse mobile shows the teaser card — connectedness pitch
-    // + a link-out that scrolls to the venue's show list on this page.
+
+    // No section chrome: no heading, no scale line, no window filter, no
+    // "needs a larger screen" card, no in-page link-out.
+    expect(screen.queryByText('Who plays together here')).not.toBeInTheDocument()
+    expect(screen.queryByText(/4 artists/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^All-time$/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs a larger screen/i)).not.toBeInTheDocument()
     expect(
-      screen.getByText(/Who plays Valley Bar together, mapped by shared bills/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /Browse shows at Valley Bar/i }),
-    ).toHaveAttribute('href', '#venue-shows')
-    expect(container).toBeTruthy()
+      screen.queryByRole('link', { name: /Browse shows at Valley Bar/i }),
+    ).not.toBeInTheDocument()
+
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAccessibleName(
+      'See who shares bills at Valley Bar on the music map',
+    )
+    expect(links[0]).toHaveAttribute('href', '/graph')
+
+    // The `#graph` deep-link target survives the collapse (Cmd+K, PSY-366).
+    expect(container.querySelector('#graph')).not.toBeNull()
   })
 
   it('renders canvas + window filter at desktop width', () => {

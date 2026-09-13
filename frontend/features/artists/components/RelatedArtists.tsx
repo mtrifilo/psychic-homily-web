@@ -246,9 +246,9 @@ export function ArtistSimilarSidebar({
   }
 
   return (
-    // Anchor target for the Connections section's mobile teaser link-out
-    // (PSY-1472 convention — the id is single-sourced in
-    // ArtistConnectionsSection). scroll-mt-20 accounts for the sticky header.
+    // `#similar-artists` deep-link target; the id is single-sourced in
+    // ArtistConnectionsSection, whose canvas aria-label names this list as the
+    // way to browse without the canvas. scroll-mt-20 clears the sticky header.
     <section id={SIMILAR_ARTISTS_ANCHOR} className="scroll-mt-20">
       <SectionHeader
         title="Similar artists"

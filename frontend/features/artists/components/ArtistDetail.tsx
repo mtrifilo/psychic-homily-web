@@ -1245,6 +1245,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <ArtistConnectionsSection
             artistId={artist.id}
             artistName={artist.name}
+            artistSlug={artist.slug}
             onExpand={openGraphDialog}
           />
 

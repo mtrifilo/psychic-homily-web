@@ -429,11 +429,13 @@ describe('HomeSceneGraph', () => {
   })
 
   it('claims no time window in the small-screen teaser state either', async () => {
-    // Below the canvas gate the heading still renders (with the static teaser
-    // instead of a canvas), so the rule has to hold in that branch too.
+    // Below the canvas gate the section is one line of link, so the rule has
+    // to hold in that branch too.
     setContainerWidth(500)
     const { container } = render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+    await screen.findByRole('link', {
+      name: 'See how the scene connects on the music map',
+    })
     expect(container.querySelector('section')?.outerHTML).not.toMatch(
       /this (week|month)/i
     )
@@ -682,14 +684,27 @@ describe('HomeSceneGraph', () => {
     expect(container.querySelector('section')).toBeNull()
   })
 
-  it('renders the small-screen teaser (no canvas) below the graph breakpoint', async () => {
+  // Below 640px the section is one line of link: no heading, no "Surprise me",
+  // no caption, no card. The map is the target rather than this scene's page,
+  // whose own graph section is the same line at the same width.
+  it('collapses to a one-line map teaser below the graph breakpoint', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+
+    const teaser = await screen.findByRole('link', {
+      name: 'See how the scene connects on the music map',
+    })
+    expect(teaser).toHaveAttribute('href', '/graph')
+
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     expect(
-      screen.getByRole('link', { name: /see the chicago scene/i })
-    ).toHaveAttribute('href', '/scenes/chicago-il')
+      screen.queryByRole('heading', { name: 'The Chicago scene graph' })
+    ).toBeNull()
+    expect(screen.queryByRole('button', { name: /surprise me/i })).toBeNull()
+    expect(screen.queryByText(/best on a larger screen/i)).toBeNull()
+
+    // The one line is the only link in the section.
+    expect(screen.getAllByRole('link')).toHaveLength(1)
   })
 
   it('treats keepPreviousData placeholder frames as loading — never renders the previous scene’s graph under a new heading', async () => {
@@ -781,7 +796,9 @@ describe('HomeSceneGraph', () => {
   it('does not fetch the graph payload below the canvas gate (teaser never reads it)', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+    await screen.findByRole('link', {
+      name: 'See how the scene connects on the music map',
+    })
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false })
     )

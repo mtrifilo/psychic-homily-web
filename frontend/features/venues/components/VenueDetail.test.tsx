@@ -360,11 +360,11 @@ describe('VenueDetail', () => {
       expect(link).toHaveAttribute('href', '/venues')
     })
 
-    it('renders venue shows list under the #venue-shows anchor (PSY-1472)', () => {
+    it('renders venue shows list under the #venue-shows anchor', () => {
       const { container } = render(<VenueDetail venueId="1" />)
       expect(screen.getByTestId('venue-shows-list')).toBeInTheDocument()
       expect(screen.getByText('Shows for venue 1')).toBeInTheDocument()
-      // The wrapper carries the anchor the mobile graph teaser links to.
+      // The wrapper carries the deep-link anchor VenueBillNetwork declares.
       expect(container.querySelector(`#${VENUE_SHOWS_ANCHOR}`)).toBeInTheDocument()
     })
 

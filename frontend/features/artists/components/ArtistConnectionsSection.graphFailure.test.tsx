@@ -94,6 +94,7 @@ describe('ArtistConnectionsSection — graph failure (PSY-1575)', () => {
       <ArtistConnectionsSection
         artistId={100}
         artistName="Center Artist"
+        artistSlug="center-artist"
         onExpand={vi.fn()}
       />
     )
@@ -122,6 +123,7 @@ describe('ArtistConnectionsSection — graph failure (PSY-1575)', () => {
       <ArtistConnectionsSection
         artistId={100}
         artistName="Center Artist"
+        artistSlug="center-artist"
         onExpand={vi.fn()}
       />
     )
@@ -135,6 +137,7 @@ describe('ArtistConnectionsSection — graph failure (PSY-1575)', () => {
       <ArtistConnectionsSection
         artistId={101}
         artistName="Other Artist"
+        artistSlug="other-artist"
         onExpand={vi.fn()}
       />
     )

@@ -21,9 +21,15 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import {
   GraphStateCard,
   GRAPH_BOX_HEIGHT_CLASS,
-  GRAPH_TEASER_HEIGHT_CLASS,
+  GRAPH_BOX_ABOVE_GATE_CLASS,
 } from '@/components/graph/GraphStateCard'
-import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
+import { graphRootHref } from '@/features/graph/graphRootLink'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
+} from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useStationGraph } from '../hooks/useStationGraph'
@@ -32,10 +38,8 @@ import { StationGraphVisualization } from './StationGraphVisualization'
 const MIN_GRAPH_NODES = 3
 
 /**
- * The scroll-anchor id for the mobile teaser's "See recent playlists" link-out
- * (PSY-1472). Single-sourced here so this component's `linkHref`, the
- * StationDetail wrapper's `id`, and StationDetail's cold-load scroll workaround
- * can't drift apart.
+ * The scroll-anchor id hung off the station's recent-playlists feed. Stamped
+ * and scrolled to by StationDetail; nothing in this component links to it.
  */
 export const STATION_PLAYLISTS_ANCHOR = 'recent-playlists'
 
@@ -48,7 +52,11 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // The hook owns the empty-slug guard (enabled: Boolean(slug) internally).
   const { data, isLoading, isError } = useStationGraph({ slug })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+  const {
+    refCallback: containerRefCallback,
+    containerWidth,
+    isBelowGraphBreakpoint,
+  } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -87,9 +95,11 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
   // of returning null — a null here shifts every section below when the
   // canvas lands. The header stays put so only the box swaps on settle.
+  // The reservation is viewport-keyed here because this branch has no measured
+  // container: the measuring ref lives on the settled tree.
   if (isLoading) {
     return (
-      <div id="graph" className="scroll-mt-20">
+      <div id="graph" className="scroll-mt-20 hidden sm:block">
         <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
         <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
       </div>
@@ -188,47 +198,51 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
         aria-hidden={isFullscreen || undefined}
         inert={isFullscreen || undefined}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          {stationHeader}
-          {expandButton}
-        </div>
+        {isBelowGraphBreakpoint ? (
+          /* The section's sub-640px form: the header, the scale line and the
+             cluster legend all go with the canvas. */
+          <MobileGraphTeaser
+            href={graphRootHref()}
+          >{`See how ${stationName}’s rotation connects on the music map`}</MobileGraphTeaser>
+        ) : (
+          <>
+            {/* Unmeasured, this branch is what a phone's server HTML carries,
+                and the measurement is about to replace it with one line. */}
+            <div
+              className={`${
+                containerWidth === null ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS : 'flex'
+              } flex-wrap items-center justify-between gap-2 mb-2`}
+            >
+              {stationHeader}
+              {expandButton}
+            </div>
 
-        {/* Pre-measurement: hold the box height so the settle can't shift
-            the sections below (HomeSceneGraph precedent). */}
-        {containerWidth === null && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
+            {/* Pre-measurement: hold the box height so the settle can't shift
+                the sections below. */}
+            {containerWidth === null && (
+              <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />
+            )}
 
-        {/* Sub-640px: shared teaser card — says WHY + gives a way forward
-            (PSY-1472). Link-out scrolls to the station's playlists feed on this
-            page (#recent-playlists, StationDetail). */}
-        {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
-          <GraphStateCard
-            className={GRAPH_TEASER_HEIGHT_CLASS}
-            message={`${stationName}'s airplay as a map — artists linked by how often they're played together. Needs a larger screen.`}
-            linkHref={`#${STATION_PLAYLISTS_ANCHOR}`}
-            linkLabel="See recent playlists →"
-          />
-        )}
+            {graphAvailable && !isFullscreen && (
+              <div className="space-y-3">
+                {clusterLegend}
 
-        {graphAvailable && !isFullscreen && (
-          <div className="space-y-3">
-            {clusterLegend}
+                <StationGraphVisualization
+                  data={data}
+                  // Safe non-null: graphAvailable requires containerWidth !== null
+                  containerWidth={containerWidth!}
+                  hiddenClusterIDs={hiddenClusters}
+                />
 
-            <StationGraphVisualization
-              data={data}
-              // Safe non-null: graphAvailable requires containerWidth !== null
-              containerWidth={containerWidth!}
-              hiddenClusterIDs={hiddenClusters}
-            />
-
-            <p className="text-xs text-muted-foreground">
-              Artists most played on {stationName} over {windowLabel}, linked when they
-              appear on the same episodes (strongest connections only). Clusters group
-              artists by the show that plays them most. Click a cluster pill above to
-              hide it; click any artist for their details.
-            </p>
-          </div>
+                <p className="text-xs text-muted-foreground">
+                  Artists most played on {stationName} over {windowLabel}, linked when
+                  they appear on the same episodes (strongest connections only).
+                  Clusters group artists by the show that plays them most. Click a
+                  cluster pill above to hide it; click any artist for their details.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

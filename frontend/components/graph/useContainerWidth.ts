@@ -25,9 +25,25 @@ import { useState, useCallback } from 'react'
  */
 export const GRAPH_BREAKPOINT_PX = 640
 
+/**
+ * The class an UNMEASURED section's chrome carries: its header, scale line and
+ * controls. Below the gate a graph section's settled form is one line of link,
+ * and server-rendered HTML has no container width to gate on, so without this
+ * a phone paints a header that the first measurement then deletes.
+ *
+ * Viewport-keyed where the gate is container-keyed: in the narrow band where a
+ * padded column measures under 640px on a wider viewport the chrome paints
+ * until the measurement replaces it. Pair it with `containerWidth === null`,
+ * and use the variant matching the element's own display.
+ */
+export const GRAPH_CHROME_UNMEASURED_CLASS = 'hidden sm:block'
+/** `display: flex` variant of GRAPH_CHROME_UNMEASURED_CLASS. */
+export const GRAPH_CHROME_UNMEASURED_FLEX_CLASS = 'hidden sm:flex'
+
 export function useContainerWidth(): {
   refCallback: (node: HTMLDivElement | null) => void | (() => void)
   containerWidth: number | null
+  isBelowGraphBreakpoint: boolean
 } {
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
@@ -53,5 +69,21 @@ export function useContainerWidth(): {
     }
   }, [])
 
-  return { refCallback, containerWidth }
+  // Measured narrow, which is NOT the same as "no canvas": pre-measurement is
+  // also canvas-less, and it is the state that reserves the canvas box. Only
+  // this one collapses a section to its sub-breakpoint form, so the hook that
+  // owns the measurement owns the distinction. A consumer re-deriving it is one
+  // `containerWidth !== null` away from flashing the narrow form on every first
+  // paint.
+  //
+  // The other side of the gate deliberately stays at the call sites. Written
+  // inline as `containerWidth !== null && containerWidth >= …`, it NARROWS
+  // `containerWidth` to a number for the canvas that consumes it; a boolean
+  // returned from here carries no narrowing, so centralizing it would buy one
+  // fewer comparison at the cost of a hand-written non-null assertion on the
+  // width every canvas is sized from.
+  const isBelowGraphBreakpoint =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
+
+  return { refCallback, containerWidth, isBelowGraphBreakpoint }
 }

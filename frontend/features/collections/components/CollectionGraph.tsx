@@ -24,8 +24,8 @@
  *      (CollectionDetail) only renders this when the collection has items.
  *   3. Toggle-driven, not default-visible. The parent owns the toggle.
  *
- * Mobile gating retained: below 640px the canvas is unusable (PSY-369),
- * so the graph slot collapses to a teaser message.
+ * Below 640px the canvas is unusable (PSY-369), so the whole section is the
+ * shared one-line knowledge-graph teaser instead.
  */
 
 import { useMemo } from 'react'
@@ -35,10 +35,15 @@ import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import {
   GraphStateCard,
-  GRAPH_BOX_HEIGHT_CLASS,
-  GRAPH_TEASER_HEIGHT_CLASS,
+  GRAPH_BOX_ABOVE_GATE_CLASS,
 } from '@/components/graph/GraphStateCard'
-import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
+import { graphRootHref } from '@/features/graph/graphRootLink'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
+} from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import {
@@ -74,7 +79,11 @@ interface CollectionGraphProps {
 
 export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps) {
   const { data, isLoading, isError } = useCollectionGraph({ slug, enabled: Boolean(slug) })
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+  const {
+    refCallback: containerRefCallback,
+    containerWidth,
+    isBelowGraphBreakpoint,
+  } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -141,6 +150,11 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   const edgeCount = data?.collection.edge_count ?? 0
   // Mobile gate: same 640px threshold as SceneGraph.
   const graphAvailable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  // Narrow AND there is a graph worth linking to. A settled error and an empty
+  // collection fall outside it, so those states keep the treatment they have at
+  // every other width; a fetch in flight falls outside it too, which is why the
+  // loading branch below hides itself rather than leaving a bare heading here.
+  const showMobileTeaser = isBelowGraphBreakpoint && !isLoading && Boolean(data) && nodeCount > 0
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -222,74 +236,79 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
         aria-hidden={isFullscreen || undefined}
         inert={isFullscreen || undefined}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          {sectionHeader}
-          {expandButton}
-        </div>
+        {showMobileTeaser ? (
+          /* The section's sub-640px form: the header and the entity breakdown
+             go with the canvas. */
+          <MobileGraphTeaser
+            href={graphRootHref()}
+          >{`See how this collection’s artists connect on the music map`}</MobileGraphTeaser>
+        ) : (
+          <>
+            {/* Hidden below the gate while the width is unknown or the fetch is
+                in flight: both states settle into the one-line form on a phone,
+                and a heading over a hidden box is the titled apology this
+                section exists to have deleted. */}
+            <div
+              className={`${
+                containerWidth === null || isLoading
+                  ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS
+                  : 'flex'
+              } flex-wrap items-center justify-between gap-2 mb-3`}
+            >
+              {sectionHeader}
+              {expandButton}
+            </div>
 
-        {/* Loading reserves the graph box (shared GraphSkeleton, PSY-1347)
-            instead of bare text — bare text collapses the slot and shifts
-            the page when the canvas lands. */}
-        {isLoading && <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />}
+            {/* Loading reserves the graph box (shared GraphSkeleton, PSY-1347)
+                instead of bare text — bare text collapses the slot and shifts
+                the page when the canvas lands. */}
+            {isLoading && <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />}
 
-        {/* A settled fetch error leaves `data` undefined — say so instead of
-            rendering an empty slot (scene-page convention, PSY-1446). */}
-        {!isLoading && !data && isError && (
-          <GraphStateCard
-            role="alert"
-            message="This view couldn't load. Refresh the page to try again."
-          />
-        )}
+            {/* A settled fetch error leaves `data` undefined, so say so
+                instead of rendering an empty slot (scene-page convention). */}
+            {!isLoading && !data && isError && (
+              <GraphStateCard
+                role="alert"
+                message="This view couldn't load. Refresh the page to try again."
+              />
+            )}
 
-        {/* Post-load, pre-measurement: hold the box height until the width
-            gate can resolve (HomeSceneGraph precedent). */}
-        {!isLoading && data && nodeCount > 0 && containerWidth === null && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
+            {/* Post-load, pre-measurement: hold the box height until the width
+                gate can resolve (HomeSceneGraph precedent). */}
+            {!isLoading && data && nodeCount > 0 && containerWidth === null && (
+              <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />
+            )}
 
-        {!isLoading && data && nodeCount === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No items yet — add an artist, venue, release, label, festival, or
-            show to this collection to see its graph.
-          </p>
-        )}
+            {!isLoading && data && nodeCount === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No items yet — add an artist, venue, release, label, festival, or
+                show to this collection to see its graph.
+              </p>
+            )}
 
-        {/* Sub-640px: shared teaser card (PSY-1446) — says WHY + gives a way
-            forward (PSY-1472). Link-out scrolls to the collection's item list.
-            Unlike the scene/station/venue anchors (new PSY-1472 constants),
-            "#items" is the pre-existing, load-bearing CollectionAnchorNav anchor
-            (ANCHOR_SECTIONS in CollectionDetail + the id on CollectionItemsList),
-            reused here deliberately rather than duplicated as a new constant. */}
-        {!isLoading && data && nodeCount > 0 && !graphAvailable && containerWidth !== null && (
-          <GraphStateCard
-            className={GRAPH_TEASER_HEIGHT_CLASS}
-            message={`${collectionTitle} as a map — how its artists, venues, releases, labels, festivals and shows connect. Needs a larger screen.`}
-            linkHref="#items"
-            linkLabel="Browse the collection →"
-          />
-        )}
-
-        {!isLoading && data && nodeCount > 0 && graphAvailable && !isFullscreen && (
-          <div className="space-y-3">
-            <CollectionGraphVisualization
-              nodes={renderNodes}
-              sourceNodes={data.nodes}
-              links={data.links}
-              clusters={clusters}
-              containerWidth={containerWidth!}
-              collectionTitle={collectionTitle}
-              countPhrase={itemsCountPhrase}
-              edgeCount={edgeCount}
-            />
-            <p className="text-xs text-muted-foreground">
-              {nodesTruncated
-                ? `Showing the ${itemsCountPhrase} in this collection`
-                : 'Showing every item in this collection'}{' '}
-              and the relationships between them — artists, venues they’ve
-              played, releases they’ve made, labels they’re on, festivals
-              they’ve played, and shows. Click any node for its details.
-            </p>
-          </div>
+            {!isLoading && data && nodeCount > 0 && graphAvailable && !isFullscreen && (
+              <div className="space-y-3">
+                <CollectionGraphVisualization
+                  nodes={renderNodes}
+                  sourceNodes={data.nodes}
+                  links={data.links}
+                  clusters={clusters}
+                  containerWidth={containerWidth!}
+                  collectionTitle={collectionTitle}
+                  countPhrase={itemsCountPhrase}
+                  edgeCount={edgeCount}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {nodesTruncated
+                    ? `Showing the ${itemsCountPhrase} in this collection`
+                    : 'Showing every item in this collection'}{' '}
+                  and the relationships between them — artists, venues they’ve
+                  played, releases they’ve made, labels they’re on, festivals
+                  they’ve played, and shows. Click any node for its details.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

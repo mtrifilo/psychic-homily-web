@@ -165,19 +165,43 @@ describe('StationGraph', () => {
     ).toBeInTheDocument()
   })
 
-  it('hides the canvas below the 640px breakpoint and shows the teaser card (PSY-1446)', () => {
+  // Below 640px the whole section is one line of link: the canvas gate
+  // (PSY-369/511) decides there is no canvas, and this decides what stands in
+  // its place.
+  it('collapses to a one-line map teaser below the 640px breakpoint', () => {
     setMockContainerWidth(500)
     renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+
     expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/The Morning Show \(6\)/)).not.toBeInTheDocument()
-    // PSY-1472: the teaser card carries the connectedness pitch + a link-out
-    // that scrolls to the station's playlists feed on this page.
+
+    // No section chrome: no heading, no scale line, no "needs a larger screen"
+    // card, no in-page link-out.
+    expect(screen.queryByText('Airplay graph')).not.toBeInTheDocument()
+    expect(screen.queryByText(/4 artists/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs a larger screen/i)).not.toBeInTheDocument()
     expect(
-      screen.getByText(/KEXP.s airplay as a map/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /See recent playlists/i }),
-    ).toHaveAttribute('href', '#recent-playlists')
+      screen.queryByRole('link', { name: /See recent playlists/i }),
+    ).not.toBeInTheDocument()
+
+    // The knowledge-graph cross-link is the one thing that survives, and it is
+    // the ONLY link left in the section.
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAccessibleName(
+      'See how KEXP\u2019s rotation connects on the music map',
+    )
+    expect(links[0]).toHaveAttribute('href', '/graph')
+  })
+
+  // The `#graph` deep-link target has to survive the collapse: a Cmd+K entry
+  // that scrolls nowhere is worse than no entry.
+  it('keeps the #graph anchor on the collapsed mobile teaser', () => {
+    setMockContainerWidth(500)
+    const { container } = renderWithProviders(
+      <StationGraph slug="kexp" stationName="KEXP" />,
+    )
+    expect(container.querySelector('#graph')).not.toBeNull()
   })
 
   it('renders canvas + cluster legend at desktop width', () => {

@@ -43,9 +43,9 @@ interface StationDetailProps {
 export default function StationDetail({ stationSlug }: StationDetailProps) {
   const { data: station, isLoading, error } = useRadioStation(stationSlug)
 
-  // PSY-1472: the mobile graph teaser links to #recent-playlists, but this page
-  // is client-fetched — the playlists feed mounts only after the station fetch,
-  // so the browser's native fragment scroll on a cold-loaded / shared hash URL
+  // `#recent-playlists` is a shareable deep link, but this page is
+  // client-fetched, so the playlists feed mounts only after the station fetch
+  // and the browser's native fragment scroll on a cold-loaded / shared hash URL
   // fires before the target exists. Scroll once the station data lands (mirrors
   // StationGraph's own #graph workaround). In-session taps already work.
   //
@@ -210,8 +210,8 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex flex-col gap-8 min-w-0">
             <StationOnAirBox station={station} />
-            {/* id="recent-playlists": the mobile graph teaser's link-out target
-                (StationGraph, PSY-1472). scroll-mt for the sticky header. */}
+            {/* id="recent-playlists": the deep-link target, single-sourced as
+                STATION_PLAYLISTS_ANCHOR. scroll-mt for the sticky header. */}
             <div id={STATION_PLAYLISTS_ANCHOR} className="scroll-mt-20">
               <StationPlaylistsFeed station={station} />
             </div>

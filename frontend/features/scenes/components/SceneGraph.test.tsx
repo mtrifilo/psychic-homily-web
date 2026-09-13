@@ -318,7 +318,7 @@ describe('SceneGraph', () => {
   it('roots the section foot on the scene artist with the most upcoming shows', () => {
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     expect(
-      screen.getByRole('link', { name: 'View this scene on the whole map →' }),
+      screen.getByRole('link', { name: 'View this scene on the whole map' }),
     ).toHaveAttribute('href', '/graph?artist=sundressed')
   })
 
@@ -339,7 +339,7 @@ describe('SceneGraph', () => {
     )
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     expect(
-      screen.getByRole('link', { name: 'View this scene on the whole map →' }),
+      screen.getByRole('link', { name: 'View this scene on the whole map' }),
     ).toHaveAttribute('href', '/graph')
   })
 
