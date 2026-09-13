@@ -36,7 +36,12 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
-import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_CLASS,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
+} from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import { useVenueBillNetwork } from '../hooks/useVenues'
@@ -316,21 +321,34 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
               >{`See who shares bills at ${venueName} on the music map`}</MobileGraphTeaser>
             ) : (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                {/* Unmeasured, this branch is what a phone's server HTML
+                    carries, and the measurement is about to replace it with one
+                    line. */}
+                <div
+                  className={`${
+                    containerWidth === null ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS : 'flex'
+                  } flex-wrap items-center justify-between gap-2 mb-2`}
+                >
                   {sectionHeader}
                   {expandButton}
                 </div>
 
-                <div className="mb-3">{windowFilter}</div>
+                <div
+                  className={`mb-3 ${
+                    containerWidth === null ? GRAPH_CHROME_UNMEASURED_CLASS : ''
+                  }`}
+                >
+                  {windowFilter}
+                </div>
 
                 {tooSparse &&
                   containerWidth !== null &&
                   containerWidth >= GRAPH_BREAKPOINT_PX && (
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Not enough booked-together activity yet to draw the network. Try a
-                      wider window or check back as more shows are approved.
-                    </p>
-                  )}
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Not enough booked-together activity yet to draw the network. Try a
+                    wider window or check back as more shows are approved.
+                  </p>
+                )}
 
                 {/* Pre-measurement: hold the box height so the settle can't
                     shift the sections below (HomeSceneGraph precedent). */}

@@ -36,4 +36,19 @@ describe('MobileGraphTeaser', () => {
     expect(line.className).not.toContain('border')
     expect(line.className).not.toContain('h-[')
   })
+
+  // The treatment is the locked half of the design, and this component exists
+  // to be its single source — so pin it here rather than at six call sites.
+  it('renders the locked type and link treatment', () => {
+    const { container } = render(
+      <MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>,
+    )
+    const line = container.firstElementChild!
+    expect(line.className).toContain('text-xs')
+    expect(line.className).toContain('text-muted-foreground')
+    const link = screen.getByRole('link')
+    expect(link.className).toContain('underline')
+    expect(link.className).toContain('underline-offset-4')
+    expect(link.className).toContain('hover:text-foreground')
+  })
 })

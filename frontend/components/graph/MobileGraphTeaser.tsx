@@ -1,11 +1,10 @@
 import Link from 'next/link'
 
 /**
- * The map link's treatment, as every graph surface renders it: underlined
- * body-copy link, hovering to `foreground` rather than the `primary` of the
- * prose links elsewhere. Exported because the scene section also offers the
- * same target from its desktop foot, and two hand-written copies of one link
- * are two things to keep in step.
+ * The map link's type treatment: underlined body copy hovering to `foreground`
+ * rather than the `primary` of the prose links elsewhere. Exported because the
+ * scene section offers the same target from its desktop foot, where the
+ * surrounding copy and spacing differ but the link should not.
  */
 export const GRAPH_MAP_LINK_CLASS = 'underline underline-offset-4 hover:text-foreground'
 

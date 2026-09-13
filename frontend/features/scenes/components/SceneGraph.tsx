@@ -62,7 +62,11 @@ import {
   GRAPH_BOX_HEIGHT_CLASS,
   GRAPH_BOX_ABOVE_GATE_CLASS,
 } from '@/components/graph/GraphStateCard'
-import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
+} from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
@@ -352,7 +356,13 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
           >{`See how ${city} artists connect on the music map`}</MobileGraphTeaser>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            {/* Unmeasured, this branch is what a phone's server HTML carries,
+                and the measurement is about to replace it with one line. */}
+            <div
+              className={`${
+                containerWidth === null ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS : 'flex'
+              } flex-wrap items-center justify-between gap-2 mb-2`}
+            >
               {sceneHeader}
               {expandButton}
             </div>
@@ -401,7 +411,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
             <p className="mt-3 text-xs text-muted-foreground">
               <Link href={wholeMapHref} className={GRAPH_MAP_LINK_CLASS}>
-                View this scene on the whole map →
+                View this scene on the whole map <span aria-hidden="true">→</span>
               </Link>
             </p>
           </>

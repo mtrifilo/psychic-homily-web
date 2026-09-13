@@ -54,13 +54,13 @@ describe('StationDetail (PSY-1472)', () => {
     Element.prototype.scrollIntoView = vi.fn()
   })
 
-  it('renders the #recent-playlists anchor the mobile graph teaser links to', () => {
+  it('renders the #recent-playlists deep-link anchor', () => {
     const { container } = render(<StationDetail stationSlug="kexp" />)
-    // Same constant the teaser's linkHref uses — single source, can't drift.
+    // The same constant the scroll workaround below reads — single source.
     expect(container.querySelector(`#${STATION_PLAYLISTS_ANCHOR}`)).toBeInTheDocument()
   })
 
-  it('scrolls to the playlists feed once when cold-loaded with the teaser hash', () => {
+  it('scrolls to the playlists feed once when cold-loaded with that hash', () => {
     mockHash.mockReturnValue(`#${STATION_PLAYLISTS_ANCHOR}`)
     render(<StationDetail stationSlug="kexp" />)
     // Client-fetched page: native fragment scroll fired too early, so the effect

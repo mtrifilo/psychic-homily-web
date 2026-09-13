@@ -28,8 +28,9 @@
  * The section hides ENTIRELY when the artist has no relationships (page
  * convention — primary sections self-hide rather than render an apologetic
  * empty state; the sidebar owns the "suggest similar" affordance). Below the
- * 640px canvas gate it renders the shared PSY-1472 teaser card linking to
- * the sidebar Similar-artists list anchor instead of a canvas.
+ * 640px canvas gate the whole section is one line of link into the knowledge
+ * graph (MobileGraphTeaser); the page header's [Graph] is what still reaches
+ * the ego dialog at that width.
  */
 
 import { useMemo, useState } from 'react'
@@ -51,6 +52,7 @@ import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelect
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_CLASS,
 } from '@/components/graph/useContainerWidth'
 import {
   compareByCenterEdgeScore,
@@ -146,10 +148,14 @@ interface ArtistConnectionsSectionProps {
   artistId: number
   artistName: string
   /**
-   * Roots the sub-640px teaser's map link on this artist. Entity slugs are
-   * nullable in this schema; `graphRootHref` falls back to the unrooted map.
+   * Roots the sub-640px teaser's map link on this artist. Required, not
+   * optional: an omitted slug is indistinguishable from a null one, and the
+   * rooting is the whole difference between that link landing on this artist's
+   * neighborhood and landing on the map's search prompt. Entity slugs are
+   * nullable in this schema, and `graphRootHref` falls back to the unrooted map
+   * for a null.
    */
-  artistSlug?: string | null
+  artistSlug: string | null
   /** Fires when the user clicks [Expand]. Parent opens the graph Dialog. */
   onExpand: () => void
 }
@@ -221,14 +227,13 @@ export function ArtistConnectionsSection({
     plural: 'connected artists',
   })
 
-  // One container-keyed comparison drives every GATING branch below — the
-  // count line's interaction clause, the mobile teaser, and the canvas — so
-  // the clause can't promise names to click in a layout that rendered no
-  // canvas. Don't add a second *gating* breakpoint source; the only other 640
-  // in this file is `PLACEHOLDER_BOX_CLASS`'s `sm:`, which is viewport-keyed
-  // and governs only the pre-measurement skeleton — the two disagree in the
-  // narrow band where the column is under 640 while the viewport is over it,
-  // and in that band the skeleton shows until the measurement replaces it.
+  // One container measurement drives every GATING branch below — the count
+  // line's interaction clause, the mobile teaser, and the canvas — through the
+  // two derivations the width hook owns, so the clause can't promise names to
+  // click in a layout that rendered no canvas. Don't add a *gating* breakpoint
+  // source of your own; the `sm:` prefixes in this file are viewport-keyed and
+  // govern only what an UNMEASURED render paints, which is the band where a
+  // column under 640 sits inside a viewport over it.
   //
   // A chunk-load failure is the gate's SECOND input, not an exception to it:
   // the boundary below still self-hides (no `fallback`), but it reports the
@@ -254,16 +259,23 @@ export function ArtistConnectionsSection({
         >{`See who ${artistName} plays with on the music map`}</MobileGraphTeaser>
       ) : (
         <>
+          {/* Unmeasured, this branch is what a phone's server HTML carries,
+              and the measurement is about to replace it with one line. */}
           <SectionHeader
             title="Connections"
             as="h2"
             size="md"
             action={<BracketLink label="Expand" onClick={onExpand} />}
+            className={!isMeasured ? GRAPH_CHROME_UNMEASURED_CLASS : undefined}
           />
           {/* The count discloses scale at every width the section keeps its
               header; the interaction clause is narrower still — it is dropped
               whenever no canvas rendered. */}
-          <p className="text-sm text-muted-foreground mb-2">
+          <p
+            className={`text-sm text-muted-foreground mb-2 ${
+              !isMeasured ? GRAPH_CHROME_UNMEASURED_CLASS : ''
+            }`}
+          >
             {sentenceCase(phrase)}
             {graphAvailable && !graphFailed && ' · click a name to see how it connects'}
           </p>

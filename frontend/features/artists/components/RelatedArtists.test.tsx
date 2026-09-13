@@ -123,11 +123,10 @@ describe('ArtistSimilarSidebar', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('carries the anchor id the Connections section mobile teaser links to', () => {
-    // The inline Connections map hides its canvas below 640px and offers a
-    // teaser linking to `#${SIMILAR_ARTISTS_ANCHOR}` instead. That link is
-    // only reachable because this section is the anchor target — assert the
-    // two halves of the contract meet (SceneDetail/SceneGraph precedent).
+  it('carries the `#similar-artists` deep-link anchor id', () => {
+    // The id is declared by ArtistConnectionsSection and stamped here; the
+    // Connections canvas's aria-label points screen-reader users at this list
+    // by name, so the anchor has to land somewhere.
     const { container } = renderWithProviders(
       <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
     )

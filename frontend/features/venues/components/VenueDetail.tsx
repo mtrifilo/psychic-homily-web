@@ -350,9 +350,8 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
             />
           </div>
 
-          {/* Shows List. id="venue-shows": the mobile graph teaser's link-out
-              target (VenueBillNetwork, PSY-1472). scroll-mt for the sticky
-              header. */}
+          {/* Shows List. id="venue-shows": the deep-link target, single-sourced
+              as VENUE_SHOWS_ANCHOR. scroll-mt for the sticky header. */}
           <div id={VENUE_SHOWS_ANCHOR} className="scroll-mt-20">
             <VenueShowsList
               venueId={venue.id}

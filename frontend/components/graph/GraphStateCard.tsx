@@ -10,8 +10,10 @@ import { GraphSkeleton } from './GraphSkeleton'
  * Complements GraphSkeleton (the loading placeholder): same bordered/muted
  * box language, but with visible, announced content instead of a pulse.
  * Standardized across SceneGraph, StationGraph, CollectionGraph, and
- * VenueBillNetwork so the states can't drift apart per surface again. The
- * sub-640px form of those sections is MobileGraphTeaser, not this card.
+ * VenueBillNetwork so the states can't drift apart per surface again. Those
+ * four sections put MobileGraphTeaser, not this card, in the slot a canvas
+ * would occupy below the gate; this card is what a settled failure renders
+ * there instead, at every width.
  *
  * - Error states pass `role="alert"` so the settled failure is announced.
  * - Sizing is the caller's via `className` (same contract as GraphSkeleton)
@@ -48,21 +50,24 @@ export function GraphStateCard({
 export const GRAPH_BOX_HEIGHT_CLASS = 'h-[240px] sm:h-[400px] md:h-[560px]'
 
 /**
- * The height contract plus the viewport gate a graph SECTION's reserved box
- * needs, for the boxes that stand in for a canvas while a section settles.
+ * The reserved box a graph SECTION holds open while it settles: the height
+ * contract above the gate, and nothing at all below it.
  *
  * Below 640px a graph section is one line of link (MobileGraphTeaser), so a
- * box reserved there is a phantom the settle then collapses, shifting
- * everything under it. The gate is viewport-keyed where the canvas gate is
- * container-keyed; they disagree only in the narrow band where a padded
- * column measures under 640px on a wider viewport, and in that band the box
- * shows until the measurement replaces it.
+ * box reserved there is a phantom the settle then collapses. It carries no
+ * narrow-width height for that reason — the one in GRAPH_BOX_HEIGHT_CLASS
+ * could never apply here.
  *
- * NOT folded into GRAPH_BOX_HEIGHT_CLASS: the state cards that use the bare
- * height contract (settled errors, the Observatory's empty state) do render
- * below the gate.
+ * The gate is viewport-keyed where the canvas gate is container-keyed; they
+ * disagree only in the narrow band where a padded column measures under 640px
+ * on a wider viewport, and in that band the box shows until the measurement
+ * replaces it with the one-line form.
+ *
+ * For a RESERVED box only. A state that must be read below the gate (a settled
+ * error, an empty message) uses GRAPH_BOX_HEIGHT_CLASS: this one would hide it
+ * on every phone with nothing to say so.
  */
-export const GRAPH_BOX_ABOVE_GATE_CLASS = `hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`
+export const GRAPH_BOX_ABOVE_GATE_CLASS = 'hidden sm:block sm:h-[400px] md:h-[560px]'
 
 /**
  * Announced loading box for a graph that is being fetched or built — the

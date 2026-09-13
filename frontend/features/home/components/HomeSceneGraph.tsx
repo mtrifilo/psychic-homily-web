@@ -61,6 +61,7 @@ import {
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
 } from '@/components/graph/useContainerWidth'
 import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
 import { GraphSkeleton as BaseGraphSkeleton } from '@/components/graph/GraphSkeleton'
@@ -138,7 +139,9 @@ const PLACEHOLDER_HEIGHT_CLASS = 'h-[560px]'
  * the section mounts.
  */
 function SceneGraphSkeleton() {
-  return <BaseGraphSkeleton className="hidden sm:block h-[560px]" />
+  return (
+    <BaseGraphSkeleton className={`hidden sm:block ${PLACEHOLDER_HEIGHT_CLASS}`} />
+  )
 }
 
 /**
@@ -492,8 +495,14 @@ function HomeSceneGraphSection() {
       aria-labelledby={isBelowGraphBreakpoint ? undefined : 'home-scene-graph-heading'}
       className="flex w-full flex-col gap-4"
     >
+      {/* Unmeasured, this row is what a phone's server HTML carries, and the
+          measurement is about to replace the section with one line. */}
       {!isBelowGraphBreakpoint && (
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div
+          className={`${
+            containerWidth === null ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS : 'flex'
+          } flex-wrap items-baseline justify-between gap-x-4 gap-y-1`}
+        >
           <h2
             id="home-scene-graph-heading"
             aria-live="polite"

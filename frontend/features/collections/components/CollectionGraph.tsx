@@ -40,7 +40,11 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
-import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+  GRAPH_CHROME_UNMEASURED_FLEX_CLASS,
+} from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
 import {
@@ -147,9 +151,10 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   const edgeCount = data?.collection.edge_count ?? 0
   // Mobile gate: same 640px threshold as SceneGraph.
   const graphAvailable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
-  // Narrow AND there is a graph worth linking to. Pre-measurement, a settled
-  // error and an empty collection all fall outside it, so those states keep
-  // the treatment they have at every other width.
+  // Narrow AND there is a graph worth linking to. A settled error and an empty
+  // collection fall outside it, so those states keep the treatment they have at
+  // every other width; a fetch in flight falls outside it too, which is why the
+  // loading branch below hides itself rather than leaving a bare heading here.
   const showMobileTeaser = isBelowGraphBreakpoint && !isLoading && Boolean(data) && nodeCount > 0
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
@@ -240,7 +245,17 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
           >{`See how this collection’s artists connect on the music map`}</MobileGraphTeaser>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            {/* Hidden below the gate while the width is unknown or the fetch is
+                in flight: both states settle into the one-line form on a phone,
+                and a heading over a hidden box is the titled apology this
+                section exists to have deleted. */}
+            <div
+              className={`${
+                containerWidth === null || isLoading
+                  ? GRAPH_CHROME_UNMEASURED_FLEX_CLASS
+                  : 'flex'
+              } flex-wrap items-center justify-between gap-2 mb-3`}
+            >
               {sectionHeader}
               {expandButton}
             </div>
