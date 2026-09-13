@@ -350,9 +350,19 @@ type GetShowResponse struct {
 //
 // 50 rather than the 20 the per-entity archives default to: those are sized by
 // the UI page that renders them, and neither of these has one. Shared by
-// GET /shows and GET /shows/upcoming so a client moving between them gets one
-// page size.
+// GET /shows, GET /shows/upcoming and GET /shows/calendar so a client moving
+// between them gets one page size.
 const defaultShowListLimit = 50
+
+// maxShowListLimit caps a caller-supplied page size on the catalog-wide lists.
+// Each row costs a hydrated bill, so the cap bounds the response an anonymous
+// read can ask for.
+//
+// Applied through clampShowListLimit by GET /shows, GET /shows/upcoming and
+// GET /shows/calendar. GetMySubmissionsHandler enforces the same numbers with
+// its own literals; it is a per-user list rather than a catalog-wide one, which
+// is why it is outside this constant's scope rather than an oversight.
+const maxShowListLimit = 200
 
 // GetShowsRequest represents the HTTP request for listing shows
 type GetShowsRequest struct {
@@ -759,12 +769,7 @@ func (h *ShowHandler) SearchShowsHandler(ctx context.Context, req *SearchShowsRe
 func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest) (*GetShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Huma's `default` tag only covers the HTTP path, and zero means "no rows"
-	// to the service. Matches the artist and venue handlers.
-	limit := req.Limit
-	if limit == 0 {
-		limit = defaultShowListLimit
-	}
+	limit := clampShowListLimit(req.Limit)
 
 	// Build filters
 	filters := make(map[string]interface{})
@@ -870,55 +875,9 @@ func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCiti
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Check if user is admin (for including non-approved shows)
-	user := middleware.GetUserFromContext(ctx)
-	includeNonApproved := user != nil && user.IsAdmin
-
-	// Validate limit
-	limit := req.Limit
-	if limit < 1 {
-		limit = defaultShowListLimit
-	}
-	if limit > 200 {
-		limit = 200 // Cap at 200 to prevent excessive queries
-	}
-
-	// Build filters from query params
-	var filters *contracts.UpcomingShowsFilter
-	if req.Cities != "" {
-		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Mesa,AZ"
-		pairs := strings.Split(req.Cities, "|")
-		var cityFilters []contracts.CityStateFilter
-		for _, pair := range pairs {
-			parts := strings.SplitN(pair, ",", 2)
-			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-				cityFilters = append(cityFilters, contracts.CityStateFilter{
-					City:  strings.TrimSpace(parts[0]),
-					State: strings.TrimSpace(parts[1]),
-				})
-			}
-		}
-		// Cap at 10 cities
-		if len(cityFilters) > 10 {
-			cityFilters = cityFilters[:10]
-		}
-		if len(cityFilters) > 0 {
-			filters = &contracts.UpcomingShowsFilter{Cities: cityFilters}
-		}
-	} else if req.City != "" || req.State != "" {
-		// Legacy single-city filter
-		filters = &contracts.UpcomingShowsFilter{
-			City:  req.City,
-			State: req.State,
-		}
-	}
-	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
-		if filters == nil {
-			filters = &contracts.UpcomingShowsFilter{}
-		}
-		filters.TagSlugs = tf.TagSlugs
-		filters.TagMatchAny = tf.MatchAny
-	}
+	includeNonApproved := upcomingListIncludesNonApproved(ctx)
+	limit := clampShowListLimit(req.Limit)
+	filters := parseUpcomingShowsFilter(req.Cities, req.City, req.State, req.Tags, req.TagMatch)
 
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
 		"limit", limit,
