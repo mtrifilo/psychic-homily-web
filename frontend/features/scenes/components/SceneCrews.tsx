@@ -1,22 +1,11 @@
 'use client'
 
-import { cn } from '@/lib/utils'
 // Deep-imported, not through a barrel — see the note in
 // features/scenes/components/index.ts.
-import {
-  CREW_CHIP_CLASS as CREW_CHIP_BASE_CLASS,
-  CREW_CHIP_LINK_CLASS as CREW_CHIP_BASE_LINK_CLASS,
-} from '@/features/tags/types'
+import { CREW_CHIP_CLASS, CREW_CHIP_LINK_CLASS } from '@/features/tags/types'
 import { useSceneCrews } from '../hooks'
 import { EntityNameLink } from './sceneChrome'
 import type { SceneDetail } from '../types'
-
-/**
- * The shared crew chip at this page's density. Everything but the size is the
- * crew tag's own treatment; the size is the page's micro-caps register.
- */
-const CREW_CHIP_CLASS = cn(CREW_CHIP_BASE_CLASS, 'text-[11px]')
-const CREW_CHIP_LINK_CLASS = cn(CREW_CHIP_BASE_LINK_CLASS, 'text-[11px]')
 
 /**
  * The music bookers whose tag sits on shows in this scene: promoters, DIY

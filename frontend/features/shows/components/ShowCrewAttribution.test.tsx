@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import { getCategoryChipClasses } from '@/features/tags/types'
 import type { EntityTag } from '@/features/tags/types'
 
 vi.mock('next/link', () => ({
@@ -165,11 +164,26 @@ describe('ShowCrewAttribution', () => {
     expect(chip).not.toHaveClass('truncate')
   })
 
-  it('wears the crew category chip treatment', () => {
+  // The frame's chip, spelled out rather than derived from the constant the
+  // component composes from: an expectation read out of the implementation
+  // can only fail when `cn` drops a class.
+  it('wears the crew chip the mock draws', () => {
     renderRow([RELAX])
 
     const chip = screen.getByRole('link', { name: 'Relax Attack Jazz Series' })
-    for (const cls of getCategoryChipClasses('crew').split(' ')) {
+    for (const cls of [
+      'rounded-[2px]',
+      'border',
+      'border-border',
+      'bg-transparent',
+      'font-mono',
+      'uppercase',
+      'tracking-[0.04em]',
+      'px-2',
+      'py-1',
+      'text-[11px]',
+      'text-muted-foreground',
+    ]) {
       expect(chip).toHaveClass(cls)
     }
   })

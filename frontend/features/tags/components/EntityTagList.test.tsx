@@ -703,12 +703,36 @@ describe('EntityTagList omitCrewTags', () => {
     ).not.toBeInTheDocument()
   })
 
-  // Hiding is gated on what the list DRAWS, so an entity whose only tags are
-  // crew tags hides the heading rather than captioning an empty row.
-  it('renders nothing when every tag it holds is a crew tag', () => {
+  // A reader who cannot add sees no heading over an empty row.
+  it('renders nothing to a logged-out viewer when every tag it holds is a crew tag', () => {
     currentMockTags = { tags: [CREW] }
     const { container } = renderWithProviders(
       <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // This component is the only add-tag affordance on the show page, so a show
+  // whose only tags are crew tags would otherwise become untaggable.
+  it('keeps the add affordance for a logged-in viewer when every tag it holds is a crew tag', () => {
+    currentMockTags = { tags: [CREW] }
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated omitCrewTags />
+    )
+
+    expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+    expect(
+      within(desktopRow()).queryByText('Rubber Brother Records')
+    ).not.toBeInTheDocument()
+  })
+
+  // The PSY-654 rule is unchanged for an entity that genuinely has no tags:
+  // nothing renders, for anyone.
+  it('renders nothing for a logged-in viewer on a tagless entity', () => {
+    currentMockTags = { tags: [] }
+    const { container } = renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated omitCrewTags />
     )
 
     expect(container).toBeEmptyDOMElement()

@@ -33,7 +33,6 @@ import {
   useSearchTags,
 } from '../hooks'
 import {
-  compareEntityTagsByConfidence,
   getCategoryChipClasses,
   getTagChipClasses,
   isCrewTagCategory,
@@ -52,8 +51,12 @@ interface EntityTagListProps {
   /**
    * Drop crew-category tags from the drawn list, for a page that credits the
    * bookers in a register of their own and would otherwise print them twice.
-   * The add flow still sees them: a crew tag already applied must keep
-   * answering "already applied" rather than offering itself again.
+   *
+   * Two consequences the caller is buying: the add flow still sees them, so a
+   * crew tag already applied keeps answering "already applied" rather than
+   * offering itself again; and an omitted crew tag loses the vote, remove and
+   * attribution-card controls a drawn chip carries, since those live on the
+   * chip. The surface drawing the crew elsewhere owns whatever it offers there.
    */
   omitCrewTags?: boolean
 }
@@ -122,11 +125,12 @@ export function EntityTagList({
   // about even where the list below draws only some of them.
   const appliedTags = data?.tags ?? []
 
+  // Sort by Wilson score (highest confidence first)
   const sortedTags = useMemo(
     () =>
       (data?.tags ?? [])
         .filter(tag => !(omitCrewTags && isCrewTagCategory(tag.category)))
-        .sort(compareEntityTagsByConfidence),
+        .sort((a, b) => b.wilson_score - a.wilson_score),
     [data?.tags, omitCrewTags]
   )
 
@@ -146,11 +150,18 @@ export function EntityTagList({
     )
   }
 
-  // Hide the section when it has nothing to draw; the per-page header linkbox
-  // owns the [Add tag] affordance via the exported `<AddTagDialog>`. Gated on
-  // the DRAWN set rather than on the applied one, so a show whose only tags
-  // are crew tags hides the heading instead of captioning an empty row.
-  if (sortedTags.length === 0) return null
+  // Nothing to draw.
+  //
+  // A tagless entity renders nothing at all, for anyone: the per-page header
+  // linkbox owns the [Add tag] affordance via the exported `<AddTagDialog>`
+  // (PSY-654). An entity that HAS tags but draws none of them is the
+  // `omitCrewTags` case, and there the section still renders for a viewer who
+  // can add, because this component is the only add-tag affordance on some of
+  // the pages that mount it and a crew-only entity would otherwise be
+  // untaggable. A viewer who cannot add sees no heading over an empty row.
+  if (sortedTags.length === 0 && (!isAuthenticated || appliedTags.length === 0)) {
+    return null
+  }
 
   const handleVote = (tag: EntityTag, isUpvote: boolean) => {
     if (!isAuthenticated) return

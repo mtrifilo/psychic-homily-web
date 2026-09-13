@@ -527,17 +527,23 @@ describe('ShowDetail', () => {
     // The booker credit is the FIRST row of the footer block, above the tag
     // list. Position is the claim: a row rendered after the tag list would
     // still "be in the footer" and would still be the wrong row.
-    it('renders the crew attribution row above the tag list in the footer', () => {
-      render(<ShowDetail showId="1" lifecycle="upcoming" renderedAt={DETAIL_RENDERED_AT} />)
+    //
+    // Both registers, because `lifecycle` is threaded into six other children
+    // of this page and the mock draws the row on the past frame too.
+    it.each(['upcoming', 'past'] as const)(
+      'renders the crew attribution row above the tag list in the %s footer',
+      lifecycle => {
+        render(<ShowDetail showId="1" lifecycle={lifecycle} renderedAt={DETAIL_RENDERED_AT} />)
 
-      const footer = screen.getByTestId('show-provenance-footer')
-      const crew = screen.getByTestId('show-crew-attribution')
-      expect(footer).toContainElement(crew)
-      expect(
-        crew.compareDocumentPosition(screen.getByTestId('entity-tag-list')) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
-    })
+        const footer = screen.getByTestId('show-provenance-footer')
+        const crew = screen.getByTestId('show-crew-attribution')
+        expect(footer).toContainElement(crew)
+        expect(
+          crew.compareDocumentPosition(screen.getByTestId('entity-tag-list')) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
+    )
 
     // Crew tags are drawn by the row above, so the generic list must not draw
     // them again. Without this the same promoter prints twice.

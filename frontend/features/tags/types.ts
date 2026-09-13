@@ -660,23 +660,21 @@ export function getTagChipClasses(tag: {
 }
 
 /**
- * Every class the crew chip wears EXCEPT its size, which each surface sets
- * from its own density — the category treatment above carries no font size
- * for that reason, and this constant keeps the same contract.
+ * Every class the crew chip wears: the category's own look plus the box the
+ * chip is drawn in (Figma `1402:789` and `1666:2` agree on it) at the 11px
+ * micro-caps size both surfaces that render one use.
  *
- * The width, padding and radius are the chip drawn in Figma `1402:789`, and
- * they belong to the crew tag rather than to any one page: a surface that
- * composed its own would drift from every other the first time the chip is
- * tuned.
+ * The chip belongs to the crew tag rather than to any one page, so it is
+ * composed here: a surface that built its own would drift from every other
+ * the first time the chip is tuned. A surface needing a different size
+ * overrides it through `cn`, which is why callers must compose that way.
  *
  * `break-words` is the guard on a crew name long enough to exceed the content
  * column on a narrow screen: `tags.name` allows 100 characters, and a single
  * unbroken token that cannot fit a line would otherwise widen the page.
- *
- * Compose through `cn`, so a surface's size class survives the merge.
  */
 export const CREW_CHIP_CLASS = cn(
-  'inline-flex max-w-full items-center break-words border px-2 py-1 leading-none',
+  'inline-flex max-w-full items-center break-words border px-2 py-1 text-[11px] leading-none',
   getCategoryChipClasses(TAG_CATEGORY_CREW)
 )
 

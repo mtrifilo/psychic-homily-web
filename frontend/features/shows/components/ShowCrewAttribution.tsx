@@ -2,10 +2,10 @@
 
 import { useId, useMemo } from 'react'
 import Link from 'next/link'
-import { cn } from '@/lib/utils'
 import { entityHref } from '@/lib/entity-slug'
-// Deep-imported, not through the `@/features/tags` barrel — the note in
-// features/shows/components/index.ts explains what a barrel costs here.
+// Deep-imported: `@/features/tags` is a `'use client'` barrel reachable from
+// the root layout, so importing through it would put this module in the one
+// client chunk every route loads.
 import { useEntityTags } from '@/features/tags/hooks'
 import {
   compareEntityTagsByConfidence,
@@ -15,17 +15,11 @@ import {
 } from '@/features/tags/types'
 
 /**
- * The row's type register per Figma `1666:2`: mono micro-caps on the muted
- * tone, label and chips at one size. 11px is the site's crew-chip density.
+ * The label's type register per Figma `1666:2`: mono micro-caps on the muted
+ * tone, at the size the crew chip beside it wears.
  */
-const CREW_ROW_TEXT_CLASS = 'font-mono text-[11px] uppercase tracking-[0.04em]'
-
-/**
- * The shared crew chip at this page's density; everything but the size is the
- * crew tag's own treatment.
- */
-const SHOW_CREW_CHIP_CLASS = cn(CREW_CHIP_CLASS, 'text-[11px]')
-const SHOW_CREW_CHIP_LINK_CLASS = cn(CREW_CHIP_LINK_CLASS, 'text-[11px]')
+const CREW_ROW_LABEL_CLASS =
+  'font-mono text-[11px] uppercase tracking-[0.04em] text-muted-foreground'
 
 /**
  * The bookers this listing is credited to: the show's crew-category tags,
@@ -38,6 +32,10 @@ const SHOW_CREW_CHIP_LINK_CLASS = cn(CREW_CHIP_LINK_CLASS, 'text-[11px]')
  * The row is absent entirely — no label, no scaffold — on a show carrying no
  * crew tag, which is most of them. It reads the same query key the tag list
  * below it reads, so the pair costs one request.
+ *
+ * A chip is a name and a link and nothing else: this row carries none of the
+ * vote, remove or attribution-card controls the tag list's chips carry, and
+ * the tag list on this page no longer holds crew tags, so neither does it.
  *
  * `role="list"` is explicit on the chip list because the label depends on it:
  * a list whose markers are off loses its list semantics in WebKit, and a
@@ -52,9 +50,9 @@ export function ShowCrewAttribution({ showId }: { showId: number }) {
   // A nameless crew is dropped rather than drawn: a chip with no accessible
   // name is an empty box in the tab order.
   //
-  // Sorted, because `ListEntityTags` returns rows in no defined order — the
-  // same ranking the tag list below applies to this payload, so the two rows
-  // cannot disagree about which of two crews leads.
+  // Sorted, because `ListEntityTags` returns rows in no defined order: without
+  // this, two reads of the same show can name its crews in two different
+  // orders.
   const crews = useMemo(
     () =>
       (data?.tags ?? [])
@@ -70,7 +68,7 @@ export function ShowCrewAttribution({ showId }: { showId: number }) {
       className="flex flex-wrap items-center gap-x-2 gap-y-1.5"
       data-testid="show-crew-attribution"
     >
-      <span id={labelId} className={cn(CREW_ROW_TEXT_CLASS, 'text-muted-foreground')}>
+      <span id={labelId} className={CREW_ROW_LABEL_CLASS}>
         Presented by
       </span>
       <ul
@@ -83,11 +81,11 @@ export function ShowCrewAttribution({ showId }: { showId: number }) {
           return (
             <li key={crew.tag_id}>
               {href ? (
-                <Link href={href} className={SHOW_CREW_CHIP_LINK_CLASS}>
+                <Link href={href} className={CREW_CHIP_LINK_CLASS}>
                   {crew.name}
                 </Link>
               ) : (
-                <span className={SHOW_CREW_CHIP_CLASS}>{crew.name}</span>
+                <span className={CREW_CHIP_CLASS}>{crew.name}</span>
               )}
             </li>
           )

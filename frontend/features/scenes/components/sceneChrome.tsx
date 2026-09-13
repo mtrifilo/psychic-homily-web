@@ -1,11 +1,6 @@
 import { Fragment } from 'react'
 import Link from 'next/link'
-// `entityHref` is re-exported here because this module's own callers and
-// several scene files import it from `./sceneChrome`; the rule itself lives
-// beside the slug predicate it is built on.
 import { entityHref } from '@/lib/entity-slug'
-
-export { entityHref }
 
 /**
  * The chrome the weekly and nightly city pages share.
@@ -86,7 +81,6 @@ export function EntityNameLink({
     </Link>
   )
 }
-
 
 /**
  * A neighbouring period key this page can link to, or null.
