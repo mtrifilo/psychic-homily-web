@@ -5,9 +5,10 @@ import { Library } from 'lucide-react'
 // Deep-imported, not through a barrel — see the note in
 // features/scenes/components/index.ts (PSY-1772).
 import { CollectionCoverImage } from '@/features/collections/components/CollectionCoverImage'
+import { entityHref } from '@/lib/entity-slug'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import { useSceneCollections } from '../hooks'
-import { entityHref, SceneSectionHeading } from './sceneChrome'
+import { SceneSectionHeading } from './sceneChrome'
 import type { SceneCollectionSummary, SceneDetail } from '../types'
 
 /**

@@ -23,6 +23,13 @@ func setupShowRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
 	huma.Get(rc.API, "/shows/search", showHandler.SearchShowsHandler)
 
+	// The date-addressed list and its month strip. Static siblings of
+	// /shows/{show_id}, which chi resolves before the parameter node, so a show
+	// whose slug were "calendar" or "months" would be unreachable by slug, the
+	// same shape /shows/cities, /shows/upcoming and /shows/search already have.
+	huma.Get(rc.API, "/shows/calendar", showHandler.GetShowsCalendarHandler)
+	huma.Get(rc.API, "/shows/months", showHandler.GetShowMonthsHandler)
+
 	// Show detail with optional auth for access control on non-approved shows
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))

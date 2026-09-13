@@ -3,6 +3,7 @@
 package contracts
 
 import (
+	"errors"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -330,6 +331,97 @@ type UpcomingShowsFilter struct {
 	// TagMatchAny switches the tag filter to OR semantics. When false
 	// (default) the shows must have every tag in TagSlugs (AND).
 	TagMatchAny bool
+}
+
+// ShowCalendarWindow narrows the upcoming partition to one VENUE-LOCAL calendar
+// month or one venue-local date. The zero value narrows nothing, which is the
+// whole upcoming set.
+type ShowCalendarWindow struct {
+	Year  int
+	Month int
+	Day   int
+}
+
+// Validate reports whether the window names a period, returning an error whose
+// message is safe to hand a caller verbatim.
+//
+// Both the HTTP boundary and the service read it, because a half-stated or
+// impossible window narrows to NOTHING in SQL, which is indistinguishable from
+// "no window requested" and would answer with the whole upcoming catalog under a
+// URL promising one day of it. It is the definition the SERVICE enforces; over
+// HTTP the request schema's own bounds reject some of these first, so a caller
+// can see either message for an out-of-range month or day.
+//
+// Three shapes are well-formed and nothing else is: the ZERO window (no
+// narrowing), a year plus a month, and a year plus a month plus a real day. A
+// year is required by both narrower forms because a bare month is not a period
+// and a bare day is not a date; a bare YEAR is refused too, because this type
+// has no year-wide narrowing and reading it as one would silently widen a URL
+// that named a month.
+//
+// NEGATIVE components are refused rather than read as absent. Reading -1 as
+// "unset" is how a miscomputed window turns into the whole catalog.
+func (w ShowCalendarWindow) Validate() error {
+	switch {
+	case w.Year < 0 || w.Month < 0 || w.Day < 0:
+		return errors.New("year, month and day must not be negative")
+	case w.Year == 0 && w.Month == 0 && w.Day == 0:
+		return nil
+	case w.Year == 0:
+		return errors.New("month and day require a year")
+	case w.Month == 0:
+		return errors.New("year requires a month")
+	case w.Month > 12:
+		return errors.New("month must be 1-12")
+	case w.Day == 0:
+		return nil
+	case !isRealCalendarDate(w.Year, w.Month, w.Day):
+		return errors.New("year, month and day do not name a real calendar date")
+	default:
+		return nil
+	}
+}
+
+// isRealCalendarDate reports whether the triple names a real Gregorian date.
+// time.Date normalises 31 February into 3 March rather than failing, so the
+// round-trip is the check.
+func isRealCalendarDate(year, month, day int) bool {
+	if day < 1 || day > 31 {
+		return false
+	}
+	normalised := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	return normalised.Year() == year &&
+		int(normalised.Month()) == month &&
+		normalised.Day() == day
+}
+
+// ShowCalendarQuery is one OFFSET page of a ShowCalendarWindow.
+//
+// Offset rather than the cursor GetUpcomingShows takes: this list's identity is
+// a date window plus a page number, both of which have to survive being
+// bookmarked and shared, and a cursor encodes a position in a set that rolls
+// forward every night.
+type ShowCalendarQuery struct {
+	ShowCalendarWindow
+	Limit  int
+	Offset int
+}
+
+// ShowMonthCount is one bar of the catalog-wide upcoming show histogram at MONTH
+// resolution.
+//
+// A twin of VenueShowMonthCount and ArtistShowMonthCount rather than one shared
+// type, on the same grounds those two are twins of each other: each is a
+// separately published response schema, and collapsing them would couple the
+// endpoints' contracts.
+//
+// The year is part of the bucket, not context around it. This histogram spans
+// every month that has an upcoming show, which for a national catalog reaches
+// into the following year.
+type ShowMonthCount struct {
+	Year  int   `json:"year" doc:"Venue-local calendar year"`
+	Month int   `json:"month" doc:"Venue-local calendar month, 1-12"`
+	Count int64 `json:"count" doc:"Upcoming shows in that venue-local month, under the requested filters"`
 }
 
 // ShowCityResponse represents a city with the count of upcoming shows.
@@ -2573,6 +2665,31 @@ type ShowServiceInterface interface {
 	// the same for every caller. The timezone parameter is accepted and IGNORED
 	// (PSY-1678); it survives only because removing it is a breaking change.
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, int64, error)
+	// GetUpcomingShowsPage returns one OFFSET page of the same venue-local
+	// upcoming partition GetUpcomingShows lists, optionally narrowed to one
+	// venue-local calendar month or date, plus the filter-aware total for that
+	// window.
+	//
+	// It is a second reader of one partition rather than a second partition: the
+	// date rule, the filters and the ordering are the cursor list's, and only
+	// the page window differs. A window that names no month returns the whole
+	// upcoming set, which is what the root list pages over.
+	GetUpcomingShowsPage(query ShowCalendarQuery, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, int64, error)
+	// GetUpcomingShowMonths counts that same partition per VENUE-LOCAL calendar
+	// month, SOONEST month first, under the same filters and with no window.
+	//
+	// Sparse: a month with no upcoming shows is absent rather than zero, because
+	// the consumer is a jump target and an empty month is not one.
+	//
+	// Under one snapshot its counts sum to GetUpcomingShowsPage's unwindowed
+	// total for the same filters. The two are separate reads, so an approval or
+	// a venue-local midnight between them moves the later one.
+	//
+	// The sum is an identity over the SET, not over the offset sequence. A month
+	// is addressed by asking for it (Year plus Month), never by adding bars to
+	// derive an offset into the unwindowed list: that list is ordered by the
+	// stored instant, so a month's rows are not contiguous in it.
+	GetUpcomingShowMonths(includeNonApproved bool, filters *UpcomingShowsFilter) ([]ShowMonthCount, error)
 	// GetShowCities counts the SAME venue-local upcoming partition
 	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an
 	// empty list. Its timezone parameter is inert for the same reason.
