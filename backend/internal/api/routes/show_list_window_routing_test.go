@@ -59,13 +59,23 @@ func TestShowListWindowPathsResolveAnonymously(t *testing.T) {
 // A half-stated or impossible window is refused before it reaches the service,
 // because the service cannot tell one from "no window" and would answer with the
 // whole upcoming catalog under a URL promising one day of it.
+//
+// Two guards produce these 422s and this test does not distinguish them: the
+// request schema's own `maximum` bounds reject an out-of-range month or day
+// first, and ShowCalendarWindow.Validate rejects the combinations a schema
+// cannot express. What this pins is that the STATUS is the same either way, so a
+// client sees one answer for one class of mistake. Validate's own arms are
+// pinned directly by TestGetUpcomingShowsPage_RefusesMalformedWindows in
+// services/catalog.
 func TestShowListWindowRefusesIncoherentWindows(t *testing.T) {
 	for _, path := range []string{
+		// Refused by ShowCalendarWindow.Validate; no schema bound can express these.
 		"/shows/calendar?day=14",
 		"/shows/calendar?month=11&day=14",
 		"/shows/calendar?month=11",
 		"/shows/calendar?year=2026",
 		"/shows/calendar?year=2027&month=2&day=31",
+		// Refused by the request schema's own bounds, before the handler runs.
 		"/shows/calendar?year=2026&month=13",
 		"/shows/calendar?year=2026&month=11&day=32",
 	} {

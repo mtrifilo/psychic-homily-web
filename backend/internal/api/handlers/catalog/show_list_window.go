@@ -116,20 +116,13 @@ type GetShowMonthsRequest struct {
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
-// upcomingMonthHistogramCacheControl is PRIVATE where the venue and artist month
-// histograms are public, on the same sixty-second window.
+// upcomingMonthHistogramCacheControl is PRIVATE, and the sixty seconds match the
+// window the venue and artist month histograms use.
 //
-// Those two are structurally viewer-independent: their handlers take no viewer
-// and their services have no admin branch. This one's body is computed from
-// upcomingListIncludesNonApproved, which READS a viewer, so `public` here would
-// be a claim about the route's auth wiring rather than about the payload. This
-// header does not have to be revisited when that wiring changes.
-//
-// `private` costs nothing that this payload actually has: the browser reaches
-// the API origin directly with no shared cache in that path
-// (frontend/lib/api-base.ts), so `public` buys a per-client freshness window and
-// nothing shared. What bounds repeat hits on the aggregate is the global
-// public-read rate limiter these routes inherit, not this header.
+// Private because GetShowMonthsHandler computes this body from
+// upcomingListIncludesNonApproved: a response whose contents depend on who asked
+// is not shareable, whatever any one caller currently resolves to. It is NOT an
+// abuse control, and nothing here bounds repeat hits on the aggregate.
 const upcomingMonthHistogramCacheControl = "private, max-age=60"
 
 // GetShowMonthsResponse represents the HTTP response for the upcoming month

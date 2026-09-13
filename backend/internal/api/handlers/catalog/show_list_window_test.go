@@ -159,11 +159,13 @@ func TestGetShowMonthsHandler_TotalIsTheSumOfTheBars(t *testing.T) {
 	}
 }
 
-// An empty histogram is an empty list with a real zero, not a null.
+// Summing no bars is zero, not a panic and not the previous request's total.
+// The [] rather than null guarantee belongs to the SERVICE, which is where it is
+// asserted; a handler test could only observe its own mock's return value.
 func TestGetShowMonthsHandler_EmptyHistogramTotalsZero(t *testing.T) {
 	mock := &testhelpers.MockShowService{
 		GetUpcomingShowMonthsFn: func(bool, *contracts.UpcomingShowsFilter) ([]contracts.ShowMonthCount, error) {
-			return []contracts.ShowMonthCount{}, nil
+			return nil, nil
 		},
 	}
 
@@ -173,9 +175,6 @@ func TestGetShowMonthsHandler_EmptyHistogramTotalsZero(t *testing.T) {
 	}
 	if resp.Body.Total != 0 {
 		t.Errorf("total = %d, want 0", resp.Body.Total)
-	}
-	if resp.Body.Months == nil {
-		t.Error("months must serialize as [] rather than null")
 	}
 }
 

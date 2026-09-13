@@ -446,3 +446,29 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_ExtremeVe
 		suite.removeShows(firstInstant.ID, lastInstant.ID, previousMonthEnd.ID)
 	}
 }
+
+// A catalog with nothing upcoming returns an EMPTY histogram, not a nil one, so
+// the payload serializes as [] and a client can iterate it without a null check.
+// The guarantee is the make() in GetUpcomingShowMonths; nothing above the service
+// can observe it, because every caller above hands its own slice to the mock.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowMonths_EmptyCatalogIsAnEmptySliceNotNil() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Quiet Room", "AZ", zone, true)
+	user := suite.createTestUser()
+	// One PAST show, so the table is not empty and the emptiness comes from the
+	// upcoming partition rather than from there being no rows at all.
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", venueLocalInstant(suite.T(), zone, -3, 20))
+
+	months, err := suite.showService.GetUpcomingShowMonths(false, nil)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(months, "the histogram must serialize as [] rather than null")
+	suite.Require().Empty(months)
+
+	// The same for a filter that matches nothing.
+	filtered, err := suite.showService.GetUpcomingShowMonths(false, &contracts.UpcomingShowsFilter{
+		Cities: []contracts.CityStateFilter{{City: "Nowhere", State: "ZZ"}},
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(filtered)
+	suite.Require().Empty(filtered)
+}

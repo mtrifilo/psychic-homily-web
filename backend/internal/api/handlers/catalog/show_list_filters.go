@@ -60,18 +60,12 @@ func clampShowListLimit(limit int) int {
 
 // upcomingListIncludesNonApproved reports whether the REQUEST'S VIEWER may see
 // shows that are not approved: an admin may, and everyone else sees the public
-// catalog.
+// catalog. The viewer comes from the request context, so a route that carries no
+// auth middleware resolves to false for every caller.
 //
-// The viewer comes from the request context, which only an auth middleware
-// populates. All three catalog-wide list routes are registered on the bare API
-// with none (routes/shows.go), so today this resolves to false for every caller
-// of them and the admin arm is unreachable through them.
-//
-// It is shared rather than inlined so that a route which later gains optional
-// auth moves the cursor list, the paged list and the month strip TOGETHER. A
-// strip counting shows the list beside it refuses would offer a month that opens
-// empty. The month histogram's Cache-Control is chosen from the fact that this
-// reads a viewer at all, not from what it returns today.
+// Shared by all three catalog-wide list handlers so that the cursor list, the
+// paged list and the month strip answer to one viewer. A strip counting shows
+// the list beside it refuses would offer a month that opens empty.
 func upcomingListIncludesNonApproved(ctx context.Context) bool {
 	user := middleware.GetUserFromContext(ctx)
 	return user != nil && user.IsAdmin

@@ -28,9 +28,10 @@ import (
 // rule, and an optional venue-local calendar window.
 //
 // An applier taking a caller-supplied *gorm.DB rather than a builder factory,
-// because the readers run their count and their page inside one transaction and
-// must hang both on that transaction's handle. GORM builders accumulate clauses,
-// so a shared builder would leak the page's ORDER and LIMIT into the count.
+// because the paging readers run their count and their page inside one
+// transaction and must hang both on that transaction's handle. GORM builders
+// accumulate clauses, so a shared builder would leak the page's ORDER and LIMIT
+// into the count.
 //
 // The window is applied LAST and narrows only the rows, never the meaning of
 // "upcoming": a day in a past month intersects the upcoming partition at

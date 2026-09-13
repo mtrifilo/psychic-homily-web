@@ -410,9 +410,10 @@ type ShowCalendarQuery struct {
 // ShowMonthCount is one bar of the catalog-wide upcoming show histogram at MONTH
 // resolution.
 //
-// A twin of VenueShowMonthCount rather than one shared type, for the reason
-// stated on the artist twin: these are three separate published response
-// schemas, and collapsing them would couple three endpoints' contracts.
+// A twin of VenueShowMonthCount and ArtistShowMonthCount rather than one shared
+// type, on the same grounds those two are twins of each other: each is a
+// separately published response schema, and collapsing them would couple the
+// endpoints' contracts.
 //
 // The year is part of the bucket, not context around it. This histogram spans
 // every month that has an upcoming show, which for a national catalog reaches
