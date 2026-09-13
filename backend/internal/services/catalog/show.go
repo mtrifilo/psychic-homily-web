@@ -1458,65 +1458,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 		return nil, nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	applyUpcomingFilters := func(query *gorm.DB) *gorm.DB {
-		// Every predicate below is table-qualified. The venue-local lateral
-		// aliases its own columns (shared.VenueTZJoin) so none of them can
-		// collide with a `shows` column, which means this is hygiene rather than
-		// load-bearing. It is still worth doing: this query now spans two
-		// relations, and a reader should not have to know the lateral's
-		// projection to tell which one a bare column came from.
-
-		// Filter by status for non-admin users (public view shows only approved)
-		if !includeNonApproved {
-			query = query.Where("shows.status = ?", catalogm.ShowStatusApproved)
-		} else {
-			// For admin view, still exclude private shows (those are personal to the submitter)
-			query = query.Where("shows.status != ?", catalogm.ShowStatusPrivate)
-		}
-
-		// Apply city/state filters if provided
-		if filters != nil {
-			if len(filters.Cities) > 0 {
-				// Multi-city filter: (city = ? AND state = ?) OR ...
-				conditions := s.db
-				for i, cs := range filters.Cities {
-					if i == 0 {
-						conditions = conditions.Where("(shows.city = ? AND shows.state = ?)", cs.City, cs.State)
-					} else {
-						conditions = conditions.Or("(shows.city = ? AND shows.state = ?)", cs.City, cs.State)
-					}
-				}
-				query = query.Where(conditions)
-			} else {
-				// Legacy single-city filter
-				if filters.City != "" {
-					query = query.Where("shows.city = ?", filters.City)
-				}
-				if filters.State != "" {
-					query = query.Where("shows.state = ?", filters.State)
-				}
-			}
-			if len(filters.TagSlugs) > 0 {
-				// PSY-499: Transitive artist-based tag filtering — shows match when
-				// any billed artist has the tag. Direct `entity_type='show'` tags
-				// are ignored because shows are not directly tagged with genres.
-				query = ApplyTransitiveArtistTagFilter(
-					query, s.db,
-					"show_artists", "show_id", "artist_id",
-					"shows.id",
-					TagFilter{
-						TagSlugs: filters.TagSlugs,
-						MatchAny: filters.TagMatchAny,
-					},
-				)
-			}
-		}
-
-		// Partition on each show's own venue-local calendar day.
-		return query.
-			Joins(shared.VenueTZJoin).
-			Where(shared.VenueLocalDateCondition("upcoming"))
-	}
+	applyUpcomingFilters := s.upcomingShowPredicates(includeNonApproved, filters, contracts.ShowCalendarWindow{})
 
 	// The count and the page run inside ONE repeatable-read transaction, which
 	// buys two distinct guarantees that the previous autocommit pair did not
