@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -521,13 +522,18 @@ func VenueLocalNightWindowCondition(nights int) string {
 		venueLocalNightStartDateSQL + " + " + strconv.Itoa(nights) + ")"
 }
 
-// yearCoarseMargin widens the sargable UTC bounds below far enough that no
-// venue-local instant of the requested year can fall outside them. The inhabited
-// UTC offset range is -12:00 to +14:00, so one day would already cover it; two
-// matches the margin the upcoming/past coarse bounds use, for the same reason
-// (historical offsets have been stranger than the present ones, and the extra
-// day costs nothing in selectivity).
-const yearCoarseMargin = 48 * time.Hour
+// periodCoarseMargin widens the sargable UTC bounds below far enough that no
+// venue-local instant of the requested period can fall outside them. The
+// inhabited UTC offset range is -12:00 to +14:00, so one day would already cover
+// it; two matches the margin the upcoming/past coarse bounds use, for the same
+// reason (historical offsets have been stranger than the present ones, and the
+// extra day costs nothing in selectivity).
+//
+// ONE margin for the year, month and day conditions rather than one each: they
+// are the same calendar period question at three resolutions, and a margin that
+// reached one of them and not the others would leave the narrower windows
+// dropping rows the wider one keeps.
+const periodCoarseMargin = 48 * time.Hour
 
 // maxCoarseBoundedYear is the largest year whose coarse bounds are worth
 // building. Above it the Go time.Time bounds stop round-tripping cleanly through
@@ -561,9 +567,91 @@ func VenueLocalYearCondition(year int) (string, []any) {
 		return exact, []any{year}
 	}
 
-	lower := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC).Add(-yearCoarseMargin)
-	upper := time.Date(year+1, time.January, 1, 0, 0, 0, 0, time.UTC).Add(yearCoarseMargin)
+	lower := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC).Add(-periodCoarseMargin)
+	upper := time.Date(year+1, time.January, 1, 0, 0, 0, 0, time.UTC).Add(periodCoarseMargin)
 
 	return "shows.event_date >= ? AND shows.event_date < ? AND " + exact,
 		[]any{lower, upper, year}
+}
+
+// VenueLocalMonthCondition returns the WHERE fragment and bind arguments
+// narrowing a show list to a single VENUE-LOCAL calendar month, or ("", nil)
+// when the pair does not name a month, which every caller reads as "no month
+// narrowing".
+//
+// Requires the query to have joined VenueTZJoin, for the reason
+// VenueLocalYearCondition gives: the exact half dereferences venue_tz.
+//
+// Year AND month, never month alone: VenueLocalMonthSQL's own note says why, and
+// this is the helper that makes the pair the only way to ask. Both are BOUND.
+// The coarse UTC bounds carry no correctness weight (the exact venue-local
+// equalities decide membership), so an unrepresentable year drops them and lets
+// the equalities match nothing, which is an empty page rather than a wrong one.
+func VenueLocalMonthCondition(year, month int) (string, []any) {
+	if year <= 0 || month < 1 || month > 12 {
+		return "", nil
+	}
+
+	exact := VenueLocalYearSQL + " = ? AND " + VenueLocalMonthSQL + " = ?"
+	if year > maxCoarseBoundedYear {
+		return exact, []any{year, month}
+	}
+
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	lower := start.Add(-periodCoarseMargin)
+	upper := start.AddDate(0, 1, 0).Add(periodCoarseMargin)
+
+	return "shows.event_date >= ? AND shows.event_date < ? AND " + exact,
+		[]any{lower, upper, year, month}
+}
+
+// VenueLocalDayCondition returns the WHERE fragment and bind arguments narrowing
+// a show list to a single VENUE-LOCAL calendar date, or ("", nil) when the
+// triple does not name a real date, which every caller reads as "no day
+// narrowing".
+//
+// Requires the query to have joined VenueTZJoin, like its year and month
+// siblings.
+//
+// The date is compared against VenueLocalDateSQL itself rather than against a
+// third EXTRACT, so the day window and the date tile a row prints are derived
+// from one expression. The bound argument is an ISO date string cast to `date`
+// by Postgres: a timestamptz bound would be re-read through the SESSION's zone,
+// which is the caller-anchored boundary this file exists to keep out of listing
+// surfaces.
+func VenueLocalDayCondition(year, month, day int) (string, []any) {
+	if !ValidCalendarDate(year, month, day) {
+		return "", nil
+	}
+
+	isoDate := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+	exact := VenueLocalDateSQL + " = ?::date"
+	if year > maxCoarseBoundedYear {
+		return exact, []any{isoDate}
+	}
+
+	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	lower := start.Add(-periodCoarseMargin)
+	upper := start.AddDate(0, 0, 1).Add(periodCoarseMargin)
+
+	return "shows.event_date >= ? AND shows.event_date < ? AND " + exact,
+		[]any{lower, upper, isoDate}
+}
+
+// ValidCalendarDate reports whether the triple names a real Gregorian date.
+//
+// Exported because the boundary that has to REFUSE an impossible date is the
+// HTTP handler, several layers above the conditions here: 31 February is a
+// client error, while VenueLocalDayCondition's own answer for it ("", nil) is
+// indistinguishable from "no narrowing requested" and would widen the window to
+// every upcoming show. time.Date normalises out-of-range components rather than
+// failing, so round-tripping through it is the check.
+func ValidCalendarDate(year, month, day int) bool {
+	if year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return false
+	}
+	normalised := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	return normalised.Year() == year &&
+		int(normalised.Month()) == month &&
+		normalised.Day() == day
 }

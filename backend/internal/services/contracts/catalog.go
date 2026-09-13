@@ -332,6 +332,58 @@ type UpcomingShowsFilter struct {
 	TagMatchAny bool
 }
 
+// ShowCalendarWindow narrows the upcoming partition to one VENUE-LOCAL calendar
+// month or one venue-local date. The zero value narrows nothing, which is the
+// whole upcoming set.
+//
+// Year is required by both narrower forms: a bare month is not a period, and a
+// bare day is not a date. A window whose Year is zero is therefore "no window"
+// whatever the other two fields say, and the HTTP boundary refuses the
+// half-stated combinations rather than silently widening to everything.
+type ShowCalendarWindow struct {
+	Year  int
+	Month int
+	Day   int
+}
+
+// HasMonth reports whether the window names a venue-local calendar month.
+func (w ShowCalendarWindow) HasMonth() bool {
+	return w.Year > 0 && w.Month >= 1 && w.Month <= 12
+}
+
+// HasDay reports whether the window names a single venue-local calendar date.
+func (w ShowCalendarWindow) HasDay() bool {
+	return w.Day > 0 && w.HasMonth()
+}
+
+// ShowCalendarQuery is one OFFSET page of a ShowCalendarWindow.
+//
+// Offset rather than the cursor GetUpcomingShows takes: this list's identity is
+// a date window plus a page number, both of which have to survive being
+// bookmarked and shared, and a cursor encodes a position in a set that rolls
+// forward every night.
+type ShowCalendarQuery struct {
+	ShowCalendarWindow
+	Limit  int
+	Offset int
+}
+
+// ShowMonthCount is one bar of the catalog-wide upcoming show histogram at MONTH
+// resolution.
+//
+// A twin of VenueShowMonthCount rather than one shared type, for the reason
+// stated on the artist twin: these are three separate published response
+// schemas, and collapsing them would couple three endpoints' contracts.
+//
+// The year is part of the bucket, not context around it. This histogram spans
+// every month that has an upcoming show, which for a national catalog reaches
+// into the following year.
+type ShowMonthCount struct {
+	Year  int   `json:"year" doc:"Venue-local calendar year"`
+	Month int   `json:"month" doc:"Venue-local calendar month, 1-12"`
+	Count int64 `json:"count" doc:"Upcoming shows in that venue-local month, under the requested filters"`
+}
+
 // ShowCityResponse represents a city with the count of upcoming shows.
 //
 // Latitude/Longitude are the city's geocoded centroid (the same offline
@@ -2573,6 +2625,25 @@ type ShowServiceInterface interface {
 	// the same for every caller. The timezone parameter is accepted and IGNORED
 	// (PSY-1678); it survives only because removing it is a breaking change.
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, int64, error)
+	// GetUpcomingShowsPage returns one OFFSET page of the same venue-local
+	// upcoming partition GetUpcomingShows lists, optionally narrowed to one
+	// venue-local calendar month or date, plus the filter-aware total for that
+	// window.
+	//
+	// It is a second reader of one partition rather than a second partition: the
+	// date rule, the filters and the ordering are the cursor list's, and only
+	// the page window differs. A window that names no month returns the whole
+	// upcoming set, which is what the root list pages over.
+	GetUpcomingShowsPage(query ShowCalendarQuery, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, int64, error)
+	// GetUpcomingShowMonths counts that same partition per VENUE-LOCAL calendar
+	// month, SOONEST month first, under the same filters and with no window.
+	//
+	// Sparse: a month with no upcoming shows is absent rather than zero, because
+	// the consumer is a jump target and an empty month is not one.
+	//
+	// Its counts sum to GetUpcomingShowsPage's unwindowed total for the same
+	// filters, which is what lets a pager label a page it has not fetched.
+	GetUpcomingShowMonths(includeNonApproved bool, filters *UpcomingShowsFilter) ([]ShowMonthCount, error)
 	// GetShowCities counts the SAME venue-local upcoming partition
 	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an
 	// empty list. Its timezone parameter is inert for the same reason.

@@ -1,0 +1,388 @@
+package catalog
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/services/contracts"
+)
+
+// The date-windowed readers of the upcoming partition: GetUpcomingShowsPage and
+// GetUpcomingShowMonths.
+//
+// Every fixture here is anchored on a VENUE's calendar rather than on a UTC
+// instant, for the reason the sibling venue-local suites state: the service
+// reads Postgres now(), there is no clock seam, and an assertion anchored on the
+// wall clock flips depending on what hour CI runs at. The shared fixtures
+// (newVenueInZone, newApprovedShowAt, venueLocalInstant,
+// requireLocalAndUTCDatesDiffer) come from show_venue_local_test.go.
+//
+// The month a fixture lands in is DERIVED from the fixture rather than written
+// down, so no test here depends on which month the suite runs in.
+
+// venueLocalYMD is the venue-local calendar date of an instant, which is the
+// bucket the SQL puts that show in.
+func venueLocalYMD(t *testing.T, at time.Time, zone string) (year, month, day int) {
+	t.Helper()
+	loc, err := time.LoadLocation(zone)
+	require.NoError(t, err, "load zone %q", zone)
+	local := at.In(loc)
+	return local.Year(), int(local.Month()), local.Day()
+}
+
+// addMonths walks a (year, month) pair by whole months.
+func addMonths(year, month, delta int) (int, int) {
+	anchor := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC).AddDate(0, delta, 0)
+	return anchor.Year(), int(anchor.Month())
+}
+
+// lastDayOfMonth is the last calendar day of (year, month).
+func lastDayOfMonth(year, month int) int {
+	return time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, -1).Day()
+}
+
+// venueLocalDateAt is the instant at hourLocal on an explicit venue-local date,
+// for the fixtures that need a calendar position rather than a day offset.
+func venueLocalDateAt(t *testing.T, zone string, year, month, day, hourLocal int) time.Time {
+	t.Helper()
+	loc, err := time.LoadLocation(zone)
+	require.NoError(t, err, "load zone %q", zone)
+	return time.Date(year, time.Month(month), day, hourLocal, 0, 0, 0, loc)
+}
+
+// calendarPage is what the window assertions compare: the ids on the page and
+// the window's filter-aware total, as one comparable value. Comparing the pair
+// rather than either half is deliberate, for the reason upcomingPage gives next
+// door: the count and the page are separate queries, and a window bug that moved
+// one without the other would otherwise slip through.
+type calendarPage struct {
+	IDs   []uint
+	Total int64
+}
+
+func (suite *ShowServiceIntegrationTestSuite) calendarWindow(
+	query contracts.ShowCalendarQuery,
+	filters *contracts.UpcomingShowsFilter,
+) calendarPage {
+	if query.Limit == 0 {
+		query.Limit = 50
+	}
+	shows, total, err := suite.showService.GetUpcomingShowsPage(query, false, filters)
+	suite.Require().NoError(err)
+	ids := make([]uint, 0, len(shows))
+	for _, s := range shows {
+		ids = append(ids, s.ID)
+	}
+	return calendarPage{IDs: ids, Total: total}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) monthWindow(year, month int) calendarPage {
+	return suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{Year: year, Month: month},
+	}, nil)
+}
+
+// A month window lists exactly the shows whose VENUE-LOCAL date falls in that
+// month, and nothing from the months on either side.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_MonthWindowSelectsOneVenueLocalMonth() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Month Window Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	type seeded struct {
+		id    uint
+		year  int
+		month int
+	}
+	var shows []seeded
+	for _, dayOffset := range []int{1, 40, 75, 110} {
+		at := venueLocalInstant(suite.T(), zone, dayOffset, 20)
+		show := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", at)
+		year, month, _ := venueLocalYMD(suite.T(), at, zone)
+		shows = append(shows, seeded{id: show.ID, year: year, month: month})
+	}
+
+	for _, target := range shows {
+		var want []uint
+		for _, s := range shows {
+			if s.year == target.year && s.month == target.month {
+				want = append(want, s.id)
+			}
+		}
+
+		page := suite.monthWindow(target.year, target.month)
+		suite.Require().Equal(want, page.IDs, "window %d-%02d", target.year, target.month)
+		suite.Require().Equal(int64(len(want)), page.Total, "window %d-%02d total", target.year, target.month)
+	}
+}
+
+// Last night is not upcoming, so it is absent from the window that contains its
+// own date. The window narrows the upcoming partition; it does not reopen it.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_WindowNeverReadmitsLastNight() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Last Night Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	lastNight := venueLocalInstant(suite.T(), zone, -1, 23)
+	requireLocalAndUTCDatesDiffer(suite.T(), lastNight, zone)
+	past := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", lastNight)
+
+	tonight := venueLocalInstant(suite.T(), zone, 0, 20)
+	upcoming := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", tonight)
+
+	pastYear, pastMonth, pastDay := venueLocalYMD(suite.T(), lastNight, zone)
+	suite.Require().NotContains(suite.monthWindow(pastYear, pastMonth).IDs, past.ID)
+
+	tonightYear, tonightMonth, _ := venueLocalYMD(suite.T(), tonight, zone)
+	suite.Require().NotContains(suite.monthWindow(tonightYear, tonightMonth).IDs, past.ID)
+	suite.Require().Contains(suite.monthWindow(tonightYear, tonightMonth).IDs, upcoming.ID)
+
+	dayPage := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{Year: pastYear, Month: pastMonth, Day: pastDay},
+	}, nil)
+	suite.Require().Empty(dayPage.IDs)
+	suite.Require().Equal(int64(0), dayPage.Total)
+}
+
+// A date-only show is stored at 20:00 venue-local (utils.DateOnlyEventHour), and
+// on the last day of a month that instant is already the NEXT month in UTC for
+// every western zone. The window has to name the month the venue is in.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_DateOnlyEveningOnTheLastDayStaysInThatMonth() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Month End Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	year, month := addMonths(todayYear, todayMonth, 1)
+	at := venueLocalDateAt(suite.T(), zone, year, month, lastDayOfMonth(year, month), 20)
+	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
+	show := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", at)
+
+	suite.Require().Equal([]uint{show.ID}, suite.monthWindow(year, month).IDs)
+
+	nextYear, nextMonth := addMonths(year, month, 1)
+	suite.Require().Empty(suite.monthWindow(nextYear, nextMonth).IDs)
+}
+
+// The mirror, in a positive-offset zone: 01:00 on the 1st is still the previous
+// month in UTC, and the show belongs to the month its venue is in.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_AfterMidnightShowLandsInTheNewVenueLocalMonth() {
+	const zone = "Asia/Tokyo"
+	venue := newVenueInZone(suite.T(), suite.db, "Tokyo Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	year, month := addMonths(todayYear, todayMonth, 2)
+	at := venueLocalDateAt(suite.T(), zone, year, month, 1, 1)
+	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
+	show := suite.createApprovedShowAt(venue.ID, user.ID, "Tokyo", "AZ", at)
+
+	suite.Require().Equal([]uint{show.ID}, suite.monthWindow(year, month).IDs)
+
+	utcYear, utcMonth := at.UTC().Year(), int(at.UTC().Month())
+	suite.Require().NotEqual(month, utcMonth, "fixture no longer straddles a month boundary")
+	suite.Require().Empty(suite.monthWindow(utcYear, utcMonth).IDs)
+}
+
+// Offset pages partition the window: no row appears twice, none is skipped, and
+// the order is the list's own. The total is the window's, not the page's.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_OffsetPagesAreDisjointAndOrdered() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Paging Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	year, month := addMonths(todayYear, todayMonth, 3)
+
+	var want []uint
+	for day := 1; day <= 5; day++ {
+		at := venueLocalDateAt(suite.T(), zone, year, month, day, 20)
+		want = append(want, suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", at).ID)
+	}
+
+	var walked []uint
+	for offset := 0; offset < 6; offset += 2 {
+		page := suite.calendarWindow(contracts.ShowCalendarQuery{
+			ShowCalendarWindow: contracts.ShowCalendarWindow{Year: year, Month: month},
+			Limit:              2,
+			Offset:             offset,
+		}, nil)
+		suite.Require().Equal(int64(5), page.Total, "offset %d total", offset)
+		suite.Require().LessOrEqual(len(page.IDs), 2, "offset %d page size", offset)
+		walked = append(walked, page.IDs...)
+	}
+
+	suite.Require().Equal(want, walked)
+}
+
+// A day window is one VENUE-LOCAL date, not one UTC date: the 20:00 fixtures
+// below sit on the following UTC day.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_DayWindowNarrowsToOneVenueLocalDate() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Day Window Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	target := venueLocalInstant(suite.T(), zone, 3, 20)
+	requireLocalAndUTCDatesDiffer(suite.T(), target, zone)
+	wanted := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", target)
+
+	neighbour := venueLocalInstant(suite.T(), zone, 4, 20)
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", neighbour)
+
+	year, month, day := venueLocalYMD(suite.T(), target, zone)
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{Year: year, Month: month, Day: day},
+	}, nil)
+	suite.Require().Equal([]uint{wanted.ID}, page.IDs)
+	suite.Require().Equal(int64(1), page.Total)
+}
+
+// A month nothing is booked in is an empty page with a real zero, not an error.
+// Whether that is a page or a 404 is the route's call, and this is the answer it
+// makes the call from.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_EmptyMonthIsAnEmptyPageWithZeroTotal() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Empty Month Room", "AZ", zone, true)
+	user := suite.createTestUser()
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", venueLocalInstant(suite.T(), zone, 1, 20))
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	year, month := addMonths(todayYear, todayMonth, 60)
+
+	page := suite.monthWindow(year, month)
+	suite.Require().Empty(page.IDs)
+	suite.Require().Equal(int64(0), page.Total)
+}
+
+// An absent window is the whole upcoming set, which is what the root list pages
+// over, and it agrees with the cursor endpoint it shares a partition with.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_NoWindowMatchesTheCursorList() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Root Paging Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", venueLocalInstant(suite.T(), zone, -2, 20))
+	for _, dayOffset := range []int{0, 5, 40, 400} {
+		suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", venueLocalInstant(suite.T(), zone, dayOffset, 20))
+	}
+
+	cursorIDs, cursorTotal := suite.upcomingShowIDs("UTC")
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{}, nil)
+
+	suite.Require().Equal(cursorTotal, page.Total)
+	suite.Require().Equal(cursorIDs, page.IDs)
+}
+
+// The histogram's bars sum to the list's total for the SAME filters, which is
+// the invariant a pager's month labels rest on: a label walk over cumulative
+// counts is only correct while the counts describe the list being paged.
+//
+// Seeded across a gap month, and with one venue carrying NO stored zone, because
+// the sum is exactly what a dropped row breaks: the zone lateral is a LEFT JOIN,
+// so a row whose venue has no zone still has to reach a bucket.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowMonths_SoonestFirstAndSumsToTheListTotal() {
+	const zone = "America/Phoenix"
+	zoned := newVenueInZone(suite.T(), suite.db, "Zoned Room", "AZ", zone, true)
+	unzoned := newVenueInZone(suite.T(), suite.db, "Unzoned Room", "AZ", "", true)
+	user := suite.createTestUser()
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	for _, monthDelta := range []int{0, 0, 1, 3} {
+		year, month := addMonths(todayYear, todayMonth, monthDelta)
+		day := 28
+		if monthDelta == 0 {
+			// The current month must be seeded in its FUTURE, or the row is past.
+			day = lastDayOfMonth(year, month)
+		}
+		suite.createApprovedShowAt(zoned.ID, user.ID, "Phoenix", "AZ",
+			venueLocalDateAt(suite.T(), zone, year, month, day, 20))
+	}
+	futureYear, futureMonth := addMonths(todayYear, todayMonth, 5)
+	suite.createApprovedShowAt(unzoned.ID, user.ID, "Phoenix", "AZ",
+		venueLocalDateAt(suite.T(), zone, futureYear, futureMonth, 15, 20))
+
+	months, err := suite.showService.GetUpcomingShowMonths(false, nil)
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(months)
+
+	var sum int64
+	for i, bucket := range months {
+		sum += bucket.Count
+		suite.Require().Positive(bucket.Count, "sparse histogram must not emit empty months")
+		if i == 0 {
+			continue
+		}
+		previous := months[i-1]
+		suite.Require().True(
+			bucket.Year > previous.Year || (bucket.Year == previous.Year && bucket.Month > previous.Month),
+			"months must run soonest first: %v then %v", previous, bucket,
+		)
+	}
+
+	unwindowed := suite.calendarWindow(contracts.ShowCalendarQuery{}, nil)
+	suite.Require().Equal(unwindowed.Total, sum)
+
+	// And each bar equals the window it names.
+	for _, bucket := range months {
+		suite.Require().Equal(bucket.Count, suite.monthWindow(bucket.Year, bucket.Month).Total,
+			"bar %d-%02d disagrees with its own window", bucket.Year, bucket.Month)
+	}
+}
+
+// The same invariant under a multi-city filter, which is the shape the site
+// actually requests: the histogram and the list must narrow identically or the
+// strip offers a month the list cannot show.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowMonths_SumsToTheListTotalUnderAMultiCityFilter() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Multi City Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	for i, city := range []string{"Phoenix", "Mesa", "Tucson"} {
+		year, month := addMonths(todayYear, todayMonth, i+1)
+		suite.createApprovedShowAt(venue.ID, user.ID, city, "AZ",
+			venueLocalDateAt(suite.T(), zone, year, month, 14, 20))
+	}
+
+	filters := &contracts.UpcomingShowsFilter{Cities: []contracts.CityStateFilter{
+		{City: "Phoenix", State: "AZ"},
+		{City: "Mesa", State: "AZ"},
+	}}
+
+	months, err := suite.showService.GetUpcomingShowMonths(false, filters)
+	suite.Require().NoError(err)
+
+	var sum int64
+	for _, bucket := range months {
+		sum += bucket.Count
+	}
+
+	unwindowed := suite.calendarWindow(contracts.ShowCalendarQuery{}, filters)
+	suite.Require().Equal(int64(2), unwindowed.Total)
+	suite.Require().Equal(unwindowed.Total, sum)
+}
+
+// An impossible date narrows to nothing rather than to everything. The service's
+// own answer for it is the empty fragment, which is indistinguishable from "no
+// window requested" — so the day fragment must refuse it before that fallthrough
+// can widen the page to the whole catalog.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_ImpossibleDayDoesNotWidenTheWindow() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Impossible Day Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	year, month := addMonths(todayYear, todayMonth, 1)
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ",
+		venueLocalDateAt(suite.T(), zone, year, month, 10, 20))
+
+	february := 2
+	februaryYear, _ := addMonths(todayYear, todayMonth, 24)
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{Year: februaryYear, Month: february, Day: 31},
+	}, nil)
+	suite.Require().Empty(page.IDs)
+	suite.Require().Equal(int64(0), page.Total)
+}

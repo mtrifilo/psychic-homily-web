@@ -6079,6 +6079,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get shows calendar */
+        get: operations["get-shows-calendar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows/cities": {
         parameters: {
             query?: never;
@@ -6088,6 +6105,23 @@ export interface paths {
         };
         /** Get shows cities */
         get: operations["get-shows-cities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shows/months": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get shows months */
+        get: operations["get-shows-months"];
         put?: never;
         post?: never;
         delete?: never;
@@ -12799,6 +12833,61 @@ export interface components {
             readonly $schema?: string;
             cities: components["schemas"]["ShowCityResponse"][] | null;
         };
+        GetShowMonthsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetShowMonthsResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Venue-local calendar months that have at least one upcoming show, soonest first */
+            months: components["schemas"]["ShowMonthCount"][] | null;
+            /**
+             * Format: int64
+             * @description Sum of the month counts, which is the unwindowed total of the list under the same filters
+             */
+            total: number;
+        };
+        GetShowsCalendarResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetShowsCalendarResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Venue-local day the window was taken on, 0 when the window is a whole month or unwindowed
+             */
+            day: number;
+            /**
+             * Format: int64
+             * @description Limit used in query
+             */
+            limit: number;
+            /**
+             * Format: int64
+             * @description Venue-local month the window was taken on, 0 when unwindowed
+             */
+            month: number;
+            /**
+             * Format: int64
+             * @description Offset used in query
+             */
+            offset: number;
+            /** @description Page of upcoming shows in the requested window, soonest first */
+            shows: components["schemas"]["ShowResponse"][] | null;
+            /**
+             * Format: int64
+             * @description Upcoming shows matching the window and filters, across all pages
+             */
+            total: number;
+            /**
+             * Format: int64
+             * @description Venue-local year the window was taken on, 0 when unwindowed
+             */
+            year: number;
+        };
         GetShowsResponseBody: {
             /**
              * Format: uri
@@ -16632,6 +16721,23 @@ export interface components {
             isSoldOut: boolean;
             /** Format: double */
             price?: number;
+        };
+        ShowMonthCount: {
+            /**
+             * Format: int64
+             * @description Upcoming shows in that venue-local month, under the requested filters
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar month, 1-12
+             */
+            month: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar year
+             */
+            year: number;
         };
         ShowReportResponse: {
             /**
@@ -33496,6 +33602,62 @@ export interface operations {
             };
         };
     };
+    "get-shows-calendar": {
+        parameters: {
+            query?: {
+                /** @description Venue-local calendar year of the window. Omit (or 0) with month and day for the whole upcoming list. */
+                year?: number;
+                /** @description Venue-local calendar month, 1-12. Requires year. */
+                month?: number;
+                /** @description Venue-local calendar day of month, 1-31. Requires year and month. */
+                day?: number;
+                /** @description Number of shows per page (max 200). Defaults to 50. */
+                limit?: number;
+                /** @description Offset for pagination */
+                offset?: number;
+                /** @description Filter by city name (exact match). Legacy — prefer 'cities' param. */
+                city?: string;
+                /** @description Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param. */
+                state?: string;
+                /** @description Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities. */
+                cities?: string;
+                /**
+                 * @description Comma-separated tag slugs. AND by default; set tag_match=any for OR.
+                 * @example post-punk,phoenix
+                 */
+                tags?: string;
+                /**
+                 * @description Tag matching mode: 'all' (default, AND) or 'any' (OR)
+                 * @example all
+                 */
+                tag_match?: "all" | "any";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetShowsCalendarResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-shows-cities": {
         parameters: {
             query?: {
@@ -33515,6 +33677,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetShowCitiesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-shows-months": {
+        parameters: {
+            query?: {
+                /** @description Filter by city name (exact match). Legacy — prefer 'cities' param. */
+                city?: string;
+                /** @description Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param. */
+                state?: string;
+                /** @description Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities. */
+                cities?: string;
+                /**
+                 * @description Comma-separated tag slugs. AND by default; set tag_match=any for OR.
+                 * @example post-punk,phoenix
+                 */
+                tags?: string;
+                /**
+                 * @description Tag matching mode: 'all' (default, AND) or 'any' (OR)
+                 * @example all
+                 */
+                tag_match?: "all" | "any";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetShowMonthsResponseBody"];
                 };
             };
             /** @description Error */

@@ -350,9 +350,15 @@ type GetShowResponse struct {
 //
 // 50 rather than the 20 the per-entity archives default to: those are sized by
 // the UI page that renders them, and neither of these has one. Shared by
-// GET /shows and GET /shows/upcoming so a client moving between them gets one
-// page size.
+// GET /shows, GET /shows/upcoming and GET /shows/calendar so a client moving
+// between them gets one page size.
 const defaultShowListLimit = 50
+
+// maxShowListLimit caps a caller-supplied page size on the catalog-wide lists.
+// Each row costs a hydrated bill, so the cap bounds the response an anonymous
+// read can ask for. Enforced in the handler as well as by the schema, because
+// the schema only guards the HTTP path.
+const maxShowListLimit = 200
 
 // GetShowsRequest represents the HTTP request for listing shows
 type GetShowsRequest struct {
@@ -879,46 +885,11 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	if limit < 1 {
 		limit = defaultShowListLimit
 	}
-	if limit > 200 {
-		limit = 200 // Cap at 200 to prevent excessive queries
+	if limit > maxShowListLimit {
+		limit = maxShowListLimit
 	}
 
-	// Build filters from query params
-	var filters *contracts.UpcomingShowsFilter
-	if req.Cities != "" {
-		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Mesa,AZ"
-		pairs := strings.Split(req.Cities, "|")
-		var cityFilters []contracts.CityStateFilter
-		for _, pair := range pairs {
-			parts := strings.SplitN(pair, ",", 2)
-			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-				cityFilters = append(cityFilters, contracts.CityStateFilter{
-					City:  strings.TrimSpace(parts[0]),
-					State: strings.TrimSpace(parts[1]),
-				})
-			}
-		}
-		// Cap at 10 cities
-		if len(cityFilters) > 10 {
-			cityFilters = cityFilters[:10]
-		}
-		if len(cityFilters) > 0 {
-			filters = &contracts.UpcomingShowsFilter{Cities: cityFilters}
-		}
-	} else if req.City != "" || req.State != "" {
-		// Legacy single-city filter
-		filters = &contracts.UpcomingShowsFilter{
-			City:  req.City,
-			State: req.State,
-		}
-	}
-	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
-		if filters == nil {
-			filters = &contracts.UpcomingShowsFilter{}
-		}
-		filters.TagSlugs = tf.TagSlugs
-		filters.TagMatchAny = tf.MatchAny
-	}
+	filters := parseUpcomingShowsFilter(req.Cities, req.City, req.State, req.Tags, req.TagMatch)
 
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
 		"limit", limit,

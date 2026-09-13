@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"psychic-homily-backend/internal/utils"
 )
@@ -213,5 +214,156 @@ func TestVenueLocalYearCondition(t *testing.T) {
 func TestVenueLocalYearSQL_BuildsOnTheSharedDateExpression(t *testing.T) {
 	if !strings.Contains(VenueLocalYearSQL, VenueLocalDateSQL) {
 		t.Errorf("VenueLocalYearSQL does not derive from VenueLocalDateSQL: %q", VenueLocalYearSQL)
+	}
+}
+
+// The month filter's two halves. Same shape as the year filter above, and the
+// same one case where widening it would be a silent data leak rather than an
+// empty page.
+func TestVenueLocalMonthCondition(t *testing.T) {
+	// A pair that does not name a month is the ONLY input allowed to produce an
+	// empty fragment, and the handler is what refuses those as client errors.
+	for _, tc := range []struct{ year, month int }{
+		{0, 11}, {-1, 11}, {2026, 0}, {2026, 13}, {2026, -3},
+	} {
+		got, args := VenueLocalMonthCondition(tc.year, tc.month)
+		if got != "" || args != nil {
+			t.Errorf("(%d, %d) must not filter, got %q %v", tc.year, tc.month, got, args)
+		}
+	}
+
+	sql, args := VenueLocalMonthCondition(2026, 11)
+	if !strings.Contains(sql, VenueLocalYearSQL) || !strings.Contains(sql, VenueLocalMonthSQL) {
+		t.Errorf("month filter must pin BOTH year and month, got %q", sql)
+	}
+	if !strings.Contains(sql, "shows.event_date >= ?") || !strings.Contains(sql, "shows.event_date < ?") {
+		t.Errorf("month filter lost its sargable bounds, got %q", sql)
+	}
+	// Four binds, the year and month last: interpolating either would be the one
+	// injection hole in this file.
+	if len(args) != 4 {
+		t.Fatalf("month filter must bind 4 arguments, got %v", args)
+	}
+	if args[2] != 2026 || args[3] != 11 {
+		t.Errorf("month filter must BIND year and month, got args %v", args)
+	}
+	if strings.Contains(sql, "2026") || strings.Contains(sql, "= 11") {
+		t.Errorf("month filter interpolated its period into %q", sql)
+	}
+
+	// The coarse bounds must straddle the whole month, or a row at either edge
+	// is dropped by a hint that is supposed to carry no correctness weight.
+	lower, ok := args[0].(time.Time)
+	if !ok {
+		t.Fatalf("lower bound must be a time.Time, got %T", args[0])
+	}
+	upper, ok := args[1].(time.Time)
+	if !ok {
+		t.Fatalf("upper bound must be a time.Time, got %T", args[1])
+	}
+	monthStart := time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC)
+	if !lower.Before(monthStart.Add(-24 * time.Hour)) {
+		t.Errorf("lower bound %v does not clear the widest inhabited offset before %v", lower, monthStart)
+	}
+	if !upper.After(monthEnd.Add(24 * time.Hour)) {
+		t.Errorf("upper bound %v does not clear the widest inhabited offset after %v", upper, monthEnd)
+	}
+
+	// A year past the representable range keeps the exact predicate and drops
+	// only the bounds, for the reason the year filter states.
+	sql, args = VenueLocalMonthCondition(maxCoarseBoundedYear+1, 3)
+	if sql == "" {
+		t.Fatal("an out-of-range year must still filter, not widen to every month")
+	}
+	if strings.Contains(sql, "shows.event_date >= ?") || strings.Contains(sql, "shows.event_date < ?") {
+		t.Errorf("an out-of-range month window must drop its unrepresentable bounds, got %q", sql)
+	}
+	if len(args) != 2 || args[0] != maxCoarseBoundedYear+1 || args[1] != 3 {
+		t.Errorf("out-of-range month window must still bind its period, got %v", args)
+	}
+}
+
+// The day filter. It compares against the shared venue-local DATE expression
+// rather than against extracts of it, so the window and the date a row prints
+// cannot drift.
+func TestVenueLocalDayCondition(t *testing.T) {
+	for _, tc := range []struct{ year, month, day int }{
+		{0, 11, 14}, {2026, 0, 14}, {2026, 11, 0}, {2026, 11, 31}, {2027, 2, 29}, {2026, 13, 1}, {2026, 11, 32},
+	} {
+		got, args := VenueLocalDayCondition(tc.year, tc.month, tc.day)
+		if got != "" || args != nil {
+			t.Errorf("(%d, %d, %d) must not filter, got %q %v", tc.year, tc.month, tc.day, got, args)
+		}
+	}
+
+	sql, args := VenueLocalDayCondition(2026, 11, 14)
+	if !strings.Contains(sql, VenueLocalDateSQL+" = ?::date") {
+		t.Errorf("day filter must compare the shared venue-local date expression, got %q", sql)
+	}
+	if !strings.Contains(sql, "shows.event_date >= ?") || !strings.Contains(sql, "shows.event_date < ?") {
+		t.Errorf("day filter lost its sargable bounds, got %q", sql)
+	}
+	if len(args) != 3 {
+		t.Fatalf("day filter must bind 3 arguments, got %v", args)
+	}
+	if args[2] != "2026-11-14" {
+		t.Errorf("day filter must BIND an ISO date, got %v", args)
+	}
+	if strings.Contains(sql, "2026-11-14") {
+		t.Errorf("day filter interpolated its date into %q", sql)
+	}
+
+	// 29 February in a leap year is a real date and must filter.
+	sql, args = VenueLocalDayCondition(2028, 2, 29)
+	if sql == "" || len(args) != 3 || args[2] != "2028-02-29" {
+		t.Errorf("a leap day must filter, got %q %v", sql, args)
+	}
+}
+
+// The refusal the HTTP boundary rests on. VenueLocalDayCondition answers an
+// impossible date with the empty fragment, which is indistinguishable from "no
+// window requested" — so something above it has to say no.
+func TestValidCalendarDate(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		year, month, day int
+		want             bool
+	}{
+		{"leap day in a leap year", 2028, 2, 29, true},
+		{"leap day in a common year", 2027, 2, 29, false},
+		{"february 31", 2027, 2, 31, false},
+		{"april 31", 2027, 4, 31, false},
+		{"december 31", 2027, 12, 31, true},
+		{"month zero", 2027, 0, 1, false},
+		{"day zero", 2027, 1, 0, false},
+		{"month thirteen", 2027, 13, 1, false},
+		{"day thirty two", 2027, 1, 32, false},
+		{"year zero", 0, 1, 1, false},
+		{"negative year", -2027, 1, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ValidCalendarDate(tc.year, tc.month, tc.day); got != tc.want {
+				t.Errorf("ValidCalendarDate(%d, %d, %d) = %v, want %v", tc.year, tc.month, tc.day, got, tc.want)
+			}
+		})
+	}
+}
+
+// The three period filters must share one margin. A margin that reached the year
+// window and not the narrower ones would leave a month or day window dropping
+// rows the year window keeps, which is the class the shared constant closes.
+func TestPeriodConditionsShareOneCoarseMargin(t *testing.T) {
+	_, yearArgs := VenueLocalYearCondition(2026)
+	_, monthArgs := VenueLocalMonthCondition(2026, 1)
+	_, dayArgs := VenueLocalDayCondition(2026, 1, 1)
+
+	yearLower := yearArgs[0].(time.Time)
+	monthLower := monthArgs[0].(time.Time)
+	dayLower := dayArgs[0].(time.Time)
+
+	if !yearLower.Equal(monthLower) || !yearLower.Equal(dayLower) {
+		t.Errorf("January windows must share one lower bound: year %v, month %v, day %v",
+			yearLower, monthLower, dayLower)
 	}
 }
