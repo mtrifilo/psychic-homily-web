@@ -8,8 +8,8 @@
 
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import {
-  getShowLifecycleState,
   venueLocalDateKey,
+  type ShowTimingInput,
 } from '@/lib/utils/showTiming'
 import type { ShowResponse } from './types'
 
@@ -40,13 +40,28 @@ export function dayAnchorId(dateKey: string): string {
   return `d-${dateKey}`
 }
 
-/** The venue zone fields of a row, in the spelling the date helpers take. */
-function zoneOf(show: ShowResponse) {
+/**
+ * The venue zone fields of a row, in the spelling the date helpers take.
+ *
+ * `show.state` rather than the venue's, which is what `showTimingInput` in
+ * `./utils` would give. The day HEADING has to land on the same day as the date
+ * tile inside every row beneath it, and `ShowCard` resolves that tile from
+ * `show.state`; for a zone-less venue whose state disagrees with its show row,
+ * the two spellings pick different days and a row would sit under a heading
+ * contradicting its own badge. Converging the two is the follow-up
+ * `showTimingInput` already names, and it has to move both at once.
+ */
+function zoneOf(show: ShowResponse): ShowTimingInput {
   return {
     eventDate: show.event_date,
     state: show.state,
     timezone: show.venues?.[0]?.timezone,
   }
+}
+
+/** The cache key for a zone, before it is resolved to an IANA name. */
+function zoneCacheKey(zone: ShowTimingInput): string {
+  return `${zone.state ?? ''}|${zone.timezone ?? ''}`
 }
 
 /**
@@ -75,6 +90,21 @@ export function groupShowsByVenueLocalDay(
 ): ShowDayGroup[] {
   const groups: ShowDayGroup[] = []
   const anchored = new Set<string>()
+  // Today's date in each zone the page touches. A list page spans a handful of
+  // zones and usually one, so this answers the tonight question once per zone
+  // rather than once per group.
+  const todayByZone = new Map<string, string | null>()
+
+  const todayKeyFor = (zone: ShowTimingInput): string | null => {
+    if (now === null) return null
+    const cacheKey = zoneCacheKey(zone)
+    let today = todayByZone.get(cacheKey)
+    if (today === undefined) {
+      today = venueLocalDateKey({ ...zone, eventDate: now.toISOString() })
+      todayByZone.set(cacheKey, today)
+    }
+    return today
+  }
 
   for (const show of shows) {
     const zone = zoneOf(show)
@@ -85,25 +115,31 @@ export function groupShowsByVenueLocalDay(
       continue
     }
 
-    const badge = formatShowDateBadge(
-      show.event_date,
-      show.state,
-      show.venues?.[0]?.timezone
-    )
-    const anchorId =
-      dateKey !== null && !anchored.has(dateKey) ? dayAnchorId(dateKey) : null
-    if (anchorId !== null) anchored.add(dateKey as string)
+    // The zone fields come from `zone`, so the heading is formatted on the same
+    // two values the date key above was read from. `event_date` is passed
+    // straight through because it is non-null on the row and optional on
+    // `ShowTimingInput`.
+    const badge = formatShowDateBadge(show.event_date, zone.state, zone.timezone)
+
+    let anchorId: string | null = null
+    if (dateKey !== null && !anchored.has(dateKey)) {
+      anchorId = dayAnchorId(dateKey)
+      anchored.add(dateKey)
+    }
 
     groups.push({
       dateKey,
       anchorId,
       dayOfWeek: badge.dayOfWeek,
       monthDay: badge.monthDay,
+      // Both sides of the comparison come from `venueLocalDateKey`, so the day
+      // this group IS and the day that is today are read on one boundary by
+      // construction rather than by two helpers agreeing.
+      //
       // Read off the group's FIRST row. A group is one local date, which two
       // venues in different zones can share, so "today" is answered where this
       // group's leading show happens.
-      isToday:
-        now !== null && getShowLifecycleState(zone, now) === 'today',
+      isToday: dateKey !== null && dateKey === todayKeyFor(zone),
       rows: [show],
     })
   }

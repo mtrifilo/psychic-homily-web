@@ -9,6 +9,9 @@ import {
   isPlainNavigationClick,
   navCurrentClass,
   navLinkClass,
+  navStripClass,
+  navStripListClass,
+  navStripSeparatorClass,
 } from './paginationChrome'
 
 /** One month bar of a histogram: the calendar month and how many rows are in it. */
@@ -41,8 +44,12 @@ export interface MonthStripProps {
   ariaLabel: string
   /** The month in view, or `null`/omitted when the unscoped view is active. */
   current?: MonthStripTarget | null
-  /** Label for the leading link. Defaults to "All upcoming". */
-  allLabel?: string
+  /**
+   * Label for the leading link ("All upcoming" on the shows list). Required
+   * rather than defaulted: the copy belongs to the surface, not to this
+   * component, and a default here would put one list's wording in a shared one.
+   */
+  allLabel: string
   /** Rows across every month, shown beside the leading link when given. */
   allCount?: number
   /** Fired with the target month (`null` for the leading link) alongside navigation. */
@@ -106,7 +113,7 @@ function MonthLink({
 /** The `·` that separates every item after the first. */
 function Separator() {
   return (
-    <span aria-hidden="true" className="mr-2 text-muted-foreground">
+    <span aria-hidden="true" className={navStripSeparatorClass}>
       ·
     </span>
   )
@@ -130,6 +137,7 @@ function Separator() {
  *   <MonthStrip
  *     ariaLabel="Filter shows by month"
  *     allHref="/shows"
+ *     allLabel="All upcoming"
  *     allCount={268}
  *     current={{ year: 2026, month: 11 }}
  *     months={[{ year: 2026, month: 9, count: 64 }]}
@@ -142,7 +150,7 @@ export function MonthStrip({
   allHref,
   ariaLabel,
   current = null,
-  allLabel = 'All upcoming',
+  allLabel,
   allCount,
   onNavigate,
   className,
@@ -201,15 +209,12 @@ export function MonthStrip({
   return (
     <nav
       aria-label={ariaLabel}
-      className={cn(
-        'flex items-baseline gap-x-2 overflow-x-auto font-mono text-xs sm:flex-wrap sm:overflow-x-visible',
-        className
-      )}
+      className={cn(navStripClass, className)}
       data-testid="month-strip"
     >
       <ul
         id={listId}
-        className="flex items-baseline gap-x-2 whitespace-nowrap sm:flex-wrap sm:gap-y-1"
+        className={navStripListClass}
       >
         <li>
           <Link

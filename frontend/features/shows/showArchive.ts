@@ -1,11 +1,16 @@
 /**
- * Pure derivations shared by every paged show archive: the venue page's past
- * shows (PSY-1753) and the artist page's (PSY-1754).
+ * Pure derivations shared by every paged show list: the venue page's past-shows
+ * archive, the artist page's, and the upcoming list on `/shows`.
+ *
+ * The archive vocabulary throughout ("archive", `MAX_ARCHIVE_PAGE`) predates
+ * the third consumer and describes the SHAPE — a chronological list paged by
+ * number and labelled by month — rather than a direction in time. `/shows` runs
+ * forwards and shares every rule here.
  *
  * Everything here is a function of rows the caller already has — no fetching,
- * no URL state, no React. Kept out of the components so the archive's fiddly
- * bits (month boundaries, page labels, the document title) can be tested
- * against fixtures rather than through a rendered table.
+ * no URL state, no React. Kept out of the components so the fiddly bits (month
+ * boundaries, page labels, the document title) can be tested against fixtures
+ * rather than through a rendered table.
  *
  * Entity-agnostic by construction. A venue archive lists one venue's shows, so
  * every row shares a timezone; an artist archive lists shows ACROSS venues, so
@@ -14,6 +19,7 @@
  * instead of a single zone.
  */
 
+import { paginationWindow } from '@/components/shared/Pagination'
 import { toPageNumber } from '@/components/shared/paginationChrome'
 import {
   formatCalendarMonthParts,
@@ -391,13 +397,73 @@ export function clampPage(page: number, maxPage: number): number {
 }
 
 /**
+ * The month-span labels for exactly the pages a pager can render, with the
+ * current page's label withheld unless the rows on screen can vouch for it.
+ *
+ * Wraps {@link monthRangeLabelsByPage} with the two rules every pager consuming
+ * it needs and neither of them obvious:
+ *
+ * - Only the pager's WINDOW is labelled. `Pagination` renders at most seven
+ *   page links, so labelling the other 993 pages of a deep archive is work
+ *   nothing displays.
+ * - The CURRENT page's label is dropped while `keepPreviousData` holds the
+ *   outgoing page. `listTotal` cannot be supplied then — the rows on screen
+ *   answer a different request — so the histogram's premise check could not
+ *   run, and this is the exact render on which `Pagination` latches its
+ *   live-region announcement and never corrects it. A label the reader is told
+ *   once and never corrected has to be verified or absent.
+ *
+ * Callers still own their FALLBACK for the current page, derived from rows they
+ * hold, because only they know how to read a row's zone.
+ */
+export function pageRangeLabelsForWindow({
+  months,
+  page,
+  totalPages,
+  pageSize,
+  listTotal,
+  scope,
+}: {
+  /** Histogram buckets in list order, already scoped to what the pager covers. */
+  months: ArchiveMonthCount[]
+  /** 1-based current page. */
+  page: number
+  /** Total page count. */
+  totalPages: number
+  /** Rows per page, as requested. */
+  pageSize: number
+  /**
+   * The count that arrived WITH the rows, or `undefined` while those rows
+   * answer a different request.
+   */
+  listTotal: number | undefined
+  scope: ArchiveLabelScope
+}): Record<number, string> {
+  const labels = monthRangeLabelsByPage({
+    months,
+    pageSize,
+    pages: paginationWindow(page, totalPages).filter(
+      (item): item is number => item !== 'ellipsis'
+    ),
+    listTotal,
+    scope,
+  })
+
+  if (listTotal === undefined) delete labels[page]
+
+  return labels
+}
+
+/**
  * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
  * bounded empty page instead of an unbounded offset the backend has to reject.
  * At 50 rows a page this covers 50,000 shows for one entity, roughly two orders
  * of magnitude past the busiest venue and the most-played artist observed.
  *
- * ONE constant for both archives (PSY-1842). They had two identical copies, and
- * a bound that differed between them would be a difference in which hand-typed
+ * ONE constant for all three paged show lists (PSY-1842, PSY-2060). The two
+ * archives had identical copies, and `/shows` shares this one rather than
+ * minting a third; a bound that differed between them would be a difference in
+ * which hand-typed
  * URLs are answered rather than rejected — invisible until someone hit it.
  *
  * The SERVER-side `?page=` read deliberately does not take one: it only asks

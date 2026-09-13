@@ -9,6 +9,7 @@ import {
   groupByMonth,
   monthRangeLabel,
   monthRangeLabelsByPage,
+  pageRangeLabelsForWindow,
   parseArchiveYear,
   type ArchiveMonthCount,
   type ShowZone,
@@ -499,5 +500,64 @@ describe('archiveIsFirstPage matches the client parser', () => {
         clampPage(parser.parse(raw) ?? parser.defaultValue, maxPage) === 1
       )
     }
+  })
+})
+
+describe('pageRangeLabelsForWindow', () => {
+  // Twelve pages at a page size of 10: more than `Pagination` can render, which
+  // is the whole reason this wrapper exists.
+  const TWELVE_PAGES: ArchiveMonthCount[] = Array.from(
+    { length: 12 },
+    (_, index) => ({ year: 2026, month: index + 1, count: 10 })
+  )
+
+  const labels = (
+    overrides: Partial<Parameters<typeof pageRangeLabelsForWindow>[0]> = {}
+  ) =>
+    pageRangeLabelsForWindow({
+      months: TWELVE_PAGES,
+      page: 1,
+      totalPages: 12,
+      pageSize: 10,
+      listTotal: 120,
+      scope: 'all-years',
+      ...overrides,
+    })
+
+  it('labels only the pages the pager can render', () => {
+    // The GOV.UK window at page 1 of 12 is {1, 2, 12}; labelling the other nine
+    // is work nothing displays.
+    expect(Object.keys(labels()).map(Number).sort((a, b) => a - b)).toEqual([
+      1, 2, 12,
+    ])
+  })
+
+  it('labels each windowed page with the month it covers', () => {
+    expect(labels()).toMatchObject({
+      1: 'Jan 2026',
+      2: 'Feb 2026',
+      12: 'Dec 2026',
+    })
+  })
+
+  // The current page's label is announced into a live region on the first
+  // render at that page and never corrected, so it may not come from a
+  // histogram whose premise went unchecked.
+  it('withholds the current page label when the rows cannot vouch for it', () => {
+    const withheld = labels({ page: 2, listTotal: undefined })
+
+    expect(withheld[2]).toBeUndefined()
+    // The other windowed pages keep theirs: they are not being announced.
+    expect(withheld[1]).toBe('Jan 2026')
+  })
+
+  it('keeps the current page label once the rows answer the request', () => {
+    expect(labels({ page: 2 })[2]).toBe('Feb 2026')
+  })
+
+  // The premise check inside `monthRangeLabelsByPage` still governs: a
+  // histogram that disagrees with the rows blanks everything.
+  it('drops every label when the histogram disagrees with the rows', () => {
+    expect(labels({ listTotal: 119 })).toEqual({})
   })
 })

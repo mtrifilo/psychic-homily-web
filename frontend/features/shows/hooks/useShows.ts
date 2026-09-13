@@ -25,9 +25,16 @@ import { SHOWS_PAGE_SIZE } from '../showsListNavigation'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
-interface UseUpcomingShowsOptions {
-  cursor?: string
-  limit?: number
+/**
+ * The filter contract every reader of the venue-local upcoming partition
+ * shares: the cursor feed, the offset list, and the month histogram that labels
+ * that list's pages.
+ *
+ * One declaration, because a histogram filtered differently from the list it
+ * labels describes a different set of rows. The request half and the cache-key
+ * half both derive from it below, so the two cannot drift either.
+ */
+interface ShowListFilterOptions {
   /** Legacy single-city filter */
   city?: string
   /** Legacy single-state filter */
@@ -38,6 +45,61 @@ interface UseUpcomingShowsOptions {
   tags?: string[]
   /** Set to 'any' to switch the tag filter to OR semantics. */
   tagMatch?: 'all' | 'any'
+}
+
+/** Append the filter params to a request. */
+function appendShowListFilters(
+  params: URLSearchParams,
+  { city, state, cities, tags, tagMatch }: ShowListFilterOptions
+): void {
+  if (cities && cities.length > 0) {
+    // Multi-city takes priority over legacy single-city.
+    params.set('cities', buildCitiesParam(cities))
+  } else {
+    if (city) params.set('city', city)
+    if (state) params.set('state', state)
+  }
+
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
+  }
+}
+
+/**
+ * The cache-key half of the same contract.
+ *
+ * Normalizes the two fields with a non-obvious empty form — an empty tag list
+ * and the default tag match both key as `undefined` — so the same filter state
+ * lands on one entry however a caller spelled it. Written once, or the list and
+ * its histogram could key apart under filters that request identically.
+ */
+function showListFilterKey({
+  city,
+  state,
+  cities,
+  tags,
+  tagMatch,
+}: ShowListFilterOptions): Record<string, unknown> {
+  return {
+    city,
+    state,
+    cities,
+    tags: tags && tags.length > 0 ? tags : undefined,
+    tagMatch: tagMatch === 'any' ? 'any' : undefined,
+  }
+}
+
+interface UseUpcomingShowsOptions extends ShowListFilterOptions {
+  cursor?: string
+  limit?: number
+}
+
+interface UseShowsCalendarOptions extends ShowListFilterOptions {
+  /** Rows to skip. Omitted from the request at 0, which is page 1. */
+  offset?: number
+  /** Rows per page. Always sent, so the pager's arithmetic and the request agree. */
+  limit?: number
 }
 
 /**
@@ -59,19 +121,7 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
   const params = new URLSearchParams()
   if (cursor) params.set('cursor', cursor)
   if (limit) params.set('limit', limit.toString())
-
-  // Multi-city takes priority over legacy single-city
-  if (cities && cities.length > 0) {
-    params.set('cities', buildCitiesParam(cities))
-  } else {
-    if (city) params.set('city', city)
-    if (state) params.set('state', state)
-  }
-
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  appendShowListFilters(params, { city, state, cities, tags, tagMatch })
 
   // The `?` only when there is something to put after it, so a bare call
   // produces the endpoint itself.
@@ -84,11 +134,7 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     queryKey: showQueryKeys.list({
       cursor,
       limit,
-      city,
-      state,
-      cities,
-      tags: tags && tags.length > 0 ? tags : undefined,
-      tagMatch: tagMatch === 'any' ? 'any' : undefined,
+      ...showListFilterKey({ city, state, cities, tags, tagMatch }),
     }),
     queryFn: async (): Promise<UpcomingShowsResponse> => {
       return apiRequest<UpcomingShowsResponse>(endpoint, {
@@ -98,50 +144,6 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousData, // Keep old data visible while fetching
   })
-}
-
-interface ShowListFilterOptions {
-  /** Legacy single-city filter */
-  city?: string
-  /** Legacy single-state filter */
-  state?: string
-  /** Multi-city filter (takes priority over city/state) */
-  cities?: Array<{ city: string; state: string }>
-  /** Multi-tag filter. Slugs applied with AND by default. */
-  tags?: string[]
-  /** Set to 'any' to switch the tag filter to OR semantics. */
-  tagMatch?: 'all' | 'any'
-}
-
-interface UseShowsCalendarOptions extends ShowListFilterOptions {
-  /** Rows to skip. Omitted from the request at 0, which is page 1. */
-  offset?: number
-  /** Rows per page. Always sent, so the pager's arithmetic and the request agree. */
-  limit?: number
-}
-
-/**
- * Append the filter params every reader of the upcoming partition shares.
- *
- * One spelling for both hooks below: a list and the histogram that labels its
- * pages must be filtered identically, or the labels describe a different set
- * than the rows.
- */
-function appendShowListFilters(
-  params: URLSearchParams,
-  { city, state, cities, tags, tagMatch }: ShowListFilterOptions
-): void {
-  if (cities && cities.length > 0) {
-    params.set('cities', buildCitiesParam(cities))
-  } else {
-    if (city) params.set('city', city)
-    if (state) params.set('state', state)
-  }
-
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
 }
 
 /**
@@ -182,11 +184,7 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
     queryKey: showQueryKeys.calendar({
       limit,
       offset: offset || undefined,
-      city,
-      state,
-      cities,
-      tags: tags && tags.length > 0 ? tags : undefined,
-      tagMatch: tagMatch === 'any' ? 'any' : undefined,
+      ...showListFilterKey({ city, state, cities, tags, tagMatch }),
     }),
     queryFn: async (): Promise<ShowsCalendarResponse> => {
       return apiRequest<ShowsCalendarResponse>(
@@ -216,13 +214,9 @@ export const useShowMonths = (options: ShowListFilterOptions = {}) => {
   const queryString = params.toString()
 
   return useQuery({
-    queryKey: showQueryKeys.months({
-      city,
-      state,
-      cities,
-      tags: tags && tags.length > 0 ? tags : undefined,
-      tagMatch: tagMatch === 'any' ? 'any' : undefined,
-    }),
+    queryKey: showQueryKeys.months(
+      showListFilterKey({ city, state, cities, tags, tagMatch })
+    ),
     queryFn: async (): Promise<ShowMonthsResponse> => {
       return apiRequest<ShowMonthsResponse>(
         queryString

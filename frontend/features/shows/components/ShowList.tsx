@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button'
 import { DensityToggle } from '@/components/shared'
 import {
   Pagination,
-  paginationWindow,
   usePaginationFocusTarget,
 } from '@/components/shared/Pagination'
 import { useDensity } from '@/lib/hooks/common/useDensity'
@@ -22,7 +21,7 @@ import { ShowListSkeleton } from './ShowListSkeleton'
 import {
   clampPage,
   MAX_ARCHIVE_PAGE,
-  monthRangeLabelsByPage,
+  pageRangeLabelsForWindow,
 } from '../showArchive'
 import { SHOWS_PAGE_SIZE, showsPageHref } from '../showsListNavigation'
 import { CityFilters, type CityWithCount } from '@/components/filters'
@@ -206,30 +205,31 @@ export function ShowList() {
   // number rather than a stale one.
   const rowsAnswerCurrentRequest = !isPlaceholderData
 
-  const rangeLabels = useMemo(() => {
-    const labels = monthRangeLabelsByPage({
-      // Soonest first from the API, which is the order this list pages in.
-      months: monthsData?.months ?? [],
-      pageSize: SHOWS_PAGE_SIZE,
-      pages: paginationWindow(page, totalPages).filter(
-        (item): item is number => item !== 'ellipsis'
-      ),
-      // The count that arrived WITH the rows. The premise being checked is that
-      // the histogram's ordinals are the list's ordinals, and only the list can
-      // attest to that — so a disagreement blanks every label rather than
-      // printing a span the page does not cover.
-      listTotal: rowsAnswerCurrentRequest ? data?.total : undefined,
-      // The list spans years, so a label may never elide the year.
-      scope: 'all-years',
-    })
-
-    // `Pagination` latches its live-region announcement on the first render at
-    // a new page and never corrects it, so the CURRENT page's label must not
-    // come from a histogram whose premise went unchecked.
-    if (!rowsAnswerCurrentRequest) delete labels[page]
-
-    return labels
-  }, [monthsData?.months, page, totalPages, rowsAnswerCurrentRequest, data?.total])
+  // Month-range page labels: what is behind a page number, before the reader
+  // spends a click on it. The window derivation and the withhold-while-stale
+  // rule live in `pageRangeLabelsForWindow`, which the past-shows archive
+  // shares. There is no row-derived fallback for the current page here, and
+  // that is deliberate: this list spans venues, so a fallback would read each
+  // row's own zone while the histogram buckets venue-locally, and the two can
+  // disagree at a month boundary.
+  const rangeLabels = useMemo(
+    () =>
+      pageRangeLabelsForWindow({
+        // Soonest first from the API, which is the order this list pages in.
+        months: monthsData?.months ?? [],
+        page,
+        totalPages,
+        pageSize: SHOWS_PAGE_SIZE,
+        // The count that arrived WITH the rows. The premise being checked is
+        // that the histogram's ordinals are the list's ordinals, and only the
+        // list can attest to that — so a disagreement blanks every label rather
+        // than printing a span the page does not cover.
+        listTotal: rowsAnswerCurrentRequest ? data?.total : undefined,
+        // The list spans years, so a label may never elide the year.
+        scope: 'all-years',
+      }),
+    [monthsData?.months, page, totalPages, rowsAnswerCurrentRequest, data?.total]
+  )
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLParagraphElement>()
 

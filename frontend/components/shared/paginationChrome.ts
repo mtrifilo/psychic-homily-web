@@ -12,6 +12,21 @@ export const navLinkClass =
   'rounded-sm text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 /**
+ * The filter-strip row: horizontally scrollable below `sm`, wrapping above it.
+ * Shared by `YearStrip` and `MonthStrip`, which navigate different axes of the
+ * same list and must not drift into two shapes.
+ */
+export const navStripClass =
+  'flex items-baseline gap-x-2 overflow-x-auto font-mono text-xs sm:flex-wrap sm:overflow-x-visible'
+
+/** The list inside a filter strip. Pairs with {@link navStripClass}. */
+export const navStripListClass =
+  'flex items-baseline gap-x-2 whitespace-nowrap sm:flex-wrap sm:gap-y-1'
+
+/** The separator between strip entries. Decorative, so it is hidden from AT. */
+export const navStripSeparatorClass = 'mr-2 text-muted-foreground'
+
+/**
  * Current item. Deliberately carries weight and an underline on top of the
  * color: color alone is not a sufficient distinction (WCAG 1.4.1).
  */

@@ -62,20 +62,31 @@ export interface ShowTimingInput {
  * would reintroduce a zone, and subtracting instants would reintroduce DST.
  * Ordering holds because each field occupies a fixed decimal width.
  *
- * Constructs its formatter per call, deliberately. Memoizing is the right
- * shape for a hot loop, and this is not one: callers ask per page or per
- * request, not per row, so a memo buys nothing and costs a module-level
- * mutable map plus a cap to bound it. Add one when a caller arrives that asks
- * this per row; `resolveShowTimezone` builds a throwaway formatter of its own
- * on the same path, so measure both together.
+ * The formatter is memoized by zone. Constructing one is the expensive half of
+ * `Intl`; formatting with it is cheap. `/shows` groups a page of rows under day
+ * headings, which asks this question once per row over a handful of distinct
+ * zones, so a per-call formatter would be built fifty times to answer fifty
+ * questions about three zones. `resolveShowTimezone` memoizes its own zone
+ * lookup the same way (`timeZoneValidity` in `./formatters`).
+ *
+ * The cache is bounded because its keys are IANA zone names, of which there are
+ * a few hundred and no caller can mint a new one: `resolveShowTimezone` only
+ * ever returns a validated zone or the fallback.
  */
+const dayOrdinalFormatters = new Map<string, Intl.DateTimeFormat>()
+
 function venueLocalDayOrdinal(instant: number, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(instant))
+  let formatter = dayOrdinalFormatters.get(timeZone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    dayOrdinalFormatters.set(timeZone, formatter)
+  }
+  const parts = formatter.formatToParts(new Date(instant))
   const part = (type: string) => Number(parts.find(p => p.type === type)?.value)
   return part('year') * 10000 + part('month') * 100 + part('day')
 }

@@ -88,27 +88,23 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *
  *   fetch                      raw      base64   % cap   bounded by
  *   -------------------------  -------  -------  ------  --------------------
- *   /shows/upcoming?limit=50    80,327  107,104    5.1%  this file's limit
- *   /shows/upcoming             80,327  107,104    5.1%  backend default:"50"
+ *   /shows/upcoming?limit=50    80,327  107,104    5.1%  UPCOMING_SHOWS_LIMIT
+ *   /shows/calendar?limit=50    80,327  107,104    5.1%  SHOWS_PAGE_SIZE
  *   /shows/cities                8,948   11,932    0.6%  one row per city
  *   /scenes                      7,256    9,676    0.5%  UNBOUNDED
  *
- * The first three URLs have since lost a `timezone` the backend ignores. That
- * re-keyed their Data Cache entries; the row set and the payload size are
- * unchanged, so the measurement stands. (The `/shows/upcoming` response — not
- * `/shows/cities`, which has no such field — echoes the parameter back as a
- * top-level scalar, which now reads the handler's `UTC` default instead of what
- * the caller sent. Nothing consumes it; show times render from each venue's own
- * zone.)
+ * The two show URLs are 50 rows of the same venue-local upcoming partition, one
+ * read by cursor and one by offset, so the row set and the payload size are the
+ * same measurement. (The `/shows/upcoming` response — not `/shows/cities`,
+ * which has no such field — echoes a `timezone` parameter the backend ignores.
+ * Nothing consumes it; show times render from each venue's own zone.)
  *
- * So "the limit protects it" is true of the ItemList fetch only. The seed URL
- * deliberately omits `limit` (see the note above) and is held at 50 by the
- * backend's `default:"50"` — a bound that lives in another repo layer and could
- * be raised without anyone reading this file. `/scenes` has no bound at all; it
- * is the same unbounded-list shape that blew up `GET /artists`, and is only
- * small because scenes are few. It also runs behind `await connection()`, so it
- * is request-time only: NEITHER half of lib/data-cache-budget can fail a build
- * on it, and a Sentry report after the fact is the whole signal.
+ * Both show fetches state their bound in THIS repo, in the constants named
+ * above. `/scenes` has no bound at all; it is the same unbounded-list shape that
+ * blew up `GET /artists`, and is only small because scenes are few. It also runs
+ * behind `await connection()`, so it is request-time only: NEITHER half of
+ * lib/data-cache-budget can fail a build on it, and a Sentry report after the
+ * fact is the whole signal.
  *
  * Re-measure if any of those bounds move, or if a field is added to the show
  * response — the row count is not what blew the budget on /artists, the fields
@@ -116,42 +112,30 @@ export const UPCOMING_SHOWS_LIMIT = 50
  */
 
 /**
- * The `ItemList` read of `/shows/upcoming`.
+ * The `ItemList` read of the upcoming list.
  *
- * Separate from the first-screen seed below, and the split is deliberate after
- * getting it wrong in both directions.
+ * A SEPARATE call from the first-screen seed below, because the two need
+ * different abort budgets. This one runs in the PRERENDERED SHELL, where the
+ * only cost of waiting is a slower build and giving up early bakes a
+ * schema-less page in for a whole revalidate window. The seed runs at REQUEST
+ * time, where the same ten seconds is a visitor watching a skeleton.
+ * `React.cache` does not bridge them: under `cacheComponents` the shell and the
+ * postponed resume are different render passes, so a `cache()` entry made in
+ * one is not visible in the other. What dedupes a repeated URL is Next's Data
+ * Cache, and only when the URLs match — which is why keeping the two calls on
+ * DIFFERENT URLs is what keeps their budgets separate.
  *
- * They cannot share one call, because they need different abort budgets. This
- * one runs in the PRERENDERED SHELL, where the only cost of waiting is a slower
- * build and giving up early bakes a schema-less page in for a whole revalidate
- * window. The seed runs at REQUEST time behind `await connection()`, where the
- * same ten seconds is a visitor watching a skeleton. `React.cache` does not
- * bridge them either: under `cacheComponents` the shell and the postponed
- * resume are different render passes, so a `cache()` entry made in one is not
- * visible in the other. What actually dedupes a repeated URL is Next's Data
- * Cache, and only when the URLs match.
- *
- * They also carry different bounds, which is why the URLs do NOT match. This
- * one sends the explicit `limit` argued at `UPCOMING_SHOWS_LIMIT`; the seed
- * sends exactly what the client hook sends, so that what it caches is what the
- * hook will later ask for. Two Data Cache entries, invalidated together by
+ * It reads the CURSOR endpoint while the list below reads the offset one. The
+ * two share one predicate set and one ordering, and the backend states that an
+ * unwindowed offset page matches the cursor page row for row
+ * (`GetUpcomingShowsPage`), so this block advertises the rows the page renders.
+ * Both are 50 rows; the bounds are separate constants because they answer
+ * separate questions — how many entries a crawler is offered, and how many rows
+ * a reader gets per page. Two Data Cache entries, invalidated together by
  * `lib/proxy-revalidation.ts`.
- *
- * Since PSY-1678 that `limit` is the ONLY difference between the two URLs, and
- * it happens to equal the endpoint's own `default:"50"` — so dropping it would
- * collapse these into one cached backend read. That is deliberately not done
- * here: `UPCOMING_SHOWS_LIMIT` argues at length for keeping the bound visible
- * rather than inherited, and trading it for a cache hit is a product call about
- * SEO coverage, not a cleanup.
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // The CURSOR endpoint, while the list below reads the offset one. Both are
-    // the same venue-local upcoming partition under one predicate set, and an
-    // unwindowed offset page matches this cursor page row for row, so the block
-    // still advertises exactly the rows the page renders. Kept on this endpoint
-    // so the two fetches stay separate Data Cache entries with separate abort
-    // budgets, which is the point argued above.
     url: `${showEndpoints.UPCOMING}?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',

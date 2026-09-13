@@ -38,6 +38,7 @@ function renderStrip(props: Partial<React.ComponentProps<typeof MonthStrip>> = {
       months={months}
       hrefFor={hrefFor}
       allHref="/shows"
+      allLabel="All upcoming"
       allCount={268}
       ariaLabel="Filter shows by month"
       {...props}
