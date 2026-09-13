@@ -7,6 +7,7 @@ import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
 import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { looksLikeISOWeek } from './sceneWeek'
+import { sceneDayPhrase, sceneWindowTitle } from './sceneWindow'
 import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 
 /**
@@ -20,19 +21,16 @@ export const getSceneDay = cache(
 )
 
 /**
- * The page title, in the words someone would actually type.
+ * The page title, under the family's one rule: `Tonight in Phoenix`, or
+ * `Sep 14 in Phoenix` on a dated permalink.
  *
- * "Phoenix Shows Tonight" is the query; the date follows it so a result that
- * outlives the night still says which night it was. A date that is NOT the
- * scene's current night drops the word — the dated permalink is a permanent URL
- * and calling an archived Tuesday "tonight" would be false the day after it was
- * written.
+ * The discriminator is the ROUTE, not `is_tonight` — that flag is also true for
+ * the dated permalink naming today, and a permanent URL calling itself
+ * "tonight" is false from the following morning on. The full date, and the year
+ * the `{MON D}` form drops, stay in the description below.
  */
-function dayTitle(day: SceneDayResponse): string {
-  const date = formatDayFull(day.date)
-  return day.is_tonight
-    ? `${day.city} Shows Tonight — ${date}`
-    : `${day.city} Shows — ${date}`
+function dayTitle(day: SceneDayResponse, isRollingRoute: boolean): string {
+  return sceneWindowTitle(sceneDayPhrase(day.date, isRollingRoute), day.city)
 }
 
 function dayDescription(day: SceneDayResponse): string {
@@ -54,7 +52,11 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     return { title: 'Day not found', robots: { index: false, follow: false } }
   }
 
-  const title = dayTitle(day)
+  // The ABSENT `date` argument is what names the rolling route. See the
+  // canonical note below for why this, rather than `is_tonight`, is the
+  // discriminator everything on this page keys off.
+  const isRollingRoute = date === undefined
+  const title = dayTitle(day, isRollingRoute)
   const description = dayDescription(day)
 
   // A day that cannot name its own page. With either field blank the URLs below
@@ -98,7 +100,6 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // (SceneDayView's "full week" chip deliberately still keys off `is_tonight`.
   // It is answering "which week link helps a reader here", not "which URL is
   // this page", so the two are allowed to differ.)
-  const isRollingRoute = date === undefined
   const canonical =
     isRollingRoute && day.iso_week
       ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
@@ -183,7 +184,14 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
  * response at HTTP 200 — which search engines and link unfurlers read as a
  * valid page.
  */
-export function SceneDayContent({ data }: { data: SceneDayResponse }) {
+export function SceneDayContent({
+  data,
+  isRollingRoute = false,
+}: {
+  data: SceneDayResponse
+  /** True on `/scenes/{slug}/tonight`. See `SceneDayView`. */
+  isRollingRoute?: boolean
+}) {
   const { breadcrumb, itemList, events } = buildSceneDayJsonLd(data)
 
   return (
@@ -193,7 +201,7 @@ export function SceneDayContent({ data }: { data: SceneDayResponse }) {
       {/* One array-valued script rather than a tag per show: a top-level
           JSON-LD array carries the same graph without N extra elements. */}
       {events.length > 0 && <JsonLd data={events} />}
-      <SceneDayView day={data} />
+      <SceneDayView day={data} isRollingRoute={isRollingRoute} />
     </>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, within, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, within, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
 import { SceneWeekView } from './SceneWeekView'
 import type { SceneWeekResponse, SceneWeekShow } from '../sceneWeek'
@@ -47,14 +47,15 @@ const weekLinks = (container: HTMLElement): string[] =>
     .filter(href => /^\/scenes\/[^/]+\/\d{4}-W\d{2}$/i.test(href))
 
 /**
- * The label of every chip in the header's navigation row, in order.
+ * The label of each direction in the adjacent-week row, in order.
  *
- * Reads the row rather than filtering hrefs by shape: a chip the guard should
- * have suppressed carries a malformed href, which an href-shape filter cannot
- * see, so an assertion built on one passes whether or not the guard exists.
+ * Reads the ROW rather than filtering hrefs by shape: a direction the guard
+ * should have suppressed carries a malformed href, which an href-shape filter
+ * cannot see, so an assertion built on one passes whether or not the guard
+ * exists. The muted edges have no href at all and are only visible this way.
  */
-const chipLabels = (container: HTMLElement): string[] =>
-  [...(container.querySelector('header div.flex.gap-2')?.children ?? [])].map(el =>
+const stepLabels = (): string[] =>
+  [...screen.getByRole('navigation', { name: 'Adjacent weeks' }).children].map(el =>
     (el.textContent ?? '').trim()
   )
 
@@ -99,13 +100,19 @@ describe('SceneWeekView — share affordance', () => {
 })
 
 describe('SceneWeekView', () => {
-  it('renders the city with its state alongside', () => {
+  // The title rule. An archived week names its own Monday; only the current
+  // week may call itself "this week".
+  it('titles the current week by the window and an archived one by its date', () => {
     render(<SceneWeekView week={week()} />)
-    const h1 = screen.getByRole('heading', { level: 1 })
-    expect(h1).toHaveTextContent('Chicago')
-    // The state has to be present for cold arrivals from a shared link —
-    // "Columbus" and "Portland" are ambiguous without it.
-    expect(h1).toHaveTextContent('IL')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'This week in Chicago'
+    )
+
+    cleanup()
+    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Week of Jul 27 in Chicago'
+    )
   })
 
   it('states the range and count', () => {
@@ -203,16 +210,72 @@ describe('SceneWeekView', () => {
     )
   })
 
-  it('offers adjacent-week navigation', () => {
+  // "This week" describes a week that ended months ago on a permalink, and
+  // "try next week" points at a week that is also over. An archived empty week
+  // names itself and points at what is on NOW.
+  it('names an archived empty week by its date and points at the current week', () => {
+    render(
+      <SceneWeekView
+        week={week({
+          show_count: 0,
+          days: [],
+          tracked_venues: [room()],
+          is_current_week: false,
+          is_past_week: true,
+        })}
+      />
+    )
+
+    expect(
+      screen.getByText(/No shows at the Chicago rooms we track the week of Jul 27\./)
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Try next week/ })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /See this week in Chicago/ })
+    ).toHaveAttribute('href', '/scenes/chicago-il/week')
+  })
+
+  // The control names what it shares. "Share this week" on a permalink to last
+  // March is the same false claim the body copy above closes.
+  it('names an archived week in the share control', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+
+    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    expect(
+      await screen.findByRole('button', { name: 'Share the week of Jul 27' })
+    ).toBeInTheDocument()
+    Reflect.deleteProperty(navigator, 'clipboard')
+  })
+
+  it('offers adjacent-week navigation, relative on the current week', () => {
     render(<SceneWeekView week={week()} />)
-    expect(screen.getByRole('link', { name: /2026-W30/ })).toHaveAttribute(
+    const adjacent = screen.getByRole('navigation', { name: 'Adjacent weeks' })
+    expect(within(adjacent).getByRole('link', { name: /Last week/ })).toHaveAttribute(
       'href',
       '/scenes/chicago-il/2026-W30'
     )
-    expect(screen.getByRole('link', { name: /2026-W32/ })).toHaveAttribute(
+    expect(within(adjacent).getByRole('link', { name: /Next week/ })).toHaveAttribute(
       'href',
       '/scenes/chicago-il/2026-W32'
     )
+  })
+
+  // "Last week" and "next week" are claims about now, so only the current week
+  // may make them. An archived week names its neighbours by their own dates.
+  it('names the neighbours of an archived week by date', () => {
+    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    const adjacent = screen.getByRole('navigation', { name: 'Adjacent weeks' })
+    expect(
+      within(adjacent).getByRole('link', { name: /Week of Jul 20/ })
+    ).toHaveAttribute('href', '/scenes/chicago-il/2026-W30')
+    expect(
+      within(adjacent).getByRole('link', { name: /Week of Aug 3/ })
+    ).toHaveAttribute('href', '/scenes/chicago-il/2026-W32')
   })
 
   // A key this site cannot serve is not navigation. An absent one renders the
@@ -223,26 +286,26 @@ describe('SceneWeekView', () => {
     ['blank', '   '],
     ['not a week key', 'next'],
     ['before the servable years', '2014-W52'],
-  ])('renders no next-week chip when the key is %s', (_label, next_week) => {
+  ])('mutes the next direction when the key is %s', (_label, next_week) => {
     const { container } = render(<SceneWeekView week={week({ next_week })} />)
 
-    // Asserted on the CHIPS, not on hrefs matching the week shape: a filter
-    // that only admits well-formed week links cannot see the malformed one the
+    // Asserted on the ROW, not on hrefs matching the week shape: a filter that
+    // only admits well-formed week links cannot see the malformed one the
     // guard exists to suppress, so it would pass with the guard deleted.
-    expect(chipLabels(container)).toEqual(['← 2026-W30', 'Tonight'])
+    expect(stepLabels()).toEqual(['← Last week', 'End of listings'])
     expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W30'])
   })
 
-  it('renders no previous-week chip when the key is absent', () => {
+  it('mutes the previous direction when the key is absent', () => {
     const { container } = render(<SceneWeekView week={week({ prev_week: undefined })} />)
 
-    expect(chipLabels(container)).toEqual(['Tonight', '2026-W32 →'])
+    expect(stepLabels()).toEqual(['Start of listings', 'Next week →'])
     expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W32'])
   })
 
   // The pointer onward goes with the link, trailing stop included: a bare "."
   // after the sentence would read as a typo.
-  it('drops the way forward on an empty week with no next week to offer', () => {
+  it('drops the way forward on an empty current week with no next week to offer', () => {
     render(
       <SceneWeekView
         week={week({ show_count: 0, days: [], tracked_venues: [room()], next_week: undefined })}
@@ -255,14 +318,29 @@ describe('SceneWeekView', () => {
     ).toBeInTheDocument()
   })
 
-  // Load-bearing: the two pages are read as a pair, and this chip is the half
-  // of that pairing a restyle of the three-chip row would drop silently.
-  it('links out to tonight, the reciprocal of the day view Full week chip', () => {
+  // Load-bearing: the two pages are read as a pair, and this link is the half
+  // of that pairing a restyle of the strip would drop silently.
+  it('links out to tonight, the reciprocal of the day view week chip', () => {
     render(<SceneWeekView week={week()} />)
     expect(screen.getByRole('link', { name: 'Tonight' })).toHaveAttribute(
       'href',
       '/scenes/chicago-il/tonight'
     )
+  })
+
+  // The week is where the reader IS, on the rolling route and on a dated
+  // permalink alike, so the strip marks that window rather than offering it.
+  it('marks the week window current', () => {
+    const { container } = render(<SceneWeekView week={week()} />)
+    expect(container.querySelector('[aria-current="page"]')).toHaveTextContent(
+      'This week'
+    )
+    expect(
+      within(screen.getByRole('navigation', { name: 'Show windows' })).queryByRole(
+        'link',
+        { name: 'This week' }
+      )
+    ).toBeNull()
   })
 
   // Kept on archived weeks too: a reader who lands on last March still wants

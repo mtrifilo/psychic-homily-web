@@ -14,13 +14,23 @@ import {
   type SceneWeekShow,
 } from '../sceneWeek'
 import {
-  SCENE_NAV_CHIP_CLASS,
   navigablePeriodKey,
   SceneBreadcrumb,
-  SceneCityHeading,
+  SceneWindowHeading,
   ShowStatusBadge,
   TrackedRoomsFooter,
 } from './sceneChrome'
+import {
+  SCENE_NAV_END_EDGE,
+  SCENE_NAV_START_EDGE,
+  SceneWindowNav,
+} from './SceneWindowNav'
+import {
+  formatMonthDay,
+  sceneWeekPhrase,
+  sceneWeekStepLabel,
+  sceneWindowTitle,
+} from '../sceneWindow'
 
 /**
  * One show. Bill leads; venue is metadata.
@@ -98,47 +108,41 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
   const total = countShows(week)
   const prevWeek = navigablePeriodKey(week.prev_week, looksLikeISOWeek)
   const nextWeek = navigablePeriodKey(week.next_week, looksLikeISOWeek)
+  // `This week` while the week is current, `Week of Sep 7` once it is not —
+  // the one phrase this page names itself with, in the H1, the share control
+  // and the quiet copy alike.
+  const phrase = sceneWeekPhrase(week.start_date, week.is_current_week)
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
       <SceneBreadcrumb slug={week.slug} sceneName={week.scene_name} />
 
       <header className="mt-2">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <SceneCityHeading city={week.city} state={week.state} />
+        <SceneWindowHeading title={sceneWindowTitle(phrase, week.city)} />
 
-          {/* Up to three chips share the row here, so each stretches at mobile
-              widths — the nightly page's two dates and "Full week" do not need
-              to. "Tonight" is always one of them, so the row is never empty. */}
-          <div className="flex gap-2">
-            {prevWeek && (
-              <Link
-                href={`/scenes/${week.slug}/${prevWeek}`}
-                className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
-                rel="prev"
-              >
-                ← {prevWeek}
-              </Link>
-            )}
-            {/* The reciprocal of the nightly page's "Full week" chip. Kept on
-                archived weeks too: a reader who lands on last March still
-                wants the way back to what is on now. */}
-            <Link
-              href={`/scenes/${week.slug}/tonight`}
-              className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
-            >
-              Tonight
-            </Link>
-            {nextWeek && (
-              <Link
-                href={`/scenes/${week.slug}/${nextWeek}`}
-                className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
-                rel="next"
-              >
-                {nextWeek} →
-              </Link>
-            )}
-          </div>
+        {/* The family's one nav. `Tonight` stays a link on archived weeks too:
+            a reader who lands on last March still wants the way back to what
+            is on now. */}
+        <div className="mt-2">
+          <SceneWindowNav
+            slug={week.slug}
+            current="this-week"
+            steps={{
+              label: 'Adjacent weeks',
+              prev: {
+                label: prevWeek
+                  ? sceneWeekStepLabel(week.start_date, -1, week.is_current_week)
+                  : SCENE_NAV_START_EDGE,
+                href: prevWeek ? `/scenes/${week.slug}/${prevWeek}` : null,
+              },
+              next: {
+                label: nextWeek
+                  ? sceneWeekStepLabel(week.start_date, 1, week.is_current_week)
+                  : SCENE_NAV_END_EDGE,
+                href: nextWeek ? `/scenes/${week.slug}/${nextWeek}` : null,
+              },
+            }}
+          />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -155,7 +159,11 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
               canonical and what the address bar shows. */}
           <ShareButton
             path={`/scenes/${week.slug}/${week.iso_week}`}
-            ariaLabel="Share this week"
+            ariaLabel={
+              week.is_current_week
+                ? 'Share this week'
+                : `Share the week of ${formatMonthDay(week.start_date)}`
+            }
           />
         </div>
 
@@ -172,19 +180,37 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
 
       {total === 0 ? (
         <p className="py-10 text-muted-foreground">
-          No shows at the {week.city} rooms we track this week.
-          {/* The pointer onward is dropped whole, trailing stop included, when
-              there is no next week to point at: a bare "." on its own line
-              would read as a typo. */}
-          {nextWeek && (
-            <>
-              {' '}
-              <Link href={`/scenes/${week.slug}/${nextWeek}`} className="underline">
-                Try next week
-              </Link>
-              .
-            </>
-          )}
+          {/* The week NAMES itself here rather than saying "this week", which on
+              an archived permalink describes a week that ended months ago. */}
+          No shows at the {week.city} rooms we track{' '}
+          {week.is_current_week
+            ? 'this week'
+            : `the week of ${formatMonthDay(week.start_date)}`}
+          .
+          {/* One step onward, and which step depends on where the reader is.
+              "Try next week" is a claim about what is coming, so only a current
+              week may make it; an archived week points at what is on now
+              instead. Both are dropped whole when the key behind them is one
+              this site cannot serve. */}
+          {week.is_current_week
+            ? nextWeek && (
+                <>
+                  {' '}
+                  <Link href={`/scenes/${week.slug}/${nextWeek}`} className="underline">
+                    Try next week
+                  </Link>
+                  .
+                </>
+              )
+            : (
+                <>
+                  {' '}
+                  <Link href={`/scenes/${week.slug}/week`} className="underline">
+                    See this week in {week.city}
+                  </Link>
+                  .
+                </>
+              )}
         </p>
       ) : (
         days.map(day => <DayGroup key={day.date} date={day.date} shows={day.shows ?? []} />)

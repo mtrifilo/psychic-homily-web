@@ -19,13 +19,6 @@ import { entityHref } from '@/lib/entity-slug'
  */
 
 /**
- * The header's adjacent-period chips. Each page adds its own width behaviour —
- * the week's three chips must share a row at mobile widths, the day's need not.
- */
-export const SCENE_NAV_CHIP_CLASS =
-  'rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50'
-
-/**
  * A scene-page link in the accent register: `SceneSectionHeading`'s mono
  * micro-caps type at the same size, toned `text-primary`.
  *
@@ -154,21 +147,20 @@ export function SceneBreadcrumb({ slug, sceneName }: { slug: string; sceneName: 
 }
 
 /**
- * City at display scale, state in mono alongside.
+ * The window family's H1: `This week in Chicago`, one line.
  *
- * Both pages are built for cold arrivals from a shared link, where "Columbus"
- * or "Portland" are genuinely ambiguous — so the state has to be on the page,
- * not only in the breadcrumb. Setting it at display size would blunt the one
- * element that must survive a skim.
+ * Set in the locked frame's register (`1665:2`) — mono, bold, micro-caps at
+ * 14px with 4% tracking — rather than at display scale. The title rule puts a
+ * window phrase in front of the city, which at display scale wraps to three
+ * lines at 390px and spends the top of a calendar page on its own name.
+ *
+ * The state is NOT here. It rides in the breadcrumb above, which names the
+ * scene in full, so a cold arrival from a shared link can still tell Portland
+ * from Portland.
  */
-export function SceneCityHeading({ city, state }: { city: string; state?: string | null }) {
+export function SceneWindowHeading({ title }: { title: string }) {
   return (
-    <h1 className="flex items-baseline gap-3 text-4xl font-bold tracking-tight md:text-5xl">
-      {city}
-      <span className="font-mono text-base font-normal tracking-wide text-muted-foreground">
-        {state}
-      </span>
-    </h1>
+    <h1 className="font-mono text-sm font-bold uppercase tracking-[0.04em]">{title}</h1>
   )
 }
 

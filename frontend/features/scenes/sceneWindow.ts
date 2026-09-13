@@ -63,6 +63,80 @@ export function sceneWindowHref(slug: string, key: SceneWindowKey): string {
 }
 
 /**
+ * `Sep 14` — the `{MON D}` stem every dated label in this family is built from.
+ *
+ * Component-wise parsing (`parseCalendarDate`), because these are scene-local
+ * CALENDAR dates: `new Date('2026-09-14')` is UTC midnight, which prints as Sep
+ * 13 in every negative-offset zone and would name the wrong night in a title.
+ */
+export function formatMonthDay(iso: string): string {
+  const date = parseCalendarDate(iso)
+  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  return `${month} ${date.getDate()}`
+}
+
+/**
+ * `This week in Chicago` — the family's one title rule.
+ *
+ * Every window route names itself `{WINDOW} in {CITY}`, on the H1 and in
+ * `<title>` alike, so the phrase a reader saw in a tab is the phrase at the top
+ * of the page. The PHRASE is the caller's: a rolling window uses its label, a
+ * day its date, an archived week its `Week of` form.
+ */
+export function sceneWindowTitle(phrase: string, city: string): string {
+  return `${phrase} in ${city}`
+}
+
+/**
+ * What a single night calls itself: `Tonight` on the rolling route, `Sep 14` on
+ * a dated permalink.
+ *
+ * The discriminator is the ROUTE, not the payload's `is_tonight`: that flag is
+ * also true for the dated permalink naming today, and a permanent URL that
+ * calls itself "tonight" is false from the following morning on.
+ */
+export function sceneDayPhrase(date: string, isRollingRoute: boolean): string {
+  return isRollingRoute ? SCENE_WINDOW_LABEL.tonight : formatMonthDay(date)
+}
+
+/**
+ * What a week calls itself: `This week` while it is current, `Week of Sep 7`
+ * once it is not.
+ *
+ * Read off the payload's `is_current_week`, which the backend resolves in the
+ * scene's own timezone. An archived week must never say "this week" — the page
+ * is a permalink, and a reader who opens last March is not being shown the
+ * current week.
+ */
+export function sceneWeekPhrase(startDate: string, isCurrentWeek: boolean): string {
+  return isCurrentWeek ? SCENE_WINDOW_LABEL['this-week'] : `Week of ${formatMonthDay(startDate)}`
+}
+
+/**
+ * How a neighbouring week reads in the prev/next row.
+ *
+ * Relative on the CURRENT week, where "last" and "next" are unambiguous, and
+ * named by its own date everywhere else — the same idiom the day row uses. A
+ * neighbour is never called "this week": identifying one as the current week
+ * would take a clock this payload does not carry, and a wrong "this week" is a
+ * claim about now.
+ *
+ * `offsetWeeks` is -1 or 1; the date is arithmetic on the week's own start,
+ * since every week is exactly seven days from its neighbour.
+ */
+export function sceneWeekStepLabel(
+  startDate: string,
+  offsetWeeks: number,
+  isCurrentWeek: boolean
+): string {
+  if (isCurrentWeek) return offsetWeeks < 0 ? 'Last week' : 'Next week'
+  const neighbour = parseCalendarDate(startDate)
+  neighbour.setDate(neighbour.getDate() + 7 * offsetWeeks)
+  const month = neighbour.toLocaleDateString('en-US', { month: 'short' })
+  return `Week of ${month} ${neighbour.getDate()}`
+}
+
+/**
  * Everything a window page renders, resolved before it reaches the view.
  *
  * Lives in this module rather than beside the component so the page module and

@@ -6,6 +6,7 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
 import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
+import { sceneWeekPhrase, sceneWindowTitle } from './sceneWindow'
 import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
 /**
@@ -33,7 +34,12 @@ export async function buildSceneWeekMetadata(
 
   const total = countShows(data)
   const range = formatWeekRange(data.start_date, data.end_date)
-  const title = `${data.scene_name} shows — ${range}`
+  // The family's one title rule, so the tab and the H1 read alike. An archived
+  // week names its own Monday rather than saying "this week".
+  const title = sceneWindowTitle(
+    sceneWeekPhrase(data.start_date, data.is_current_week),
+    data.city
+  )
   const description =
     total > 0
       ? `${total} ${total === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${range}.`
@@ -63,10 +69,30 @@ export async function buildSceneWeekMetadata(
   // Next requires to be a constant and so reads identically on every card.
   const imageAlt = description
 
+  // A week with nothing on it is thin content — real, worth serving, worth
+  // linking out of, not worth an index entry. `follow` stays on precisely
+  // because the page's job in that state is to point at the rooms and the
+  // neighbouring weeks. This is the same rule, and the same shape, the day
+  // builder applies to an empty night, and it closes the gap that builder
+  // documents: a quiet current week is what `/tonight` consolidates onto.
+  //
+  // Only on the DATED route. The rolling `/week` declares this dated permalink
+  // as its canonical, and a noindex beside a canonical naming a DIFFERENT URL
+  // is a contradiction search engines resolve by consolidating the suppression
+  // onto the target — which would suppress the archived week as well.
+  //
+  // Zero shows, not "is_past_week": `scene_weeks` in the sitemap announces the
+  // last eight weeks per scene and excludes only the weeks with no approved
+  // show, so noindexing every past week would mark submitted URLs noindex.
+  // The pages suppressed here are exactly the ones that sitemap never names.
+  const robots =
+    week !== undefined && total === 0 ? { index: false, follow: true } : undefined
+
   return {
     title,
     description,
     alternates: { canonical },
+    ...(robots ? { robots } : {}),
     openGraph: {
       title,
       description,

@@ -8,7 +8,6 @@ import { looksLikeISOWeek, showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
   dayTrackedVenues,
-  formatDayChip,
   formatDayCountLine,
   formatDayFull,
   formatPointerDay,
@@ -19,14 +18,19 @@ import {
   type SceneDayShow,
 } from '../sceneDay'
 import {
-  SCENE_NAV_CHIP_CLASS,
   navigablePeriodKey,
   RoomList,
   SceneBreadcrumb,
-  SceneCityHeading,
+  SceneWindowHeading,
   ShowStatusBadge,
   TrackedRoomsFooter,
 } from './sceneChrome'
+import {
+  SCENE_NAV_END_EDGE,
+  SCENE_NAV_START_EDGE,
+  SceneWindowNav,
+} from './SceneWindowNav'
+import { formatMonthDay, sceneDayPhrase, sceneWindowTitle } from '../sceneWindow'
 
 /**
  * One show, time first.
@@ -181,7 +185,21 @@ function EmptyNight({
   )
 }
 
-export function SceneDayView({ day }: { day: SceneDayResponse }) {
+export function SceneDayView({
+  day,
+  isRollingRoute = false,
+}: {
+  day: SceneDayResponse
+  /**
+   * True on `/scenes/{slug}/tonight`, the rolling route.
+   *
+   * It decides what this page calls itself and which window the nav marks
+   * current. The payload's `is_tonight` cannot: that flag is also true for the
+   * DATED permalink naming today, and a permanent URL must not call itself
+   * "tonight".
+   */
+  isRollingRoute?: boolean
+}) {
   // On the LIVE night the rows a reader can still get to lead, and the ones
   // already under way sink beneath them in the order they started (user
   // decision, PSY-1969). Nothing is DROPPED, so the count below is still a
@@ -220,38 +238,30 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
       <SceneBreadcrumb slug={day.slug} sceneName={day.scene_name} />
 
       <header className="mt-2">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <SceneCityHeading city={day.city} state={day.state} />
+        <SceneWindowHeading
+          title={sceneWindowTitle(sceneDayPhrase(day.date, isRollingRoute), day.city)}
+        />
 
-          {/* The adjacent-day chips render only when the server offered a date
-              this site can serve. At the edges of the servable window there is
-              no next day to go to, and a chip pointing at a URL this site 404s
-              is a worse answer than no chip. */}
-          <div className="flex gap-2">
-            {prevDay && (
-              <Link
-                href={`/scenes/${day.slug}/${prevDay}`}
-                className={SCENE_NAV_CHIP_CLASS}
-                rel="prev"
-              >
-                ← {formatDayChip(prevDay)}
-              </Link>
-            )}
-            {weekHref && (
-              <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
-                Full week
-              </Link>
-            )}
-            {nextDay && (
-              <Link
-                href={`/scenes/${day.slug}/${nextDay}`}
-                className={SCENE_NAV_CHIP_CLASS}
-                rel="next"
-              >
-                {formatDayChip(nextDay)} →
-              </Link>
-            )}
-          </div>
+        {/* The adjacent-day row names a date only when the server offered one
+            this site can serve. At the edges of the servable window there is no
+            next night to go to, and a link pointing at a URL this site 404s is
+            a worse answer than the muted statement that the listings end. */}
+        <div className="mt-2">
+          <SceneWindowNav
+            slug={day.slug}
+            current={isRollingRoute ? 'tonight' : null}
+            steps={{
+              label: 'Adjacent days',
+              prev: {
+                label: prevDay ? formatMonthDay(prevDay) : SCENE_NAV_START_EDGE,
+                href: prevDay ? `/scenes/${day.slug}/${prevDay}` : null,
+              },
+              next: {
+                label: nextDay ? formatMonthDay(nextDay) : SCENE_NAV_END_EDGE,
+                href: nextDay ? `/scenes/${day.slug}/${nextDay}` : null,
+              },
+            }}
+          />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">

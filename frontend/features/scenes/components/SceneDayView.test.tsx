@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, within, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, within, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
 import { SceneDayView } from './SceneDayView'
 import type { SceneDayResponse, SceneDayShow, SceneTrackedVenue } from '../sceneDay'
@@ -123,12 +123,15 @@ describe('SceneDayView — share affordance', () => {
 })
 
 describe('SceneDayView — a night with shows', () => {
-  it('renders the city with its state alongside', () => {
+  // The title rule. A dated permalink names its date; only the rolling route
+  // may call itself tonight, and `is_tonight` is true for both.
+  it('titles a dated permalink by its date, and the rolling route by the window', () => {
     render(<SceneDayView day={day()} />)
-    const h1 = screen.getByRole('heading', { level: 1 })
-    expect(h1).toHaveTextContent('Phoenix')
-    // Cold arrivals from a shared link need it: "Columbus" is ambiguous.
-    expect(h1).toHaveTextContent('AZ')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Jul 31 in Phoenix')
+
+    cleanup()
+    render(<SceneDayView day={day()} isRollingRoute />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Tonight in Phoenix')
   })
 
   // The WHOLE line, exactly. Three separate substring assertions all resolve to
@@ -158,7 +161,9 @@ describe('SceneDayView — a night with shows', () => {
   // "tonight" would be false the day after it was written.
   it('drops the tonight framing on a dated permalink that is not tonight', () => {
     render(<SceneDayView day={day({ is_tonight: false })} />)
-    expect(screen.queryByText(/Tonight/)).not.toBeInTheDocument()
+    // The nav's own `Tonight` chip is a link to the rolling route and is not
+    // this page's framing, so the assertion is on the line that frames it.
+    expect(screen.queryByText(/Tonight — /)).not.toBeInTheDocument()
     expect(screen.getByText(/Friday, July 31, 2026/)).toBeInTheDocument()
   })
 
@@ -263,27 +268,45 @@ describe('SceneDayView — a night with shows', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('offers adjacent-day navigation and a way to the week', () => {
+  it('offers adjacent-day navigation and the window family', () => {
     render(<SceneDayView day={day()} />)
-    expect(screen.getByRole('link', { name: /Thu Jul 30/ })).toHaveAttribute(
+    const adjacent = screen.getByRole('navigation', { name: 'Adjacent days' })
+    expect(within(adjacent).getByRole('link', { name: /Jul 30/ })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/2026-07-30'
     )
-    expect(screen.getByRole('link', { name: /Sat Aug 1/ })).toHaveAttribute(
+    expect(within(adjacent).getByRole('link', { name: /Aug 1/ })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/2026-08-01'
     )
-    expect(screen.getByRole('link', { name: 'Full week' })).toHaveAttribute(
+
+    const windows = screen.getByRole('navigation', { name: 'Show windows' })
+    expect(within(windows).getByRole('link', { name: 'This week' })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/week'
     )
   })
 
+  // A dated permalink is not one of the rolling windows, so the strip marks
+  // none of them current — the reader is on a single night, not on a window.
+  it('marks no window current on a dated permalink, and marks tonight on the rolling route', () => {
+    const { container } = render(<SceneDayView day={day()} />)
+    expect(container.querySelector('[aria-current="page"]')).toBeNull()
+
+    cleanup()
+    const rolling = render(<SceneDayView day={day()} isRollingRoute />)
+    expect(rolling.container.querySelector('[aria-current="page"]')).toHaveTextContent(
+      'Tonight'
+    )
+  })
+
   // A page about a night two months ago must not link to whatever week it
-  // happens to be now.
-  it('links a past night to its OWN week, not the rolling one', () => {
-    render(<SceneDayView day={day({ is_tonight: false })} />)
-    expect(screen.getByRole('link', { name: 'Full week' })).toHaveAttribute(
+  // happens to be now: the quiet body's week link carries the night's OWN week.
+  it('links a past quiet night to its OWN week, not the rolling one', () => {
+    render(
+      <SceneDayView day={day({ is_tonight: false, show_count: 0, shows: [] })} />
+    )
+    expect(screen.getByRole('link', { name: /Full week in Phoenix/ })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/2026-W31'
     )
@@ -491,12 +514,17 @@ describe('SceneDayView — the edges of the servable window', () => {
 
   // The server sends an empty adjacent date when there is no servable day that
   // way. Rendering the chip anyway would advertise a link the site 404s.
-  it('renders no chip for an adjacent day the server did not offer', () => {
+  it('renders no link for an adjacent day the server did not offer', () => {
     const { container } = render(<SceneDayView day={day({ prev_date: '', next_date: '' })} />)
 
     expect(datedLinks(container)).toEqual([])
+    // Muted text in both directions rather than a link to a page that 404s.
+    const adjacent = screen.getByRole('navigation', { name: 'Adjacent days' })
+    expect(within(adjacent).getByText('Start of listings')).toBeInTheDocument()
+    expect(within(adjacent).getByText('End of listings')).toBeInTheDocument()
+    expect(within(adjacent).queryAllByRole('link')).toEqual([])
     // The way out is still there.
-    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'This week' })).toBeInTheDocument()
   })
 
   // A date the day route would reject is the same answer as no date, arrived at
@@ -513,10 +541,10 @@ describe('SceneDayView — the edges of the servable window', () => {
 
     expect(datedLinks(container)).toEqual([])
     expect(container.innerHTML).not.toContain('undefined')
-    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'This week' })).toBeInTheDocument()
   })
 
-  it('renders both chips when the server offers both dates', () => {
+  it('renders both directions when the server offers both dates', () => {
     const { container } = render(<SceneDayView day={day()} />)
 
     expect(datedLinks(container)).toEqual([

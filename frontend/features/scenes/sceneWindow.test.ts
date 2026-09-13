@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  SCENE_WINDOW_LABEL,
   SCENE_WINDOW_ORDER,
   allUpcomingHref,
   capWindowRows,
   countWindowShows,
   flattenWeekDays,
+  formatMonthDay,
   formatWindowRange,
   rollingDays,
   sceneCityListHref,
+  sceneDayPhrase,
+  sceneWeekPhrase,
+  sceneWeekStepLabel,
   sceneWindowHref,
+  sceneWindowTitle,
   weekendDays,
 } from './sceneWindow'
 import type { SceneWeekDay, SceneWeekResponse } from './sceneWeek'
@@ -221,5 +227,71 @@ describe('sceneCityListHref', () => {
     expect(allUpcomingHref('Phoenix', 'AZ')).toBe(
       sceneCityListHref('/shows', 'Phoenix', 'AZ')
     )
+  })
+})
+
+/**
+ * The one title rule, as a table across every state that has to obey it.
+ *
+ * The faults it guards are the ones that read as confident and are wrong: a
+ * permalink calling itself "tonight" or "this week" long after the night or the
+ * week has ended, and a date parsed as a UTC instant naming the day before.
+ */
+describe('the window title rule', () => {
+  it.each(SCENE_WINDOW_ORDER)('titles the %s window by its label', key => {
+    expect(sceneWindowTitle(SCENE_WINDOW_LABEL[key], 'Chicago')).toBe(
+      `${SCENE_WINDOW_LABEL[key]} in Chicago`
+    )
+  })
+
+  it('titles the rolling night as the window, and a dated one as its date', () => {
+    expect(sceneWindowTitle(sceneDayPhrase('2026-09-14', true), 'Chicago')).toBe(
+      'Tonight in Chicago'
+    )
+    expect(sceneWindowTitle(sceneDayPhrase('2026-09-14', false), 'Chicago')).toBe(
+      'Sep 14 in Chicago'
+    )
+  })
+
+  it('titles the current week as the window, and an archived one by its Monday', () => {
+    expect(sceneWindowTitle(sceneWeekPhrase('2026-09-14', true), 'Chicago')).toBe(
+      'This week in Chicago'
+    )
+    expect(sceneWindowTitle(sceneWeekPhrase('2026-09-07', false), 'Chicago')).toBe(
+      'Week of Sep 7 in Chicago'
+    )
+  })
+
+  // A week that has not happened yet is not "this week" either, and it is not
+  // archived — one rule covers both by keying on `is_current_week` alone.
+  it('names a future week by its Monday, like an archived one', () => {
+    expect(sceneWeekPhrase('2026-09-21', false)).toBe('Week of Sep 21')
+  })
+
+  // The killer bug: `new Date('2026-09-14')` is UTC midnight, which prints as
+  // Sep 13 in every negative-offset zone.
+  it('reads a calendar date as a calendar date, not a UTC instant', () => {
+    expect(formatMonthDay('2026-09-14')).toBe('Sep 14')
+    expect(formatMonthDay('2026-01-01')).toBe('Jan 1')
+  })
+})
+
+describe('sceneWeekStepLabel', () => {
+  // "Last" and "next" are claims about now; only the current week may make them.
+  it('names the neighbours of the current week relatively', () => {
+    expect(sceneWeekStepLabel('2026-09-14', -1, true)).toBe('Last week')
+    expect(sceneWeekStepLabel('2026-09-14', 1, true)).toBe('Next week')
+  })
+
+  it('names the neighbours of any other week by their own Monday', () => {
+    expect(sceneWeekStepLabel('2026-09-07', -1, false)).toBe('Week of Aug 31')
+    expect(sceneWeekStepLabel('2026-09-07', 1, false)).toBe('Week of Sep 14')
+  })
+
+  // Seven days back from the first Monday of a month is the previous month,
+  // and from the first week of a year the previous one.
+  it('crosses a month and a year boundary', () => {
+    expect(sceneWeekStepLabel('2026-03-02', -1, false)).toBe('Week of Feb 23')
+    expect(sceneWeekStepLabel('2026-01-05', -1, false)).toBe('Week of Dec 29')
   })
 })
