@@ -2682,9 +2682,13 @@ type ShowServiceInterface interface {
 	// the consumer is a jump target and an empty month is not one.
 	//
 	// Under one snapshot its counts sum to GetUpcomingShowsPage's unwindowed
-	// total for the same filters, which is what lets a pager label a page it has
-	// not fetched. The two are separate reads, so an approval or a venue-local
-	// midnight between them moves the later one.
+	// total for the same filters. The two are separate reads, so an approval or
+	// a venue-local midnight between them moves the later one.
+	//
+	// The sum is an identity over the SET, not over the offset sequence. A month
+	// is addressed by asking for it (Year plus Month), never by adding bars to
+	// derive an offset into the unwindowed list: that list is ordered by the
+	// stored instant, so a month's rows are not contiguous in it.
 	GetUpcomingShowMonths(includeNonApproved bool, filters *UpcomingShowsFilter) ([]ShowMonthCount, error)
 	// GetShowCities counts the SAME venue-local upcoming partition
 	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an

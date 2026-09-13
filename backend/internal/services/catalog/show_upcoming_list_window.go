@@ -181,6 +181,21 @@ func (s *ShowService) GetUpcomingShowsPage(
 		// `shows.id ASC` is not decoration: event_date is not unique, and an
 		// unstable tiebreak makes an offset page overlap or skip rows against
 		// the page before it.
+		//
+		// The sort key is the stored INSTANT while membership and the window are
+		// venue-local DATES, and the two orderings are the same only within one
+		// zone. Across zones the instants of one venue-local date span more than
+		// a day, so two rows within that band can be returned in an order that
+		// inverts their local dates: a 22:00 Honolulu show and an 02:00 Boston
+		// show the next local morning are four hours apart the other way in UTC.
+		//
+		// Deliberate, and the same call the artist archive made: this is the
+		// ordering the cursor list uses, whose cursor IS event_date, and the two
+		// share one predicate set so an unwindowed page here matches that list
+		// row for row. Sorting venue-locally would change shipped behaviour and
+		// give up the index. What it costs is bounded: rows can permute WITHIN a
+		// window, never move between windows, because membership is decided by
+		// the local date alone.
 		if err := page.
 			Order("shows.event_date ASC, shows.id ASC").
 			Limit(limit).
