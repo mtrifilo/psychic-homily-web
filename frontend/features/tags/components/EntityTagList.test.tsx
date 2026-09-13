@@ -659,6 +659,96 @@ describe('EntityTagList crew pill treatment (PSY-1883)', () => {
   })
 })
 
+describe('EntityTagList omitCrewTags', () => {
+  const CREW = { tag_id: 9, name: 'Rubber Brother Records', slug: 'rubber-brother-records', category: 'crew', is_official: false, upvotes: 0, downvotes: 0, wilson_score: 0, user_vote: 0 }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockSearchTags = { tags: [] }
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+    currentMockTags = { tags: [mockEntityTags.tags[0], CREW] }
+  })
+
+  it('draws the crew tag by default', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(within(desktopRow()).getByText('Rubber Brother Records')).toBeInTheDocument()
+  })
+
+  it('drops the crew tag and keeps the descriptive ones when asked', () => {
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(
+      within(desktopRow()).queryByText('Rubber Brother Records')
+    ).not.toBeInTheDocument()
+    expect(within(desktopRow()).getByText('rock')).toBeInTheDocument()
+  })
+
+  // The mobile row reads the same drawn set. A crew chip surviving behind the
+  // `sm:hidden` breakpoint would print the booker twice on a phone only.
+  it('drops the crew tag from the mobile row too', () => {
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(
+      within(screen.getByTestId('entity-tag-list-mobile-row')).queryByText(
+        'Rubber Brother Records'
+      )
+    ).not.toBeInTheDocument()
+  })
+
+  // Hiding is gated on what the list DRAWS, so an entity whose only tags are
+  // crew tags hides the heading rather than captioning an empty row.
+  it('renders nothing when every tag it holds is a crew tag', () => {
+    currentMockTags = { tags: [CREW] }
+    const { container } = renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // The add flow still has to know the crew tag is applied, or searching for
+  // it offers to apply it a second time.
+  it('still reports an omitted crew tag as already applied', async () => {
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: CREW.tag_id,
+          name: CREW.name,
+          slug: CREW.slug,
+          category: 'crew',
+          is_official: false,
+          usage_count: 4,
+          created_at: '',
+        },
+      ],
+    }
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated omitCrewTags />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    await user.type(
+      screen.getByPlaceholderText('Search tags or type a new one...'),
+      'Rubber Brother'
+    )
+
+    expect(
+      await screen.findByTestId('tag-autocomplete-already-applied', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
+  })
+})
+
 describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

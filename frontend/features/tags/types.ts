@@ -645,6 +645,23 @@ export function getTagChipClasses(tag: {
 }
 
 /**
+ * The order applied tags are drawn in: most-confident first, by the Wilson
+ * score the backend computes from the votes on that application.
+ *
+ * The name tiebreak is what makes the order a fact rather than a coincidence.
+ * `ListEntityTags` issues no `ORDER BY`, so its rows arrive in whatever order
+ * the engine produced them, and an untagged-by-votes entity — every tag at
+ * score zero, which is the common case — would otherwise keep that order and
+ * reshuffle between two reads of the same page.
+ */
+export function compareEntityTagsByConfidence(
+  a: Pick<EntityTag, 'name' | 'wilson_score'>,
+  b: Pick<EntityTag, 'name' | 'wilson_score'>
+): number {
+  return b.wilson_score - a.wilson_score || a.name.localeCompare(b.name)
+}
+
+/**
  * The display form of a category. Normalizing first means one stored spelling
  * per label; the vocabulary is lowercase, so an all-caps stored value reads
  * back title-cased rather than shouted.

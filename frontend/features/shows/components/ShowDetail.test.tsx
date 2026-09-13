@@ -210,8 +210,21 @@ vi.mock('@/features/charts', () => ({
   useChartEntityRank: () => ({ data: undefined, isSuccess: false }),
 }))
 
+const mockEntityTagList = vi.fn()
 vi.mock('@/features/tags', () => ({
-  EntityTagList: () => <div data-testid="entity-tag-list" />,
+  EntityTagList: (props: { omitCrewTags?: boolean }) => {
+    mockEntityTagList(props)
+    return <div data-testid="entity-tag-list" />
+  },
+}))
+
+// Stubbed rather than driven from a tag payload: what the row draws is
+// ShowCrewAttribution.test.tsx's subject, and this file's claim is where the
+// row sits and that the tag list beside it is told to omit crews.
+vi.mock('./ShowCrewAttribution', () => ({
+  ShowCrewAttribution: ({ showId }: { showId: number }) => (
+    <div data-testid="show-crew-attribution">{showId}</div>
+  ),
 }))
 
 vi.mock('@/features/comments', () => ({
@@ -508,6 +521,31 @@ describe('ShowDetail', () => {
       )
       expect(screen.getByTestId('header-slot')).not.toContainElement(
         screen.getByTestId('entity-tag-list')
+      )
+    })
+
+    // The booker credit is the FIRST row of the footer block, above the tag
+    // list. Position is the claim: a row rendered after the tag list would
+    // still "be in the footer" and would still be the wrong row.
+    it('renders the crew attribution row above the tag list in the footer', () => {
+      render(<ShowDetail showId="1" lifecycle="upcoming" renderedAt={DETAIL_RENDERED_AT} />)
+
+      const footer = screen.getByTestId('show-provenance-footer')
+      const crew = screen.getByTestId('show-crew-attribution')
+      expect(footer).toContainElement(crew)
+      expect(
+        crew.compareDocumentPosition(screen.getByTestId('entity-tag-list')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    // Crew tags are drawn by the row above, so the generic list must not draw
+    // them again. Without this the same promoter prints twice.
+    it('tells the tag list to omit crew tags', () => {
+      render(<ShowDetail showId="1" lifecycle="upcoming" renderedAt={DETAIL_RENDERED_AT} />)
+
+      expect(mockEntityTagList).toHaveBeenCalledWith(
+        expect.objectContaining({ omitCrewTags: true })
       )
     })
 
