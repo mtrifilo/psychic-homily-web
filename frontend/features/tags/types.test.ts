@@ -8,6 +8,7 @@ import {
   LOW_QUALITY_SIGNAL_CHIPS,
   DESCRIPTIVE_TAG_CATEGORIES,
   compareEntityTagsByConfidence,
+  isCrewTagCategory,
   isDescriptiveTagCategory,
   getCategoryChipClasses,
   getCategoryTint,
@@ -304,6 +305,18 @@ describe('getEntityTypePluralLabel', () => {
 
   it('returns the raw value for an unknown entity type', () => {
     expect(getEntityTypePluralLabel('mixtape')).toBe('mixtape')
+  })
+})
+
+describe('isCrewTagCategory', () => {
+  it.each(['crew', 'Crew', '  CREW  '])('accepts the stored spelling %p', value => {
+    expect(isCrewTagCategory(value)).toBe(true)
+  })
+
+  // The negation of `isDescriptiveTagCategory` would say yes here, which is
+  // why crediting a booker asks this predicate instead.
+  it.each(['genre', 'locale', 'other', 'sponsor'])('rejects %p', value => {
+    expect(isCrewTagCategory(value)).toBe(false)
   })
 })
 

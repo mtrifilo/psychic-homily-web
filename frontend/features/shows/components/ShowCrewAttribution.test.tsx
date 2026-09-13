@@ -42,10 +42,10 @@ function tag(overrides: Partial<EntityTag> & Pick<EntityTag, 'name'>): EntityTag
   }
 }
 
-const RELAX = tag({ tag_id: 11, name: 'Relax Attack Jazz Series' })
-const PLEIADES = tag({ tag_id: 12, name: 'Pleiades Series' })
-const GENRE = tag({ tag_id: 20, name: 'post-punk', category: 'genre' })
-const LOCALE = tag({ tag_id: 21, name: 'chicago', category: 'locale' })
+const RELAX = tag({ name: 'Relax Attack Jazz Series' })
+const PLEIADES = tag({ name: 'Pleiades Series' })
+const GENRE = tag({ name: 'post-punk', category: 'genre' })
+const LOCALE = tag({ name: 'chicago', category: 'locale' })
 
 /** `undefined` data is how both loading and error arrive from the query. */
 function renderRow(tags: EntityTag[] | undefined) {
@@ -97,7 +97,7 @@ describe('ShowCrewAttribution', () => {
 
   // `tags.category` is an unconstrained column, so the guard has to normalize.
   it('recognizes a crew tag stored under a different casing', () => {
-    renderRow([tag({ tag_id: 13, name: 'Pleiades Series', category: 'Crew' })])
+    renderRow([tag({ name: 'Pleiades Series', category: 'Crew' })])
 
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
   })
@@ -117,7 +117,7 @@ describe('ShowCrewAttribution', () => {
   it('leads with the most-upvoted crew', () => {
     renderRow([
       PLEIADES,
-      tag({ tag_id: 11, name: 'Relax Attack Jazz Series', wilson_score: 0.6 }),
+      tag({ name: 'Relax Attack Jazz Series', wilson_score: 0.6 }),
     ])
 
     expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
@@ -126,11 +126,12 @@ describe('ShowCrewAttribution', () => {
   })
 
   // A tag whose slug addresses the tag INDEX rather than the tag is still
-  // named: the name is what the chip is for.
-  it.each(['', '   ', '.', '..'])(
+  // named: the name is what the chip is for. Which slugs those are is
+  // `lib/entity-slug`'s subject; the claim here is the unlinked branch.
+  it.each(['', '..'])(
     'names but does not link a crew whose slug is %p',
     slug => {
-      renderRow([tag({ tag_id: 14, name: 'Pleiades Series', slug })])
+      renderRow([tag({ name: 'Pleiades Series', slug })])
 
       expect(screen.getByText('Pleiades Series')).toBeInTheDocument()
       expect(screen.queryByRole('link')).not.toBeInTheDocument()
@@ -138,7 +139,7 @@ describe('ShowCrewAttribution', () => {
   )
 
   it('encodes a slug that would otherwise splice a second path segment', () => {
-    renderRow([tag({ tag_id: 15, name: 'Pleiades Series', slug: 'a/b' })])
+    renderRow([tag({ name: 'Pleiades Series', slug: 'a/b' })])
 
     expect(screen.getByRole('link', { name: 'Pleiades Series' })).toHaveAttribute(
       'href',
@@ -147,7 +148,7 @@ describe('ShowCrewAttribution', () => {
   })
 
   it('drops a crew it cannot name', () => {
-    renderRow([tag({ tag_id: 16, name: '   ', slug: 'nameless' }), RELAX])
+    renderRow([tag({ name: '   ', slug: 'nameless' }), RELAX])
 
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
   })

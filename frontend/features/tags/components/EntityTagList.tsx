@@ -36,7 +36,7 @@ import {
   compareEntityTagsByConfidence,
   getCategoryChipClasses,
   getTagChipClasses,
-  isDescriptiveTagCategory,
+  isCrewTagCategory,
   DESCRIPTIVE_TAG_CATEGORIES,
   getCategoryLabel,
 } from '../types'
@@ -125,7 +125,7 @@ export function EntityTagList({
   const sortedTags = useMemo(
     () =>
       (data?.tags ?? [])
-        .filter(tag => !omitCrewTags || isDescriptiveTagCategory(tag.category))
+        .filter(tag => !(omitCrewTags && isCrewTagCategory(tag.category)))
         .sort(compareEntityTagsByConfidence),
     [data?.tags, omitCrewTags]
   )

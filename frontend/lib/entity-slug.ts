@@ -23,6 +23,30 @@ export function addressesAnEntity(slug: string): boolean {
 }
 
 /**
+ * `/artists/gatecreeper`, or null when the entity has no usable slug.
+ *
+ * The guard above in the form a caller that BUILDS a link reaches for. Null
+ * means "do not link this", never "link to the index": the three slug shapes
+ * `addressesAnEntity` refuses all resolve to the entity type's index page
+ * rather than 404ing, so the naive `/artists/${slug}` silently sends the
+ * reader to a directory that never mentions the thing they clicked.
+ *
+ * Anything else is encoded, so the slug can only ever be ONE path segment.
+ * Slugs are generated server-side and are `[a-z0-9-]` in practice, which
+ * survives encoding untouched — this costs nothing on every real row and stops
+ * a stored `/` from splicing a second segment onto the route the caller chose.
+ */
+export function entityHref(
+  /** Route prefix WITHOUT a trailing slash, e.g. `/artists`. */
+  basePath: string,
+  slug?: string | null
+): string | null {
+  const trimmed = slug?.trim() ?? ''
+  if (!addressesAnEntity(trimmed)) return null
+  return `${basePath}/${encodeURIComponent(trimmed)}`
+}
+
+/**
  * Characters that END or RE-TARGET a URL path segment.
  *
  * `/` and `\` open a second segment (browsers normalize the backslash), `?` and

@@ -1,5 +1,6 @@
 // Tag types — aligned with backend contracts/tag.go response types.
 
+import { cn } from '@/lib/utils'
 import type { SocialLinkPlatform, SocialLinkValues } from '@/lib/socialLinks'
 
 export const TAG_CATEGORIES = [
@@ -40,6 +41,20 @@ function normalizeCategory(category: string): string {
  */
 export function isDescriptiveTagCategory(category: string): boolean {
   return normalizeCategory(category) !== TAG_CATEGORY_CREW
+}
+
+/**
+ * Does this tag name the party that booked the show?
+ *
+ * The positive half of the question above, for a surface that SELECTS crews
+ * rather than excluding them. Written as its own predicate rather than as a
+ * negation at the call site: an unrecognized category is descriptive, so
+ * "not descriptive" and "is crew" agree today but would part company the
+ * moment a second party-naming category exists, and a row credited as the
+ * booker must be one this build actually knows is a booker.
+ */
+export function isCrewTagCategory(category: string): boolean {
+  return normalizeCategory(category) === TAG_CATEGORY_CREW
 }
 
 /**
@@ -645,6 +660,33 @@ export function getTagChipClasses(tag: {
 }
 
 /**
+ * Every class the crew chip wears EXCEPT its size, which each surface sets
+ * from its own density — the category treatment above carries no font size
+ * for that reason, and this constant keeps the same contract.
+ *
+ * The width, padding and radius are the chip drawn in Figma `1402:789`, and
+ * they belong to the crew tag rather than to any one page: a surface that
+ * composed its own would drift from every other the first time the chip is
+ * tuned.
+ *
+ * `break-words` is the guard on a crew name long enough to exceed the content
+ * column on a narrow screen: `tags.name` allows 100 characters, and a single
+ * unbroken token that cannot fit a line would otherwise widen the page.
+ *
+ * Compose through `cn`, so a surface's size class survives the merge.
+ */
+export const CREW_CHIP_CLASS = cn(
+  'inline-flex max-w-full items-center break-words border px-2 py-1 leading-none',
+  getCategoryChipClasses(TAG_CATEGORY_CREW)
+)
+
+/** Hover and focus, which the chip wears only when it is a link. */
+export const CREW_CHIP_LINK_CLASS = cn(
+  CREW_CHIP_CLASS,
+  'transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+)
+
+/**
  * The order applied tags are drawn in: most-confident first, by the Wilson
  * score the backend computes from the votes on that application.
  *
@@ -658,8 +700,15 @@ export function compareEntityTagsByConfidence(
   a: Pick<EntityTag, 'name' | 'wilson_score'>,
   b: Pick<EntityTag, 'name' | 'wilson_score'>
 ): number {
-  return b.wilson_score - a.wilson_score || a.name.localeCompare(b.name)
+  return b.wilson_score - a.wilson_score || TAG_NAME_COLLATOR.compare(a.name, b.name)
 }
+
+/**
+ * Built once rather than per comparison: this comparator is on the sort path
+ * of every applied-tag list on the site, and `localeCompare` resolves a
+ * collator on each call.
+ */
+const TAG_NAME_COLLATOR = new Intl.Collator(undefined, { sensitivity: 'base' })
 
 /**
  * The display form of a category. Normalizing first means one stored spelling

@@ -4,36 +4,19 @@ import { cn } from '@/lib/utils'
 // Deep-imported, not through a barrel — see the note in
 // features/scenes/components/index.ts.
 import {
-  getCategoryChipClasses,
-  TAG_CATEGORY_CREW,
+  CREW_CHIP_CLASS as CREW_CHIP_BASE_CLASS,
+  CREW_CHIP_LINK_CLASS as CREW_CHIP_BASE_LINK_CLASS,
 } from '@/features/tags/types'
 import { useSceneCrews } from '../hooks'
 import { EntityNameLink } from './sceneChrome'
 import type { SceneDetail } from '../types'
 
 /**
- * The chip, composed once.
- *
- * The crew category's own look (no fill, square corners, mono uppercase
- * letterspaced, muted) comes from the shared treatment. This surface adds the
- * border width, the 8px/4px padding and the 11px size: the shared treatment
- * carries no font size precisely so each surface keeps its own density, and
- * this page's micro-caps register is 11px.
- *
- * `break-words` is the guard on a crew name long enough to exceed the content
- * column on a narrow screen. `tags.name` allows 100 characters, and a single
- * unbroken token that cannot fit a line would otherwise widen the page.
+ * The shared crew chip at this page's density. Everything but the size is the
+ * crew tag's own treatment; the size is the page's micro-caps register.
  */
-const CREW_CHIP_CLASS = cn(
-  'inline-flex max-w-full items-center break-words border px-2 py-1 text-[11px] leading-none',
-  getCategoryChipClasses(TAG_CATEGORY_CREW)
-)
-
-/** Hover and focus, which the chip wears only when it is a link. */
-const CREW_CHIP_LINK_CLASS = cn(
-  CREW_CHIP_CLASS,
-  'transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
-)
+const CREW_CHIP_CLASS = cn(CREW_CHIP_BASE_CLASS, 'text-[11px]')
+const CREW_CHIP_LINK_CLASS = cn(CREW_CHIP_BASE_LINK_CLASS, 'text-[11px]')
 
 /**
  * The music bookers whose tag sits on shows in this scene: promoters, DIY

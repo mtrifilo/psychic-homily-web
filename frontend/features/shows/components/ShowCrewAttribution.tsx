@@ -3,47 +3,29 @@
 import { useId, useMemo } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
-import { addressesAnEntity } from '@/lib/entity-slug'
-// Deep-imported, not through the `@/features/tags` barrel — see the note in
-// features/shows/components/index.ts.
+import { entityHref } from '@/lib/entity-slug'
+// Deep-imported, not through the `@/features/tags` barrel — the note in
+// features/shows/components/index.ts explains what a barrel costs here.
 import { useEntityTags } from '@/features/tags/hooks'
 import {
   compareEntityTagsByConfidence,
-  getCategoryChipClasses,
-  isDescriptiveTagCategory,
-  TAG_CATEGORY_CREW,
+  isCrewTagCategory,
+  CREW_CHIP_CLASS,
+  CREW_CHIP_LINK_CLASS,
 } from '@/features/tags/types'
 
 /**
- * The row's type register: mono micro-caps on the muted tone, the same 11px
- * the shipped crew chip wears on the scene page. Label and chip share it, as
- * Figma `1666:2` draws them at one size.
+ * The row's type register per Figma `1666:2`: mono micro-caps on the muted
+ * tone, label and chips at one size. 11px is the site's crew-chip density.
  */
 const CREW_ROW_TEXT_CLASS = 'font-mono text-[11px] uppercase tracking-[0.04em]'
 
 /**
- * The chip, composed once.
- *
- * The crew category's own look (no fill, square corners, mono uppercase
- * letterspaced, muted) comes from the shared treatment, which carries no font
- * size so each surface keeps its own density. This surface adds the border
- * width, the 8px/4px padding of the frame, and the register above.
- *
- * `break-words` is the guard on a crew name long enough to exceed the content
- * column on a narrow screen: `tags.name` allows 100 characters, and a single
- * unbroken token that cannot fit a line would otherwise widen the page.
+ * The shared crew chip at this page's density; everything but the size is the
+ * crew tag's own treatment.
  */
-const CREW_CHIP_CLASS = cn(
-  'inline-flex max-w-full items-center break-words border px-2 py-1 leading-none',
-  CREW_ROW_TEXT_CLASS,
-  getCategoryChipClasses(TAG_CATEGORY_CREW)
-)
-
-/** Hover and focus, which the chip wears only when it is a link. */
-const CREW_CHIP_LINK_CLASS = cn(
-  CREW_CHIP_CLASS,
-  'transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
-)
+const SHOW_CREW_CHIP_CLASS = cn(CREW_CHIP_CLASS, 'text-[11px]')
+const SHOW_CREW_CHIP_LINK_CLASS = cn(CREW_CHIP_LINK_CLASS, 'text-[11px]')
 
 /**
  * The bookers this listing is credited to: the show's crew-category tags,
@@ -76,7 +58,7 @@ export function ShowCrewAttribution({ showId }: { showId: number }) {
   const crews = useMemo(
     () =>
       (data?.tags ?? [])
-        .filter(tag => !isDescriptiveTagCategory(tag.category) && tag.name.trim())
+        .filter(tag => isCrewTagCategory(tag.category) && tag.name.trim())
         .sort(compareEntityTagsByConfidence),
     [data?.tags]
   )
@@ -97,17 +79,15 @@ export function ShowCrewAttribution({ showId }: { showId: number }) {
         className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
       >
         {crews.map(crew => {
-          const href = addressesAnEntity(crew.slug.trim())
-            ? `/tags/${encodeURIComponent(crew.slug.trim())}`
-            : null
+          const href = entityHref('/tags', crew.slug)
           return (
             <li key={crew.tag_id}>
               {href ? (
-                <Link href={href} className={CREW_CHIP_LINK_CLASS}>
+                <Link href={href} className={SHOW_CREW_CHIP_LINK_CLASS}>
                   {crew.name}
                 </Link>
               ) : (
-                <span className={CREW_CHIP_CLASS}>{crew.name}</span>
+                <span className={SHOW_CREW_CHIP_CLASS}>{crew.name}</span>
               )}
             </li>
           )
