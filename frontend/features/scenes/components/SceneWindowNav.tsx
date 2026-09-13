@@ -75,7 +75,7 @@ function NavStep({
     <Link href={step.href} rel={direction} className={`${LINK_CLASS} text-primary`}>
       {/* The arrow carries the direction for a reader looking at the row, and
           `rel` carries it for a crawler, but neither reaches a screen reader as
-          a word — an arrow may be announced as anything or as nothing. The
+          a word, and an arrow may be announced as anything or as nothing. The
           accessible name says it. */}
       <span className="sr-only">{direction === 'prev' ? 'Previous: ' : 'Next: '}</span>
       {direction === 'prev' ? `← ${step.label}` : `${step.label} →`}

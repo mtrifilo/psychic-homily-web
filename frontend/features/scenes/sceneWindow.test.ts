@@ -255,7 +255,7 @@ describe('the window title rule', () => {
   })
 
   // A week that has not happened yet is not "this week" either, and it is not
-  // archived — one rule covers both by keying on `is_current_week` alone.
+  // archived, and one rule covers both by keying on `is_current_week` alone.
   it('names a future week by its Monday, like an archived one', () => {
     expect(sceneWeekTitle('2026-09-21', 'Chicago', false)).toBe(
       'Week of Sep 21 in Chicago'

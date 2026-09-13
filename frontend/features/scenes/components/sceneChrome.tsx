@@ -158,8 +158,8 @@ export function SceneBreadcrumb({ slug, sceneName }: { slug: string; sceneName: 
 /**
  * The window family's H1: `This week in Chicago`, one line.
  *
- * Set in the locked frame's register (`1665:2`) — mono, bold, micro-caps at
- * 14px with 4% tracking — rather than at display scale. The title rule puts a
+ * Set in the locked frame's register (`1665:2`): mono, bold, micro-caps at
+ * 14px with 4% tracking, rather than at display scale. The title rule puts a
  * window phrase in front of the city, which at display scale wraps to three
  * lines at 390px and spends the top of a calendar page on its own name.
  *

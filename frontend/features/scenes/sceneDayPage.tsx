@@ -95,7 +95,7 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
       ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
       : dayPermalink
 
-  // A night with nothing on it is thin content — real, worth serving, worth
+  // A night with nothing on it is thin content: real, worth serving, worth
   // linking out of, not worth an index entry. `follow` stays on precisely
   // because the page's job in that state is to point at the week and the rooms.
   //
@@ -112,7 +112,7 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // that page indexable rather than noindexing a canonical target, so the gap
   // is a thin page in the index, not a suppressed one. Closing it means either
   // a per-week show count on the day payload or dropping the zero-show
-  // exclusion for the current week — both backend changes.
+  // exclusion for the current week, both of them backend changes.
   const robots =
     !isRollingRoute && dayShows(day).length === 0
       ? { index: false, follow: true }

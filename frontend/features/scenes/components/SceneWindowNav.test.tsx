@@ -32,7 +32,7 @@ function visibleText(el: Element): string {
  *
  * The views' own suites assert what each route PASSES; this file asserts what
  * the component does with it, so the shared contract has one home rather than a
- * copy per surface — which is the failure this component exists to end.
+ * copy per surface, which is the failure this component exists to end.
  */
 describe('SceneWindowNav', () => {
   // VISIBLE text only: each link carries a screen-reader-only direction word

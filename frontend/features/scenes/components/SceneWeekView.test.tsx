@@ -105,7 +105,7 @@ describe('SceneWeekView — share affordance', () => {
 
 describe('SceneWeekView', () => {
   // The trap this rule exists for: `is_current_week` is TRUE for the dated
-  // permalink of the week now in progress, and that permalink is permanent —
+  // permalink of the week now in progress, and that permalink is permanent:
   // it is its own canonical and the form the sitemap announces. A title keyed
   // on the flag rather than on the route would sit in the index saying "this
   // week" about a week that ended.

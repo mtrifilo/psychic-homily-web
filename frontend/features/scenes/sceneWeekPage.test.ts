@@ -57,7 +57,7 @@ describe('buildSceneWeekMetadata', () => {
 
   // `is_current_week` is TRUE for the dated permalink of the week in progress,
   // so a title keyed on the flag rather than on the route would publish "This
-  // week in Chicago" at a URL that means one fixed week — and keep saying it,
+  // week in Chicago" at a URL that means one fixed week, and keep saying it,
   // since that URL is what both rolling routes canonicalise to and what the
   // unfurl caches key on.
   it('names the dated permalink of the CURRENT week by its Monday too', async () => {
@@ -92,7 +92,7 @@ describe('buildSceneWeekMetadata', () => {
   // The other half of the same contradiction, from the target's end: both
   // rolling routes canonicalise to the CURRENT week's dated permalink, so
   // noindexing it when the week is quiet would consolidate the suppression onto
-  // /week and /tonight — a quiet scene's whole discovery surface.
+  // /week and /tonight, a quiet scene's whole discovery surface.
   it('leaves a quiet CURRENT week indexable at its dated permalink', async () => {
     fetchSceneWeek.mockResolvedValue(week({ show_count: 0, days: [] }))
 
@@ -103,7 +103,7 @@ describe('buildSceneWeekMetadata', () => {
 
   // The rolling route declares the DATED permalink as its canonical. A noindex
   // beside a canonical naming a different URL is a contradiction search engines
-  // resolve by consolidating the suppression onto the target — which would
+  // resolve by consolidating the suppression onto the target, which would
   // suppress the archived week along with it.
   it('sets no robots on the rolling route, even when the week is quiet', async () => {
     fetchSceneWeek.mockResolvedValue(week({ show_count: 0, days: [] }))

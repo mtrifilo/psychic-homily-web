@@ -69,7 +69,7 @@ export async function buildSceneWeekMetadata(
   // Next requires to be a constant and so reads identically on every card.
   const imageAlt = description
 
-  // A week with nothing on it is thin content — real, worth serving, worth
+  // A week with nothing on it is thin content: real, worth serving, worth
   // linking out of, not worth an index entry. `follow` stays on precisely
   // because the page's job in that state is to point at the rooms and the
   // neighbouring weeks. Same rule and same shape as the empty night the day
@@ -86,7 +86,7 @@ export async function buildSceneWeekMetadata(
   //    approved show, so noindexing every past week would mark submitted URLs
   //    noindex. The pages suppressed here are the ones it never names;
   //  - NOT the current week, which is the URL both rolling routes canonicalise
-  //    to — `/week` here and `/tonight` in the day builder. Suppressing it
+  //    to: `/week` here and `/tonight` in the day builder. Suppressing it
   //    would consolidate onto those two, which are a quiet scene's whole
   //    discovery surface. A thin current week therefore stays indexable, and
   //    turns into an archived one that does not the following Monday.

@@ -69,7 +69,7 @@ export function sceneWindowHref(slug: string, key: SceneWindowKey): string {
 }
 
 /**
- * `Sep 14` — the `{MON D}` stem every dated label in this family is built from.
+ * `Sep 14`, the `{MON D}` stem every dated label in this family is built from.
  *
  * Delegates to `formatCalendarMonthDay`, which carries the shape guard and the
  * component-wise parse this form depends on: `new Date('2026-09-14')` is UTC
@@ -82,7 +82,7 @@ export function formatMonthDay(iso: string): string {
 }
 
 /**
- * `This week in Chicago` — the family's one title rule, `{WINDOW} in {CITY}`.
+ * `This week in Chicago`, the family's one title rule, `{WINDOW} in {CITY}`.
  *
  * Every route in the family builds its H1 and its `<title>` through one of the
  * three functions below, so the phrase a reader saw in a tab is the phrase at
@@ -93,7 +93,7 @@ function windowTitle(phrase: string, city: string): string {
   return `${phrase} in ${city}`
 }
 
-/** `This weekend in Phoenix` — one of the four rolling windows. */
+/** `This weekend in Phoenix`, one of the four rolling windows. */
 export function sceneWindowTitle(key: SceneWindowKey, city: string): string {
   return windowTitle(SCENE_WINDOW_LABEL[key], city)
 }
@@ -116,7 +116,7 @@ export function sceneDayTitle(date: string, city: string, isRollingRoute: boolea
  * `This week in Chicago` on the rolling route, `Week of Sep 7 in Chicago` on a
  * dated permalink.
  *
- * The discriminator is the ROUTE, not the payload's `is_current_week` — the
+ * The discriminator is the ROUTE, not the payload's `is_current_week`, and it is the
  * same rule, for the same reason, as the day above. That flag is true for the
  * dated permalink of the week now in progress, and that permalink is permanent:
  * it is its own canonical and the form the sitemap announces, so a title saying
@@ -133,7 +133,7 @@ export function sceneWeekTitle(
     : windowTitle(sceneWeekName(startDate), city)
 }
 
-/** `Week of Sep 7` — a week named by its own Monday. */
+/** `Week of Sep 7`, a week named by its own Monday. */
 function sceneWeekName(startDate: string): string {
   return `Week of ${formatMonthDay(startDate)}`
 }
@@ -141,8 +141,8 @@ function sceneWeekName(startDate: string): string {
 /**
  * The same week as a CLAUSE: `this week`, or `the week of Sep 7`.
  *
- * The form that follows a preposition or a verb — "we track {clause}", "share
- * {clause}" — so a page's heading, its share control and its quiet copy spell
+ * The form that follows a preposition or a verb ("we track {clause}", "share
+ * {clause}"), so a page's heading, its share control and its quiet copy spell
  * one week one way. Lowercasing the name would not do: it would print "week of
  * sep 7".
  *
@@ -158,7 +158,7 @@ export function sceneWeekClause(startDate: string, isRollingRoute: boolean): str
  *
  * Relative on the ROLLING route, where "last" and "next" are read against a
  * page that is always the current week, and named by its own Monday on a
- * permalink — the same idiom the day row uses, and the same route rule as the
+ * permalink, the same idiom the day row uses, and the same route rule as the
  * title. A neighbour is never called "this week": identifying one as the
  * current week would take a clock this payload does not carry, and a wrong
  * "this week" is a claim about now.

@@ -323,7 +323,7 @@ describe('SceneDayView — a night with shows', () => {
   })
 
   // A dated permalink is not one of the rolling windows, so the strip marks
-  // none of them current — the reader is on a single night, not on a window.
+  // none of them current: the reader is on a single night, not on a window.
   it('marks no window current on a dated permalink, and marks tonight on the rolling route', () => {
     const { container } = render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(container.querySelector('[aria-current="page"]')).toBeNull()
