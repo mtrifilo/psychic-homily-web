@@ -33615,9 +33615,9 @@ export interface operations {
                 limit?: number;
                 /** @description Offset for pagination */
                 offset?: number;
-                /** @description Filter by city name (exact match). Legacy — prefer 'cities' param. */
+                /** @description Filter by city name (exact match). Legacy, prefer 'cities' param. */
                 city?: string;
-                /** @description Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param. */
+                /** @description Filter by state code (exact match, e.g., 'AZ'). Legacy, prefer 'cities' param. */
                 state?: string;
                 /** @description Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities. */
                 cities?: string;
@@ -33693,9 +33693,9 @@ export interface operations {
     "get-shows-months": {
         parameters: {
             query?: {
-                /** @description Filter by city name (exact match). Legacy — prefer 'cities' param. */
+                /** @description Filter by city name (exact match). Legacy, prefer 'cities' param. */
                 city?: string;
-                /** @description Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param. */
+                /** @description Filter by state code (exact match, e.g., 'AZ'). Legacy, prefer 'cities' param. */
                 state?: string;
                 /** @description Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities. */
                 cities?: string;

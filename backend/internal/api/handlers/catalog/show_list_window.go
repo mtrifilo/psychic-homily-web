@@ -30,8 +30,8 @@ type GetShowsCalendarRequest struct {
 	Day      int    `query:"day" minimum:"0" maximum:"31" doc:"Venue-local calendar day of month, 1-31. Requires year and month."`
 	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of shows per page (max 200). Defaults to 50."`
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
-	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
-	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param."`
+	City     string `query:"city" doc:"Filter by city name (exact match). Legacy, prefer 'cities' param."`
+	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy, prefer 'cities' param."`
 	Cities   string `query:"cities" doc:"Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities."`
 	Tags     string `query:"tags" doc:"Comma-separated tag slugs. AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
@@ -109,8 +109,8 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 // month histogram. It takes the list's filters and no window: the histogram is
 // what enumerates the months.
 type GetShowMonthsRequest struct {
-	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
-	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param."`
+	City     string `query:"city" doc:"Filter by city name (exact match). Legacy, prefer 'cities' param."`
+	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy, prefer 'cities' param."`
 	Cities   string `query:"cities" doc:"Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities."`
 	Tags     string `query:"tags" doc:"Comma-separated tag slugs. AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`

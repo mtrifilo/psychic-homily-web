@@ -25,9 +25,8 @@ func setupShowRoutes(rc RouteContext) {
 
 	// The date-addressed list and its month strip. Static siblings of
 	// /shows/{show_id}, which chi resolves before the parameter node, so a show
-	// whose slug were "calendar" or "months" would be unreachable by slug —
-	// the same shape /shows/cities, /shows/upcoming and /shows/search already
-	// have.
+	// whose slug were "calendar" or "months" would be unreachable by slug, the
+	// same shape /shows/cities, /shows/upcoming and /shows/search already have.
 	huma.Get(rc.API, "/shows/calendar", showHandler.GetShowsCalendarHandler)
 	huma.Get(rc.API, "/shows/months", showHandler.GetShowMonthsHandler)
 

@@ -20,7 +20,7 @@ func TestShowListWindowRoutesAreRegisteredOnceAsStaticPaths(t *testing.T) {
 	for _, path := range []string{"/shows/calendar", "/shows/months"} {
 		got := matching(routes, http.MethodGet, path)
 		if len(got) != 1 {
-			t.Fatalf("GET %s: %d registered routes %v, want exactly 1 — chi keeps only the "+
+			t.Fatalf("GET %s: %d registered routes %v, want exactly 1. chi keeps only the "+
 				"LAST registration of a shape, so a second one would silently win", path, len(got), got)
 		}
 		if got[0] != path {
@@ -50,7 +50,7 @@ func TestShowListWindowPathsResolveAnonymously(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		if w.Code != http.StatusInternalServerError {
-			t.Errorf("GET %s = %d, want %d — 404/405 means the route is not registered, and "+
+			t.Errorf("GET %s = %d, want %d. 404/405 means the route is not registered, and "+
 				"any 4xx means it is no longer reachable anonymously", path, w.Code, http.StatusInternalServerError)
 		}
 	}
