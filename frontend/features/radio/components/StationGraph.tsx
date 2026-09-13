@@ -18,11 +18,9 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import {
-  GraphStateCard,
-  GRAPH_BOX_HEIGHT_CLASS,
-  GRAPH_TEASER_HEIGHT_CLASS,
-} from '@/components/graph/GraphStateCard'
+import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
+import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
@@ -32,10 +30,12 @@ import { StationGraphVisualization } from './StationGraphVisualization'
 const MIN_GRAPH_NODES = 3
 
 /**
- * The scroll-anchor id for the mobile teaser's "See recent playlists" link-out
- * (PSY-1472). Single-sourced here so this component's `linkHref`, the
- * StationDetail wrapper's `id`, and StationDetail's cold-load scroll workaround
- * can't drift apart.
+ * The scroll-anchor id hung off the station's recent-playlists feed.
+ *
+ * Nothing in this component links to it: the sub-640px form is one line of
+ * knowledge-graph cross-link. It stays exported because StationDetail stamps
+ * it on the feed and keys its cold-load scroll workaround off it, and a stable
+ * `#recent-playlists` deep link is worth keeping on its own.
  */
 export const STATION_PLAYLISTS_ANCHOR = 'recent-playlists'
 
@@ -62,6 +62,12 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // shows directory remain the only surfaces (PSY-369 / PSY-511).
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  // Measured narrow. Distinct from `!graphAvailable`, which is also true before
+  // measurement and below the node gate: this is specifically "we know the
+  // container is too narrow for a canvas", which is the only state that
+  // collapses the section to the one-line teaser.
+  const isBelowGraphBreakpoint =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -87,9 +93,16 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
   // of returning null — a null here shifts every section below when the
   // canvas lands. The header stays put so only the box swaps on settle.
+  //
+  // `hidden sm:block`: this branch has no measured container (the measuring
+  // ref lives on the settled tree), so the reservation is viewport-keyed —
+  // the same accepted viewport-vs-container mismatch documented on
+  // GRAPH_BOX_HEIGHT_CLASS. Below 640px the settled tree is one line of link,
+  // so reserving a titled box here would paint a phantom section and then
+  // shift the page when it collapses.
   if (isLoading) {
     return (
-      <div id="graph" className="scroll-mt-20">
+      <div id="graph" className="scroll-mt-20 hidden sm:block">
         <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
         <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
       </div>
@@ -188,47 +201,50 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
         aria-hidden={isFullscreen || undefined}
         inert={isFullscreen || undefined}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          {stationHeader}
-          {expandButton}
-        </div>
+        {isBelowGraphBreakpoint ? (
+          /* Sub-640px. The canvas is gated off at this width and always has
+             been (PSY-369/511); what this branch decides is what the page puts
+             in its place. Not a titled section: no header, no scale line, no
+             240px card. The one thing worth carrying at this width is the
+             cross-link into the knowledge graph, so that is all this renders. */
+          <MobileGraphTeaser
+            href={graphRootHref()}
+          >{`See how ${stationName}’s rotation connects on the music map`}</MobileGraphTeaser>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              {stationHeader}
+              {expandButton}
+            </div>
 
-        {/* Pre-measurement: hold the box height so the settle can't shift
-            the sections below (HomeSceneGraph precedent). */}
-        {containerWidth === null && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
+            {/* Pre-measurement: hold the box height so the settle can't shift
+                the sections below (HomeSceneGraph precedent). Viewport-gated
+                for the same reason the loading branch is: below 640px the
+                settled tree is one line, so there is no box to reserve. */}
+            {containerWidth === null && (
+              <GraphSkeleton className={`hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`} />
+            )}
 
-        {/* Sub-640px: shared teaser card — says WHY + gives a way forward
-            (PSY-1472). Link-out scrolls to the station's playlists feed on this
-            page (#recent-playlists, StationDetail). */}
-        {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
-          <GraphStateCard
-            className={GRAPH_TEASER_HEIGHT_CLASS}
-            message={`${stationName}'s airplay as a map — artists linked by how often they're played together. Needs a larger screen.`}
-            linkHref={`#${STATION_PLAYLISTS_ANCHOR}`}
-            linkLabel="See recent playlists →"
-          />
-        )}
+            {graphAvailable && !isFullscreen && (
+              <div className="space-y-3">
+                {clusterLegend}
 
-        {graphAvailable && !isFullscreen && (
-          <div className="space-y-3">
-            {clusterLegend}
+                <StationGraphVisualization
+                  data={data}
+                  // Safe non-null: graphAvailable requires containerWidth !== null
+                  containerWidth={containerWidth!}
+                  hiddenClusterIDs={hiddenClusters}
+                />
 
-            <StationGraphVisualization
-              data={data}
-              // Safe non-null: graphAvailable requires containerWidth !== null
-              containerWidth={containerWidth!}
-              hiddenClusterIDs={hiddenClusters}
-            />
-
-            <p className="text-xs text-muted-foreground">
-              Artists most played on {stationName} over {windowLabel}, linked when they
-              appear on the same episodes (strongest connections only). Clusters group
-              artists by the show that plays them most. Click a cluster pill above to
-              hide it; click any artist for their details.
-            </p>
-          </div>
+                <p className="text-xs text-muted-foreground">
+                  Artists most played on {stationName} over {windowLabel}, linked when
+                  they appear on the same episodes (strongest connections only).
+                  Clusters group artists by the show that plays them most. Click a
+                  cluster pill above to hide it; click any artist for their details.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

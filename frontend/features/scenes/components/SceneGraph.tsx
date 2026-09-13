@@ -53,6 +53,7 @@ import Link from 'next/link'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
@@ -64,21 +65,6 @@ import { sceneArtistCountPhrase, sceneIsolateHookCopy, sceneLabelCountPhrase } f
 import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
 
 const MIN_GRAPH_EDGES = 8
-
-/**
- * The whole-map link, as both widths render it: same target, same treatment,
- * only the wording and the surrounding spacing differ. Sharing the element
- * rather than just the href is deliberate — two hand-written copies of the
- * same link are two things to keep in step, and this section has exactly one
- * cross-link to offer either way.
- */
-function WholeMapLink({ href, children }: { href: string; children: string }) {
-  return (
-    <Link href={href} className="underline underline-offset-4 hover:text-foreground">
-      {children}
-    </Link>
-  )
-}
 
 const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
   { value: 'venue', label: 'Venue' },
@@ -365,9 +351,9 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
              240px card. The one thing worth carrying at this width is the
              cross-link into the knowledge graph, so that is all this renders,
              and it renders as a line of text rather than a module. */
-          <p className="text-xs text-muted-foreground">
-            <WholeMapLink href={wholeMapHref}>{`See how ${city} artists connect on the music map →`}</WholeMapLink>
-          </p>
+          <MobileGraphTeaser
+            href={wholeMapHref}
+          >{`See how ${city} artists connect on the music map`}</MobileGraphTeaser>
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -420,7 +406,12 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             )}
 
             <p className="mt-3 text-xs text-muted-foreground">
-              <WholeMapLink href={wholeMapHref}>View this scene on the whole map →</WholeMapLink>
+              <Link
+                href={wholeMapHref}
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                View this scene on the whole map →
+              </Link>
             </p>
           </>
         )}

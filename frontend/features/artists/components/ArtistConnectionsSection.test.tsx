@@ -112,7 +112,6 @@ import {
   ArtistConnectionsSection,
   capEgoNeighbors,
   CONNECTIONS_NEIGHBOR_CAP,
-  SIMILAR_ARTISTS_ANCHOR,
 } from './ArtistConnectionsSection'
 import { useArtistGraph } from '../hooks/useArtistGraph'
 import {
@@ -200,6 +199,7 @@ describe('ArtistConnectionsSection', () => {
       <ArtistConnectionsSection
         artistId={100}
         artistName="Center Artist"
+        artistSlug="center-artist"
         onExpand={onExpand}
       />
     )
@@ -267,24 +267,52 @@ describe('ArtistConnectionsSection', () => {
     expect(onExpand).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the teaser card (no canvas) below the 640px gate, linking to the sidebar anchor', () => {
+  // Below 640px the section collapses to one line of link: no header, no
+  // count line, no [Expand], no 240px card. The map link is rooted on this
+  // artist, and the page header's [Graph] is the surviving path to the ego
+  // dialog at this width.
+  it('collapses to a one-line map teaser below the 640px gate', () => {
     resizeObserver.setWidth(390)
     renderSection()
+
     expect(screen.queryByTestId('connections-canvas')).not.toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /see similar artists/i })
-    expect(link).toHaveAttribute('href', `#${SIMILAR_ARTISTS_ANCHOR}`)
-    // The copy points at [Expand], so pin the two together: unlike the sibling
-    // graph surfaces, this section keeps [Expand] visible below the gate, and
-    // ArtistGraphDialog does draw a canvas there. Gating it would strand the copy.
     expect(
-      screen.getByText(/Best on a larger screen, or open the full map\./)
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument()
-    // The count line still discloses scale on mobile, WITHOUT the desktop-only
-    // interaction clause — there are no names to click below the gate. Raw
-    // textContent so a stray separator or trailing space can't slip past the
-    // default normalizer.
-    expect(countLine().textContent).toBe('Top 14 of 16 connected artists')
+      screen.queryByRole('heading', { name: 'Connections' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Expand' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/best on a larger screen/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /see similar artists/i })
+    ).not.toBeInTheDocument()
+    expect(document.querySelector('section > p')?.textContent).not.toContain(
+      'connected artists'
+    )
+
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAccessibleName(
+      'See who Center Artist plays with on the music map'
+    )
+    expect(links[0]).toHaveAttribute('href', '/graph?artist=center-artist')
+  })
+
+  // Entity slugs are nullable in this schema, and an empty `artist=` param is
+  // one the Observatory refuses — the link falls back to the unrooted map.
+  it('falls back to the unrooted map when the artist has no slug', () => {
+    resizeObserver.setWidth(390)
+    renderWithProviders(
+      <ArtistConnectionsSection
+        artistId={100}
+        artistName="Center Artist"
+        artistSlug={null}
+        onExpand={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByRole('link', {
+        name: 'See who Center Artist plays with on the music map',
+      })
+    ).toHaveAttribute('href', '/graph')
   })
 
   it('keeps the clause at exactly the breakpoint — the gate is inclusive', () => {

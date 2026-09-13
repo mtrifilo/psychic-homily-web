@@ -41,10 +41,7 @@ import {
 import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import {
-  GraphStateCard,
-  GRAPH_TEASER_HEIGHT_CLASS,
-} from '@/components/graph/GraphStateCard'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
 import {
   truncatedCountPhrase,
@@ -60,14 +57,18 @@ import {
   maxCenterEdgeScoreByNeighbor,
 } from './egoNeighborRank'
 import { useArtistGraph } from '../hooks/useArtistGraph'
+import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useArtistGraphCard } from '../hooks/useArtistGraphCard'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import type { ArtistGraph } from '../types'
 
 /**
- * The scroll-anchor id for the mobile teaser's "See similar artists"
- * link-out (PSY-1472 convention). Single-sourced here so this component's
- * `linkHref` and the ArtistSimilarSidebar section's `id` can't drift apart.
+ * The scroll-anchor id hung off the sidebar's Similar-artists list.
+ *
+ * Nothing in this component links to it: the sub-640px form is one line of
+ * knowledge-graph cross-link. It stays exported because ArtistSimilarSidebar
+ * stamps it on that section and the canvas aria-label names the list as the
+ * no-canvas way to browse.
  */
 export const SIMILAR_ARTISTS_ANCHOR = 'similar-artists'
 
@@ -81,19 +82,21 @@ export const CONNECTIONS_NEIGHBOR_CAP = 14
 const CONNECTIONS_CANVAS_HEIGHT = 360
 
 /**
- * Height reserved for the pre-measurement skeleton: the shared teaser height
- * below the 640px canvas gate (whichever box lands there is that tall), the
- * canvas height above it. The `sm` value tracks CONNECTIONS_CANVAS_HEIGHT by
- * hand (Tailwind arbitrary values can't read the const) and approximates the
- * settled box from BELOW — the rendered surface is ~30px taller, because
- * ArtistGraphVisualization stacks the EgoTypeLegend under the canvas inside
- * its bordered container. Reserving the canvas height rather than the exact
- * total is the same accepted trade-off GRAPH_BOX_HEIGHT_CLASS documents, and
- * the residual is invisible in practice: useContainerWidth measures via a
- * callback ref during commit, so this skeleton is typically replaced before
- * the browser paints it.
+ * Height reserved for the pre-measurement skeleton, and the viewport gate that
+ * keeps it from painting where nothing that tall can land: below 640px the
+ * settled section is one line of link, so a reserved canvas box there would be
+ * a phantom the settle then collapses.
+ *
+ * The height tracks CONNECTIONS_CANVAS_HEIGHT by hand (Tailwind arbitrary
+ * values can't read the const) and approximates the settled box from BELOW —
+ * the rendered surface is ~30px taller, because ArtistGraphVisualization
+ * stacks the EgoTypeLegend under the canvas inside its bordered container.
+ * Reserving the canvas height rather than the exact total is the same accepted
+ * trade-off GRAPH_BOX_HEIGHT_CLASS documents, and the residual is invisible in
+ * practice: useContainerWidth measures via a callback ref during commit, so
+ * this skeleton is typically replaced before the browser paints it.
  */
-const PLACEHOLDER_HEIGHT_CLASS = `${GRAPH_TEASER_HEIGHT_CLASS} sm:h-[360px]`
+const PLACEHOLDER_HEIGHT_CLASS = 'hidden sm:block h-[360px]'
 
 export interface CappedEgoGraph {
   graph: ArtistGraph
@@ -142,6 +145,11 @@ export function capEgoNeighbors(graph: ArtistGraph, cap: number): CappedEgoGraph
 interface ArtistConnectionsSectionProps {
   artistId: number
   artistName: string
+  /**
+   * Roots the sub-640px teaser's map link on this artist. Entity slugs are
+   * nullable in this schema; `graphRootHref` falls back to the unrooted map.
+   */
+  artistSlug?: string | null
   /** Fires when the user clicks [Expand]. Parent opens the graph Dialog. */
   onExpand: () => void
 }
@@ -149,6 +157,7 @@ interface ArtistConnectionsSectionProps {
 export function ArtistConnectionsSection({
   artistId,
   artistName,
+  artistSlug,
   onExpand,
 }: ArtistConnectionsSectionProps) {
   const { data: graph, isLoading } = useArtistGraph({
@@ -216,10 +225,10 @@ export function ArtistConnectionsSection({
   // count line's interaction clause, the mobile teaser, and the canvas — so
   // the clause can't promise names to click in a layout that rendered no
   // canvas. Don't add a second *gating* breakpoint source; the only other 640
-  // in this file is `PLACEHOLDER_HEIGHT_CLASS`'s `sm:` (viewport-keyed, not
-  // container-keyed), which sizes the pre-measurement box and deliberately
-  // isn't a gate — the two disagree in the narrow band where the column is
-  // under 640 while the viewport is over it.
+  // in this file is `PLACEHOLDER_HEIGHT_CLASS`'s `sm:`, which is viewport-keyed
+  // and governs only the pre-measurement skeleton — the two disagree in the
+  // narrow band where the column is under 640 while the viewport is over it,
+  // and in that band the skeleton shows until the measurement replaces it.
   //
   // A chunk-load failure is the gate's SECOND input, not an exception to it:
   // the boundary below still self-hides (no `fallback`), but it reports the
@@ -233,36 +242,45 @@ export function ArtistConnectionsSection({
   // `graphAvailable` matches the six sibling graph surfaces; this gate is the
   // measured width of THIS column, not a device or viewport class.
   const graphAvailable = isMeasured && containerWidth >= GRAPH_BREAKPOINT_PX
+  // Measured narrow: the only state that collapses the section to the
+  // one-line teaser. Pre-measurement is not it — the skeleton paint must not
+  // flash a line that a wide container then replaces with the canvas.
+  const isBelowGraphBreakpoint = isMeasured && !graphAvailable
 
   return (
     <section ref={refCallback} className="min-w-0">
+      {isBelowGraphBreakpoint ? (
+        /* Sub-640px. The canvas is gated off at this width; what this branch
+           decides is what the page puts in its place. Not a titled section: no
+           header, no count line, no 240px card. The one thing worth carrying
+           at this width is the cross-link into the knowledge graph, so that is
+           all this renders. The page header's [Graph] keeps the ego dialog
+           reachable here. */
+        <MobileGraphTeaser
+          href={graphRootHref(artistSlug)}
+        >{`See who ${artistName} plays with on the music map`}</MobileGraphTeaser>
+      ) : (
+        <>
       <SectionHeader
         title="Connections"
         as="h2"
         size="md"
         action={<BracketLink label="Expand" onClick={onExpand} />}
       />
-      {/* The count discloses scale at every width; the interaction clause is
-          desktop-only — below the gate there are no names to click. */}
+      {/* The count discloses scale at every width the section keeps its
+          header; the interaction clause is narrower still — it is dropped
+          whenever no canvas rendered. */}
       <p className="text-sm text-muted-foreground mb-2">
         {sentenceCase(phrase)}
         {graphAvailable && !graphFailed && ' · click a name to see how it connects'}
       </p>
 
       {/* Pre-measurement: hold the box height so the settle can't shift the
-          sections below (HomeSceneGraph precedent). */}
+          sections below (HomeSceneGraph precedent). Viewport-gated: below
+          640px the settled tree is one line of link, so a box reserved here
+          would paint a phantom section and then shift the page when it
+          collapses. */}
       {!isMeasured && <GraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />}
-
-      {/* Sub-640px: shared teaser card (PSY-1472) — no canvas on mobile;
-          link out to the sidebar Similar-artists list on this page. */}
-      {isMeasured && !graphAvailable && (
-        <GraphStateCard
-          className={GRAPH_TEASER_HEIGHT_CLASS}
-          message={`Who ${artistName} plays with, shares labels with, and gets radio play alongside — mapped. Best on a larger screen, or open the full map.`}
-          linkHref={`#${SIMILAR_ARTISTS_ANCHOR}`}
-          linkLabel="See similar artists →"
-        />
-      )}
 
       {graphAvailable && (
         // Contain a graph chunk-load failure to this section (self-hide, no
@@ -320,6 +338,8 @@ export function ArtistConnectionsSection({
             />
           </GraphPanelHost>
         </GraphSectionErrorBoundary>
+      )}
+        </>
       )}
     </section>
   )

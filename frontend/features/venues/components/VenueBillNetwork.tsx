@@ -29,11 +29,9 @@
 import { useState, useMemo } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import {
-  GraphStateCard,
-  GRAPH_BOX_HEIGHT_CLASS,
-  GRAPH_TEASER_HEIGHT_CLASS,
-} from '@/components/graph/GraphStateCard'
+import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
+import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { truncatedCountPhrase, sentenceCase } from '@/components/graph/truncatedCountPhrase'
@@ -45,9 +43,12 @@ const MIN_GRAPH_NODES = 3 // mirror SceneGraph — under 3 connected artists is 
 const MIN_GRAPH_SHOWS = 10 // PSY-365 ticket: empty state for "<10 shows at the venue"
 
 /**
- * The scroll-anchor id for the mobile teaser's "Browse shows" link-out
- * (PSY-1472). Single-sourced here so this component's `linkHref` and the
- * VenueDetail wrapper's `id` can't drift apart.
+ * The scroll-anchor id hung off the venue's shows block (VenueDetail).
+ *
+ * Nothing in this component links to it: the sub-640px form is one line of
+ * knowledge-graph cross-link. It stays exported because VenueDetail stamps it
+ * on that block and a stable `#venue-shows` deep link is worth keeping on its
+ * own.
  */
 export const VENUE_SHOWS_ANCHOR = 'venue-shows'
 
@@ -171,9 +172,15 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
   // of returning null — a null here shifts every section below when the
   // canvas lands. keepPreviousData means this only fires on the initial load.
+  //
+  // `hidden sm:block`: this branch has no measured container (the measuring
+  // wrapper lives on the settled tree), so the reservation is viewport-keyed.
+  // Below 640px the settled tree is one line of link, so a titled box reserved
+  // here would paint a phantom section and then shift the page when it
+  // collapses.
   if (isLoading) {
     return (
-      <div className="mt-8 px-4 md:px-0">
+      <div className="mt-8 px-4 md:px-0 hidden sm:block">
         <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
         <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
       </div>
@@ -218,6 +225,11 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // WHY the graph isn't drawing and can re-scope the window.
   const hideSection =
     containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
+  // The measured-narrow collapse: a network exists to link to and this
+  // container is too narrow to draw it. Sparse windows are `hideSection`
+  // above, so this and that flag are mutually exclusive.
+  const showMobileTeaser =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && !tooSparse
 
   // PSY-1476: a capped roster must say so — "150 artists" on a 312-artist
   // venue reads as the whole history. Mirrors the scene graph's shipped
@@ -299,55 +311,62 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
             id="graph"
             className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              {sectionHeader}
-              {expandButton}
-            </div>
+            {showMobileTeaser ? (
+              /* Sub-640px. The canvas is gated off at this width and always
+                 has been (PSY-369/511); what this branch decides is what the
+                 page puts in its place. Not a titled section: no header, no
+                 window filter, no scale line, no 240px card. The one thing
+                 worth carrying at this width is the cross-link into the
+                 knowledge graph, so that is all this renders. */
+              <MobileGraphTeaser
+                href={graphRootHref()}
+              >{`See who shares bills at ${venueName} on the music map`}</MobileGraphTeaser>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  {sectionHeader}
+                  {expandButton}
+                </div>
 
-            <div className="mb-3">{windowFilter}</div>
+                <div className="mb-3">{windowFilter}</div>
 
-            {tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Not enough booked-together activity yet to draw the network. Try a
-                wider window or check back as more shows are approved.
-              </p>
-            )}
+                {tooSparse &&
+                  containerWidth !== null &&
+                  containerWidth >= GRAPH_BREAKPOINT_PX && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Not enough booked-together activity yet to draw the network. Try a
+                      wider window or check back as more shows are approved.
+                    </p>
+                  )}
 
-            {/* Pre-measurement: hold the box height so the settle can't
-                shift the sections below (HomeSceneGraph precedent). */}
-            {!tooSparse && containerWidth === null && (
-              <GraphSkeleton className={`mt-2 ${GRAPH_BOX_HEIGHT_CLASS}`} />
-            )}
+                {/* Pre-measurement: hold the box height so the settle can't
+                    shift the sections below (HomeSceneGraph precedent).
+                    Viewport-gated for the same reason the loading branch is:
+                    below 640px the settled tree is one line, so there is no
+                    box to reserve. */}
+                {!tooSparse && containerWidth === null && (
+                  <GraphSkeleton
+                    className={`mt-2 hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`}
+                  />
+                )}
 
-            {/* Sub-640px, non-sparse: shared teaser card (PSY-1446) — says WHY
-                + gives a way forward (PSY-1472). Link-out scrolls to the
-                venue's show list on this page (#venue-shows, VenueDetail). */}
-            {!tooSparse &&
-              containerWidth !== null &&
-              containerWidth < GRAPH_BREAKPOINT_PX && (
-                <GraphStateCard
-                  className={`mt-2 ${GRAPH_TEASER_HEIGHT_CLASS}`}
-                  message={`Who plays ${venueName} together, mapped by shared bills here. Needs a larger screen.`}
-                  linkHref={`#${VENUE_SHOWS_ANCHOR}`}
-                  linkLabel={`Browse shows at ${venueName} →`}
-                />
-              )}
+                {graphAvailable && !isFullscreen && (
+                  <div className="space-y-3 mt-2">
+                    <SceneGraphVisualizationStyleAdapter
+                      data={data}
+                      venueName={venueName}
+                      countPhrase={artistCountPhrase}
+                      containerWidth={containerWidth!}
+                    />
 
-            {graphAvailable && !isFullscreen && (
-              <div className="space-y-3 mt-2">
-                <SceneGraphVisualizationStyleAdapter
-                  data={data}
-                  venueName={venueName}
-                  countPhrase={artistCountPhrase}
-                  containerWidth={containerWidth!}
-                />
-
-                <p className="text-xs text-muted-foreground">
-                  Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
-                  shared shows AT THIS VENUE in the active window. Click any artist for their
-                  details.
-                </p>
-              </div>
+                    <p className="text-xs text-muted-foreground">
+                      Showing artists who&apos;ve played approved shows at {venueName}. Edge
+                      weight = shared shows AT THIS VENUE in the active window. Click any
+                      artist for their details.
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

@@ -64,6 +64,8 @@ import {
 } from '@/components/graph/useContainerWidth'
 import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
 import { GraphSkeleton as BaseGraphSkeleton } from '@/components/graph/GraphSkeleton'
+import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
+import { graphRootHref } from '@/features/graph/graphRootLink'
 import { createLazyForceGraphView } from '@/components/graph/lazyForceGraphView'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 // Deep imports, deliberately NOT the '@/features/scenes' barrel: the barrel
@@ -109,26 +111,31 @@ const GRAPH_HEIGHT_PX = 560
 const MIN_CONNECTED_NODES = 3
 
 /**
- * One shared height contract for every non-canvas box (skeleton, teaser,
- * empty, error): 240px below Tailwind's `sm` (≈ the 640px canvas gate),
- * 560px above — the `sm` value MUST equal `GRAPH_HEIGHT_PX` (Tailwind
- * arbitrary values can't read the const). Boxes agreeing on height keeps
- * the GRAPH AREA from shifting LatestRadioShows as states settle; the
- * pre-mount skeleton deliberately reserves only the graph box, not the
- * heading row/caption (~100px), so a small one-time shift remains at
- * section mount. A container-vs-viewport mismatch survives only in the
- * narrow band where the padded column measures <640px on a ≥640px
- * viewport.
+ * One shared height contract for every non-canvas box (skeleton, empty,
+ * error): the value MUST equal `GRAPH_HEIGHT_PX` (Tailwind arbitrary values
+ * can't read the const). Boxes agreeing on height keeps the GRAPH AREA from
+ * shifting LatestRadioShows as states settle; the pre-mount skeleton
+ * deliberately reserves only the graph box, not the heading row/caption
+ * (~100px), so a small one-time shift remains at section mount.
+ *
+ * Every box carrying it renders only above the canvas gate, so it needs no
+ * narrow-width value: below the gate the section is one line of link.
  */
-const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[560px]'
+const PLACEHOLDER_HEIGHT_CLASS = 'h-[560px]'
 
 // This surface's height-reserving placeholder (CLS budget) — the shared
-// `GraphSkeleton` base look (PSY-1347) plus the responsive height contract
-// above. Named distinctly from the shared primitive to avoid shadowing it.
-// Used by the pre-mount state, the data-loading state, and the dynamic-import
-// fallback so they can't drift apart.
+// `GraphSkeleton` base look (PSY-1347) plus the height contract above. Named
+// distinctly from the shared primitive to avoid shadowing it. Used by the
+// pre-mount state, the data-loading state, and the dynamic-import fallback so
+// they can't drift apart.
+//
+// `hidden sm:block`: the pre-mount and pre-measurement uses have no measured
+// container yet, and below 640px the settled section is one line of link — a
+// box reserved there would paint a phantom section and then shift the page
+// when it collapses. Viewport-keyed where the gate is container-keyed, the
+// same accepted mismatch the canvas gate documents.
 function SceneGraphSkeleton() {
-  return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
+  return <BaseGraphSkeleton className={`hidden sm:block ${PLACEHOLDER_HEIGHT_CLASS}`} />
 }
 
 /**
@@ -321,6 +328,10 @@ function HomeSceneGraphSection() {
   // mobile render discards.
   const graphAvailable =
     containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  // Measured narrow: the only state that collapses the section to the one-line
+  // teaser. Pre-measurement is not it — that state reserves the canvas box.
+  const isBelowGraphBreakpoint =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
   const graphQuery = useSceneGraph({
     slug: scene?.slug ?? '',
     enabled: Boolean(scene) && graphAvailable,
@@ -476,35 +487,40 @@ function HomeSceneGraphSection() {
 
   return (
     <section
-      aria-labelledby="home-scene-graph-heading"
+      // The heading is the section's accessible name only while it renders;
+      // below the gate this section is one line of body text, which is not a
+      // landmark worth naming.
+      aria-labelledby={isBelowGraphBreakpoint ? undefined : 'home-scene-graph-heading'}
       className="flex w-full flex-col gap-4"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2
-          id="home-scene-graph-heading"
-          aria-live="polite"
-          className="text-2xl font-semibold tracking-tight text-foreground"
-        >
-          The {scene.city} scene graph
-        </h2>
-        <div className="flex items-center gap-4 text-sm">
-          {scenes.length > 1 && (
-            <button
-              type="button"
-              onClick={handleSurprise}
+      {!isBelowGraphBreakpoint && (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2
+            id="home-scene-graph-heading"
+            aria-live="polite"
+            className="text-2xl font-semibold tracking-tight text-foreground"
+          >
+            The {scene.city} scene graph
+          </h2>
+          <div className="flex items-center gap-4 text-sm">
+            {scenes.length > 1 && (
+              <button
+                type="button"
+                onClick={handleSurprise}
+                className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+              >
+                Surprise me <span aria-hidden="true">↻</span>
+              </button>
+            )}
+            <Link
+              href={sceneGraphHref}
               className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
             >
-              Surprise me <span aria-hidden="true">↻</span>
-            </button>
-          )}
-          <Link
-            href={sceneGraphHref}
-            className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
-          >
-            Open the graph →
-          </Link>
+              Open the graph →
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Three claims this caption is deliberately careful NOT to make. Same
           rule as the PSY-1732 note on CommunityPulseResponse in
@@ -541,34 +557,14 @@ function HomeSceneGraphSection() {
             can't shift the radio section below when the state settles. */}
         {containerWidth === null && <SceneGraphSkeleton />}
 
-        {/* Static teaser below the canvas-usability gate (PSY-511): no
-            canvas touch handling at small widths — link out instead. */}
-        {containerWidth !== null && !graphAvailable && (
-          <div
-            className={`w-full rounded-lg border border-border/50 bg-muted/20 flex flex-col items-center justify-center text-center p-6 gap-3 ${PLACEHOLDER_HEIGHT_CLASS}`}
-          >
-            {/* "Every show, artist, venue and label here is connected" was
-                three claims deep in unbacked. Shows and venues are not nodes
-                in this payload at all (SceneGraphNode is artists plus label
-                hubs; venues survive only as cluster ids), universal
-                connectivity is contradicted by `is_isolate` — a first-class
-                field this very component filters on, and whose absence the
-                sibling branch below announces as "Not enough connected
-                artists" — and this branch fetches no graph at all
-                (useSceneGraph is gated on `graphAvailable`). So the copy now
-                describes the graph the visitor would get, in the same
-                "ties like" example form the caption uses. */}
-            <p className="text-sm text-muted-foreground max-w-xs">
-              The {scene.city} scene graph links artists by ties like shared
-              bills and labels. It is best on a larger screen.
-            </p>
-            <Link
-              href={sceneHref}
-              className="text-sm text-primary hover:underline underline-offset-4"
-            >
-              See the {scene.city} scene →
-            </Link>
-          </div>
+        {/* Below the canvas-usability gate (PSY-511): no canvas touch handling
+            at small widths, and no titled section wrapped around saying so.
+            The map is the link target rather than this scene's page, whose own
+            graph section collapses to this same line at this width. */}
+        {isBelowGraphBreakpoint && (
+          <MobileGraphTeaser
+            href={graphRootHref()}
+          >{`See how the scene connects on the music map`}</MobileGraphTeaser>
         )}
 
         {graphAvailable &&

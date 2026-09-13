@@ -192,17 +192,29 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     expect(screen.queryByTestId('collection-graph-canvas')).not.toBeInTheDocument()
   })
 
-  it('shows the teaser card (not a plain sentence) below the 640px breakpoint', () => {
+  it('collapses to a one-line map teaser below the 640px breakpoint', () => {
     ro.setWidth(500)
-    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    const { container } = renderWithProviders(
+      <CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />,
+    )
     expect(screen.queryByTestId('collection-graph-canvas')).not.toBeInTheDocument()
-    // PSY-1472: teaser card carries the connectedness pitch + a link-out that
-    // scrolls to the collection's item list (#items) on this page.
+
+    // No section chrome: no heading, no breakdown line, and none of the
+    // retired "needs a larger screen" card or its in-page link-out.
+    expect(screen.queryByText('Collection graph')).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs a larger screen/i)).not.toBeInTheDocument()
     expect(
-      screen.getByText(/Desert Doom as a map/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /Browse the collection/i }),
-    ).toHaveAttribute('href', '#items')
+      screen.queryByRole('link', { name: /Browse the collection/i }),
+    ).not.toBeInTheDocument()
+
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAccessibleName(
+      'See how this collection\u2019s artists connect on the music map',
+    )
+    expect(links[0]).toHaveAttribute('href', '/graph')
+
+    // The `#graph` deep-link target survives the collapse (Cmd+K, PSY-366).
+    expect(container.querySelector('#graph')).not.toBeNull()
   })
 })
