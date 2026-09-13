@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addressesAnEntity, looksLikeSlug } from './entity-slug'
+import { addressesAnEntity, entityHref, looksLikeSlug } from './entity-slug'
 
 describe('addressesAnEntity', () => {
   it('accepts an ordinary slug', () => {
@@ -60,5 +60,42 @@ describe('looksLikeSlug', () => {
   // URL, it just names somewhere else.
   it.each(['', '.', '..'])('refuses %j, which addresses the index', slug => {
     expect(looksLikeSlug(slug)).toBe(false)
+  })
+})
+
+// The guard in the form a caller that BUILDS a link reaches for, tested
+// directly rather than through any one of those callers.
+describe('entityHref', () => {
+  it('builds a one-segment href from a slug', () => {
+    expect(entityHref('/collections', 'phoenix-diy')).toBe(
+      '/collections/phoenix-diy'
+    )
+  })
+
+  it('encodes a slug that would otherwise splice a second segment', () => {
+    expect(entityHref('/collections', 'a/b')).toBe('/collections/a%2Fb')
+  })
+
+  // Null means "do not link", never "link to the index": `/collections/` with
+  // an empty slug resolves to the browse page rather than 404ing (PSY-1754).
+  it('returns null for a missing, empty or whitespace slug', () => {
+    expect(entityHref('/collections', undefined)).toBeNull()
+    expect(entityHref('/collections', null)).toBeNull()
+    expect(entityHref('/collections', '')).toBeNull()
+    expect(entityHref('/collections', '   ')).toBeNull()
+  })
+
+  // Dot segments are the one shape encoding leaves untouched, and they reach
+  // the same wrong destination the empty slug does: `/collections/..` walks
+  // back up to `/collections`.
+  it('returns null for a dot-segment slug', () => {
+    expect(entityHref('/collections', '.')).toBeNull()
+    expect(entityHref('/collections', '..')).toBeNull()
+    expect(entityHref('/collections', ' .. ')).toBeNull()
+  })
+
+  // A slug that merely CONTAINS dots is a real slug and still links.
+  it('links a slug that contains dots', () => {
+    expect(entityHref('/artists', 'r.e.m')).toBe('/artists/r.e.m')
   })
 })

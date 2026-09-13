@@ -659,6 +659,148 @@ describe('EntityTagList crew pill treatment (PSY-1883)', () => {
   })
 })
 
+describe('EntityTagList omitCrewTags', () => {
+  const CREW = { tag_id: 9, name: 'Rubber Brother Records', slug: 'rubber-brother-records', category: 'crew', is_official: false, upvotes: 0, downvotes: 0, wilson_score: 0, user_vote: 0 }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockSearchTags = { tags: [] }
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+    currentMockTags = { tags: [mockEntityTags.tags[0], CREW] }
+  })
+
+  it('draws the crew tag by default', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(within(desktopRow()).getByText('Rubber Brother Records')).toBeInTheDocument()
+  })
+
+  it('drops the crew tag and keeps the descriptive ones when asked', () => {
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(
+      within(desktopRow()).queryByText('Rubber Brother Records')
+    ).not.toBeInTheDocument()
+    expect(within(desktopRow()).getByText('rock')).toBeInTheDocument()
+  })
+
+  // The mobile row reads the same drawn set. A crew chip surviving behind the
+  // `sm:hidden` breakpoint would print the booker twice on a phone only.
+  it('drops the crew tag from the mobile row too', () => {
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(
+      within(screen.getByTestId('entity-tag-list-mobile-row')).queryByText(
+        'Rubber Brother Records'
+      )
+    ).not.toBeInTheDocument()
+  })
+
+  // A reader who cannot add sees no heading over an empty row.
+  it('renders nothing to a logged-out viewer when every tag it holds is a crew tag', () => {
+    currentMockTags = { tags: [CREW] }
+    const { container } = renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // This component is the only add-tag affordance on the show page, so a show
+  // whose only tags are crew tags would otherwise become untaggable.
+  it('keeps the add affordance for a logged-in viewer when every tag it holds is a crew tag', () => {
+    currentMockTags = { tags: [CREW] }
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated omitCrewTags />
+    )
+
+    expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+    expect(
+      within(desktopRow()).queryByText('Rubber Brother Records')
+    ).not.toBeInTheDocument()
+  })
+
+  // The PSY-654 rule is unchanged for an entity that genuinely has no tags:
+  // nothing renders, for anyone.
+  it('renders nothing for a logged-in viewer on a tagless entity', () => {
+    currentMockTags = { tags: [] }
+    const { container } = renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated omitCrewTags />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // The drawn set feeds the 5-deep desktop cap, so omitting a crew must let one
+  // more descriptive tag inside it rather than spending a slot on a tag the row
+  // does not draw.
+  it('frees a capped slot for a descriptive tag when it drops a crew', () => {
+    const genres = Array.from({ length: 6 }, (_, i) => ({
+      tag_id: 100 + i,
+      name: `genre-${i}`,
+      slug: `genre-${i}`,
+      category: 'genre',
+      is_official: false,
+      upvotes: 0,
+      downvotes: 0,
+      wilson_score: 0.9 - i * 0.1,
+      user_vote: 0,
+    }))
+    currentMockTags = { tags: [{ ...CREW, wilson_score: 0.95 }, ...genres] }
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    const row = within(desktopRow())
+    for (const genre of genres.slice(0, 5)) {
+      expect(row.getByText(genre.name)).toBeInTheDocument()
+    }
+    expect(row.queryByText('genre-5')).not.toBeInTheDocument()
+    expect(row.queryByText('Rubber Brother Records')).not.toBeInTheDocument()
+  })
+
+  // The add flow still has to know the crew tag is applied, or searching for
+  // it offers to apply it a second time.
+  it('still reports an omitted crew tag as already applied', async () => {
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: CREW.tag_id,
+          name: CREW.name,
+          slug: CREW.slug,
+          category: 'crew',
+          is_official: false,
+          usage_count: 4,
+          created_at: '',
+        },
+      ],
+    }
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated omitCrewTags />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    await user.type(
+      screen.getByPlaceholderText('Search tags or type a new one...'),
+      'Rubber Brother'
+    )
+
+    expect(
+      await screen.findByTestId('tag-autocomplete-already-applied', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
+  })
+})
+
 describe('EntityTagList add-tag dialog crew category (PSY-1883)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

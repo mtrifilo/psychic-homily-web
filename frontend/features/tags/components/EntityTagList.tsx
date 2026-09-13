@@ -35,6 +35,7 @@ import {
 import {
   getCategoryChipClasses,
   getTagChipClasses,
+  isCrewTagCategory,
   DESCRIPTIVE_TAG_CATEGORIES,
   getCategoryLabel,
 } from '../types'
@@ -47,6 +48,17 @@ interface EntityTagListProps {
   entityType: string
   entityId: number
   isAuthenticated?: boolean
+  /**
+   * Drop crew-category tags from the drawn list, for a page that credits the
+   * bookers in a register of their own and would otherwise print them twice.
+   *
+   * Two consequences the caller is buying: the add flow still sees them, so a
+   * crew tag already applied keeps answering "already applied" rather than
+   * offering itself again; and an omitted crew tag loses the vote, remove and
+   * attribution-card controls a drawn chip carries, since those live on the
+   * chip. The surface drawing the crew elsewhere owns whatever it offers there.
+   */
+  omitCrewTags?: boolean
 }
 
 /**
@@ -96,7 +108,12 @@ export function AddTagDialog({
 const DEFAULT_VISIBLE_COUNT = 5
 const MOBILE_VISIBLE_COUNT = 3
 
-export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityTagListProps) {
+export function EntityTagList({
+  entityType,
+  entityId,
+  isAuthenticated,
+  omitCrewTags = false,
+}: EntityTagListProps) {
   const { data, isLoading } = useEntityTags(entityType, entityId)
   const voteMutation = useVoteOnTag()
   const removeVoteMutation = useRemoveTagVote()
@@ -104,12 +121,17 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
   const [sheetOpen, setSheetOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
-  const tags = data?.tags ?? []
+  // Every tag applied to the entity, which is what the add flow has to reason
+  // about even where the list below draws only some of them.
+  const appliedTags = data?.tags ?? []
 
   // Sort by Wilson score (highest confidence first)
   const sortedTags = useMemo(
-    () => [...tags].sort((a, b) => b.wilson_score - a.wilson_score),
-    [tags]
+    () =>
+      (data?.tags ?? [])
+        .filter(tag => !(omitCrewTags && isCrewTagCategory(tag.category)))
+        .sort((a, b) => b.wilson_score - a.wilson_score),
+    [data?.tags, omitCrewTags]
   )
 
   const hasMoreDesktop = sortedTags.length > DEFAULT_VISIBLE_COUNT
@@ -128,9 +150,18 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
     )
   }
 
-  // Hide the section on tagless entities; the per-page header linkbox owns
-  // the [Add tag] affordance via the exported `<AddTagDialog>`.
-  if (tags.length === 0) return null
+  // Nothing to draw.
+  //
+  // A tagless entity renders nothing at all, for anyone: the per-page header
+  // linkbox owns the [Add tag] affordance via the exported `<AddTagDialog>`.
+  // An entity that HAS tags but draws none of them is the `omitCrewTags` case,
+  // and there the section still renders for a viewer who can add, because this
+  // component is the only add-tag affordance on some of the pages that mount it
+  // and a crew-only entity would otherwise be untaggable. A viewer who cannot
+  // add sees no heading over an empty row.
+  if (sortedTags.length === 0 && (!isAuthenticated || appliedTags.length === 0)) {
+    return null
+  }
 
   const handleVote = (tag: EntityTag, isUpvote: boolean) => {
     if (!isAuthenticated) return
@@ -159,7 +190,7 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
         <AddTagForm
           entityType={entityType}
           entityId={entityId}
-          existingTagIds={tags.map(t => t.tag_id)}
+          existingTagIds={appliedTags.map(t => t.tag_id)}
           onSuccess={() => setAddDialogOpen(false)}
         />
       </DialogContent>

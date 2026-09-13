@@ -7,6 +7,8 @@ import {
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
   DESCRIPTIVE_TAG_CATEGORIES,
+  compareEntityTagsByConfidence,
+  isCrewTagCategory,
   isDescriptiveTagCategory,
   getCategoryChipClasses,
   getCategoryTint,
@@ -303,5 +305,41 @@ describe('getEntityTypePluralLabel', () => {
 
   it('returns the raw value for an unknown entity type', () => {
     expect(getEntityTypePluralLabel('mixtape')).toBe('mixtape')
+  })
+})
+
+describe('isCrewTagCategory', () => {
+  it.each(['crew', 'Crew', '  CREW  '])('accepts the stored spelling %p', value => {
+    expect(isCrewTagCategory(value)).toBe(true)
+  })
+
+  // The negation of `isDescriptiveTagCategory` would say yes here, which is
+  // why crediting a booker asks this predicate instead.
+  it.each(['genre', 'locale', 'other', 'sponsor'])('rejects %p', value => {
+    expect(isCrewTagCategory(value)).toBe(false)
+  })
+})
+
+describe('compareEntityTagsByConfidence', () => {
+  const tag = (name: string, wilson_score: number) => ({ name, wilson_score })
+
+  it('ranks the higher Wilson score first', () => {
+    expect(
+      [tag('indie', 0.2), tag('punk', 0.6)].sort(compareEntityTagsByConfidence)
+    ).toEqual([tag('punk', 0.6), tag('indie', 0.2)])
+  })
+
+  // `ListEntityTags` issues no ORDER BY, so equal scores must not inherit the
+  // engine's arrival order: the same page would reshuffle between two reads.
+  it('breaks a tie on name so an unvoted set has one order', () => {
+    const unvoted = [tag('punk', 0), tag('indie', 0), tag('emo', 0)]
+    expect([...unvoted].sort(compareEntityTagsByConfidence).map(t => t.name)).toEqual([
+      'emo',
+      'indie',
+      'punk',
+    ])
+    expect(
+      [...unvoted].reverse().sort(compareEntityTagsByConfidence).map(t => t.name)
+    ).toEqual(['emo', 'indie', 'punk'])
   })
 })
