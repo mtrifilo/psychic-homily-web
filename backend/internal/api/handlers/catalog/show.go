@@ -356,7 +356,12 @@ const defaultShowListLimit = 50
 
 // maxShowListLimit caps a caller-supplied page size on the catalog-wide lists.
 // Each row costs a hydrated bill, so the cap bounds the response an anonymous
-// read can ask for. clampShowListLimit is the one place it is applied.
+// read can ask for.
+//
+// Applied through clampShowListLimit by GET /shows, GET /shows/upcoming and
+// GET /shows/calendar. GetMySubmissionsHandler enforces the same numbers with
+// its own literals; it is a per-user list rather than a catalog-wide one, which
+// is why it is outside this constant's scope rather than an oversight.
 const maxShowListLimit = 200
 
 // GetShowsRequest represents the HTTP request for listing shows
@@ -764,12 +769,7 @@ func (h *ShowHandler) SearchShowsHandler(ctx context.Context, req *SearchShowsRe
 func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest) (*GetShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Huma's `default` tag only covers the HTTP path, and zero means "no rows"
-	// to the service. Matches the artist and venue handlers.
-	limit := req.Limit
-	if limit == 0 {
-		limit = defaultShowListLimit
-	}
+	limit := clampShowListLimit(req.Limit)
 
 	// Build filters
 	filters := make(map[string]interface{})

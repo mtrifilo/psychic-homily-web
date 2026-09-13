@@ -40,11 +40,16 @@ func (s *ShowService) upcomingShowPredicates(
 	filters *contracts.UpcomingShowsFilter,
 	window contracts.ShowCalendarWindow,
 ) func(*gorm.DB) *gorm.DB {
-	// The narrowest fragment the window names, built once outside the applier:
-	// it is a pure function of the window, and the applier runs per read. A day
-	// already implies its month, so asking for the day first and falling back is
-	// one predicate rather than two overlapping ones. A day that names no real
-	// date falls back to its month, which is the fail-closed direction.
+	// The narrowest fragment the window names, built once outside the applier: it
+	// is a pure function of the window, and the applier runs per read. A day
+	// already implies its month, so the day fragment alone IS the window, and one
+	// predicate does the work two overlapping ones would.
+	//
+	// An impossible day yields no day fragment and lands on its month. That is
+	// WIDER than the caller addressed, not narrower, and it is a backstop rather
+	// than a path: ShowCalendarWindow.Validate refuses every such triple at both
+	// entry points. It is still the right backstop, because the alternative when
+	// the day fragment is empty is no window at all.
 	windowCondition, windowArgs := shared.VenueLocalDayCondition(window.Year, window.Month, window.Day)
 	if windowCondition == "" {
 		windowCondition, windowArgs = shared.VenueLocalMonthCondition(window.Year, window.Month)
@@ -128,6 +133,20 @@ func (s *ShowService) upcomingShowPredicates(
 // each get their own; and ONE SNAPSHOT, because an approval or an ingest insert
 // committing between the count and the page would otherwise put a total on
 // screen that the page contradicts.
+//
+// The WINDOW is validated here; the page SIZE is the caller's obligation.
+// clampPageWindow floors a negative Limit at zero, and zero means "no rows, real
+// total" on every list that shares it, so a caller passing Limit 0 gets an empty
+// page beside a non-zero total rather than a default page. Handlers resolve it
+// through clampShowListLimit before calling.
+//
+// OFFSET paging over a set that rolls forward at venue-local midnight has one
+// failure mode, and it is the quiet direction: a show graduating out of the
+// partition between two page reads shifts every later row up one, so a reader
+// walking pages SKIPS a row rather than seeing it twice. Nothing in the envelope
+// reveals it. That is the price of a page number that survives being bookmarked,
+// which is what this list is addressed by; the cursor endpoint is the one that
+// cannot skip.
 func (s *ShowService) GetUpcomingShowsPage(
 	query contracts.ShowCalendarQuery,
 	includeNonApproved bool,

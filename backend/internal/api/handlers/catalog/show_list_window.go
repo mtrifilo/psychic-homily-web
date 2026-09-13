@@ -70,11 +70,18 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
+	// Both page bounds are resolved here so the envelope echoes the page that was
+	// actually read. The service floors a negative offset too; echoing the raw
+	// request value would tell a client it is on a page nothing served.
 	limit := clampShowListLimit(req.Limit)
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
 	filters := parseUpcomingShowsFilter(req.Cities, req.City, req.State, req.Tags, req.TagMatch)
 
 	shows, total, err := h.showService.GetUpcomingShowsPage(
-		contracts.ShowCalendarQuery{ShowCalendarWindow: window, Limit: limit, Offset: req.Offset},
+		contracts.ShowCalendarQuery{ShowCalendarWindow: window, Limit: limit, Offset: offset},
 		upcomingListIncludesNonApproved(ctx),
 		filters,
 	)
@@ -91,7 +98,7 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 	resp.Body.Shows = shows
 	resp.Body.Total = total
 	resp.Body.Limit = limit
-	resp.Body.Offset = req.Offset
+	resp.Body.Offset = offset
 	resp.Body.Year = window.Year
 	resp.Body.Month = window.Month
 	resp.Body.Day = window.Day
@@ -109,11 +116,27 @@ type GetShowMonthsRequest struct {
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
+// upcomingMonthHistogramCacheControl is PRIVATE where the venue and artist month
+// histograms are public, on the same sixty-second window.
+//
+// Those two are structurally viewer-independent: their handlers take no viewer
+// and their services have no admin branch. This one's body is computed from
+// upcomingListIncludesNonApproved, which READS a viewer, so `public` here would
+// be a claim about the route's auth wiring rather than about the payload. This
+// header does not have to be revisited when that wiring changes.
+//
+// `private` costs nothing that this payload actually has: the browser reaches
+// the API origin directly with no shared cache in that path
+// (frontend/lib/api-base.ts), so `public` buys a per-client freshness window and
+// nothing shared. What bounds repeat hits on the aggregate is the global
+// public-read rate limiter these routes inherit, not this header.
+const upcomingMonthHistogramCacheControl = "private, max-age=60"
+
 // GetShowMonthsResponse represents the HTTP response for the upcoming month
 // histogram.
 type GetShowMonthsResponse struct {
-	// CacheControl: public, viewer-independent and stale-tolerant, on the same
-	// terms and the same window as the venue and artist month histograms.
+	// CacheControl: see upcomingMonthHistogramCacheControl for why this one is
+	// private where its venue and artist twins are public.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Months []contracts.ShowMonthCount `json:"months" doc:"Venue-local calendar months that have at least one upcoming show, soonest first"`
@@ -147,7 +170,7 @@ func (h *ShowHandler) GetShowMonthsHandler(ctx context.Context, req *GetShowMont
 		total += month.Count
 	}
 
-	resp := &GetShowMonthsResponse{CacheControl: showMonthHistogramCacheControl}
+	resp := &GetShowMonthsResponse{CacheControl: upcomingMonthHistogramCacheControl}
 	resp.Body.Months = months
 	resp.Body.Total = total
 	return resp, nil

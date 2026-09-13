@@ -383,11 +383,66 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RefusesMa
 		{Year: 2027, Month: 13},
 		{Year: 2027, Month: 2, Day: 31},
 		{Year: 2027, Month: 2, Day: 29},
+		// Negatives are the shape the HTTP schema hides: a miscomputed window
+		// read as "unset" is how one day turns into the whole catalog.
+		{Year: -1},
+		{Year: -1, Month: -5},
+		{Year: 2027, Month: -1},
+		{Year: 2027, Month: 11, Day: -1},
 	} {
 		shows, total, err := suite.showService.GetUpcomingShowsPage(
 			contracts.ShowCalendarQuery{ShowCalendarWindow: window, Limit: 50}, false, nil)
 		suite.Require().Errorf(err, "window %+v must be refused, not answered", window)
 		suite.Require().Empty(shows, "window %+v", window)
 		suite.Require().Zero(total, "window %+v", window)
+	}
+}
+
+// The window's coarse UTC bounds are a planner hint and must be LOSSLESS with
+// respect to the exact venue-local equality, at the extremes of the inhabited
+// offset range where they are likeliest to clip a row.
+//
+// The first instant of a venue-local month at UTC+14 is fourteen hours before
+// the month starts in UTC; the last at UTC-12 is twelve hours after it ends. The
+// margin is two days, so both must survive, and the last night of the PREVIOUS
+// month must stay out.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_ExtremeVenueOffsetSurvivesTheWindowBounds() {
+	user := suite.createTestUser()
+
+	for _, zone := range []string{"Etc/GMT+12", "Etc/GMT+11", "Etc/GMT-14", "Etc/GMT-13"} {
+		venue := newVenueInZone(suite.T(), suite.db, "Window Edge Room "+zone, "AZ", zone, true)
+
+		todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+		year, month := addMonths(todayYear, todayMonth, 3)
+		lastDay := lastDayOfMonth(year, month)
+		previousYear, previousMonth := addMonths(year, month, -1)
+
+		firstInstant := suite.createApprovedShowAt(venue.ID, user.ID, "Edgeville", "AZ",
+			venueLocalDateAt(suite.T(), zone, year, month, 1, 0))
+		lastInstant := suite.createApprovedShowAt(venue.ID, user.ID, "Edgeville", "AZ",
+			venueLocalDateAt(suite.T(), zone, year, month, lastDay, 23))
+		previousMonthEnd := suite.createApprovedShowAt(venue.ID, user.ID, "Edgeville", "AZ",
+			venueLocalDateAt(suite.T(), zone, previousYear, previousMonth,
+				lastDayOfMonth(previousYear, previousMonth), 23))
+
+		page := suite.monthWindow(year, month)
+		suite.Require().Equal([]uint{firstInstant.ID, lastInstant.ID}, page.IDs,
+			"zone %s: both edges of the venue-local month must survive the coarse bounds", zone)
+		suite.Require().Equal(int64(2), page.Total, "zone %s", zone)
+
+		// The same two edges at DAY resolution, whose bounds are tighter still.
+		firstDay := suite.calendarWindow(contracts.ShowCalendarQuery{
+			ShowCalendarWindow: contracts.ShowCalendarWindow{Year: year, Month: month, Day: 1},
+		}, nil)
+		suite.Require().Equal([]uint{firstInstant.ID}, firstDay.IDs, "zone %s day 1", zone)
+
+		lastDayPage := suite.calendarWindow(contracts.ShowCalendarQuery{
+			ShowCalendarWindow: contracts.ShowCalendarWindow{Year: year, Month: month, Day: lastDay},
+		}, nil)
+		suite.Require().Equal([]uint{lastInstant.ID}, lastDayPage.IDs, "zone %s day %d", zone, lastDay)
+
+		// Each zone starts clean, for the reason the sibling extreme-offset test
+		// gives: scoped removal rather than an unscoped wipe.
+		suite.removeShows(firstInstant.ID, lastInstant.ID, previousMonthEnd.ID)
 	}
 }

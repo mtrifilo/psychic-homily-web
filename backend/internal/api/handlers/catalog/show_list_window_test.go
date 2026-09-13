@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -153,9 +154,6 @@ func TestGetShowMonthsHandler_TotalIsTheSumOfTheBars(t *testing.T) {
 	if resp.Body.Total != 178 {
 		t.Errorf("total = %d, want the sum of the bars (178)", resp.Body.Total)
 	}
-	if resp.CacheControl != showMonthHistogramCacheControl {
-		t.Errorf("Cache-Control = %q, want %q", resp.CacheControl, showMonthHistogramCacheControl)
-	}
 	if len(resp.Body.Months) != 3 {
 		t.Errorf("bars = %v, want the service's three", resp.Body.Months)
 	}
@@ -178,5 +176,113 @@ func TestGetShowMonthsHandler_EmptyHistogramTotalsZero(t *testing.T) {
 	}
 	if resp.Body.Months == nil {
 		t.Error("months must serialize as [] rather than null")
+	}
+}
+
+// The handler WIRING, which is where the ticket's central invariant actually
+// breaks: the filters, the viewer and the page bounds have to reach the service
+// from the request, on BOTH endpoints. A test that only inspects the window
+// stays green when a handler drops `cities` on one surface and honours it on the
+// other, which is the strip offering a month its list refuses.
+func TestShowListHandlers_PassTheSameFiltersAndViewerToTheService(t *testing.T) {
+	const cities = "Phoenix,AZ|Mesa,AZ"
+	wantCities := []contracts.CityStateFilter{{City: "Phoenix", State: "AZ"}, {City: "Mesa", State: "AZ"}}
+
+	assertFilters := func(t *testing.T, surface string, got *contracts.UpcomingShowsFilter, gotViewer bool) {
+		t.Helper()
+		if got == nil {
+			t.Fatalf("%s: filters did not reach the service", surface)
+		}
+		if !reflect.DeepEqual(got.Cities, wantCities) {
+			t.Errorf("%s: cities reached the service as %+v, want %+v", surface, got.Cities, wantCities)
+		}
+		if !reflect.DeepEqual(got.TagSlugs, []string{"emo"}) || !got.TagMatchAny {
+			t.Errorf("%s: tag filter reached the service as %+v", surface, got)
+		}
+		if gotViewer {
+			t.Errorf("%s: an anonymous request must not ask the service for non-approved shows", surface)
+		}
+	}
+
+	t.Run("calendar", func(t *testing.T) {
+		var gotFilters *contracts.UpcomingShowsFilter
+		var gotViewer bool
+		mock := &testhelpers.MockShowService{
+			GetUpcomingShowsPageFn: func(_ contracts.ShowCalendarQuery, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+				gotFilters, gotViewer = filters, includeNonApproved
+				return nil, 0, nil
+			},
+		}
+		_, err := newCalendarShowHandler(mock).GetShowsCalendarHandler(context.Background(),
+			&GetShowsCalendarRequest{Cities: cities, Tags: "emo", TagMatch: "any", Limit: 50})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertFilters(t, "GET /shows/calendar", gotFilters, gotViewer)
+	})
+
+	t.Run("months", func(t *testing.T) {
+		var gotFilters *contracts.UpcomingShowsFilter
+		var gotViewer bool
+		mock := &testhelpers.MockShowService{
+			GetUpcomingShowMonthsFn: func(includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]contracts.ShowMonthCount, error) {
+				gotFilters, gotViewer = filters, includeNonApproved
+				return nil, nil
+			},
+		}
+		_, err := newCalendarShowHandler(mock).GetShowMonthsHandler(context.Background(),
+			&GetShowMonthsRequest{Cities: cities, Tags: "emo", TagMatch: "any"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertFilters(t, "GET /shows/months", gotFilters, gotViewer)
+	})
+}
+
+// The histogram is PRIVATE where its venue and artist twins are public, because
+// its body is computed from a viewer test. Pinned rather than left to the
+// constant, so widening it back to `public` has to be a deliberate edit here.
+func TestGetShowMonthsHandler_CacheControlIsPrivate(t *testing.T) {
+	mock := &testhelpers.MockShowService{
+		GetUpcomingShowMonthsFn: func(bool, *contracts.UpcomingShowsFilter) ([]contracts.ShowMonthCount, error) {
+			return nil, nil
+		},
+	}
+
+	resp, err := newCalendarShowHandler(mock).GetShowMonthsHandler(context.Background(), &GetShowMonthsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CacheControl != "private, max-age=60" {
+		t.Errorf("Cache-Control = %q, want private: this payload is computed from a viewer test, "+
+			"so a shared cache must not be allowed to hand one reader's counts to another", resp.CacheControl)
+	}
+}
+
+// A negative offset is floored, and the envelope echoes the page that was read
+// rather than the one that was asked for.
+func TestGetShowsCalendarHandler_FloorsAndEchoesTheOffset(t *testing.T) {
+	for _, tc := range []struct{ sent, want int }{
+		{-1, 0},
+		{0, 0},
+		{150, 150},
+	} {
+		var got contracts.ShowCalendarQuery
+		mock := &testhelpers.MockShowService{
+			GetUpcomingShowsPageFn: func(query contracts.ShowCalendarQuery, _ bool, _ *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+				got = query
+				return nil, 0, nil
+			},
+		}
+
+		resp, err := newCalendarShowHandler(mock).GetShowsCalendarHandler(context.Background(),
+			&GetShowsCalendarRequest{Offset: tc.sent})
+		if err != nil {
+			t.Fatalf("offset %d: unexpected error: %v", tc.sent, err)
+		}
+		if got.Offset != tc.want || resp.Body.Offset != tc.want {
+			t.Errorf("offset %d: service got %d, response echoed %d, want %d",
+				tc.sent, got.Offset, resp.Body.Offset, tc.want)
+		}
 	}
 }

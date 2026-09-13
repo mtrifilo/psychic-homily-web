@@ -345,28 +345,34 @@ type ShowCalendarWindow struct {
 // Validate reports whether the window names a period, returning an error whose
 // message is safe to hand a caller verbatim.
 //
-// It is the ONE definition of a well-formed window, and both the HTTP boundary
-// and the service read it: a half-stated or impossible window narrows to
-// NOTHING in SQL, which is indistinguishable from "no window requested" and
-// would answer with the whole upcoming catalog under a URL promising one day of
-// it. Failing closed in the service is what keeps that true for a caller that
-// builds the struct directly, the way clampPageWindow keeps a negative bound
-// from reaching GORM.
+// Both the HTTP boundary and the service read it, because a half-stated or
+// impossible window narrows to NOTHING in SQL, which is indistinguishable from
+// "no window requested" and would answer with the whole upcoming catalog under a
+// URL promising one day of it. It is the definition the SERVICE enforces; over
+// HTTP the request schema's own bounds reject some of these first, so a caller
+// can see either message for an out-of-range month or day.
 //
-// Year is required by both narrower forms: a bare month is not a period, and a
-// bare day is not a date.
+// Three shapes are well-formed and nothing else is: the ZERO window (no
+// narrowing), a year plus a month, and a year plus a month plus a real day. A
+// year is required by both narrower forms because a bare month is not a period
+// and a bare day is not a date; a bare YEAR is refused too, because this type
+// has no year-wide narrowing and reading it as one would silently widen a URL
+// that named a month.
+//
+// NEGATIVE components are refused rather than read as absent. Reading -1 as
+// "unset" is how a miscomputed window turns into the whole catalog.
 func (w ShowCalendarWindow) Validate() error {
 	switch {
-	case w.Year <= 0 && w.Month <= 0 && w.Day <= 0:
+	case w.Year < 0 || w.Month < 0 || w.Day < 0:
+		return errors.New("year, month and day must not be negative")
+	case w.Year == 0 && w.Month == 0 && w.Day == 0:
 		return nil
-	case w.Year <= 0:
+	case w.Year == 0:
 		return errors.New("month and day require a year")
-	case w.Month <= 0:
+	case w.Month == 0:
 		return errors.New("year requires a month")
 	case w.Month > 12:
 		return errors.New("month must be 1-12")
-	case w.Day < 0:
-		return errors.New("day must be 1-31")
 	case w.Day == 0:
 		return nil
 	case !isRealCalendarDate(w.Year, w.Month, w.Day):
@@ -2674,8 +2680,10 @@ type ShowServiceInterface interface {
 	// Sparse: a month with no upcoming shows is absent rather than zero, because
 	// the consumer is a jump target and an empty month is not one.
 	//
-	// Its counts sum to GetUpcomingShowsPage's unwindowed total for the same
-	// filters, which is what lets a pager label a page it has not fetched.
+	// Under one snapshot its counts sum to GetUpcomingShowsPage's unwindowed
+	// total for the same filters, which is what lets a pager label a page it has
+	// not fetched. The two are separate reads, so an approval or a venue-local
+	// midnight between them moves the later one.
 	GetUpcomingShowMonths(includeNonApproved bool, filters *UpcomingShowsFilter) ([]ShowMonthCount, error)
 	// GetShowCities counts the SAME venue-local upcoming partition
 	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an

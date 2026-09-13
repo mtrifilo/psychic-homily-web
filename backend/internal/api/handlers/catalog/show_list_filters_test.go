@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"psychic-homily-backend/internal/api/middleware"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -107,10 +109,29 @@ func TestClampShowListLimit(t *testing.T) {
 	}
 }
 
-// An anonymous caller never sees non-approved shows, on any of the three list
-// surfaces.
-func TestUpcomingListIncludesNonApproved_AnonymousSeesApprovedOnly(t *testing.T) {
-	if upcomingListIncludesNonApproved(context.Background()) {
-		t.Error("an anonymous caller must not reach non-approved shows")
+// The viewer test is pinned in BOTH directions. Asserting only that an
+// anonymous caller sees approved shows would stay green if the admin arm were
+// deleted, and the month histogram's private Cache-Control is chosen from the
+// fact that this reads a viewer at all.
+func TestUpcomingListIncludesNonApproved(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want bool
+	}{
+		{"anonymous", context.Background(), false},
+		{"a viewer key holding nothing", withUser(nil), false},
+		{"signed in, not an admin", withUser(&authm.User{ID: 7}), false},
+		{"admin", withUser(&authm.User{ID: 7, IsAdmin: true}), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := upcomingListIncludesNonApproved(tc.ctx); got != tc.want {
+				t.Errorf("upcomingListIncludesNonApproved = %v, want %v", got, tc.want)
+			}
+		})
 	}
+}
+
+func withUser(user *authm.User) context.Context {
+	return context.WithValue(context.Background(), middleware.UserContextKey, user)
 }
