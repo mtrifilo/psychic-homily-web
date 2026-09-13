@@ -328,9 +328,10 @@ describe('SceneWeekView', () => {
     )
   })
 
-  // The week is where the reader IS, on the rolling route and on a dated
-  // permalink alike, so the strip marks that window rather than offering it.
-  it('marks the week window current', () => {
+  // Current on the week this page IS, and only then. An archived permalink
+  // marking "This week" current would claim a week that ended months ago is the
+  // current one, and would leave the reader no link to the week that is.
+  it('marks the week window current only while the week is current', () => {
     const { container } = render(<SceneWeekView week={week()} />)
     expect(container.querySelector('[aria-current="page"]')).toHaveTextContent(
       'This week'
@@ -341,6 +342,17 @@ describe('SceneWeekView', () => {
         { name: 'This week' }
       )
     ).toBeNull()
+
+    cleanup()
+    const archived = render(
+      <SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />
+    )
+    expect(archived.container.querySelector('[aria-current="page"]')).toBeNull()
+    expect(
+      within(screen.getByRole('navigation', { name: 'Show windows' })).getByRole('link', {
+        name: 'This week',
+      })
+    ).toHaveAttribute('href', '/scenes/chicago-il/week')
   })
 
   // Kept on archived weeks too: a reader who lands on last March still wants

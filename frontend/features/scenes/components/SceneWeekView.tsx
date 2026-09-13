@@ -20,16 +20,12 @@ import {
   ShowStatusBadge,
   TrackedRoomsFooter,
 } from './sceneChrome'
+import { SceneWindowNav } from './SceneWindowNav'
 import {
-  SCENE_NAV_END_EDGE,
-  SCENE_NAV_START_EDGE,
-  SceneWindowNav,
-} from './SceneWindowNav'
-import {
-  formatMonthDay,
-  sceneWeekPhrase,
+  sceneWeekClause,
   sceneWeekStepLabel,
-  sceneWindowTitle,
+  sceneWeekTitle,
+  sceneWindowHref,
 } from '../sceneWindow'
 
 /**
@@ -108,39 +104,41 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
   const total = countShows(week)
   const prevWeek = navigablePeriodKey(week.prev_week, looksLikeISOWeek)
   const nextWeek = navigablePeriodKey(week.next_week, looksLikeISOWeek)
-  // `This week` while the week is current, `Week of Sep 7` once it is not —
-  // the one phrase this page names itself with, in the H1, the share control
-  // and the quiet copy alike.
-  const phrase = sceneWeekPhrase(week.start_date, week.is_current_week)
+  // One spelling of this week, for everything that follows a preposition or a
+  // verb: the share control and the quiet copy. The heading names it instead.
+  const clause = sceneWeekClause(week.start_date, week.is_current_week)
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
       <SceneBreadcrumb slug={week.slug} sceneName={week.scene_name} />
 
       <header className="mt-2">
-        <SceneWindowHeading title={sceneWindowTitle(phrase, week.city)} />
+        <SceneWindowHeading
+          title={sceneWeekTitle(week.start_date, week.city, week.is_current_week)}
+        />
 
-        {/* The family's one nav. `Tonight` stays a link on archived weeks too:
-            a reader who lands on last March still wants the way back to what
-            is on now. */}
+        {/* The window is marked current only on the week this page IS. On a
+            dated permalink the strip offers `This week` as a link, the way the
+            dated day permalink does, rather than claiming a week that ended
+            months ago is the current one. */}
         <div className="mt-2">
           <SceneWindowNav
             slug={week.slug}
-            current="this-week"
+            current={week.is_current_week ? 'this-week' : null}
             steps={{
               label: 'Adjacent weeks',
-              prev: {
-                label: prevWeek
-                  ? sceneWeekStepLabel(week.start_date, -1, week.is_current_week)
-                  : SCENE_NAV_START_EDGE,
-                href: prevWeek ? `/scenes/${week.slug}/${prevWeek}` : null,
-              },
-              next: {
-                label: nextWeek
-                  ? sceneWeekStepLabel(week.start_date, 1, week.is_current_week)
-                  : SCENE_NAV_END_EDGE,
-                href: nextWeek ? `/scenes/${week.slug}/${nextWeek}` : null,
-              },
+              prev: prevWeek
+                ? {
+                    label: sceneWeekStepLabel(week.start_date, 'prev', week.is_current_week),
+                    href: `/scenes/${week.slug}/${prevWeek}`,
+                  }
+                : undefined,
+              next: nextWeek
+                ? {
+                    label: sceneWeekStepLabel(week.start_date, 'next', week.is_current_week),
+                    href: `/scenes/${week.slug}/${nextWeek}`,
+                  }
+                : undefined,
             }}
           />
         </div>
@@ -159,11 +157,7 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
               canonical and what the address bar shows. */}
           <ShareButton
             path={`/scenes/${week.slug}/${week.iso_week}`}
-            ariaLabel={
-              week.is_current_week
-                ? 'Share this week'
-                : `Share the week of ${formatMonthDay(week.start_date)}`
-            }
+            ariaLabel={`Share ${clause}`}
           />
         </div>
 
@@ -182,11 +176,7 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
         <p className="py-10 text-muted-foreground">
           {/* The week NAMES itself here rather than saying "this week", which on
               an archived permalink describes a week that ended months ago. */}
-          No shows at the {week.city} rooms we track{' '}
-          {week.is_current_week
-            ? 'this week'
-            : `the week of ${formatMonthDay(week.start_date)}`}
-          .
+          No shows at the {week.city} rooms we track {clause}.
           {/* One step onward, and which step depends on where the reader is.
               "Try next week" is a claim about what is coming, so only a current
               week may make it; an archived week points at what is on now
@@ -205,7 +195,10 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
             : (
                 <>
                   {' '}
-                  <Link href={`/scenes/${week.slug}/week`} className="underline">
+                  <Link
+                    href={sceneWindowHref(week.slug, 'this-week')}
+                    className="underline"
+                  >
                     See this week in {week.city}
                   </Link>
                   .

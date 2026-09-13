@@ -5,6 +5,7 @@ import {
   sceneWindowHref,
   type SceneWindowKey,
 } from '../sceneWindow'
+import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
 
 /**
  * The window family's navigation: one component for every route in it.
@@ -20,48 +21,48 @@ import {
  * underlined, a direction with nothing behind it muted and unlinked.
  */
 
-/** Mono micro-caps, shared by every item in both rows so the register is one. */
+/**
+ * Mono micro-caps at the frame's own metrics, shared by every item in both rows
+ * so the register is one. A step down in size from `SCENE_ACCENT_LINK_CLASS`,
+ * whose interaction behaviour it composes rather than re-spells.
+ */
 const CHIP_CLASS = 'rounded-sm py-1 font-mono text-[10px] uppercase tracking-[0.08em]'
 
-/** Links carry the focus ring; offset, since these are inline text links. */
-const LINK_CLASS = `${CHIP_CLASS} underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring`
+const LINK_CLASS = `${CHIP_CLASS} ${SCENE_LINK_INTERACTION_CLASS}`
 
-/**
- * One direction of the prev/next row.
- *
- * A null `href` is a direction this site cannot serve — past the edge of the
- * servable window, or a key the route would reject. It renders as muted text
- * rather than a link, because a chip pointing at a URL that 404s is a worse
- * answer than a plain statement that there is nothing there.
- */
+/** One direction of the prev/next row: a period this site can serve. */
 export interface SceneWindowNavStep {
   label: string
-  href: string | null
+  href: string
 }
 
 /** The prev/next row the day and week routes add below the chips. */
 export interface SceneWindowNavSteps {
   /** Accessible name for the row, e.g. `Adjacent days`. */
   label: string
-  prev: SceneWindowNavStep
-  next: SceneWindowNavStep
+  /** Absent means the servable window ends here; the row says so, muted. */
+  prev?: SceneWindowNavStep
+  next?: SceneWindowNavStep
 }
 
-/** The muted labels for the two ends of the servable window. */
-export const SCENE_NAV_START_EDGE = 'Start of listings'
-export const SCENE_NAV_END_EDGE = 'End of listings'
+/** What each direction reads when there is nothing that way. */
+const EDGE_LABEL = { prev: 'Start of listings', next: 'End of listings' } as const
 
 function NavStep({
   step,
   direction,
 }: {
-  step: SceneWindowNavStep
+  step: SceneWindowNavStep | undefined
   direction: 'prev' | 'next'
 }) {
-  // The arrow belongs to the LINK. A muted edge with an arrow would draw the
-  // eye toward a destination that does not exist.
-  if (!step.href) {
-    return <span className={`${CHIP_CLASS} text-muted-foreground`}>{step.label}</span>
+  // A direction with nothing behind it is muted text, never a link: a link to a
+  // URL this site 404s is a worse answer than saying the listings end. It
+  // carries no arrow either, which would point the eye at a destination that
+  // does not exist.
+  if (!step) {
+    return (
+      <span className={`${CHIP_CLASS} text-muted-foreground`}>{EDGE_LABEL[direction]}</span>
+    )
   }
 
   return (

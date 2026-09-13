@@ -19,7 +19,12 @@
  * source on this surface that can answer "what is on tonight" honestly.
  */
 
-import { parseCalendarDate, type SceneWeekDay, type SceneWeekResponse } from './sceneWeek'
+import {
+  formatCalendarMonthDay,
+  parseCalendarDate,
+  type SceneWeekDay,
+  type SceneWeekResponse,
+} from './sceneWeek'
 // Type-only, so this module stays a runtime leaf: nothing here pulls the view's
 // graph. The data type lives HERE rather than beside the component because the
 // page module and the JSON-LD builder both consume it, and a data shape defined
@@ -65,42 +70,49 @@ export function sceneWindowHref(slug: string, key: SceneWindowKey): string {
 /**
  * `Sep 14` — the `{MON D}` stem every dated label in this family is built from.
  *
- * Component-wise parsing (`parseCalendarDate`), because these are scene-local
- * CALENDAR dates: `new Date('2026-09-14')` is UTC midnight, which prints as Sep
- * 13 in every negative-offset zone and would name the wrong night in a title.
+ * Delegates to `formatCalendarMonthDay`, which carries the shape guard and the
+ * component-wise parse this form depends on: `new Date('2026-09-14')` is UTC
+ * midnight, which prints as Sep 13 in every negative-offset zone and would name
+ * the wrong night in a title. A value that is not a calendar date falls back to
+ * itself rather than to a confident wrong date.
  */
 export function formatMonthDay(iso: string): string {
-  const date = parseCalendarDate(iso)
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
-  return `${month} ${date.getDate()}`
+  return formatCalendarMonthDay(iso) ?? iso
 }
 
 /**
- * `This week in Chicago` — the family's one title rule.
+ * `This week in Chicago` — the family's one title rule, `{WINDOW} in {CITY}`.
  *
- * Every window route names itself `{WINDOW} in {CITY}`, on the H1 and in
- * `<title>` alike, so the phrase a reader saw in a tab is the phrase at the top
- * of the page. The PHRASE is the caller's: a rolling window uses its label, a
- * day its date, an archived week its `Week of` form.
+ * Every route in the family builds its H1 and its `<title>` through one of the
+ * three functions below, so the phrase a reader saw in a tab is the phrase at
+ * the top of the page. They are the only public spelling of the rule: composing
+ * it at a call site is how the tab and the heading drift apart.
  */
-export function sceneWindowTitle(phrase: string, city: string): string {
+function windowTitle(phrase: string, city: string): string {
   return `${phrase} in ${city}`
 }
 
+/** `This weekend in Phoenix` — one of the four rolling windows. */
+export function sceneWindowTitle(key: SceneWindowKey, city: string): string {
+  return windowTitle(SCENE_WINDOW_LABEL[key], city)
+}
+
 /**
- * What a single night calls itself: `Tonight` on the rolling route, `Sep 14` on
- * a dated permalink.
+ * `Tonight in Phoenix` on the rolling route, `Sep 14 in Phoenix` on a dated
+ * permalink.
  *
  * The discriminator is the ROUTE, not the payload's `is_tonight`: that flag is
  * also true for the dated permalink naming today, and a permanent URL that
  * calls itself "tonight" is false from the following morning on.
  */
-export function sceneDayPhrase(date: string, isRollingRoute: boolean): string {
-  return isRollingRoute ? SCENE_WINDOW_LABEL.tonight : formatMonthDay(date)
+export function sceneDayTitle(date: string, city: string, isRollingRoute: boolean): string {
+  return isRollingRoute
+    ? sceneWindowTitle('tonight', city)
+    : windowTitle(formatMonthDay(date), city)
 }
 
 /**
- * What a week calls itself: `This week` while it is current, `Week of Sep 7`
+ * `This week in Chicago` while the week is current, `Week of Sep 7 in Chicago`
  * once it is not.
  *
  * Read off the payload's `is_current_week`, which the backend resolves in the
@@ -108,32 +120,61 @@ export function sceneDayPhrase(date: string, isRollingRoute: boolean): string {
  * is a permalink, and a reader who opens last March is not being shown the
  * current week.
  */
-export function sceneWeekPhrase(startDate: string, isCurrentWeek: boolean): string {
-  return isCurrentWeek ? SCENE_WINDOW_LABEL['this-week'] : `Week of ${formatMonthDay(startDate)}`
+export function sceneWeekTitle(
+  startDate: string,
+  city: string,
+  isCurrentWeek: boolean
+): string {
+  return isCurrentWeek
+    ? sceneWindowTitle('this-week', city)
+    : windowTitle(sceneWeekName(startDate), city)
+}
+
+/** `Week of Sep 7` — a week named by its own Monday. */
+function sceneWeekName(startDate: string): string {
+  return `Week of ${formatMonthDay(startDate)}`
+}
+
+/**
+ * The same week as a CLAUSE: `this week`, or `the week of Sep 7`.
+ *
+ * The form that follows a preposition or a verb — "we track {clause}", "share
+ * {clause}" — so a page's heading, its share control and its quiet copy spell
+ * one week one way. Lowercasing the name would not do: it would print "week of
+ * sep 7".
+ */
+export function sceneWeekClause(startDate: string, isCurrentWeek: boolean): string {
+  return isCurrentWeek ? 'this week' : `the week of ${formatMonthDay(startDate)}`
 }
 
 /**
  * How a neighbouring week reads in the prev/next row.
  *
  * Relative on the CURRENT week, where "last" and "next" are unambiguous, and
- * named by its own date everywhere else — the same idiom the day row uses. A
+ * named by its own Monday everywhere else — the same idiom the day row uses. A
  * neighbour is never called "this week": identifying one as the current week
  * would take a clock this payload does not carry, and a wrong "this week" is a
  * claim about now.
  *
- * `offsetWeeks` is -1 or 1; the date is arithmetic on the week's own start,
- * since every week is exactly seven days from its neighbour.
+ * The neighbour's date is arithmetic on the week's own start, since every week
+ * is exactly seven days from its neighbour.
  */
 export function sceneWeekStepLabel(
   startDate: string,
-  offsetWeeks: number,
+  direction: 'prev' | 'next',
   isCurrentWeek: boolean
 ): string {
-  if (isCurrentWeek) return offsetWeeks < 0 ? 'Last week' : 'Next week'
-  const neighbour = parseCalendarDate(startDate)
-  neighbour.setDate(neighbour.getDate() + 7 * offsetWeeks)
-  const month = neighbour.toLocaleDateString('en-US', { month: 'short' })
-  return `Week of ${month} ${neighbour.getDate()}`
+  if (isCurrentWeek) return direction === 'prev' ? 'Last week' : 'Next week'
+  return sceneWeekName(shiftCalendarDate(startDate, direction === 'prev' ? -7 : 7))
+}
+
+/** The calendar date `days` away, as `YYYY-MM-DD` in the same calendar. */
+function shiftCalendarDate(iso: string, days: number): string {
+  const date = parseCalendarDate(iso)
+  date.setDate(date.getDate() + days)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }
 
 /**

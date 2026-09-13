@@ -162,7 +162,7 @@ export async function buildSceneWindowMetadata(
   // range the title used to carry is on the page, in the header line: a
   // rolling window's range moves with the clock, so a title carrying it would
   // describe a span the next reader does not get.
-  const title = sceneWindowTitle(label, data.city)
+  const title = sceneWindowTitle(window, data.city)
   const description =
     data.rendered > 0
       ? `${data.rendered} ${data.rendered === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${label.toLowerCase()}.`

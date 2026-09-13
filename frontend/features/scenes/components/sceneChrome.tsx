@@ -19,6 +19,16 @@ import { entityHref } from '@/lib/entity-slug'
  */
 
 /**
+ * How a scene-page text link BEHAVES, apart from its type and tone.
+ *
+ * Carried by the accent register below and by the window nav, whose type is a
+ * step smaller. Splitting it is what keeps one hover and one focus-ring rule
+ * across both: a second spelling is a second thing to remember to change.
+ */
+export const SCENE_LINK_INTERACTION_CLASS =
+  'underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring'
+
+/**
  * A scene-page link in the accent register: `SceneSectionHeading`'s mono
  * micro-caps type at the same size, toned `text-primary`.
  *
@@ -34,8 +44,7 @@ import { entityHref } from '@/lib/entity-slug'
  * The tone is the wave's locked accent register rather than this constant's
  * choice, so changing it is a design decision about every surface that uses it.
  */
-export const SCENE_ACCENT_LINK_CLASS =
-  'rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring'
+export const SCENE_ACCENT_LINK_CLASS = `rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary ${SCENE_LINK_INTERACTION_CLASS}`
 
 /**
  * One named entity, linked to its own page when it has one.

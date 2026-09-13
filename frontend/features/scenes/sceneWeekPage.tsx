@@ -6,7 +6,7 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
 import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
-import { sceneWeekPhrase, sceneWindowTitle } from './sceneWindow'
+import { sceneWeekTitle } from './sceneWindow'
 import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
 /**
@@ -36,10 +36,7 @@ export async function buildSceneWeekMetadata(
   const range = formatWeekRange(data.start_date, data.end_date)
   // The family's one title rule, so the tab and the H1 read alike. An archived
   // week names its own Monday rather than saying "this week".
-  const title = sceneWindowTitle(
-    sceneWeekPhrase(data.start_date, data.is_current_week),
-    data.city
-  )
+  const title = sceneWeekTitle(data.start_date, data.city, data.is_current_week)
   const description =
     total > 0
       ? `${total} ${total === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${range}.`

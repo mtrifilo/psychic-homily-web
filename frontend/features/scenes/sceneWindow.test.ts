@@ -10,8 +10,8 @@ import {
   formatWindowRange,
   rollingDays,
   sceneCityListHref,
-  sceneDayPhrase,
-  sceneWeekPhrase,
+  sceneDayTitle,
+  sceneWeekTitle,
   sceneWeekStepLabel,
   sceneWindowHref,
   sceneWindowTitle,
@@ -239,25 +239,17 @@ describe('sceneCityListHref', () => {
  */
 describe('the window title rule', () => {
   it.each(SCENE_WINDOW_ORDER)('titles the %s window by its label', key => {
-    expect(sceneWindowTitle(SCENE_WINDOW_LABEL[key], 'Chicago')).toBe(
-      `${SCENE_WINDOW_LABEL[key]} in Chicago`
-    )
+    expect(sceneWindowTitle(key, 'Chicago')).toBe(`${SCENE_WINDOW_LABEL[key]} in Chicago`)
   })
 
   it('titles the rolling night as the window, and a dated one as its date', () => {
-    expect(sceneWindowTitle(sceneDayPhrase('2026-09-14', true), 'Chicago')).toBe(
-      'Tonight in Chicago'
-    )
-    expect(sceneWindowTitle(sceneDayPhrase('2026-09-14', false), 'Chicago')).toBe(
-      'Sep 14 in Chicago'
-    )
+    expect(sceneDayTitle('2026-09-14', 'Chicago', true)).toBe('Tonight in Chicago')
+    expect(sceneDayTitle('2026-09-14', 'Chicago', false)).toBe('Sep 14 in Chicago')
   })
 
   it('titles the current week as the window, and an archived one by its Monday', () => {
-    expect(sceneWindowTitle(sceneWeekPhrase('2026-09-14', true), 'Chicago')).toBe(
-      'This week in Chicago'
-    )
-    expect(sceneWindowTitle(sceneWeekPhrase('2026-09-07', false), 'Chicago')).toBe(
+    expect(sceneWeekTitle('2026-09-14', 'Chicago', true)).toBe('This week in Chicago')
+    expect(sceneWeekTitle('2026-09-07', 'Chicago', false)).toBe(
       'Week of Sep 7 in Chicago'
     )
   })
@@ -265,7 +257,16 @@ describe('the window title rule', () => {
   // A week that has not happened yet is not "this week" either, and it is not
   // archived — one rule covers both by keying on `is_current_week` alone.
   it('names a future week by its Monday, like an archived one', () => {
-    expect(sceneWeekPhrase('2026-09-21', false)).toBe('Week of Sep 21')
+    expect(sceneWeekTitle('2026-09-21', 'Chicago', false)).toBe(
+      'Week of Sep 21 in Chicago'
+    )
+  })
+
+  // A payload that cannot name its date falls back to what it sent rather than
+  // to `parseCalendarDate`'s year-1900 reading, which would print `Jan 1`.
+  it('does not invent a date from a value that is not one', () => {
+    expect(formatMonthDay('')).toBe('')
+    expect(formatMonthDay('yesterday')).toBe('yesterday')
   })
 
   // The killer bug: `new Date('2026-09-14')` is UTC midnight, which prints as
@@ -279,19 +280,19 @@ describe('the window title rule', () => {
 describe('sceneWeekStepLabel', () => {
   // "Last" and "next" are claims about now; only the current week may make them.
   it('names the neighbours of the current week relatively', () => {
-    expect(sceneWeekStepLabel('2026-09-14', -1, true)).toBe('Last week')
-    expect(sceneWeekStepLabel('2026-09-14', 1, true)).toBe('Next week')
+    expect(sceneWeekStepLabel('2026-09-14', 'prev', true)).toBe('Last week')
+    expect(sceneWeekStepLabel('2026-09-14', 'next', true)).toBe('Next week')
   })
 
   it('names the neighbours of any other week by their own Monday', () => {
-    expect(sceneWeekStepLabel('2026-09-07', -1, false)).toBe('Week of Aug 31')
-    expect(sceneWeekStepLabel('2026-09-07', 1, false)).toBe('Week of Sep 14')
+    expect(sceneWeekStepLabel('2026-09-07', 'prev', false)).toBe('Week of Aug 31')
+    expect(sceneWeekStepLabel('2026-09-07', 'next', false)).toBe('Week of Sep 14')
   })
 
   // Seven days back from the first Monday of a month is the previous month,
   // and from the first week of a year the previous one.
   it('crosses a month and a year boundary', () => {
-    expect(sceneWeekStepLabel('2026-03-02', -1, false)).toBe('Week of Feb 23')
-    expect(sceneWeekStepLabel('2026-01-05', -1, false)).toBe('Week of Dec 29')
+    expect(sceneWeekStepLabel('2026-03-02', 'prev', false)).toBe('Week of Feb 23')
+    expect(sceneWeekStepLabel('2026-01-05', 'prev', false)).toBe('Week of Dec 29')
   })
 })

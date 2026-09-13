@@ -7,7 +7,7 @@ import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
 import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { looksLikeISOWeek } from './sceneWeek'
-import { sceneDayPhrase, sceneWindowTitle } from './sceneWindow'
+import { sceneDayTitle } from './sceneWindow'
 import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 
 /**
@@ -19,19 +19,6 @@ import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 export const getSceneDay = cache(
   (slug: string, date?: string): Promise<SceneDayResponse | null> => fetchSceneDay(slug, date)
 )
-
-/**
- * The page title, under the family's one rule: `Tonight in Phoenix`, or
- * `Sep 14 in Phoenix` on a dated permalink.
- *
- * The discriminator is the ROUTE, not `is_tonight` — that flag is also true for
- * the dated permalink naming today, and a permanent URL calling itself
- * "tonight" is false from the following morning on. The full date, and the year
- * the `{MON D}` form drops, stay in the description below.
- */
-function dayTitle(day: SceneDayResponse, isRollingRoute: boolean): string {
-  return sceneWindowTitle(sceneDayPhrase(day.date, isRollingRoute), day.city)
-}
 
 function dayDescription(day: SceneDayResponse): string {
   const total = dayShows(day).length
@@ -56,7 +43,10 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // canonical note below for why this, rather than `is_tonight`, is the
   // discriminator everything on this page keys off.
   const isRollingRoute = date === undefined
-  const title = dayTitle(day, isRollingRoute)
+  // The same rule the H1 renders, from the same function, so the tab and the
+  // top of the page cannot drift. The full date, and the year the `{MON D}`
+  // form drops, stay in the description.
+  const title = sceneDayTitle(day.date, day.city, isRollingRoute)
   const description = dayDescription(day)
 
   // A day that cannot name its own page. With either field blank the URLs below
@@ -97,9 +87,9 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // The discriminator is the ABSENT `date` argument, not `day.is_tonight`: that
   // flag is also true for a dated permalink naming today, and that permalink
   // must keep pointing at itself rather than be folded into the week.
-  // (SceneDayView's "full week" chip deliberately still keys off `is_tonight`.
-  // It is answering "which week link helps a reader here", not "which URL is
-  // this page", so the two are allowed to differ.)
+  // (SceneDayView's quiet-night "full week" link deliberately still keys off
+  // `is_tonight`. It is answering "which week link helps a reader here", not
+  // "which URL is this page", so the two are allowed to differ.)
   const canonical =
     isRollingRoute && day.iso_week
       ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`

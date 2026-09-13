@@ -290,10 +290,7 @@ function QuietSlice({ scene, nextDate }: { scene: SceneDetail; nextDate?: string
 export function SceneCalendar({ scene, slice }: SceneCalendarProps) {
   return (
     <div>
-      {/* NO active chip: the root is not one of these windows, so marking one
-          of them current would be false (the 2026-08-17 re-lock). The strip
-          never degrades either — a thin scene renders the full row, because a
-          window that is empty is still an answer. */}
+      {/* No active window: the root is not one of them. See SceneWindowNav. */}
       <SceneWindowNav slug={scene.slug} />
 
       {/* No section heading and no accuracy disclaimer, both per the locked mock

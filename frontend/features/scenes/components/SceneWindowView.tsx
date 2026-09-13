@@ -134,9 +134,7 @@ export function SceneWindowView({ data }: { data: SceneWindowData }) {
       <SceneBreadcrumb slug={data.slug} sceneName={data.sceneName} />
 
       <header className="mt-2">
-        <SceneWindowHeading
-          title={sceneWindowTitle(SCENE_WINDOW_LABEL[data.window], data.city)}
-        />
+        <SceneWindowHeading title={sceneWindowTitle(data.window, data.city)} />
 
         {/* No prev/next row: these windows roll with the clock, so there is no
             adjacent one to step to. */}

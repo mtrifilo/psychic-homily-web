@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -100,7 +100,6 @@ describe('SceneWindowNav', () => {
         steps={{
           label: 'Adjacent days',
           prev: { label: 'Oct 11', href: '/scenes/phoenix-az/2026-10-11' },
-          next: { label: 'End of listings', href: null },
         }}
       />
     )
@@ -109,6 +108,16 @@ describe('SceneWindowNav', () => {
     expect(labels(nav)).toEqual(['← Oct 11', 'End of listings'])
     expect(within(nav).getAllByRole('link')).toHaveLength(1)
     expect(within(nav).queryByRole('link', { name: /End of listings/ })).toBeNull()
+  })
+
+  // The row still renders BOTH directions when neither is servable, so the page
+  // says where the listings end rather than dropping the row silently.
+  it('names both edges when neither direction is servable', () => {
+    render(<SceneWindowNav slug="phoenix-az" steps={{ label: 'Adjacent days' }} />)
+
+    const nav = screen.getByRole('navigation', { name: 'Adjacent days' })
+    expect(labels(nav)).toEqual(['Start of listings', 'End of listings'])
+    expect(within(nav).queryAllByRole('link')).toEqual([])
   })
 })
 
@@ -120,18 +129,29 @@ describe('SceneWindowNav', () => {
  * copy appears rather than when an existing one changes.
  */
 describe('the window nav has exactly one definition', () => {
-  const featureRoot = join(import.meta.dirname, '..')
+  const componentsDir = import.meta.dirname
 
-  it.each([
-    'components/SceneCalendar.tsx',
-    'components/SceneWeekView.tsx',
-    'components/SceneDayView.tsx',
-    'components/SceneWindowView.tsx',
-  ])('%s renders the shared component rather than a strip of its own', file => {
-    const source = readFileSync(join(featureRoot, file), 'utf8')
+  // Swept rather than listed: a listed guard passes for the fifth surface that
+  // grows a strip of its own, which is the regression it exists to catch.
+  const sources = readdirSync(componentsDir)
+    .filter(name => name.endsWith('.tsx') && !name.endsWith('.test.tsx'))
+    .filter(name => name !== 'SceneWindowNav.tsx')
 
-    expect(source).toContain('SceneWindowNav')
+  it.each(sources)('%s declares no window strip of its own', file => {
+    const source = readFileSync(join(componentsDir, file), 'utf8')
+
     expect(source).not.toContain('function SceneWindowNav')
     expect(source).not.toContain('aria-label="Show windows"')
+  })
+
+  it.each([
+    'SceneCalendar.tsx',
+    'SceneWeekView.tsx',
+    'SceneDayView.tsx',
+    'SceneWindowView.tsx',
+  ])('%s renders the shared component', file => {
+    expect(readFileSync(join(componentsDir, file), 'utf8')).toContain(
+      "from './SceneWindowNav'"
+    )
   })
 })

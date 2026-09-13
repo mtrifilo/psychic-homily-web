@@ -25,12 +25,8 @@ import {
   ShowStatusBadge,
   TrackedRoomsFooter,
 } from './sceneChrome'
-import {
-  SCENE_NAV_END_EDGE,
-  SCENE_NAV_START_EDGE,
-  SceneWindowNav,
-} from './SceneWindowNav'
-import { formatMonthDay, sceneDayPhrase, sceneWindowTitle } from '../sceneWindow'
+import { SceneWindowNav } from './SceneWindowNav'
+import { formatMonthDay, sceneDayTitle } from '../sceneWindow'
 
 /**
  * One show, time first.
@@ -238,35 +234,34 @@ export function SceneDayView({
       <SceneBreadcrumb slug={day.slug} sceneName={day.scene_name} />
 
       <header className="mt-2">
-        <SceneWindowHeading
-          title={sceneWindowTitle(sceneDayPhrase(day.date, isRollingRoute), day.city)}
-        />
+        <SceneWindowHeading title={sceneDayTitle(day.date, day.city, isRollingRoute)} />
 
         {/* The adjacent-day row names a date only when the server offered one
             this site can serve. At the edges of the servable window there is no
-            next night to go to, and a link pointing at a URL this site 404s is
-            a worse answer than the muted statement that the listings end. */}
+            next night to go to, and the row says so rather than linking a page
+            this site 404s. */}
         <div className="mt-2">
           <SceneWindowNav
             slug={day.slug}
             current={isRollingRoute ? 'tonight' : null}
             steps={{
               label: 'Adjacent days',
-              prev: {
-                label: prevDay ? formatMonthDay(prevDay) : SCENE_NAV_START_EDGE,
-                href: prevDay ? `/scenes/${day.slug}/${prevDay}` : null,
-              },
-              next: {
-                label: nextDay ? formatMonthDay(nextDay) : SCENE_NAV_END_EDGE,
-                href: nextDay ? `/scenes/${day.slug}/${nextDay}` : null,
-              },
+              prev: prevDay
+                ? { label: formatMonthDay(prevDay), href: `/scenes/${day.slug}/${prevDay}` }
+                : undefined,
+              next: nextDay
+                ? { label: formatMonthDay(nextDay), href: `/scenes/${day.slug}/${nextDay}` }
+                : undefined,
             }}
           />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="font-mono text-sm">
-            {day.is_tonight && 'Tonight — '}
+            {/* Dropped on the rolling route, whose heading two lines above
+                already says the word; a dated permalink keeps it, because there
+                it is the only thing saying this page is the live night. */}
+            {!isRollingRoute && day.is_tonight && 'Tonight — '}
             {formatDayFull(day.date)}
             {'   ·   '}
             {formatDayCountLine(total)}
