@@ -278,3 +278,26 @@ export function hasShowStarted(
   const startedAt = startInstantMs(eventDate)
   return startedAt === null || startedAt <= now.getTime()
 }
+
+/**
+ * The venue-local calendar date of a show as `2026-09-12`, or `null` when the
+ * start instant cannot be read.
+ *
+ * The boundary is the one {@link getShowLifecycleState} judges on, in the
+ * spelling a DOM id and a URL segment can carry. One definition, so a day
+ * heading, the anchor that addresses it, and the test for whether that day is
+ * today cannot disagree about which day a row falls on.
+ *
+ * Carries the same timezone limit as its neighbours: a venue with no resolved
+ * `timezone` and a state outside the US map is dated on
+ * `FALLBACK_SHOW_TIMEZONE`.
+ */
+export function venueLocalDateKey(show: ShowTimingInput): string | null {
+  const startedAt = startInstantMs(show.eventDate)
+  if (startedAt === null) return null
+  const timeZone = resolveShowTimezone(show.state, show.timezone)
+  const ordinal = venueLocalDayOrdinal(startedAt, timeZone)
+  if (!Number.isFinite(ordinal)) return null
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${Math.floor(ordinal / 10000)}-${pad(Math.floor((ordinal % 10000) / 100))}-${pad(ordinal % 100)}`
+}

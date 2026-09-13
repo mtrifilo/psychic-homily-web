@@ -6,7 +6,7 @@ import { usePrefetchRoutes } from './usePrefetchRoutes'
 // `/shows` reads rather than a sibling that merely hashes the same today.
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
+  SHOWS_CALENDAR_FIRST_SCREEN_KEY,
 } from '@/features/shows/api'
 
 // Mock TanStack Query
@@ -112,7 +112,7 @@ describe('usePrefetchRoutes', () => {
     const { unmount } = renderHook(() => usePrefetchRoutes())
 
     const keys = mockPrefetchQuery.mock.calls.map(c => c[0].queryKey)
-    expect(keys).toContainEqual(UPCOMING_SHOWS_FIRST_SCREEN_KEY)
+    expect(keys).toContainEqual(SHOWS_CALENDAR_FIRST_SCREEN_KEY)
     expect(keys).toContainEqual(SHOW_CITIES_FIRST_SCREEN_KEY)
 
     unmount()

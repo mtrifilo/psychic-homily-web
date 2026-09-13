@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { SHOWS_PAGE_SIZE } from './showsListNavigation'
 
 // ============================================================================
 // Endpoints
@@ -15,6 +16,12 @@ import { API_BASE_URL } from '@/lib/api-base'
 export const showEndpoints = {
   SUBMIT: `${API_BASE_URL}/shows`,
   UPCOMING: `${API_BASE_URL}/shows/upcoming`,
+  // The OFFSET reader of the same venue-local upcoming partition `UPCOMING`
+  // serves by cursor. `/shows` pages by number, which a cursor cannot address;
+  // home and explore keep the cursor feed.
+  CALENDAR: `${API_BASE_URL}/shows/calendar`,
+  // Upcoming shows per venue-local month, under the same filters as the list.
+  MONTHS: `${API_BASE_URL}/shows/months`,
   CITIES: `${API_BASE_URL}/shows/cities`,
   // PSY-372 / PSY-520: autocomplete endpoint, used by useEntitySearch.
   SEARCH: `${API_BASE_URL}/shows/search`,
@@ -60,6 +67,15 @@ export const showQueryKeys = {
   all: ['shows'] as const,
   list: (filters?: Record<string, unknown>) =>
     ['shows', 'list', filters] as const,
+  // Separate from `list` because the two read different endpoints over the same
+  // partition: one keyed by cursor, one by offset. Sharing a key namespace would
+  // let a cursor page and an offset page occupy the same entry.
+  calendar: (filters?: Record<string, unknown>) =>
+    ['shows', 'calendar', filters] as const,
+  // The month histogram is a function of the FILTERS alone, never of the page,
+  // so paging never re-requests it.
+  months: (filters?: Record<string, unknown>) =>
+    ['shows', 'months', filters] as const,
   // No timezone segment: `GET /shows/cities` counts the same venue-local
   // upcoming partition for every visitor (PSY-1678), so a per-viewer key would
   // fragment the cache across entries that can only ever hold identical data.
@@ -112,17 +128,19 @@ export const showQueryKeys = {
  * a server-rendered first screen means resolving per-visitor state on a
  * cacheable route, which is a separate decision.
  *
- * WHAT MAKES THE SEED LAND, and the reason PSY-1678 could delete the machinery
- * PSY-1624 needed: these requests carry no PER-VIEWER input. `GET
- * /shows/upcoming` decides "upcoming" against each show's own venue timezone, so
+ * WHAT MAKES THE SEED LAND: these requests carry no PER-VIEWER input. `GET
+ * /shows/calendar` decides "upcoming" against each show's own venue timezone, so
  * one canonical answer is the correct answer for every visitor. The filterless
  * KEY below is therefore exactly what the hooks ask for on a cold anon `/shows`
  * — the seeded entry is a hit, and the hydration commit has nothing to refetch.
- * Under the old viewer-timezone contract the key varied per viewer, so it could
- * only ever be an approximation the client re-fetched and discarded.
  *
- * A bare `/shows` therefore sends no query string at all, and the seeded URL is
- * the endpoint itself.
+ * The seed is PAGE 1 only. `?page=2` and beyond are client-fetched: they are a
+ * long tail of addresses, each a separate cache entry, and none of them is what
+ * a cold visitor or a crawler lands on.
+ *
+ * The `limit` is in the URL rather than left to the endpoint's own default,
+ * because the pager's arithmetic depends on the page size the request actually
+ * carried. `offset` is omitted at page 1, where it would be zero.
  *
  * The URL and the key have to stay a matched pair, and that is unenforceable at
  * the type level: `useShowsFirstScreen.test.tsx` asserts the hooks really do
@@ -131,11 +149,11 @@ export const showQueryKeys = {
  * constants. A drifted pair produces no error anywhere, just a page that quietly
  * stops being server-rendered.
  */
-export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
+export const SHOWS_CALENDAR_FIRST_SCREEN_URL = `${showEndpoints.CALENDAR}?limit=${SHOWS_PAGE_SIZE}`
 
-export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
-  cursor: undefined,
-  limit: undefined,
+export const SHOWS_CALENDAR_FIRST_SCREEN_KEY = showQueryKeys.calendar({
+  limit: SHOWS_PAGE_SIZE,
+  offset: undefined,
   city: undefined,
   state: undefined,
   cities: undefined,

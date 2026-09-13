@@ -19,10 +19,15 @@ import { ShowList, ShowListSkeleton } from '@/features/shows'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
-  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_URL,
+  SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+  SHOWS_CALENDAR_FIRST_SCREEN_URL,
+  showEndpoints,
 } from '@/features/shows/api'
-import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
+import type {
+  ShowCitiesResponse,
+  ShowsCalendarResponse,
+  UpcomingShowsResponse,
+} from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_ENDPOINTS } from '@/lib/api'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
@@ -141,11 +146,13 @@ export const UPCOMING_SHOWS_LIMIT = 50
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // `?`, not `&`: the first-screen URL is the bare endpoint, so this is the
-    // only parameter. The endpoint decides "upcoming" against each show's own
-    // venue zone (PSY-1678), so this block advertises exactly the rows the page
-    // renders.
-    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}?limit=${UPCOMING_SHOWS_LIMIT}`,
+    // The CURSOR endpoint, while the list below reads the offset one. Both are
+    // the same venue-local upcoming partition under one predicate set, and an
+    // unwindowed offset page matches this cursor page row for row, so the block
+    // still advertises exactly the rows the page renders. Kept on this endpoint
+    // so the two fetches stay separate Data Cache entries with separate abort
+    // budgets, which is the point argued above.
+    url: `${showEndpoints.UPCOMING}?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
     timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,
@@ -174,14 +181,17 @@ function getShowName(show: ShowListItem): string {
  * still loading, so seeding the rows alone server-renders the skeleton.
  *
  * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
- * above, against the bare first-screen URL rather than that one's explicit
- * `limit`. That is deliberate on both counts and the reasoning is on
- * `getUpcomingShowsPayload`: they need different abort budgets, and this one
- * requests exactly what the client hook requests. The seed lands by KEY either
- * way; matching the URL is what keeps `UPCOMING_SHOWS_FIRST_SCREEN_URL` an
- * honest description of the hook's request. Two Data Cache entries — this one
- * and the ItemList's, which differ by `?limit=` — invalidated together. Do not
- * "dedupe" them onto one call without reading that block first.
+ * above, and against a different endpoint: the OFFSET reader the list pages
+ * with, rather than the cursor one the `ItemList` reads. That is deliberate on
+ * both counts and the reasoning is on `getUpcomingShowsPayload`: they need
+ * different abort budgets, and this one requests exactly what the client hook
+ * requests. The seed lands by KEY either way; matching the URL is what keeps
+ * `SHOWS_CALENDAR_FIRST_SCREEN_URL` an honest description of the hook's
+ * request. Two Data Cache entries, invalidated together. Do not "dedupe" them
+ * onto one call without reading that block first.
+ *
+ * PAGE 1 only. `?page=2` and beyond are client-fetched — a long tail of
+ * addresses, none of which a cold visitor or a crawler lands on.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
  * component fetches for itself and owns the error state (see
@@ -189,8 +199,8 @@ function getShowName(show: ShowListItem): string {
  */
 async function HydratedShowList() {
   const [shows, cities] = await Promise.all([
-    fetchListPayload<UpcomingShowsResponse>({
-      url: UPCOMING_SHOWS_FIRST_SCREEN_URL,
+    fetchListPayload<ShowsCalendarResponse>({
+      url: SHOWS_CALENDAR_FIRST_SCREEN_URL,
       collection: 'shows',
       service: 'shows-first-screen',
     }),
@@ -206,7 +216,7 @@ async function HydratedShowList() {
   }
 
   const dehydratedState = await seedFirstScreen([
-    { queryKey: UPCOMING_SHOWS_FIRST_SCREEN_KEY, data: shows },
+    { queryKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY, data: shows },
     { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
   ])
 

@@ -74,31 +74,43 @@ test.describe('Shows list', () => {
     await expect(doorOnlyRow).not.toContainText('/$')
   })
 
-  test('pagination loads more shows', async ({ page }) => {
+  // PSY-2060: the list pages by NUMBER, and every page is a real `<a href>`.
+  // The claims worth guarding are the ones a unit test cannot make: that the
+  // page is 50 rows against the real backend, that `Later` is a link carrying
+  // `?page=2` rather than a button, and that following it actually serves
+  // different rows.
+  test('pagination serves a second page at its own URL', async ({ page }) => {
     await page.goto('/shows')
 
     await expect(page.locator('article').first()).toBeVisible({
       timeout: 10_000,
     })
 
-    // Wait for "Load More" to appear (API returns has_more: true with >10 shows)
-    const loadMoreButton = page.getByRole('button', { name: /load more/i })
-    await expect(loadMoreButton).toBeVisible({ timeout: 5_000 })
+    const firstPageCount = await page.locator('article').count()
+    expect(firstPageCount).toBe(50) // The page size the list requests
 
-    const initialCount = await page.locator('article').count()
-    expect(initialCount).toBe(50) // Backend default limit
+    const firstPageLeadRow = await page
+      .locator('article')
+      .first()
+      .getAttribute('aria-label')
 
-    await loadMoreButton.click()
+    // A link, not a button: a fetcher with no JavaScript reaches page 2 too.
+    const later = page.getByRole('link', { name: /^later$/i }).first()
+    await expect(later).toHaveAttribute('href', /[?&]page=2(?:&|$)/)
 
-    // Wait for additional shows to load
-    await page.waitForFunction(
-      (initial) => document.querySelectorAll('article').length > initial,
-      initialCount,
-      { timeout: 10_000 }
-    )
+    await later.click()
+    await expect(page).toHaveURL(/[?&]page=2(?:&|$)/)
 
-    const newCount = await page.locator('article').count()
-    expect(newCount).toBeGreaterThan(initialCount)
+    await expect(page.locator('article').first()).toBeVisible({
+      timeout: 10_000,
+    })
+    await expect
+      .poll(
+        async () =>
+          page.locator('article').first().getAttribute('aria-label'),
+        { timeout: 10_000 }
+      )
+      .not.toBe(firstPageLeadRow)
   })
 
   // PSY-1623: `/shows` is the only page that links the scene-week pages into the

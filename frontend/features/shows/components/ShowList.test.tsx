@@ -22,9 +22,10 @@ vi.mock('@/lib/context/AuthContext', async () => {
 // Mock next/navigation
 const mockPush = vi.fn()
 const mockReplace = vi.fn()
-const mockSearchParams = vi.fn(() => ({
-  get: vi.fn((_key: string): string | null => null),
-}))
+// A REAL `URLSearchParams`, because the pager's href builder spreads the live
+// params rather than reading one key at a time: a `{ get }` stub would answer
+// every lookup and still serve `?page=2` with every other param dropped.
+const mockSearchParams = vi.fn(() => new URLSearchParams())
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams(),
@@ -35,23 +36,34 @@ vi.mock('next/navigation', () => ({
 // (used by cityParams) stays real. The cities setter is a mock tests assert on —
 // the component writes `?cities=` through it, not through the router.
 const mockSetCities = vi.fn()
+const mockSetPage = vi.fn()
 vi.mock('nuqs', async importOriginal => {
   const actual = await importOriginal<typeof import('nuqs')>()
   return {
     ...actual,
     useQueryState: (key: string, parser: { parse: (v: string) => unknown }) => {
       const raw = mockSearchParams().get(key)
-      return [raw != null ? parser.parse(raw) : null, mockSetCities]
+      const setter = key === 'page' ? mockSetPage : mockSetCities
+      return [raw != null ? parser.parse(raw) : null, setter]
     },
   }
 })
 
 // Mock show hooks
-const mockUseUpcomingShows = vi.fn()
+const mockUseShowsCalendar = vi.fn()
 const mockUseShowCities = vi.fn()
+const mockUseShowMonths = vi.fn<
+  (options?: unknown) => {
+    data?: {
+      months: Array<{ year: number; month: number; count: number }>
+      total: number
+    }
+  }
+>(() => ({ data: undefined }))
 vi.mock('../hooks/useShows', () => ({
-  useUpcomingShows: (opts: unknown) => mockUseUpcomingShows(opts),
+  useShowsCalendar: (opts: unknown) => mockUseShowsCalendar(opts),
   useShowCities: (opts: unknown) => mockUseShowCities(opts),
+  useShowMonths: (opts: unknown) => mockUseShowMonths(opts),
 }))
 
 // Controllable so a test can hold the batch in flight (data undefined), which
@@ -73,7 +85,13 @@ vi.mock('@/features/auth', () => ({
 // PSY-309: mock tag facet components
 vi.mock('@/features/tags', () => ({
   TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
-  TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
+  TagFacetSheet: ({ onToggle }: { onToggle?: (slugs: string[]) => void }) => (
+    <div data-testid="tag-facet-sheet">
+      <button data-testid="mock-toggle-tag" onClick={() => onToggle?.(['noise'])}>
+        toggle noise
+      </button>
+    </div>
+  ),
   parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
   buildTagsParam: (slugs: string[]) => slugs.join(','),
 }))
@@ -162,9 +180,7 @@ describe('ShowList', () => {
       authStatus: 'anonymous',
       logout: vi.fn(),
     })
-    mockSearchParams.mockReturnValue({
-      get: vi.fn((_key: string): string | null => null),
-    })
+    mockSearchParams.mockReturnValue(new URLSearchParams())
     mockUseProfile.mockReturnValue({ data: null as unknown })
     mockUseShowCities.mockReturnValue({
       data: { cities: [] },
@@ -175,7 +191,7 @@ describe('ShowList', () => {
 
   describe('loading state', () => {
     it('shows skeleton when loading and no data', () => {
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: undefined,
         isLoading: true,
         isFetching: true,
@@ -187,8 +203,8 @@ describe('ShowList', () => {
     })
 
     it('shows skeleton when cities are loading', () => {
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -206,7 +222,7 @@ describe('ShowList', () => {
 
   describe('error state', () => {
     it('shows error message when fetch fails', () => {
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: undefined,
         isLoading: false,
         isFetching: false,
@@ -219,7 +235,7 @@ describe('ShowList', () => {
 
     it('shows retry button on error', () => {
       const mockRefetch = vi.fn()
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: undefined,
         isLoading: false,
         isFetching: false,
@@ -233,7 +249,7 @@ describe('ShowList', () => {
     it('calls refetch when retry clicked', async () => {
       const user = userEvent.setup()
       const mockRefetch = vi.fn()
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: undefined,
         isLoading: false,
         isFetching: false,
@@ -248,8 +264,8 @@ describe('ShowList', () => {
 
   describe('empty state', () => {
     it('shows empty message when no shows', () => {
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -260,14 +276,11 @@ describe('ShowList', () => {
     })
 
     it('shows city-specific empty message when cities are filtered', () => {
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null => {
-          if (key === 'cities') return 'Phoenix,AZ'
-          return null
-        }),
-      })
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -278,14 +291,11 @@ describe('ShowList', () => {
     })
 
     it('shows "Clear filters" button when filtered to city with no results', () => {
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null => {
-          if (key === 'cities') return 'Phoenix,AZ'
-          return null
-        }),
-      })
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -297,12 +307,9 @@ describe('ShowList', () => {
 
     it('suggests nearby cities and applies one on click', async () => {
       const user = userEvent.setup()
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null => {
-          if (key === 'cities') return 'Phoenix,AZ'
-          return null
-        }),
-      })
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
       mockUseShowCities.mockReturnValue({
         data: {
           cities: [
@@ -332,8 +339,8 @@ describe('ShowList', () => {
         isLoading: false,
         isFetching: false,
       })
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -350,13 +357,9 @@ describe('ShowList', () => {
 
     it('offers same-tags-all-cities when both city and tags yield nothing', async () => {
       const user = userEvent.setup()
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null => {
-          if (key === 'cities') return 'Phoenix,AZ'
-          if (key === 'tags') return 'shoegaze'
-          return null
-        }),
-      })
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ', tags: 'shoegaze' })
+      )
       mockUseShowCities.mockReturnValue({
         data: {
           cities: [
@@ -379,8 +382,8 @@ describe('ShowList', () => {
         isLoading: false,
         isFetching: false,
       })
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [], pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -398,13 +401,12 @@ describe('ShowList', () => {
 
   describe('with show data', () => {
     it('renders show cards', () => {
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [
             makeShow({ id: 1, title: 'Show One' }),
             makeShow({ id: 2, title: 'Show Two' }),
           ],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -419,10 +421,9 @@ describe('ShowList', () => {
     })
 
     it('shows density toggle', () => {
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -435,63 +436,223 @@ describe('ShowList', () => {
   })
 
   describe('pagination', () => {
-    it('shows Load More button when has_more is true', () => {
-      mockUseUpcomingShows.mockReturnValue({
+    /** A page of rows plus the unwindowed total the pager sizes itself from. */
+    const setPage = (
+      rowCount: number,
+      total: number,
+      extra: Record<string, unknown> = {}
+    ) =>
+      mockUseShowsCalendar.mockReturnValue({
         data: {
-          shows: [makeShow()],
-          pagination: { has_more: true, next_cursor: 'abc123', limit: 20 },
+          shows: Array.from({ length: rowCount }, (_, index) =>
+            makeShow({ id: index + 1, title: `Show ${index + 1}` })
+          ),
+          total,
         },
         isLoading: false,
         isFetching: false,
         error: null,
         refetch: vi.fn(),
+        ...extra,
       })
+
+    it('serves numbered page links instead of a Load More control', () => {
+      setPage(50, 268)
       render(<ShowList />)
-      expect(screen.getByText('Load More')).toBeInTheDocument()
+
+      expect(screen.queryByRole('button', { name: /load more/i })).toBeNull()
+      // 268 rows at 50 a page is six pages.
+      expect(
+        screen.getAllByRole('link', { name: /^page 6$/i }).length
+      ).toBeGreaterThan(0)
     })
 
-    it('does not show Load More when no more pages', () => {
-      mockUseUpcomingShows.mockReturnValue({
+    it('links page 2 at ?page=2 and page 1 at the bare URL', () => {
+      setPage(50, 268)
+      render(<ShowList />)
+
+      expect(screen.getAllByRole('link', { name: /^page 2$/i })[0]).toHaveAttribute(
+        'href',
+        '/shows?page=2'
+      )
+      // Page 1 writes NO `page`, so the first page has exactly one address.
+      expect(screen.getAllByRole('link', { name: /^page 1$/i })[0]).toHaveAttribute(
+        'href',
+        '/shows'
+      )
+    })
+
+    it('labels the boundary controls Sooner and Later', () => {
+      setPage(50, 268)
+      render(<ShowList />)
+
+      // The list runs soonest first, so paging back moves toward tonight.
+      expect(screen.getAllByRole('link', { name: /^later$/i })[0]).toHaveAttribute(
+        'href',
+        '/shows?page=2'
+      )
+      // On page 1 the Sooner control keeps its space rather than unmounting.
+      expect(
+        screen.getAllByTestId('pagination-previous-disabled').length
+      ).toBeGreaterThan(0)
+    })
+
+    it('captions the page with the row range it covers', () => {
+      setPage(50, 268)
+      render(<ShowList />)
+
+      // Once per pager, top and bottom.
+      expect(
+        screen.getAllByText('Showing 1–50 of 268 · Page 1 of 6')
+      ).toHaveLength(2)
+    })
+
+    it('renders no pager at all when one page holds everything', () => {
+      setPage(3, 3)
+      render(<ShowList />)
+
+      expect(screen.queryByTestId('pagination')).toBeNull()
+    })
+
+    it('withholds the caption while the rows belong to the previous page', () => {
+      // `keepPreviousData` holds the outgoing page across a page change, and
+      // "Showing 51-100" over rows 1-50 is a wrong number, not a stale one.
+      setPage(50, 268, { isFetching: true, isPlaceholderData: true })
+      render(<ShowList />)
+
+      expect(screen.queryByText(/Showing/)).toBeNull()
+      expect(screen.getAllByText('Page 1 of 6').length).toBeGreaterThan(0)
+    })
+
+    // PSY-1768: two pagers on one surface ship two live regions, and a screen
+    // reader speaks each one.
+    it('mounts exactly one page-change live region for two pagers', () => {
+      setPage(50, 268)
+      const { container } = render(<ShowList />)
+
+      expect(container.querySelectorAll('[data-testid="pagination"]')).toHaveLength(2)
+      expect(container.querySelectorAll('[role="status"][aria-live]')).toHaveLength(1)
+    })
+
+    it('requests the offset the page in view names', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams({ page: '3' }))
+      setPage(50, 268)
+      render(<ShowList />)
+
+      expect(mockUseShowsCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ offset: 100, limit: 50 })
+      )
+    })
+
+    it('carries foreign params through a page link', () => {
+      // The list shares its query string with the filters and with whatever a
+      // campaign link brought along; a pager that rebuilt the URL from its own
+      // keys would drop all of it on every click.
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ', utm_source: 'newsletter' })
+      )
+      setPage(50, 268)
+      render(<ShowList />)
+
+      const href = screen
+        .getAllByRole('link', { name: /^page 2$/i })[0]
+        .getAttribute('href')
+      expect(href).toContain('cities=Phoenix%2CAZ')
+      expect(href).toContain('utm_source=newsletter')
+      expect(href).toContain('page=2')
+    })
+
+    it('labels page links with the months each page covers', () => {
+      mockUseShowMonths.mockReturnValue({
         data: {
-          shows: [makeShow()],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
+          months: [
+            { year: 2026, month: 9, count: 60 },
+            { year: 2026, month: 10, count: 120 },
+            { year: 2026, month: 11, count: 88 },
+          ],
+          total: 268,
         },
+      })
+      setPage(50, 268)
+      render(<ShowList />)
+
+      expect(
+        screen.getAllByRole('link', { name: 'Page 1, Sep 2026' }).length
+      ).toBeGreaterThan(0)
+    })
+
+    // The histogram and the rows are separate reads. A disagreement proves the
+    // histogram's ordinals are no longer the list's ordinals, and a wrong label
+    // costs more than a missing one: the pager announces the current page's
+    // label into a live region and never corrects it.
+    it('drops every label when the histogram disagrees with the row total', () => {
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 9, count: 60 },
+            { year: 2026, month: 10, count: 120 },
+          ],
+          total: 180,
+        },
+      })
+      setPage(50, 268)
+      render(<ShowList />)
+
+      expect(screen.queryByRole('link', { name: /Page 1, / })).toBeNull()
+      expect(
+        screen.getAllByRole('link', { name: /^page 1$/i }).length
+      ).toBeGreaterThan(0)
+    })
+
+    // A filter change answers a different question, so it starts at page 1
+    // again. Otherwise a reader on page 4 of Phoenix lands on page 4 of Tucson,
+    // which may not exist.
+    it('resets the page when the city filter changes', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.mockReturnValue(new URLSearchParams({ page: '3' }))
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [{ city: 'Tucson', state: 'AZ', show_count: 3 }] },
         isLoading: false,
         isFetching: false,
-        error: null,
-        refetch: vi.fn(),
       })
+      setPage(50, 268)
       render(<ShowList />)
-      expect(screen.queryByText('Load More')).not.toBeInTheDocument()
+
+      await user.click(screen.getByTestId('mock-select-city'))
+
+      // Both writes go through nuqs, which batches them into ONE history entry.
+      // A `router.push` in the same tick would abort nuqs's pending queue.
+      expect(mockSetPage).toHaveBeenCalledWith(null)
+      expect(mockSetCities).toHaveBeenCalledWith([
+        { city: 'Tucson', state: 'AZ' },
+      ])
+      expect(mockPush).not.toHaveBeenCalled()
     })
 
-    it('shows "Loading..." text when fetching more', () => {
-      mockUseUpcomingShows.mockReturnValue({
-        data: {
-          shows: [makeShow()],
-          pagination: { has_more: true, next_cursor: 'abc123', limit: 20 },
-        },
-        isLoading: false,
-        isFetching: true,
-        // Fetching the NEXT page means a new cursor, so a new query key, so
-        // `keepPreviousData` is serving this page's rows — which is what
-        // distinguishes it from the same-key background revalidation the
-        // server-seeded first screen triggers on every load (PSY-1624). The
-        // button must stay live for that one.
-        isPlaceholderData: true,
-        error: null,
-        refetch: vi.fn(),
-      })
+    it('resets the page in the same navigation as a tag change', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ page: '3', cities: 'Phoenix,AZ' })
+      )
+      setPage(50, 268)
       render(<ShowList />)
-      expect(screen.getByText('Loading...')).toBeInTheDocument()
+
+      await user.click(screen.getByTestId('mock-toggle-tag'))
+
+      // ONE router write carrying both changes: the tag params and the dropped
+      // page. A separate nuqs reset beside it could be silently dropped.
+      expect(mockPush).toHaveBeenCalledTimes(1)
+      const pushed = mockPush.mock.calls[0][0] as string
+      expect(pushed).toContain('tags=noise')
+      expect(pushed).toContain('cities=Phoenix%2CAZ')
+      expect(pushed).not.toContain('page=')
     })
 
     it('shows loaded of total when more shows exist beyond the loaded page', () => {
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow(), makeShow({ id: 2 })],
           total: 1088,
-          pagination: { has_more: true, next_cursor: 'abc123', limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -503,11 +664,10 @@ describe('ShowList', () => {
     })
 
     it('shows a simple count when the full matching set is loaded', () => {
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
           total: 1,
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -531,10 +691,9 @@ describe('ShowList', () => {
         isLoading: false,
         isFetching: false,
       })
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -553,10 +712,9 @@ describe('ShowList', () => {
         isLoading: false,
         isFetching: false,
       })
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -573,10 +731,9 @@ describe('ShowList', () => {
         isLoading: false,
         isFetching: false,
       })
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -614,10 +771,9 @@ describe('ShowList', () => {
         isLoading: false,
         isFetching: false,
       })
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,
@@ -636,7 +792,7 @@ describe('ShowList', () => {
       render(<ShowList />)
       // The geo default is DERIVED into the effective filter...
       await waitFor(() =>
-        expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+        expect(mockUseShowsCalendar).toHaveBeenCalledWith(
           expect.objectContaining({
             cities: [{ city: 'Omaha', state: 'NE' }],
           }),
@@ -661,11 +817,9 @@ describe('ShowList', () => {
 
     it('does NOT fetch geo or seed when ?cities= is already present', () => {
       const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null =>
-          key === 'cities' ? 'Phoenix,AZ' : null,
-        ),
-      })
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
       render(<ShowList />)
       expect(fetchSpy).not.toHaveBeenCalled()
       expect(mockReplace).not.toHaveBeenCalled()
@@ -688,8 +842,8 @@ describe('ShowList', () => {
   // dropped after client-side navigation.
   describe('favorites default (derived, no URL write)', () => {
     const setShows = (shows: ShowResponse[] = [makeShow()]) =>
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows, pagination: { has_more: false, next_cursor: null, limit: 20 } },
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows, total: shows.length },
         isLoading: false,
         isFetching: false,
         error: null,
@@ -721,7 +875,7 @@ describe('ShowList', () => {
       render(<ShowList />)
 
       // Filtered by the favorite — derived during render...
-      expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+      expect(mockUseShowsCalendar).toHaveBeenCalledWith(
         expect.objectContaining({ cities: [{ city: 'Phoenix', state: 'AZ' }] }),
       )
       // ...and nothing was written to the URL. Regression guard: the default is
@@ -733,25 +887,21 @@ describe('ShowList', () => {
 
     it('treats ?cities=all as explicit all-cities, overriding the favorite default', () => {
       authedWithFavorite()
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null => (key === 'cities' ? 'all' : null)),
-      })
+      mockSearchParams.mockReturnValue(new URLSearchParams({ cities: 'all' }))
       setShows()
 
       render(<ShowList />)
 
-      expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+      expect(mockUseShowsCalendar).toHaveBeenCalledWith(
         expect.objectContaining({ cities: undefined }),
       )
     })
 
     it('"Clear filters" resets to all-cities in a single navigation (no nuqs/router race)', async () => {
       const user = userEvent.setup()
-      mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string): string | null =>
-          key === 'cities' ? 'Phoenix,AZ' : null,
-        ),
-      })
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
       mockUseShowCities.mockReturnValue({
         data: { cities: [{ city: 'Phoenix', state: 'AZ', show_count: 5 }] },
         isLoading: false,
@@ -798,10 +948,9 @@ describe('ShowList', () => {
   // where the batch is slowest and the race window widest.
   describe('save-count batching', () => {
     const setListShows = (shows: ShowResponse[] = [makeShow()]) =>
-      mockUseUpcomingShows.mockReturnValue({
+      mockUseShowsCalendar.mockReturnValue({
         data: {
           shows,
-          pagination: { has_more: false, next_cursor: null, limit: 20 },
         },
         isLoading: false,
         isFetching: false,

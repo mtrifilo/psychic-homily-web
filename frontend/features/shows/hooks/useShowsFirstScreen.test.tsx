@@ -16,10 +16,10 @@ vi.mock('@/lib/api', () => ({
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
-  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_URL,
+  SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+  SHOWS_CALENDAR_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
-import { useShowCities, useUpcomingShows } from './useShows'
+import { useShowCities, useShowsCalendar } from './useShows'
 
 /**
  * `app/shows/page.tsx` server-renders the first screen by fetching
@@ -31,12 +31,10 @@ import { useShowCities, useUpcomingShows } from './useShows'
  * with no error anywhere. These tests are the only thing standing between that
  * regression and production.
  *
- * "Bare `/shows`" means literally that: no filters, NO ARGUMENTS, and no query
- * string on the wire. Since PSY-1678 the request carries no per-viewer input at
- * all, so the hooks are invoked below exactly as `ShowList` invokes them on a
- * cold anon load. That is a stronger contract than the one this file could
- * assert before, when a canonical timezone had to be passed in by hand to stand
- * in for the viewer's.
+ * "Bare `/shows`" means page 1 with no filters: NO ARGUMENTS, and the only
+ * parameter on the wire is the page size, which the list states rather than
+ * inheriting. The request carries no per-viewer input at all, so the hooks are
+ * invoked below exactly as `ShowList` invokes them on a cold anon load.
  */
 describe('shows first-screen prefetch contract', () => {
   beforeEach(() => {
@@ -44,18 +42,18 @@ describe('shows first-screen prefetch contract', () => {
     mockApiRequest.mockReset()
   })
 
-  it('useUpcomingShows requests UPCOMING_SHOWS_FIRST_SCREEN_URL and keys on UPCOMING_SHOWS_FIRST_SCREEN_KEY', async () => {
+  it('useShowsCalendar requests SHOWS_CALENDAR_FIRST_SCREEN_URL and keys on SHOWS_CALENDAR_FIRST_SCREEN_KEY', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], pagination: {}, total: 0 })
     const queryClient = createTestQueryClient()
 
-    const { result } = renderHook(() => useUpcomingShows(), {
+    const { result } = renderHook(() => useShowsCalendar(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(mockApiRequest).toHaveBeenCalledWith(
-      UPCOMING_SHOWS_FIRST_SCREEN_URL,
+      SHOWS_CALENDAR_FIRST_SCREEN_URL,
       { method: 'GET' },
     )
 
@@ -63,7 +61,7 @@ describe('shows first-screen prefetch contract', () => {
     expect(cached).toHaveLength(1)
     // Hash, not deep-equal: the hash is what TanStack matches a hydrated entry
     // by, so it is the equality that actually decides whether the seed lands.
-    expect(cached[0].queryHash).toBe(hashKey(UPCOMING_SHOWS_FIRST_SCREEN_KEY))
+    expect(cached[0].queryHash).toBe(hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY))
   })
 
   it('useShowCities requests SHOW_CITIES_FIRST_SCREEN_URL and keys on SHOW_CITIES_FIRST_SCREEN_KEY', async () => {
@@ -107,11 +105,11 @@ describe('shows first-screen prefetch contract', () => {
     }
     mockApiRequest.mockResolvedValue(seeded)
     const queryClient = createTestQueryClient()
-    queryClient.setQueryData(UPCOMING_SHOWS_FIRST_SCREEN_KEY, seeded, {
+    queryClient.setQueryData(SHOWS_CALENDAR_FIRST_SCREEN_KEY, seeded, {
       updatedAt: 0,
     })
 
-    const { result } = renderHook(() => useUpcomingShows(), {
+    const { result } = renderHook(() => useShowsCalendar(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -124,7 +122,7 @@ describe('shows first-screen prefetch contract', () => {
     // on the first-screen key. A second, differently-keyed request is the
     // regression this guards (it is what the viewer-timezone parameter caused).
     for (const call of mockApiRequest.mock.calls) {
-      expect(call[0]).toBe(UPCOMING_SHOWS_FIRST_SCREEN_URL)
+      expect(call[0]).toBe(SHOWS_CALENDAR_FIRST_SCREEN_URL)
     }
     expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
     expect(result.current.data).toEqual(seeded)
@@ -139,13 +137,16 @@ describe('shows first-screen prefetch contract', () => {
   // URLs are asserted BARE so the constants stay byte-identical to what the
   // hooks request; the test above is what pins that pairing.
   it('carries no viewer zone in either the URL or the key', () => {
-    // No `?` at all, which subsumes "no timezone" on the URL half.
-    expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).not.toContain('?')
+    // The page size is the ONLY parameter the seeded list URL may carry, and no
+    // `offset`: page 1 is the seeded page.
+    expect(SHOWS_CALENDAR_FIRST_SCREEN_URL).toContain('?limit=50')
+    expect(SHOWS_CALENDAR_FIRST_SCREEN_URL).not.toContain('offset')
+    expect(SHOWS_CALENDAR_FIRST_SCREEN_URL).not.toContain('timezone')
     expect(SHOW_CITIES_FIRST_SCREEN_URL).not.toContain('?')
-    expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
+    expect(JSON.stringify(SHOWS_CALENDAR_FIRST_SCREEN_KEY)).not.toContain(
       'timezone'
     )
-    expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
+    expect(JSON.stringify(SHOWS_CALENDAR_FIRST_SCREEN_KEY)).not.toContain(
       'America'
     )
     expect(JSON.stringify(SHOW_CITIES_FIRST_SCREEN_KEY)).not.toContain(
@@ -161,14 +162,14 @@ describe('shows first-screen prefetch contract', () => {
     const queryClient = createTestQueryClient()
 
     const { result } = renderHook(
-      () => useUpcomingShows({ cities: [{ city: 'Phoenix', state: 'AZ' }] }),
+      () => useShowsCalendar({ cities: [{ city: 'Phoenix', state: 'AZ' }] }),
       { wrapper: createWrapperWithClient(queryClient) },
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(queryClient.getQueryCache().getAll()[0].queryHash).not.toBe(
-      hashKey(UPCOMING_SHOWS_FIRST_SCREEN_KEY),
+      hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY),
     )
   })
 })
