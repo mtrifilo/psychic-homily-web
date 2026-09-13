@@ -45,10 +45,23 @@ describe('buildSceneWeekMetadata', () => {
     expect(meta.title).toBe('This week in Chicago')
   })
 
-  // A permalink is permanent: an archived week calling itself "this week" is
-  // false from the following Monday on, and it is the indexed URL.
+  // A permalink is permanent: a dated week calling itself "this week" is false
+  // from the following Monday on, and it is the indexed URL.
   it('titles an archived week by its own Monday', async () => {
     fetchSceneWeek.mockResolvedValue(week({ is_current_week: false, is_past_week: true }))
+
+    const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
+
+    expect(meta.title).toBe('Week of Sep 7 in Chicago')
+  })
+
+  // `is_current_week` is TRUE for the dated permalink of the week in progress,
+  // so a title keyed on the flag rather than on the route would publish "This
+  // week in Chicago" at a URL that means one fixed week — and keep saying it,
+  // since that URL is what both rolling routes canonicalise to and what the
+  // unfurl caches key on.
+  it('names the dated permalink of the CURRENT week by its Monday too', async () => {
+    fetchSceneWeek.mockResolvedValue(week())
 
     const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
 
@@ -70,6 +83,18 @@ describe('buildSceneWeekMetadata', () => {
 
   it('leaves a dated week that has shows indexable', async () => {
     fetchSceneWeek.mockResolvedValue(week({ is_current_week: false, is_past_week: true }))
+
+    const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
+
+    expect(meta.robots).toBeUndefined()
+  })
+
+  // The other half of the same contradiction, from the target's end: both
+  // rolling routes canonicalise to the CURRENT week's dated permalink, so
+  // noindexing it when the week is quiet would consolidate the suppression onto
+  // /week and /tonight — a quiet scene's whole discovery surface.
+  it('leaves a quiet CURRENT week indexable at its dated permalink', async () => {
+    fetchSceneWeek.mockResolvedValue(week({ show_count: 0, days: [] }))
 
     const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
 

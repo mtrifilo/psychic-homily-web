@@ -183,7 +183,7 @@ function EmptyNight({
 
 export function SceneDayView({
   day,
-  isRollingRoute = false,
+  isRollingRoute,
 }: {
   day: SceneDayResponse
   /**
@@ -192,9 +192,10 @@ export function SceneDayView({
    * It decides what this page calls itself and which window the nav marks
    * current. The payload's `is_tonight` cannot: that flag is also true for the
    * DATED permalink naming today, and a permanent URL must not call itself
-   * "tonight".
+   * "tonight". Required rather than defaulted, so a route that forgets to say
+   * which it is does not silently publish the dated wording.
    */
-  isRollingRoute?: boolean
+  isRollingRoute: boolean
 }) {
   // On the LIVE night the rows a reader can still get to lead, and the ones
   // already under way sink beneath them in the order they started (user
@@ -273,7 +274,9 @@ export function SceneDayView({
               between the canonical and what the address bar shows. */}
           <ShareButton
             path={`/scenes/${day.slug}/${day.date}`}
-            ariaLabel="Share this night"
+            // Names the night it shares. "This night" on a permalink to last
+            // March is the tense the week's control had and no longer does.
+            ariaLabel={isRollingRoute ? 'Share tonight' : `Share ${formatMonthDay(day.date)}`}
           />
         </div>
 

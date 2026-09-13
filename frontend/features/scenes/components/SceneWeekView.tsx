@@ -98,7 +98,21 @@ function DayGroup({ date, shows }: { date: string; shows: SceneWeekShow[] }) {
   )
 }
 
-export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
+export function SceneWeekView({
+  week,
+  isRollingRoute,
+}: {
+  week: SceneWeekResponse
+  /**
+   * True on `/scenes/{slug}/week`, the rolling route.
+   *
+   * Everything this page says about "now" keys off it rather than off the
+   * payload's `is_current_week`: that flag is true for the dated permalink of
+   * the week in progress too, and a permanent URL that calls itself this week
+   * is false from the following Monday.
+   */
+  isRollingRoute: boolean
+}) {
   const days = week.days ?? []
   const rooms = week.tracked_venues ?? []
   const total = countShows(week)
@@ -106,7 +120,7 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
   const nextWeek = navigablePeriodKey(week.next_week, looksLikeISOWeek)
   // One spelling of this week, for everything that follows a preposition or a
   // verb: the share control and the quiet copy. The heading names it instead.
-  const clause = sceneWeekClause(week.start_date, week.is_current_week)
+  const clause = sceneWeekClause(week.start_date, isRollingRoute)
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
@@ -114,28 +128,28 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
 
       <header className="mt-2">
         <SceneWindowHeading
-          title={sceneWeekTitle(week.start_date, week.city, week.is_current_week)}
+          title={sceneWeekTitle(week.start_date, week.city, isRollingRoute)}
         />
 
-        {/* The window is marked current only on the week this page IS. On a
-            dated permalink the strip offers `This week` as a link, the way the
-            dated day permalink does, rather than claiming a week that ended
-            months ago is the current one. */}
+        {/* The window is marked current only on the rolling route. A dated
+            permalink offers `This week` as a link, the way the dated day
+            permalink does, rather than claiming that the week it names is the
+            one in progress. */}
         <div className="mt-2">
           <SceneWindowNav
             slug={week.slug}
-            current={week.is_current_week ? 'this-week' : null}
+            current={isRollingRoute ? 'this-week' : null}
             steps={{
               label: 'Adjacent weeks',
               prev: prevWeek
                 ? {
-                    label: sceneWeekStepLabel(week.start_date, 'prev', week.is_current_week),
+                    label: sceneWeekStepLabel(week.start_date, 'prev', isRollingRoute),
                     href: `/scenes/${week.slug}/${prevWeek}`,
                   }
                 : undefined,
               next: nextWeek
                 ? {
-                    label: sceneWeekStepLabel(week.start_date, 'next', week.is_current_week),
+                    label: sceneWeekStepLabel(week.start_date, 'next', isRollingRoute),
                     href: `/scenes/${week.slug}/${nextWeek}`,
                   }
                 : undefined,
@@ -182,7 +196,7 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
               week may make it; an archived week points at what is on now
               instead. Both are dropped whole when the key behind them is one
               this site cannot serve. */}
-          {week.is_current_week
+          {isRollingRoute
             ? nextWeek && (
                 <>
                   {' '}

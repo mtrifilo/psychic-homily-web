@@ -20,6 +20,13 @@ vi.mock('next/link', () => ({
 
 import { SceneWindowNav } from './SceneWindowNav'
 
+/** An element's text with its `sr-only` children removed. */
+function visibleText(el: Element): string {
+  const clone = el.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('.sr-only').forEach(node => node.remove())
+  return (clone.textContent ?? '').trim()
+}
+
 /**
  * The one nav, in each state a route puts it in.
  *
@@ -28,8 +35,11 @@ import { SceneWindowNav } from './SceneWindowNav'
  * copy per surface — which is the failure this component exists to end.
  */
 describe('SceneWindowNav', () => {
+  // VISIBLE text only: each link carries a screen-reader-only direction word
+  // that would otherwise show up in every expected label here, and what these
+  // assertions are about is what the row draws.
   const labels = (nav: HTMLElement): string[] =>
-    [...nav.children].map(el => (el.textContent ?? '').trim())
+    [...nav.children].map(el => visibleText(el))
 
   it('draws every window as a link and marks none current on the root', () => {
     render(<SceneWindowNav slug="phoenix-az" />)
@@ -66,6 +76,31 @@ describe('SceneWindowNav', () => {
     expect(screen.queryByRole('navigation', { name: 'Adjacent weeks' })).toBeNull()
   })
 
+  // The arrow is for the eye and `rel` is for a crawler; neither reaches a
+  // screen reader as a word, so the accessible name carries the direction.
+  it('names the direction for a screen reader on each link', () => {
+    render(
+      <SceneWindowNav
+        slug="phoenix-az"
+        steps={{
+          label: 'Adjacent days',
+          prev: { label: 'Sep 13', href: '/scenes/phoenix-az/2026-09-13' },
+          next: { label: 'Sep 15', href: '/scenes/phoenix-az/2026-09-15' },
+        }}
+      />
+    )
+
+    const nav = screen.getByRole('navigation', { name: 'Adjacent days' })
+    expect(within(nav).getByRole('link', { name: /^Previous:/ })).toHaveAttribute(
+      'href',
+      '/scenes/phoenix-az/2026-09-13'
+    )
+    expect(within(nav).getByRole('link', { name: /^Next:/ })).toHaveAttribute(
+      'href',
+      '/scenes/phoenix-az/2026-09-15'
+    )
+  })
+
   it('carries an arrow on each direction it can link', () => {
     render(
       <SceneWindowNav
@@ -80,11 +115,11 @@ describe('SceneWindowNav', () => {
 
     const nav = screen.getByRole('navigation', { name: 'Adjacent days' })
     expect(labels(nav)).toEqual(['← Sep 13', 'Sep 15 →'])
-    expect(within(nav).getByRole('link', { name: '← Sep 13' })).toHaveAttribute(
+    expect(within(nav).getByRole('link', { name: /← Sep 13/ })).toHaveAttribute(
       'rel',
       'prev'
     )
-    expect(within(nav).getByRole('link', { name: 'Sep 15 →' })).toHaveAttribute(
+    expect(within(nav).getByRole('link', { name: /Sep 15 →/ })).toHaveAttribute(
       'rel',
       'next'
     )

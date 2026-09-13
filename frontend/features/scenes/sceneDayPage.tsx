@@ -108,11 +108,11 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // KNOWN GAP, accepted here rather than papered over. The sitemap emits a week
   // only when that week has at least one approved show, so on a scene whose
   // whole current week is quiet, /tonight consolidates onto a week page that is
-  // thin, announced nowhere, and carries no noindex of its own (see
-  // buildSceneWeekMetadata, which never sets robots in any state). Closing it
-  // means either a per-week show count on the day payload or dropping the
-  // zero-show exclusion for the current week — both backend changes, which this
-  // change is scoped out of.
+  // thin and announced nowhere. `buildSceneWeekMetadata` deliberately leaves
+  // that page indexable rather than noindexing a canonical target, so the gap
+  // is a thin page in the index, not a suppressed one. Closing it means either
+  // a per-week show count on the day payload or dropping the zero-show
+  // exclusion for the current week — both backend changes.
   const robots =
     !isRollingRoute && dayShows(day).length === 0
       ? { index: false, follow: true }
@@ -176,11 +176,11 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
  */
 export function SceneDayContent({
   data,
-  isRollingRoute = false,
+  isRollingRoute,
 }: {
   data: SceneDayResponse
   /** True on `/scenes/{slug}/tonight`. See `SceneDayView`. */
-  isRollingRoute?: boolean
+  isRollingRoute: boolean
 }) {
   const { breadcrumb, itemList, events } = buildSceneDayJsonLd(data)
 

@@ -51,13 +51,15 @@ export default async function ScenePeriodPage({ params }: PageProps) {
   if (looksLikeISOWeek(period)) {
     const week = await getSceneWeek(slug, period)
     if (!week) notFound()
-    return <SceneWeekContent data={week} />
+    // Dated permalinks, both of them: everything that speaks about now keys
+    // off this rather than off the payload's own is-current flags.
+    return <SceneWeekContent data={week} isRollingRoute={false} />
   }
 
   if (looksLikeCalendarDate(period)) {
     const day = await getSceneDay(slug, period)
     if (!day) notFound()
-    return <SceneDayContent data={day} />
+    return <SceneDayContent data={day} isRollingRoute={false} />
   }
 
   notFound()

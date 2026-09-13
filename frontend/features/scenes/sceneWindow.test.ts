@@ -295,4 +295,19 @@ describe('sceneWeekStepLabel', () => {
     expect(sceneWeekStepLabel('2026-03-02', 'prev', false)).toBe('Week of Feb 23')
     expect(sceneWeekStepLabel('2026-01-05', 'prev', false)).toBe('Week of Dec 29')
   })
+
+  // The shift runs BEFORE the format, so the format's own fallback cannot catch
+  // a start date that is not one: `parseCalendarDate('')` is 1 Jan 1900, and
+  // seven days either side of that is a well-formed `Week of Dec 25` nobody can
+  // check. The page-relative words are the only claim left to make.
+  // `2026-13-40` is deliberately NOT here: the guard is a SHAPE check, the same
+  // one the rest of this feature uses, and only the backend can say whether a
+  // well-formed date exists.
+  it.each(['', '   ', 'last'])(
+    'names no neighbour date from a start date of %p',
+    startDate => {
+      expect(sceneWeekStepLabel(startDate, 'prev', false)).toBe('Previous week')
+      expect(sceneWeekStepLabel(startDate, 'next', false)).toBe('Next week')
+    }
+  )
 })

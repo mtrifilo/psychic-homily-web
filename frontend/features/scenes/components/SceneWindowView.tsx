@@ -21,8 +21,8 @@ import { SceneWindowNav } from './SceneWindowNav'
  * body behind `/this-weekend` and `/next-4-weeks`.
  *
  * Sibling of `SceneWeekView` by construction, not by resemblance — same
- * breadcrumb, same city heading, same chip class, same row, same rooms footer.
- * The two differ only in which stretch of time they bound, so anything a reader
+ * breadcrumb, same heading, same window nav, same row, same rooms footer. The
+ * two differ only in which stretch of time they bound, so anything a reader
  * could notice moving between them is a bug.
  */
 

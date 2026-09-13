@@ -55,9 +55,13 @@ const weekLinks = (container: HTMLElement): string[] =>
  * exists. The muted edges have no href at all and are only visible this way.
  */
 const stepLabels = (): string[] =>
-  [...screen.getByRole('navigation', { name: 'Adjacent weeks' }).children].map(el =>
-    (el.textContent ?? '').trim()
-  )
+  [...screen.getByRole('navigation', { name: 'Adjacent weeks' }).children].map(el => {
+    // VISIBLE text only: each link carries a screen-reader-only direction word,
+    // asserted where it belongs in `SceneWindowNav.test.tsx`.
+    const clone = el.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('.sr-only').forEach(node => node.remove())
+    return (clone.textContent ?? '').trim()
+  })
 
 describe('SceneWeekView — share affordance', () => {
   afterEach(() => {
@@ -77,7 +81,7 @@ describe('SceneWeekView — share affordance', () => {
       writable: true,
     })
 
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     fireEvent.click(
       await screen.findByRole('button', { name: 'Share this week' })
     )
@@ -90,7 +94,7 @@ describe('SceneWeekView — share affordance', () => {
   })
 
   it('renders no share control when the browser cannot share or copy', async () => {
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     await waitFor(() =>
       expect(
         screen.queryByRole('button', { name: 'Share this week' })
@@ -100,29 +104,50 @@ describe('SceneWeekView — share affordance', () => {
 })
 
 describe('SceneWeekView', () => {
+  // The trap this rule exists for: `is_current_week` is TRUE for the dated
+  // permalink of the week now in progress, and that permalink is permanent —
+  // it is its own canonical and the form the sitemap announces. A title keyed
+  // on the flag rather than on the route would sit in the index saying "this
+  // week" about a week that ended.
+  it('names the dated permalink of the CURRENT week by its Monday', () => {
+    render(<SceneWeekView isRollingRoute={false} week={week()} />)
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Week of Jul 27 in Chicago'
+    )
+    expect(document.querySelector('[aria-current="page"]')).toBeNull()
+    expect(
+      within(screen.getByRole('navigation', { name: 'Show windows' })).getByRole('link', {
+        name: 'This week',
+      })
+    ).toHaveAttribute('href', '/scenes/chicago-il/week')
+    // And the neighbours drop the relative wording with it.
+    expect(stepLabels()).toEqual(['← Week of Jul 20', 'Week of Aug 3 →'])
+  })
+
   // The title rule. An archived week names its own Monday; only the current
   // week may call itself "this week".
   it('titles the current week by the window and an archived one by its date', () => {
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'This week in Chicago'
     )
 
     cleanup()
-    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    render(<SceneWeekView isRollingRoute={false} week={week({ is_current_week: false, is_past_week: true })} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Week of Jul 27 in Chicago'
     )
   })
 
   it('states the range and count', () => {
-    render(<SceneWeekView week={week({ show_count: 32 })} />)
+    render(<SceneWeekView isRollingRoute week={week({ show_count: 32 })} />)
     expect(screen.getByText(/Mon, Jul 27 – Sun, Aug 2, 2026/)).toBeInTheDocument()
     expect(screen.getByText(/32 shows/)).toBeInTheDocument()
   })
 
   it('singularises a one-show week', () => {
-    render(<SceneWeekView week={week({ show_count: 1 })} />)
+    render(<SceneWeekView isRollingRoute week={week({ show_count: 1 })} />)
     expect(screen.getByText(/1 show(?!s)/)).toBeInTheDocument()
   })
 
@@ -130,7 +155,7 @@ describe('SceneWeekView', () => {
   // implied full city coverage would be false. Slugged rooms link to
   // /venues/{slug}; rooms without a slug stay plain text.
   it('always discloses that coverage is partial', () => {
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
     const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
     expect(footer).not.toBeNull()
@@ -148,7 +173,7 @@ describe('SceneWeekView', () => {
 
   it('names a tracked room without a slug, unlinked, in the listing footer', () => {
     render(
-      <SceneWeekView
+      <SceneWeekView isRollingRoute
         week={week({ tracked_venues: [room({ name: 'DIY Basement', slug: '' })] })}
       />
     )
@@ -162,7 +187,7 @@ describe('SceneWeekView', () => {
 
   it('treats a whitespace-only slug as missing, not a broken /venues/ URL', () => {
     render(
-      <SceneWeekView
+      <SceneWeekView isRollingRoute
         week={week({ tracked_venues: [room({ name: 'Whitespace Room', slug: '   ' })] })}
       />
     )
@@ -174,14 +199,14 @@ describe('SceneWeekView', () => {
   })
 
   it('links each show and shows its venue', () => {
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     const link = screen.getByRole('link', { name: /Ovlov, Cusp/ })
     expect(link).toHaveAttribute('href', '/shows/1')
     expect(within(link).getByText('Empty Bottle')).toBeInTheDocument()
   })
 
   it('badges a sold-out show', () => {
-    render(<SceneWeekView week={week({ days: [{ date: '2026-07-27', shows: [show({ is_sold_out: true })] }] })} />)
+    render(<SceneWeekView isRollingRoute week={week({ days: [{ date: '2026-07-27', shows: [show({ is_sold_out: true })] }] })} />)
     expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
   })
 
@@ -189,7 +214,7 @@ describe('SceneWeekView', () => {
   // actively mislead someone deciding whether to go.
   it('badges a cancelled show and suppresses the sold-out badge', () => {
     render(
-      <SceneWeekView
+      <SceneWeekView isRollingRoute
         week={week({
           days: [{ date: '2026-07-27', shows: [show({ is_cancelled: true, is_sold_out: true })] }],
         })}
@@ -202,7 +227,7 @@ describe('SceneWeekView', () => {
   // The decision was an empty STATE, not a 404 — a real city having a quiet
   // week is a fact, and 404ing would break an already-shared permalink.
   it('renders an empty week with a way forward', () => {
-    render(<SceneWeekView week={week({ show_count: 0, days: [], tracked_venues: [room()] })} />)
+    render(<SceneWeekView isRollingRoute week={week({ show_count: 0, days: [], tracked_venues: [room()] })} />)
     expect(screen.getByText(/No shows at the Chicago rooms we track this week/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Try next week/ })).toHaveAttribute(
       'href',
@@ -215,7 +240,7 @@ describe('SceneWeekView', () => {
   // names itself and points at what is on NOW.
   it('names an archived empty week by its date and points at the current week', () => {
     render(
-      <SceneWeekView
+      <SceneWeekView isRollingRoute={false}
         week={week({
           show_count: 0,
           days: [],
@@ -245,7 +270,7 @@ describe('SceneWeekView', () => {
       writable: true,
     })
 
-    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    render(<SceneWeekView isRollingRoute={false} week={week({ is_current_week: false, is_past_week: true })} />)
     expect(
       await screen.findByRole('button', { name: 'Share the week of Jul 27' })
     ).toBeInTheDocument()
@@ -253,7 +278,7 @@ describe('SceneWeekView', () => {
   })
 
   it('offers adjacent-week navigation, relative on the current week', () => {
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     const adjacent = screen.getByRole('navigation', { name: 'Adjacent weeks' })
     expect(within(adjacent).getByRole('link', { name: /Last week/ })).toHaveAttribute(
       'href',
@@ -268,7 +293,7 @@ describe('SceneWeekView', () => {
   // "Last week" and "next week" are claims about now, so only the current week
   // may make them. An archived week names its neighbours by their own dates.
   it('names the neighbours of an archived week by date', () => {
-    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    render(<SceneWeekView isRollingRoute={false} week={week({ is_current_week: false, is_past_week: true })} />)
     const adjacent = screen.getByRole('navigation', { name: 'Adjacent weeks' })
     expect(
       within(adjacent).getByRole('link', { name: /Week of Jul 20/ })
@@ -287,7 +312,7 @@ describe('SceneWeekView', () => {
     ['not a week key', 'next'],
     ['before the servable years', '2014-W52'],
   ])('mutes the next direction when the key is %s', (_label, next_week) => {
-    const { container } = render(<SceneWeekView week={week({ next_week })} />)
+    const { container } = render(<SceneWeekView isRollingRoute week={week({ next_week })} />)
 
     // Asserted on the ROW, not on hrefs matching the week shape: a filter that
     // only admits well-formed week links cannot see the malformed one the
@@ -297,7 +322,7 @@ describe('SceneWeekView', () => {
   })
 
   it('mutes the previous direction when the key is absent', () => {
-    const { container } = render(<SceneWeekView week={week({ prev_week: undefined })} />)
+    const { container } = render(<SceneWeekView isRollingRoute week={week({ prev_week: undefined })} />)
 
     expect(stepLabels()).toEqual(['Start of listings', 'Next week →'])
     expect(weekLinks(container)).toEqual(['/scenes/chicago-il/2026-W32'])
@@ -307,7 +332,7 @@ describe('SceneWeekView', () => {
   // after the sentence would read as a typo.
   it('drops the way forward on an empty current week with no next week to offer', () => {
     render(
-      <SceneWeekView
+      <SceneWeekView isRollingRoute
         week={week({ show_count: 0, days: [], tracked_venues: [room()], next_week: undefined })}
       />
     )
@@ -321,18 +346,18 @@ describe('SceneWeekView', () => {
   // Load-bearing: the two pages are read as a pair, and this link is the half
   // of that pairing a restyle of the strip would drop silently.
   it('links out to tonight, the reciprocal of the day view week chip', () => {
-    render(<SceneWeekView week={week()} />)
+    render(<SceneWeekView isRollingRoute week={week()} />)
     expect(screen.getByRole('link', { name: 'Tonight' })).toHaveAttribute(
       'href',
       '/scenes/chicago-il/tonight'
     )
   })
 
-  // Current on the week this page IS, and only then. An archived permalink
-  // marking "This week" current would claim a week that ended months ago is the
-  // current one, and would leave the reader no link to the week that is.
-  it('marks the week window current only while the week is current', () => {
-    const { container } = render(<SceneWeekView week={week()} />)
+  // Current on the ROLLING route, and only there. A dated permalink marking
+  // "This week" current would claim the week it names is the one in progress,
+  // and would leave the reader no link to the week that is.
+  it('marks the week window current only on the rolling route', () => {
+    const { container } = render(<SceneWeekView isRollingRoute week={week()} />)
     expect(container.querySelector('[aria-current="page"]')).toHaveTextContent(
       'This week'
     )
@@ -345,7 +370,7 @@ describe('SceneWeekView', () => {
 
     cleanup()
     const archived = render(
-      <SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />
+      <SceneWeekView isRollingRoute={false} week={week({ is_current_week: false, is_past_week: true })} />
     )
     expect(archived.container.querySelector('[aria-current="page"]')).toBeNull()
     expect(
@@ -358,21 +383,21 @@ describe('SceneWeekView', () => {
   // Kept on archived weeks too: a reader who lands on last March still wants
   // the way back to what is on now.
   it('keeps the tonight link on an archived week', () => {
-    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    render(<SceneWeekView isRollingRoute={false} week={week({ is_current_week: false, is_past_week: true })} />)
     expect(screen.getByRole('link', { name: 'Tonight' })).toBeInTheDocument()
   })
 
   // The generator types these nullable even though the API always emits arrays;
   // a null must not take the page down.
   it('survives null days and tracked_venues', () => {
-    render(<SceneWeekView week={week({ days: null, tracked_venues: null, show_count: 0 })} />)
+    render(<SceneWeekView isRollingRoute week={week({ days: null, tracked_venues: null, show_count: 0 })} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Chicago')
     expect(screen.queryByText(/ROOMS WE TRACK/)).not.toBeInTheDocument()
   })
 
   it('renders a quiet day as a heading and count only', () => {
     render(
-      <SceneWeekView
+      <SceneWeekView isRollingRoute
         week={week({
           show_count: 1,
           days: [

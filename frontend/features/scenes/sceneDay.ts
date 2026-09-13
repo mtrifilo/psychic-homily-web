@@ -60,9 +60,9 @@ export function formatDayFull(iso: string): string {
 /**
  * `Thu Jul 30` — the show page's rail qualifier.
  *
- * Composed rather than taken from one `toLocaleDateString` call, which punctuates
- * it as a sentence fragment ("Thu, Jul 30"). This is a label, and the comma is
- * noise in a heading.
+ * Composed rather than taken from one `toLocaleDateString` call, which
+ * punctuates it as a sentence fragment ("Thu, Jul 30"). It reads inside a
+ * heading, where the comma is noise.
  */
 export function formatDayChip(iso: string): string {
   const date = parseCalendarDate(iso)

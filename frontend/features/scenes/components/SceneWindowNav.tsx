@@ -11,22 +11,28 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  * The window family's navigation: one component for every route in it.
  *
  * The scene root, the four rolling windows and both dated permalinks draw the
- * same strip from here. Each of those surfaces used to carry its own copy, and
- * the copies had already drifted — two windows pointed at one href, one strip
- * marked a window current that its route was not, and the day and week pages
- * grew a second, differently-styled row of their own.
+ * same strip from here, so a reader walking between them sees one row that
+ * changes only where it says they are.
  *
  * Register per the locked frame (`1665:2`): mono at 10px with 8% tracking, the
  * links in the accent tone, the active window in the foreground tone and
  * underlined, a direction with nothing behind it muted and unlinked.
+ *
+ * ROLLING routes mark their window current. A dated permalink marks none: it
+ * names one night or one week, not a window that moves with the clock.
  */
 
 /**
  * Mono micro-caps at the frame's own metrics, shared by every item in both rows
  * so the register is one. A step down in size from `SCENE_ACCENT_LINK_CLASS`,
  * whose interaction behaviour it composes rather than re-spells.
+ *
+ * The vertical padding is a TARGET, not spacing: at 10px these are standalone
+ * nav targets, and 1.5 is what clears the 24px floor (WCAG 2.5.8) that the type
+ * alone does not.
  */
-const CHIP_CLASS = 'rounded-sm py-1 font-mono text-[10px] uppercase tracking-[0.08em]'
+const CHIP_CLASS =
+  'inline-block rounded-sm py-1.5 font-mono text-[10px] uppercase tracking-[0.08em]'
 
 const LINK_CLASS = `${CHIP_CLASS} ${SCENE_LINK_INTERACTION_CLASS}`
 
@@ -67,6 +73,11 @@ function NavStep({
 
   return (
     <Link href={step.href} rel={direction} className={`${LINK_CLASS} text-primary`}>
+      {/* The arrow carries the direction for a reader looking at the row, and
+          `rel` carries it for a crawler, but neither reaches a screen reader as
+          a word — an arrow may be announced as anything or as nothing. The
+          accessible name says it. */}
+      <span className="sr-only">{direction === 'prev' ? 'Previous: ' : 'Next: '}</span>
       {direction === 'prev' ? `← ${step.label}` : `${step.label} →`}
     </Link>
   )

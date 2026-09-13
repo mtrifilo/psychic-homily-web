@@ -21,6 +21,7 @@
 
 import {
   formatCalendarMonthDay,
+  isCalendarDate,
   parseCalendarDate,
   type SceneWeekDay,
   type SceneWeekResponse,
@@ -112,20 +113,22 @@ export function sceneDayTitle(date: string, city: string, isRollingRoute: boolea
 }
 
 /**
- * `This week in Chicago` while the week is current, `Week of Sep 7 in Chicago`
- * once it is not.
+ * `This week in Chicago` on the rolling route, `Week of Sep 7 in Chicago` on a
+ * dated permalink.
  *
- * Read off the payload's `is_current_week`, which the backend resolves in the
- * scene's own timezone. An archived week must never say "this week" — the page
- * is a permalink, and a reader who opens last March is not being shown the
- * current week.
+ * The discriminator is the ROUTE, not the payload's `is_current_week` — the
+ * same rule, for the same reason, as the day above. That flag is true for the
+ * dated permalink of the week now in progress, and that permalink is permanent:
+ * it is its own canonical and the form the sitemap announces, so a title saying
+ * "this week" there is false from the following Monday and stays in the index
+ * saying it.
  */
 export function sceneWeekTitle(
   startDate: string,
   city: string,
-  isCurrentWeek: boolean
+  isRollingRoute: boolean
 ): string {
-  return isCurrentWeek
+  return isRollingRoute
     ? sceneWindowTitle('this-week', city)
     : windowTitle(sceneWeekName(startDate), city)
 }
@@ -142,35 +145,53 @@ function sceneWeekName(startDate: string): string {
  * {clause}" — so a page's heading, its share control and its quiet copy spell
  * one week one way. Lowercasing the name would not do: it would print "week of
  * sep 7".
+ *
+ * Keyed on the route for the reason `sceneWeekTitle` gives: only the rolling
+ * URL may say "this week", because only it will still mean this week tomorrow.
  */
-export function sceneWeekClause(startDate: string, isCurrentWeek: boolean): string {
-  return isCurrentWeek ? 'this week' : `the week of ${formatMonthDay(startDate)}`
+export function sceneWeekClause(startDate: string, isRollingRoute: boolean): string {
+  return isRollingRoute ? 'this week' : `the week of ${formatMonthDay(startDate)}`
 }
 
 /**
  * How a neighbouring week reads in the prev/next row.
  *
- * Relative on the CURRENT week, where "last" and "next" are unambiguous, and
- * named by its own Monday everywhere else — the same idiom the day row uses. A
- * neighbour is never called "this week": identifying one as the current week
- * would take a clock this payload does not carry, and a wrong "this week" is a
- * claim about now.
+ * Relative on the ROLLING route, where "last" and "next" are read against a
+ * page that is always the current week, and named by its own Monday on a
+ * permalink — the same idiom the day row uses, and the same route rule as the
+ * title. A neighbour is never called "this week": identifying one as the
+ * current week would take a clock this payload does not carry, and a wrong
+ * "this week" is a claim about now.
  *
- * The neighbour's date is arithmetic on the week's own start, since every week
- * is exactly seven days from its neighbour.
+ * The neighbour's date is arithmetic on the week's own start, which is the same
+ * arithmetic the key in the href comes from: `prev_week` and `next_week` are
+ * `ISOWeekKey(start ± 7 days)` (backend/internal/services/catalog/scene_week.go),
+ * so the label and the link name one week.
  */
 export function sceneWeekStepLabel(
   startDate: string,
   direction: 'prev' | 'next',
-  isCurrentWeek: boolean
+  isRollingRoute: boolean
 ): string {
-  if (isCurrentWeek) return direction === 'prev' ? 'Last week' : 'Next week'
-  return sceneWeekName(shiftCalendarDate(startDate, direction === 'prev' ? -7 : 7))
+  if (isRollingRoute) return direction === 'prev' ? 'Last week' : 'Next week'
+  const neighbour = shiftCalendarDate(startDate, direction === 'prev' ? -7 : 7)
+  // A start date this page cannot read names no neighbour. The shift runs
+  // BEFORE the format, so `formatMonthDay`'s own fallback cannot catch it:
+  // `parseCalendarDate('')` is 1 Jan 1900, and seven days either side of that
+  // is a perfectly well-formed `Week of Dec 25` nobody can check. The
+  // page-relative words are true for the one week this row leads to whatever
+  // the payload says, which is the only claim left to make.
+  if (neighbour === null) return direction === 'prev' ? 'Previous week' : 'Next week'
+  return sceneWeekName(neighbour)
 }
 
-/** The calendar date `days` away, as `YYYY-MM-DD` in the same calendar. */
-function shiftCalendarDate(iso: string, days: number): string {
-  const date = parseCalendarDate(iso)
+/**
+ * The calendar date `days` away, as `YYYY-MM-DD`, or null when the input is not
+ * a calendar date to begin with.
+ */
+function shiftCalendarDate(iso: string, days: number): string | null {
+  if (!isCalendarDate(iso.trim())) return null
+  const date = parseCalendarDate(iso.trim())
   date.setDate(date.getDate() + days)
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
