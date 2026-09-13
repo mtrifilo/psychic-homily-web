@@ -24,9 +24,8 @@
  *      (CollectionDetail) only renders this when the collection has items.
  *   3. Toggle-driven, not default-visible. The parent owns the toggle.
  *
- * Mobile gating retained: below 640px the canvas is unusable (PSY-369), so
- * the whole section collapses to the shared one-line knowledge-graph teaser
- * rather than a titled section wrapped around an apology.
+ * Below 640px the canvas is unusable (PSY-369), so the whole section is the
+ * shared one-line knowledge-graph teaser instead.
  */
 
 import { useMemo } from 'react'
@@ -265,8 +264,8 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
                 the page when the canvas lands. */}
             {isLoading && <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />}
 
-            {/* A settled fetch error leaves `data` undefined — say so instead
-                of rendering an empty slot (scene-page convention, PSY-1446). */}
+            {/* A settled fetch error leaves `data` undefined, so say so
+                instead of rendering an empty slot (scene-page convention). */}
             {!isLoading && !data && isError && (
               <GraphStateCard
                 role="alert"

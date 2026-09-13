@@ -25,8 +25,7 @@ describe('MobileGraphTeaser', () => {
     expect(container.querySelector('[aria-hidden="true"]')?.textContent).toBe('→')
   })
 
-  // The whole point of the ticket: a line, not a module. A bordered box or a
-  // reserved height here is the retired card growing back.
+  // A line, not a module: a border or a reserved height would make this a card.
   it('is one line of text, not a box', () => {
     const { container } = render(
       <MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>,
@@ -38,7 +37,7 @@ describe('MobileGraphTeaser', () => {
   })
 
   // The treatment is the locked half of the design, and this component exists
-  // to be its single source — so pin it here rather than at six call sites.
+  // to be its single source, so pin it here rather than at six call sites.
   it('renders the locked type and link treatment', () => {
     const { container } = render(
       <MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>,

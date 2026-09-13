@@ -26,7 +26,7 @@ import { useState, useCallback } from 'react'
 export const GRAPH_BREAKPOINT_PX = 640
 
 /**
- * The class an UNMEASURED section's chrome carries — its header, scale line and
+ * The class an UNMEASURED section's chrome carries: its header, scale line and
  * controls. Below the gate a graph section's settled form is one line of link,
  * and server-rendered HTML has no container width to gate on, so without this
  * a phone paints a header that the first measurement then deletes.
@@ -72,9 +72,9 @@ export function useContainerWidth(): {
   // Measured narrow, which is NOT the same as "no canvas": pre-measurement is
   // also canvas-less, and it is the state that reserves the canvas box. Only
   // this one collapses a section to its sub-breakpoint form, so the hook that
-  // owns the measurement owns the distinction — a consumer re-deriving it is
-  // one `containerWidth !== null` away from flashing the narrow form on every
-  // first paint.
+  // owns the measurement owns the distinction. A consumer re-deriving it is one
+  // `containerWidth !== null` away from flashing the narrow form on every first
+  // paint.
   //
   // The other side of the gate deliberately stays at the call sites. Written
   // inline as `containerWidth !== null && containerWidth >= …`, it NARROWS

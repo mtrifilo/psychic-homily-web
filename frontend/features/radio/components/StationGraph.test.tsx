@@ -165,9 +165,9 @@ describe('StationGraph', () => {
     ).toBeInTheDocument()
   })
 
-  // Below 640px the section collapses to one line of link. The canvas gate
-  // itself is unchanged (PSY-369/511) — what changed is that the page no
-  // longer renders a titled section whose whole body is an apology.
+  // Below 640px the whole section is one line of link: the canvas gate
+  // (PSY-369/511) decides there is no canvas, and this decides what stands in
+  // its place.
   it('collapses to a one-line map teaser below the 640px breakpoint', () => {
     setMockContainerWidth(500)
     renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
@@ -175,8 +175,8 @@ describe('StationGraph', () => {
     expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/The Morning Show \(6\)/)).not.toBeInTheDocument()
 
-    // No section chrome: no heading, no scale line, and none of the retired
-    // "needs a larger screen" card or its in-page link-out.
+    // No section chrome: no heading, no scale line, no "needs a larger screen"
+    // card, no in-page link-out.
     expect(screen.queryByText('Airplay graph')).not.toBeInTheDocument()
     expect(screen.queryByText(/4 artists/)).not.toBeInTheDocument()
     expect(screen.queryByText(/needs a larger screen/i)).not.toBeInTheDocument()
@@ -194,7 +194,7 @@ describe('StationGraph', () => {
     expect(links[0]).toHaveAttribute('href', '/graph')
   })
 
-  // The `#graph` deep-link target has to survive the collapse — a Cmd+K entry
+  // The `#graph` deep-link target has to survive the collapse: a Cmd+K entry
   // that scrolls nowhere is worse than no entry.
   it('keeps the #graph anchor on the collapsed mobile teaser', () => {
     setMockContainerWidth(500)

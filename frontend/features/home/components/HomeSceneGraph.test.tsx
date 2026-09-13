@@ -684,10 +684,9 @@ describe('HomeSceneGraph', () => {
     expect(container.querySelector('section')).toBeNull()
   })
 
-  // Below 640px the section collapses to one line of link: no heading, no
-  // "Surprise me", no caption, no 240px card. The map is the target rather
-  // than this scene's page, whose own graph section collapses to the same line
-  // at the same width.
+  // Below 640px the section is one line of link: no heading, no "Surprise me",
+  // no caption, no card. The map is the target rather than this scene's page,
+  // whose own graph section is the same line at the same width.
   it('collapses to a one-line map teaser below the graph breakpoint', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)

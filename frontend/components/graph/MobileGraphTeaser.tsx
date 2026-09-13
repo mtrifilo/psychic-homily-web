@@ -9,7 +9,7 @@ import Link from 'next/link'
 export const GRAPH_MAP_LINK_CLASS = 'underline underline-offset-4 hover:text-foreground'
 
 /**
- * MobileGraphTeaser — the sub-`GRAPH_BREAKPOINT_PX` form of a graph section.
+ * MobileGraphTeaser: the sub-`GRAPH_BREAKPOINT_PX` form of a graph section.
  *
  * No graph canvas renders below the breakpoint on any surface, so whatever the
  * section puts in that slot is the entire section at that width. This is that

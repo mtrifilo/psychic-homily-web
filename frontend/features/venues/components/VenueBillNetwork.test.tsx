@@ -180,8 +180,8 @@ describe('VenueBillNetwork', () => {
     // dataset (4 artists, 25 shows) it's non-sparse but mobile-gated.
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
 
-    // No section chrome: no heading, no scale line, no window filter, and none
-    // of the retired "needs a larger screen" card or its in-page link-out.
+    // No section chrome: no heading, no scale line, no window filter, no
+    // "needs a larger screen" card, no in-page link-out.
     expect(screen.queryByText('Who plays together here')).not.toBeInTheDocument()
     expect(screen.queryByText(/4 artists/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^All-time$/ })).not.toBeInTheDocument()

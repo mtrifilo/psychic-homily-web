@@ -123,9 +123,8 @@ const MIN_CONNECTED_NODES = 3
 const PLACEHOLDER_HEIGHT_CLASS = 'h-[560px]'
 
 /**
- * The height-reserving placeholder (CLS budget) — the shared `GraphSkeleton`
- * base look (PSY-1347) plus the height contract above, written out because
- * Tailwind only sees literal class strings. Named distinctly from the shared
+ * The height-reserving placeholder (CLS budget): the shared `GraphSkeleton`
+ * base look (PSY-1347) plus the height contract above. Named distinctly from the shared
  * primitive to avoid shadowing it. Used by the pre-mount state, the
  * data-loading state, and the dynamic-import fallback so they can't drift
  * apart. It reserves only the graph area, not the heading row/caption

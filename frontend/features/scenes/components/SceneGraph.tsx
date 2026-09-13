@@ -368,7 +368,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             </div>
 
             {/* Pre-measurement: hold the box height so the settle can't shift
-                the sections below. `hasEnoughForGraph` is not re-checked — the
+                the sections below. `hasEnoughForGraph` is not re-checked: the
                 edge gate above already returned null for everything that fails
                 it. */}
             {containerWidth === null && (

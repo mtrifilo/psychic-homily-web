@@ -56,7 +56,7 @@ describe('StationDetail (PSY-1472)', () => {
 
   it('renders the #recent-playlists deep-link anchor', () => {
     const { container } = render(<StationDetail stationSlug="kexp" />)
-    // The same constant the scroll workaround below reads — single source.
+    // The same constant the scroll workaround below reads: single source.
     expect(container.querySelector(`#${STATION_PLAYLISTS_ANCHOR}`)).toBeInTheDocument()
   })
 

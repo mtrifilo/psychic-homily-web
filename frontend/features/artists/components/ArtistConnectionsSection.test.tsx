@@ -267,10 +267,9 @@ describe('ArtistConnectionsSection', () => {
     expect(onExpand).toHaveBeenCalledTimes(1)
   })
 
-  // Below 640px the section collapses to one line of link: no header, no
-  // count line, no [Expand], no 240px card. The map link is rooted on this
-  // artist, and the page header's [Graph] is the surviving path to the ego
-  // dialog at this width.
+  // Below 640px the section is one line of link: no header, no count line, no
+  // [Expand], no card. The map link is rooted on this artist, and the page
+  // header's [Graph] is what reaches the ego dialog at this width.
   it('collapses to a one-line map teaser below the 640px gate', () => {
     resizeObserver.setWidth(390)
     renderSection()
@@ -297,7 +296,7 @@ describe('ArtistConnectionsSection', () => {
   })
 
   // Entity slugs are nullable in this schema, and an empty `artist=` param is
-  // one the Observatory refuses — the link falls back to the unrooted map.
+  // one the Observatory refuses, so the link falls back to the unrooted map.
   it('falls back to the unrooted map when the artist has no slug', () => {
     resizeObserver.setWidth(390)
     renderWithProviders(

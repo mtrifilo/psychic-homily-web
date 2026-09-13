@@ -10,7 +10,7 @@ import { GraphSkeleton } from './GraphSkeleton'
  * Complements GraphSkeleton (the loading placeholder): same bordered/muted
  * box language, but with visible, announced content instead of a pulse.
  * Standardized across SceneGraph, StationGraph, CollectionGraph, and
- * VenueBillNetwork so the states can't drift apart per surface again. Those
+ * VenueBillNetwork so the states can't drift apart per surface. Those
  * four sections put MobileGraphTeaser, not this card, in the slot a canvas
  * would occupy below the gate; this card is what a settled failure renders
  * there instead, at every width.
@@ -55,8 +55,8 @@ export const GRAPH_BOX_HEIGHT_CLASS = 'h-[240px] sm:h-[400px] md:h-[560px]'
  *
  * Below 640px a graph section is one line of link (MobileGraphTeaser), so a
  * box reserved there is a phantom the settle then collapses. It carries no
- * narrow-width height for that reason — the one in GRAPH_BOX_HEIGHT_CLASS
- * could never apply here.
+ * narrow-width height for that reason: the one in GRAPH_BOX_HEIGHT_CLASS could
+ * never apply here.
  *
  * The gate is viewport-keyed where the canvas gate is container-keyed; they
  * disagree only in the narrow band where a padded column measures under 640px

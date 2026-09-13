@@ -44,8 +44,8 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
   const { data: station, isLoading, error } = useRadioStation(stationSlug)
 
   // `#recent-playlists` is a shareable deep link, but this page is
-  // client-fetched — the playlists feed mounts only after the station fetch, so
-  // the browser's native fragment scroll on a cold-loaded / shared hash URL
+  // client-fetched, so the playlists feed mounts only after the station fetch
+  // and the browser's native fragment scroll on a cold-loaded / shared hash URL
   // fires before the target exists. Scroll once the station data lands (mirrors
   // StationGraph's own #graph workaround). In-session taps already work.
   //

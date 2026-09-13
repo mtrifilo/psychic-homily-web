@@ -192,6 +192,41 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     expect(screen.queryByTestId('collection-graph-canvas')).not.toBeInTheDocument()
   })
 
+  // The teaser replaces the canvas, not the announced failure: a settled error
+  // keeps its heading and its alert at every width, which is what the sibling
+  // graph sections do and what an error a visitor is waiting on needs.
+  it('keeps the error card and its heading below the 640px breakpoint', async () => {
+    ro.setWidth(500)
+    const hooks = await import('../hooks')
+    vi.mocked(hooks.useCollectionGraph).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Internal Server Error'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    expect(screen.getByText('Collection graph')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't load/i)
+    expect(screen.queryByRole('link', { name: /music map/i })).not.toBeInTheDocument()
+  })
+
+  // An empty collection has no graph to link to, so the teaser stays away and
+  // the section keeps the sentence that says what to add.
+  it('keeps the empty-collection message below the 640px breakpoint', async () => {
+    ro.setWidth(500)
+    const hooks = await import('../hooks')
+    vi.mocked(hooks.useCollectionGraph).mockReturnValue({
+      data: { collection: { slug: 'desert-doom', artist_count: 0, edge_count: 0 }, nodes: [], links: [] },
+      isLoading: false,
+      isError: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    expect(screen.getByText(/No items yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /music map/i })).not.toBeInTheDocument()
+  })
+
   it('collapses to a one-line map teaser below the 640px breakpoint', () => {
     ro.setWidth(500)
     const { container } = renderWithProviders(
@@ -199,8 +234,8 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     )
     expect(screen.queryByTestId('collection-graph-canvas')).not.toBeInTheDocument()
 
-    // No section chrome: no heading, no breakdown line, and none of the
-    // retired "needs a larger screen" card or its in-page link-out.
+    // No section chrome: no heading, no breakdown line, no "needs a larger
+    // screen" card, no in-page link-out.
     expect(screen.queryByText('Collection graph')).not.toBeInTheDocument()
     expect(screen.queryByText(/needs a larger screen/i)).not.toBeInTheDocument()
     expect(

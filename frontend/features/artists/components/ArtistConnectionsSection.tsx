@@ -90,9 +90,9 @@ const CONNECTIONS_CANVAS_HEIGHT = 360
  * a phantom the settle then collapses.
  *
  * The height tracks CONNECTIONS_CANVAS_HEIGHT by hand (Tailwind arbitrary
- * values can't read the const) and approximates the settled box from BELOW —
- * the rendered surface is ~30px taller, because ArtistGraphVisualization
- * stacks the EgoTypeLegend under the canvas inside its bordered container.
+ * values can't read the const) and approximates the settled box from BELOW.
+ * The rendered surface is ~30px taller, because ArtistGraphVisualization stacks
+ * the EgoTypeLegend under the canvas inside its bordered container.
  * Reserving the canvas height rather than the exact total is the same accepted
  * trade-off GRAPH_BOX_HEIGHT_CLASS documents, and the residual is invisible in
  * practice: useContainerWidth measures via a callback ref during commit, so
@@ -227,8 +227,8 @@ export function ArtistConnectionsSection({
     plural: 'connected artists',
   })
 
-  // One container measurement drives every GATING branch below — the count
-  // line's interaction clause, the mobile teaser, and the canvas — through the
+  // One container measurement drives every GATING branch below (the count
+  // line's interaction clause, the mobile teaser, and the canvas) through the
   // two derivations the width hook owns, so the clause can't promise names to
   // click in a layout that rendered no canvas. Don't add a *gating* breakpoint
   // source of your own; the `sm:` prefixes in this file are viewport-keyed and
@@ -269,7 +269,7 @@ export function ArtistConnectionsSection({
             className={!isMeasured ? GRAPH_CHROME_UNMEASURED_CLASS : undefined}
           />
           {/* The count discloses scale at every width the section keeps its
-              header; the interaction clause is narrower still — it is dropped
+              header; the interaction clause is narrower still, and is dropped
               whenever no canvas rendered. */}
           <p
             className={`text-sm text-muted-foreground mb-2 ${
