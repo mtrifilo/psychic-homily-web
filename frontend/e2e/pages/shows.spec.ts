@@ -80,6 +80,11 @@ test.describe('Shows list', () => {
   // `?page=2` rather than a button, and that following it actually serves
   // different rows.
   test('pagination serves a second page at its own URL', async ({ page }) => {
+    // Double the 30s default: this test navigates twice, and the second
+    // navigation is the first compile of `?page=2` on a cold dev server. It
+    // finishes in about 25s there, so this is headroom, not a hiding place.
+    test.setTimeout(60_000)
+
     await page.goto('/shows')
 
     await expect(page.locator('article').first()).toBeVisible({
@@ -94,21 +99,35 @@ test.describe('Shows list', () => {
       .first()
       .getAttribute('aria-label')
 
-    // A link, not a button: a fetcher with no JavaScript reaches page 2 too.
-    const later = page.getByRole('link', { name: /^later$/i }).first()
-    await expect(later).toHaveAttribute('href', /[?&]page=2(?:&|$)/)
+    // Links, not buttons: a fetcher with no JavaScript reaches page 2 too.
+    await expect(
+      page.getByRole('link', { name: /^later$/i }).first()
+    ).toHaveAttribute('href', /[?&]page=2(?:&|$)/)
 
-    await later.click()
+    // Settle before clicking. The pager is a real `<a href>`, so it is in the
+    // server HTML and passes Playwright's actionability checks before hydration
+    // wires the router; a click in that window leaves the browser to follow the
+    // href itself, and on a cold dev server each such navigation restarts a
+    // compile the next one interrupts. Waiting once here is what a reader does
+    // anyway.
+    await page.waitForLoadState('networkidle')
+
+    await page.getByRole('link', { name: /^Page 2\b/ }).first().click()
+
     await expect(page).toHaveURL(/[?&]page=2(?:&|$)/)
 
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
+    // The URL moves first and the rows follow, once the list re-reads `?page=`.
+    // `keepPreviousData` holds page 1 on screen throughout, so the pager's own
+    // position is the signal that the page actually turned.
+    await expect(page.getByText(/Page 2 of \d+/).first()).toBeVisible({
+      timeout: 30_000,
     })
+
     await expect
       .poll(
         async () =>
           page.locator('article').first().getAttribute('aria-label'),
-        { timeout: 10_000 }
+        { timeout: 15_000 }
       )
       .not.toBe(firstPageLeadRow)
   })
