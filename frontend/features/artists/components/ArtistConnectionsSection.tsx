@@ -96,7 +96,7 @@ const CONNECTIONS_CANVAS_HEIGHT = 360
  * practice: useContainerWidth measures via a callback ref during commit, so
  * this skeleton is typically replaced before the browser paints it.
  */
-const PLACEHOLDER_HEIGHT_CLASS = 'hidden sm:block h-[360px]'
+const PLACEHOLDER_BOX_CLASS = 'hidden sm:block h-[360px]'
 
 export interface CappedEgoGraph {
   graph: ArtistGraph
@@ -164,7 +164,7 @@ export function ArtistConnectionsSection({
     artistId,
     enabled: artistId > 0,
   })
-  const { refCallback, containerWidth } = useContainerWidth()
+  const { refCallback, containerWidth, isBelowGraphBreakpoint } = useContainerWidth()
 
   // A caught graph failure is remembered PER ARTIST rather than as a bare
   // boolean, and compared during render rather than synced by an effect: this
@@ -225,7 +225,7 @@ export function ArtistConnectionsSection({
   // count line's interaction clause, the mobile teaser, and the canvas — so
   // the clause can't promise names to click in a layout that rendered no
   // canvas. Don't add a second *gating* breakpoint source; the only other 640
-  // in this file is `PLACEHOLDER_HEIGHT_CLASS`'s `sm:`, which is viewport-keyed
+  // in this file is `PLACEHOLDER_BOX_CLASS`'s `sm:`, which is viewport-keyed
   // and governs only the pre-measurement skeleton — the two disagree in the
   // narrow band where the column is under 640 while the viewport is over it,
   // and in that band the skeleton shows until the measurement replaces it.
@@ -242,103 +242,93 @@ export function ArtistConnectionsSection({
   // `graphAvailable` matches the six sibling graph surfaces; this gate is the
   // measured width of THIS column, not a device or viewport class.
   const graphAvailable = isMeasured && containerWidth >= GRAPH_BREAKPOINT_PX
-  // Measured narrow: the only state that collapses the section to the
-  // one-line teaser. Pre-measurement is not it — the skeleton paint must not
-  // flash a line that a wide container then replaces with the canvas.
-  const isBelowGraphBreakpoint = isMeasured && !graphAvailable
 
   return (
     <section ref={refCallback} className="min-w-0">
       {isBelowGraphBreakpoint ? (
-        /* Sub-640px. The canvas is gated off at this width; what this branch
-           decides is what the page puts in its place. Not a titled section: no
-           header, no count line, no 240px card. The one thing worth carrying
-           at this width is the cross-link into the knowledge graph, so that is
-           all this renders. The page header's [Graph] keeps the ego dialog
-           reachable here. */
+        /* The section's sub-640px form: the header, the count line and
+           [Expand] all go with the canvas. The page header's [Graph] is the
+           surviving path to the ego dialog at this width. */
         <MobileGraphTeaser
           href={graphRootHref(artistSlug)}
         >{`See who ${artistName} plays with on the music map`}</MobileGraphTeaser>
       ) : (
         <>
-      <SectionHeader
-        title="Connections"
-        as="h2"
-        size="md"
-        action={<BracketLink label="Expand" onClick={onExpand} />}
-      />
-      {/* The count discloses scale at every width the section keeps its
-          header; the interaction clause is narrower still — it is dropped
-          whenever no canvas rendered. */}
-      <p className="text-sm text-muted-foreground mb-2">
-        {sentenceCase(phrase)}
-        {graphAvailable && !graphFailed && ' · click a name to see how it connects'}
-      </p>
+          <SectionHeader
+            title="Connections"
+            as="h2"
+            size="md"
+            action={<BracketLink label="Expand" onClick={onExpand} />}
+          />
+          {/* The count discloses scale at every width the section keeps its
+              header; the interaction clause is narrower still — it is dropped
+              whenever no canvas rendered. */}
+          <p className="text-sm text-muted-foreground mb-2">
+            {sentenceCase(phrase)}
+            {graphAvailable && !graphFailed && ' · click a name to see how it connects'}
+          </p>
 
-      {/* Pre-measurement: hold the box height so the settle can't shift the
-          sections below (HomeSceneGraph precedent). Viewport-gated: below
-          640px the settled tree is one line of link, so a box reserved here
-          would paint a phantom section and then shift the page when it
-          collapses. */}
-      {!isMeasured && <GraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />}
+          {/* Pre-measurement: hold the box height so the settle can't shift the
+              sections below (HomeSceneGraph precedent). */}
+          {!isMeasured && <GraphSkeleton className={PLACEHOLDER_BOX_CLASS} />}
 
-      {graphAvailable && (
-        // Contain a graph chunk-load failure to this section (self-hide, no
-        // fallback) — a graph problem must never dent the artist page — and
-        // report the catch upward so the count line's interaction clause goes
-        // with the canvas instead of promising names nothing renders.
-        //
-        // Keyed by artist for the same reason `graphFailed` is: the boundary
-        // latches `failed` for its lifetime and offers no reset, so without
-        // the key a failure on one artist would keep the canvas hidden after
-        // navigating to the next one while `graphFailed` had already reset —
-        // the same clause/canvas split, inverted.
-        <GraphSectionErrorBoundary
-          key={artistId}
-          sentryTag="artist-connections-section"
-          onError={() => setFailedArtistId(artistId)}
-        >
-          <GraphPanelHost
-            canvasWrapRef={canvasWrapRef}
-            panel={
-              selectedNode ? (
-                <ArtistContextPanel
-                  // Top-LEFT: the EdgeLegend owns top-right inside the
-                  // canvas and the ConnectionPanel sits bottom-left
-                  // (SceneGraphVisualization's corner rationale).
-                  className="absolute top-2 left-2 z-40"
-                  artistName={selectedNode.name}
-                  artistSlug={selectedNode.slug}
-                  card={cardQuery.data}
-                  isError={cardQuery.isError}
-                  onClose={handlePanelClose}
-                  panelRef={panelRef}
+          {graphAvailable && (
+            // Contain a graph chunk-load failure to this section (self-hide, no
+            // fallback) — a graph problem must never dent the artist page — and
+            // report the catch upward so the count line's interaction clause goes
+            // with the canvas instead of promising names nothing renders.
+            //
+            // Keyed by artist for the same reason `graphFailed` is: the boundary
+            // latches `failed` for its lifetime and offers no reset, so without
+            // the key a failure on one artist would keep the canvas hidden after
+            // navigating to the next one while `graphFailed` had already reset —
+            // the same clause/canvas split, inverted.
+            <GraphSectionErrorBoundary
+              key={artistId}
+              sentryTag="artist-connections-section"
+              onError={() => setFailedArtistId(artistId)}
+            >
+              <GraphPanelHost
+                canvasWrapRef={canvasWrapRef}
+                panel={
+                  selectedNode ? (
+                    <ArtistContextPanel
+                      // Top-LEFT: the EdgeLegend owns top-right inside the
+                      // canvas and the ConnectionPanel sits bottom-left
+                      // (SceneGraphVisualization's corner rationale).
+                      className="absolute top-2 left-2 z-40"
+                      artistName={selectedNode.name}
+                      artistSlug={selectedNode.slug}
+                      card={cardQuery.data}
+                      isError={cardQuery.isError}
+                      onClose={handlePanelClose}
+                      panelRef={panelRef}
+                    />
+                  ) : null
+                }
+              >
+                <ArtistGraphVisualization
+                  data={capped.graph}
+                  activeTypes={activeTypes}
+                  containerWidth={containerWidth}
+                  height={CONNECTIONS_CANVAS_HEIGHT}
+                  // Section-class pre-settle: frame the camera instantly instead
+                  // of the dialog's 500ms tween (PSY-1447 grammar).
+                  instantFit
+                  // Section-class tier ladder (14/11/9): labels size by degree
+                  // tercile over the rendered set, center largest (locked spec).
+                  labelTiers={SECTION_LABEL_TIERS}
+                  onSelect={handleNodeClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onConnectionInspectOpen={handleConnectionInspectOpen}
+                  // Pin the focus-dim to the selection (PSY-1478) — grammar in
+                  // graphFocus.resolveFocusForeground.
+                  focusNodeId={selectedNode?.id ?? null}
+                  canvasAriaLabel={`Connections map for ${artistName}: ${phrase}. Use the Similar artists list in the sidebar to browse without the canvas. ${graphSelectGestureHint}`}
                 />
-              ) : null
-            }
-          >
-            <ArtistGraphVisualization
-              data={capped.graph}
-              activeTypes={activeTypes}
-              containerWidth={containerWidth}
-              height={CONNECTIONS_CANVAS_HEIGHT}
-              // Section-class pre-settle: frame the camera instantly instead
-              // of the dialog's 500ms tween (PSY-1447 grammar).
-              instantFit
-              // Section-class tier ladder (14/11/9): labels size by degree
-              // tercile over the rendered set, center largest (locked spec).
-              labelTiers={SECTION_LABEL_TIERS}
-              onSelect={handleNodeClick}
-              onBackgroundClick={handleBackgroundClick}
-              onConnectionInspectOpen={handleConnectionInspectOpen}
-              // Pin the focus-dim to the selection (PSY-1478) — grammar in
-              // graphFocus.resolveFocusForeground.
-              focusNodeId={selectedNode?.id ?? null}
-              canvasAriaLabel={`Connections map for ${artistName}: ${phrase}. Use the Similar artists list in the sidebar to browse without the canvas. ${graphSelectGestureHint}`}
-            />
-          </GraphPanelHost>
-        </GraphSectionErrorBoundary>
-      )}
+              </GraphPanelHost>
+            </GraphSectionErrorBoundary>
+          )}
         </>
       )}
     </section>

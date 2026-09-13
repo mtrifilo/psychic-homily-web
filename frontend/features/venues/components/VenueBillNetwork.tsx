@@ -29,7 +29,11 @@
 import { useState, useMemo } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import {
+  GraphStateCard,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_BOX_ABOVE_GATE_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
@@ -43,12 +47,8 @@ const MIN_GRAPH_NODES = 3 // mirror SceneGraph — under 3 connected artists is 
 const MIN_GRAPH_SHOWS = 10 // PSY-365 ticket: empty state for "<10 shows at the venue"
 
 /**
- * The scroll-anchor id hung off the venue's shows block (VenueDetail).
- *
- * Nothing in this component links to it: the sub-640px form is one line of
- * knowledge-graph cross-link. It stays exported because VenueDetail stamps it
- * on that block and a stable `#venue-shows` deep link is worth keeping on its
- * own.
+ * The scroll-anchor id hung off the venue's shows block. Stamped by
+ * VenueDetail; nothing in this component links to it.
  */
 export const VENUE_SHOWS_ANCHOR = 'venue-shows'
 
@@ -70,7 +70,11 @@ interface VenueBillNetworkProps {
 export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkProps) {
   const [window, setWindowState] = useState<VenueBillNetworkWindow>('all')
   const [yearSelection, setYearSelection] = useState<number>(() => new Date().getFullYear())
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+  const {
+    refCallback: containerRefCallback,
+    containerWidth,
+    isBelowGraphBreakpoint,
+  } = useContainerWidth()
 
   const { data, isLoading, isError } = useVenueBillNetwork({
     venueIdOrSlug,
@@ -172,12 +176,8 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
   // of returning null — a null here shifts every section below when the
   // canvas lands. keepPreviousData means this only fires on the initial load.
-  //
-  // `hidden sm:block`: this branch has no measured container (the measuring
-  // wrapper lives on the settled tree), so the reservation is viewport-keyed.
-  // Below 640px the settled tree is one line of link, so a titled box reserved
-  // here would paint a phantom section and then shift the page when it
-  // collapses.
+  // The reservation is viewport-keyed here because this branch has no measured
+  // container: the measuring wrapper lives on the settled tree.
   if (isLoading) {
     return (
       <div className="mt-8 px-4 md:px-0 hidden sm:block">
@@ -223,13 +223,10 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // node lives for the component's lifetime; only its children are width-gated.
   // Desktop still shows the header + filter (below) so the user understands
   // WHY the graph isn't drawing and can re-scope the window.
-  const hideSection =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
-  // The measured-narrow collapse: a network exists to link to and this
-  // container is too narrow to draw it. Sparse windows are `hideSection`
-  // above, so this and that flag are mutually exclusive.
-  const showMobileTeaser =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && !tooSparse
+  const hideSection = isBelowGraphBreakpoint && tooSparse
+  // Narrow AND there is a network worth linking to. Sparse windows are
+  // `hideSection` above, so the two flags are mutually exclusive.
+  const showMobileTeaser = isBelowGraphBreakpoint && !tooSparse
 
   // PSY-1476: a capped roster must say so — "150 artists" on a 312-artist
   // venue reads as the whole history. Mirrors the scene graph's shipped
@@ -312,12 +309,8 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
             className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
           >
             {showMobileTeaser ? (
-              /* Sub-640px. The canvas is gated off at this width and always
-                 has been (PSY-369/511); what this branch decides is what the
-                 page puts in its place. Not a titled section: no header, no
-                 window filter, no scale line, no 240px card. The one thing
-                 worth carrying at this width is the cross-link into the
-                 knowledge graph, so that is all this renders. */
+              /* The section's sub-640px form: the header, the scale line and
+                 the window filter all go with the canvas. */
               <MobileGraphTeaser
                 href={graphRootHref()}
               >{`See who shares bills at ${venueName} on the music map`}</MobileGraphTeaser>
@@ -340,14 +333,9 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
                   )}
 
                 {/* Pre-measurement: hold the box height so the settle can't
-                    shift the sections below (HomeSceneGraph precedent).
-                    Viewport-gated for the same reason the loading branch is:
-                    below 640px the settled tree is one line, so there is no
-                    box to reserve. */}
+                    shift the sections below (HomeSceneGraph precedent). */}
                 {!tooSparse && containerWidth === null && (
-                  <GraphSkeleton
-                    className={`mt-2 hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`}
-                  />
+                  <GraphSkeleton className={`mt-2 ${GRAPH_BOX_ABOVE_GATE_CLASS}`} />
                 )}
 
                 {graphAvailable && !isFullscreen && (

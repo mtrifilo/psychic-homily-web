@@ -129,11 +129,10 @@ const PLACEHOLDER_HEIGHT_CLASS = 'h-[560px]'
 // pre-mount state, the data-loading state, and the dynamic-import fallback so
 // they can't drift apart.
 //
-// `hidden sm:block`: the pre-mount and pre-measurement uses have no measured
-// container yet, and below 640px the settled section is one line of link — a
-// box reserved there would paint a phantom section and then shift the page
-// when it collapses. Viewport-keyed where the gate is container-keyed, the
-// same accepted mismatch the canvas gate documents.
+// `hidden sm:block`: below 640px the settled section is one line of link, so
+// a box reserved there is a phantom the settle then collapses. Viewport-keyed
+// where the canvas gate is container-keyed, the same accepted mismatch the
+// gate documents.
 function SceneGraphSkeleton() {
   return <BaseGraphSkeleton className={`hidden sm:block ${PLACEHOLDER_HEIGHT_CLASS}`} />
 }
@@ -291,7 +290,7 @@ export function HomeSceneGraph() {
 // Inner component so the data hooks only run once scroll-intent exists —
 // the outer shell can't call them conditionally.
 function HomeSceneGraphSection() {
-  const { refCallback, containerWidth } = useContainerWidth()
+  const { refCallback, containerWidth, isBelowGraphBreakpoint } = useContainerWidth()
   const scenesQuery = useScenes()
   const scenes = useMemo(
     () => scenesQuery.data?.scenes ?? [],
@@ -328,10 +327,6 @@ function HomeSceneGraphSection() {
   // mobile render discards.
   const graphAvailable =
     containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
-  // Measured narrow: the only state that collapses the section to the one-line
-  // teaser. Pre-measurement is not it — that state reserves the canvas box.
-  const isBelowGraphBreakpoint =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
   const graphQuery = useSceneGraph({
     slug: scene?.slug ?? '',
     enabled: Boolean(scene) && graphAvailable,
@@ -557,8 +552,7 @@ function HomeSceneGraphSection() {
             can't shift the radio section below when the state settles. */}
         {containerWidth === null && <SceneGraphSkeleton />}
 
-        {/* Below the canvas-usability gate (PSY-511): no canvas touch handling
-            at small widths, and no titled section wrapped around saying so.
+        {/* The section's sub-640px form (PSY-511 gates the canvas off here).
             The map is the link target rather than this scene's page, whose own
             graph section collapses to this same line at this width. */}
         {isBelowGraphBreakpoint && (

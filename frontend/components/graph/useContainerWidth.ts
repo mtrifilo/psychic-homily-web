@@ -28,6 +28,7 @@ export const GRAPH_BREAKPOINT_PX = 640
 export function useContainerWidth(): {
   refCallback: (node: HTMLDivElement | null) => void | (() => void)
   containerWidth: number | null
+  isBelowGraphBreakpoint: boolean
 } {
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
@@ -53,5 +54,14 @@ export function useContainerWidth(): {
     }
   }, [])
 
-  return { refCallback, containerWidth }
+  // Measured narrow, which is NOT the same as "no canvas": pre-measurement is
+  // also canvas-less, and it is the state that reserves the canvas box. Only
+  // this one collapses a section to its sub-breakpoint form, so the hook that
+  // owns the measurement owns the distinction too — a consumer re-deriving it
+  // is one `containerWidth !== null` away from flashing the narrow form on
+  // every first paint.
+  const isBelowGraphBreakpoint =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
+
+  return { refCallback, containerWidth, isBelowGraphBreakpoint }
 }

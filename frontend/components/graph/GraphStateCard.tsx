@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 
 import { GraphSkeleton } from './GraphSkeleton'
@@ -15,22 +14,16 @@ import { GraphSkeleton } from './GraphSkeleton'
  * sub-640px form of those sections is MobileGraphTeaser, not this card.
  *
  * - Error states pass `role="alert"` so the settled failure is announced.
- * - A `linkHref`/`linkLabel` pair adds a way forward under the message.
- *   Error-state cards omit the link.
  * - Sizing is the caller's via `className` (same contract as GraphSkeleton)
  *   so each surface can match its own canvas/skeleton height budget.
  */
 export function GraphStateCard({
   message,
   role,
-  linkHref,
-  linkLabel,
   className = '',
 }: {
   message: string
   role?: 'alert'
-  linkHref?: string
-  linkLabel?: string
   className?: string
 }) {
   return (
@@ -39,14 +32,6 @@ export function GraphStateCard({
       className={`w-full rounded-lg border border-border/50 bg-muted/10 flex flex-col items-center justify-center text-center p-6 gap-3 ${className}`}
     >
       <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
-      {linkHref && linkLabel && (
-        <Link
-          href={linkHref}
-          className="text-sm text-primary hover:underline underline-offset-4"
-        >
-          {linkLabel}
-        </Link>
-      )}
     </div>
   )
 }
@@ -61,6 +46,23 @@ export function GraphStateCard({
  * trade-off as HomeSceneGraph's PLACEHOLDER_HEIGHT_CLASS).
  */
 export const GRAPH_BOX_HEIGHT_CLASS = 'h-[240px] sm:h-[400px] md:h-[560px]'
+
+/**
+ * The height contract plus the viewport gate a graph SECTION's reserved box
+ * needs, for the boxes that stand in for a canvas while a section settles.
+ *
+ * Below 640px a graph section is one line of link (MobileGraphTeaser), so a
+ * box reserved there is a phantom the settle then collapses, shifting
+ * everything under it. The gate is viewport-keyed where the canvas gate is
+ * container-keyed; they disagree only in the narrow band where a padded
+ * column measures under 640px on a wider viewport, and in that band the box
+ * shows until the measurement replaces it.
+ *
+ * NOT folded into GRAPH_BOX_HEIGHT_CLASS: the state cards that use the bare
+ * height contract (settled errors, the Observatory's empty state) do render
+ * below the gate.
+ */
+export const GRAPH_BOX_ABOVE_GATE_CLASS = `hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`
 
 /**
  * Announced loading box for a graph that is being fetched or built — the

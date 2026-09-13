@@ -53,8 +53,15 @@ import Link from 'next/link'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
-import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import {
+  MobileGraphTeaser,
+  GRAPH_MAP_LINK_CLASS,
+} from '@/components/graph/MobileGraphTeaser'
+import {
+  GraphStateCard,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_BOX_ABOVE_GATE_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { graphRootHref } from '@/features/graph/graphRootLink'
@@ -111,7 +118,11 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   }
   // Width measurement uses a callback ref, not useRef + useEffect — the full
   // rationale lives in useContainerWidth.ts.
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+  const {
+    refCallback: containerRefCallback,
+    containerWidth,
+    isBelowGraphBreakpoint,
+  } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -142,12 +153,6 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // `containerWidth === null` (pre-measurement) also gates off.
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
-  // Measured narrow. Distinct from `!graphAvailable`, which is also true before
-  // measurement and below the edge gate: this is specifically "we know the
-  // container is too narrow for a canvas", which is the only state that should
-  // collapse the section to the one-line teaser (PSY-1855).
-  const isBelowGraphBreakpoint =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -163,13 +168,8 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // of returning null — a null here shifts every section below when the
   // canvas lands. The header stays put so only the box swaps on settle.
   //
-  // `hidden sm:block`: this branch has no measured container (the measuring
-  // ref lives on the settled tree), so the reservation is viewport-keyed —
-  // the same accepted viewport-vs-container mismatch documented on
-  // GRAPH_BOX_HEIGHT_CLASS. Below 640px the settled tree is one line of link
-  // (PSY-1855), so reserving a 240px titled box here would be reserving space
-  // for something that is never going to arrive: it would paint a phantom
-  // section and then shift the page when it collapses.
+  // The reservation is viewport-keyed here because this branch has no measured
+  // container: the measuring ref lives on the settled tree.
   if (isLoading) {
     return (
       <div id="graph" className="mt-2 scroll-mt-20 hidden sm:block">
@@ -345,12 +345,8 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         inert={isFullscreen || undefined}
       >
         {isBelowGraphBreakpoint ? (
-          /* Sub-640px (PSY-1855). The canvas is gated off here and always has
-             been (PSY-369/511); what this branch decides is what the page puts
-             in its place. Not a titled section: no header, no scale line, no
-             240px card. The one thing worth carrying at this width is the
-             cross-link into the knowledge graph, so that is all this renders,
-             and it renders as a line of text rather than a module. */
+          /* The section's sub-640px form: the header, the scale line and the
+             cluster toggle all go with the canvas. */
           <MobileGraphTeaser
             href={wholeMapHref}
           >{`See how ${city} artists connect on the music map`}</MobileGraphTeaser>
@@ -362,13 +358,11 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             </div>
 
             {/* Pre-measurement: hold the box height so the settle can't shift
-                the sections below (HomeSceneGraph precedent). Viewport-gated
-                for the same reason the loading branch is: below 640px the
-                settled tree is one line, so there is no box to reserve.
-                `hasEnoughForGraph` is not re-checked — the edge gate above
-                already returned null for everything that fails it. */}
+                the sections below. `hasEnoughForGraph` is not re-checked — the
+                edge gate above already returned null for everything that fails
+                it. */}
             {containerWidth === null && (
-              <GraphSkeleton className={`hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`} />
+              <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />
             )}
 
             {graphAvailable && !isFullscreen && (
@@ -406,10 +400,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             )}
 
             <p className="mt-3 text-xs text-muted-foreground">
-              <Link
-                href={wholeMapHref}
-                className="underline underline-offset-4 hover:text-foreground"
-              >
+              <Link href={wholeMapHref} className={GRAPH_MAP_LINK_CLASS}>
                 View this scene on the whole map →
               </Link>
             </p>

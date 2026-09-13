@@ -331,6 +331,7 @@ describe('ArtistConnectionsSection', () => {
     vi.mocked(useContainerWidth).mockReturnValueOnce({
       refCallback: () => {},
       containerWidth: null,
+      isBelowGraphBreakpoint: false,
     })
     renderSection()
     // Count line paints immediately; the clause must not flash and vanish.
@@ -341,7 +342,7 @@ describe('ArtistConnectionsSection', () => {
     expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
     // Neither width branch has committed yet.
     expect(screen.queryByTestId('connections-canvas')).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /see similar artists/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('selects a node into the context panel, pins focus, and deselects on second click', () => {

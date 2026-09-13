@@ -18,15 +18,10 @@ describe('GraphStateCard', () => {
     expect(screen.getByRole('alert')).toHaveTextContent("couldn't load")
   })
 
-  it('renders a link-out only when both href and label are provided', () => {
-    const { rerender } = render(
-      <GraphStateCard message="Best on a larger screen." linkHref="/scenes/phoenix-az" linkLabel="See the scene →" />,
-    )
-    expect(screen.getByRole('link', { name: 'See the scene →' })).toHaveAttribute(
-      'href',
-      '/scenes/phoenix-az',
-    )
-    rerender(<GraphStateCard message="Best on a larger screen." />)
+  // The card is a terminal state, not a way forward: the sub-640px form of a
+  // graph section is MobileGraphTeaser, and that is where the link lives.
+  it('offers no link of its own', () => {
+    render(<GraphStateCard message="This view couldn't load." />)
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 })

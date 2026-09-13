@@ -34,7 +34,10 @@ import { Maximize2, X } from 'lucide-react'
 import { useCollectionGraph } from '../hooks'
 import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import {
+  GraphStateCard,
+  GRAPH_BOX_ABOVE_GATE_CLASS,
+} from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
@@ -73,7 +76,11 @@ interface CollectionGraphProps {
 
 export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps) {
   const { data, isLoading, isError } = useCollectionGraph({ slug, enabled: Boolean(slug) })
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+  const {
+    refCallback: containerRefCallback,
+    containerWidth,
+    isBelowGraphBreakpoint,
+  } = useContainerWidth()
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -140,12 +147,10 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   const edgeCount = data?.collection.edge_count ?? 0
   // Mobile gate: same 640px threshold as SceneGraph.
   const graphAvailable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
-  // The measured-narrow collapse: a graph exists to link to (settled, non-empty
-  // payload) and this container is too narrow to draw it. Pre-measurement, a
-  // settled error and an empty collection all fall outside it, so those states
-  // keep the treatment they have at every other width.
-  const showMobileTeaser =
-    !isLoading && Boolean(data) && nodeCount > 0 && containerWidth !== null && !graphAvailable
+  // Narrow AND there is a graph worth linking to. Pre-measurement, a settled
+  // error and an empty collection all fall outside it, so those states keep
+  // the treatment they have at every other width.
+  const showMobileTeaser = isBelowGraphBreakpoint && !isLoading && Boolean(data) && nodeCount > 0
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -228,14 +233,8 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
         inert={isFullscreen || undefined}
       >
         {showMobileTeaser ? (
-          /* Sub-640px. The canvas is gated off at this width and always has
-             been (PSY-369); what this branch decides is what the page puts in
-             its place. Not a titled section: no header, no breakdown line, no
-             240px card. The one thing worth carrying at this width is the
-             cross-link into the knowledge graph, so that is all this renders.
-             Its condition is exactly the retired teaser card's, so the
-             loading, error and empty states below keep the visibility they
-             already had at every width. */
+          /* The section's sub-640px form: the header and the entity breakdown
+             go with the canvas. */
           <MobileGraphTeaser
             href={graphRootHref()}
           >{`See how this collection’s artists connect on the music map`}</MobileGraphTeaser>
@@ -248,13 +247,8 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
 
             {/* Loading reserves the graph box (shared GraphSkeleton, PSY-1347)
                 instead of bare text — bare text collapses the slot and shifts
-                the page when the canvas lands. Viewport-gated: below 640px the
-                settled tree is one line of link, so a box reserved here would
-                paint a phantom section and then shift the page when it
-                collapses. */}
-            {isLoading && (
-              <GraphSkeleton className={`hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`} />
-            )}
+                the page when the canvas lands. */}
+            {isLoading && <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />}
 
             {/* A settled fetch error leaves `data` undefined — say so instead
                 of rendering an empty slot (scene-page convention, PSY-1446). */}
@@ -266,10 +260,9 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
             )}
 
             {/* Post-load, pre-measurement: hold the box height until the width
-                gate can resolve (HomeSceneGraph precedent), viewport-gated for
-                the same reason the loading box is. */}
+                gate can resolve (HomeSceneGraph precedent). */}
             {!isLoading && data && nodeCount > 0 && containerWidth === null && (
-              <GraphSkeleton className={`hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`} />
+              <GraphSkeleton className={GRAPH_BOX_ABOVE_GATE_CLASS} />
             )}
 
             {!isLoading && data && nodeCount === 0 && (

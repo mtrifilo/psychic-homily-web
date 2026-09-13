@@ -1,6 +1,15 @@
 import Link from 'next/link'
 
 /**
+ * The map link's treatment, as every graph surface renders it: underlined
+ * body-copy link, hovering to `foreground` rather than the `primary` of the
+ * prose links elsewhere. Exported because the scene section also offers the
+ * same target from its desktop foot, and two hand-written copies of one link
+ * are two things to keep in step.
+ */
+export const GRAPH_MAP_LINK_CLASS = 'underline underline-offset-4 hover:text-foreground'
+
+/**
  * MobileGraphTeaser — the sub-`GRAPH_BREAKPOINT_PX` form of a graph section.
  *
  * No graph canvas renders below the breakpoint on any surface, so whatever the
@@ -23,7 +32,7 @@ export function MobileGraphTeaser({
 }) {
   return (
     <p className="text-xs text-muted-foreground">
-      <Link href={href} className="underline underline-offset-4 hover:text-foreground">
+      <Link href={href} className={GRAPH_MAP_LINK_CLASS}>
         {children} <span aria-hidden="true">→</span>
       </Link>
     </p>
