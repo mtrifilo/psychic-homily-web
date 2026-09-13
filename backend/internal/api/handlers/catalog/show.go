@@ -356,8 +356,7 @@ const defaultShowListLimit = 50
 
 // maxShowListLimit caps a caller-supplied page size on the catalog-wide lists.
 // Each row costs a hydrated bill, so the cap bounds the response an anonymous
-// read can ask for. Enforced in the handler as well as by the schema, because
-// the schema only guards the HTTP path.
+// read can ask for. clampShowListLimit is the one place it is applied.
 const maxShowListLimit = 200
 
 // GetShowsRequest represents the HTTP request for listing shows
@@ -876,19 +875,8 @@ func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCiti
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Check if user is admin (for including non-approved shows)
-	user := middleware.GetUserFromContext(ctx)
-	includeNonApproved := user != nil && user.IsAdmin
-
-	// Validate limit
-	limit := req.Limit
-	if limit < 1 {
-		limit = defaultShowListLimit
-	}
-	if limit > maxShowListLimit {
-		limit = maxShowListLimit
-	}
-
+	includeNonApproved := upcomingListIncludesNonApproved(ctx)
+	limit := clampShowListLimit(req.Limit)
 	filters := parseUpcomingShowsFilter(req.Cities, req.City, req.State, req.Tags, req.TagMatch)
 
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",

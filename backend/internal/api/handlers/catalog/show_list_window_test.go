@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"reflect"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -180,63 +179,4 @@ func TestGetShowMonthsHandler_EmptyHistogramTotalsZero(t *testing.T) {
 	if resp.Body.Months == nil {
 		t.Error("months must serialize as [] rather than null")
 	}
-}
-
-// The three readers of the upcoming partition share one filter parser, so a
-// filter cannot select one set on the cursor list and another on the paged list
-// or the strip above it.
-func TestParseUpcomingShowsFilter(t *testing.T) {
-	t.Run("nothing asked for is no filter", func(t *testing.T) {
-		if got := parseUpcomingShowsFilter("", "", "", "", ""); got != nil {
-			t.Errorf("got %+v, want nil", got)
-		}
-	})
-
-	t.Run("cities wins over the legacy pair", func(t *testing.T) {
-		got := parseUpcomingShowsFilter("Phoenix,AZ|Mesa,AZ", "Tucson", "AZ", "", "")
-		want := []contracts.CityStateFilter{{City: "Phoenix", State: "AZ"}, {City: "Mesa", State: "AZ"}}
-		if !reflect.DeepEqual(got.Cities, want) {
-			t.Errorf("cities = %+v, want %+v", got.Cities, want)
-		}
-		if got.City != "" || got.State != "" {
-			t.Errorf("legacy pair leaked through: %+v", got)
-		}
-	})
-
-	t.Run("the city cap is enforced", func(t *testing.T) {
-		pairs := ""
-		for i := 0; i < maxUpcomingShowCities+5; i++ {
-			if i > 0 {
-				pairs += "|"
-			}
-			pairs += "City,AZ"
-		}
-		got := parseUpcomingShowsFilter(pairs, "", "", "", "")
-		if len(got.Cities) != maxUpcomingShowCities {
-			t.Errorf("cities = %d, want the cap of %d", len(got.Cities), maxUpcomingShowCities)
-		}
-	})
-
-	t.Run("a malformed cities value filters nothing", func(t *testing.T) {
-		if got := parseUpcomingShowsFilter("Phoenix|Mesa", "", "", "", ""); got != nil {
-			t.Errorf("got %+v, want nil: a malformed filter that empties the list is indistinguishable from a quiet week", got)
-		}
-	})
-
-	t.Run("tags carry their match mode", func(t *testing.T) {
-		got := parseUpcomingShowsFilter("", "", "", "post-punk,shoegaze", "any")
-		if !reflect.DeepEqual(got.TagSlugs, []string{"post-punk", "shoegaze"}) {
-			t.Errorf("tags = %v", got.TagSlugs)
-		}
-		if !got.TagMatchAny {
-			t.Error("tag_match=any must reach the service as OR semantics")
-		}
-	})
-
-	t.Run("tags combine with cities", func(t *testing.T) {
-		got := parseUpcomingShowsFilter("Phoenix,AZ", "", "", "post-punk", "all")
-		if len(got.Cities) != 1 || len(got.TagSlugs) != 1 || got.TagMatchAny {
-			t.Errorf("got %+v", got)
-		}
-	})
 }

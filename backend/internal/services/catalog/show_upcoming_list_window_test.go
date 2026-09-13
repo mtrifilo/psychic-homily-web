@@ -364,25 +364,30 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowMonths_SumsToTh
 	suite.Require().Equal(unwindowed.Total, sum)
 }
 
-// An impossible date narrows to nothing rather than to everything. The service's
-// own answer for it is the empty fragment, which is indistinguishable from "no
-// window requested" — so the day fragment must refuse it before that fallthrough
-// can widen the page to the whole catalog.
-func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_ImpossibleDayDoesNotWidenTheWindow() {
+// A malformed window is REFUSED rather than answered. In SQL a half-stated or
+// impossible window narrows to nothing, which is indistinguishable from "no
+// window requested" and would hand back the whole upcoming catalog; the HTTP
+// boundary refuses these first, and this is the guard for a caller that builds
+// the query struct directly.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RefusesMalformedWindows() {
 	const zone = "America/Phoenix"
-	venue := newVenueInZone(suite.T(), suite.db, "Impossible Day Room", "AZ", zone, true)
+	venue := newVenueInZone(suite.T(), suite.db, "Malformed Window Room", "AZ", zone, true)
 	user := suite.createTestUser()
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", venueLocalInstant(suite.T(), zone, 1, 20))
 
-	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
-	year, month := addMonths(todayYear, todayMonth, 1)
-	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ",
-		venueLocalDateAt(suite.T(), zone, year, month, 10, 20))
-
-	february := 2
-	februaryYear, _ := addMonths(todayYear, todayMonth, 24)
-	page := suite.calendarWindow(contracts.ShowCalendarQuery{
-		ShowCalendarWindow: contracts.ShowCalendarWindow{Year: februaryYear, Month: february, Day: 31},
-	}, nil)
-	suite.Require().Empty(page.IDs)
-	suite.Require().Equal(int64(0), page.Total)
+	for _, window := range []contracts.ShowCalendarWindow{
+		{Day: 14},
+		{Month: 11, Day: 14},
+		{Month: 11},
+		{Year: 2027},
+		{Year: 2027, Month: 13},
+		{Year: 2027, Month: 2, Day: 31},
+		{Year: 2027, Month: 2, Day: 29},
+	} {
+		shows, total, err := suite.showService.GetUpcomingShowsPage(
+			contracts.ShowCalendarQuery{ShowCalendarWindow: window, Limit: 50}, false, nil)
+		suite.Require().Errorf(err, "window %+v must be refused, not answered", window)
+		suite.Require().Empty(shows, "window %+v", window)
+		suite.Require().Zero(total, "window %+v", window)
+	}
 }

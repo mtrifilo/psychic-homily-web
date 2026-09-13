@@ -40,10 +40,15 @@ func (s *ShowService) upcomingShowPredicates(
 	filters *contracts.UpcomingShowsFilter,
 	window contracts.ShowCalendarWindow,
 ) func(*gorm.DB) *gorm.DB {
-	// Built once, outside the applier: the fragments are pure functions of the
-	// window, and the applier runs per read.
-	monthCondition, monthArgs := shared.VenueLocalMonthCondition(window.Year, window.Month)
-	dayCondition, dayArgs := shared.VenueLocalDayCondition(window.Year, window.Month, window.Day)
+	// The narrowest fragment the window names, built once outside the applier:
+	// it is a pure function of the window, and the applier runs per read. A day
+	// already implies its month, so asking for the day first and falling back is
+	// one predicate rather than two overlapping ones. A day that names no real
+	// date falls back to its month, which is the fail-closed direction.
+	windowCondition, windowArgs := shared.VenueLocalDayCondition(window.Year, window.Month, window.Day)
+	if windowCondition == "" {
+		windowCondition, windowArgs = shared.VenueLocalMonthCondition(window.Year, window.Month)
+	}
 
 	return func(query *gorm.DB) *gorm.DB {
 		// Every predicate below is table-qualified. The venue-local lateral
@@ -84,8 +89,8 @@ func (s *ShowService) upcomingShowPredicates(
 				}
 			}
 			if len(filters.TagSlugs) > 0 {
-				// PSY-499: Transitive artist-based tag filtering — shows match when
-				// any billed artist has the tag. Direct `entity_type='show'` tags
+				// Transitive artist-based tag filtering: shows match when any
+				// billed artist has the tag. Direct `entity_type='show'` tags
 				// are ignored because shows are not directly tagged with genres.
 				query = ApplyTransitiveArtistTagFilter(
 					query, s.db,
@@ -104,15 +109,10 @@ func (s *ShowService) upcomingShowPredicates(
 			Joins(shared.VenueTZJoin).
 			Where(shared.VenueLocalDateCondition("upcoming"))
 
-		// Both window fragments dereference venue_tz, which the join above has
-		// already supplied. A day narrows within its month, so applying both is
-		// redundant rather than contradictory; the day fragment is empty unless
-		// the triple names a real date.
-		if monthCondition != "" {
-			query = query.Where(monthCondition, monthArgs...)
-		}
-		if dayCondition != "" {
-			query = query.Where(dayCondition, dayArgs...)
+		// The window fragment dereferences venue_tz, which the join above has
+		// already supplied.
+		if windowCondition != "" {
+			query = query.Where(windowCondition, windowArgs...)
 		}
 		return query
 	}
@@ -135,6 +135,13 @@ func (s *ShowService) GetUpcomingShowsPage(
 ) ([]*contracts.ShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
+	}
+	// Fail closed: a half-stated window narrows to nothing in SQL, which would
+	// return the whole upcoming catalog to a caller who asked for one day of it.
+	// The HTTP boundary refuses these first; this is the guard for a caller that
+	// builds the query struct directly.
+	if err := query.Validate(); err != nil {
+		return nil, 0, fmt.Errorf("invalid show calendar window: %w", err)
 	}
 
 	limit, offset := clampPageWindow(query.Limit, query.Offset)

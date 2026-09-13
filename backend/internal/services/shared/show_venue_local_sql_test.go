@@ -321,35 +321,6 @@ func TestVenueLocalDayCondition(t *testing.T) {
 	}
 }
 
-// The refusal the HTTP boundary rests on. VenueLocalDayCondition answers an
-// impossible date with the empty fragment, which is indistinguishable from "no
-// window requested" — so something above it has to say no.
-func TestValidCalendarDate(t *testing.T) {
-	for _, tc := range []struct {
-		name             string
-		year, month, day int
-		want             bool
-	}{
-		{"leap day in a leap year", 2028, 2, 29, true},
-		{"leap day in a common year", 2027, 2, 29, false},
-		{"february 31", 2027, 2, 31, false},
-		{"april 31", 2027, 4, 31, false},
-		{"december 31", 2027, 12, 31, true},
-		{"month zero", 2027, 0, 1, false},
-		{"day zero", 2027, 1, 0, false},
-		{"month thirteen", 2027, 13, 1, false},
-		{"day thirty two", 2027, 1, 32, false},
-		{"year zero", 0, 1, 1, false},
-		{"negative year", -2027, 1, 1, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := ValidCalendarDate(tc.year, tc.month, tc.day); got != tc.want {
-				t.Errorf("ValidCalendarDate(%d, %d, %d) = %v, want %v", tc.year, tc.month, tc.day, got, tc.want)
-			}
-		})
-	}
-}
-
 // The three period filters must share one margin. A margin that reached the year
 // window and not the narrower ones would leave a month or day window dropping
 // rows the year window keeps, which is the class the shared constant closes.

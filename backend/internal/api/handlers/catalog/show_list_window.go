@@ -2,14 +2,11 @@ package catalog
 
 import (
 	"context"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
-	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // The date-addressed half of the /shows list: an offset-paged window of the
@@ -22,58 +19,8 @@ import (
 // GET /shows, whose from_date/to_date are matched against the stored UTC instant
 // verbatim and whose set includes past shows.
 //
-// maxUpcomingShowCities, the city cap and the tag parsing are shared with the
-// cursor endpoint through parseUpcomingShowsFilter, so the three surfaces cannot
-// disagree about what a filter set selects.
-
-// maxUpcomingShowCities caps the multi-city filter on every reader of the
-// upcoming partition. Each city adds an OR branch to the predicate, so the cap
-// bounds the planner's work on an anonymous public read.
-const maxUpcomingShowCities = 10
-
-// parseUpcomingShowsFilter builds the service filter from the query parameters
-// shared by the cursor list, the calendar window and the month histogram.
-//
-// Returns nil when nothing was asked for, which every caller reads as "no
-// filter". `cities` wins over the legacy city/state pair when both are present;
-// a `cities` value with no well-formed pair in it filters nothing rather than
-// matching nothing, because a malformed filter that silently empties the list is
-// indistinguishable to the reader from a quiet week.
-func parseUpcomingShowsFilter(cities, city, state, tags, tagMatch string) *contracts.UpcomingShowsFilter {
-	var filters *contracts.UpcomingShowsFilter
-
-	if cities != "" {
-		// Pipe-delimited multi-city param: "Phoenix,AZ|Mesa,AZ"
-		var cityFilters []contracts.CityStateFilter
-		for _, pair := range strings.Split(cities, "|") {
-			parts := strings.SplitN(pair, ",", 2)
-			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-				cityFilters = append(cityFilters, contracts.CityStateFilter{
-					City:  strings.TrimSpace(parts[0]),
-					State: strings.TrimSpace(parts[1]),
-				})
-			}
-		}
-		if len(cityFilters) > maxUpcomingShowCities {
-			cityFilters = cityFilters[:maxUpcomingShowCities]
-		}
-		if len(cityFilters) > 0 {
-			filters = &contracts.UpcomingShowsFilter{Cities: cityFilters}
-		}
-	} else if city != "" || state != "" {
-		filters = &contracts.UpcomingShowsFilter{City: city, State: state}
-	}
-
-	if tf := parseTagFilter(tags, tagMatch); tf.HasTags() {
-		if filters == nil {
-			filters = &contracts.UpcomingShowsFilter{}
-		}
-		filters.TagSlugs = tf.TagSlugs
-		filters.TagMatchAny = tf.MatchAny
-	}
-
-	return filters
-}
+// The filters, the page bounds and the viewer test come from show_list_filters.go,
+// shared with the cursor endpoint.
 
 // GetShowsCalendarRequest represents the HTTP request for an offset page of the
 // upcoming shows list, optionally narrowed to one venue-local month or date.
@@ -116,28 +63,19 @@ type GetShowsCalendarResponse struct {
 // a 404 is the frontend route's call, and it has the total it needs to make it.
 func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShowsCalendarRequest) (*GetShowsCalendarResponse, error) {
 	window := contracts.ShowCalendarWindow{Year: req.Year, Month: req.Month, Day: req.Day}
-	if err := validateShowCalendarWindow(window); err != nil {
-		return nil, err
+	// A half-stated window is a client error, not a wider list. The rule and the
+	// message both live on the window type; the service refuses the same shapes
+	// for a caller that never passes through here.
+	if err := window.Validate(); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
-	// Reads the same viewer the cursor endpoint does, so a reader cannot see one
-	// set of shows on the paged list and another on the feed.
-	user := middleware.GetUserFromContext(ctx)
-	includeNonApproved := user != nil && user.IsAdmin
-
-	limit := req.Limit
-	if limit < 1 {
-		limit = defaultShowListLimit
-	}
-	if limit > maxShowListLimit {
-		limit = maxShowListLimit
-	}
-
+	limit := clampShowListLimit(req.Limit)
 	filters := parseUpcomingShowsFilter(req.Cities, req.City, req.State, req.Tags, req.TagMatch)
 
 	shows, total, err := h.showService.GetUpcomingShowsPage(
 		contracts.ShowCalendarQuery{ShowCalendarWindow: window, Limit: limit, Offset: req.Offset},
-		includeNonApproved,
+		upcomingListIncludesNonApproved(ctx),
 		filters,
 	)
 	if err != nil {
@@ -154,35 +92,10 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 	resp.Body.Total = total
 	resp.Body.Limit = limit
 	resp.Body.Offset = req.Offset
-	resp.Body.Year = req.Year
-	resp.Body.Month = req.Month
-	resp.Body.Day = req.Day
+	resp.Body.Year = window.Year
+	resp.Body.Month = window.Month
+	resp.Body.Day = window.Day
 	return resp, nil
-}
-
-// validateShowCalendarWindow refuses the window shapes the service cannot
-// distinguish from "no window".
-//
-// A half-stated window is a client error, not a wider list: `day=14` with no
-// month, or `month=11` with no year, would otherwise fall through to the whole
-// upcoming catalog under a URL that promises one day of it. 31 February is
-// refused on the same grounds — it names no date, and silently returning every
-// upcoming show for it would make a typo look like a working page.
-func validateShowCalendarWindow(window contracts.ShowCalendarWindow) error {
-	switch {
-	case window.Year <= 0 && window.Month <= 0 && window.Day <= 0:
-		return nil
-	case window.Year <= 0:
-		return huma.Error422UnprocessableEntity("month and day require a year")
-	case window.Month <= 0:
-		return huma.Error422UnprocessableEntity("year requires a month")
-	case window.Day <= 0:
-		return nil
-	case !servicesshared.ValidCalendarDate(window.Year, window.Month, window.Day):
-		return huma.Error422UnprocessableEntity("year, month and day do not name a real calendar date")
-	default:
-		return nil
-	}
 }
 
 // GetShowMonthsRequest represents the HTTP request for the catalog-wide upcoming
@@ -217,12 +130,9 @@ type GetShowMonthsResponse struct {
 // labelled from bars that do not sum to the list it labels mislabels every page
 // after the first divergence.
 func (h *ShowHandler) GetShowMonthsHandler(ctx context.Context, req *GetShowMonthsRequest) (*GetShowMonthsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	includeNonApproved := user != nil && user.IsAdmin
-
 	filters := parseUpcomingShowsFilter(req.Cities, req.City, req.State, req.Tags, req.TagMatch)
 
-	months, err := h.showService.GetUpcomingShowMonths(includeNonApproved, filters)
+	months, err := h.showService.GetUpcomingShowMonths(upcomingListIncludesNonApproved(ctx), filters)
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
 		logger.FromContext(ctx).Error("shows_months_failed",

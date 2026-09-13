@@ -3,6 +3,7 @@
 package contracts
 
 import (
+	"errors"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -335,25 +336,57 @@ type UpcomingShowsFilter struct {
 // ShowCalendarWindow narrows the upcoming partition to one VENUE-LOCAL calendar
 // month or one venue-local date. The zero value narrows nothing, which is the
 // whole upcoming set.
-//
-// Year is required by both narrower forms: a bare month is not a period, and a
-// bare day is not a date. A window whose Year is zero is therefore "no window"
-// whatever the other two fields say, and the HTTP boundary refuses the
-// half-stated combinations rather than silently widening to everything.
 type ShowCalendarWindow struct {
 	Year  int
 	Month int
 	Day   int
 }
 
-// HasMonth reports whether the window names a venue-local calendar month.
-func (w ShowCalendarWindow) HasMonth() bool {
-	return w.Year > 0 && w.Month >= 1 && w.Month <= 12
+// Validate reports whether the window names a period, returning an error whose
+// message is safe to hand a caller verbatim.
+//
+// It is the ONE definition of a well-formed window, and both the HTTP boundary
+// and the service read it: a half-stated or impossible window narrows to
+// NOTHING in SQL, which is indistinguishable from "no window requested" and
+// would answer with the whole upcoming catalog under a URL promising one day of
+// it. Failing closed in the service is what keeps that true for a caller that
+// builds the struct directly, the way clampPageWindow keeps a negative bound
+// from reaching GORM.
+//
+// Year is required by both narrower forms: a bare month is not a period, and a
+// bare day is not a date.
+func (w ShowCalendarWindow) Validate() error {
+	switch {
+	case w.Year <= 0 && w.Month <= 0 && w.Day <= 0:
+		return nil
+	case w.Year <= 0:
+		return errors.New("month and day require a year")
+	case w.Month <= 0:
+		return errors.New("year requires a month")
+	case w.Month > 12:
+		return errors.New("month must be 1-12")
+	case w.Day < 0:
+		return errors.New("day must be 1-31")
+	case w.Day == 0:
+		return nil
+	case !isRealCalendarDate(w.Year, w.Month, w.Day):
+		return errors.New("year, month and day do not name a real calendar date")
+	default:
+		return nil
+	}
 }
 
-// HasDay reports whether the window names a single venue-local calendar date.
-func (w ShowCalendarWindow) HasDay() bool {
-	return w.Day > 0 && w.HasMonth()
+// isRealCalendarDate reports whether the triple names a real Gregorian date.
+// time.Date normalises 31 February into 3 March rather than failing, so the
+// round-trip is the check.
+func isRealCalendarDate(year, month, day int) bool {
+	if day < 1 || day > 31 {
+		return false
+	}
+	normalised := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	return normalised.Year() == year &&
+		int(normalised.Month()) == month &&
+		normalised.Day() == day
 }
 
 // ShowCalendarQuery is one OFFSET page of a ShowCalendarWindow.
