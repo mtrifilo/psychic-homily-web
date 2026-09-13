@@ -221,6 +221,28 @@ describe('buildSceneWindowMetadata', () => {
     )
   })
 
+  // The title's SOURCE, which the pure title rule's own table cannot see: this
+  // builder used to name the scene (`Phoenix, AZ`) and now names the city, so a
+  // reverted argument would publish "Phoenix, AZ in Phoenix" with every test in
+  // the rule's table still green.
+  it('titles the window by the family rule, from the city', async () => {
+    fetchSceneWeekChain.mockResolvedValue([week('2026-08-17', { '2026-08-21': 1 })])
+
+    const weekend = await buildSceneWindowMetadata(
+      'phoenix-az',
+      'this-weekend',
+      phoenixEvening('2026-08-19')
+    )
+    expect(weekend.title).toBe('This weekend in Phoenix')
+
+    const fourWeeks = await buildSceneWindowMetadata(
+      'phoenix-az',
+      'next-4-weeks',
+      phoenixEvening('2026-08-19')
+    )
+    expect(fourWeeks.title).toBe('Next 4 weeks in Phoenix')
+  })
+
   it('noindexes a scene that does not resolve', async () => {
     fetchSceneWeekChain.mockResolvedValue(null)
     const meta = await buildSceneWindowMetadata(
