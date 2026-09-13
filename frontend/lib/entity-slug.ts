@@ -33,8 +33,9 @@ export function addressesAnEntity(slug: string): boolean {
  *
  * Anything else is encoded, so the slug can only ever be ONE path segment.
  * Slugs are generated server-side and are `[a-z0-9-]` in practice, which
- * survives encoding untouched — this costs nothing on every real row and stops
- * a stored `/` from splicing a second segment onto the route the caller chose.
+ * survives encoding untouched, so this costs nothing on every real row and
+ * stops a stored `/` from splicing a second segment onto the route the caller
+ * chose.
  */
 export function entityHref(
   /** Route prefix WITHOUT a trailing slash, e.g. `/artists`. */

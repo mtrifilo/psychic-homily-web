@@ -738,6 +738,34 @@ describe('EntityTagList omitCrewTags', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  // The drawn set feeds the 5-deep desktop cap, so omitting a crew must let one
+  // more descriptive tag inside it rather than spending a slot on a tag the row
+  // does not draw.
+  it('frees a capped slot for a descriptive tag when it drops a crew', () => {
+    const genres = Array.from({ length: 6 }, (_, i) => ({
+      tag_id: 100 + i,
+      name: `genre-${i}`,
+      slug: `genre-${i}`,
+      category: 'genre',
+      is_official: false,
+      upvotes: 0,
+      downvotes: 0,
+      wilson_score: 0.9 - i * 0.1,
+      user_vote: 0,
+    }))
+    currentMockTags = { tags: [{ ...CREW, wilson_score: 0.95 }, ...genres] }
+    renderWithProviders(
+      <EntityTagList entityType="show" entityId={1} isAuthenticated={false} omitCrewTags />
+    )
+
+    const row = within(desktopRow())
+    for (const genre of genres.slice(0, 5)) {
+      expect(row.getByText(genre.name)).toBeInTheDocument()
+    }
+    expect(row.queryByText('genre-5')).not.toBeInTheDocument()
+    expect(row.queryByText('Rubber Brother Records')).not.toBeInTheDocument()
+  })
+
   // The add flow still has to know the crew tag is applied, or searching for
   // it offers to apply it a second time.
   it('still reports an omitted crew tag as already applied', async () => {

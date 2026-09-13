@@ -63,6 +63,14 @@ describe('ShowCrewAttribution', () => {
     expect(mockUseEntityTags).toHaveBeenCalledWith('show', 42)
   })
 
+  // The testid the show page's placement test anchors on. Asserted against the
+  // real component so a rename cannot leave both suites green.
+  it('publishes the row testid the page positions it by', () => {
+    renderRow([RELAX])
+
+    expect(screen.getByTestId('show-crew-attribution')).toBeInTheDocument()
+  })
+
   it('names the row and links each chip to the crew tag page', () => {
     renderRow([GENRE, RELAX, PLEIADES])
 

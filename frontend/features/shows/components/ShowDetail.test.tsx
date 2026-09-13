@@ -547,13 +547,16 @@ describe('ShowDetail', () => {
 
     // Crew tags are drawn by the row above, so the generic list must not draw
     // them again. Without this the same promoter prints twice.
-    it('tells the tag list to omit crew tags', () => {
-      render(<ShowDetail showId="1" lifecycle="upcoming" renderedAt={DETAIL_RENDERED_AT} />)
+    it.each(['upcoming', 'past'] as const)(
+      'tells the tag list to omit crew tags on the %s register',
+      lifecycle => {
+        render(<ShowDetail showId="1" lifecycle={lifecycle} renderedAt={DETAIL_RENDERED_AT} />)
 
-      expect(mockEntityTagList).toHaveBeenCalledWith(
-        expect.objectContaining({ omitCrewTags: true })
-      )
-    })
+        expect(mockEntityTagList).toHaveBeenCalledWith(
+          expect.objectContaining({ omitCrewTags: true })
+        )
+      }
+    )
 
     // The slot the mock reserves for the rails row is BETWEEN the page's own
     // modules and the byline. Position is the claim, so containment alone is

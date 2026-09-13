@@ -314,10 +314,10 @@ export function ShowDetail({
             here and `body`, so a `footer` element would publish a second
             `contentinfo` landmark alongside the site footer. */}
         <div className="mt-8 border-t border-border/60 pt-4" data-testid="show-provenance-footer">
-          {/* The booker credit (PSY-1886), first row of this block per the
-              mock. Crew tags are drawn HERE and omitted from the tag list
-              below, so a promoter is credited once and in the register that
-              names a party rather than describing the music. */}
+          {/* The booker credit, first row of this block per the mock. Crew tags
+              are drawn HERE and omitted from the tag list below, so a promoter
+              is credited once and in the register that names a party rather
+              than describing the music. */}
           <ShowCrewAttribution showId={show.id} />
           <EntityTagList
             entityType="show"

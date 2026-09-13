@@ -153,12 +153,12 @@ export function EntityTagList({
   // Nothing to draw.
   //
   // A tagless entity renders nothing at all, for anyone: the per-page header
-  // linkbox owns the [Add tag] affordance via the exported `<AddTagDialog>`
-  // (PSY-654). An entity that HAS tags but draws none of them is the
-  // `omitCrewTags` case, and there the section still renders for a viewer who
-  // can add, because this component is the only add-tag affordance on some of
-  // the pages that mount it and a crew-only entity would otherwise be
-  // untaggable. A viewer who cannot add sees no heading over an empty row.
+  // linkbox owns the [Add tag] affordance via the exported `<AddTagDialog>`.
+  // An entity that HAS tags but draws none of them is the `omitCrewTags` case,
+  // and there the section still renders for a viewer who can add, because this
+  // component is the only add-tag affordance on some of the pages that mount it
+  // and a crew-only entity would otherwise be untaggable. A viewer who cannot
+  // add sees no heading over an empty row.
   if (sortedTags.length === 0 && (!isAuthenticated || appliedTags.length === 0)) {
     return null
   }
