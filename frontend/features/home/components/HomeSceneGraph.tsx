@@ -111,30 +111,34 @@ const GRAPH_HEIGHT_PX = 560
 const MIN_CONNECTED_NODES = 3
 
 /**
- * One shared height contract for every non-canvas box (skeleton, empty,
- * error): the value MUST equal `GRAPH_HEIGHT_PX` (Tailwind arbitrary values
- * can't read the const). Boxes agreeing on height keeps the GRAPH AREA from
- * shifting LatestRadioShows as states settle; the pre-mount skeleton
- * deliberately reserves only the graph box, not the heading row/caption
- * (~100px), so a small one-time shift remains at section mount.
+ * One shared height contract for the boxes that stand in for the canvas
+ * (empty, error): the value MUST equal `GRAPH_HEIGHT_PX` (Tailwind arbitrary
+ * values can't read the const). Boxes agreeing on height keeps the GRAPH AREA
+ * from shifting LatestRadioShows as states settle.
  *
- * Every box carrying it renders only above the canvas gate, so it needs no
+ * Both boxes carrying it render only above the canvas gate, so it needs no
  * narrow-width value: below the gate the section is one line of link.
  */
 const PLACEHOLDER_HEIGHT_CLASS = 'h-[560px]'
 
-// This surface's height-reserving placeholder (CLS budget) — the shared
-// `GraphSkeleton` base look (PSY-1347) plus the height contract above. Named
-// distinctly from the shared primitive to avoid shadowing it. Used by the
-// pre-mount state, the data-loading state, and the dynamic-import fallback so
-// they can't drift apart.
-//
-// `hidden sm:block`: below 640px the settled section is one line of link, so
-// a box reserved there is a phantom the settle then collapses. Viewport-keyed
-// where the canvas gate is container-keyed, the same accepted mismatch the
-// gate documents.
+/**
+ * The height-reserving placeholder (CLS budget) — the shared `GraphSkeleton`
+ * base look (PSY-1347) plus the height contract above, written out because
+ * Tailwind only sees literal class strings. Named distinctly from the shared
+ * primitive to avoid shadowing it. Used by the pre-mount state, the
+ * data-loading state, and the dynamic-import fallback so they can't drift
+ * apart. It reserves only the graph area, not the heading row/caption
+ * (~100px), so a small one-time shift remains at section mount.
+ *
+ * `hidden sm:block`: below 640px the settled section is one line of link, so a
+ * canvas-sized box reserved there is a phantom the settle then collapses.
+ * Viewport-keyed where the canvas gate is container-keyed, the same accepted
+ * mismatch the gate documents. This element is inside the lazy-mount
+ * observer's target, not the target itself, so hiding it does not affect when
+ * the section mounts.
+ */
 function SceneGraphSkeleton() {
-  return <BaseGraphSkeleton className={`hidden sm:block ${PLACEHOLDER_HEIGHT_CLASS}`} />
+  return <BaseGraphSkeleton className="hidden sm:block h-[560px]" />
 }
 
 /**
