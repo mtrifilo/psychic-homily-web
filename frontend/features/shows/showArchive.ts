@@ -1,11 +1,16 @@
 /**
- * Pure derivations shared by every paged show archive: the venue page's past
- * shows (PSY-1753) and the artist page's (PSY-1754).
+ * Pure derivations shared by every paged show list: the venue page's past-shows
+ * archive, the artist page's, and the upcoming list on `/shows`.
+ *
+ * The archive vocabulary throughout ("archive", `MAX_ARCHIVE_PAGE`) predates
+ * the third consumer and describes the SHAPE, a chronological list paged by
+ * number and labelled by month, rather than a direction in time. `/shows` runs
+ * forwards and shares every rule here.
  *
  * Everything here is a function of rows the caller already has — no fetching,
- * no URL state, no React. Kept out of the components so the archive's fiddly
- * bits (month boundaries, page labels, the document title) can be tested
- * against fixtures rather than through a rendered table.
+ * no URL state, no React. Kept out of the components so the fiddly bits (month
+ * boundaries, page labels, the document title) can be tested against fixtures
+ * rather than through a rendered table.
  *
  * Entity-agnostic by construction. A venue archive lists one venue's shows, so
  * every row shares a timezone; an artist archive lists shows ACROSS venues, so
@@ -14,7 +19,11 @@
  * instead of a single zone.
  */
 
-import { toPageNumber } from '@/components/shared/paginationChrome'
+import {
+  clampToPageCount,
+  paginationWindow,
+  toPageNumber,
+} from '@/components/shared/paginationChrome'
 import {
   formatCalendarMonthParts,
   formatShowMonth,
@@ -391,13 +400,92 @@ export function clampPage(page: number, maxPage: number): number {
 }
 
 /**
- * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
- * bounded empty page instead of an unbounded offset the backend has to reject.
- * At 50 rows a page this covers 50,000 shows for one entity, roughly two orders
- * of magnitude past the busiest venue and the most-played artist observed.
+ * The month-span labels for exactly the pages a pager can render, with the
+ * current page's label withheld unless the rows on screen can vouch for it.
  *
- * ONE constant for both archives (PSY-1842). They had two identical copies, and
- * a bound that differed between them would be a difference in which hand-typed
+ * Wraps {@link monthRangeLabelsByPage} with the two rules every pager consuming
+ * it needs and neither of them obvious:
+ *
+ * - Only the pager's WINDOW is labelled. `Pagination` renders at most seven
+ *   page links, so labelling the other 993 pages of a deep archive is work
+ *   nothing displays.
+ * - The CURRENT page's label is dropped whenever the rows on screen cannot
+ *   attest to the ordinals: `keepPreviousData` holding the outgoing page, or a
+ *   cold load with no total yet. The histogram's premise check cannot run in
+ *   either case, and this is the exact render on which `Pagination` latches its
+ *   live-region announcement and never corrects it. A label the reader is told
+ *   once and never corrected has to be verified or absent.
+ *
+ * The withhold takes `rowsAnswerCurrentRequest` and the raw `total` rather than
+ * a pre-combined `listTotal`, so the rule cannot be defeated by a caller that
+ * passes a real total while holding stale rows. Both facts come from one query
+ * result, and combining them here is what makes the two inseparable.
+ *
+ * The withheld page is the page the PAGER will show, not the one the URL asked
+ * for: a `?page=99` over three pages is rendered as page 3 and announced as
+ * page 3, so deleting label 99 would leave label 3 to be announced unverified.
+ *
+ * Callers still own their FALLBACK for the current page, derived from rows they
+ * hold, because only they know how to read a row's zone.
+ */
+export function pageRangeLabelsForWindow({
+  months,
+  page,
+  totalPages,
+  pageSize,
+  total,
+  rowsAnswerCurrentRequest,
+  scope,
+}: {
+  /** Histogram buckets in list order, already scoped to what the pager covers. */
+  months: ArchiveMonthCount[]
+  /** 1-based current page, as the URL asked for it. */
+  page: number
+  /** Total page count. */
+  totalPages: number
+  /** Rows per page, as requested. */
+  pageSize: number
+  /** The count that arrived WITH the rows, whatever their freshness. */
+  total: number | undefined
+  /** Whether the rows on screen answer the request this page names. */
+  rowsAnswerCurrentRequest: boolean
+  scope: ArchiveLabelScope
+}): Record<number, string> {
+  const listTotal = rowsAnswerCurrentRequest ? total : undefined
+
+  const labels = monthRangeLabelsByPage({
+    months,
+    pageSize,
+    pages: paginationWindow(page, totalPages).filter(
+      (item): item is number => item !== 'ellipsis'
+    ),
+    listTotal,
+    scope,
+  })
+
+  if (listTotal === undefined) delete labels[clampToPageCount(page, totalPages)]
+
+  return labels
+}
+
+/**
+ * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
+ * bounded empty page instead of an arbitrarily large offset. The backend does
+ * not reject one, since its `offset` carries a minimum and no maximum, so this
+ * is the only bound there is. At 50 rows a page it covers 50,000 rows.
+ *
+ * That is roughly two orders of magnitude past the busiest venue and the
+ * most-played artist observed, which is the measurement the two entity archives
+ * were sized on. The upcoming list is catalog-wide rather than per-entity, so
+ * its premise is a different one and smaller: it holds only shows that have not
+ * happened yet. `GET /shows/upcoming` reported 9,263 of them across all cities
+ * on 2026-09-11, an order of magnitude inside this bound. Re-read that
+ * endpoint's `total` rather than this sentence before relying on the headroom.
+ *
+ * ONE constant for all three paged show lists (PSY-1842, PSY-2060). The two
+ * archives had identical copies, and `/shows` shares this one rather than
+ * minting a third; a bound that differed between them would be a difference in
+ * which hand-typed
  * URLs are answered rather than rejected — invisible until someone hit it.
  *
  * The SERVER-side `?page=` read deliberately does not take one: it only asks

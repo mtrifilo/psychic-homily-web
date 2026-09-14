@@ -15,16 +15,26 @@ import {
 } from '@/features/shows/api'
 import type {
   UpcomingShowsResponse,
+  ShowsCalendarResponse,
+  ShowMonthsResponse,
   ShowResponse,
   ShowCitiesResponse,
   ShowTimelineResponse,
 } from '../types'
+import { SHOWS_PAGE_SIZE } from '../showsListNavigation'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
-interface UseUpcomingShowsOptions {
-  cursor?: string
-  limit?: number
+/**
+ * The filter contract every reader of the venue-local upcoming partition
+ * shares: the cursor feed, the offset list, and the month histogram that labels
+ * that list's pages.
+ *
+ * One declaration, because a histogram filtered differently from the list it
+ * labels describes a different set of rows. The request half and the cache-key
+ * half both derive from it below, so the two cannot drift either.
+ */
+interface ShowListFilterOptions {
   /** Legacy single-city filter */
   city?: string
   /** Legacy single-state filter */
@@ -37,29 +47,13 @@ interface UseUpcomingShowsOptions {
   tagMatch?: 'all' | 'any'
 }
 
-/**
- * Hook to fetch upcoming shows with cursor-based pagination.
- *
- * No PER-VIEWER input: whether a show is still upcoming is decided against its
- * own venue's zone, so the response is the same for every viewer (PSY-1678).
- * That is what lets the server-seeded first screen be a cache HIT rather than an
- * approximation the hydration commit has to refetch — see the seeding contract
- * in `features/shows/api.ts`. Do not reintroduce a per-viewer key segment here
- * without changing that contract too.
- *
- * A no-argument call therefore sends NO query string at all, which is exactly
- * `UPCOMING_SHOWS_FIRST_SCREEN_URL`. `useShowsFirstScreen.test.tsx` asserts that
- * pairing against the real constants.
- */
-export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
-  const { cursor, limit, city, state, cities, tags, tagMatch } = options
-
-  const params = new URLSearchParams()
-  if (cursor) params.set('cursor', cursor)
-  if (limit) params.set('limit', limit.toString())
-
-  // Multi-city takes priority over legacy single-city
+/** Append the filter params to a request. */
+function appendShowListFilters(
+  params: URLSearchParams,
+  { city, state, cities, tags, tagMatch }: ShowListFilterOptions
+): void {
   if (cities && cities.length > 0) {
+    // Multi-city takes priority over legacy single-city.
     params.set('cities', buildCitiesParam(cities))
   } else {
     if (city) params.set('city', city)
@@ -70,13 +64,67 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     params.set('tags', tags.join(','))
     if (tagMatch === 'any') params.set('tag_match', 'any')
   }
+}
+
+/**
+ * The cache-key half of the same contract.
+ *
+ * Normalizes the two fields with a non-obvious empty form: an empty tag list
+ * and the default tag match both key as `undefined`, so the same filter state
+ * lands on one entry however a caller spelled it. Written once, or the list and
+ * its histogram could key apart under filters that request identically.
+ */
+function showListFilterKey({
+  city,
+  state,
+  cities,
+  tags,
+  tagMatch,
+}: ShowListFilterOptions): Record<string, unknown> {
+  return {
+    city,
+    state,
+    cities,
+    tags: tags && tags.length > 0 ? tags : undefined,
+    tagMatch: tagMatch === 'any' ? 'any' : undefined,
+  }
+}
+
+interface UseUpcomingShowsOptions extends ShowListFilterOptions {
+  cursor?: string
+  limit?: number
+}
+
+interface UseShowsCalendarOptions extends ShowListFilterOptions {
+  /** Rows to skip. Omitted from the request at 0, which is page 1. */
+  offset?: number
+  /** Rows per page. Always sent, so the pager's arithmetic and the request agree. */
+  limit?: number
+}
+
+/**
+ * Hook to fetch upcoming shows with cursor-based pagination.
+ *
+ * The reader behind the home page's rail and `/explore`. `/shows` pages by
+ * number and reads `useShowsCalendar` instead: a cursor is a position in one
+ * response, and a page number has to survive being bookmarked.
+ *
+ * No PER-VIEWER input: whether a show is still upcoming is decided against its
+ * own venue's zone, so the response is the same for every viewer (PSY-1678).
+ * Do not reintroduce a per-viewer key segment here.
+ *
+ * A no-argument call sends NO query string at all, which is the bare endpoint.
+ */
+export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
+  const { cursor, limit, city, state, cities, tags, tagMatch } = options
+
+  const params = new URLSearchParams()
+  if (cursor) params.set('cursor', cursor)
+  if (limit) params.set('limit', limit.toString())
+  appendShowListFilters(params, { city, state, cities, tags, tagMatch })
 
   // The `?` only when there is something to put after it, so a bare call
-  // produces `UPCOMING_SHOWS_FIRST_SCREEN_URL` exactly. Whether the server's
-  // seed is a HIT is decided by the KEY, not by this string — but the exported
-  // constant is what `app/shows/page.tsx` fetches server-side, and it is only an
-  // honest description of what this hook requests while the two stay identical.
-  // `useShowsFirstScreen.test.tsx` is what holds them together.
+  // produces the endpoint itself.
   const queryString = params.toString()
   const endpoint = queryString
     ? `${showEndpoints.UPCOMING}?${queryString}`
@@ -86,11 +134,7 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     queryKey: showQueryKeys.list({
       cursor,
       limit,
-      city,
-      state,
-      cities,
-      tags: tags && tags.length > 0 ? tags : undefined,
-      tagMatch: tagMatch === 'any' ? 'any' : undefined,
+      ...showListFilterKey({ city, state, cities, tags, tagMatch }),
     }),
     queryFn: async (): Promise<UpcomingShowsResponse> => {
       return apiRequest<UpcomingShowsResponse>(endpoint, {
@@ -99,6 +143,90 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousData, // Keep old data visible while fetching
+  })
+}
+
+/**
+ * Hook to fetch one OFFSET page of upcoming shows, the reader behind `/shows`.
+ *
+ * Offset rather than the cursor `useUpcomingShows` uses, because this list is
+ * addressed by page number: `?page=3` has to name the same slice tomorrow as it
+ * does today, which a cursor minted from one response cannot promise. The cost
+ * is stated on the backend's `GetUpcomingShowsPage`: a show graduating out of
+ * the partition between two page reads shifts later rows up one, so a reader
+ * walking pages can skip a row.
+ *
+ * Carries no PER-VIEWER input, for the same reason and with the same
+ * consequence as `useUpcomingShows`: page 1 of the unfiltered list is the entry
+ * `app/shows/page.tsx` seeds server-side.
+ *
+ * `keepPreviousData` is load-bearing rather than cosmetic. The pager's
+ * page-change announcement is a live region, and a consumer that tore its rows
+ * down on every page click would unmount it and announce nothing at all.
+ */
+export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
+  const {
+    offset,
+    limit = SHOWS_PAGE_SIZE,
+    city,
+    state,
+    cities,
+    tags,
+    tagMatch,
+  } = options
+
+  const params = new URLSearchParams()
+  params.set('limit', limit.toString())
+  if (offset) params.set('offset', offset.toString())
+  appendShowListFilters(params, { city, state, cities, tags, tagMatch })
+
+  return useQuery({
+    queryKey: showQueryKeys.calendar({
+      limit,
+      offset: offset || undefined,
+      ...showListFilterKey({ city, state, cities, tags, tagMatch }),
+    }),
+    queryFn: async (): Promise<ShowsCalendarResponse> => {
+      return apiRequest<ShowsCalendarResponse>(
+        `${showEndpoints.CALENDAR}?${params.toString()}`,
+        { method: 'GET' }
+      )
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * Hook to fetch the upcoming-shows month histogram under the same filters as
+ * the list.
+ *
+ * Keyed on the FILTERS alone, never the page, so paging never re-requests it.
+ * `staleTime` matches the endpoint's own `max-age=60`: the counts move whenever
+ * a show is approved or a day rolls over at a venue, and they are what the page
+ * labels are derived from.
+ */
+export const useShowMonths = (options: ShowListFilterOptions = {}) => {
+  const { city, state, cities, tags, tagMatch } = options
+
+  const params = new URLSearchParams()
+  appendShowListFilters(params, { city, state, cities, tags, tagMatch })
+  const queryString = params.toString()
+
+  return useQuery({
+    queryKey: showQueryKeys.months(
+      showListFilterKey({ city, state, cities, tags, tagMatch })
+    ),
+    queryFn: async (): Promise<ShowMonthsResponse> => {
+      return apiRequest<ShowMonthsResponse>(
+        queryString
+          ? `${showEndpoints.MONTHS}?${queryString}`
+          : showEndpoints.MONTHS,
+        { method: 'GET' }
+      )
+    },
+    staleTime: 60 * 1000, // the endpoint's own max-age
+    placeholderData: keepPreviousData,
   })
 }
 

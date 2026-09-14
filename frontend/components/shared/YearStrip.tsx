@@ -8,6 +8,9 @@ import {
   isPlainNavigationClick,
   navCurrentClass,
   navLinkClass,
+  navStripClass,
+  navStripListClass,
+  navStripSeparatorClass,
 } from './paginationChrome'
 
 export interface YearStripEntry {
@@ -118,15 +121,12 @@ export function YearStrip({
   return (
     <nav
       aria-label={ariaLabel}
-      className={cn(
-        'flex items-baseline gap-x-2 overflow-x-auto font-mono text-xs sm:flex-wrap sm:overflow-x-visible',
-        className
-      )}
+      className={cn(navStripClass, className)}
       data-testid="year-strip"
     >
       <ul
         id={yearListId}
-        className="flex items-baseline gap-x-2 whitespace-nowrap sm:flex-wrap sm:gap-y-1"
+        className={navStripListClass}
       >
         <li>
           <Link
@@ -150,7 +150,7 @@ export function YearStrip({
             // `hidden` takes them out of the accessibility tree and tab order.
             hidden={!expanded && index >= headCount}
           >
-            <span aria-hidden="true" className="mr-2 text-muted-foreground">
+            <span aria-hidden="true" className={navStripSeparatorClass}>
               ·
             </span>
             <Link

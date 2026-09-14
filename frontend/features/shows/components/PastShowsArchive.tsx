@@ -42,7 +42,6 @@ import { parseAsInteger, useQueryState } from 'nuqs'
 import {
   formatCount,
   Pagination,
-  paginationWindow,
   SectionHeader,
   YearStrip,
   usePaginationFocusTarget,
@@ -54,7 +53,7 @@ import {
   clampPage,
   MAX_ARCHIVE_PAGE,
   monthRangeLabel,
-  monthRangeLabelsByPage,
+  pageRangeLabelsForWindow,
   type ArchiveLabelScope,
   type ArchiveMonthCount,
   type ArchiveRow,
@@ -364,33 +363,24 @@ export function PastShowsArchive<T extends ArchiveRow>({
   // `monthRangeLabelsByPage` (PSY-1842). Do not "fix" it here.
   const rangeLabels = useMemo(() => {
     const buckets = months ?? []
-    const labels = monthRangeLabelsByPage({
+    const labels = pageRangeLabelsForWindow({
       // Newest first from the API, which is the order this archive pages in.
       months:
         activeYear === null
           ? buckets
           : buckets.filter(bucket => bucket.year === activeYear),
+      page,
+      totalPages,
       pageSize,
-      pages: paginationWindow(page, totalPages).filter(
-        (item): item is number => item !== 'ellipsis'
-      ),
-      // The count that arrived WITH the rows, and only while those rows answer
-      // the current request. Deliberately not `scopedTotal`, which may be the
-      // YEAR histogram's sum: two aggregates agreeing with each other says
-      // nothing about the rows on screen, and they age in separate caches, so
-      // comparing them would blank every label whenever one revalidated before
-      // the other. Omitted rather than guessed while a placeholder page is up.
-      listTotal: rowsAnswerCurrentRequest ? list.total : undefined,
+      // The count that arrived WITH the rows. Deliberately not `scopedTotal`,
+      // which may be the YEAR histogram's sum: two aggregates agreeing with
+      // each other says nothing about the rows on screen, and they age in
+      // separate caches, so comparing them would blank every label whenever one
+      // revalidated before the other.
+      total: list.total,
+      rowsAnswerCurrentRequest,
       scope: labelScope,
     })
-
-    // The CURRENT page is only ever labelled from rows we can attest to. While
-    // `keepPreviousData` holds the outgoing page, the histogram's label for this
-    // page went unverified — `listTotal` was omitted above, so the premise check
-    // could not run — and this is the exact render on which `Pagination` latches
-    // its live-region announcement and never corrects it. Drop it and let the
-    // fallback below decline too; the label returns a beat later, verified.
-    if (!rowsAnswerCurrentRequest) delete labels[page]
 
     // The CURRENT page, from the rows already on screen, whenever the histogram
     // could not label it — it failed, or has not landed yet.

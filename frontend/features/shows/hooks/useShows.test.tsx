@@ -23,12 +23,20 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     UPCOMING: '/shows/upcoming',
+    CALENDAR: '/shows/calendar',
+    MONTHS: '/shows/months',
     CITIES: '/shows/cities',
     GET: (id: string | number) => `/shows/${id}`,
     ALSO_TONIGHT: (id: string | number) => `/shows/${id}/also-tonight`,
   },
   showQueryKeys: {
     list: (filters?: Record<string, unknown>) => ['shows', 'list', filters],
+    calendar: (filters?: Record<string, unknown>) => [
+      'shows',
+      'calendar',
+      filters,
+    ],
+    months: (filters?: Record<string, unknown>) => ['shows', 'months', filters],
     detail: (id: string) => ['shows', 'detail', id],
     cities: () => ['shows', 'cities'],
     alsoTonight: (id: string) => ['shows', 'also-tonight', id],
@@ -37,7 +45,13 @@ vi.mock('@/features/shows/api', () => ({
 }))
 
 // Import hooks after mocks are set up
-import { useUpcomingShows, useShow, useShowAlsoTonight } from './useShows'
+import {
+  useUpcomingShows,
+  useShowsCalendar,
+  useShowMonths,
+  useShow,
+  useShowAlsoTonight,
+} from './useShows'
 
 
 describe('useShows', () => {
@@ -162,6 +176,177 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
 
       expect(result.current.error).toBeDefined()
+    })
+  })
+
+  describe('useShowsCalendar', () => {
+    const calendarPage = {
+      shows: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+      year: 0,
+      month: 0,
+      day: 0,
+    }
+
+    // The page size is SENT, not inherited from the endpoint's own default. The
+    // pager's arithmetic (which page a row ordinal is on, which months a page
+    // covers) has to agree with the limit the request actually carried.
+    it('sends the page size and no offset on page 1', async () => {
+      mockApiRequest.mockResolvedValueOnce(calendarPage)
+
+      const { result } = renderHook(() => useShowsCalendar(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith('/shows/calendar?limit=50', {
+        method: 'GET',
+      })
+    })
+
+    it('sends limit and offset for a later page', async () => {
+      mockApiRequest.mockResolvedValueOnce(calendarPage)
+
+      const { result } = renderHook(
+        () => useShowsCalendar({ offset: 100, limit: 50 }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/shows/calendar?limit=50&offset=100',
+        { method: 'GET' }
+      )
+    })
+
+    it('carries the city and tag filters', async () => {
+      mockApiRequest.mockResolvedValueOnce(calendarPage)
+
+      const { result } = renderHook(
+        () =>
+          useShowsCalendar({
+            offset: 50,
+            cities: [{ city: 'Phoenix', state: 'AZ' }],
+            tags: ['post-punk', 'noise'],
+            tagMatch: 'any',
+          }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const calledUrl = mockApiRequest.mock.calls[0][0] as string
+      expect(calledUrl).toContain('/shows/calendar?')
+      expect(calledUrl).toContain('cities=Phoenix%2CAZ')
+      expect(calledUrl).toContain('tags=post-punk%2Cnoise')
+      expect(calledUrl).toContain('tag_match=any')
+      expect(calledUrl).toContain('offset=50')
+    })
+
+    // Two endpoints read the same partition. Sharing a key namespace would let a
+    // cursor page and an offset page occupy one entry.
+    it('keys apart from the cursor list', async () => {
+      const queryClient = createTestQueryClient()
+      mockApiRequest.mockResolvedValue(calendarPage)
+
+      const { result } = renderHook(() => useShowsCalendar(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const keys = queryClient
+        .getQueryCache()
+        .getAll()
+        .map(entry => entry.queryKey[1])
+      expect(keys).toEqual(['calendar'])
+    })
+
+    it('reports the unwindowed total beside the page', async () => {
+      mockApiRequest.mockResolvedValueOnce({ ...calendarPage, total: 268 })
+
+      const { result } = renderHook(() => useShowsCalendar(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.data?.total).toBe(268)
+    })
+  })
+
+  describe('useShowMonths', () => {
+    it('requests the bare histogram when nothing is filtered', async () => {
+      mockApiRequest.mockResolvedValueOnce({ months: [], total: 0 })
+
+      const { result } = renderHook(() => useShowMonths(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith('/shows/months', {
+        method: 'GET',
+      })
+    })
+
+    // The histogram is what labels the list's page links, so it has to be
+    // filtered exactly as the list is or it describes a different set.
+    it('carries the same filters the list carries', async () => {
+      mockApiRequest.mockResolvedValueOnce({ months: [], total: 0 })
+
+      const { result } = renderHook(
+        () =>
+          useShowMonths({
+            cities: [{ city: 'Phoenix', state: 'AZ' }],
+            tags: ['post-punk'],
+          }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const calledUrl = mockApiRequest.mock.calls[0][0] as string
+      expect(calledUrl).toContain('cities=Phoenix%2CAZ')
+      expect(calledUrl).toContain('tags=post-punk')
+    })
+
+    // Keyed on the FILTERS alone, so walking pages never re-requests it.
+    it('does not re-request when only the page changes', async () => {
+      const queryClient = createTestQueryClient()
+      mockApiRequest.mockResolvedValue({ months: [], total: 0 })
+
+      const { result, rerender } = renderHook(
+        ({ offset }: { offset: number }) => {
+          useShowsCalendar({ offset })
+          return useShowMonths()
+        },
+        {
+          wrapper: createWrapperWithClient(queryClient),
+          initialProps: { offset: 0 },
+        }
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const monthCallsBefore = mockApiRequest.mock.calls.filter(call =>
+        String(call[0]).startsWith('/shows/months')
+      ).length
+
+      rerender({ offset: 50 })
+      await waitFor(() =>
+        expect(
+          mockApiRequest.mock.calls.some(call =>
+            String(call[0]).includes('offset=50')
+          )
+        ).toBe(true)
+      )
+
+      const monthCallsAfter = mockApiRequest.mock.calls.filter(call =>
+        String(call[0]).startsWith('/shows/months')
+      ).length
+      expect(monthCallsAfter).toBe(monthCallsBefore)
     })
   })
 

@@ -71,6 +71,12 @@ export type {
 } from './Pagination'
 export { YearStrip } from './YearStrip'
 export type { YearStripProps, YearStripEntry } from './YearStrip'
+export { MonthStrip } from './MonthStrip'
+export type {
+  MonthStripProps,
+  MonthStripEntry,
+  MonthStripTarget,
+} from './MonthStrip'
 // Locale-pinned count formatting, shared with the pagers' own captions so a
 // list header and the caption under it can never group digits differently.
 export { formatCount } from './paginationChrome'

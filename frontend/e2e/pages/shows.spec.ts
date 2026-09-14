@@ -74,31 +74,78 @@ test.describe('Shows list', () => {
     await expect(doorOnlyRow).not.toContainText('/$')
   })
 
-  test('pagination loads more shows', async ({ page }) => {
+  // PSY-2060: the list pages by NUMBER, and every page is a real `<a href>`.
+  // The claims worth guarding are the ones a unit test cannot make: that the
+  // page is 50 rows against the real backend, that `Later` is a link carrying
+  // `?page=2` rather than a button, and that following it actually serves
+  // different rows.
+  test('pagination serves a second page at its own URL', async ({ page }) => {
+    // Double the 30s default: this test navigates twice, and the second
+    // navigation is the first compile of `?page=2` on a cold dev server. It
+    // finishes in about 25s there, so this is headroom, not a hiding place.
+    test.setTimeout(60_000)
+
     await page.goto('/shows')
 
     await expect(page.locator('article').first()).toBeVisible({
       timeout: 10_000,
     })
 
-    // Wait for "Load More" to appear (API returns has_more: true with >10 shows)
-    const loadMoreButton = page.getByRole('button', { name: /load more/i })
-    await expect(loadMoreButton).toBeVisible({ timeout: 5_000 })
+    const firstPageCount = await page.locator('article').count()
+    expect(firstPageCount).toBe(50) // The page size the list requests
 
-    const initialCount = await page.locator('article').count()
-    expect(initialCount).toBe(50) // Backend default limit
+    const firstPageLeadRow = await page
+      .locator('article')
+      .first()
+      .getAttribute('aria-label')
 
-    await loadMoreButton.click()
+    // Links, not buttons, so the deep pages are crawlable and bookmarkable.
+    // Deliberately NOT a claim that a no-JavaScript fetcher sees page 2's rows
+    // there: the route seeds page 1 and never reads `searchParams`, so the rows
+    // are swapped client-side and `?page=N` canonicalizes back to `/shows`.
+    await expect(
+      page.getByRole('link', { name: /^later$/i }).first()
+    ).toHaveAttribute('href', /[?&]page=2(?:&|$)/)
 
-    // Wait for additional shows to load
-    await page.waitForFunction(
-      (initial) => document.querySelectorAll('article').length > initial,
-      initialCount,
-      { timeout: 10_000 }
-    )
+    // Settle before clicking. The pager is a real `<a href>`, so it is in the
+    // server HTML and passes Playwright's actionability checks before hydration
+    // wires the router; a click in that window leaves the browser to follow the
+    // href itself, and on a cold dev server each such navigation restarts a
+    // compile the next one interrupts. Waiting once here is what a reader does
+    // anyway.
+    await page.waitForLoadState('networkidle')
 
-    const newCount = await page.locator('article').count()
-    expect(newCount).toBeGreaterThan(initialCount)
+    await page.getByRole('link', { name: /^Page 2\b/ }).first().click()
+
+    await expect(page).toHaveURL(/[?&]page=2(?:&|$)/)
+
+    // The URL moves first and the rows follow, once the list re-reads `?page=`.
+    // `keepPreviousData` holds page 1 on screen throughout, so the pager's own
+    // position is the signal that the page actually turned.
+    await expect(page.getByText(/Page 2 of \d+/).first()).toBeVisible({
+      timeout: 30_000,
+    })
+
+    await expect
+      .poll(
+        async () =>
+          page.locator('article').first().getAttribute('aria-label'),
+        { timeout: 15_000 }
+      )
+      .not.toBe(firstPageLeadRow)
+
+    // Page 1 writes no `page`, so stepping back lands on the bare URL and the
+    // list follows it. This is the half a unit test cannot make: it exercises
+    // the browser's own history, not a mocked param.
+    await page.goBack()
+    await expect(page).toHaveURL(/\/shows$/)
+    await expect
+      .poll(
+        async () =>
+          page.locator('article').first().getAttribute('aria-label'),
+        { timeout: 15_000 }
+      )
+      .toBe(firstPageLeadRow)
   })
 
   // PSY-1623: `/shows` is the only page that links the scene-week pages into the

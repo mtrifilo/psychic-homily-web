@@ -22,7 +22,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => ({ get: () => null }),
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 vi.mock('nuqs', async importOriginal => {
@@ -58,10 +58,11 @@ vi.mock('@/components/filters/useGeoDefaultCity', () => ({
   shouldShowGeoAffordance: () => false,
 }))
 
-vi.mock('./ShowCard', () => ({
-  ShowCard: ({ show }: { show: { id: number; title: string } }) => (
+vi.mock('./DayGroupedShowRow', () => ({
+  DayGroupedShowRow: ({ show }: { show: { id: number; title: string } }) => (
     <article data-testid={`show-card-${show.id}`}>{show.title}</article>
   ),
+  DayGroupedShowListHeader: () => <div data-testid="show-list-header" />,
 }))
 
 vi.mock('./ShowListSkeleton', () => ({
@@ -70,7 +71,7 @@ vi.mock('./ShowListSkeleton', () => ({
 
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
+  SHOWS_CALENDAR_FIRST_SCREEN_KEY,
 } from '@/features/shows/api'
 import { ShowList } from './ShowList'
 
@@ -79,11 +80,15 @@ const seededShows = {
     { id: 1, title: 'Bright Eyes', event_date: '2026-08-01T02:00:00Z', state: 'AZ', venues: [], artists: [] },
     { id: 2, title: 'Cursive', event_date: '2026-08-02T02:00:00Z', state: 'AZ', venues: [], artists: [] },
   ],
-  // `has_more: true` on purpose: production always has more than one page, so
-  // the Load More branch is the one that actually ships, and it is the branch
-  // a `has_more: false` fixture would silently leave untested.
-  pagination: { has_more: true, next_cursor: 'abc123' },
+  // A total past one page on purpose: production always has more than one page,
+  // so the pager is the branch that actually ships, and a single-page fixture
+  // would leave it untested (`Pagination` renders null at one page).
   total: 65,
+  limit: 50,
+  offset: 0,
+  year: 0,
+  month: 0,
+  day: 0,
 }
 
 const seededCities = {
@@ -107,7 +112,7 @@ function renderSeeded() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 5 * 60 * 1000 } },
   })
-  queryClient.setQueryData(UPCOMING_SHOWS_FIRST_SCREEN_KEY, seededShows, {
+  queryClient.setQueryData(SHOWS_CALENDAR_FIRST_SCREEN_KEY, seededShows, {
     updatedAt: 0,
   })
   queryClient.setQueryData(SHOW_CITIES_FIRST_SCREEN_KEY, seededCities, {
@@ -145,33 +150,28 @@ describe('ShowList reading a server-seeded first screen', () => {
     expect(container.querySelector('.opacity-60')).toBeNull()
   })
 
-  it('holds Load More disabled while the seeded entry revalidates', () => {
-    // Deliberate, and the opposite of what it looks like. The seed is stale by
-    // construction, so `isFetching` is true on the first commit and in the
-    // server render, which means this control ships disabled and labelled
-    // "Loading...". An adversarial reviewer flagged that as a dead control in
-    // server HTML, and gating it on `isPlaceholderData` instead does make it
-    // live. It also makes it CLICKABLE BEFORE REACT ATTACHES, and that click is
-    // dropped: `e2e/pages/shows.spec.ts` "pagination loads more shows" fails
-    // exactly then, clicking a painted button and timing out waiting for rows
-    // that were never requested. The `replayOnHydrate` root below does not
-    // rescue it, which is measured rather than assumed (bisected: reverting
-    // only this gate turns that spec green again).
-    //
-    // So the honest state is "not ready yet" rather than a live control that
-    // eats the interaction. The cost is a JS-less fetcher seeing a disabled
-    // pagination button, which costs it nothing: every row it can reach without
-    // paginating is already in the HTML. Revisit alongside the replay
-    // primitive, not on its own.
+  it('serves page 2 as a real link while the seeded entry revalidates', () => {
+    // The seed is stale by construction, so `isFetching` is true on the first
+    // commit and in the server render. That used to matter a great deal: the
+    // Load More control it replaced had to ship DISABLED, because a painted
+    // button that React has not attached to yet swallows the click. A page link
+    // has no such window, being an `<a href>` the browser follows with no
+    // JavaScript at all, so the whole hazard is gone rather than managed.
     renderSeeded()
 
-    // Queried by the "Loading..." label rather than "Load More", because that
-    // relabelling is part of the state being pinned here.
-    const button = screen.getByRole('button', { name: /loading/i })
-    expect(button).toBeDisabled()
-    // Kept regardless: the moment the gate above changes, this is what stops
-    // the pre-hydration click being silently swallowed.
-    expect(button).toHaveAttribute('data-replay-on-hydrate')
+    // Two pagers, top and bottom, so both instances are checked rather than
+    // one arbitrarily picked.
+    const nextPageLinks = screen.getAllByRole('link', { name: /page 2/i })
+    expect(nextPageLinks).toHaveLength(2)
+    for (const link of nextPageLinks) {
+      expect(link).toHaveAttribute('href', '/shows?page=2')
+    }
+  })
+
+  it('serves no Load More control at all', () => {
+    renderSeeded()
+
+    expect(screen.queryByRole('button', { name: /load more/i })).toBeNull()
   })
 
   it('keeps the rows when a background revalidation fails', async () => {

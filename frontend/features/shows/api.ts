@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { SHOWS_PAGE_SIZE } from './showsListNavigation'
 
 // ============================================================================
 // Endpoints
@@ -15,6 +16,12 @@ import { API_BASE_URL } from '@/lib/api-base'
 export const showEndpoints = {
   SUBMIT: `${API_BASE_URL}/shows`,
   UPCOMING: `${API_BASE_URL}/shows/upcoming`,
+  // The OFFSET reader of the same venue-local upcoming partition `UPCOMING`
+  // serves by cursor. `/shows` pages by number, which a cursor cannot address;
+  // home and explore keep the cursor feed.
+  CALENDAR: `${API_BASE_URL}/shows/calendar`,
+  // Upcoming shows per venue-local month, under the same filters as the list.
+  MONTHS: `${API_BASE_URL}/shows/months`,
   CITIES: `${API_BASE_URL}/shows/cities`,
   // PSY-372 / PSY-520: autocomplete endpoint, used by useEntitySearch.
   SEARCH: `${API_BASE_URL}/shows/search`,
@@ -60,6 +67,15 @@ export const showQueryKeys = {
   all: ['shows'] as const,
   list: (filters?: Record<string, unknown>) =>
     ['shows', 'list', filters] as const,
+  // Separate from `list` because the two read different endpoints over the same
+  // partition: one keyed by cursor, one by offset. Sharing a key namespace would
+  // let a cursor page and an offset page occupy the same entry.
+  calendar: (filters?: Record<string, unknown>) =>
+    ['shows', 'calendar', filters] as const,
+  // The month histogram is a function of the FILTERS alone, never of the page,
+  // so paging never re-requests it.
+  months: (filters?: Record<string, unknown>) =>
+    ['shows', 'months', filters] as const,
   // No timezone segment: `GET /shows/cities` counts the same venue-local
   // upcoming partition for every visitor (PSY-1678), so a per-viewer key would
   // fragment the cache across entries that can only ever hold identical data.
@@ -112,17 +128,30 @@ export const showQueryKeys = {
  * a server-rendered first screen means resolving per-visitor state on a
  * cacheable route, which is a separate decision.
  *
- * WHAT MAKES THE SEED LAND, and the reason PSY-1678 could delete the machinery
- * PSY-1624 needed: these requests carry no PER-VIEWER input. `GET
- * /shows/upcoming` decides "upcoming" against each show's own venue timezone, so
- * one canonical answer is the correct answer for every visitor. The filterless
- * KEY below is therefore exactly what the hooks ask for on a cold anon `/shows`
- * — the seeded entry is a hit, and the hydration commit has nothing to refetch.
- * Under the old viewer-timezone contract the key varied per viewer, so it could
- * only ever be an approximation the client re-fetched and discarded.
+ * WHAT MAKES THE SEED LAND: on the public path these requests carry no
+ * PER-VIEWER input. `GET /shows/calendar` decides "upcoming" against each show's
+ * own venue timezone, so one canonical answer is the correct answer for every
+ * visitor. The filterless KEY below is therefore exactly what the hooks ask for
+ * on a cold anon `/shows`. The seeded entry is a hit, and the hydration commit
+ * has nothing to refetch.
  *
- * A bare `/shows` therefore sends no query string at all, and the seeded URL is
- * the endpoint itself.
+ * The handlers do consult `upcomingListIncludesNonApproved`, but neither route
+ * is registered under the optional-auth group, so no viewer ever reaches that
+ * branch and the keys below carry no viewer segment. Moving either route under
+ * optional auth would break that pairing, and the keys would have to move with
+ * it.
+ *
+ * The seed is PAGE 1 only, and `app/shows/page.tsx` never reads `searchParams`,
+ * so every `?page=N` document ships page 1's rows and swaps them client-side.
+ * The pager renders real `<a href>`s into that HTML, so a crawler DOES reach
+ * the deep pages; they carry the route's static canonical back to `/shows`,
+ * which is the site's canonicalize-to-root pagination policy. Seeding per page
+ * would mean reading `searchParams` in the route, which costs it the
+ * prerendered shell.
+ *
+ * The `limit` is in the URL rather than left to the endpoint's own default,
+ * because the pager's arithmetic depends on the page size the request actually
+ * carried. `offset` is omitted at page 1, where it would be zero.
  *
  * The URL and the key have to stay a matched pair, and that is unenforceable at
  * the type level: `useShowsFirstScreen.test.tsx` asserts the hooks really do
@@ -131,11 +160,11 @@ export const showQueryKeys = {
  * constants. A drifted pair produces no error anywhere, just a page that quietly
  * stops being server-rendered.
  */
-export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
+export const SHOWS_CALENDAR_FIRST_SCREEN_URL = `${showEndpoints.CALENDAR}?limit=${SHOWS_PAGE_SIZE}`
 
-export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
-  cursor: undefined,
-  limit: undefined,
+export const SHOWS_CALENDAR_FIRST_SCREEN_KEY = showQueryKeys.calendar({
+  limit: SHOWS_PAGE_SIZE,
+  offset: undefined,
   city: undefined,
   state: undefined,
   cities: undefined,
@@ -146,3 +175,28 @@ export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
 export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
 
 export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities()
+
+/**
+ * The month histogram behind the pager's page labels.
+ *
+ * Seeded for the same reason the rows are, and with more at stake than the
+ * labels: it is a third call on the site's busiest public read, it is
+ * `private, max-age=60` so no shared cache absorbs a repeat, and the anonymous
+ * per-IP budget is shared by everyone behind one address. Unseeded, a cold
+ * `/shows` view costs three calls instead of two against that budget, which is
+ * the shape that surfaces as intermittent "Failed to load" and never reaches
+ * Sentry.
+ *
+ * Filterless, like its siblings, so it is the entry a cold anon visitor asks
+ * for. A filtered deep link misses it and fetches for itself, which costs that
+ * visitor the labels for a beat and nothing else.
+ */
+export const SHOWS_MONTHS_FIRST_SCREEN_URL = showEndpoints.MONTHS
+
+export const SHOWS_MONTHS_FIRST_SCREEN_KEY = showQueryKeys.months({
+  city: undefined,
+  state: undefined,
+  cities: undefined,
+  tags: undefined,
+  tagMatch: undefined,
+})

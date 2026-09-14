@@ -254,6 +254,51 @@ export interface UpcomingShowsResponse {
   pagination: CursorPaginationMeta
 }
 
+/**
+ * One offset page of the venue-local upcoming partition (`GET /shows/calendar`).
+ *
+ * `year`, `month` and `day` echo the venue-local window the page was taken on,
+ * and are 0 on the unwindowed list the `/shows` root reads. There is no
+ * `pagination` envelope: the page is addressed by `limit` and `offset`, and
+ * `total` bounds how many of them there are.
+ */
+export interface ShowsCalendarResponse {
+  /**
+   * NARROWED from the generated contract, which types this `| null` because Go
+   * marshals an empty slice that way. Every reader coalesces (`?? []`), and
+   * `fetchListPayload` rejects a body whose collection is not an array, so a
+   * null never reaches a consumer as one. The whole list-response family in
+   * this file narrows the same way; diverging here would be the outlier.
+   */
+  shows: ShowResponse[]
+  /** Full matching-set size under the current filters and window. */
+  total: number
+  limit: number
+  offset: number
+  year: number
+  month: number
+  day: number
+}
+
+/** One bar of the upcoming-shows month histogram (`GET /shows/months`). */
+export interface ShowMonthCount {
+  year: number
+  /** Calendar month, 1-12. */
+  month: number
+  count: number
+}
+
+export interface ShowMonthsResponse {
+  /** Venue-local months with at least one upcoming show, soonest first. */
+  months: ShowMonthCount[]
+  /**
+   * Sum of the month counts, which is the unwindowed total of the list under
+   * the same filters. What makes it usable as the histogram-versus-rows premise
+   * check the page labels depend on.
+   */
+  total: number
+}
+
 // Admin response types
 export interface PendingShowsResponse {
   shows: ShowResponse[]

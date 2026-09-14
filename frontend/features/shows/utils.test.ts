@@ -3,7 +3,6 @@ import {
   basedInPhrase,
   splitBill,
   dedupVenueShows,
-  formatShowCountLabel,
   showTimingInput,
 } from './utils'
 import type { ShowResponse, VenueResponse } from './types'
@@ -86,24 +85,6 @@ describe('dedupVenueShows', () => {
   })
 })
 
-describe('formatShowCountLabel', () => {
-  it('uses the simple form when total equals loaded', () => {
-    expect(formatShowCountLabel(12, 12)).toBe('12 shows')
-  })
-
-  it('uses singular when one show and complete', () => {
-    expect(formatShowCountLabel(1, 1)).toBe('1 show')
-  })
-
-  it('shows loaded of total when truncated', () => {
-    expect(formatShowCountLabel(150, 1088)).toBe('150 of 1,088 shows')
-  })
-
-  it('falls back to loaded-only when total is missing', () => {
-    expect(formatShowCountLabel(50)).toBe('50 shows')
-    expect(formatShowCountLabel(50, null)).toBe('50 shows')
-  })
-})
 
 // =============================================================================
 // showTimingInput: which calendar a show is judged on

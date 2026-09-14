@@ -5,8 +5,8 @@ import { queryKeys } from '../../queryClient'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
-  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_URL,
+  SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+  SHOWS_CALENDAR_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
 
 /**
@@ -26,10 +26,10 @@ export function usePrefetchRoutes() {
 
   useEffect(() => {
     const prefetch = () => {
-      // Shows page: upcoming list (no limit/cursor = initial page load)
+      // Shows page: page 1 of the list
       queryClient.prefetchQuery({
-        queryKey: UPCOMING_SHOWS_FIRST_SCREEN_KEY,
-        queryFn: () => apiRequest(UPCOMING_SHOWS_FIRST_SCREEN_URL),
+        queryKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+        queryFn: () => apiRequest(SHOWS_CALENDAR_FIRST_SCREEN_URL),
         staleTime: 5 * 60 * 1000,
       })
 

@@ -1,5 +1,7 @@
 export {
   useUpcomingShows,
+  useShowsCalendar,
+  useShowMonths,
   useShow,
   useShowCities,
   useShowAlsoTonight,

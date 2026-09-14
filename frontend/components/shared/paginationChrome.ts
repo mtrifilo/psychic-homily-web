@@ -12,6 +12,21 @@ export const navLinkClass =
   'rounded-sm text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 /**
+ * The filter-strip row: horizontally scrollable below `sm`, wrapping above it.
+ * Shared by `YearStrip` and `MonthStrip`, which navigate different axes of the
+ * same list and must not drift into two shapes.
+ */
+export const navStripClass =
+  'flex items-baseline gap-x-2 overflow-x-auto font-mono text-xs sm:flex-wrap sm:overflow-x-visible'
+
+/** The list inside a filter strip. Pairs with {@link navStripClass}. */
+export const navStripListClass =
+  'flex items-baseline gap-x-2 whitespace-nowrap sm:flex-wrap sm:gap-y-1'
+
+/** The separator between strip entries. Decorative, so it is hidden from AT. */
+export const navStripSeparatorClass = 'mr-2 text-muted-foreground'
+
+/**
  * Current item. Deliberately carries weight and an underline on top of the
  * color: color alone is not a sufficient distinction (WCAG 1.4.1).
  */
@@ -39,6 +54,70 @@ export const formatCount = (value: number) => value.toLocaleString('en-US')
  */
 export function toPageNumber(value: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : fallback
+}
+
+/**
+ * The page a pager will actually SHOW for a requested page number.
+ *
+ * A `?page=` can name a page past the end: a stale bookmark, a hand-typed
+ * number, a result set that shrank. `Pagination` renders that as the last real
+ * page rather than as "Page 99 of 3".
+ *
+ * Anything that LABELS or CAPTIONS the current page has to clamp the same way,
+ * or it keys that state on a page number nothing on screen refers to. What a
+ * consumer requests from its API deliberately does NOT clamp here: `/shows`
+ * turns an out-of-range page into a real empty response, which is how it tells
+ * "past the end" apart from "nothing matches".
+ */
+export function clampToPageCount(page: number, totalPages: number): number {
+  return Math.min(toPageNumber(page, 1), toPageNumber(totalPages, 1))
+}
+
+/** A slot in the rendered page strip: a page number, or a collapsed gap. */
+export type PaginationWindowItem = number | 'ellipsis'
+
+/**
+ * Page counts at or below this render every page; above it the strip collapses
+ * to first / last / current±1 with ellipses (GOV.UK pagination pattern).
+ */
+const FULL_STRIP_MAX_PAGES = 7
+
+/**
+ * GOV.UK-style page windowing. Returns every page up to
+ * {@link FULL_STRIP_MAX_PAGES}, and beyond that the first page, the last page,
+ * and the current page with its immediate neighbors, with `'ellipsis'` marking
+ * each collapsed gap.
+ *
+ * Inputs are clamped rather than rejected: a caller whose `currentPage` has
+ * drifted past the end (stale URL, shrinking result set) still gets a sane
+ * strip instead of a crash or an empty nav.
+ *
+ * Lives here rather than beside the component because it is pure arithmetic and
+ * `showArchive.ts`, which server routes import, derives page labels from it.
+ * `Pagination.tsx` re-exports it for importers that reach for both.
+ */
+export function paginationWindow(
+  currentPage: number,
+  totalPages: number
+): PaginationWindowItem[] {
+  const total = toPageNumber(totalPages, 1)
+  const current = clampToPageCount(currentPage, total)
+
+  if (total <= FULL_STRIP_MAX_PAGES) {
+    return Array.from({ length: total }, (_, index) => index + 1)
+  }
+
+  const pages = new Set([1, total, current])
+  if (current > 1) pages.add(current - 1)
+  if (current < total) pages.add(current + 1)
+  const sorted = [...pages].sort((a, b) => a - b)
+
+  const items: PaginationWindowItem[] = []
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1] > 1) items.push('ellipsis')
+    items.push(page)
+  })
+  return items
 }
 
 /**

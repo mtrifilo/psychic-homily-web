@@ -53,16 +53,15 @@ test.describe('City filter on shows list', () => {
       timeout: 10_000,
     })
 
-    // Tucson should not show "Load More" (only 18 shows)
-    await expect(
-      page.getByRole('button', { name: /load more/i })
-    ).not.toBeVisible()
+    // Tucson fits on one page (18 shows), and the pager renders nothing at one
+    // page or fewer.
+    await expect(page.getByTestId('pagination')).toHaveCount(0)
 
     // Click "All Cities" to reset and wait for the unfiltered API response
     const [response] = await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes('/shows/upcoming') &&
+          resp.url().includes('/shows/calendar') &&
           !resp.url().includes('cities='),
         { timeout: 10_000 }
       ),
@@ -75,9 +74,10 @@ test.describe('City filter on shows list', () => {
     // default city", so "all cities" must stay explicit in the URL.
     await expect(page).toHaveURL(/[?&]cities=all(?:&|$)/)
 
-    // Wait for "Load More" button to appear (unfiltered view has 50+ shows)
+    // The unfiltered view runs past one page, so the pager appears (PSY-2060
+    // replaced Load More with numbered pages).
     await expect(
-      page.getByRole('button', { name: /load more/i })
+      page.getByRole('link', { name: /^Page 2\b/ }).first()
     ).toBeVisible({ timeout: 10_000 })
   })
 

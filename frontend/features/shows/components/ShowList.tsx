@@ -1,22 +1,30 @@
 'use client'
 
-import { useState, useCallback, useMemo, useTransition } from 'react'
+import { useCallback, useMemo, useTransition } from 'react'
+import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useQueryState } from 'nuqs'
-import { useUpcomingShows, useShowCities } from '../hooks/useShows'
-import { batchedSaveFor } from '@/components/shared/batchedSaveData'
+import { parseAsInteger, useQueryState } from 'nuqs'
+import { useShowsCalendar, useShowCities, useShowMonths } from '../hooks/useShows'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile } from '@/features/auth'
-import type { ShowResponse } from '../types'
 import type { CityState } from '@/components/filters'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { DensityToggle } from '@/components/shared'
+import {
+  Pagination,
+  usePaginationFocusTarget,
+} from '@/components/shared/Pagination'
 import { useDensity } from '@/lib/hooks/common/useDensity'
-import { ShowCard } from './ShowCard'
+import { DayGroupedShowList } from './DayGroupedShowList'
 import { ShowListSkeleton } from './ShowListSkeleton'
+import {
+  clampPage,
+  MAX_ARCHIVE_PAGE,
+  pageRangeLabelsForWindow,
+} from '../showArchive'
+import { SHOWS_PAGE_SIZE, showsPageHref } from '../showsListNavigation'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 import {
   citiesEqual,
@@ -35,8 +43,8 @@ import {
   parseTagsParam,
   buildTagsParam,
 } from '@/features/tags'
+import { formatCount } from '@/components/shared/paginationChrome'
 import { suggestAlternativeCities } from '../suggestCities'
-import { formatShowCountLabel } from '../utils'
 
 export function ShowList() {
   const router = useRouter()
@@ -87,8 +95,25 @@ export function ShowList() {
   // means geo must not seed. Authed favorites also stand the geo hook down
   // (handled inside the hook via favoriteCities + isAuthenticated).
   const hasExistingSelection = citiesState !== null || !!(legacyCity && legacyState)
-  const [cursor, setCursor] = useState<string | undefined>(undefined)
-  const [accumulatedShows, setAccumulatedShows] = useState<ShowResponse[]>([])
+
+  // The page in view. `parseAsInteger.withDefault(1)` is the archive family's
+  // reading of `?page=`, and `clampPage` bounds a hand-edited one so it becomes
+  // an empty page rather than an arbitrarily large offset the backend will
+  // happily scan for (its `offset` carries a minimum and no maximum).
+  const [rawPage, setPage] = useQueryState(
+    'page',
+    parseAsInteger.withDefault(1).withOptions({ history: 'push', startTransition })
+  )
+  const page = clampPage(rawPage, MAX_ARCHIVE_PAGE)
+  const offset = (page - 1) * SHOWS_PAGE_SIZE
+
+  // A filter change answers a different question, so it starts at page 1 again.
+  // Written through nuqs alongside `setCities`, which batches both into ONE
+  // history entry; a `router.push` in the same tick would abort nuqs's pending
+  // queue and the reset could be dropped.
+  const resetPage = useCallback(() => {
+    void setPage(null)
+  }, [setPage])
 
   const {
     data: citiesData,
@@ -141,6 +166,15 @@ export function ShowList() {
     return appliedGeoDefault ? [appliedGeoDefault] : []
   }, [citiesState, legacyCity, legacyState, favoriteCities, appliedGeoDefault])
 
+  const listFilters = useMemo(
+    () => ({
+      cities: selectedCities.length > 0 ? selectedCities : undefined,
+      tags: selectedTags.length > 0 ? selectedTags : undefined,
+      tagMatch,
+    }),
+    [selectedCities, selectedTags, tagMatch]
+  )
+
   const {
     data,
     isLoading,
@@ -148,33 +182,107 @@ export function ShowList() {
     isPlaceholderData,
     error,
     refetch,
-  } = useUpcomingShows({
-    cursor,
-    cities: selectedCities.length > 0 ? selectedCities : undefined,
-    tags: selectedTags.length > 0 ? selectedTags : undefined,
-    tagMatch,
-  })
+  } = useShowsCalendar({ offset, limit: SHOWS_PAGE_SIZE, ...listFilters })
+
+  // The month histogram that labels every page link before the reader spends a
+  // click on it. Filter-keyed, so paging does not re-request it.
+  const { data: monthsData, isPlaceholderData: monthsArePlaceholder } =
+    useShowMonths(listFilters)
+
+  const pageShows = useMemo(() => data?.shows ?? [], [data?.shows])
 
   // Batch-check saved status for all visible shows (1 request instead of N)
-  const allShows = useMemo(
-    () => [...accumulatedShows, ...(data?.shows || [])],
-    [accumulatedShows, data?.shows]
-  )
-  const allShowIds = useMemo(() => allShows.map(s => s.id), [allShows])
+  const allShowIds = useMemo(() => pageShows.map(s => s.id), [pageShows])
   const { data: saveCounts } = useShowSaveCountBatch(
     allShowIds,
     isAuthenticated,
     user?.id
   )
 
-  const handleLoadMore = useCallback(() => {
-    if (data?.pagination?.next_cursor) {
-      // Accumulate current shows before loading next page
-      const currentShows = data.shows || []
-      setAccumulatedShows(prev => [...prev, ...currentShows])
-      setCursor(data.pagination!.next_cursor!)
+  const listTotal = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(listTotal / SHOWS_PAGE_SIZE))
+
+
+  // Facts about the current slice are only stated while the rows on screen
+  // answer the current request. `keepPreviousData` holds the outgoing page in
+  // place across a page change, and "Showing 51-100" over rows 1-50 is a wrong
+  // number rather than a stale one.
+  const rowsAnswerCurrentRequest = !isPlaceholderData
+
+  // The buckets the labels may be derived from, and NOTHING while the histogram
+  // holds its own previous filters' data.
+  //
+  // Withholding the total is not enough on its own: the premise check inside
+  // `monthRangeLabelsByPage` is skipped when no total is supplied (the
+  // histogram is then trusted alone), and the current page's label is the only
+  // one dropped. A stale histogram would go on labelling every OTHER page in
+  // the window with the wrong months. Handing it no buckets is what makes the
+  // family's rule hold here: a label is verified or absent.
+  const labelBuckets = monthsArePlaceholder ? [] : (monthsData?.months ?? [])
+
+  // The URL named a page this list does not have. Distinguished from a genuinely
+  // empty list, which is the same zero rows and a very different sentence.
+  // Only once the rows on screen answer THIS request: while `keepPreviousData`
+  // holds the previous page, `page` and `totalPages` can disagree transiently.
+  const pageIsBeyondEnd =
+    rowsAnswerCurrentRequest && pageShows.length === 0 && listTotal > 0
+
+  // Month-range page labels: what is behind a page number, before the reader
+  // spends a click on it. The window derivation and the withhold-while-stale
+  // rule live in `pageRangeLabelsForWindow`, which the past-shows archive
+  // shares. There is no row-derived fallback for the current page here, and
+  // that is deliberate: this list spans venues, so a fallback would read each
+  // row's own zone while the histogram buckets venue-locally, and the two can
+  // disagree at a month boundary.
+  const rangeLabels = useMemo(
+    () =>
+      pageRangeLabelsForWindow({
+        // Soonest first from the API, which is the order this list pages in.
+        months: labelBuckets,
+        page,
+        totalPages,
+        pageSize: SHOWS_PAGE_SIZE,
+        // The count that arrived WITH the rows, and whether those rows answer
+        // this request. The premise being checked is that the histogram's
+        // ordinals are the list's ordinals, and only the list can attest to
+        // that, so a disagreement blanks every label rather than printing a
+        // span the page does not cover.
+        total: data?.total,
+        rowsAnswerCurrentRequest,
+        // The list spans years, so a label may never elide the year.
+        scope: 'all-years',
+      }),
+    [labelBuckets, page, totalPages, rowsAnswerCurrentRequest, data?.total]
+  )
+
+  // The frame's title-row scope: the size of the whole matching set, and the
+  // metro when exactly one is selected. NOT the rows on screen, which is what
+  // the old "50 of 268 shows" line reported and what the pager's caption
+  // already says exactly ("Showing 51-100 of 268").
+  //
+  // No leading separator. The frame prints this beside the `<h1>`, where the
+  // middot joins the two; this renders it on its own line (the heading is
+  // server-rendered in the route's shell and this total is client-derived from
+  // the city filter, so the two cannot share a row without moving the heading
+  // out of the shell), and a separator with nothing to its left is a defect
+  // rather than a style.
+  const scopeLabel = useMemo(() => {
+    const total = formatCount(listTotal)
+    if (selectedCities.length === 1) {
+      const { city, state } = selectedCities[0]
+      return `${total} in ${city}, ${state}`
     }
-  }, [data])
+    return `${total} upcoming`
+  }, [listTotal, selectedCities])
+
+  const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLParagraphElement>()
+
+  // Spreads the params ALREADY on screen and overrides only `page`, so the city
+  // filter, the tag filter and any foreign param survive a page click.
+  const pageHref = useCallback(
+    (targetPage: number) => showsPageHref(searchParams, targetPage),
+    [searchParams]
+  )
 
   // City filter changes write the `?cities=` param via nuqs (which preserves
   // other params). An empty selection becomes the explicit ALL_CITIES sentinel
@@ -184,11 +292,10 @@ export function ShowList() {
       // Any manual city change is an override — block a still-in-flight geo seed
       // and drop the affordance.
       notifyUserInteracted()
-      setCursor(undefined)
-      setAccumulatedShows([])
+      resetPage()
       void setCities(cities.length > 0 ? cities : ALL_CITIES)
     },
-    [notifyUserInteracted, setCities]
+    [notifyUserInteracted, resetPage, setCities]
   )
 
   // Tag changes rewrite only the tag params via the router, preserving the raw
@@ -196,11 +303,14 @@ export function ShowList() {
   // materializes the derived default into the URL.
   const writeTags = useCallback(
     (nextTags: string[], nextMatch: 'all' | 'any') => {
-      setCursor(undefined)
-      setAccumulatedShows([])
       const params = new URLSearchParams(searchParams.toString())
       params.delete('tags')
       params.delete('tag_match')
+      // A different tag set is a different question, answered from page 1. Done
+      // inside this ONE router write rather than through nuqs beside it: a
+      // foreign history update aborts nuqs's pending queue, so the reset could
+      // be dropped.
+      params.delete('page')
       if (nextTags.length > 0) {
         params.set('tags', buildTagsParam(nextTags))
         if (nextMatch === 'any') params.set('tag_match', 'any')
@@ -232,8 +342,6 @@ export function ShowList() {
   // the `?cities=all` reset could be silently dropped. One write avoids that.
   const handleClearFilters = useCallback(() => {
     notifyUserInteracted()
-    setCursor(undefined)
-    setAccumulatedShows([])
     startTransition(() => {
       router.push('/shows?cities=all', { scroll: false })
     })
@@ -242,8 +350,6 @@ export function ShowList() {
   // Keep tags, drop the city constraint (PSY-1433 empty-state suggestion).
   const handleSameTagsAllCities = useCallback(() => {
     notifyUserInteracted()
-    setCursor(undefined)
-    setAccumulatedShows([])
     const params = new URLSearchParams()
     params.set('cities', 'all')
     if (selectedTags.length > 0) {
@@ -257,10 +363,10 @@ export function ShowList() {
 
   const alternativeCities = useMemo(
     () =>
-      allShows.length === 0 && selectedCities.length > 0
+      pageShows.length === 0 && selectedCities.length > 0
         ? suggestAlternativeCities(cities, selectedCities, 3)
         : [],
-    [allShows.length, selectedCities, cities]
+    [pageShows.length, selectedCities, cities]
   )
 
   // Determine if "Save as default" / "Clear defaults" should show
@@ -312,6 +418,34 @@ export function ShowList() {
   const showGeoAffordance = shouldShowGeoAffordance(
     appliedGeoDefault,
     selectedCities
+  )
+
+  const renderPager = (position: 'top' | 'bottom') => (
+    <Pagination
+      currentPage={page}
+      totalPages={totalPages}
+      pageHref={pageHref}
+      ariaLabel={`Upcoming shows pagination, ${position} of list`}
+      rangeLabels={rangeLabels}
+      // Omitted while the rows on screen belong to the previous page: the
+      // caption states an exact range, and "Showing 51-100" over rows 1-50 is a
+      // wrong number, not a stale one. The pager falls back to "Page 2 of 6",
+      // which stays true throughout.
+      captionRange={
+        rowsAnswerCurrentRequest && pageShows.length > 0
+          ? { start: offset + 1, end: offset + pageShows.length, total: listTotal }
+          : undefined
+      }
+      // ONE of the two instances owns the announcement, or a screen reader hears
+      // "Page 2 of 6" twice on every click. The top pager keeps it: it is beside
+      // the line the pager moves focus to, and first in DOM order.
+      announce={position === 'top'}
+      // The list runs soonest first, so paging BACK moves toward tonight.
+      previousLabel="Sooner"
+      nextLabel="Later"
+      onNavigate={focusTarget}
+      className={position === 'top' ? 'mb-4' : 'mt-6'}
+    />
   )
 
   return (
@@ -370,11 +504,46 @@ export function ShowList() {
       </div>
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
-        <p className="mb-3 text-sm text-muted-foreground" data-testid="show-count">
-          {formatShowCountLabel(allShows.length, data?.total)}
+        {/* The list's SCOPE, and the pager's focus target.
+            A page change only swaps the rows, which would otherwise leave
+            focus on a control that has moved or unmounted. It is a stable
+            LANDMARK at the top of the list, not a report of the change: the
+            pager's live region announces the new position, and the pager's
+            own caption states which rows are on screen. This line states the
+            whole matching set instead, which is what the frame's title row
+            carries. */}
+        <p
+          className="mb-3 font-mono text-[13px] text-muted-foreground"
+          data-testid="show-count"
+          {...targetProps}
+        >
+          {scopeLabel}
           {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
         </p>
-        {allShows.length === 0 ? (
+
+        {renderPager('top')}
+
+        {pageIsBeyondEnd ? (
+          /* An empty page over a NON-empty list: a stale bookmark, a
+             hand-typed number, or a page that existed until shows graduated
+             out of the upcoming set. Saying "no upcoming shows" here would be
+             a flatly false claim about the catalogue, and the filter
+             suggestions below answer a question nobody asked. The link is the
+             way back and is always rendered: the pagers are not, since they
+             return null on a list of one page, which a filtered list past its
+             end can be. */
+          <div
+            className="text-center py-12 text-muted-foreground"
+            data-testid="shows-page-beyond-end"
+          >
+            <p>That page is past the end of this list.</p>
+            <p className="mt-2 text-sm">
+              <Link href={pageHref(1)} className="text-primary hover:underline">
+                Back to the first page
+              </Link>
+            </p>
+          </div>
+        ) : pageShows.length === 0 ? (
           <div
             className="text-center py-12 text-muted-foreground"
             data-testid="shows-zero-result"
@@ -438,50 +607,19 @@ export function ShowList() {
             )}
           </div>
         ) : (
-          <>
-            <div className={cn(
-              'flex flex-col',
-              density === 'compact' && 'gap-0.5',
-              density === 'comfortable' && 'gap-3',
-              density === 'expanded' && 'gap-5'
-            )}>
-              {allShows.map(show => (
-                <ShowCard
-                  key={show.id}
-                  show={show}
-                  isAdmin={isAdmin}
-                  userId={user?.id}
-                  saveData={batchedSaveFor(saveCounts, show.id)}
-                  density={density}
-                />
-              ))}
-            </div>
-
-            {data?.pagination?.has_more && (
-              <div className="text-center py-6">
-                <Button
-                  // The replay root is INERT as this stands, and kept on
-                  // purpose. `disabled` below is true through the whole
-                  // pre-hydration window (the seed is stale by construction, so
-                  // `isFetching` is set from the server render onward), and a
-                  // disabled button emits no click to buffer. Making it live
-                  // instead is what a reviewer asked for, and it regresses:
-                  // `e2e/pages/shows.spec.ts` "pagination loads more shows"
-                  // then clicks a painted-but-not-yet-wired button and times out
-                  // waiting for rows nothing requested, and this root does not
-                  // rescue it (bisected). Keep both together so re-enabling the
-                  // gate does not silently reinstate the swallowed click.
-                  {...replayOnHydrate}
-                  variant="outline"
-                  onClick={handleLoadMore}
-                  disabled={isFetching}
-                >
-                  {isFetching ? 'Loading...' : 'Load More'}
-                </Button>
-              </div>
-            )}
-          </>
+          <DayGroupedShowList
+            shows={pageShows}
+            density={density}
+            isAdmin={isAdmin}
+            userId={user?.id}
+            saveCounts={saveCounts}
+            // From the FILTER: exactly one selected metro is the only case
+            // where every row would repeat the same city.
+            showCity={selectedCities.length !== 1}
+          />
         )}
+
+        {renderPager('bottom')}
       </div>
     </section>
   )
