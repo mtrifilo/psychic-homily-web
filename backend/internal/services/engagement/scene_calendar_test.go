@@ -340,7 +340,7 @@ func TestSceneFeed_OmitsRedactedAddress(t *testing.T) {
 	out := unfoldICS(renderSceneFeed([]contracts.SceneShowSummary{
 		testSceneShow(1, func(s *contracts.SceneShowSummary) {
 			s.VenueName = "Someone's Basement"
-			s.VenueAddress = "" // what the redaction gate produces
+			s.VenueAddress = "" // a verified room with no address on file
 		}),
 	}))
 

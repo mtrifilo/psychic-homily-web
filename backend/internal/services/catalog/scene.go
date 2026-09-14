@@ -837,9 +837,11 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// venue zone, which is the boundary GetSceneDetail's headline figure takes. A
 	// card here links to that page, so the two numbers must name the same night.
 	//
-	// This count reaches only verified rooms (sceneVenueEligibilitySQL), which
-	// is the room set GetSceneDetail's headline figure is drawn over too, so a
-	// card and the page it opens report the same number.
+	// This count reaches only verified rooms, as GetSceneDetail's headline figure
+	// now does, so the two agree on every corpus the site actually holds.
+	// sceneVenueEligibilitySQL is still the STRICTER rule: it also requires a
+	// usable city and state, which trackedVenuePredicate does not, so a verified
+	// room carrying a metro and a blank city counts on the page and not here.
 	//
 	// this_week_count is the sceneThisWeekDays-night slice of that same set
 	// (PSY-1309), driving the Atlas globe's pulse: one more FILTER aggregate in
@@ -1328,6 +1330,11 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 	// Distinct from `primaryVenueLateralSQL` (charts_service.go), which picks by
 	// lowest venue_id for venue ATTRIBUTION. This pick is scene-scoped and
 	// name-ordered because it is a display label with an address attached.
+	//
+	// The pick is over the rooms the WHERE admitted, so a bill split between a
+	// tracked room and an untracked one is listed under the TRACKED room. That is
+	// the only room of the pair this surface may name, and the show is on the
+	// scene's calendar because of it.
 	//
 	// The venue_address CASE is unreachable: the WHERE already pins v.verified on
 	// this same alias. It is kept fail-closed, because this one query projects
@@ -2333,12 +2340,22 @@ func sortStringsAsc(s []string) {
 // (for the PSY-1277 truncation flag).
 func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, int, error) {
 	ap, aargs := s.artistPredicate(scope, "a")
-	// trackedVenuePredicate, not the bare scope: primary_venue_name is published
-	// as a roster row's room and as a scene-graph cluster LABEL, so a room the
-	// leaderboard refuses to list cannot be named here either. A band whose only
-	// bookings are at untracked rooms keeps a NULL primary venue, the same state
-	// a band with no bookings at all is in, which buildSceneClusters skips.
-	vp, vargs := trackedVenuePredicate(scope, "v")
+	// Two predicates, because the CTEs below answer different questions.
+	//
+	// activityPredicate RANKS the roster and decides which bands survive
+	// sceneGraphRosterLimit. It is the bare scope: a band's standing in a town is
+	// every show it played there, and scoring its DIY bookings at zero would sink
+	// the busiest local band below one that has never played.
+	//
+	// labelPredicate picks primary_venue_name, which is PUBLISHED as a roster
+	// row's room and as a scene-graph cluster label, so it is the tracked rule.
+	// A band whose only bookings are at untracked rooms keeps a NULL primary
+	// venue, the same state a band with no bookings at all is in, which
+	// buildSceneClusters skips.
+	//
+	// Both carry the same args: the verified term binds nothing.
+	activityPredicate, vargs := scope.venuePredicate("v")
+	labelPredicate, _ := trackedVenuePredicate(scope, "v")
 	const q = `
 		WITH scene_artists AS (
 			SELECT a.id AS artist_id FROM artists a WHERE %s
@@ -2413,7 +2430,7 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 	args = append(args, vargs...)
 	args = append(args, catalogm.ShowStatusApproved)
 	var rows []sceneArtistRow
-	if err := s.db.Raw(fmt.Sprintf(q, ap, vp, vp), args...).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(fmt.Sprintf(q, ap, activityPredicate, labelPredicate), args...).Scan(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	rosterTotal := 0

@@ -664,6 +664,147 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsCalendarWeekM
 		"the list count IS the week page's total, or the link lies about where it goes")
 }
 
+// The calendar-week count is the ONLY field on the card counted by a predicate
+// of its own, so the room set it follows has to be pinned separately: it tracks
+// the week PAGE, and an unverified room's booking reaches neither.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsCalendarWeekSkipsUnverifiedRooms() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	back := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
+	band := suite.createArtist("Calendar Band")
+
+	loc := utils.EventLocation(nil, "AZ")
+	start, _ := sceneCalendarWeekWindow(time.Now(), loc)
+	suite.createApprovedShow("Tracked", v1.ID, band.ID, user.ID, start.Add(20*time.Hour))
+	suite.createApprovedShow("Untracked", back.ID, band.ID, user.ID, start.Add(21*time.Hour))
+	// Two nights well outside the week, to clear sceneMinShows without touching
+	// the figure under test.
+	suite.createApprovedShow("Last month", v1.ID, band.ID, user.ID, start.AddDate(0, 0, -30))
+	suite.createApprovedShow("Month before", v1.ID, band.ID, user.ID, start.AddDate(0, 0, -60))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+
+	suite.Equal(1, scenes[0].ShowsCalendarWeek, "the untracked room's booking is not the scene's week")
+	suite.Equal(week.ShowCount, scenes[0].ShowsCalendarWeek,
+		"the list count IS the week page's total, or the link lies about where it goes")
+}
+
+// KNOWN and deliberate: the card and the page do NOT share a predicate, only a
+// room set on every corpus the site actually holds. The directory groups under
+// sceneVenueEligibilitySQL, which also demands a usable city and state; the page
+// scopes on the metro alone. A verified room carrying a metro and a blank city
+// therefore counts on the page and not on the card.
+//
+// Pinned rather than left to the fixtures, because every other equality test
+// here seeds rooms with cities and a reader who takes those for the general rule
+// will file this as a counting bug in whichever query they read second.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_BlankCityRoomCountsOnThePageOnly() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	blank := suite.createVerifiedVenue("Nameless Place", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(blank).Update("city", "").Error)
+	band := suite.createArtist("Blank City Band")
+
+	loc, tonight := sceneNightFixture()
+	suite.createApprovedShow("Tracked", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(2), loc))
+	suite.createApprovedShow("Blank City", blank.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(2), loc))
+	// Two past nights at a room the DIRECTORY can see, so the scene clears
+	// sceneMinShows on the directory's own terms and the upcoming figures below
+	// are the only thing the blank city moves.
+	suite.createApprovedShow("Last month", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(-30), loc))
+	suite.createApprovedShow("Month before", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(-60), loc))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(1, scenes[0].UpcomingShowCount, "the directory needs a usable city and state")
+	suite.Equal(2, detail.Stats.UpcomingShowCount, "the page scopes on the metro alone")
+}
+
+// A bill split between a tracked room and an untracked one is the scene's show,
+// listed ONCE and named by the room the scene may name. The address published
+// with it is that room's, which is the whole reason the pick cannot be allowed
+// to land on the untracked half.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_MixedBillNamesTheTrackedRoom() {
+	user := suite.createUser()
+	// Alphabetically FIRST, so a pick that ignored verification would choose it.
+	back := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(back).Update("address", "123 Private St").Error)
+	tracked := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(tracked).Update("address", "308 N 2nd Ave").Error)
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	band := suite.createArtist("Two Room Band")
+
+	start := time.Now().UTC().AddDate(0, 0, 2)
+	show := suite.createApprovedShow("Split Bill", tracked.ID, band.ID, user.ID, start)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: back.ID}).Error)
+
+	shows, err := suite.sceneService.GetSceneShowsInRange(
+		"Phoenix", "AZ", start.AddDate(0, 0, -1), start.AddDate(0, 0, 1), time.UTC, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1, "a two-room bill is one row")
+	suite.Equal("Crescent Ballroom", shows[0].VenueName)
+	suite.Equal("308 N 2nd Ave", shows[0].VenueAddress)
+}
+
+// The roster CTE answers two questions with two predicates, and this is the
+// fixture that separates them.
+//
+// primary_venue_name is PUBLISHED, as a roster row's room and as a scene-graph
+// cluster label, so it names tracked rooms only: the house band's most-played
+// room is untracked, and it comes back NULL rather than naming the room.
+//
+// The RANKING is the bare scope, so the house band's four untracked bookings
+// still outscore the club band's one. Narrowing that too would score a DIY-only
+// band at zero and drop it out of a roster capped at sceneGraphRosterLimit.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneRoster_LabelsTrackedRoomsButRanksEveryBooking() {
+	user := suite.createUser()
+	tracked := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	back := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
+	houseBand := suite.createArtist("Back Room Regulars")
+	clubBand := suite.createArtist("Club Band")
+
+	base := time.Now().UTC().AddDate(0, 0, -30)
+	for i := 0; i < 4; i++ {
+		suite.createApprovedShow(fmt.Sprintf("House %d", i), back.ID, houseBand.ID, user.ID, base.AddDate(0, 0, i))
+	}
+	suite.createApprovedShow("Club", tracked.ID, clubBand.ID, user.ID, base)
+
+	scope, err := suite.sceneService.scopeFor("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	rows, _, err := suite.sceneService.querySceneArtistsWithPrimaryVenue(scope)
+	suite.Require().NoError(err)
+
+	byName := make(map[string]sceneArtistRow, len(rows))
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	house, ok := byName["Back Room Regulars"]
+	suite.Require().True(ok, "the band stays on the roster")
+	suite.Nil(house.PrimaryVenueName, "it has no room this scene may name")
+	suite.Nil(house.PrimaryVenueID)
+
+	club, ok := byName["Club Band"]
+	suite.Require().True(ok)
+	suite.Require().NotNil(club.PrimaryVenueName)
+	suite.Equal("Crescent Ballroom", *club.PrimaryVenueName)
+
+	clusters, _ := buildSceneClusters(rows)
+	for _, c := range clusters {
+		suite.NotEqual("Back Room", c.Label, "no cluster is labelled with an untracked room")
+	}
+}
+
 // Every scene gets its OWN Monday. A single window applied across the list
 // would be right for whichever zone it was derived in and wrong for the rest,
 // which is the bug the shared /shows heading still carries by design.

@@ -13,18 +13,19 @@ import (
 // positional bind args. The alias must name a VENUES table or row; the fragment
 // is self-parenthesised, so it is safe to AND or OR it into a larger predicate.
 //
-// It exists so "a room this scene tracks" has ONE definition. A scene surface
-// that NAMES a room or counts its shows asks this; they project, order and count
-// differently, so they cannot share a whole query, and what they must never
-// disagree on is WHICH rooms count. Excluding (say) permanently-closed rooms
-// from one query alone would leave two pages naming different rooms for the same
-// city, or a scene whose venue_count and venue LIST disagree.
+// It exists so "a room this scene tracks" has ONE definition. The queries that
+// ask it project, order and count differently, so they cannot share a whole
+// query, and what they must never disagree on is WHICH rooms count. Excluding
+// (say) permanently-closed rooms from one query alone would leave two pages
+// naming different rooms for the same city, or a scene whose venue_count and
+// venue LIST disagree.
 //
-// Asking whether a band, collection or crew BELONGS to a place is the other
-// question, and it takes scope.venuePredicate, which is geography alone. The
-// collections rail, the crews list and the gaps counts are on that side and each
-// states its reason at its query; note that the crews list publishes a per-crew
-// show_count drawn over rooms this predicate excludes.
+// It is not the only venue rule a scene query may take: scope.venuePredicate is
+// the same scope without the verified term, and asks a different question about
+// a room. Neither is a default. A caller picks one and says why at its query.
+//
+// It is also NOT sceneVenueEligibilitySQL, which the DIRECTORY groups by: that
+// one adds a usable city and state, so it is strictly the narrower of the two.
 //
 // BINDING: args go in SQL TEXT order, not "predicate first". The rule
 // venuePredicate states for its own callers — splice it first so its args lead —
