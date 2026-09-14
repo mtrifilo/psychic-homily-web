@@ -136,6 +136,27 @@ describe('groupShowsByVenueLocalDay', () => {
       expect(groups[1].isToday).toBe(false)
     })
 
+    // TONIGHT is a same-day claim, and a venue with no zone of its own outside
+    // the US state map is dated on a FALLBACK zone that can be a calendar day
+    // out. The date still prints; the word does not.
+    it('makes no TONIGHT claim for a venue whose zone is only guessed', () => {
+      const now = new Date('2026-09-12T19:00:00Z')
+      const guessed = makeShow(1, '2026-09-13T02:00:00Z', undefined, 'XX')
+
+      const groups = groupShowsByVenueLocalDay([guessed], now)
+
+      expect(groups[0].isToday).toBe(false)
+      // The heading is still rendered, on the guessed zone.
+      expect(groups[0].dateKey).not.toBeNull()
+    })
+
+    it('still marks today when the venue carries its own zone', () => {
+      const now = new Date('2026-09-12T19:00:00Z')
+      const resolved = makeShow(1, '2026-09-13T02:00:00Z', 'America/Phoenix', 'XX')
+
+      expect(groupShowsByVenueLocalDay([resolved], now)[0].isToday).toBe(true)
+    })
+
     // The server render passes no clock: reading one in a prerenderable scope
     // would move the whole list into the dynamic resume.
     it('marks nothing when no clock is supplied', () => {

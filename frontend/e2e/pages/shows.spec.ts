@@ -130,6 +130,19 @@ test.describe('Shows list', () => {
         { timeout: 15_000 }
       )
       .not.toBe(firstPageLeadRow)
+
+    // Page 1 writes no `page`, so stepping back lands on the bare URL and the
+    // list follows it. This is the half a unit test cannot make: it exercises
+    // the browser's own history, not a mocked param.
+    await page.goBack()
+    await expect(page).toHaveURL(/\/shows$/)
+    await expect
+      .poll(
+        async () =>
+          page.locator('article').first().getAttribute('aria-label'),
+        { timeout: 15_000 }
+      )
+      .toBe(firstPageLeadRow)
   })
 
   // PSY-1623: `/shows` is the only page that links the scene-week pages into the

@@ -59,23 +59,33 @@ function DayGroupSection({
       data-testid="show-day-group"
       data-date={group.dateKey ?? undefined}
     >
-      <h2
-        // Only the first group of a date carries the anchor: an id is unique
-        // per document, and a page can hold two groups of one date.
-        id={group.anchorId ?? undefined}
-        className={cn(
-          'scroll-mt-20 pb-1.5 font-mono text-[10.5px] font-bold tracking-[1px] uppercase',
-          group.isToday ? 'text-primary' : 'text-muted-foreground'
-        )}
-      >
-        {dayGroupHeading(group)}
-      </h2>
-      <div
-        className={cn(
-          'border-t',
-          group.isToday ? 'border-primary' : 'border-border'
-        )}
-      />
+      {/* A run whose date cannot be read gets NO heading. The formatters
+          answer an unparseable date with the literal "INVALID DATE", and a
+          heading is a much louder place to print that than the date tile
+          inside a row: it would caption a run of otherwise readable rows with
+          a non-date. Without one the rows simply appear ungrouped, which is
+          what is actually known about them. */}
+      {group.dateKey !== null && (
+        <>
+          <h2
+            // Only the first group of a date carries the anchor: an id is
+            // unique per document, and a page can hold two groups of one date.
+            id={group.anchorId ?? undefined}
+            className={cn(
+              'scroll-mt-20 pb-1.5 font-mono text-[10.5px] font-bold tracking-[1px] uppercase',
+              group.isToday ? 'text-primary' : 'text-muted-foreground'
+            )}
+          >
+            {dayGroupHeading(group)}
+          </h2>
+          <div
+            className={cn(
+              'border-t',
+              group.isToday ? 'border-primary' : 'border-border'
+            )}
+          />
+        </>
+      )}
       <div className={cn('flex flex-col', rowsSpacingClass[density])}>
         {group.rows.map(show => (
           <ShowCard

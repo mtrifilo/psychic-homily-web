@@ -21,10 +21,13 @@ import {
   SHOW_CITIES_FIRST_SCREEN_URL,
   SHOWS_CALENDAR_FIRST_SCREEN_KEY,
   SHOWS_CALENDAR_FIRST_SCREEN_URL,
+  SHOWS_MONTHS_FIRST_SCREEN_KEY,
+  SHOWS_MONTHS_FIRST_SCREEN_URL,
   showEndpoints,
 } from '@/features/shows/api'
 import type {
   ShowCitiesResponse,
+  ShowMonthsResponse,
   ShowsCalendarResponse,
   UpcomingShowsResponse,
 } from '@/features/shows/types'
@@ -71,10 +74,11 @@ interface ShowListItem {
  * invisible.
  *
  * It bounds the `ItemList` ONLY. The server-rendered first screen is sized by
- * what `ShowList` itself requests, which is the endpoint's own default, and it
- * is fetched separately (see `HydratedShowList`) precisely so the two are not
- * coupled. Raising this changes how many entries a crawler is offered and
- * nothing about what a reader sees.
+ * `SHOWS_PAGE_SIZE`, which `ShowList` and its seed both state explicitly, and
+ * it is fetched separately (see `HydratedShowList`) precisely so the two are
+ * not coupled. The two numbers are equal today and answer different questions:
+ * how many entries a crawler is offered, and how many rows a reader gets per
+ * page. Raising this changes the first and nothing about what a reader sees.
  */
 export const UPCOMING_SHOWS_LIMIT = 50
 
@@ -182,7 +186,7 @@ function getShowName(show: ShowListItem): string {
  * `fetchListPayload`).
  */
 async function HydratedShowList() {
-  const [shows, cities] = await Promise.all([
+  const [shows, cities, months] = await Promise.all([
     fetchListPayload<ShowsCalendarResponse>({
       url: SHOWS_CALENDAR_FIRST_SCREEN_URL,
       collection: 'shows',
@@ -193,6 +197,16 @@ async function HydratedShowList() {
       collection: 'cities',
       service: 'show-cities-first-screen',
     }),
+    // The pager's page labels. Unlike the two above it is not a gate on the
+    // first paint — the list renders with bare numerals if it is missing — so
+    // its failure does not suppress the seed. It is fetched here because it is
+    // otherwise a THIRD client call on this route against a per-IP budget that
+    // everyone behind one address shares.
+    fetchListPayload<ShowMonthsResponse>({
+      url: SHOWS_MONTHS_FIRST_SCREEN_URL,
+      collection: 'months',
+      service: 'shows-months-first-screen',
+    }),
   ])
 
   if (!shows || !cities) {
@@ -202,6 +216,9 @@ async function HydratedShowList() {
   const dehydratedState = await seedFirstScreen([
     { queryKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY, data: shows },
     { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
+    ...(months
+      ? [{ queryKey: SHOWS_MONTHS_FIRST_SCREEN_KEY, data: months }]
+      : []),
   ])
 
   return (

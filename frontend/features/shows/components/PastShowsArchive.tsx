@@ -372,14 +372,13 @@ export function PastShowsArchive<T extends ArchiveRow>({
       page,
       totalPages,
       pageSize,
-      // The count that arrived WITH the rows, and only while those rows answer
-      // the current request. Deliberately not `scopedTotal`, which may be the
-      // YEAR histogram's sum: two aggregates agreeing with each other says
-      // nothing about the rows on screen, and they age in separate caches, so
-      // comparing them would blank every label whenever one revalidated before
-      // the other. Omitted rather than guessed while a placeholder page is up,
-      // which is also what withholds the CURRENT page's label on that render.
-      listTotal: rowsAnswerCurrentRequest ? list.total : undefined,
+      // The count that arrived WITH the rows. Deliberately not `scopedTotal`,
+      // which may be the YEAR histogram's sum: two aggregates agreeing with
+      // each other says nothing about the rows on screen, and they age in
+      // separate caches, so comparing them would blank every label whenever one
+      // revalidated before the other.
+      total: list.total,
+      rowsAnswerCurrentRequest,
       scope: labelScope,
     })
 

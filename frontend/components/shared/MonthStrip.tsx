@@ -123,11 +123,16 @@ function Separator() {
  * Month filter strip for a forward-looking list:
  * `All upcoming (268) · Sep (64) · Oct (112) · Nov (68) · Dec (13) · 2027 ▸ (11)`.
  *
- * Composes above a `Pagination` row rather than being part of it — the two
- * navigate different axes. The month sibling of `YearStrip`, and it borrows
+ * Designed to compose above a `Pagination` row rather than be part of it — the
+ * two navigate different axes. The month sibling of `YearStrip`, and it borrows
  * that component's collapse mechanics: months past the leading year stay in the
  * DOM as real links so crawlers reach them, hidden behind their year's
  * disclosure until a reader opens it.
+ *
+ * NOT MOUNTED ANYWHERE YET. A month href addresses a per-month route, and none
+ * exists; mounting this today would render a strip whose every link 404s. It
+ * ships with its tests ahead of that route so the route's own change is the
+ * small one.
  *
  * Every month is a real `<a href>`. The strip is bounded to the months it is
  * handed, so a consumer passing a histogram gets exactly the months that have

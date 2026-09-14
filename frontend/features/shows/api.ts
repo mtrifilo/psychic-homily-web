@@ -128,15 +128,26 @@ export const showQueryKeys = {
  * a server-rendered first screen means resolving per-visitor state on a
  * cacheable route, which is a separate decision.
  *
- * WHAT MAKES THE SEED LAND: these requests carry no PER-VIEWER input. `GET
- * /shows/calendar` decides "upcoming" against each show's own venue timezone, so
- * one canonical answer is the correct answer for every visitor. The filterless
- * KEY below is therefore exactly what the hooks ask for on a cold anon `/shows`
- * — the seeded entry is a hit, and the hydration commit has nothing to refetch.
+ * WHAT MAKES THE SEED LAND: on the public path these requests carry no
+ * PER-VIEWER input. `GET /shows/calendar` decides "upcoming" against each show's
+ * own venue timezone, so one canonical answer is the correct answer for every
+ * visitor. The filterless KEY below is therefore exactly what the hooks ask for
+ * on a cold anon `/shows` — the seeded entry is a hit, and the hydration commit
+ * has nothing to refetch.
  *
- * The seed is PAGE 1 only. `?page=2` and beyond are client-fetched: they are a
- * long tail of addresses, each a separate cache entry, and none of them is what
- * a cold visitor or a crawler lands on.
+ * The handlers do consult `upcomingListIncludesNonApproved`, but neither route
+ * is registered under the optional-auth group, so no viewer ever reaches that
+ * branch and the keys below carry no viewer segment. Moving either route under
+ * optional auth would break that pairing, and the keys would have to move with
+ * it.
+ *
+ * The seed is PAGE 1 only, and `app/shows/page.tsx` never reads `searchParams`,
+ * so every `?page=N` document ships page 1's rows and swaps them client-side.
+ * The pager renders real `<a href>`s into that HTML, so a crawler DOES reach
+ * the deep pages; they carry the route's static canonical back to `/shows`,
+ * which is the site's canonicalize-to-root pagination policy. Seeding per page
+ * would mean reading `searchParams` in the route, which costs it the
+ * prerendered shell.
  *
  * The `limit` is in the URL rather than left to the endpoint's own default,
  * because the pager's arithmetic depends on the page size the request actually
@@ -164,3 +175,28 @@ export const SHOWS_CALENDAR_FIRST_SCREEN_KEY = showQueryKeys.calendar({
 export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
 
 export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities()
+
+/**
+ * The month histogram behind the pager's page labels.
+ *
+ * Seeded for the same reason the rows are, and with more at stake than the
+ * labels: it is a third call on the site's busiest public read, it is
+ * `private, max-age=60` so no shared cache absorbs a repeat, and the anonymous
+ * per-IP budget is shared by everyone behind one address. Unseeded, a cold
+ * `/shows` view costs three calls instead of two against that budget, which is
+ * the shape that surfaces as intermittent "Failed to load" and never reaches
+ * Sentry.
+ *
+ * Filterless, like its siblings, so it is the entry a cold anon visitor asks
+ * for. A filtered deep link misses it and fetches for itself, which costs that
+ * visitor the labels for a beat and nothing else.
+ */
+export const SHOWS_MONTHS_FIRST_SCREEN_URL = showEndpoints.MONTHS
+
+export const SHOWS_MONTHS_FIRST_SCREEN_KEY = showQueryKeys.months({
+  city: undefined,
+  state: undefined,
+  cities: undefined,
+  tags: undefined,
+  tagMatch: undefined,
+})

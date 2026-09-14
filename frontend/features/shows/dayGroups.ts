@@ -6,6 +6,7 @@
  * rather than through a rendered list.
  */
 
+import { isShowTimezoneResolved } from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import {
   venueLocalDateKey,
@@ -139,7 +140,17 @@ export function groupShowsByVenueLocalDay(
       // Read off the group's FIRST row. A group is one local date, which two
       // venues in different zones can share, so "today" is answered where this
       // group's leading show happens.
-      isToday: dateKey !== null && dateKey === todayKeyFor(zone),
+      //
+      // Gated on a RESOLVED zone. TONIGHT is a same-day claim, and
+      // `resolveShowTimezone` answers with a guess for a venue whose own zone is
+      // unset and whose state is outside the US map — a guess that can be a
+      // calendar day out. A guessed DATE is a weaker claim and still prints;
+      // the word TONIGHT does not (the rule is stated on
+      // `isShowTimezoneResolved`).
+      isToday:
+        dateKey !== null &&
+        isShowTimezoneResolved(zone.state, zone.timezone) &&
+        dateKey === todayKeyFor(zone),
       rows: [show],
     })
   }

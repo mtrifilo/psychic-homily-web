@@ -519,7 +519,8 @@ describe('pageRangeLabelsForWindow', () => {
       page: 1,
       totalPages: 12,
       pageSize: 10,
-      listTotal: 120,
+      total: 120,
+      rowsAnswerCurrentRequest: true,
       scope: 'all-years',
       ...overrides,
     })
@@ -544,7 +545,7 @@ describe('pageRangeLabelsForWindow', () => {
   // render at that page and never corrected, so it may not come from a
   // histogram whose premise went unchecked.
   it('withholds the current page label when the rows cannot vouch for it', () => {
-    const withheld = labels({ page: 2, listTotal: undefined })
+    const withheld = labels({ page: 2, rowsAnswerCurrentRequest: false })
 
     expect(withheld[2]).toBeUndefined()
     // The other windowed pages keep theirs: they are not being announced.
@@ -558,6 +559,28 @@ describe('pageRangeLabelsForWindow', () => {
   // The premise check inside `monthRangeLabelsByPage` still governs: a
   // histogram that disagrees with the rows blanks everything.
   it('drops every label when the histogram disagrees with the rows', () => {
-    expect(labels({ listTotal: 119 })).toEqual({})
+    expect(labels({ total: 119 })).toEqual({})
+  })
+
+  // The URL can name a page past the end. The pager renders the last real page
+  // as current and announces THAT number, so the withhold has to target the
+  // page on screen rather than the one the URL asked for.
+  it('withholds the label for the page the pager will actually show', () => {
+    const withheld = labels({ page: 99, rowsAnswerCurrentRequest: false })
+
+    expect(withheld[12]).toBeUndefined()
+  })
+
+  // A caller cannot defeat the withhold by passing a real total while holding
+  // stale rows: both facts go in, and the helper combines them.
+  it('withholds the current page even when a real total is supplied', () => {
+    const stale = labels({
+      page: 2,
+      total: 120,
+      rowsAnswerCurrentRequest: false,
+    })
+
+    expect(stale[2]).toBeUndefined()
+    expect(stale[1]).toBe('Jan 2026')
   })
 })

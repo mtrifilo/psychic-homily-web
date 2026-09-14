@@ -19,8 +19,11 @@
  * instead of a single zone.
  */
 
-import { paginationWindow } from '@/components/shared/Pagination'
-import { toPageNumber } from '@/components/shared/paginationChrome'
+import {
+  clampToPageCount,
+  paginationWindow,
+  toPageNumber,
+} from '@/components/shared/paginationChrome'
 import {
   formatCalendarMonthParts,
   formatShowMonth,
@@ -407,11 +410,20 @@ export function clampPage(page: number, maxPage: number): number {
  *   page links, so labelling the other 993 pages of a deep archive is work
  *   nothing displays.
  * - The CURRENT page's label is dropped while `keepPreviousData` holds the
- *   outgoing page. `listTotal` cannot be supplied then — the rows on screen
- *   answer a different request — so the histogram's premise check could not
- *   run, and this is the exact render on which `Pagination` latches its
- *   live-region announcement and never corrects it. A label the reader is told
- *   once and never corrected has to be verified or absent.
+ *   outgoing page. The histogram's premise check cannot run then — the rows on
+ *   screen answer a different request, so they cannot attest to the ordinals —
+ *   and this is the exact render on which `Pagination` latches its live-region
+ *   announcement and never corrects it. A label the reader is told once and
+ *   never corrected has to be verified or absent.
+ *
+ * The withhold takes `rowsAnswerCurrentRequest` and the raw `total` rather than
+ * a pre-combined `listTotal`, so the rule cannot be defeated by a caller that
+ * passes a real total while holding stale rows. Both facts come from one query
+ * result, and combining them here is what makes the two inseparable.
+ *
+ * The withheld page is the page the PAGER will show, not the one the URL asked
+ * for: a `?page=99` over three pages is rendered as page 3 and announced as
+ * page 3, so deleting label 99 would leave label 3 to be announced unverified.
  *
  * Callers still own their FALLBACK for the current page, derived from rows they
  * hold, because only they know how to read a row's zone.
@@ -421,24 +433,26 @@ export function pageRangeLabelsForWindow({
   page,
   totalPages,
   pageSize,
-  listTotal,
+  total,
+  rowsAnswerCurrentRequest,
   scope,
 }: {
   /** Histogram buckets in list order, already scoped to what the pager covers. */
   months: ArchiveMonthCount[]
-  /** 1-based current page. */
+  /** 1-based current page, as the URL asked for it. */
   page: number
   /** Total page count. */
   totalPages: number
   /** Rows per page, as requested. */
   pageSize: number
-  /**
-   * The count that arrived WITH the rows, or `undefined` while those rows
-   * answer a different request.
-   */
-  listTotal: number | undefined
+  /** The count that arrived WITH the rows, whatever their freshness. */
+  total: number | undefined
+  /** Whether the rows on screen answer the request this page names. */
+  rowsAnswerCurrentRequest: boolean
   scope: ArchiveLabelScope
 }): Record<number, string> {
+  const listTotal = rowsAnswerCurrentRequest ? total : undefined
+
   const labels = monthRangeLabelsByPage({
     months,
     pageSize,
@@ -449,7 +463,7 @@ export function pageRangeLabelsForWindow({
     scope,
   })
 
-  if (listTotal === undefined) delete labels[page]
+  if (listTotal === undefined) delete labels[clampToPageCount(page, totalPages)]
 
   return labels
 }
@@ -457,8 +471,14 @@ export function pageRangeLabelsForWindow({
 /**
  * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
  * bounded empty page instead of an unbounded offset the backend has to reject.
- * At 50 rows a page this covers 50,000 shows for one entity, roughly two orders
- * of magnitude past the busiest venue and the most-played artist observed.
+ * At 50 rows a page this covers 50,000 rows.
+ *
+ * That is roughly two orders of magnitude past the busiest venue and the
+ * most-played artist observed, which is the measurement the two entity archives
+ * were sized on. The upcoming list is catalog-wide rather than per-entity, so
+ * its premise is a different one and smaller: it holds only shows that have not
+ * happened yet, measured at 9,263 across all cities (2026-09-11), an order of
+ * magnitude inside this bound.
  *
  * ONE constant for all three paged show lists (PSY-1842, PSY-2060). The two
  * archives had identical copies, and `/shows` shares this one rather than

@@ -18,8 +18,10 @@ import {
   SHOW_CITIES_FIRST_SCREEN_URL,
   SHOWS_CALENDAR_FIRST_SCREEN_KEY,
   SHOWS_CALENDAR_FIRST_SCREEN_URL,
+  SHOWS_MONTHS_FIRST_SCREEN_KEY,
+  SHOWS_MONTHS_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
-import { useShowCities, useShowsCalendar } from './useShows'
+import { useShowCities, useShowMonths, useShowsCalendar } from './useShows'
 
 /**
  * `app/shows/page.tsx` server-renders the first screen by fetching
@@ -171,5 +173,28 @@ describe('shows first-screen prefetch contract', () => {
     expect(queryClient.getQueryCache().getAll()[0].queryHash).not.toBe(
       hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY),
     )
+  })
+
+  // The histogram is the THIRD call this route would otherwise make on a cold
+  // anonymous view, against a per-IP budget everyone behind one address shares.
+  // Its pairing has to hold for the same reason the other two do.
+  it('useShowMonths requests SHOWS_MONTHS_FIRST_SCREEN_URL and keys on SHOWS_MONTHS_FIRST_SCREEN_KEY', async () => {
+    mockApiRequest.mockResolvedValueOnce({ months: [], total: 0 })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(() => useShowMonths(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      SHOWS_MONTHS_FIRST_SCREEN_URL,
+      { method: 'GET' },
+    )
+
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(hashKey(SHOWS_MONTHS_FIRST_SCREEN_KEY))
   })
 })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useTransition } from 'react'
+import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { parseAsInteger, useQueryState } from 'nuqs'
 import { useShowsCalendar, useShowCities, useShowMonths } from '../hooks/useShows'
@@ -199,11 +200,19 @@ export function ShowList() {
   const listTotal = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(listTotal / SHOWS_PAGE_SIZE))
 
+
   // Facts about the current slice are only stated while the rows on screen
   // answer the current request. `keepPreviousData` holds the outgoing page in
   // place across a page change, and "Showing 51-100" over rows 1-50 is a wrong
   // number rather than a stale one.
   const rowsAnswerCurrentRequest = !isPlaceholderData
+
+  // The URL named a page this list does not have. Distinguished from a genuinely
+  // empty list, which is the same zero rows and a very different sentence.
+  // Only once the rows on screen answer THIS request: while `keepPreviousData`
+  // holds the previous page, `page` and `totalPages` can disagree transiently.
+  const pageIsBeyondEnd =
+    rowsAnswerCurrentRequest && pageShows.length === 0 && listTotal > 0
 
   // Month-range page labels: what is behind a page number, before the reader
   // spends a click on it. The window derivation and the withhold-while-stale
@@ -220,11 +229,13 @@ export function ShowList() {
         page,
         totalPages,
         pageSize: SHOWS_PAGE_SIZE,
-        // The count that arrived WITH the rows. The premise being checked is
-        // that the histogram's ordinals are the list's ordinals, and only the
-        // list can attest to that — so a disagreement blanks every label rather
-        // than printing a span the page does not cover.
-        listTotal: rowsAnswerCurrentRequest ? data?.total : undefined,
+        // The count that arrived WITH the rows, and whether those rows answer
+        // this request. The premise being checked is that the histogram's
+        // ordinals are the list's ordinals, and only the list can attest to
+        // that — so a disagreement blanks every label rather than printing a
+        // span the page does not cover.
+        total: data?.total,
+        rowsAnswerCurrentRequest,
         // The list spans years, so a label may never elide the year.
         scope: 'all-years',
       }),
@@ -460,10 +471,11 @@ export function ShowList() {
       </div>
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
-        {/* The pager's focus target. A page change only swaps the rows, which
-            leaves focus on a control that may have moved and leaves a screen
-            reader with no signal that anything happened; this line is the first
-            thing above the list that describes what changed. */}
+        {/* The pager's focus target: a page change only swaps the rows, which
+            would otherwise leave focus on a control that has moved or
+            unmounted. It is a stable LANDMARK at the top of the list, not a
+            report of the change — the text is the same on most pages, and the
+            pager's live region is what announces the new position. */}
         <p
           className="mb-3 text-sm text-muted-foreground"
           data-testid="show-count"
@@ -475,7 +487,26 @@ export function ShowList() {
 
         {renderPager('top')}
 
-        {pageShows.length === 0 ? (
+        {pageIsBeyondEnd ? (
+          /* An empty page over a NON-empty list: a stale bookmark, a
+             hand-typed number, or a page that existed until shows graduated
+             out of the upcoming set. Saying "no upcoming shows" here would be
+             a flatly false claim about the catalogue, and the filter
+             suggestions below answer a question nobody asked. The pager above
+             already renders the real last page as current, so the way back is
+             one click away. */
+          <div
+            className="text-center py-12 text-muted-foreground"
+            data-testid="shows-page-beyond-end"
+          >
+            <p>That page is past the end of this list.</p>
+            <p className="mt-2 text-sm">
+              <Link href={pageHref(1)} className="text-primary hover:underline">
+                Back to the first page
+              </Link>
+            </p>
+          </div>
+        ) : pageShows.length === 0 ? (
           <div
             className="text-center py-12 text-muted-foreground"
             data-testid="shows-zero-result"

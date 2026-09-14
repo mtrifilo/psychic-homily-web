@@ -111,6 +111,28 @@ describe('DayGroupedShowList', () => {
     }
   })
 
+  // The formatters answer an unparseable date with the literal "INVALID DATE",
+  // and a heading is a much louder place to print that than a row's date tile.
+  it('renders no heading over a run whose date cannot be read', () => {
+    const undated = makeShow(9, 'not-a-date')
+
+    renderList([undated])
+
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
+    // The row is still listed: an unreadable date is not a reason to hide it.
+    expect(screen.getByTestId('show-card-9')).toBeInTheDocument()
+  })
+
+  it('still heads the readable runs on a page that also has an unreadable one', () => {
+    renderList([makeShow(9, 'not-a-date'), ...twoDays])
+
+    const headings = screen.getAllByRole('heading', { level: 2 })
+    expect(headings.map(heading => heading.textContent)).toEqual([
+      'FRI · SEP 11',
+      'SAT · SEP 12',
+    ])
+  })
+
   describe('the TONIGHT heading', () => {
     beforeEach(() => {
       vi.useFakeTimers()

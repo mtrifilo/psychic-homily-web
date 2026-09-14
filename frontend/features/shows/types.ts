@@ -263,6 +263,13 @@ export interface UpcomingShowsResponse {
  * `total` bounds how many of them there are.
  */
 export interface ShowsCalendarResponse {
+  /**
+   * NARROWED from the generated contract, which types this `| null` because Go
+   * marshals an empty slice that way. Every reader coalesces (`?? []`), and
+   * `fetchListPayload` rejects a body whose collection is not an array, so a
+   * null never reaches a consumer as one. The whole list-response family in
+   * this file narrows the same way; diverging here would be the outlier.
+   */
   shows: ShowResponse[]
   /** Full matching-set size under the current filters and window. */
   total: number

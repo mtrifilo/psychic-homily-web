@@ -52,15 +52,15 @@ interface FetchListPayloadOptions {
    * helper's `null` exists to prevent.
    *
    * Only the collection array is checked. Sibling fields are NOT validated, so
-   * a `shows` payload that kept its rows but lost `pagination` still gets
-   * seeded. `ShowList` survives that because every read of `pagination` is
-   * fully optional-chained AND the Load More control is gated on one of those
-   * reads, so nothing dereferences it unguarded. That is a property of the
-   * consumer, not a guarantee from here. Widening this into a per-collection
-   * required-key list is a reasonable next step; do not assume from reading
-   * this that it already happened.
+   * a `shows` payload that kept its rows but lost `total` still gets seeded,
+   * and `/shows` then reads `total` as 0 and renders no pager over rows it is
+   * showing. Every consumer read of a sibling is optional-chained or
+   * coalesced, so nothing dereferences one unguarded — but that is a property
+   * of the consumers, not a guarantee from here. Widening this into a
+   * per-collection required-key list is a reasonable next step; do not assume
+   * from reading this that it already happened.
    */
-  collection: 'shows' | 'venues' | 'scenes' | 'cities' | 'artists'
+  collection: 'shows' | 'venues' | 'scenes' | 'cities' | 'artists' | 'months'
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */

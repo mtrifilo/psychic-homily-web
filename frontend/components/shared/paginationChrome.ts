@@ -57,6 +57,66 @@ export function toPageNumber(value: number, fallback: number): number {
 }
 
 /**
+ * The page a pager will actually SHOW for a requested page number.
+ *
+ * A `?page=` can name a page past the end — a stale bookmark, a hand-typed
+ * number, a result set that shrank — and every pager clamps it into range
+ * rather than rendering "Page 99 of 3". Anything deriving per-page state
+ * alongside a pager has to clamp identically, or it keys that state on a page
+ * number nothing on screen refers to.
+ */
+export function clampToPageCount(page: number, totalPages: number): number {
+  return Math.min(toPageNumber(page, 1), toPageNumber(totalPages, 1))
+}
+
+/** A slot in the rendered page strip: a page number, or a collapsed gap. */
+export type PaginationWindowItem = number | 'ellipsis'
+
+/**
+ * Page counts at or below this render every page; above it the strip collapses
+ * to first / last / current±1 with ellipses (GOV.UK pagination pattern).
+ */
+const FULL_STRIP_MAX_PAGES = 7
+
+/**
+ * GOV.UK-style page windowing. Returns every page up to
+ * {@link FULL_STRIP_MAX_PAGES}, and beyond that the first page, the last page,
+ * and the current page with its immediate neighbors, with `'ellipsis'` marking
+ * each collapsed gap.
+ *
+ * Inputs are clamped rather than rejected: a caller whose `currentPage` has
+ * drifted past the end (stale URL, shrinking result set) still gets a sane
+ * strip instead of a crash or an empty nav.
+ *
+ * Lives here rather than beside the component because it is pure arithmetic and
+ * `showArchive.ts` — imported by server routes — derives page labels from it.
+ * `Pagination.tsx` re-exports it for importers that reach for both.
+ */
+export function paginationWindow(
+  currentPage: number,
+  totalPages: number
+): PaginationWindowItem[] {
+  const total = toPageNumber(totalPages, 1)
+  const current = clampToPageCount(currentPage, total)
+
+  if (total <= FULL_STRIP_MAX_PAGES) {
+    return Array.from({ length: total }, (_, index) => index + 1)
+  }
+
+  const pages = new Set([1, total, current])
+  if (current > 1) pages.add(current - 1)
+  if (current < total) pages.add(current + 1)
+  const sorted = [...pages].sort((a, b) => a - b)
+
+  const items: PaginationWindowItem[] = []
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1] > 1) items.push('ellipsis')
+    items.push(page)
+  })
+  return items
+}
+
+/**
  * A cmd/ctrl/shift/alt-click (or a click a handler already cancelled) opens the
  * target in a new tab or window, or does nothing at all: THIS tab never
  * navigates. Consumers use the navigate callbacks to move focus and announce a

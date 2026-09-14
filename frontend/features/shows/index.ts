@@ -47,7 +47,13 @@ export type {
 } from './types'
 
 // Hooks
-export { useUpcomingShows, useShow, useShowCities } from './hooks'
+export {
+  useUpcomingShows,
+  useShowsCalendar,
+  useShowMonths,
+  useShow,
+  useShowCities,
+} from './hooks'
 
 export { useShowDelete } from './hooks'
 export { useShowExtraction } from './hooks'

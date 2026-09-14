@@ -648,7 +648,42 @@ describe('ShowList', () => {
       expect(pushed).not.toContain('page=')
     })
 
-    it('shows loaded of total when more shows exist beyond the loaded page', () => {
+    // A stale bookmark, a hand-typed number, or a page that existed until shows
+    // graduated out of the upcoming set. "No upcoming shows at this time." over
+    // a catalogue of 268 is a flatly false claim.
+    it('says the page is past the end rather than that the list is empty', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams({ page: '99' }))
+      setPage(0, 268)
+      render(<ShowList />)
+
+      expect(screen.getByTestId('shows-page-beyond-end')).toHaveTextContent(
+        'That page is past the end of this list.'
+      )
+      expect(screen.queryByTestId('shows-zero-result')).toBeNull()
+      expect(screen.queryByText('No upcoming shows at this time.')).toBeNull()
+    })
+
+    it('offers the way back to page 1 from past the end', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams({ page: '99' }))
+      setPage(0, 268)
+      render(<ShowList />)
+
+      expect(
+        screen.getByRole('link', { name: 'Back to the first page' })
+      ).toHaveAttribute('href', '/shows')
+    })
+
+    // The other zero-rows case is a genuinely empty result, and it keeps the
+    // copy and the filter affordances it always had.
+    it('still reports a genuinely empty list as empty', () => {
+      setPage(0, 0)
+      render(<ShowList />)
+
+      expect(screen.getByTestId('shows-zero-result')).toBeInTheDocument()
+      expect(screen.queryByTestId('shows-page-beyond-end')).toBeNull()
+    })
+
+    it('reports how many rows are on screen out of the matching total', () => {
       mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow(), makeShow({ id: 2 })],

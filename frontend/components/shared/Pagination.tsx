@@ -4,55 +4,20 @@ import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import {
+  clampToPageCount,
   formatCount,
   isPlainNavigationClick,
   navCurrentClass,
   navLinkClass,
+  paginationWindow,
   toPageNumber,
+  type PaginationWindowItem,
 } from './paginationChrome'
 
-/** A slot in the rendered page strip: a page number, or a collapsed gap. */
-export type PaginationWindowItem = number | 'ellipsis'
-
-/**
- * Page counts at or below this render every page; above it the strip collapses
- * to first / last / current±1 with ellipses (GOV.UK pagination pattern).
- */
-const FULL_STRIP_MAX_PAGES = 7
-
-/**
- * GOV.UK-style page windowing. Returns every page up to
- * {@link FULL_STRIP_MAX_PAGES}, and beyond that the first page, the last page,
- * and the current page with its immediate neighbors, with `'ellipsis'` marking
- * each collapsed gap.
- *
- * Inputs are clamped rather than rejected: a caller whose `currentPage` has
- * drifted past the end (stale URL, shrinking result set) still gets a sane
- * strip instead of a crash or an empty nav.
- */
-export function paginationWindow(
-  currentPage: number,
-  totalPages: number
-): PaginationWindowItem[] {
-  const total = toPageNumber(totalPages, 1)
-  const current = Math.min(toPageNumber(currentPage, 1), total)
-
-  if (total <= FULL_STRIP_MAX_PAGES) {
-    return Array.from({ length: total }, (_, index) => index + 1)
-  }
-
-  const pages = new Set([1, total, current])
-  if (current > 1) pages.add(current - 1)
-  if (current < total) pages.add(current + 1)
-  const sorted = [...pages].sort((a, b) => a - b)
-
-  const items: PaginationWindowItem[] = []
-  sorted.forEach((page, index) => {
-    if (index > 0 && page - sorted[index - 1] > 1) items.push('ellipsis')
-    items.push(page)
-  })
-  return items
-}
+// Re-exported so the pager's public surface is unchanged for importers that
+// reach for the window alongside the component.
+export { paginationWindow }
+export type { PaginationWindowItem }
 
 /** Row-count summary rendered in the pager caption. */
 export interface PaginationCaptionRange {
@@ -247,7 +212,7 @@ export function Pagination({
   // list whose count is still resolving should show no pager, never a crash or
   // "Page NaN of NaN". See `toPageNumber`.
   const total = toPageNumber(totalPages, 1)
-  const current = Math.min(toPageNumber(currentPage, 1), total)
+  const current = clampToPageCount(currentPage, total)
 
   const positionText = `Page ${current} of ${total}`
   const currentRangeLabel = rangeLabels?.[current]
