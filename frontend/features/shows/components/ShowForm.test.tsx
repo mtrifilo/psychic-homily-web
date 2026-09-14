@@ -688,10 +688,13 @@ describe('ShowForm — successful submit', () => {
     })
   })
 
-  // No timer the form schedules may outlive its unmount: a deferred `onSuccess`
-  // or `router.push` that lands afterwards calls into a parent that is gone.
-  // Ownership is scoped with trackAppTimers because TanStack Form schedules its
-  // own devtools timers from this tree, and those are not part of the contract.
+  // No scheduler call the form makes may outlive its unmount: a deferred
+  // `onSuccess` or `router.push` that lands afterwards calls into a parent that is
+  // gone. trackAppTimers scopes the count to first-party call sites, because
+  // TanStack Form throttles a form-state broadcast through @tanstack/pacer-lite on
+  // every field change and unmounting the form does not clear that throttle.
+  // Timers a dependency schedules stay uncounted, but the post-unmount advance
+  // below still runs their callbacks, so one that crashes after unmount fails here.
   it('leaves no pending success timer behind on unmount', async () => {
     mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
       opts?.onSuccess?.({ status: 'approved' })
@@ -730,10 +733,14 @@ describe('ShowForm — successful submit', () => {
       })
 
       expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1)
+      // The armed timer is the success notify, scheduled through the shared
+      // useDismissTimer primitive: a swap to a dependency's scheduler would leave
+      // the unmount assertion below with nothing of ours to count.
       expect(timers.pending()).toBeGreaterThan(baseline)
+      expect(timers.pendingCallSites()).toContain('useDismissTimer')
 
       unmount()
-      expect(timers.pending(), timers.describe()).toBe(0)
+      expect(timers.pending(), timers.pendingCallSites()).toBe(0)
 
       // Well past the 1500ms delay: the callback must never land after the
       // form is gone.

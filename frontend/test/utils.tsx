@@ -77,3 +77,6 @@ export function renderWithProviders(
 // Re-export everything from testing-library
 export * from '@testing-library/react'
 export { renderWithProviders as render }
+
+// Unmount-cleanliness assertions reach for this alongside renderWithProviders.
+export { trackAppTimers, type AppTimerTracker } from './appTimers'
