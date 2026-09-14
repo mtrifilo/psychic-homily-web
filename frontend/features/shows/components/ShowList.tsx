@@ -28,7 +28,6 @@ import { SHOWS_PAGE_SIZE, showsPageHref } from '../showsListNavigation'
 import {
   SHOWS_ROOT,
   adjacentMonths,
-  calendarWindowLabel,
   shortCalendarMonthLabel,
   showsMonthPath,
   showsWindowPath,

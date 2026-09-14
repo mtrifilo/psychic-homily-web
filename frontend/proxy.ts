@@ -200,8 +200,12 @@ const SHOWS_SLUG_SUBROUTES: ReadonlySet<string> = new Set(['opengraph-image'])
  * `2027/02/31` passes the shape above and does not exist. Decided here rather
  * than asked of the backend for the reason the scene day permalinks decide it
  * here: Gregorian arithmetic needs no database, no timezone and no round trip.
+ *
+ * Exported alongside the segment shapes so `proxy.shows-calendar.test.ts` can
+ * compare this verdict against the route grammar's own on every input, rather
+ * than re-deriving it and testing the re-derivation.
  */
-function isRealShowsCalendarDay(
+export function isRealShowsCalendarDay(
   year: string,
   month: string,
   day: string

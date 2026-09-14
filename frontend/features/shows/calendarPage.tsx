@@ -80,7 +80,10 @@ export function buildShowsCalendarMetadata(
   window: ShowsCalendarWindow
 ): Metadata {
   const label = calendarWindowLabel(window)
-  const title = `Shows in ${label}`
+  // A month is a period one is IN and a day is one one is ON. The two windows
+  // share every other part of this head, and the preposition is the only place
+  // that difference has to show.
+  const title = window.day === undefined ? `Shows in ${label}` : `Shows on ${label}`
   const description =
     window.day === undefined
       ? `Every upcoming show we have on record in ${label}.`
@@ -204,6 +207,8 @@ export async function ShowsCalendarContent({
   })
 
   const label = calendarWindowLabel(window)
+  const heading =
+    window.day === undefined ? `Shows in ${label}` : `Shows on ${label}`
   const list = <ShowList window={window} />
 
   return (
@@ -219,9 +224,7 @@ export async function ShowsCalendarContent({
         fallback={{ href: SHOWS_ROOT, label: 'Shows' }}
         currentPage={label}
       />
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-        Shows in {label}
-      </h1>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">{heading}</h1>
       {seeds ? (
         <HydrationBoundary state={await seedFirstScreen(seeds)}>
           {list}
