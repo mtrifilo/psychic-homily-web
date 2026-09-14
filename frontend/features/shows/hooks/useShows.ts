@@ -182,7 +182,10 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
   const {
     offset,
     limit = SHOWS_PAGE_SIZE,
-    window,
+    // Aliased: `window` is the global inside a client hook, and a later
+    // `typeof window === 'undefined'` guard added here would silently read the
+    // calendar window instead.
+    window: calendarWindow,
     city,
     state,
     cities,
@@ -193,14 +196,14 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  appendShowsCalendarWindow(params, window)
+  appendShowsCalendarWindow(params, calendarWindow)
   appendShowListFilters(params, { city, state, cities, tags, tagMatch })
 
   return useQuery({
     queryKey: showQueryKeys.calendar({
       limit,
       offset: offset || undefined,
-      ...showsCalendarWindowKey(window),
+      ...showsCalendarWindowKey(calendarWindow),
       ...showListFilterKey({ city, state, cities, tags, tagMatch }),
     }),
     queryFn: async (): Promise<ShowsCalendarResponse> => {

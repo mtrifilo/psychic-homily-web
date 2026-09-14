@@ -27,10 +27,37 @@ export const SHOWS_ROOT = '/shows'
  * Shape of each segment. Fixed width, so a month has exactly ONE spelling:
  * `/shows/2026/09` is the address and `/shows/2026/9` is a not-found, which is
  * what keeps the canonical honest without a redirect table.
+ *
+ * The YEAR is bounded as well as shaped, which the other two get for free from
+ * their ranges, and it does three things at once:
+ *
+ *   - `0026` and `2026` would otherwise both parse, while the path builders
+ *     emit the year unpadded. `/shows/0026/11` would then advertise a canonical
+ *     and a pager pointing at `/shows/26/11`, which is not four digits and so
+ *     is a not-found.
+ *   - `0000` parses to year 0, and `GET /shows/calendar` reads a zero year as
+ *     NO WINDOW: the request would answer with the whole upcoming list under a
+ *     heading naming one month.
+ *   - It is the crawl bound. Four digits alone is ten thousand years crossed
+ *     with twelve months, and a month that has no shows is a page this route
+ *     renders as a not-found body rather than a status (see `calendarPage`).
+ *
+ * The range is the one the backend already accepts for a year a reader may
+ * address (`GetVenueShowsRequest.Year`, `minimum:"2000" maximum:"2100"`), so
+ * this narrows the URL space without narrowing the catalogue.
  */
 const YEAR_SEGMENT = /^\d{4}$/
+export const SHOWS_CALENDAR_MIN_YEAR = 2000
+export const SHOWS_CALENDAR_MAX_YEAR = 2100
 const MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
 const DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
+
+/** Whether a four-digit year segment is inside the addressable range. */
+export function isAddressableYear(yearSegment: string): boolean {
+  if (!YEAR_SEGMENT.test(yearSegment)) return false
+  const year = Number(yearSegment)
+  return year >= SHOWS_CALENDAR_MIN_YEAR && year <= SHOWS_CALENDAR_MAX_YEAR
+}
 
 /** Two digits, the spelling every month and day segment is written in. */
 function pad2(value: number): string {
@@ -70,7 +97,7 @@ export function parseMonthSegments(
   yearSegment: string,
   monthSegment: string
 ): ShowsCalendarWindow | null {
-  if (!YEAR_SEGMENT.test(yearSegment) || !MONTH_SEGMENT.test(monthSegment)) {
+  if (!isAddressableYear(yearSegment) || !MONTH_SEGMENT.test(monthSegment)) {
     return null
   }
   return { year: Number(yearSegment), month: Number(monthSegment) }

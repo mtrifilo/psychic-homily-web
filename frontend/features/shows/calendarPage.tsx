@@ -190,11 +190,18 @@ export async function ShowsCalendarContent({
     notFound()
   }
 
-  // A DAY inside a month that does have shows still has to have its own. The
-  // histogram cannot answer that, so the window's own total does — which is
-  // available on page 1, the only page of a day this route server-reads. A deep
-  // page of an empty day renders the list's past-the-end state instead; it
-  // carries this route's canonical back to the day root, which 404s.
+  // A WINDOW the read answered for, with nothing in it.
+  //
+  // For a DAY this is the only gate there is: a day inside a month that does
+  // have shows still has to have its own, and the histogram buckets months.
+  // For a MONTH it is a second opinion the histogram has already given, and it
+  // fires only if the two disagree about what "upcoming" means — in which case
+  // the month page renders no rows, so a not-found is the honest answer.
+  //
+  // It needs the window's own total, which is read on page 1 and skipped on
+  // every other. A deep page of an empty day therefore renders the list's
+  // past-the-end state instead; it carries this route's canonical back to the
+  // day root, which is the URL that 404s.
   if (shows && shows.total === 0) {
     notFound()
   }

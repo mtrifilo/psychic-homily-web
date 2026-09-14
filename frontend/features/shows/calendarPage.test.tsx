@@ -140,6 +140,23 @@ describe('ShowsCalendarContent — which windows are documents', () => {
     ).rejects.toThrow(NOT_FOUND)
   })
 
+  /**
+   * The zero-rows guard covers MONTHS as well as days. It is a second opinion
+   * the histogram has already given, and it fires only when the two disagree
+   * about what "upcoming" means — at which point the page has no rows to show,
+   * so a not-found is the honest answer rather than an empty month.
+   */
+  it('404s a month the histogram carries but the window read answers empty', async () => {
+    answerWith({ rows: page(0), months: HISTOGRAM })
+
+    await expect(
+      ShowsCalendarContent({
+        window: NOVEMBER,
+        searchParams: Promise.resolve({}),
+      })
+    ).rejects.toThrow(NOT_FOUND)
+  })
+
   it('renders a day that has shows', async () => {
     answerWith({ rows: page(4), months: HISTOGRAM })
 

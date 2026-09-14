@@ -8,6 +8,8 @@ import {
   isRealCalendarDay,
   parseDaySegments,
   parseMonthSegments,
+  SHOWS_CALENDAR_MAX_YEAR,
+  SHOWS_CALENDAR_MIN_YEAR,
   shortCalendarMonthLabel,
   showsCalendarWindowKey,
   showsDayPath,
@@ -23,6 +25,44 @@ describe('parseMonthSegments', () => {
     expect(parseMonthSegments('2026', '12')).toEqual({ year: 2026, month: 12 })
   })
 
+  /**
+   * The year bound is not decoration. `0026` parses to 26, which every path
+   * builder emits unpadded, so the page would advertise a canonical and a pager
+   * pointing at `/shows/26/11` - not four digits, and a not-found. `0000` is
+   * worse: the backend reads a zero year as NO WINDOW and would answer with the
+   * whole upcoming list under a heading naming one month.
+   */
+  it.each([
+    ['2000', '01'],
+    ['2100', '12'],
+    ['2026', '11'],
+  ])('accepts the addressable year %s', (year, month) => {
+    expect(parseMonthSegments(year, month)).not.toBeNull()
+  })
+
+  it.each([
+    ['1999', '11'],
+    ['2101', '11'],
+    ['0026', '11'],
+    ['0000', '01'],
+    ['9999', '11'],
+  ])('refuses the out-of-range year %s', (year, month) => {
+    expect(parseMonthSegments(year, month)).toBeNull()
+  })
+
+  // Every path a page mints must parse back to the window it came from, or the
+  // canonical points somewhere the router will not serve.
+  it('round-trips every addressable year through its own path builder', () => {
+    for (const year of [SHOWS_CALENDAR_MIN_YEAR, 2026, SHOWS_CALENDAR_MAX_YEAR]) {
+      const path = showsMonthPath(year, 1)
+      const [, , yearSegment, monthSegment] = path.split('/')
+      expect(parseMonthSegments(yearSegment, monthSegment)).toEqual({
+        year,
+        month: 1,
+      })
+    }
+  })
+
   // One spelling per month is what keeps the canonical honest without a
   // redirect table: an unpadded month must not be a second address for one page.
   it.each([
@@ -31,7 +71,6 @@ describe('parseMonthSegments', () => {
     ['2026', '00'],
     ['2026', '13'],
     ['2026', 'ab'],
-    ['26', '11'],
     ['20266', '11'],
     [' 2026 ', '11'],
     ['2026', ' 11'],

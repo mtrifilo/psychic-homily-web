@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 import {
+  isAddressableShowsYear,
   isRealShowsCalendarDay,
   proxy,
   SHOWS_CALENDAR_DAY_SEGMENT,
+  SHOWS_CALENDAR_MAX_YEAR,
+  SHOWS_CALENDAR_MIN_YEAR,
   SHOWS_CALENDAR_MONTH_SEGMENT,
-  SHOWS_CALENDAR_YEAR_SEGMENT,
 } from './proxy'
 import {
   parseDaySegments,
   parseMonthSegments,
+  SHOWS_CALENDAR_MAX_YEAR as ROUTE_MAX_YEAR,
+  SHOWS_CALENDAR_MIN_YEAR as ROUTE_MIN_YEAR,
 } from '@/features/shows/showsCalendarRoute'
 
 function requestFor(pathname: string): NextRequest {
@@ -63,8 +67,22 @@ describe('proxy — shows month and day routes', () => {
     expect((await proxy(requestFor('/shows/2027/02/29'))).status).toBe(404)
   })
 
+  /**
+   * The year bound is the crawl bound, and the two copies of it have to agree
+   * or one side 404s a URL the other serves.
+   */
+  it('keeps the proxy and route year bounds in lockstep', () => {
+    expect(SHOWS_CALENDAR_MIN_YEAR).toBe(ROUTE_MIN_YEAR)
+    expect(SHOWS_CALENDAR_MAX_YEAR).toBe(ROUTE_MAX_YEAR)
+  })
+
   it.each([
     '/shows/2026/9',
+    '/shows/0026/11',
+    '/shows/0000/01',
+    '/shows/1999/11',
+    '/shows/2101/11',
+    '/shows/9999/11',
     '/shows/2026/13',
     '/shows/2026/00',
     '/shows/26/11',
@@ -135,14 +153,28 @@ describe('proxy — shows month and day routes', () => {
    * the route would serve is hard-404ed before it renders).
    */
   it('accepts exactly the segments the route grammar accepts', () => {
-    const years = ['2026', '0001', '9999', '26', '20261', 'abcd', '', ' 2026']
+    const years = [
+      '2026',
+      '2000',
+      '2100',
+      '1999',
+      '2101',
+      '0000',
+      '0026',
+      '9999',
+      '26',
+      '20261',
+      'abcd',
+      '',
+      ' 2026',
+    ]
     const months = ['01', '09', '11', '12', '00', '13', '1', '001', 'ab', '']
     const days = ['01', '09', '28', '31', '00', '32', '1', 'xx', '']
 
     for (const year of years) {
       for (const month of months) {
         const proxySaysMonth =
-          SHOWS_CALENDAR_YEAR_SEGMENT.test(year) &&
+          isAddressableShowsYear(year) &&
           SHOWS_CALENDAR_MONTH_SEGMENT.test(month)
         expect(
           proxySaysMonth,

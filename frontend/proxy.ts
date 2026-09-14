@@ -179,9 +179,28 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
  * import `features/`, the same constraint the scenes, charts and venue-year
  * branches work under.
  */
-export const SHOWS_CALENDAR_YEAR_SEGMENT = /^\d{4}$/
 export const SHOWS_CALENDAR_MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
 export const SHOWS_CALENDAR_DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
+
+/**
+ * The years a shows window may name. MUST stay in lockstep with
+ * `SHOWS_CALENDAR_MIN_YEAR`/`MAX_YEAR` in features/shows/showsCalendarRoute,
+ * which `proxy.shows-calendar.test.ts` asserts.
+ *
+ * Not decoration, and the bound does more than the shape. Four digits alone
+ * admits `0026`, whose page emits a canonical the router cannot serve, and
+ * `0000`, which the backend reads as no window at all. It is also the crawl
+ * bound: the page 404s a month with no shows, and a `notFound()` the proxy
+ * waved through commits a 404 BODY at HTTP 200.
+ */
+export const SHOWS_CALENDAR_MIN_YEAR = 2000
+export const SHOWS_CALENDAR_MAX_YEAR = 2100
+
+export function isAddressableShowsYear(segment: string): boolean {
+  if (!/^\d{4}$/.test(segment)) return false
+  const year = Number(segment)
+  return year >= SHOWS_CALENDAR_MIN_YEAR && year <= SHOWS_CALENDAR_MAX_YEAR
+}
 
 /**
  * Sub-routes under `/shows/<slug>/` that are NOT date segments.
@@ -348,7 +367,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return NextResponse.next()
     }
     if (
-      !SHOWS_CALENDAR_YEAR_SEGMENT.test(slug) ||
+      !isAddressableShowsYear(slug) ||
       !SHOWS_CALENDAR_MONTH_SEGMENT.test(segments[3])
     ) {
       return notFoundResponse(request)

@@ -165,14 +165,6 @@ const bareVenuesPrefix = FAMILY_URL_PREFIXES.venues.replace(/^\//, '')
 const bareShowsPrefix = FAMILY_URL_PREFIXES.shows.replace(/^\//, '')
 
 /**
- * The month URL's tail is judged by the ROUTE's own grammar (PSY-2061), so this
- * classifier and the pages it counts cannot disagree about which URLs exist.
- * `proxy.ts` keeps a copy because it may not import `features/`; nothing stops
- * this module from calling the real one, and `lib/proxy-revalidation.ts`
- * already does.
- */
-
-/**
  * The segment a venue-year URL carries between the venue slug and the year:
  * `/venues/{slug}/shows/{year}`. Checked rather than assumed, so a future
  * `/venues/{slug}/{something-else}` route does not silently count as an archive.
@@ -239,7 +231,8 @@ export function classifyLoc(loc: string): LocBucket {
   }
 
   // `/shows/{slug}` is a show, `/shows/{year}/{month}` a month of the list
-  // (PSY-2061). Strict like the venues rule and for the same reason: `/shows`
+  // (PSY-2061). The month tail is judged by the ROUTE's own grammar, so this
+  // classifier and the pages it counts cannot disagree about which URLs exist. Strict like the venues rule and for the same reason: `/shows`
   // carries other child routes, and the day pages below the months are
   // deliberately not in any sitemap, so anything that is not exactly the month
   // shape is 'other' rather than a month the generator never emitted.

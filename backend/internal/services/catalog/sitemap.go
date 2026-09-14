@@ -325,6 +325,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		Artists:     []contracts.SitemapEntry{},
 		Venues:      []contracts.SitemapEntry{},
 		VenueYears:  []contracts.SitemapEntry{},
+		ShowsMonths: []contracts.SitemapEntry{},
 		Scenes:      []contracts.SitemapEntry{},
 		SceneWeeks:  []contracts.SitemapEntry{},
 		Labels:      []contracts.SitemapEntry{},
@@ -600,9 +601,14 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 // filter applied to it: the month route renders the same upcoming partition the
 // GET /shows/months histogram enumerates, and 404s a month that histogram does
 // not carry. A month announced here that the histogram lacks would be a URL the
-// site itself answers with a not-found. The two are kept together by deriving
-// both from shared.VenueLocalDateCondition("upcoming") over the same approved
-// show set, and by TestSitemapShowsMonthsMatchTheMonthHistogram.
+// site itself answers with a not-found.
+//
+// THE AGREEMENT IS HELD BY A TEST, NOT BY CONSTRUCTION. This query restates the
+// partition rather than composing ShowService.upcomingShowPredicates, which is
+// what the histogram builds on and which carries predicates this does not (an
+// admin status branch, the city and tag filters). The two agree today on the
+// public, unfiltered path, and TestSitemapEntriesShowsMonthsMatchTheMonthHistogram
+// is what says so. A predicate added to that applier does not reach here.
 //
 // UNFILTERED, like the histogram the strip and the route read. A reader's city
 // filter is a query param on these URLs, not part of their identity.
