@@ -247,9 +247,52 @@ describe('CollectionGraph (PSY-1446 states)', () => {
     expect(links[0]).toHaveAccessibleName(
       'See how this collection\u2019s artists connect on the music map',
     )
-    expect(links[0]).toHaveAttribute('href', '/graph')
+    // Gatecreeper and Spirit Adrift share the fixture's one edge, so the name
+    // decides.
+    expect(links[0]).toHaveAttribute('href', '/graph?artist=gatecreeper')
 
     // The `#graph` deep-link target survives the collapse (Cmd+K, PSY-366).
     expect(container.querySelector('#graph')).not.toBeNull()
+  })
+
+  // A sentence naming the collection has to land on a map that knows it.
+  it('roots the teaser on the most connected artist in the collection', async () => {
+    ro.setWidth(500)
+    const hooks = await import('../hooks')
+    vi.mocked(hooks.useCollectionGraph).mockReturnValue({
+      data: {
+        ...mockData,
+        links: [
+          ...mockData.links,
+          { source_id: 2, target_id: 3, type: 'played_at', score: 0.4 },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    // Spirit Adrift now carries two edges against Gatecreeper's one.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/graph?artist=spirit-adrift')
+  })
+
+  // The payload is mixed-type and the Observatory roots on artists only.
+  it('falls back to the unrooted map for an artist-free collection', async () => {
+    ro.setWidth(500)
+    const hooks = await import('../hooks')
+    vi.mocked(hooks.useCollectionGraph).mockReturnValue({
+      data: {
+        ...mockData,
+        nodes: [
+          { ...mockData.nodes[2], id: 1, entity_type: 'venue', slug: 'valley-bar-phoenix-az' },
+          { ...mockData.nodes[2], id: 2, entity_type: 'release', slug: 'sonoran-surf' },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />)
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/graph')
   })
 })

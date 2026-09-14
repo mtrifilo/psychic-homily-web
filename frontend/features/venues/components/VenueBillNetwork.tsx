@@ -36,6 +36,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
+import { pickMostConnectedArtistSlug } from '@/features/graph/mostConnectedArtist'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -103,6 +104,20 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     if (!data) return 0
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
+
+  /**
+   * The one knowledge-graph cross-link this section offers.
+   *
+   * Rooted on the most connected artist in the active window's bill network,
+   * so the map opens on the venue's neighbourhood rather than the
+   * whole-catalog overview; plain `/graph` when the payload names no artist to
+   * root on. Changing the window re-roots the link, because the link describes
+   * the network on screen.
+   */
+  const wholeMapHref = useMemo(
+    () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
+    [data],
+  )
 
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.venue.edge_count ?? 0
@@ -317,7 +332,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
               /* The section's sub-640px form: the header, the scale line and
                  the window filter all go with the canvas. */
               <MobileGraphTeaser
-                href={graphRootHref()}
+                href={wholeMapHref}
               >{`See who shares bills at ${venueName} on the music map`}</MobileGraphTeaser>
             ) : (
               <>

@@ -195,10 +195,46 @@ describe('VenueBillNetwork', () => {
     expect(links[0]).toHaveAccessibleName(
       'See who shares bills at Valley Bar on the music map',
     )
-    expect(links[0]).toHaveAttribute('href', '/graph')
+    // Gatecreeper, Sundressed and Numb Bats all carry two of the fixture's
+    // edges; the name decides.
+    expect(links[0]).toHaveAttribute('href', '/graph?artist=gatecreeper')
 
     // The `#graph` deep-link target survives the collapse (Cmd+K, PSY-366).
     expect(container.querySelector('#graph')).not.toBeNull()
+  })
+
+  // A sentence naming the venue has to land on a map that knows it.
+  it('roots the teaser on the most connected artist on the bills', async () => {
+    ro.setWidth(500)
+    const hooks = await import('../hooks/useVenues')
+    vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+      data: {
+        ...mockData,
+        links: [
+          ...mockData.links,
+          { ...mockData.links[0], source_id: 3, target_id: 4 },
+        ],
+      },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />)
+    // Numb Bats now carries three edges against everyone else's two.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/graph?artist=numb-bats')
+  })
+
+  it('falls back to the unrooted map when no node carries a usable slug', async () => {
+    ro.setWidth(500)
+    const hooks = await import('../hooks/useVenues')
+    vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+      data: { ...mockData, nodes: mockData.nodes.map(node => ({ ...node, slug: '' })) },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    renderWithProviders(<VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />)
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/graph')
   })
 
   it('renders canvas + window filter at desktop width', () => {

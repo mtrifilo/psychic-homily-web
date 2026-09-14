@@ -39,6 +39,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
+import { pickMostConnectedArtistSlug } from '@/features/graph/mostConnectedArtist'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -144,6 +145,20 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     })
   }, [data])
 
+  /**
+   * The one knowledge-graph cross-link this section offers.
+   *
+   * Rooted on the most connected artist among the collection's items, so the
+   * map opens on this collection's neighbourhood rather than the whole-catalog
+   * overview; plain `/graph` when the payload names no artist to root on. The
+   * payload is mixed-type and only artists are candidates, so a collection of
+   * venues and releases keeps the unrooted link.
+   */
+  const wholeMapHref = useMemo(
+    () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
+    [data],
+  )
+
   // Always render the wrapper so the callback ref fires even before data
   // arrives — otherwise we'd never measure the container.
   const nodeCount = data?.nodes.length ?? 0
@@ -240,7 +255,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
           /* The section's sub-640px form: the header and the entity breakdown
              go with the canvas. */
           <MobileGraphTeaser
-            href={graphRootHref()}
+            href={wholeMapHref}
           >{`See how this collection’s artists connect on the music map`}</MobileGraphTeaser>
         ) : (
           <>

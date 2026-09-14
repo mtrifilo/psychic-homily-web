@@ -25,6 +25,7 @@ import {
 } from '@/components/graph/GraphStateCard'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
+import { pickMostConnectedArtistSlug } from '@/features/graph/mostConnectedArtist'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -62,6 +63,18 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     if (!data) return 0
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
+
+  /**
+   * The one knowledge-graph cross-link this section offers.
+   *
+   * Rooted on the most connected artist in this station's rotation, so the map
+   * opens on the station's neighbourhood rather than the whole-catalog
+   * overview; plain `/graph` when the payload names no artist to root on.
+   */
+  const wholeMapHref = useMemo(
+    () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
+    [data],
+  )
 
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.station.edge_count ?? 0
@@ -202,7 +215,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
           /* The section's sub-640px form: the header, the scale line and the
              cluster legend all go with the canvas. */
           <MobileGraphTeaser
-            href={graphRootHref()}
+            href={wholeMapHref}
           >{`See how ${stationName}’s rotation connects on the music map`}</MobileGraphTeaser>
         ) : (
           <>
