@@ -16,6 +16,8 @@ const GRAPH_PATH = '/graph'
 /** The query key naming the artist the Observatory opens rooted on. */
 export const GRAPH_ROOT_PARAM = 'artist'
 
+const ARTIST_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 /**
  * A backend slug: lowercase alphanumerics joined by single hyphens
  * (`utils.GenerateSlug`).
@@ -26,7 +28,23 @@ export const GRAPH_ROOT_PARAM = 'artist'
  * the SAME rule or it can emit links the reader will silently refuse.
  */
 export function isArtistSlug(value: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+  return ARTIST_SLUG_PATTERN.test(value)
+}
+
+/** The node kind the Observatory can centre on. */
+const ARTIST_ENTITY_TYPE = 'artist'
+
+/**
+ * Whether a payload node is a candidate for the root param, as an ALLOWLIST.
+ *
+ * ONE rule for every surface that roots its link, for the reason `isArtistSlug`
+ * is one rule: a denylist would hand the next node kind a payload gains to an
+ * artist endpoint that 404s it, and the link would stop working with nothing to
+ * catch it. Payloads that draw artists only carry no discriminator, so an
+ * absent one is an artist.
+ */
+export function isArtistNode(node: { entity_type?: string }): boolean {
+  return node.entity_type === undefined || node.entity_type === ARTIST_ENTITY_TYPE
 }
 
 /**
