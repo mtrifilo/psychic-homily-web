@@ -1,10 +1,8 @@
-import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { ShowListSkeleton } from '@/features/shows'
 import {
-  ShowsCalendarContent,
-  buildShowsCalendarMetadata,
+  ShowsCalendarRoute,
+  showsCalendarRouteMetadata,
   type ShowsCalendarSearchParams,
 } from '@/features/shows/calendarPage'
 import { parseDaySegments } from '@/features/shows/showsCalendarRoute'
@@ -20,12 +18,7 @@ import { parseDaySegments } from '@/features/shows/showsCalendarRoute'
  */
 interface ShowsDayRouteProps {
   params: Promise<{ slug: string; month: string; day: string }>
-  /**
-   * Passed straight through to `ShowsCalendarContent` and awaited THERE, never
-   * here. Awaiting it in this body would make the whole route dynamic and cost
-   * it the prerendered shell. `generateMetadata` does not take it at all —
-   * that is what keeps every `?page=` of a day on one canonical.
-   */
+  /** Awaited under the boundary, never here. See the month route. */
   searchParams: ShowsCalendarSearchParams
 }
 
@@ -33,11 +26,7 @@ export async function generateMetadata({
   params,
 }: Pick<ShowsDayRouteProps, 'params'>): Promise<Metadata> {
   const { slug, month, day } = await params
-  const window = parseDaySegments(slug, month, day)
-  if (window === null) {
-    return { title: 'Shows not found', robots: { index: false, follow: false } }
-  }
-  return buildShowsCalendarMetadata(window)
+  return showsCalendarRouteMetadata(parseDaySegments(slug, month, day))
 }
 
 export default async function ShowsDayPage({
@@ -50,11 +39,5 @@ export default async function ShowsDayPage({
     notFound()
   }
 
-  return (
-    <div className="w-full max-w-6xl mx-auto px-4 py-8 md:px-8">
-      <Suspense fallback={<ShowListSkeleton />}>
-        <ShowsCalendarContent window={window} searchParams={searchParams} />
-      </Suspense>
-    </div>
-  )
+  return <ShowsCalendarRoute window={window} searchParams={searchParams} />
 }

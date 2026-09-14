@@ -95,20 +95,20 @@ function MonthLink({
   entry,
   href,
   isCurrent,
-  currentRelation,
+  ariaCurrent,
   onNavigate,
 }: {
   entry: MonthStripEntry
   href: string
   isCurrent: boolean
-  currentRelation: AriaCurrent
+  ariaCurrent: AriaCurrent
   onNavigate?: (target: MonthStripTarget | null) => void
 }) {
   const label = formatCalendarMonthParts(entry.year, entry.month).month
   return (
     <Link
       href={href}
-      aria-current={isCurrent ? currentRelation : undefined}
+      aria-current={isCurrent ? ariaCurrent : undefined}
       onClick={event => {
         if (isPlainNavigationClick(event)) {
           onNavigate?.({ year: entry.year, month: entry.month })
@@ -261,7 +261,7 @@ export function MonthStrip({
               entry={entry}
               href={hrefFor(entry.year, entry.month)}
               isCurrent={monthKey(entry) === currentKey}
-              currentRelation={ariaCurrent}
+              ariaCurrent={ariaCurrent}
               onNavigate={onNavigate}
             />
           </li>
@@ -303,7 +303,7 @@ export function MonthStrip({
                   entry={entry}
                   href={hrefFor(entry.year, entry.month)}
                   isCurrent={monthKey(entry) === currentKey}
-                  currentRelation={ariaCurrent}
+                  ariaCurrent={ariaCurrent}
                   onNavigate={onNavigate}
                 />
               </li>

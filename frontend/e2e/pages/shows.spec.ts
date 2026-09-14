@@ -287,7 +287,7 @@ test.describe('Shows month and day routes', () => {
   for (const path of [
     '/shows/2026/13',
     '/shows/2026/9',
-    '/shows/2026/11/32',
+    '/shows/2026/11/31',
     '/shows/2027/02/29',
   ]) {
     test(`${path} returns HTTP 404`, async ({ page }) => {
@@ -295,6 +295,30 @@ test.describe('Shows month and day routes', () => {
       expect(response?.status()).toBe(404)
     })
   }
+
+  /**
+   * The legacy Hugo form still owns a final segment that is NOT day-shaped:
+   * `/shows/{yyyy}/{mm}/{slug}` flattens to `/shows/{slug}`, which is evaluated
+   * before the proxy and before the router. The day route's grammar is excluded
+   * from that pattern in `next.config.ts`, and this is the other half of that
+   * split — without it, narrowing the redirect could silently swallow the
+   * legacy URLs it exists for.
+   */
+  test('a legacy Hugo show URL still flattens to the show', async ({ page }) => {
+    await page.goto('/shows')
+    // The row's own Details link, not any `/shows/...` href: the day headings
+    // are date-shaped by construction, which is exactly the set the redirect no
+    // longer claims.
+    const href = (await page
+      .getByRole('link', { name: 'Details' })
+      .first()
+      .getAttribute('href')) as string
+    const showSlug = href.split('/').pop() as string
+
+    await page.goto(`/shows/2026/11/${showSlug}`)
+
+    await expect(page).toHaveURL(new RegExp(`/shows/${showSlug}$`))
+  })
 
   /**
    * A well-formed month with no shows is a not-found PAGE. Its status is 200
@@ -308,7 +332,7 @@ test.describe('Shows month and day routes', () => {
   }) => {
     await page.goto('/shows/2199/01')
 
-    await expect(page.getByRole('heading', { name: /not found/i })).toBeVisible({
+    await expect(page.getByRole('heading', { name: '404' })).toBeVisible({
       timeout: 15_000,
     })
     await expect(page.getByTestId('day-grouped-show-list')).toHaveCount(0)

@@ -9,6 +9,8 @@
  * pinned against each other by `proxy.shows-calendar.test.ts`.
  */
 
+import { formatCalendarMonthParts } from '@/lib/utils/formatters'
+
 /** A month or day window of the upcoming list, as a route addresses it. */
 export interface ShowsCalendarWindow {
   year: number
@@ -22,9 +24,9 @@ export interface ShowsCalendarWindow {
 export const SHOWS_ROOT = '/shows'
 
 /**
- * Shape of each segment. Fixed width, so `/shows/2026/9` and `/shows/2026/09`
- * cannot both address November's neighbour: one spelling per month is what
- * keeps the canonical honest without a redirect table.
+ * Shape of each segment. Fixed width, so a month has exactly ONE spelling:
+ * `/shows/2026/09` is the address and `/shows/2026/9` is a not-found, which is
+ * what keeps the canonical honest without a redirect table.
  */
 const YEAR_SEGMENT = /^\d{4}$/
 const MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
@@ -136,23 +138,31 @@ export function showsDayPathFromDateKey(dateKey: string): `/${string}` | null {
 }
 
 /**
- * Locale and zone are pinned for the reason every other formatter in this repo
- * pins them: these labels render on the server and again on the client, and a
- * runtime that named months differently would hydrate into a mismatch. UTC
- * because the caller is naming a month that is ALREADY placed, not reading an
- * instant on some calendar.
+ * The month name in full, for a month someone has ALREADY placed.
+ *
+ * The short form lives in `formatCalendarMonthParts`, which the month strip
+ * renders through; this is the same construction with `month: 'long'`, and the
+ * two are deliberately the only two spellings of a month name on these
+ * surfaces. Locale and zone are pinned for the reason that helper pins them:
+ * these labels render on the server and again on the client.
  */
-const monthNameFormatter = new Intl.DateTimeFormat('en-US', {
+const longMonthFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'long',
   timeZone: 'UTC',
 })
 
+/**
+ * Mid-month, so no offset or rollover rule can move the month being named. The
+ * year never reaches a formatter, which keeps the 0-99 remap `Date.UTC` applies
+ * out of reach.
+ */
+function longMonthName(month: number): string {
+  return longMonthFormatter.format(new Date(Date.UTC(2000, month - 1, 15)))
+}
+
 /** `November 2026`. */
 export function calendarMonthLabel(year: number, month: number): string {
-  // Mid-month, so no offset or rollover rule can move the month being named.
-  // The year is returned verbatim rather than formatted, which keeps the 0-99
-  // remap `Date.UTC` applies out of reach.
-  return `${monthNameFormatter.format(new Date(Date.UTC(2000, month - 1, 15)))} ${year}`
+  return `${longMonthName(month)} ${year}`
 }
 
 /** `November 14, 2026`. */
@@ -161,7 +171,7 @@ export function calendarDayLabel(
   month: number,
   day: number
 ): string {
-  return `${monthNameFormatter.format(new Date(Date.UTC(2000, month - 1, 15)))} ${day}, ${year}`
+  return `${longMonthName(month)} ${day}, ${year}`
 }
 
 /** The reader-facing name of a window, month or day. */
@@ -171,14 +181,23 @@ export function calendarWindowLabel(window: ShowsCalendarWindow): string {
     : calendarDayLabel(window.year, window.month, window.day)
 }
 
-/** `Nov 2026`, the compact form the adjacent-month links carry. */
-const shortMonthFormatter = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  timeZone: 'UTC',
-})
+/**
+ * The document's own name for a window: `Shows in November 2026`, `Shows on
+ * November 14, 2026`. A month is a period one is IN and a day is one one is ON,
+ * and that preposition is the only part that differs.
+ *
+ * One function because the `<h1>` and the `<title>` must say the same thing,
+ * and nothing but this would keep them saying it.
+ */
+export function showsCalendarWindowTitle(window: ShowsCalendarWindow): string {
+  const label = calendarWindowLabel(window)
+  return window.day === undefined ? `Shows in ${label}` : `Shows on ${label}`
+}
 
+/** `Nov 2026`, the compact form the adjacent-month links carry. */
 export function shortCalendarMonthLabel(year: number, month: number): string {
-  return `${shortMonthFormatter.format(new Date(Date.UTC(2000, month - 1, 15)))} ${year}`
+  const parts = formatCalendarMonthParts(year, month)
+  return `${parts.month} ${parts.year}`
 }
 
 /**

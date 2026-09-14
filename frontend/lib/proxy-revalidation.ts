@@ -248,10 +248,13 @@ const RULES: readonly RevalidationRule[] = [
     methods: ['PUT'],
     pattern: /^\/shows\/\d+$/,
     // A title edit also stales collection pages embedding the show's name.
-    // The date-page PATTERNS ride along because an edit can MOVE the show: the
-    // response carries the new date and nothing names the old one.
+    //
+    // The date-page PATTERNS replace the concrete paths here rather than
+    // joining them: an edit can MOVE the show, the response carries only the
+    // new date, and a pattern already covers every page of its route including
+    // the two `showPages` would name.
     paths: ({ body }) => [
-      ...showPages(body),
+      ...showPagesFor(slugOf(body), nestedSlugs(body, 'artists')),
       ALL_SHOW_MONTH_PAGES,
       ALL_SHOW_DAY_PAGES,
       ...cascadePages('shows'),

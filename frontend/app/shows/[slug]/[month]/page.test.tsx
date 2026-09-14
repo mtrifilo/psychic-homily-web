@@ -19,13 +19,9 @@ vi.mock('@/features/shows/calendarPage', async importOriginal => {
   >()
   return {
     ...actual,
-    ShowsCalendarContent: (): null => null,
+    ShowsCalendarRoute: (): null => null,
   }
 })
-
-vi.mock('@/features/shows', () => ({
-  ShowListSkeleton: (): null => null,
-}))
 
 import ShowsMonthPage, { generateMetadata } from './page'
 import ShowsDayPage, { generateMetadata as dayMetadata } from './[day]/page'

@@ -124,13 +124,13 @@ describe('show rules', () => {
     expect(revalidated()).toEqual(expectedShowPages)
   })
 
-  it('show update revalidates the same set plus the date patterns and the collection cascade', async () => {
+  it('show update swaps the date paths for their patterns, and cascades', async () => {
     await run({ method: 'PUT', path: '/shows/7', responseText: showBody })
     // Title edits stale collection pages embedding the show's name. The date
-    // PATTERNS ride along because an edit can MOVE the show: the response
-    // carries the new date and nothing names the old one.
+    // PATTERNS replace the concrete paths rather than joining them: an edit can
+    // MOVE the show, and a pattern already covers every page of its route.
     expect(revalidated()).toEqual([
-      ...expectedShowPages,
+      ...expectedShowPages.filter(path => !/^\/shows\/\d{4}\//.test(path)),
       '/shows/[slug]/[month]',
       '/shows/[slug]/[month]/[day]',
       '/collections/[slug]',

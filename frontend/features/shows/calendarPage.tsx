@@ -22,6 +22,7 @@
  * route its prerendered shell AND gives each `?page=` its own canonical. The
  * document names the window; the page names the city, beside the `<h1>`.
  */
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { HydrationBoundary } from '@tanstack/react-query'
@@ -34,6 +35,7 @@ import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { archiveIsFirstPage } from './showArchive.server'
 import { showsFirstScreenSeeds } from './firstScreen'
 import { ShowList } from './components/ShowList'
+import { ShowListSkeleton } from './components/ShowListSkeleton'
 import {
   SHOWS_MONTHS_FIRST_SCREEN_URL,
   SHOW_CITIES_FIRST_SCREEN_URL,
@@ -43,6 +45,7 @@ import {
 import {
   SHOWS_ROOT,
   calendarWindowLabel,
+  showsCalendarWindowTitle,
   showsWindowPath,
   type ShowsCalendarWindow,
 } from './showsCalendarRoute'
@@ -80,10 +83,7 @@ export function buildShowsCalendarMetadata(
   window: ShowsCalendarWindow
 ): Metadata {
   const label = calendarWindowLabel(window)
-  // A month is a period one is IN and a day is one one is ON. The two windows
-  // share every other part of this head, and the preposition is the only place
-  // that difference has to show.
-  const title = window.day === undefined ? `Shows in ${label}` : `Shows on ${label}`
+  const title = showsCalendarWindowTitle(window)
   const description =
     window.day === undefined
       ? `Every upcoming show we have on record in ${label}.`
@@ -207,8 +207,6 @@ export async function ShowsCalendarContent({
   })
 
   const label = calendarWindowLabel(window)
-  const heading =
-    window.day === undefined ? `Shows in ${label}` : `Shows on ${label}`
   const list = <ShowList window={window} />
 
   return (
@@ -224,7 +222,11 @@ export async function ShowsCalendarContent({
         fallback={{ href: SHOWS_ROOT, label: 'Shows' }}
         currentPage={label}
       />
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">{heading}</h1>
+      {/* The same string the `<title>` carries, from the one function that
+          builds it, so the document cannot name itself two ways. */}
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">
+        {showsCalendarWindowTitle(window)}
+      </h1>
       {seeds ? (
         <HydrationBoundary state={await seedFirstScreen(seeds)}>
           {list}
@@ -233,5 +235,46 @@ export async function ShowsCalendarContent({
         list
       )}
     </>
+  )
+}
+
+/**
+ * The head for a window route, or the not-found head when the segments could
+ * not be one.
+ *
+ * Both route files reach it, so the `noindex` a malformed address carries is
+ * stated once. `window` is already parsed when it arrives: parsing is the
+ * route file's own job, and the only one it has.
+ */
+export function showsCalendarRouteMetadata(
+  window: ShowsCalendarWindow | null
+): Metadata {
+  if (window === null) {
+    return { title: 'Shows not found', robots: { index: false, follow: false } }
+  }
+  return buildShowsCalendarMetadata(window)
+}
+
+/**
+ * The page shell both window routes render.
+ *
+ * ONE Suspense boundary over the only component that reads anything, and the
+ * page container outside it so the skeleton sits where the rows will. The
+ * fallback is the list's own skeleton rather than `null`: the route body
+ * returns as soon as `params` resolves, so this boundary owns the whole wait.
+ */
+export function ShowsCalendarRoute({
+  window,
+  searchParams,
+}: {
+  window: ShowsCalendarWindow
+  searchParams: ShowsCalendarSearchParams
+}) {
+  return (
+    <div className="w-full max-w-6xl mx-auto px-4 py-8 md:px-8">
+      <Suspense fallback={<ShowListSkeleton />}>
+        <ShowsCalendarContent window={window} searchParams={searchParams} />
+      </Suspense>
+    </div>
   )
 }

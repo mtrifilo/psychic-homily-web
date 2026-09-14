@@ -14,6 +14,7 @@
  * against the root element.
  */
 
+import { parseMonthSegments } from '@/features/shows/showsCalendarRoute'
 import {
   SITEMAP_FAMILIES,
   FAMILY_URL_PREFIXES,
@@ -164,14 +165,12 @@ const bareVenuesPrefix = FAMILY_URL_PREFIXES.venues.replace(/^\//, '')
 const bareShowsPrefix = FAMILY_URL_PREFIXES.shows.replace(/^\//, '')
 
 /**
- * The two tail segments of a month URL, `/shows/{year}/{month}` (PSY-2061).
- *
- * Fixed width on the month, because that is the only spelling the route serves:
- * `/shows/2026/9` is a not-found, so counting it as a month URL would report a
- * family member the generator never emitted.
+ * The month URL's tail is judged by the ROUTE's own grammar (PSY-2061), so this
+ * classifier and the pages it counts cannot disagree about which URLs exist.
+ * `proxy.ts` keeps a copy because it may not import `features/`; nothing stops
+ * this module from calling the real one, and `lib/proxy-revalidation.ts`
+ * already does.
  */
-const SHOWS_MONTH_YEAR_PATTERN = /^\d{4}$/
-const SHOWS_MONTH_PATTERN = /^(0[1-9]|1[0-2])$/
 
 /**
  * The segment a venue-year URL carries between the venue slug and the year:
@@ -248,8 +247,7 @@ export function classifyLoc(loc: string): LocBucket {
     if (segments.length === 2) return 'shows'
     if (
       segments.length === 3 &&
-      SHOWS_MONTH_YEAR_PATTERN.test(segments[1]) &&
-      SHOWS_MONTH_PATTERN.test(segments[2])
+      parseMonthSegments(segments[1], segments[2]) !== null
     ) {
       return 'shows_months'
     }

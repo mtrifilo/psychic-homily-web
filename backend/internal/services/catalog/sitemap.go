@@ -331,7 +331,6 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		Releases:    []contracts.SitemapEntry{},
 		Festivals:   []contracts.SitemapEntry{},
 		Tags:        []contracts.SitemapEntry{},
-		ShowsMonths: []contracts.SitemapEntry{},
 	}
 
 	// A sub-shard id resolves to the family it buckets plus the residue to

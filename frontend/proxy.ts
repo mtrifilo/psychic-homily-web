@@ -195,11 +195,11 @@ export const SHOWS_CALENDAR_DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
 const SHOWS_SLUG_SUBROUTES: ReadonlySet<string> = new Set(['opengraph-image'])
 
 /**
- * Whether a day segment names a day the calendar actually has.
+ * Whether three date segments name a day the calendar actually has.
  *
- * `2027/02/31` passes the shape above and does not exist. Decided here rather
- * than asked of the backend for the reason the scene day permalinks decide it
- * here: Gregorian arithmetic needs no database, no timezone and no round trip.
+ * The same rule `isRealCalendarDate` applies to a scene permalink, reached
+ * through the one implementation rather than a second copy: a day's validity is
+ * Gregorian arithmetic, which needs no database, no timezone and no round trip.
  *
  * Exported alongside the segment shapes so `proxy.shows-calendar.test.ts` can
  * compare this verdict against the route grammar's own on every input, rather
@@ -210,12 +210,7 @@ export function isRealShowsCalendarDay(
   month: string,
   day: string
 ): boolean {
-  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
-  return (
-    parsed.getUTCFullYear() === Number(year) &&
-    parsed.getUTCMonth() === Number(month) - 1 &&
-    parsed.getUTCDate() === Number(day)
-  )
+  return isRealCalendarDate(`${year}-${month}-${day}`)
 }
 
 /**
@@ -333,12 +328,17 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // `notFound()` resolves, and every junk segment under `/shows/` becomes a
   // soft-404 (the PSY-897 arc; the scene period routes hit the same trap).
   //
-  // SHAPE ONLY, and that is the locked scope: whether a well-formed month has
-  // any shows is a question about the upcoming partition under the reader's own
-  // filters, which no probe available here can answer. The route answers it
-  // from the month histogram it already reads. The half settled here is the
-  // half a crawler can walk for free, and it is the larger one — every
-  // four-digit year crossed with every two-character segment.
+  // SHAPE ONLY, which is the locked scope for this prefix rather than the limit
+  // of what could be checked. The half settled here is the half a crawler can
+  // walk for free, and it is the larger one: every four-digit year crossed with
+  // every two-character segment.
+  //
+  // MEMBERSHIP is not settled here, and the consequence is stated rather than
+  // implied: a well-formed month with no shows reaches the route, whose
+  // `notFound()` lands after the shell has streamed and so commits a 404 body
+  // at HTTP 200. The venue year archives closed the same gap with a
+  // status-bearing `exists` probe (PSY-1770); an equivalent endpoint for the
+  // upcoming month histogram is the follow-up that would close this one.
   if (
     entityType === 'shows' &&
     slug &&

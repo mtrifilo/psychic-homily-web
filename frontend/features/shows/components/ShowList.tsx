@@ -59,6 +59,10 @@ import {
   navStripSeparatorClass,
 } from '@/components/shared/paginationChrome'
 import { suggestAlternativeCities } from '../suggestCities'
+import type { ShowMonthCount } from '../types'
+
+/** A histogram that has not arrived. Stable, so the strip sees one identity. */
+const NO_MONTHS: ShowMonthCount[] = []
 
 export interface ShowListProps {
   /**
@@ -74,7 +78,7 @@ export interface ShowListProps {
   window?: ShowsCalendarWindow
 }
 
-export function ShowList({ window }: ShowListProps = {}) {
+export function ShowList({ window: calendarWindow }: ShowListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, isAuthenticated, authStatus } = useAuthContext()
@@ -206,7 +210,7 @@ export function ShowList({ window }: ShowListProps = {}) {
   // The URL this list's own navigation is rooted at. Every href and every
   // router write below is built from it, so a windowed list never writes a
   // page or a filter onto the root's address.
-  const basePath = window ? showsWindowPath(window) : SHOWS_ROOT
+  const basePath = calendarWindow ? showsWindowPath(calendarWindow) : SHOWS_ROOT
 
   const {
     data,
@@ -218,7 +222,7 @@ export function ShowList({ window }: ShowListProps = {}) {
   } = useShowsCalendar({
     offset,
     limit: SHOWS_PAGE_SIZE,
-    window,
+    window: calendarWindow,
     ...listFilters,
   })
 
@@ -296,39 +300,20 @@ export function ShowList({ window }: ShowListProps = {}) {
   // The href for another WINDOW of this list, built from the params already on
   // screen so the city filter, the tag filter and any campaign param survive a
   // jump between months. A strip that minted a bare path would silently drop an
-  // explicit All Cities back to the viewer derived default.
+  // explicit All Cities back to the viewer's derived default.
   //
-  // `page` is the one key it drops: a different month is a different question,
-  // answered from its first page.
+  // PAGE 1 of the target, which is what `showsPageHref` writes as a bare path:
+  // a different month is a different question, answered from its first page.
+  // Reusing it is what keeps "carry every key but `page`" stated once.
   const windowHref = useCallback(
-    (path: string) => {
-      const next = new URLSearchParams(searchParams.toString())
-      next.delete('page')
-      const query = next.toString()
-      return query ? `${path}?${query}` : path
-    },
+    (path: string) => showsPageHref(searchParams, 1, path),
     [searchParams]
   )
 
   // The strip's bars. The histogram is the ONLY thing that says which months
   // are documents, so passing it through unfiltered is what keeps the strip
   // from offering a link the route answers with a not-found.
-  const monthEntries = useMemo(
-    () =>
-      (monthsData?.months ?? []).map(entry => ({
-        year: entry.year,
-        month: entry.month,
-        count: entry.count,
-      })),
-    [monthsData?.months]
-  )
-
-  // The month the strip marks. A day page marks its own month, which is why
-  // the relation below is not always 'page'.
-  const currentMonth = useMemo(
-    () => (window ? { year: window.year, month: window.month } : null),
-    [window]
-  )
+  const monthEntries = monthsData?.months ?? NO_MONTHS
 
   // The strip takes a (year, month) pair; this is the same window href with
   // that shape, memoized so the strip does not see a new function every render.
@@ -341,23 +326,29 @@ export function ShowList({ window }: ShowListProps = {}) {
   // the root and on day pages, and empty for a month at either end of the
   // histogram.
   const adjacentLinks = useMemo(() => {
-    if (!window || window.day !== undefined) return []
-    const { previous, next } = adjacentMonths(monthEntries, window)
-    const links: Array<{ href: string; label: string }> = []
+    if (!calendarWindow || calendarWindow.day !== undefined) return []
+    const { previous, next } = adjacentMonths(monthEntries, calendarWindow)
+    const links: Array<{
+      href: string
+      label: string
+      direction: 'previous' | 'next'
+    }> = []
     if (previous) {
       links.push({
         href: windowHref(showsMonthPath(previous.year, previous.month)),
-        label: `‹ ${shortCalendarMonthLabel(previous.year, previous.month)}`,
+        label: shortCalendarMonthLabel(previous.year, previous.month),
+        direction: 'previous',
       })
     }
     if (next) {
       links.push({
         href: windowHref(showsMonthPath(next.year, next.month)),
-        label: `${shortCalendarMonthLabel(next.year, next.month)} ›`,
+        label: shortCalendarMonthLabel(next.year, next.month),
+        direction: 'next',
       })
     }
     return links
-  }, [window, monthEntries, windowHref])
+  }, [calendarWindow, monthEntries, windowHref])
 
   // The frame's title-row scope: the size of the whole matching set, and the
   // metro when exactly one is selected. NOT the rows on screen, which is what
@@ -387,7 +378,6 @@ export function ShowList({ window }: ShowListProps = {}) {
     (targetPage: number) => showsPageHref(searchParams, targetPage, basePath),
     [searchParams, basePath]
   )
-
 
   // City filter changes write the `?cities=` param via nuqs (which preserves
   // other params). An empty selection becomes the explicit ALL_CITIES sentinel
@@ -622,11 +612,11 @@ export function ShowList({ window }: ShowListProps = {}) {
           allHref={windowHref(SHOWS_ROOT)}
           allLabel="All upcoming"
           allCount={monthsData?.total}
-          current={currentMonth}
+          current={calendarWindow ?? null}
           // A day page sits INSIDE the marked month rather than being it, so
           // the mark is a section relation there and `aria-current="page"`
           // would point a reader at a link that navigates away.
-          currentRelation={window?.day === undefined ? 'page' : 'section'}
+          currentRelation={calendarWindow?.day === undefined ? 'page' : 'section'}
           ariaLabel="Filter shows by month"
           className="mb-3"
         />
@@ -649,8 +639,23 @@ export function ShowList({ window }: ShowListProps = {}) {
                       ·
                     </span>
                   )}
-                  <Link href={link.href} className={navLinkClass}>
+                  <Link
+                    href={link.href}
+                    rel={link.direction}
+                    className={navLinkClass}
+                  >
+                    {/* The glyph reaches a screen reader as nothing, so the
+                        direction is spelled out beside it. */}
+                    <span className="sr-only">
+                      {link.direction === 'previous' ? 'Previous: ' : 'Next: '}
+                    </span>
+                    {link.direction === 'previous' ? (
+                      <span aria-hidden="true">{'\u2039 '}</span>
+                    ) : null}
                     {link.label}
+                    {link.direction === 'next' ? (
+                      <span aria-hidden="true">{' \u203a'}</span>
+                    ) : null}
                   </Link>
                 </li>
               ))}
