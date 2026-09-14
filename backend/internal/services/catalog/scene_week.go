@@ -174,22 +174,20 @@ type sceneCalendarWeekTarget struct {
 // a DIFFERENT Monday to Chicago than to Honolulu.
 //
 // The predicate is GetSceneShowsInRange's, deliberately down to its omissions:
-// approved shows at ANY venue in scope, verified or not, cancelled ones
-// included. This number's only job is to equal the destination page's total, so
-// it has to be counted the way that page counts, not the way that page ideally
-// would. Capped at sceneWeekShowCap for the same reason — the page's total is
-// the length of a capped list, so an uncapped count would overstate it for a
-// scene busy enough to hit the ceiling.
+// approved shows at the scene's VERIFIED rooms, cancelled ones included. This
+// number's only job is to equal the destination page's total, so it has to be
+// counted the way that page counts, not the way that page ideally would. Capped
+// at sceneWeekShowCap for the same reason, since the page's total is the length
+// of a capped list and an uncapped count would overstate it for a scene busy
+// enough to hit the ceiling.
 //
-// CONSEQUENCE, because it will look like a bug from the outside: this counts a
-// DIFFERENT venue population from every other number on SceneListResponse. The
-// grouped ListScenes query applies sceneVenueEligibilitySQL (verified venues
-// with a usable city/state), so venue_count, total_show_count,
-// upcoming_show_count and shows_this_week are verified-only. A scene with
-// unverified rooms can therefore read "3 shows · 17 shows this week". Adding a
-// verified filter here would make the card self-consistent and make the LINK
-// wrong, which is the trade this field exists to refuse. Fix it, if it is worth
-// fixing, by narrowing the week PAGE — then this follows for free.
+// The verified term is what keeps it equal to that PAGE, and it is deliberately
+// only that term: the page's own predicate is trackedVenuePredicate, which for a
+// metro scene is the CBSA plus verified and carries no city/state condition. The
+// eligibility fragment that usually pairs with sceneGroupKeySQL adds one, so
+// splicing it here would drop a verified metro room with a blank city from this
+// count while the page still lists it. If the page's room set moves, this moves
+// with it or the link starts lying.
 //
 // Grouping caveat: see sceneTimezonesByKey. The metro branch is exact; a
 // fallback scene whose place holds both NULL-metro and CBSA venues can
@@ -236,7 +234,8 @@ func (s *SceneService) sceneCalendarWeekCounts(now time.Time, targets []sceneCal
 		JOIN venues v ON `+sceneGroupKeySQL+` = w.scene_key
 		JOIN show_venues sv ON sv.venue_id = v.id
 		JOIN shows s ON s.id = sv.show_id
-		WHERE s.status = ?
+		WHERE v.verified = true
+		  AND s.status = ?
 		  AND s.event_date >= w.wk_start
 		  AND s.event_date < w.wk_end
 		GROUP BY w.scene_key
@@ -283,13 +282,12 @@ func (s *SceneService) sceneLocation(scope sceneScope, state string) (*time.Loca
 	if s.db == nil {
 		return shared.EventZone(nil, state)
 	}
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	var tz string
 	err := s.db.Raw(`
 		SELECT v.timezone
 		FROM venues v
 		WHERE `+vp+`
-		  AND v.verified = true
 		  AND v.timezone IS NOT NULL
 		  AND v.timezone <> ''
 		GROUP BY v.timezone

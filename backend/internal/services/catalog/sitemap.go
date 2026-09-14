@@ -681,7 +681,10 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 		windowStart := currentStart.AddDate(0, 0, -7*(sceneWeekSitemapWindow-1))
 		windowEnd := currentStart.AddDate(0, 0, 7) // half-open end of current week
 
-		vp, vargs := scope.venuePredicate("v")
+		// trackedVenuePredicate, the room set GetSceneWeek draws its rows over:
+		// a week whose only shows sit at unverified rooms renders empty, so
+		// publishing a permalink for it would index a page with nothing on it.
+		vp, vargs := trackedVenuePredicate(scope, "v")
 		type showRow struct {
 			EventDate time.Time `gorm:"column:event_date"`
 			UpdatedAt time.Time `gorm:"column:updated_at"`
@@ -752,13 +755,12 @@ func (s *SitemapService) sceneLocation(scope sceneScope, state string) *time.Loc
 	if s.db == nil {
 		return utils.EventLocation(nil, state)
 	}
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	var tz string
 	err := s.db.Raw(`
 		SELECT v.timezone
 		FROM venues v
 		WHERE `+vp+`
-		  AND v.verified = true
 		  AND v.timezone IS NOT NULL
 		  AND v.timezone <> ''
 		GROUP BY v.timezone

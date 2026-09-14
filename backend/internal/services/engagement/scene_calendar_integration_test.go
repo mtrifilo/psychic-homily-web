@@ -173,13 +173,15 @@ func (s *SceneCalendarFeedSuite) TestSelectsTheRightShows() {
 	s.Equal("testville-zz", sceneSlug)
 }
 
-// Unverified venues are DIY spaces and houses; their street address is withheld
-// everywhere else in the API and must be withheld here too. A public calendar
-// feed is a WORSE place to leak it than a page — the address ends up copied into
-// every subscriber's device, where a later redaction can never reach it. This is
-// why the service reads shows through the scene service (whose query applies the
-// gate) instead of joining venues itself.
-func (s *SceneCalendarFeedSuite) TestNeverPublishesAnUnverifiedVenueAddress() {
+// Unverified venues are DIY spaces and houses. The scene does not track them,
+// so their shows are not the scene's calendar and no part of them reaches this
+// feed, the room name and the street address included.
+//
+// A public calendar feed is the WORST place to publish either: both end up
+// copied into every subscriber's device, where a later redaction can never
+// reach them. This is why the service reads shows through the scene service
+// (whose query applies the gate) instead of joining venues itself.
+func (s *SceneCalendarFeedSuite) TestNeverPublishesAnUnverifiedVenue() {
 	verified, unverified := s.seedScene()
 
 	now := time.Now().UTC()
@@ -193,11 +195,11 @@ func (s *SceneCalendarFeedSuite) TestNeverPublishesAnUnverifiedVenueAddress() {
 	s.NotContains(body, "1400 Secret House Show Ln",
 		"an unverified venue's street address must never reach a public feed")
 	s.NotContains(body, "Secret House Show")
-	// The room is still listed — only the address is withheld.
-	s.Contains(body, "Basement Gig")
-	s.Contains(body, "LOCATION:Someone's Basement\\, Testville\\, ZZ")
-	// ...while a verified room still publishes its address, so the assertions
-	// above prove redaction rather than an address that never rendered at all.
+	s.NotContains(body, "Someone's Basement", "nor its name")
+	s.NotContains(body, "Basement Gig", "nor the booking that names it")
+	// A verified room in the same scene publishes its whole address, so the
+	// assertions above prove an omitted room rather than an empty calendar.
+	s.Contains(body, "Club Gig")
 	s.Contains(body, "2303 E Indian School Rd")
 }
 

@@ -837,9 +837,11 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// venue zone, which is the boundary GetSceneDetail's headline figure takes. A
 	// card here links to that page, so the two numbers must name the same night.
 	//
-	// The NIGHT is all they share. This count reaches only verified rooms
-	// (sceneVenueEligibilitySQL); the detail page's scope has no such filter, so
-	// a scene holding an unverified room with upcoming shows reads lower here.
+	// This count reaches only verified rooms, as GetSceneDetail's headline figure
+	// now does, so the two agree on every corpus the site actually holds.
+	// sceneVenueEligibilitySQL is still the STRICTER rule: it also requires a
+	// usable city and state, which trackedVenuePredicate does not, so a verified
+	// room carrying a metro and a blank city counts on the page and not here.
 	//
 	// this_week_count is the sceneThisWeekDays-night slice of that same set
 	// (PSY-1309), driving the Atlas globe's pulse: one more FILTER aggregate in
@@ -1006,7 +1008,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	if err != nil {
 		return nil, err
 	}
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	ap, aargs := s.artistPredicate(scope, "a2")
 	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
 	// across queries) followed by extra args, in placeholder order.
@@ -1021,11 +1023,11 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	// Upcoming show count (metro-wide), bounded at the NIGHT in progress rather
-	// than at the request instant. The status band prints this figure beside a
-	// count of the shows on tonight, and the tonight bucket holds a night until
-	// 06:00 local, so a boundary drawn anywhere earlier reports fewer shows to
-	// come than the page lists under it.
+	// Upcoming show count, bounded at the NIGHT in progress rather than at the
+	// request instant. The status band prints this figure beside a count of the
+	// shows on tonight, and the tonight bucket holds a night until 06:00 local,
+	// so a boundary drawn anywhere earlier reports fewer shows to come than the
+	// page lists under it.
 	//
 	// The scene test is an EXISTS rather than a join, so a show booked into two
 	// metro rooms contributes ONE row and the zone lateral resolves once per
@@ -1227,6 +1229,11 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 // so the digest email and the public page can never disagree about which shows
 // belong to a scene.
 //
+// The room set is trackedVenuePredicate: the scene's VERIFIED rooms, the same
+// set the rooms leaderboard ranks, the day and week payloads name under
+// TrackedVenues, and SceneStats.UpcomingShowCount is counted over. A show whose
+// only room in the scope is unverified is not listed by any scene surface.
+//
 // `loc` is the zone EventDate is rendered in. It matters: a show at 21:00
 // Sunday in Chicago is 02:00 Monday UTC, so formatting in UTC would file it
 // under the wrong day — and, at a week boundary, under the wrong week.
@@ -1269,7 +1276,7 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	now := from
 	windowEnd := to
 
@@ -1324,9 +1331,15 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 	// lowest venue_id for venue ATTRIBUTION. This pick is scene-scoped and
 	// name-ordered because it is a display label with an address attached.
 	//
-	// Street address is served for VERIFIED venues only, matching
-	// buildVenueResponse and the show detail payload: a DIY/house venue must not
-	// be published before human review.
+	// The pick is over the rooms the WHERE admitted, so a bill split between a
+	// tracked room and an untracked one is listed under the TRACKED room. That is
+	// the only room of the pair this surface may name, and the show is on the
+	// scene's calendar because of it.
+	//
+	// The venue_address CASE is unreachable: the WHERE already pins v.verified on
+	// this same alias. It is kept fail-closed, because this one query projects
+	// the address for every scene listing surface there is, and a widening of the
+	// predicate would otherwise publish a house address by default.
 	if err := s.db.Raw(`
 		SELECT * FROM (
 			SELECT DISTINCT ON (s.id)
@@ -2327,7 +2340,22 @@ func sortStringsAsc(s []string) {
 // (for the PSY-1277 truncation flag).
 func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, int, error) {
 	ap, aargs := s.artistPredicate(scope, "a")
-	vp, vargs := scope.venuePredicate("v")
+	// Two predicates, because the CTEs below answer different questions.
+	//
+	// activityPredicate RANKS the roster and decides which bands survive
+	// sceneGraphRosterLimit. It is the bare scope: a band's standing in a town is
+	// every show it played there, and scoring its DIY bookings at zero would sink
+	// the busiest local band below one that has never played.
+	//
+	// labelPredicate picks primary_venue_name, which is PUBLISHED as a roster
+	// row's room and as a scene-graph cluster label, so it is the tracked rule.
+	// A band whose only bookings are at untracked rooms keeps a NULL primary
+	// venue, the same state a band with no bookings at all is in, which
+	// buildSceneClusters skips.
+	//
+	// Both carry the same args: the verified term binds nothing.
+	activityPredicate, vargs := scope.venuePredicate("v")
+	labelPredicate, _ := trackedVenuePredicate(scope, "v")
 	const q = `
 		WITH scene_artists AS (
 			SELECT a.id AS artist_id FROM artists a WHERE %s
@@ -2402,7 +2430,7 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sc
 	args = append(args, vargs...)
 	args = append(args, catalogm.ShowStatusApproved)
 	var rows []sceneArtistRow
-	if err := s.db.Raw(fmt.Sprintf(q, ap, vp, vp), args...).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(fmt.Sprintf(q, ap, activityPredicate, labelPredicate), args...).Scan(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	rosterTotal := 0

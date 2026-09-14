@@ -191,8 +191,13 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 }
 
 // sceneScopeIncludesShow answers whether one show sits in the metro's scope: the
-// venue predicate and approved-status filter GetSceneShowsInRange applies, asked
-// about a single row. It carries no date term and no clock.
+// room predicate (trackedVenuePredicate) and approved-status filter
+// GetSceneShowsInRange applies, asked about a single row. It carries no date
+// term and no clock.
+//
+// The room predicate must stay the one that query uses. This gates a LINK to
+// the scene-day page, so a wider rule here promises a reader their show is
+// listed there when that page does not list it.
 //
 // That is NARROWER than "the scene-day page for this date lists this show", and
 // deliberately so. This rail dates a show on the room's own zone while the
@@ -204,7 +209,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 // EXISTS rather than a count: a show billed at several of the metro's rooms
 // matches once per room, and only whether it matches at all is ever asked.
 func (s *SceneService) sceneScopeIncludesShow(scope sceneScope, showID uint) (bool, error) {
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	args := append(append([]any{}, vargs...), showID, catalogm.ShowStatusApproved)
 
 	var listed bool

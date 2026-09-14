@@ -1557,10 +1557,11 @@ type SceneListResponse struct {
 	// counts until that night ends. SceneStats.UpcomingShowCount is drawn on the
 	// same boundary, so a card and the page it links to name one night.
 	//
-	// They are not the same SET, and the difference is venue eligibility, not
-	// time: this count reaches only VERIFIED rooms, the detail page's reaches
-	// every room in the scope. A metro holding an unverified room with upcoming
-	// shows reads lower here than on its own page.
+	// Both reach the scene's VERIFIED rooms only, so a card and the page it opens
+	// report one number on every corpus the site holds. The rules are not
+	// identical: this one (sceneVenueEligibilitySQL) also requires a usable city
+	// and state, which the page's does not, so a verified room carrying a metro
+	// and a blank city counts on the page and not here.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	TotalShowCount    int `json:"total_show_count"`
 	// ShowsThisWeek is the seven-night slice of UpcomingShowCount (PSY-1309) —
@@ -1584,12 +1585,12 @@ type SceneListResponse struct {
 	// different questions — the Atlas pulse wants "is anything on soon", a
 	// week link wants "how many are on that page".
 	//
-	// COUNTED OVER A DIFFERENT VENUE POPULATION from every other field here:
-	// the week page includes unverified venues, and this matches it, while
-	// VenueCount/TotalShowCount/UpcomingShowCount/ShowsThisWeek are
-	// verified-only. A scene with unverified rooms can read "3 shows" and
-	// "17 shows this week" on one card. That is the cost of the link telling
-	// the truth; see sceneCalendarWeekCounts before "fixing" it.
+	// COUNTED TO MATCH THE PAGE, not the rest of this card. Its whole job is to
+	// equal the destination's total, so it follows the week page's room set:
+	// verified rooms in the scene's scope, with no city/state condition. The
+	// other fields here also require a usable city and state, so a verified room
+	// carrying a metro and a blank city counts toward this field alone. See
+	// sceneCalendarWeekCounts before "fixing" that.
 	ShowsCalendarWeek int `json:"shows_calendar_week"`
 	// Latitude/Longitude position the scene on the geographic-discovery map
 	// (PSY-1212): the metro principal city's centroid (or the fallback city's,
@@ -1701,18 +1702,17 @@ type SceneShowSummary struct {
 	// The billed venue's own details, from the SAME venue row VenueName names —
 	// enough to describe a place without a second round-trip per show.
 	//
-	// VenueAddress follows the site-wide privacy gate: street addresses are
-	// served for VERIFIED venues only, so a DIY/house venue is never published
-	// before human review. The remaining fields are city-level and always safe.
+	// VenueAddress is a street address, and every payload carrying this type is
+	// scoped to the scene's verified rooms, so it is only ever a reviewed room's.
+	// The remaining fields are city-level and always safe.
 	VenueSlug     string `json:"venue_slug,omitempty"`
 	VenueAddress  string `json:"venue_address,omitempty"`
 	VenueCity     string `json:"venue_city,omitempty"`
 	VenueState    string `json:"venue_state,omitempty"`
 	VenueCountry  string `json:"venue_country,omitempty"`
 	VenueTimezone string `json:"venue_timezone,omitempty"`
-	// VenueAgePolicy is the room's HOUSE DEFAULT age rule, served unredacted for
-	// unverified venues like the venue payload's own copy of it. See
-	// AgeRequirement above for how the two combine.
+	// VenueAgePolicy is the room's HOUSE DEFAULT age rule, never address-gated.
+	// See AgeRequirement above for how the two combine.
 	VenueAgePolicy string `json:"venue_age_policy,omitempty"`
 }
 
@@ -1820,14 +1820,10 @@ type SceneVenueSummary struct {
 	// this room's. See sceneVenueLeaderboard for why an instant bound would zero
 	// out a room whose only show is tonight.
 	//
-	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in both
-	// directions on purpose:
-	//   - PAST it, because a show billed to two rooms is counted by both.
-	//   - SHORT of it, because the scene total counts shows at UNVERIFIED rooms,
-	//     which are not tracked and so have no row here.
-	// Both are drawn at the same night start, so the BOUNDARY is not one of the
-	// directions they differ in. Do not "reconcile" the two that remain by
-	// editing the scene total: that silently changes a number already served.
+	// NOT a partition of SceneStats.UpcomingShowCount: a show billed to two of
+	// the scene's rooms is counted by both rows, so these numbers can sum PAST
+	// that total. The two are drawn over one room set at one night start, so
+	// double-billing is the only direction in which they differ.
 	//
 	// CANCELLED shows are counted, because they are still `approved` — the same
 	// convention the scene total and the day/week payloads follow (those ship
@@ -2249,13 +2245,20 @@ type SceneStats struct {
 	// the same set the tonight listing holds, which is the point, but it is not
 	// "shows that have not started".
 	//
-	// It counts shows at UNVERIFIED rooms too, which the per-room leaderboard
-	// beside it cannot; see SceneVenueSummary.UpcomingShowCount.
+	// It counts shows at the scene's VERIFIED rooms, the set VenueCount reports
+	// and the leaderboard beside it ranks; see SceneVenueSummary.UpcomingShowCount
+	// for the two ways a room's number and this total still differ.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	FestivalCount     int `json:"festival_count"`
 }
 
-// ScenePulse holds activity trend data for a scene
+// ScenePulse holds activity trend data for a scene.
+//
+// Every figure here is counted over the scene's VERIFIED rooms, the set
+// SceneStats.VenueCount reports and the rooms leaderboard ranks, so no number on
+// this payload is drawn over a room the page will not name. That includes the
+// historical months: these are computed per request, so the whole series moves
+// when a room is verified.
 type ScenePulse struct {
 	ShowsThisMonth        int    `json:"shows_this_month"`
 	ShowsPrevMonth        int    `json:"shows_prev_month"`

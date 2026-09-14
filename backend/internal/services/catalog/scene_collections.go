@@ -103,18 +103,16 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 	//     room has been verified. `verified` is a PUBLICATION gate (it is what
 	//     decides whether a DIY/house venue's street address may be served),
 	//     and nothing about a room's address is published here — only whether
-	//     it is in town. The scene's upcoming_show_count draws the same line
-	//     for the same reason. The consequence is deliberate: a collection of
-	//     Phoenix DIY spaces qualifies for the Phoenix rail even though the
-	//     scene page's rooms leaderboard, which IS a publication surface, lists
-	//     none of them. That collection is precisely the community knowledge
-	//     this rail exists to surface.
+	//     it is in town. The consequence is deliberate: a collection of Phoenix
+	//     DIY spaces qualifies for the Phoenix rail even though the scene's own
+	//     room list and show figures leave those rooms out. That collection is
+	//     precisely the community knowledge this rail exists to surface.
 	//   - scene_shows derives from scene_venues rather than re-spelling the
 	//     venue predicate, so a show's scene membership can never disagree
 	//     with its venue's. It counts APPROVED shows only, matching how every
 	//     other scene surface defines the scene's shows (GetSceneDetail's
-	//     upcoming_show_count, the pulse, the week/day pages) — a scene is
-	//     never credited here for a booking it does not publish anywhere else.
+	//     upcoming_show_count, the week/day pages): a scene is never credited
+	//     here for a booking it does not publish anywhere else.
 	//     That also closes a ranking exploit: pending submissions are invisible
 	//     to readers but would otherwise be countable, so anyone could pad a
 	//     collection onto the rail with shows nobody can see.
