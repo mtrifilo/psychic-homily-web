@@ -409,12 +409,12 @@ export function clampPage(page: number, maxPage: number): number {
  * - Only the pager's WINDOW is labelled. `Pagination` renders at most seven
  *   page links, so labelling the other 993 pages of a deep archive is work
  *   nothing displays.
- * - The CURRENT page's label is dropped while `keepPreviousData` holds the
- *   outgoing page. The histogram's premise check cannot run then — the rows on
- *   screen answer a different request, so they cannot attest to the ordinals —
- *   and this is the exact render on which `Pagination` latches its live-region
- *   announcement and never corrects it. A label the reader is told once and
- *   never corrected has to be verified or absent.
+ * - The CURRENT page's label is dropped whenever the rows on screen cannot
+ *   attest to the ordinals: `keepPreviousData` holding the outgoing page, or a
+ *   cold load with no total yet. The histogram's premise check cannot run in
+ *   either case, and this is the exact render on which `Pagination` latches its
+ *   live-region announcement and never corrects it. A label the reader is told
+ *   once and never corrected has to be verified or absent.
  *
  * The withhold takes `rowsAnswerCurrentRequest` and the raw `total` rather than
  * a pre-combined `listTotal`, so the rule cannot be defeated by a caller that
@@ -470,15 +470,18 @@ export function pageRangeLabelsForWindow({
 
 /**
  * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
- * bounded empty page instead of an unbounded offset the backend has to reject.
- * At 50 rows a page this covers 50,000 rows.
+ * bounded empty page instead of an arbitrarily large offset. The backend does
+ * not reject one — its `offset` carries a minimum and no maximum — so this is
+ * the only bound there is. At 50 rows a page it covers 50,000 rows.
  *
  * That is roughly two orders of magnitude past the busiest venue and the
  * most-played artist observed, which is the measurement the two entity archives
  * were sized on. The upcoming list is catalog-wide rather than per-entity, so
  * its premise is a different one and smaller: it holds only shows that have not
- * happened yet, measured at 9,263 across all cities (2026-09-11), an order of
- * magnitude inside this bound.
+ * happened yet. `GET /shows/upcoming` reported 9,263 of them across all cities
+ * on 2026-09-11 (recorded in `docs/research/shows-list-pagination-inventory-2026-09.md`),
+ * an order of magnitude inside this bound. Re-read that total rather than this
+ * sentence before relying on the headroom.
  *
  * ONE constant for all three paged show lists (PSY-1842, PSY-2060). The two
  * archives had identical copies, and `/shows` shares this one rather than

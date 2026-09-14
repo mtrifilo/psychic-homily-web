@@ -110,10 +110,14 @@ function DayGroupSection({
  * happens rather than under the reader's day.
  *
  * The heading gains its TONIGHT prefix one commit after hydration rather than
- * in the server HTML. Naming today means reading a clock, and this list renders
- * inside the route's prerendered shell, where a clock read would move the whole
- * subtree into the dynamic resume. The prefix is a text change inside a
- * full-width heading row, so nothing beside it moves when it arrives.
+ * in the server HTML. Naming today means reading a clock, and a clock read
+ * straight into render gives the server pass and the hydration pass different
+ * answers, which React reports as a hydration error and repairs by throwing the
+ * server's markup away. `useHydrated` is the gate for exactly that: it returns
+ * the same value in both passes and the refined answer arrives a commit later
+ * (see its own doc). The prefix is a text change inside a full-width heading
+ * row, so nothing beside it moves when it arrives, and
+ * `DayGroupedShowList.test.tsx` pins the server render making no TONIGHT claim.
  */
 export function DayGroupedShowList({
   shows,

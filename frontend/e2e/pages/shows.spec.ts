@@ -99,7 +99,10 @@ test.describe('Shows list', () => {
       .first()
       .getAttribute('aria-label')
 
-    // Links, not buttons: a fetcher with no JavaScript reaches page 2 too.
+    // Links, not buttons, so the deep pages are crawlable and bookmarkable.
+    // Deliberately NOT a claim that a no-JavaScript fetcher sees page 2's rows
+    // there: the route seeds page 1 and never reads `searchParams`, so the rows
+    // are swapped client-side and `?page=N` canonicalizes back to `/shows`.
     await expect(
       page.getByRole('link', { name: /^later$/i }).first()
     ).toHaveAttribute('href', /[?&]page=2(?:&|$)/)

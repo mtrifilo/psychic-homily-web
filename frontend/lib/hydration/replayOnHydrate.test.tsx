@@ -117,7 +117,7 @@ describe('replayOnHydrate', () => {
   })
 
   it('replays through the shadcn Button, which most adopters spread onto', () => {
-    // 11 adoption sites are `<Button {...replayOnHydrate} />`. That works only
+    // the adoption sites are `<Button {...replayOnHydrate} />`. That works only
     // because Button is a React-19 function component that spreads `ref`
     // straight through to the DOM node. If it ever wrapped, memoised or dropped
     // `ref`, every one of those controls would keep the marker attribute and

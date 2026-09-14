@@ -98,7 +98,8 @@ export function ShowList() {
 
   // The page in view. `parseAsInteger.withDefault(1)` is the archive family's
   // reading of `?page=`, and `clampPage` bounds a hand-edited one so it becomes
-  // an empty page rather than an unbounded offset the backend has to reject.
+  // an empty page rather than an arbitrarily large offset the backend will
+  // happily scan for (its `offset` carries a minimum and no maximum).
   const [rawPage, setPage] = useQueryState(
     'page',
     parseAsInteger.withDefault(1).withOptions({ history: 'push', startTransition })
@@ -185,7 +186,8 @@ export function ShowList() {
 
   // The month histogram that labels every page link before the reader spends a
   // click on it. Filter-keyed, so paging does not re-request it.
-  const { data: monthsData } = useShowMonths(listFilters)
+  const { data: monthsData, isPlaceholderData: monthsArePlaceholder } =
+    useShowMonths(listFilters)
 
   const pageShows = useMemo(() => data?.shows ?? [], [data?.shows])
 
@@ -206,6 +208,16 @@ export function ShowList() {
   // place across a page change, and "Showing 51-100" over rows 1-50 is a wrong
   // number rather than a stale one.
   const rowsAnswerCurrentRequest = !isPlaceholderData
+
+  // The page LABELS rest on a second query, and it holds its own previous data.
+  // The histogram's premise check compares its bucket sum against the list's
+  // total, so a stale histogram whose total happens to equal the current one's
+  // passes the check and labels every page with the wrong months — the one path
+  // that gets an unverified label past the withhold rule and into the live
+  // region. Both queries have to answer the current filters for a label to be
+  // stated at all.
+  const labelsAnswerCurrentRequest =
+    rowsAnswerCurrentRequest && !monthsArePlaceholder
 
   // The URL named a page this list does not have. Distinguished from a genuinely
   // empty list, which is the same zero rows and a very different sentence.
@@ -235,11 +247,11 @@ export function ShowList() {
         // that — so a disagreement blanks every label rather than printing a
         // span the page does not cover.
         total: data?.total,
-        rowsAnswerCurrentRequest,
+        rowsAnswerCurrentRequest: labelsAnswerCurrentRequest,
         // The list spans years, so a label may never elide the year.
         scope: 'all-years',
       }),
-    [monthsData?.months, page, totalPages, rowsAnswerCurrentRequest, data?.total]
+    [monthsData?.months, page, totalPages, labelsAnswerCurrentRequest, data?.total]
   )
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLParagraphElement>()
@@ -492,9 +504,10 @@ export function ShowList() {
              hand-typed number, or a page that existed until shows graduated
              out of the upcoming set. Saying "no upcoming shows" here would be
              a flatly false claim about the catalogue, and the filter
-             suggestions below answer a question nobody asked. The pager above
-             already renders the real last page as current, so the way back is
-             one click away. */
+             suggestions below answer a question nobody asked. The link is the
+             way back and is always rendered: the pagers are not, since they
+             return null on a list of one page, which a filtered list past its
+             end can be. */
           <div
             className="text-center py-12 text-muted-foreground"
             data-testid="shows-page-beyond-end"

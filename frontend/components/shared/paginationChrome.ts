@@ -60,10 +60,14 @@ export function toPageNumber(value: number, fallback: number): number {
  * The page a pager will actually SHOW for a requested page number.
  *
  * A `?page=` can name a page past the end — a stale bookmark, a hand-typed
- * number, a result set that shrank — and every pager clamps it into range
- * rather than rendering "Page 99 of 3". Anything deriving per-page state
- * alongside a pager has to clamp identically, or it keys that state on a page
- * number nothing on screen refers to.
+ * number, a result set that shrank — and `Pagination` renders that as the last
+ * real page rather than as "Page 99 of 3".
+ *
+ * Anything that LABELS or CAPTIONS the current page has to clamp the same way,
+ * or it keys that state on a page number nothing on screen refers to. What a
+ * consumer requests from its API deliberately does NOT clamp here: `/shows`
+ * turns an out-of-range page into a real empty response, which is how it tells
+ * "past the end" apart from "nothing matches".
  */
 export function clampToPageCount(page: number, totalPages: number): number {
   return Math.min(toPageNumber(page, 1), toPageNumber(totalPages, 1))

@@ -58,6 +58,7 @@ const mockUseShowMonths = vi.fn<
       months: Array<{ year: number; month: number; count: number }>
       total: number
     }
+    isPlaceholderData?: boolean
   }
 >(() => ({ data: undefined }))
 vi.mock('../hooks/useShows', () => ({
@@ -578,6 +579,31 @@ describe('ShowList', () => {
 
       expect(
         screen.getAllByRole('link', { name: 'Page 1, Sep 2026' }).length
+      ).toBeGreaterThan(0)
+    })
+
+    // The histogram holds its own previous data across a filter change. A
+    // stale one whose bucket sum happens to equal the current total passes the
+    // premise check, so the rows answering the request is not enough on its
+    // own: both queries have to.
+    it('drops every label while the histogram itself is stale', () => {
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 9, count: 60 },
+            { year: 2026, month: 10, count: 120 },
+            { year: 2026, month: 11, count: 88 },
+          ],
+          total: 268,
+        },
+        isPlaceholderData: true,
+      })
+      setPage(50, 268)
+      render(<ShowList />)
+
+      expect(screen.queryByRole('link', { name: /Page 1, / })).toBeNull()
+      expect(
+        screen.getAllByRole('link', { name: /^page 1$/i }).length
       ).toBeGreaterThan(0)
     })
 

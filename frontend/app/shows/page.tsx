@@ -93,13 +93,19 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *   fetch                      raw      base64   % cap   bounded by
  *   -------------------------  -------  -------  ------  --------------------
  *   /shows/upcoming?limit=50    80,327  107,104    5.1%  UPCOMING_SHOWS_LIMIT
- *   /shows/calendar?limit=50    80,327  107,104    5.1%  SHOWS_PAGE_SIZE
+ *   /shows/calendar?limit=50   INFERRED           ~5%    SHOWS_PAGE_SIZE
+ *   /shows/months                    -       -      -    one row per month
  *   /shows/cities                8,948   11,932    0.6%  one row per city
  *   /scenes                      7,256    9,676    0.5%  UNBOUNDED
  *
- * The two show URLs are 50 rows of the same venue-local upcoming partition, one
- * read by cursor and one by offset, so the row set and the payload size are the
- * same measurement. (The `/shows/upcoming` response — not `/shows/cities`,
+ * The calendar row is INFERRED, not measured: it is the same 50 rows of the
+ * same venue-local partition as the cursor read above it (the backend states
+ * that an unwindowed offset page matches row for row), but its envelope drops
+ * `pagination` and adds six scalars, so the byte count differs by a little.
+ * `/shows/months` is one small object per month and was never near the cap. The
+ * build's own budget check counts every entry and passes; re-measure the
+ * calendar row rather than quoting this table if a field is added to the show
+ * response. (The `/shows/upcoming` response — not `/shows/cities`,
  * which has no such field — echoes a `timezone` parameter the backend ignores.
  * Nothing consumes it; show times render from each venue's own zone.)
  *
@@ -118,12 +124,20 @@ export const UPCOMING_SHOWS_LIMIT = 50
 /**
  * The `ItemList` read of the upcoming list.
  *
- * A SEPARATE call from the first-screen seed below, because the two need
- * different abort budgets. This one runs in the PRERENDERED SHELL, where the
- * only cost of waiting is a slower build and giving up early bakes a
- * schema-less page in for a whole revalidate window. The seed runs at REQUEST
- * time, where the same ten seconds is a visitor watching a skeleton.
- * `React.cache` does not bridge them: under `cacheComponents` the shell and the
+ * A SEPARATE call from the first-screen seed below, and it keeps the longer
+ * `BUILD_TIME_API_FETCH_TIMEOUT_MS` budget: giving up early on this one costs
+ * the page its structured data, while the seed only costs a visitor the
+ * server-rendered rows the component would fetch for itself anyway.
+ *
+ * OPEN QUESTION, do not build on either answer without re-measuring. That split
+ * was argued on this call running in the prerendered shell and the seed running
+ * at request time. A `next build` against a reachable backend (2026-09-13) puts
+ * `/shows` at Partial Prerender, and its prerendered `shows.html` is 9.9 KB
+ * carrying NEITHER this `ItemList` nor the list's rows — so both appear to
+ * stream, and the render-pass half of that argument is unverified. The budgets
+ * themselves are still the right way round on the costs above.
+ *
+ * `React.cache` does not bridge the two: under `cacheComponents` a shell and a
  * postponed resume are different render passes, so a `cache()` entry made in
  * one is not visible in the other. What dedupes a repeated URL is Next's Data
  * Cache, and only when the URLs match — which is why keeping the two calls on
@@ -185,6 +199,63 @@ function getShowName(show: ShowListItem): string {
  * component fetches for itself and owns the error state (see
  * `fetchListPayload`).
  */
+/**
+ * Which cache entries a set of first-screen payloads may seed, or `null` when
+ * the page must render unseeded.
+ *
+ * The GATING RULE lives here rather than inline so it can be stated once and
+ * tested: `ShowList` returns its skeleton while EITHER the rows or the cities
+ * are still loading, so seeding one without the other server-renders the
+ * skeleton and buys nothing. The month histogram is NOT a gate — the list
+ * renders with bare page numerals without it — so a missing one is dropped from
+ * the seed rather than suppressing the other two.
+ */
+export function showsFirstScreenSeeds({
+  shows,
+  cities,
+  months,
+}: {
+  shows: ShowsCalendarResponse | null
+  cities: ShowCitiesResponse | null
+  months: ShowMonthsResponse | null
+}): Array<{ queryKey: readonly unknown[]; data: unknown }> | null {
+  if (!shows || !cities) return null
+
+  return [
+    { queryKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY, data: shows },
+    { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
+    ...(months
+      ? [{ queryKey: SHOWS_MONTHS_FIRST_SCREEN_KEY, data: months }]
+      : []),
+  ]
+}
+
+/**
+ * The pager's month histogram, seeded so it is not a third client call.
+ *
+ * TAKES THE DEFAULT HOUR, and the shorter window its payload argues for was
+ * measured and rejected rather than overlooked. It is scoped to CALENDAR
+ * MONTHS, the shape `fetchListPayload` says should shorten its revalidate and
+ * the scene-week block below does shorten. The difference is where the two run:
+ * that block sits behind `await connection()`, so its 60s is request-time and
+ * private to it, while this is an ordinary cached fetch in a prerenderable
+ * scope. A `next build` with 60s here moved the ROUTE's revalidate from 1h to
+ * 1m (measured 2026-09-13) — sixty times the regeneration on the site's busiest
+ * page, which is a cost decision rather than a cleanup.
+ *
+ * What the hour exposes is bounded: the seeded labels can name a month that has
+ * ended, in the SERVER-RENDERED paint only. `useShowMonths` holds a 60s
+ * `staleTime` so the client corrects it on hydration, and the pager's
+ * live-region announcement fires on a page CHANGE, which is after that.
+ */
+export function getShowsMonthsPayload(): Promise<ShowMonthsResponse | null> {
+  return fetchListPayload<ShowMonthsResponse>({
+    url: SHOWS_MONTHS_FIRST_SCREEN_URL,
+    collection: 'months',
+    service: 'shows-months-first-screen',
+  })
+}
+
 async function HydratedShowList() {
   const [shows, cities, months] = await Promise.all([
     fetchListPayload<ShowsCalendarResponse>({
@@ -197,29 +268,34 @@ async function HydratedShowList() {
       collection: 'cities',
       service: 'show-cities-first-screen',
     }),
-    // The pager's page labels. Unlike the two above it is not a gate on the
-    // first paint — the list renders with bare numerals if it is missing — so
-    // its failure does not suppress the seed. It is fetched here because it is
-    // otherwise a THIRD client call on this route against a per-IP budget that
-    // everyone behind one address shares.
-    fetchListPayload<ShowMonthsResponse>({
-      url: SHOWS_MONTHS_FIRST_SCREEN_URL,
-      collection: 'months',
-      service: 'shows-months-first-screen',
-    }),
+    // The pager's page labels. Fetched here because it is otherwise a THIRD
+    // client call on this route, against a per-IP budget everyone behind one
+    // address shares, on a response no shared cache absorbs.
+    //
+    // Not a gate on the first paint: a `null` leaves the list rendering bare
+    // numerals, and the seed below is skipped rather than suppressed. The one
+    // failure it does NOT absorb is a Data Cache budget overrun, which
+    // `fetchListPayload` rethrows on purpose — that rejection escapes this
+    // `Promise.all` and takes the whole subtree, which is what a build-time
+    // budget gate is for.
+    //
+    // The response is `private, max-age=60` because its handler consults
+    // `upcomingListIncludesNonApproved`, and this seeds it into a SHARED Data
+    // Cache and a shared render. That is sound only while all three hold: the
+    // route is registered off the optional-auth group so the admin branch is
+    // unreachable, this fetch forwards no credentials, and the key below
+    // carries no viewer segment. A change to any one of them has to move the
+    // other two.
+    getShowsMonthsPayload(),
   ])
 
-  if (!shows || !cities) {
+  const seeds = showsFirstScreenSeeds({ shows, cities, months })
+
+  if (!seeds) {
     return <ShowList />
   }
 
-  const dehydratedState = await seedFirstScreen([
-    { queryKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY, data: shows },
-    { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
-    ...(months
-      ? [{ queryKey: SHOWS_MONTHS_FIRST_SCREEN_KEY, data: months }]
-      : []),
-  ])
+  const dehydratedState = await seedFirstScreen(seeds)
 
   return (
     <HydrationBoundary state={dehydratedState}>

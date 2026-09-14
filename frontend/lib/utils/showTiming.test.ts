@@ -5,6 +5,7 @@ import {
   isShowPast,
   hasShowStarted,
   showIsArchived,
+  venueLocalDateKey,
 } from './showTiming'
 
 /**
@@ -365,5 +366,75 @@ describe('hasReadableStartDate', () => {
     ['undefined', undefined],
   ])('rejects a %s date', (_label, value) => {
     expect(hasReadableStartDate(value)).toBe(false)
+  })
+})
+
+/**
+ * The day-boundary helper the `/shows` day headings group on. It has to agree
+ * with `getShowLifecycleState`, which judges the same boundary, because one
+ * decides which heading a row sits under and the other used to decide whether
+ * that heading says TONIGHT.
+ */
+describe('venueLocalDateKey', () => {
+  it('reads the date on the venue clock, not the runtime one', () => {
+    // 01:00 UTC on the 12th is still the 11th in Phoenix.
+    expect(
+      venueLocalDateKey({
+        eventDate: '2026-09-12T01:00:00Z',
+        timezone: 'America/Phoenix',
+      })
+    ).toBe('2026-09-11')
+  })
+
+  it('pads month and day so the key sorts as a date', () => {
+    expect(
+      venueLocalDateKey({
+        eventDate: '2026-01-05T18:00:00Z',
+        timezone: 'America/Phoenix',
+      })
+    ).toBe('2026-01-05')
+  })
+
+  it('falls back to the state map when the venue has no zone', () => {
+    expect(
+      venueLocalDateKey({ eventDate: '2026-09-12T01:00:00Z', state: 'AZ' })
+    ).toBe('2026-09-11')
+  })
+
+  // Two zones on one page must not collide in the memoized formatter.
+  it('answers each zone independently', () => {
+    const instant = '2026-09-12T05:00:00Z'
+
+    expect(
+      venueLocalDateKey({ eventDate: instant, timezone: 'America/New_York' })
+    ).toBe('2026-09-12')
+    expect(
+      venueLocalDateKey({ eventDate: instant, timezone: 'America/Los_Angeles' })
+    ).toBe('2026-09-11')
+  })
+
+  it.each([
+    ['empty', ''],
+    ['unparseable', 'not-a-date'],
+    ['null', null],
+    ['undefined', undefined],
+  ])('answers null for an %s date', (_label, value) => {
+    expect(
+      venueLocalDateKey({ eventDate: value, timezone: 'America/Phoenix' })
+    ).toBeNull()
+  })
+
+  // The boundary this draws is the one `getShowLifecycleState` calls `today`.
+  it('agrees with the lifecycle state about which day is today', () => {
+    const now = new Date('2026-09-12T19:00:00Z')
+    const show = {
+      eventDate: '2026-09-13T02:00:00Z',
+      timezone: 'America/Phoenix',
+    }
+
+    expect(getShowLifecycleState(show, now)).toBe('today')
+    expect(venueLocalDateKey(show)).toBe(
+      venueLocalDateKey({ ...show, eventDate: now.toISOString() })
+    )
   })
 })

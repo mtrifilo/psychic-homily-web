@@ -44,6 +44,9 @@ export type {
   ShowSaveCount,
   SaveCountEntry,
   BatchSaveCountsResponse,
+  ShowsCalendarResponse,
+  ShowMonthsResponse,
+  ShowMonthCount,
 } from './types'
 
 // Hooks

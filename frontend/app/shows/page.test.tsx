@@ -3,7 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
-import { UPCOMING_SHOWS_LIMIT, getScenesForWeekIndex, getUpcomingShows } from './page'
+import {
+  UPCOMING_SHOWS_LIMIT,
+  getScenesForWeekIndex,
+  getShowsMonthsPayload,
+  getUpcomingShows,
+  showsFirstScreenSeeds,
+} from './page'
+import {
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+  SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+  SHOWS_MONTHS_FIRST_SCREEN_KEY,
+} from '@/features/shows/api'
 
 // The bound here was implicit — no `limit` was sent, so the endpoint's
 // `default:"50"` applied silently. Asserting it keeps the number a decision
@@ -100,5 +111,86 @@ describe('getScenesForWeekIndex', () => {
     fetchListPayload.mockResolvedValue(null)
 
     await expect(getScenesForWeekIndex()).resolves.toBeNull()
+  })
+})
+
+// The month histogram is the pager's page labels. It is fetched server-side
+// because it is otherwise a third client call on this route against a per-IP
+// budget, and it is NOT a gate on the first paint.
+describe('getShowsMonthsPayload', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('asks for the histogram, guarded on the months collection', async () => {
+    const months = [{ year: 2026, month: 9, count: 64 }]
+    fetchListPayload.mockResolvedValue({ months, total: 64 })
+
+    await expect(getShowsMonthsPayload()).resolves.toEqual({ months, total: 64 })
+    expect(fetchListPayload).toHaveBeenCalledWith({
+      url: expect.stringMatching(/\/shows\/months$/),
+      collection: 'months',
+      service: 'shows-months-first-screen',
+    })
+  })
+
+  // Takes the default window ON PURPOSE. Overriding it to the 60s its
+  // calendar-scoped payload argues for pulled the whole ROUTE's revalidate from
+  // 1h to 1m, because this fetch — unlike the scene-week one — is not behind
+  // `connection()`. Pinned so that trade is re-decided deliberately rather than
+  // re-made by an edit.
+  it('does not override the first-screen revalidate window', async () => {
+    fetchListPayload.mockResolvedValue({ months: [], total: 0 })
+
+    await getShowsMonthsPayload()
+
+    expect(fetchListPayload.mock.calls[0][0]).not.toHaveProperty(
+      'revalidateSeconds'
+    )
+  })
+})
+
+describe('showsFirstScreenSeeds', () => {
+  const shows = {
+    shows: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    year: 0,
+    month: 0,
+    day: 0,
+  }
+  const cities = { cities: [] }
+  const months = { months: [], total: 0 }
+
+  it('seeds all three when all three landed', () => {
+    const seeds = showsFirstScreenSeeds({ shows, cities, months })
+
+    expect(seeds?.map(seed => seed.queryKey)).toEqual([
+      SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+      SHOW_CITIES_FIRST_SCREEN_KEY,
+      SHOWS_MONTHS_FIRST_SCREEN_KEY,
+    ])
+  })
+
+  // The histogram is not a gate: without it the pager renders bare numerals,
+  // which is a far smaller loss than server-rendering the skeleton.
+  it('still seeds the rows and cities when the histogram failed', () => {
+    const seeds = showsFirstScreenSeeds({ shows, cities, months: null })
+
+    expect(seeds?.map(seed => seed.queryKey)).toEqual([
+      SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+      SHOW_CITIES_FIRST_SCREEN_KEY,
+    ])
+  })
+
+  // Both of these ARE gates: `ShowList` renders its skeleton while either query
+  // is loading, so seeding one alone server-renders the skeleton.
+  it('seeds nothing when the rows failed', () => {
+    expect(showsFirstScreenSeeds({ shows: null, cities, months })).toBeNull()
+  })
+
+  it('seeds nothing when the cities failed', () => {
+    expect(showsFirstScreenSeeds({ shows, cities: null, months })).toBeNull()
   })
 })
