@@ -20,9 +20,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
 // does not include: what it pins is which CONTROLS the row offers, and the
 // controls' own behaviour is tested where those components live.
 vi.mock('./ShowForm', () => ({ ShowForm: () => <div data-testid="show-form" /> }))
+// Rendered whenever it is MOUNTED, so a test can tell "mounted and closed"
+// from "not mounted at all".
 vi.mock('./DeleteShowDialog', () => ({
-  DeleteShowDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="delete-dialog" /> : null,
+  DeleteShowDialog: ({ open }: { open: boolean }) => (
+    <div data-testid={open ? 'delete-dialog' : 'delete-dialog-closed'} />
+  ),
 }))
 // The PANEL is stubbed and the predicates are kept real: what decides whether
 // the expand control appears is `showHasArtistMusic`, and stubbing that would
@@ -35,14 +38,6 @@ vi.mock('./ShowArtistMusic', async importOriginal => {
     ShowArtistMusicPanel: () => <div data-testid="artist-music-panel" />,
   }
 })
-
-vi.mock('./ExportShowButton', () => ({
-  ExportShowButton: () => (
-    <button type="button" aria-label="Export show">
-      export
-    </button>
-  ),
-}))
 
 vi.mock('@/components/shared/SaveButton', () => ({
   SaveButton: () => (
@@ -271,11 +266,13 @@ describe('DayGroupedShowRow', () => {
       expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
     })
 
+    // Export is deliberately NOT asserted here: `ExportShowButton` renders
+    // nothing outside development and carries no aria-label, so any assertion
+    // on it would pass against a stub and prove nothing.
     it('hides the admin controls from an ordinary viewer', () => {
       renderRow()
 
       expect(screen.queryByRole('button', { name: 'Edit show' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'Export show' })).toBeNull()
       expect(screen.queryByRole('button', { name: 'Delete show' })).toBeNull()
     })
 
@@ -284,9 +281,6 @@ describe('DayGroupedShowRow', () => {
 
       expect(
         screen.getByRole('button', { name: 'Edit show' })
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Export show' })
       ).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: 'Delete show' })
@@ -316,6 +310,45 @@ describe('DayGroupedShowRow', () => {
       renderRow({ submitted_by: 42 } as never, { userId: '7' })
 
       expect(screen.queryByRole('button', { name: 'Delete show' })).toBeNull()
+    })
+
+    // `AuthContext` records that the declared `id: string` is narrower than
+    // what arrives at runtime. Comparing a number against a string with `===`
+    // would take the submitter's own delete control away silently.
+    it('recognises the submitter when the viewer id is a number', () => {
+      renderRow({ submitted_by: 42 } as never, { userId: 42 as never })
+
+      expect(
+        screen.getByRole('button', { name: 'Delete show' })
+      ).toBeInTheDocument()
+    })
+
+    it('opens the delete dialog from the row', async () => {
+      const user = userEvent.setup()
+      renderRow({}, { isAdmin: true })
+
+      expect(screen.queryByTestId('delete-dialog')).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Delete show' }))
+
+      expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
+    })
+
+    // `DeleteShowDialog` calls `useShowDelete` at mount, so mounting it for a
+    // reader who can never open it is 50 mutations a page for nothing.
+    it('mounts no delete dialog at all for a viewer who cannot delete', () => {
+      renderRow()
+
+      expect(screen.queryByTestId('delete-dialog')).toBeNull()
+    })
+
+    // The expanded density auto-opens the music, and the toggle outranks it.
+    it('opens the players already at the expanded density', () => {
+      renderRow({}, { density: 'expanded' })
+
+      expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Hide artist music' })
+      ).toBeInTheDocument()
     })
 
     // The control is in server HTML before hydration wires it, so the replay

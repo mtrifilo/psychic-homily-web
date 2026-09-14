@@ -8,7 +8,6 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
-  MapPin,
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,60 +18,22 @@ import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ShowForm } from './ShowForm'
 import { SaveButton, ShowPrice, SocialLinks, MusicEmbed } from '@/components/shared'
-import { hasRenderableMusic } from '@/lib/musicAvailability'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
+// The music predicates and the per-act base line live beside the panel that
+// uses them, so the card and the `/shows` row cannot disagree about which acts
+// have something to open.
+import {
+  ArtistBase,
+  artistHasMusic,
+  showHasArtistMusic,
+} from './ShowArtistMusic'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { basedInPhrase, billHometown, splitBill } from '../utils'
+import { splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
-
-/**
- * Where an expanded card's act is based: `based in Tempe, AZ`, or nothing when
- * the act has no placeable location.
- *
- * Both halves are shared with the show page: {@link billHometown} for the
- * parts and {@link basedInPhrase} for the prefix. This line sits beside the
- * SHOW's city, where a bare place name after an act's name reads as where the
- * show is, and one act must not be worded two ways across the card and the
- * page it opens.
- *
- * {@link billHometown} counts COUNTRY as placeable, so an act carrying only a
- * country states it, and its country is included unless the state is set and
- * the country is USA/US.
- */
-function ArtistBase({ artist }: { artist: ArtistResponse }) {
-  const base = basedInPhrase(billHometown(artist))
-  if (!base) return null
-  return (
-    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-      <MapPin className="h-3 w-3" />
-      <span>{base}</span>
-    </div>
-  )
-}
-
-/**
- * Whether an artist's music block will render anything. A stored Bandcamp URL
- * no longer implies that on its own, so this asks the shared predicate rather
- * than testing the column, or the expand button would open onto nothing.
- */
-function artistHasMusic(artist: ArtistResponse): boolean {
-  return hasRenderableMusic({
-    bandcampAlbumUrl: artist.bandcamp_embed_url,
-    bandcampProfileUrl: artist.socials?.bandcamp,
-    spotifyUrl: artist.socials?.spotify,
-  })
-}
-
-/**
- * Check if any artist in the list has music
- */
-function showHasArtistMusic(artists: ArtistResponse[]): boolean {
-  return artists.some(artistHasMusic)
-}
 
 function ArtistLink({ artist, className }: { artist: ArtistResponse; className?: string }) {
   if (artist.slug) {

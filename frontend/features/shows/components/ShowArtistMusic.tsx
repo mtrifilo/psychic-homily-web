@@ -26,8 +26,14 @@ export function showHasArtistMusic(artists: ArtistResponse[]): boolean {
   return artists.some(artistHasMusic)
 }
 
-/** Where an act is based: `based in Tempe, AZ`, or nothing when unplaceable. */
-function ArtistBase({ artist }: { artist: ArtistResponse }) {
+/**
+ * Where an act is based: `based in Tempe, AZ`, or nothing when unplaceable.
+ *
+ * {@link billHometown} counts COUNTRY as placeable, so an act carrying only a
+ * country states it, and its country is included unless the state is set and
+ * the country is USA/US.
+ */
+export function ArtistBase({ artist }: { artist: ArtistResponse }) {
   const base = basedInPhrase(billHometown(artist))
   if (!base) return null
   return (
@@ -45,9 +51,10 @@ function ArtistBase({ artist }: { artist: ArtistResponse }) {
  * discovery loop is a reader scanning tonight's shows for bands they have never
  * heard, and any second click kills it.
  *
- * Extracted so the `/shows` row and the card do not carry two copies of the
- * same block. `ShowCard` still holds its own inline copies, one per density,
- * which predate this and are a reasonable follow-up to fold in here.
+ * The `/shows` row renders this panel. `ShowCard` keeps its own inline copies,
+ * one per density, and reads the predicates and {@link ArtistBase} from here,
+ * so the two surfaces cannot disagree about which acts have music to open.
+ * Folding those copies into this panel is a reasonable follow-up.
  */
 export function ShowArtistMusicPanel({
   artists,

@@ -82,7 +82,7 @@ const COLUMN = {
   venue: 'lg:w-[260px]',
   price: 'lg:w-[80px]',
   age: 'lg:w-[60px]',
-  actions: 'lg:w-[100px]',
+  actions: 'lg:min-w-[100px]',
 } as const
 
 /**
@@ -168,23 +168,38 @@ export function DayGroupedShowRow({
   showCity,
 }: DayGroupedShowRowProps) {
   const { user } = useAuthContext()
-  const [isExpanded, setIsExpanded] = useState(false)
+  // DERIVED from the density, not seeded from it. `useDensity` reads
+  // localStorage through a server snapshot, so it is always 'comfortable' on
+  // the server and the hydration render, and this row first mounts on the
+  // server: `useState(density === 'expanded')` would latch `false` and never
+  // re-run, so a viewer whose stored density is 'expanded' would silently lose
+  // the auto-opened music for the whole session. The override is the reader's
+  // own toggle, which outranks the preference. Same shape as `ShowCard`.
+  const [expandOverride, setExpandOverride] = useState<boolean | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
-  const artists = show.artists ?? []
+  const artists = useMemo(() => show.artists ?? [], [show.artists])
   const { headliners, support } = useMemo(() => splitBill(artists), [artists])
+  const hasArtistMusic = useMemo(
+    () => showHasArtistMusic(artists),
+    [artists]
+  )
 
-  const hasArtistMusic = showHasArtistMusic(artists)
-
-  // Admin, or the reader who submitted this show. Same rule as `ShowCard`.
+  // Admin, or the reader who submitted this show.
+  //
+  // BOTH sides are coerced. `AuthContext` records that the declared `id: string`
+  // is narrower than what arrives at runtime, and a numeric id compared with
+  // `===` against a string silently fails, taking the submitter's own delete
+  // control with it. `ShowCard` coerces one side; that copy has the same latent
+  // hole and is worth a follow-up.
   const resolvedUserId = userId || user?.id
   const canDelete =
     isAdmin ||
     !!(
       resolvedUserId &&
       show.submitted_by &&
-      String(show.submitted_by) === resolvedUserId
+      String(show.submitted_by) === String(resolvedUserId)
     )
 
   // The COMPACT register, which `formatShowTimeCompact` documents as the one
@@ -207,6 +222,9 @@ export function DayGroupedShowRow({
   const supportOnOwnLine = density === 'expanded'
   const showSupport = density !== 'compact' && support.length > 0
   const showAge = showsAge(density)
+
+  const isExpanded = expandOverride ?? density === 'expanded'
+  const setIsExpanded = setExpandOverride
 
   const stripe = index % 2 === 0 ? 'bg-muted/20' : undefined
 
@@ -240,22 +258,6 @@ export function DayGroupedShowRow({
         line 1 so the venue keeps the whole left of line 2, which is the field
         that tells two rows apart and the first thing a narrow viewport clips.
       */}
-      {/*
-        ONE tree that reflows, not a stacked copy beside a column copy. Two
-        breakpoint branches would put every row's content in the DOM twice: a
-        screen reader reads both, every link counts twice for a crawler, and a
-        50-row page carries double the nodes.
-
-        Below `lg` the row is the frame's two lines, and each is a wrapper here.
-        At `lg` every wrapper becomes `contents`, so its children flatten into
-        the one column row and take their place from `lg:order-*`. That is what
-        lets the stacked metadata run become three separate columns without a
-        second copy of it.
-
-        The actions ride line 1 rather than line 2, so the venue keeps the whole
-        left of its own line: it is the field that tells two rows apart and the
-        first thing a narrow viewport clips.
-      */}
       <div className="flex flex-col gap-y-0.5 lg:flex-row lg:items-baseline lg:gap-x-2">
         <span className="flex w-full min-w-0 items-baseline gap-x-2 lg:contents">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 lg:order-2">
@@ -288,12 +290,14 @@ export function DayGroupedShowRow({
             )}
           </span>
 
-          {/* The column is a MINIMUM width, not a cap: an admin viewer carries
-              five controls here and the frame's 100px was drawn for two. It
-              wraps rather than dropping any of them. */}
+          {/* A MINIMUM width, not a cap. The frame drew this column for two
+              controls; an admin carries five, six where the dev-only export
+              button renders. At a fixed width they would wrap to a second line
+              inside the box and make admin rows taller than the rest, which
+              `lg:items-baseline` would then align to the first line. */}
           <span
             className={cn(
-              'flex shrink-0 flex-wrap items-center justify-end gap-0.5 lg:order-6',
+              'flex shrink-0 items-center justify-end gap-0.5 lg:order-6',
               COLUMN.actions
             )}
           >
@@ -460,11 +464,17 @@ export function DayGroupedShowRow({
         </div>
       )}
 
-      <DeleteShowDialog
-        show={show}
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      />
+      {/* Mounted only for a viewer who can open it. `DeleteShowDialog` calls
+          `useShowDelete` at mount, so rendering it unconditionally would put 50
+          mutations and 50 dialog roots on a page for readers who can never use
+          one. */}
+      {canDelete && (
+        <DeleteShowDialog
+          show={show}
+          open={isDeleteDialogOpen}
+          onOpenChange={setIsDeleteDialogOpen}
+        />
+      )}
     </article>
   )
 }

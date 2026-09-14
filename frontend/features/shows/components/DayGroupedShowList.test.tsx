@@ -11,11 +11,23 @@ vi.mock('./DayGroupedShowRow', () => ({
   DayGroupedShowRow: ({
     show,
     density,
+    isAdmin,
+    userId,
+    showCity,
   }: {
     show: ShowResponse
     density: string
+    isAdmin: boolean
+    userId?: string
+    showCity: boolean
   }) => (
-    <article data-testid={`show-card-${show.id}`} data-density={density}>
+    <article
+      data-testid={`show-card-${show.id}`}
+      data-density={density}
+      data-is-admin={String(isAdmin)}
+      data-user-id={userId ?? ''}
+      data-show-city={String(showCity)}
+    >
       {show.title}
     </article>
   ),
@@ -185,6 +197,43 @@ describe('DayGroupedShowList', () => {
       )
       expect(groups[0].querySelector('.border-primary')).not.toBeNull()
       expect(groups[1].querySelector('.border-primary')).toBeNull()
+    })
+  })
+
+  // The list is the only thing between `ShowList` and the row for these, and a
+  // mock that ignored them would let a dropped prop pass every test here.
+  describe('what it hands each row', () => {
+    it('forwards the viewer identity and the city flag', () => {
+      render(
+        <DayGroupedShowList
+          shows={twoDays}
+          density="comfortable"
+          isAdmin
+          userId="42"
+          showCity
+        />
+      )
+
+      const row = screen.getByTestId('show-card-1')
+      expect(row).toHaveAttribute('data-is-admin', 'true')
+      expect(row).toHaveAttribute('data-user-id', '42')
+      expect(row).toHaveAttribute('data-show-city', 'true')
+    })
+
+    it('forwards the absence of one too', () => {
+      render(
+        <DayGroupedShowList
+          shows={twoDays}
+          density="comfortable"
+          isAdmin={false}
+          showCity={false}
+        />
+      )
+
+      const row = screen.getByTestId('show-card-1')
+      expect(row).toHaveAttribute('data-is-admin', 'false')
+      expect(row).toHaveAttribute('data-user-id', '')
+      expect(row).toHaveAttribute('data-show-city', 'false')
     })
   })
 })
