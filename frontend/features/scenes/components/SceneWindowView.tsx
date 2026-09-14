@@ -6,56 +6,25 @@ import { ShareButton } from '@/components/shared/ShareButton'
 import { formatDayHeading, type SceneWeekDay } from '../sceneWeek'
 import {
   SCENE_WINDOW_LABEL,
-  SCENE_WINDOW_ORDER,
   allUpcomingHref,
   formatWindowRange,
   sceneWindowHref,
+  sceneWindowTitle,
   type SceneWindowData,
-  type SceneWindowKey,
 } from '../sceneWindow'
 import { SceneWeekShowRow } from './SceneWeekView'
-import {
-  SCENE_NAV_CHIP_CLASS,
-  SceneBreadcrumb,
-  SceneCityHeading,
-  TrackedRoomsFooter,
-} from './sceneChrome'
+import { SceneBreadcrumb, SceneWindowHeading, TrackedRoomsFooter } from './sceneChrome'
+import { SceneWindowNav } from './SceneWindowNav'
 
 /**
  * A window of a scene's calendar that spans more than one night: the shared
  * body behind `/this-weekend` and `/next-4-weeks`.
  *
  * Sibling of `SceneWeekView` by construction, not by resemblance — same
- * breadcrumb, same city heading, same chip class, same row, same rooms footer.
- * The two differ only in which stretch of time they bound, so anything a reader
+ * breadcrumb, same heading, same window nav, same row, same rooms footer. The
+ * two differ only in which stretch of time they bound, so anything a reader
  * could notice moving between them is a bug.
  */
-
-/**
- * The other windows in the family, as chips.
- *
- * The CURRENT window is not drawn. That follows the sibling pages, whose strips
- * are a set of places to go rather than a tab bar — `/week` offers "Tonight",
- * `/tonight` offers "Full week", and neither restates where the reader already
- * is. The scene ROOT's strip is the one exception, and deliberately: it draws
- * all four as links because the root is not one of these windows (PSY-1850,
- * done). Unifying all four strips into one component is still PSY-1786.
- */
-function SceneWindowNav({ slug, current }: { slug: string; current: SceneWindowKey }) {
-  return (
-    <nav aria-label="Show windows" className="flex gap-2">
-      {SCENE_WINDOW_ORDER.filter(key => key !== current).map(key => (
-        <Link
-          key={key}
-          href={sceneWindowHref(slug, key)}
-          className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
-        >
-          {SCENE_WINDOW_LABEL[key]}
-        </Link>
-      ))}
-    </nav>
-  )
-}
 
 /**
  * One date's heading, count and rows.
@@ -165,8 +134,11 @@ export function SceneWindowView({ data }: { data: SceneWindowData }) {
       <SceneBreadcrumb slug={data.slug} sceneName={data.sceneName} />
 
       <header className="mt-2">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <SceneCityHeading city={data.city} state={data.state} />
+        <SceneWindowHeading title={sceneWindowTitle(data.window, data.city)} />
+
+        {/* No prev/next row: these windows roll with the clock, so there is no
+            adjacent one to step to. */}
+        <div className="mt-2">
           <SceneWindowNav slug={data.slug} current={data.window} />
         </div>
 

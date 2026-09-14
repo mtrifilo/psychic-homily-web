@@ -41,5 +41,5 @@ export default async function SceneTonightPage({ params }: PageProps) {
   // land on different cache entries and the request pays for two fetches.
   const data = await getSceneDay(slug, undefined)
   if (!data) notFound()
-  return <SceneDayContent data={data} />
+  return <SceneDayContent data={data} isRollingRoute />
 }

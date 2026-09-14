@@ -19,7 +19,13 @@
  * source on this surface that can answer "what is on tonight" honestly.
  */
 
-import { parseCalendarDate, type SceneWeekDay, type SceneWeekResponse } from './sceneWeek'
+import {
+  formatCalendarMonthDay,
+  isCalendarDate,
+  parseCalendarDate,
+  type SceneWeekDay,
+  type SceneWeekResponse,
+} from './sceneWeek'
 // Type-only, so this module stays a runtime leaf: nothing here pulls the view's
 // graph. The data type lives HERE rather than beside the component because the
 // page module and the JSON-LD builder both consume it, and a data shape defined
@@ -60,6 +66,136 @@ export const SCENE_WINDOW_ORDER: SceneWindowKey[] = [
 /** `/scenes/phoenix-az/this-weekend`. Slug encoded — it reaches here from a route param. */
 export function sceneWindowHref(slug: string, key: SceneWindowKey): string {
   return `/scenes/${encodeURIComponent(slug)}/${WINDOW_SEGMENT[key]}`
+}
+
+/**
+ * `Sep 14`, the `{MON D}` stem every dated label in this family is built from.
+ *
+ * Delegates to `formatCalendarMonthDay`, which carries the shape guard and the
+ * component-wise parse this form depends on: `new Date('2026-09-14')` is UTC
+ * midnight, which prints as Sep 13 in every negative-offset zone and would name
+ * the wrong night in a title. A value that is not a calendar date falls back to
+ * itself rather than to a confident wrong date.
+ */
+export function formatMonthDay(iso: string): string {
+  return formatCalendarMonthDay(iso) ?? iso
+}
+
+/**
+ * `This week in Chicago`, the family's one title rule, `{WINDOW} in {CITY}`.
+ *
+ * Every route in the family builds its H1 and its `<title>` through one of the
+ * three functions below, so the phrase a reader saw in a tab is the phrase at
+ * the top of the page. They are the only public spelling of the rule: composing
+ * it at a call site is how the tab and the heading drift apart.
+ */
+function windowTitle(phrase: string, city: string): string {
+  return `${phrase} in ${city}`
+}
+
+/** `This weekend in Phoenix`, one of the four rolling windows. */
+export function sceneWindowTitle(key: SceneWindowKey, city: string): string {
+  return windowTitle(SCENE_WINDOW_LABEL[key], city)
+}
+
+/**
+ * `Tonight in Phoenix` on the rolling route, `Sep 14 in Phoenix` on a dated
+ * permalink.
+ *
+ * The discriminator is the ROUTE, not the payload's `is_tonight`: that flag is
+ * also true for the dated permalink naming today, and a permanent URL that
+ * calls itself "tonight" is false from the following morning on.
+ */
+export function sceneDayTitle(date: string, city: string, isRollingRoute: boolean): string {
+  return isRollingRoute
+    ? sceneWindowTitle('tonight', city)
+    : windowTitle(formatMonthDay(date), city)
+}
+
+/**
+ * `This week in Chicago` on the rolling route, `Week of Sep 7 in Chicago` on a
+ * dated permalink.
+ *
+ * The discriminator is the ROUTE, not the payload's `is_current_week`, and it is the
+ * same rule, for the same reason, as the day above. That flag is true for the
+ * dated permalink of the week now in progress, and that permalink is permanent:
+ * it is its own canonical and the form the sitemap announces, so a title saying
+ * "this week" there is false from the following Monday and stays in the index
+ * saying it.
+ */
+export function sceneWeekTitle(
+  startDate: string,
+  city: string,
+  isRollingRoute: boolean
+): string {
+  return isRollingRoute
+    ? sceneWindowTitle('this-week', city)
+    : windowTitle(sceneWeekName(startDate), city)
+}
+
+/** `Week of Sep 7`, a week named by its own Monday. */
+function sceneWeekName(startDate: string): string {
+  return `Week of ${formatMonthDay(startDate)}`
+}
+
+/**
+ * The same week as a CLAUSE: `this week`, or `the week of Sep 7`.
+ *
+ * The form that follows a preposition or a verb ("we track {clause}", "share
+ * {clause}"), so a page's heading, its share control and its quiet copy spell
+ * one week one way. Lowercasing the name would not do: it would print "week of
+ * sep 7".
+ *
+ * Keyed on the route for the reason `sceneWeekTitle` gives: only the rolling
+ * URL may say "this week", because only it will still mean this week tomorrow.
+ */
+export function sceneWeekClause(startDate: string, isRollingRoute: boolean): string {
+  return isRollingRoute ? 'this week' : `the week of ${formatMonthDay(startDate)}`
+}
+
+/**
+ * How a neighbouring week reads in the prev/next row.
+ *
+ * Relative on the ROLLING route, where "last" and "next" are read against a
+ * page that is always the current week, and named by its own Monday on a
+ * permalink, the same idiom the day row uses, and the same route rule as the
+ * title. A neighbour is never called "this week": identifying one as the
+ * current week would take a clock this payload does not carry, and a wrong
+ * "this week" is a claim about now.
+ *
+ * The neighbour's date is arithmetic on the week's own start, which is the same
+ * arithmetic the key in the href comes from: `prev_week` and `next_week` are
+ * `ISOWeekKey(start ± 7 days)` (backend/internal/services/catalog/scene_week.go),
+ * so the label and the link name one week.
+ */
+export function sceneWeekStepLabel(
+  startDate: string,
+  direction: 'prev' | 'next',
+  isRollingRoute: boolean
+): string {
+  if (isRollingRoute) return direction === 'prev' ? 'Last week' : 'Next week'
+  const neighbour = shiftCalendarDate(startDate, direction === 'prev' ? -7 : 7)
+  // A start date this page cannot read names no neighbour. The shift runs
+  // BEFORE the format, so `formatMonthDay`'s own fallback cannot catch it:
+  // `parseCalendarDate('')` is 1 Jan 1900, and seven days either side of that
+  // is a perfectly well-formed `Week of Dec 25` nobody can check. The
+  // page-relative words are true for the one week this row leads to whatever
+  // the payload says, which is the only claim left to make.
+  if (neighbour === null) return direction === 'prev' ? 'Previous week' : 'Next week'
+  return sceneWeekName(neighbour)
+}
+
+/**
+ * The calendar date `days` away, as `YYYY-MM-DD`, or null when the input is not
+ * a calendar date to begin with.
+ */
+function shiftCalendarDate(iso: string, days: number): string | null {
+  if (!isCalendarDate(iso.trim())) return null
+  const date = parseCalendarDate(iso.trim())
+  date.setDate(date.getDate() + days)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }
 
 /**

@@ -68,9 +68,11 @@ describe('SceneWindowView — window nav', () => {
 })
 
 describe('SceneWindowView — header', () => {
-  it('names the window and the span it actually rendered', () => {
+  it('titles itself by the family rule and names the span it rendered', () => {
     render(<SceneWindowView data={data()} />)
-    expect(screen.getByText(/This weekend/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'This weekend in Phoenix'
+    )
     expect(screen.getByText(/Fri, Aug 21 – Sun, Aug 23, 2026/)).toBeInTheDocument()
   })
 

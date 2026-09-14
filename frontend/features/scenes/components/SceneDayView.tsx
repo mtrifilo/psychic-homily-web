@@ -8,7 +8,6 @@ import { looksLikeISOWeek, showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
   dayTrackedVenues,
-  formatDayChip,
   formatDayCountLine,
   formatDayFull,
   formatPointerDay,
@@ -19,14 +18,15 @@ import {
   type SceneDayShow,
 } from '../sceneDay'
 import {
-  SCENE_NAV_CHIP_CLASS,
   navigablePeriodKey,
   RoomList,
   SceneBreadcrumb,
-  SceneCityHeading,
+  SceneWindowHeading,
   ShowStatusBadge,
   TrackedRoomsFooter,
 } from './sceneChrome'
+import { SceneWindowNav } from './SceneWindowNav'
+import { formatMonthDay, sceneDayTitle } from '../sceneWindow'
 
 /**
  * One show, time first.
@@ -181,7 +181,22 @@ function EmptyNight({
   )
 }
 
-export function SceneDayView({ day }: { day: SceneDayResponse }) {
+export function SceneDayView({
+  day,
+  isRollingRoute,
+}: {
+  day: SceneDayResponse
+  /**
+   * True on `/scenes/{slug}/tonight`, the rolling route.
+   *
+   * It decides what this page calls itself and which window the nav marks
+   * current. The payload's `is_tonight` cannot: that flag is also true for the
+   * DATED permalink naming today, and a permanent URL must not call itself
+   * "tonight". Required rather than defaulted, so a route that forgets to say
+   * which it is does not silently publish the dated wording.
+   */
+  isRollingRoute: boolean
+}) {
   // On the LIVE night the rows a reader can still get to lead, and the ones
   // already under way sink beneath them in the order they started (user
   // decision, PSY-1969). Nothing is DROPPED, so the count below is still a
@@ -220,43 +235,34 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
       <SceneBreadcrumb slug={day.slug} sceneName={day.scene_name} />
 
       <header className="mt-2">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <SceneCityHeading city={day.city} state={day.state} />
+        <SceneWindowHeading title={sceneDayTitle(day.date, day.city, isRollingRoute)} />
 
-          {/* The adjacent-day chips render only when the server offered a date
-              this site can serve. At the edges of the servable window there is
-              no next day to go to, and a chip pointing at a URL this site 404s
-              is a worse answer than no chip. */}
-          <div className="flex gap-2">
-            {prevDay && (
-              <Link
-                href={`/scenes/${day.slug}/${prevDay}`}
-                className={SCENE_NAV_CHIP_CLASS}
-                rel="prev"
-              >
-                ← {formatDayChip(prevDay)}
-              </Link>
-            )}
-            {weekHref && (
-              <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
-                Full week
-              </Link>
-            )}
-            {nextDay && (
-              <Link
-                href={`/scenes/${day.slug}/${nextDay}`}
-                className={SCENE_NAV_CHIP_CLASS}
-                rel="next"
-              >
-                {formatDayChip(nextDay)} →
-              </Link>
-            )}
-          </div>
+        {/* The adjacent-day row names a date only when the server offered one
+            this site can serve. At the edges of the servable window there is no
+            next night to go to, and the row says so rather than linking a page
+            this site 404s. */}
+        <div className="mt-2">
+          <SceneWindowNav
+            slug={day.slug}
+            current={isRollingRoute ? 'tonight' : null}
+            steps={{
+              label: 'Adjacent days',
+              prev: prevDay
+                ? { label: formatMonthDay(prevDay), href: `/scenes/${day.slug}/${prevDay}` }
+                : undefined,
+              next: nextDay
+                ? { label: formatMonthDay(nextDay), href: `/scenes/${day.slug}/${nextDay}` }
+                : undefined,
+            }}
+          />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="font-mono text-sm">
-            {day.is_tonight && 'Tonight — '}
+            {/* Dropped on the rolling route, whose heading two lines above
+                already says the word; a dated permalink keeps it, because there
+                it is the only thing saying this page is the live night. */}
+            {!isRollingRoute && day.is_tonight && 'Tonight — '}
             {formatDayFull(day.date)}
             {'   ·   '}
             {formatDayCountLine(total)}
@@ -268,7 +274,9 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
               between the canonical and what the address bar shows. */}
           <ShareButton
             path={`/scenes/${day.slug}/${day.date}`}
-            ariaLabel="Share this night"
+            // Names the night it shares. "This night" on a permalink to last
+            // March is the tense the week's control had and no longer does.
+            ariaLabel={isRollingRoute ? 'Share tonight' : `Share ${formatMonthDay(day.date)}`}
           />
         </div>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, within, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, within, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
 import { SceneDayView } from './SceneDayView'
 import type { SceneDayResponse, SceneDayShow, SceneTrackedVenue } from '../sceneDay'
@@ -60,9 +60,9 @@ describe('SceneDayView — share affordance', () => {
       writable: true,
     })
 
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Share this night' })
+      await screen.findByRole('button', { name: 'Share Jul 31' })
     )
 
     await waitFor(() =>
@@ -83,12 +83,12 @@ describe('SceneDayView — share affordance', () => {
     })
 
     render(
-      <SceneDayView
+      <SceneDayView isRollingRoute={false}
         day={day({ date: '2024-03-15', is_tonight: false, is_past_day: true })}
       />
     )
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Share this night' })
+      await screen.findByRole('button', { name: 'Share Mar 15' })
     )
 
     await waitFor(() =>
@@ -108,27 +108,30 @@ describe('SceneDayView — share affordance', () => {
       configurable: true,
       writable: true,
     })
-    const withClipboard = render(<SceneDayView day={day()} />)
+    const withClipboard = render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(
-      await screen.findByRole('button', { name: 'Share this night' })
+      await screen.findByRole('button', { name: 'Share Jul 31' })
     ).toBeInTheDocument()
     withClipboard.unmount()
 
     Reflect.deleteProperty(navigator, 'clipboard')
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(
-      screen.queryByRole('button', { name: 'Share this night' })
+      screen.queryByRole('button', { name: 'Share Jul 31' })
     ).not.toBeInTheDocument()
   })
 })
 
 describe('SceneDayView — a night with shows', () => {
-  it('renders the city with its state alongside', () => {
-    render(<SceneDayView day={day()} />)
-    const h1 = screen.getByRole('heading', { level: 1 })
-    expect(h1).toHaveTextContent('Phoenix')
-    // Cold arrivals from a shared link need it: "Columbus" is ambiguous.
-    expect(h1).toHaveTextContent('AZ')
+  // The title rule. A dated permalink names its date; only the rolling route
+  // may call itself tonight, and `is_tonight` is true for both.
+  it('titles a dated permalink by its date, and the rolling route by the window', () => {
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Jul 31 in Phoenix')
+
+    cleanup()
+    render(<SceneDayView day={day()} isRollingRoute />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Tonight in Phoenix')
   })
 
   // The WHOLE line, exactly. Three separate substring assertions all resolve to
@@ -138,33 +141,70 @@ describe('SceneDayView — a night with shows', () => {
     const shows = [show({ id: 1 }), show({ id: 2 }), show({ id: 3 }), show({ id: 4 })]
     // `show_count` deliberately disagrees: the header counts what is on the
     // page, so it can never advertise a show the reader cannot find.
-    render(<SceneDayView day={day({ shows, show_count: 99 })} />)
+    render(<SceneDayView isRollingRoute={false} day={day({ shows, show_count: 99 })} />)
     expect(
       screen.getByText('Tonight — Friday, July 31, 2026 · 4 shows')
     ).toBeInTheDocument()
   })
 
   it('drops only the Tonight prefix on a dated permalink', () => {
-    render(<SceneDayView day={day({ is_tonight: false })} />)
+    render(<SceneDayView isRollingRoute={false} day={day({ is_tonight: false })} />)
     expect(screen.getByText('Friday, July 31, 2026 · 1 show')).toBeInTheDocument()
   })
 
   it('singularises a one-show night', () => {
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(screen.getByText(/1 show(?!s)/)).toBeInTheDocument()
   })
 
   // The dated permalink is a permanent URL; calling an archived Tuesday
   // "tonight" would be false the day after it was written.
+  // The heading says the word on the rolling route, so the line beneath it does
+  // not: two "Tonight"s two lines apart is the redundancy the one title rule
+  // exists to retire. A dated permalink keeps the prefix, where it is the only
+  // thing saying this page is the live night.
+  it('drops the tonight prefix from the count line on the rolling route', () => {
+    render(<SceneDayView day={day()} isRollingRoute />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Tonight in Phoenix'
+    )
+    expect(screen.queryByText(/Tonight — /)).not.toBeInTheDocument()
+
+    cleanup()
+    render(<SceneDayView day={day()} isRollingRoute={false} />)
+    expect(screen.getByText(/Tonight — /)).toBeInTheDocument()
+  })
+
   it('drops the tonight framing on a dated permalink that is not tonight', () => {
-    render(<SceneDayView day={day({ is_tonight: false })} />)
-    expect(screen.queryByText(/Tonight/)).not.toBeInTheDocument()
+    render(<SceneDayView isRollingRoute={false} day={day({ is_tonight: false })} />)
+    // The nav's own `Tonight` chip is a link to the rolling route and is not
+    // this page's framing, so the assertion is on the line that frames it.
+    expect(screen.queryByText(/Tonight — /)).not.toBeInTheDocument()
     expect(screen.getByText(/Friday, July 31, 2026/)).toBeInTheDocument()
   })
 
   // The acceptance criterion in full: artist, venue AND time, in the markup.
+  // The control names the night it shares. "This night" on a permalink to last
+  // March is the tense the week's control had and no longer does.
+  it('names the night in the share control', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+
+    render(<SceneDayView day={day()} isRollingRoute={false} />)
+    expect(await screen.findByRole('button', { name: 'Share Jul 31' })).toBeInTheDocument()
+
+    cleanup()
+    render(<SceneDayView day={day()} isRollingRoute />)
+    expect(await screen.findByRole('button', { name: 'Share tonight' })).toBeInTheDocument()
+    Reflect.deleteProperty(navigator, 'clipboard')
+  })
+
   it('lists each show with its bill, venue and venue-local start time', () => {
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     const link = screen.getByRole('link', { name: /Smooth Hands, Tournament/ })
     expect(link).toHaveAttribute('href', '/shows/1')
     expect(within(link).getByText('Valley Bar')).toBeInTheDocument()
@@ -173,17 +213,17 @@ describe('SceneDayView — a night with shows', () => {
   })
 
   it('renders a price when the show has one', () => {
-    render(<SceneDayView day={day({ shows: [show({ price: 22 })] })} />)
+    render(<SceneDayView isRollingRoute={false} day={day({ shows: [show({ price: 22 })] })} />)
     expect(screen.getByText('$22')).toBeInTheDocument()
   })
 
   it('renders no price when the show has none recorded', () => {
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(screen.queryByText(/^\$/)).not.toBeInTheDocument()
   })
 
   it('badges a sold-out show', () => {
-    render(<SceneDayView day={day({ shows: [show({ is_sold_out: true })] })} />)
+    render(<SceneDayView isRollingRoute={false} day={day({ shows: [show({ is_sold_out: true })] })} />)
     expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
   })
 
@@ -191,14 +231,14 @@ describe('SceneDayView — a night with shows', () => {
   // actively mislead someone deciding whether to go.
   it('badges a cancelled show and suppresses the sold-out badge', () => {
     render(
-      <SceneDayView day={day({ shows: [show({ is_cancelled: true, is_sold_out: true })] })} />
+      <SceneDayView isRollingRoute={false} day={day({ shows: [show({ is_cancelled: true, is_sold_out: true })] })} />
     )
     expect(screen.getByText('CANCELLED')).toBeInTheDocument()
     expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
   })
 
   it('always discloses that coverage is partial', () => {
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
     expect(screen.getByText(/ROOMS WE TRACK IN PHOENIX/)).toBeInTheDocument()
   })
@@ -206,7 +246,7 @@ describe('SceneDayView — a night with shows', () => {
   // PSY-1733: listing nights keep the slug data and link each room to its
   // page here — not an external website.
   it('links tracked rooms in the listing footer to their venue pages', () => {
-    render(<SceneDayView day={day()} />)
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
     // Scope to the footer: show rows also mention venue names inside the
     // whole-row show link, and a bare name query would match those too.
     const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
@@ -234,7 +274,7 @@ describe('SceneDayView — a night with shows', () => {
 
   it('names a tracked room without a slug, unlinked, in the listing footer', () => {
     render(
-      <SceneDayView
+      <SceneDayView isRollingRoute={false}
         day={day({
           tracked_venues: [room({ name: 'DIY Basement', slug: '' })],
         })}
@@ -250,7 +290,7 @@ describe('SceneDayView — a night with shows', () => {
 
   it('treats a whitespace-only slug as missing, not a broken /venues/ URL', () => {
     render(
-      <SceneDayView
+      <SceneDayView isRollingRoute={false}
         day={day({
           tracked_venues: [room({ name: 'Whitespace Room', slug: '   ' })],
         })}
@@ -263,27 +303,45 @@ describe('SceneDayView — a night with shows', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('offers adjacent-day navigation and a way to the week', () => {
-    render(<SceneDayView day={day()} />)
-    expect(screen.getByRole('link', { name: /Thu Jul 30/ })).toHaveAttribute(
+  it('offers adjacent-day navigation and the window family', () => {
+    render(<SceneDayView isRollingRoute={false} day={day()} />)
+    const adjacent = screen.getByRole('navigation', { name: 'Adjacent days' })
+    expect(within(adjacent).getByRole('link', { name: /Jul 30/ })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/2026-07-30'
     )
-    expect(screen.getByRole('link', { name: /Sat Aug 1/ })).toHaveAttribute(
+    expect(within(adjacent).getByRole('link', { name: /Aug 1/ })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/2026-08-01'
     )
-    expect(screen.getByRole('link', { name: 'Full week' })).toHaveAttribute(
+
+    const windows = screen.getByRole('navigation', { name: 'Show windows' })
+    expect(within(windows).getByRole('link', { name: 'This week' })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/week'
     )
   })
 
+  // A dated permalink is not one of the rolling windows, so the strip marks
+  // none of them current: the reader is on a single night, not on a window.
+  it('marks no window current on a dated permalink, and marks tonight on the rolling route', () => {
+    const { container } = render(<SceneDayView isRollingRoute={false} day={day()} />)
+    expect(container.querySelector('[aria-current="page"]')).toBeNull()
+
+    cleanup()
+    const rolling = render(<SceneDayView day={day()} isRollingRoute />)
+    expect(rolling.container.querySelector('[aria-current="page"]')).toHaveTextContent(
+      'Tonight'
+    )
+  })
+
   // A page about a night two months ago must not link to whatever week it
-  // happens to be now.
-  it('links a past night to its OWN week, not the rolling one', () => {
-    render(<SceneDayView day={day({ is_tonight: false })} />)
-    expect(screen.getByRole('link', { name: 'Full week' })).toHaveAttribute(
+  // happens to be now: the quiet body's week link carries the night's OWN week.
+  it('links a past quiet night to its OWN week, not the rolling one', () => {
+    render(
+      <SceneDayView isRollingRoute={false} day={day({ is_tonight: false, show_count: 0, shows: [] })} />
+    )
+    expect(screen.getByRole('link', { name: /Full week in Phoenix/ })).toHaveAttribute(
       'href',
       '/scenes/phoenix-az/2026-W31'
     )
@@ -291,7 +349,7 @@ describe('SceneDayView — a night with shows', () => {
 
   // The generator types these nullable even though the API always emits arrays.
   it('survives null shows and tracked_venues', () => {
-    render(<SceneDayView day={day({ shows: null, tracked_venues: null, show_count: 0 })} />)
+    render(<SceneDayView isRollingRoute={false} day={day({ shows: null, tracked_venues: null, show_count: 0 })} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Phoenix')
     expect(screen.queryByText(/ROOMS WE TRACK/)).not.toBeInTheDocument()
   })
@@ -322,7 +380,7 @@ describe('SceneDayView — a quiet night', () => {
   // The whole point of the amendment: never assert that no show EXISTS, only
   // that none is on our calendar.
   it('never claims the city is empty, only that our calendar is', () => {
-    render(<SceneDayView day={quiet()} />)
+    render(<SceneDayView isRollingRoute={false} day={quiet()} />)
     expect(
       screen.getByText(
         /Nothing on our calendar for the Tucson rooms we track tonight\. A room may have a show we haven't listed\./
@@ -332,14 +390,14 @@ describe('SceneDayView — a quiet night', () => {
   })
 
   it('points at the next show on our calendar', () => {
-    render(<SceneDayView day={quiet()} />)
+    render(<SceneDayView isRollingRoute={false} day={quiet()} />)
     const link = screen.getByRole('link', { name: /Next on our calendar/ })
     expect(link).toHaveTextContent('Next on our calendar: Friday, In Lessons at Club Congress')
     expect(link).toHaveAttribute('href', '/shows/9')
   })
 
   it('offers the week', () => {
-    render(<SceneDayView day={quiet()} />)
+    render(<SceneDayView isRollingRoute={false} day={quiet()} />)
     expect(screen.getByRole('link', { name: /Full week in Tucson/ })).toHaveAttribute(
       'href',
       '/scenes/tucson-az/week'
@@ -349,7 +407,7 @@ describe('SceneDayView — a quiet night', () => {
   // Being told we have nothing is exactly when a reader needs the means to
   // check for themselves — on OUR venue pages (PSY-1733), not off-site.
   it('lists the rooms as links to their venue pages here', () => {
-    render(<SceneDayView day={quiet()} />)
+    render(<SceneDayView isRollingRoute={false} day={quiet()} />)
     expect(screen.getByText(/CHECK THE ROOMS DIRECTLY/)).toBeInTheDocument()
 
     expect(screen.getByRole('link', { name: 'Club Congress' })).toHaveAttribute(
@@ -369,7 +427,7 @@ describe('SceneDayView — a quiet night', () => {
 
   it('ignores an unsafe website value and still links via slug', () => {
     render(
-      <SceneDayView
+      <SceneDayView isRollingRoute={false}
         day={quiet({
           tracked_venues: [
             room({ name: 'La Rosa', slug: 'la-rosa', website: 'javascript:alert(1)' }),
@@ -385,7 +443,7 @@ describe('SceneDayView — a quiet night', () => {
 
   it('names a room with no slug, unlinked', () => {
     render(
-      <SceneDayView
+      <SceneDayView isRollingRoute={false}
         day={quiet({ tracked_venues: [room({ name: 'RV Phone Home', slug: '', website: '' })] })}
       />
     )
@@ -394,7 +452,7 @@ describe('SceneDayView — a quiet night', () => {
   })
 
   it('says "on {date}" rather than "tonight" for a dated quiet night', () => {
-    render(<SceneDayView day={quiet({ is_tonight: false })} />)
+    render(<SceneDayView isRollingRoute={false} day={quiet({ is_tonight: false })} />)
     expect(
       screen.getByText(/rooms we track on Thursday, July 30, 2026\./)
     ).toBeInTheDocument()
@@ -414,7 +472,7 @@ describe('SceneDayView — a dead-quiet scene', () => {
   })
 
   it('extends the copy to the weeks ahead, and still does not speak for the city', () => {
-    render(<SceneDayView day={dead} />)
+    render(<SceneDayView isRollingRoute={false} day={dead} />)
     expect(
       screen.getByText(
         /Nothing on our calendar for the Cleveland rooms we track tonight, or in the next few weeks\. A room may have shows we haven't listed\./
@@ -426,7 +484,7 @@ describe('SceneDayView — a dead-quiet scene', () => {
   // A scene with nothing ahead of it is the one most likely to be missing a
   // room, so this is where the ask belongs.
   it('asks for the room we are missing', () => {
-    render(<SceneDayView day={dead} />)
+    render(<SceneDayView isRollingRoute={false} day={dead} />)
     expect(screen.getByRole('link', { name: /Suggest a venue/ })).toHaveAttribute(
       'href',
       '/contribute'
@@ -436,7 +494,7 @@ describe('SceneDayView — a dead-quiet scene', () => {
   // A scene whose room list came back empty is likelier still to be missing
   // one, which is exactly when nesting the ask inside the rooms block hid it.
   it('still asks when there are no rooms to list', () => {
-    render(<SceneDayView day={day({ ...dead, tracked_venues: [] })} />)
+    render(<SceneDayView isRollingRoute={false} day={day({ ...dead, tracked_venues: [] })} />)
     expect(screen.queryByText(/CHECK THE ROOMS DIRECTLY/)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Suggest a venue/ })).toBeInTheDocument()
   })
@@ -456,7 +514,7 @@ describe('SceneDayView — a night that has already happened', () => {
   // starts at the day being viewed, so on a 2020 page that window closed six
   // years ago and was never re-checked — the page must not assert it.
   it('does not claim anything about the weeks ahead', () => {
-    render(<SceneDayView day={past} />)
+    render(<SceneDayView isRollingRoute={false} day={past} />)
     expect(screen.queryByText(/in the next few weeks/)).not.toBeInTheDocument()
     expect(
       screen.getByText(
@@ -468,7 +526,7 @@ describe('SceneDayView — a night that has already happened', () => {
   // The pointer is a live-night affordance. On an archived page "next" could
   // only name a show that is itself long over.
   it('offers no next-show pointer', () => {
-    render(<SceneDayView day={past} />)
+    render(<SceneDayView isRollingRoute={false} day={past} />)
     expect(screen.queryByText(/Next on our calendar/)).not.toBeInTheDocument()
   })
 
@@ -477,7 +535,7 @@ describe('SceneDayView — a night that has already happened', () => {
   // and the server never sends a pointer for a past date, so keying the ask on
   // the pointer's absence alone would solicit on every archived day.
   it('does not solicit venues on the strength of an empty archived day', () => {
-    render(<SceneDayView day={past} />)
+    render(<SceneDayView isRollingRoute={false} day={past} />)
     expect(screen.queryByRole('link', { name: /Suggest a venue/ })).not.toBeInTheDocument()
   })
 })
@@ -491,12 +549,17 @@ describe('SceneDayView — the edges of the servable window', () => {
 
   // The server sends an empty adjacent date when there is no servable day that
   // way. Rendering the chip anyway would advertise a link the site 404s.
-  it('renders no chip for an adjacent day the server did not offer', () => {
-    const { container } = render(<SceneDayView day={day({ prev_date: '', next_date: '' })} />)
+  it('renders no link for an adjacent day the server did not offer', () => {
+    const { container } = render(<SceneDayView isRollingRoute={false} day={day({ prev_date: '', next_date: '' })} />)
 
     expect(datedLinks(container)).toEqual([])
+    // Muted text in both directions rather than a link to a page that 404s.
+    const adjacent = screen.getByRole('navigation', { name: 'Adjacent days' })
+    expect(within(adjacent).getByText('Start of listings')).toBeInTheDocument()
+    expect(within(adjacent).getByText('End of listings')).toBeInTheDocument()
+    expect(within(adjacent).queryAllByRole('link')).toEqual([])
     // The way out is still there.
-    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'This week' })).toBeInTheDocument()
   })
 
   // A date the day route would reject is the same answer as no date, arrived at
@@ -508,16 +571,16 @@ describe('SceneDayView — the edges of the servable window', () => {
     ['before the servable years', '1998-07-30'],
   ])('renders no adjacent-day chip for a date that is %s', (_label, adjacent) => {
     const { container } = render(
-      <SceneDayView day={day({ prev_date: adjacent, next_date: adjacent })} />
+      <SceneDayView isRollingRoute={false} day={day({ prev_date: adjacent, next_date: adjacent })} />
     )
 
     expect(datedLinks(container)).toEqual([])
     expect(container.innerHTML).not.toContain('undefined')
-    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'This week' })).toBeInTheDocument()
   })
 
-  it('renders both chips when the server offers both dates', () => {
-    const { container } = render(<SceneDayView day={day()} />)
+  it('renders both directions when the server offers both dates', () => {
+    const { container } = render(<SceneDayView isRollingRoute={false} day={day()} />)
 
     expect(datedLinks(container)).toEqual([
       '/scenes/phoenix-az/2026-07-30',
@@ -544,7 +607,7 @@ describe('SceneDayView — live-night ordering', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-01T04:30:00Z'))
     const { container } = render(
-      <SceneDayView day={day({ shows: [doors8, doors9, doors10], is_tonight: true })} />
+      <SceneDayView isRollingRoute={false} day={day({ shows: [doors8, doors9, doors10], is_tonight: true })} />
     )
 
     const bills = billsInOrder(container)
@@ -559,7 +622,7 @@ describe('SceneDayView — live-night ordering', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-05T04:30:00Z'))
     const { container } = render(
-      <SceneDayView
+      <SceneDayView isRollingRoute={false}
         day={day({ shows: [doors8, doors9, doors10], is_tonight: false, is_past_day: true })}
       />
     )

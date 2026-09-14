@@ -7,6 +7,7 @@ import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
 import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { looksLikeISOWeek } from './sceneWeek'
+import { sceneDayTitle } from './sceneWindow'
 import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 
 /**
@@ -18,22 +19,6 @@ import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 export const getSceneDay = cache(
   (slug: string, date?: string): Promise<SceneDayResponse | null> => fetchSceneDay(slug, date)
 )
-
-/**
- * The page title, in the words someone would actually type.
- *
- * "Phoenix Shows Tonight" is the query; the date follows it so a result that
- * outlives the night still says which night it was. A date that is NOT the
- * scene's current night drops the word — the dated permalink is a permanent URL
- * and calling an archived Tuesday "tonight" would be false the day after it was
- * written.
- */
-function dayTitle(day: SceneDayResponse): string {
-  const date = formatDayFull(day.date)
-  return day.is_tonight
-    ? `${day.city} Shows Tonight — ${date}`
-    : `${day.city} Shows — ${date}`
-}
 
 function dayDescription(day: SceneDayResponse): string {
   const total = dayShows(day).length
@@ -54,7 +39,14 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     return { title: 'Day not found', robots: { index: false, follow: false } }
   }
 
-  const title = dayTitle(day)
+  // The ABSENT `date` argument is what names the rolling route. See the
+  // canonical note below for why this, rather than `is_tonight`, is the
+  // discriminator everything on this page keys off.
+  const isRollingRoute = date === undefined
+  // The same rule the H1 renders, from the same function, so the tab and the
+  // top of the page cannot drift. The full date, and the year the `{MON D}`
+  // form drops, stay in the description.
+  const title = sceneDayTitle(day.date, day.city, isRollingRoute)
   const description = dayDescription(day)
 
   // A day that cannot name its own page. With either field blank the URLs below
@@ -95,16 +87,15 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // The discriminator is the ABSENT `date` argument, not `day.is_tonight`: that
   // flag is also true for a dated permalink naming today, and that permalink
   // must keep pointing at itself rather than be folded into the week.
-  // (SceneDayView's "full week" chip deliberately still keys off `is_tonight`.
-  // It is answering "which week link helps a reader here", not "which URL is
-  // this page", so the two are allowed to differ.)
-  const isRollingRoute = date === undefined
+  // (SceneDayView's quiet-night "full week" link deliberately still keys off
+  // `is_tonight`. It is answering "which week link helps a reader here", not
+  // "which URL is this page", so the two are allowed to differ.)
   const canonical =
     isRollingRoute && day.iso_week
       ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
       : dayPermalink
 
-  // A night with nothing on it is thin content — real, worth serving, worth
+  // A night with nothing on it is thin content: real, worth serving, worth
   // linking out of, not worth an index entry. `follow` stays on precisely
   // because the page's job in that state is to point at the week and the rooms.
   //
@@ -117,11 +108,11 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // KNOWN GAP, accepted here rather than papered over. The sitemap emits a week
   // only when that week has at least one approved show, so on a scene whose
   // whole current week is quiet, /tonight consolidates onto a week page that is
-  // thin, announced nowhere, and carries no noindex of its own (see
-  // buildSceneWeekMetadata, which never sets robots in any state). Closing it
-  // means either a per-week show count on the day payload or dropping the
-  // zero-show exclusion for the current week — both backend changes, which this
-  // change is scoped out of.
+  // thin and announced nowhere. `buildSceneWeekMetadata` deliberately leaves
+  // that page indexable rather than noindexing a canonical target, so the gap
+  // is a thin page in the index, not a suppressed one. Closing it means either
+  // a per-week show count on the day payload or dropping the zero-show
+  // exclusion for the current week, both of them backend changes.
   const robots =
     !isRollingRoute && dayShows(day).length === 0
       ? { index: false, follow: true }
@@ -183,7 +174,14 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
  * response at HTTP 200 — which search engines and link unfurlers read as a
  * valid page.
  */
-export function SceneDayContent({ data }: { data: SceneDayResponse }) {
+export function SceneDayContent({
+  data,
+  isRollingRoute,
+}: {
+  data: SceneDayResponse
+  /** True on `/scenes/{slug}/tonight`. See `SceneDayView`. */
+  isRollingRoute: boolean
+}) {
   const { breadcrumb, itemList, events } = buildSceneDayJsonLd(data)
 
   return (
@@ -193,7 +191,7 @@ export function SceneDayContent({ data }: { data: SceneDayResponse }) {
       {/* One array-valued script rather than a tag per show: a top-level
           JSON-LD array carries the same graph without N extra elements. */}
       {events.length > 0 && <JsonLd data={events} />}
-      <SceneDayView day={data} />
+      <SceneDayView day={data} isRollingRoute={isRollingRoute} />
     </>
   )
 }

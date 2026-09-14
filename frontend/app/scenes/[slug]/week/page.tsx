@@ -32,5 +32,5 @@ export default async function SceneCurrentWeekPage({ params }: PageProps) {
   // helper module rendered the not-found body but left the status at HTTP 200.
   const data = await getSceneWeek(slug)
   if (!data) notFound()
-  return <SceneWeekContent data={data} />
+  return <SceneWeekContent data={data} isRollingRoute />
 }

@@ -18,14 +18,10 @@ import {
   rowTimeZone,
   venueSubLocality,
 } from '../sceneCalendar'
-import {
-  SCENE_WINDOW_LABEL,
-  SCENE_WINDOW_ORDER,
-  allUpcomingHref,
-  sceneWindowHref,
-} from '../sceneWindow'
+import { allUpcomingHref, sceneWindowHref } from '../sceneWindow'
 import { sceneSliceIsQuiet, type SceneSliceData } from '../sceneSlice'
-import { SCENE_ACCENT_LINK_CLASS, ShowStatusBadge } from './sceneChrome'
+import { ShowStatusBadge } from './sceneChrome'
+import { SceneWindowNav } from './SceneWindowNav'
 import type { SceneDetail, SceneShowSummary } from '../types'
 
 /**
@@ -50,42 +46,6 @@ interface SceneCalendarProps {
   scene: SceneDetail
   /** Null when the day payload could not be fetched — NOT an empty calendar. */
   slice: SceneSliceData | null
-}
-
-/**
- * The window family, as a strip of path segments.
- *
- * ALL FOUR are links and NONE is active, which is the whole point of the
- * re-lock: the root is not one of these windows, so marking one of them current
- * would be false. (It used to draw `Next 4 weeks` as the active chip, because
- * the root's own window WAS four weeks. That window has moved to its own route.)
- *
- * Every window is a PATH SEGMENT, never a query param, and every href comes from
- * `sceneWindowHref` rather than being spelled here. That also retires a shipped
- * defect: this strip used to point `This weekend` and `This week` at the SAME
- * `/week` href, because `/this-weekend` did not exist when it was written. It
- * does now (PSY-1849).
- *
- * The strip never degrades. A thin scene renders the full row, because a window
- * that is empty is still an answer.
- */
-function SceneWindowNav({ sceneSlug }: { sceneSlug: string }) {
-  return (
-    <nav
-      aria-label="Show windows"
-      className="flex flex-wrap items-center gap-x-8 gap-y-2 border-y border-border py-3"
-    >
-      {SCENE_WINDOW_ORDER.map(key => (
-        <Link
-          key={key}
-          href={sceneWindowHref(sceneSlug, key)}
-          className={SCENE_ACCENT_LINK_CLASS}
-        >
-          {SCENE_WINDOW_LABEL[key]}
-        </Link>
-      ))}
-    </nav>
-  )
 }
 
 /**
@@ -330,7 +290,8 @@ function QuietSlice({ scene, nextDate }: { scene: SceneDetail; nextDate?: string
 export function SceneCalendar({ scene, slice }: SceneCalendarProps) {
   return (
     <div>
-      <SceneWindowNav sceneSlug={scene.slug} />
+      {/* No active window: the root is not one of them. See SceneWindowNav. */}
+      <SceneWindowNav slug={scene.slug} />
 
       {/* No section heading and no accuracy disclaimer, both per the locked mock
           (`1402-2`). The date headings below ARE the heading — a `Shows / next 4

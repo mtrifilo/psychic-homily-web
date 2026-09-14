@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  SCENE_WINDOW_LABEL,
   SCENE_WINDOW_ORDER,
   allUpcomingHref,
   capWindowRows,
   countWindowShows,
   flattenWeekDays,
+  formatMonthDay,
   formatWindowRange,
   rollingDays,
   sceneCityListHref,
+  sceneDayTitle,
+  sceneWeekTitle,
+  sceneWeekStepLabel,
   sceneWindowHref,
+  sceneWindowTitle,
   weekendDays,
 } from './sceneWindow'
 import type { SceneWeekDay, SceneWeekResponse } from './sceneWeek'
@@ -222,4 +228,86 @@ describe('sceneCityListHref', () => {
       sceneCityListHref('/shows', 'Phoenix', 'AZ')
     )
   })
+})
+
+/**
+ * The one title rule, as a table across every state that has to obey it.
+ *
+ * The faults it guards are the ones that read as confident and are wrong: a
+ * permalink calling itself "tonight" or "this week" long after the night or the
+ * week has ended, and a date parsed as a UTC instant naming the day before.
+ */
+describe('the window title rule', () => {
+  it.each(SCENE_WINDOW_ORDER)('titles the %s window by its label', key => {
+    expect(sceneWindowTitle(key, 'Chicago')).toBe(`${SCENE_WINDOW_LABEL[key]} in Chicago`)
+  })
+
+  it('titles the rolling night as the window, and a dated one as its date', () => {
+    expect(sceneDayTitle('2026-09-14', 'Chicago', true)).toBe('Tonight in Chicago')
+    expect(sceneDayTitle('2026-09-14', 'Chicago', false)).toBe('Sep 14 in Chicago')
+  })
+
+  it('titles the current week as the window, and an archived one by its Monday', () => {
+    expect(sceneWeekTitle('2026-09-14', 'Chicago', true)).toBe('This week in Chicago')
+    expect(sceneWeekTitle('2026-09-07', 'Chicago', false)).toBe(
+      'Week of Sep 7 in Chicago'
+    )
+  })
+
+  // A week that has not happened yet is not "this week" either, and it is not
+  // archived, and one rule covers both by keying on `is_current_week` alone.
+  it('names a future week by its Monday, like an archived one', () => {
+    expect(sceneWeekTitle('2026-09-21', 'Chicago', false)).toBe(
+      'Week of Sep 21 in Chicago'
+    )
+  })
+
+  // A payload that cannot name its date falls back to what it sent rather than
+  // to `parseCalendarDate`'s year-1900 reading, which would print `Jan 1`.
+  it('does not invent a date from a value that is not one', () => {
+    expect(formatMonthDay('')).toBe('')
+    expect(formatMonthDay('yesterday')).toBe('yesterday')
+  })
+
+  // The killer bug: `new Date('2026-09-14')` is UTC midnight, which prints as
+  // Sep 13 in every negative-offset zone.
+  it('reads a calendar date as a calendar date, not a UTC instant', () => {
+    expect(formatMonthDay('2026-09-14')).toBe('Sep 14')
+    expect(formatMonthDay('2026-01-01')).toBe('Jan 1')
+  })
+})
+
+describe('sceneWeekStepLabel', () => {
+  // "Last" and "next" are claims about now; only the current week may make them.
+  it('names the neighbours of the current week relatively', () => {
+    expect(sceneWeekStepLabel('2026-09-14', 'prev', true)).toBe('Last week')
+    expect(sceneWeekStepLabel('2026-09-14', 'next', true)).toBe('Next week')
+  })
+
+  it('names the neighbours of any other week by their own Monday', () => {
+    expect(sceneWeekStepLabel('2026-09-07', 'prev', false)).toBe('Week of Aug 31')
+    expect(sceneWeekStepLabel('2026-09-07', 'next', false)).toBe('Week of Sep 14')
+  })
+
+  // Seven days back from the first Monday of a month is the previous month,
+  // and from the first week of a year the previous one.
+  it('crosses a month and a year boundary', () => {
+    expect(sceneWeekStepLabel('2026-03-02', 'prev', false)).toBe('Week of Feb 23')
+    expect(sceneWeekStepLabel('2026-01-05', 'prev', false)).toBe('Week of Dec 29')
+  })
+
+  // The shift runs BEFORE the format, so the format's own fallback cannot catch
+  // a start date that is not one: `parseCalendarDate('')` is 1 Jan 1900, and
+  // seven days either side of that is a well-formed `Week of Dec 25` nobody can
+  // check. The page-relative words are the only claim left to make.
+  // `2026-13-40` is deliberately NOT here: the guard is a SHAPE check, the same
+  // one the rest of this feature uses, and only the backend can say whether a
+  // well-formed date exists.
+  it.each(['', '   ', 'last'])(
+    'names no neighbour date from a start date of %p',
+    startDate => {
+      expect(sceneWeekStepLabel(startDate, 'prev', false)).toBe('Previous week')
+      expect(sceneWeekStepLabel(startDate, 'next', false)).toBe('Next week')
+    }
+  )
 })

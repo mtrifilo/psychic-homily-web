@@ -45,22 +45,33 @@ describe('buildSceneDayMetadata', () => {
     vi.useRealTimers()
   })
 
-  it('titles the live night in the words someone would type', async () => {
+  it('titles the rolling route by the family rule', async () => {
     fetchSceneDay.mockResolvedValue(day())
 
     const meta = await buildSceneDayMetadata('phoenix-az')
 
-    expect(meta.title).toBe('Phoenix Shows Tonight — Friday, July 31, 2026')
+    expect(meta.title).toBe('Tonight in Phoenix')
   })
 
   // A dated permalink is permanent. Calling an archived Tuesday "tonight" would
   // be false the day after it was written, and it is the indexed URL.
-  it('drops the word from a date that is not the live night', async () => {
+  it('names a dated permalink by its date, never "tonight"', async () => {
     fetchSceneDay.mockResolvedValue(day({ is_tonight: false }))
 
     const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
 
-    expect(meta.title).toBe('Phoenix Shows — Friday, July 31, 2026')
+    expect(meta.title).toBe('Jul 31 in Phoenix')
+  })
+
+  // `is_tonight` is TRUE for the dated permalink naming today, so a title keyed
+  // on the flag rather than on the route would publish "Tonight in Phoenix" at
+  // a URL that means one fixed night.
+  it('names the dated permalink for TODAY by its date too', async () => {
+    fetchSceneDay.mockResolvedValue(day({ is_tonight: true }))
+
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
+
+    expect(meta.title).toBe('Jul 31 in Phoenix')
   })
 
   it('names the count and the city in the description', async () => {

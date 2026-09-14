@@ -14,9 +14,9 @@ import {
   SCENE_WINDOW_ROW_CAP,
   capWindowRows,
   flattenWeekDays,
-  formatWindowRange,
   rollingDays,
   sceneWindowHref,
+  sceneWindowTitle,
   weekendDays,
   type SceneWindowData,
   type SceneWindowKey,
@@ -158,10 +158,11 @@ export async function buildSceneWindowMetadata(
     return { title: `${label} not found`, robots: { index: false, follow: false } }
   }
 
-  const range = formatWindowRange(data.days)
-  const title = range
-    ? `${data.sceneName} shows — ${label.toLowerCase()}, ${range}`
-    : `${data.sceneName} shows — ${label.toLowerCase()}`
+  // The family's one title rule, so the tab and the H1 read alike. The date
+  // range the title used to carry is on the page, in the header line: a
+  // rolling window's range moves with the clock, so a title carrying it would
+  // describe a span the next reader does not get.
+  const title = sceneWindowTitle(window, data.city)
   const description =
     data.rendered > 0
       ? `${data.rendered} ${data.rendered === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${label.toLowerCase()}.`

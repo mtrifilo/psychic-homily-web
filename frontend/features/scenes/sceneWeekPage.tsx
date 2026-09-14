@@ -6,6 +6,7 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
 import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
+import { sceneWeekTitle } from './sceneWindow'
 import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
 /**
@@ -31,9 +32,14 @@ export async function buildSceneWeekMetadata(
     return { title: 'Week not found', robots: { index: false, follow: false } }
   }
 
+  // The ABSENT `week` argument is what names the rolling route, and it is the
+  // discriminator for everything below that speaks about now.
+  const isRollingRoute = week === undefined
   const total = countShows(data)
   const range = formatWeekRange(data.start_date, data.end_date)
-  const title = `${data.scene_name} shows — ${range}`
+  // The family's one title rule, so the tab and the H1 read alike. A dated
+  // permalink names its own Monday rather than saying "this week".
+  const title = sceneWeekTitle(data.start_date, data.city, isRollingRoute)
   const description =
     total > 0
       ? `${total} ${total === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${range}.`
@@ -63,10 +69,37 @@ export async function buildSceneWeekMetadata(
   // Next requires to be a constant and so reads identically on every card.
   const imageAlt = description
 
+  // A week with nothing on it is thin content: real, worth serving, worth
+  // linking out of, not worth an index entry. `follow` stays on precisely
+  // because the page's job in that state is to point at the rooms and the
+  // neighbouring weeks. Same rule and same shape as the empty night the day
+  // builder suppresses.
+  //
+  // THREE conditions, and each one is load-bearing:
+  //
+  //  - the DATED route, because the rolling `/week` declares this dated
+  //    permalink as its canonical, and a noindex beside a canonical naming a
+  //    different URL is a contradiction search engines resolve by consolidating
+  //    the suppression onto the target;
+  //  - zero shows, not `is_past_week`: `scene_weeks` in the sitemap announces
+  //    the last eight weeks per scene and excludes only the weeks with no
+  //    approved show, so noindexing every past week would mark submitted URLs
+  //    noindex. The pages suppressed here are the ones it never names;
+  //  - NOT the current week, which is the URL both rolling routes canonicalise
+  //    to: `/week` here and `/tonight` in the day builder. Suppressing it
+  //    would consolidate onto those two, which are a quiet scene's whole
+  //    discovery surface. A thin current week therefore stays indexable, and
+  //    turns into an archived one that does not the following Monday.
+  const robots =
+    !isRollingRoute && total === 0 && !data.is_current_week
+      ? { index: false, follow: true }
+      : undefined
+
   return {
     title,
     description,
     alternates: { canonical },
+    ...(robots ? { robots } : {}),
     openGraph: {
       title,
       description,
@@ -99,7 +132,14 @@ export async function buildSceneWeekMetadata(
  * valid page. Verified against the existing scene page, which 404s correctly
  * with the decision in the page body (PSY-906).
  */
-export function SceneWeekContent({ data }: { data: SceneWeekResponse }) {
+export function SceneWeekContent({
+  data,
+  isRollingRoute,
+}: {
+  data: SceneWeekResponse
+  /** True on `/scenes/{slug}/week`. See `SceneWeekView`. */
+  isRollingRoute: boolean
+}) {
   const { breadcrumb, itemList, events } = buildSceneWeekJsonLd(data)
 
   return (
@@ -110,7 +150,7 @@ export function SceneWeekContent({ data }: { data: SceneWeekResponse }) {
           shows, and 50 extra <script> elements is markup weight for no gain —
           a top-level JSON-LD array carries the same graph. */}
       {events.length > 0 && <JsonLd data={events} />}
-      <SceneWeekView week={data} />
+      <SceneWeekView week={data} isRollingRoute={isRollingRoute} />
     </>
   )
 }

@@ -19,11 +19,14 @@ import { entityHref } from '@/lib/entity-slug'
  */
 
 /**
- * The header's adjacent-period chips. Each page adds its own width behaviour —
- * the week's three chips must share a row at mobile widths, the day's need not.
+ * How a scene-page text link BEHAVES, apart from its type and tone.
+ *
+ * Carried by the accent register below and by the window nav, whose type is a
+ * step smaller. Splitting it is what keeps one hover and one focus-ring rule
+ * across both: a second spelling is a second thing to remember to change.
  */
-export const SCENE_NAV_CHIP_CLASS =
-  'rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50'
+export const SCENE_LINK_INTERACTION_CLASS =
+  'underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring'
 
 /**
  * A scene-page link in the accent register: `SceneSectionHeading`'s mono
@@ -41,8 +44,7 @@ export const SCENE_NAV_CHIP_CLASS =
  * The tone is the wave's locked accent register rather than this constant's
  * choice, so changing it is a design decision about every surface that uses it.
  */
-export const SCENE_ACCENT_LINK_CLASS =
-  'rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring'
+export const SCENE_ACCENT_LINK_CLASS = `rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary ${SCENE_LINK_INTERACTION_CLASS}`
 
 /**
  * One named entity, linked to its own page when it has one.
@@ -154,21 +156,20 @@ export function SceneBreadcrumb({ slug, sceneName }: { slug: string; sceneName: 
 }
 
 /**
- * City at display scale, state in mono alongside.
+ * The window family's H1: `This week in Chicago`, one line.
  *
- * Both pages are built for cold arrivals from a shared link, where "Columbus"
- * or "Portland" are genuinely ambiguous — so the state has to be on the page,
- * not only in the breadcrumb. Setting it at display size would blunt the one
- * element that must survive a skim.
+ * Set in the locked frame's register (`1665:2`): mono, bold, micro-caps at
+ * 14px with 4% tracking, rather than at display scale. The title rule puts a
+ * window phrase in front of the city, which at display scale wraps to three
+ * lines at 390px and spends the top of a calendar page on its own name.
+ *
+ * The state is NOT here. It rides in the breadcrumb above, which names the
+ * scene in full, so a cold arrival from a shared link can still tell Portland
+ * from Portland.
  */
-export function SceneCityHeading({ city, state }: { city: string; state?: string | null }) {
+export function SceneWindowHeading({ title }: { title: string }) {
   return (
-    <h1 className="flex items-baseline gap-3 text-4xl font-bold tracking-tight md:text-5xl">
-      {city}
-      <span className="font-mono text-base font-normal tracking-wide text-muted-foreground">
-        {state}
-      </span>
-    </h1>
+    <h1 className="font-mono text-sm font-bold uppercase tracking-[0.04em]">{title}</h1>
   )
 }
 

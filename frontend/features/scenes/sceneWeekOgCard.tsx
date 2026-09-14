@@ -77,7 +77,8 @@ export async function renderSceneWeekOgCard(
   // The city has to survive being skimmed at thumbnail size, but "Columbus" and
   // "Portland" are genuinely ambiguous to someone arriving cold from a shared
   // link — so the state rides alongside at metadata scale rather than blunting
-  // the headline, matching the page's h1 (PSY-1576 addendum).
+  // the headline. A card is read WITHOUT the page around it, so it carries the
+  // state the page leaves to its breadcrumb.
   const state = data.state?.trim() ?? ''
   const citySize = fitFontSize(
     data.city,

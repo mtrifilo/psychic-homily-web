@@ -58,11 +58,11 @@ export function formatDayFull(iso: string): string {
 }
 
 /**
- * `Thu Jul 30` — the adjacent-day nav chips.
+ * `Thu Jul 30`, the show page's rail qualifier.
  *
- * Composed rather than taken from one `toLocaleDateString` call, which punctuates
- * it as a sentence fragment ("Thu, Jul 30"). A chip is a label, and the comma is
- * noise inside a bordered box already flanked by an arrow.
+ * Composed rather than taken from one `toLocaleDateString` call, which
+ * punctuates it as a sentence fragment ("Thu, Jul 30"). It reads inside a
+ * heading, where the comma is noise.
  */
 export function formatDayChip(iso: string): string {
   const date = parseCalendarDate(iso)
