@@ -147,7 +147,9 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
 
   // The one knowledge-graph cross-link this section offers, rooted on the
   // collection's most connected artist (see mostConnectedArtist). The payload
-  // is mixed-type, so a collection holding no artist keeps the unrooted link.
+  // is mixed-type: only artists are candidates, but an artist's edges to the
+  // venues, shows and releases beside them count toward the ranking, and a
+  // collection holding no artist keeps the unrooted link.
   const wholeMapHref = useMemo(
     () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
     [data],

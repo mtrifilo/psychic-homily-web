@@ -106,8 +106,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   }, [data])
 
   // The one knowledge-graph cross-link this section offers, rooted on the bill
-  // network's most connected artist (see mostConnectedArtist). The active
-  // window feeds that payload, so changing the window re-roots the link.
+  // network's most connected artist (see mostConnectedArtist).
   const wholeMapHref = useMemo(
     () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
     [data],

@@ -114,14 +114,17 @@ describe('pickMostConnectedArtistSlug', () => {
   })
 
   // The link falls through to the next artist rather than to nothing, so one
-  // unusable slug at the top does not cost the surface its deep link.
+  // unusable slug at the TOP of the ranking does not cost the surface its deep
+  // link.
   it.each(['', 'Capitalised', 'has space', 'under_score', '../../auth/profile'])(
     'skips a node whose slug the Observatory would refuse (%p)',
     slug => {
       const nodes = [
         node({ id: 1, slug, name: 'Unusable' }),
         node({ id: 2, slug: 'sundressed', name: 'Sundressed' }),
+        node({ id: 3, slug: 'zed', name: 'Zed' }),
       ]
+      // Degrees: the unusable node 2, the other two 1 each.
       const links: TestEdge[] = [
         { source_id: 1, target_id: 2 },
         { source_id: 1, target_id: 3 },
@@ -129,6 +132,33 @@ describe('pickMostConnectedArtistSlug', () => {
       expect(pickMostConnectedArtistSlug(nodes, links)).toBe('sundressed')
     },
   )
+
+  // Same-named artists exist in this catalog, so the name alone is not a total
+  // order and payload order must not be allowed to decide the link.
+  it('breaks a name tie by slug', () => {
+    const nodes = [
+      node({ id: 1, slug: 'mirage-tx', name: 'Mirage' }),
+      node({ id: 2, slug: 'mirage-az', name: 'Mirage' }),
+    ]
+    const links: TestEdge[] = [{ source_id: 1, target_id: 2 }]
+    expect(pickMostConnectedArtistSlug(nodes, links)).toBe('mirage-az')
+    expect(pickMostConnectedArtistSlug([...nodes].reverse(), links)).toBe('mirage-az')
+  })
+
+  // Collection payloads are mixed-type: an artist's edges to venues, shows and
+  // releases count, because the rule ranks connectedness on the drawn canvas.
+  it('counts an artist edge to a non-artist node', () => {
+    const nodes = [
+      node({ id: 1, slug: 'zebra', name: 'Zebra', entity_type: 'artist' }),
+      node({ id: 2, slug: 'aardvark', name: 'Aardvark', entity_type: 'artist' }),
+      node({ id: 3, slug: 'valley-bar', name: 'Valley Bar', entity_type: 'venue' }),
+    ]
+    const links: TestEdge[] = [
+      { source_id: 1, target_id: 3 },
+      { source_id: 1, target_id: 2 },
+    ]
+    expect(pickMostConnectedArtistSlug(nodes, links)).toBe('zebra')
+  })
 
   it('is null when no node carries a usable slug', () => {
     const nodes = [
