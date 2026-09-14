@@ -259,13 +259,20 @@ export function ShowList() {
   // metro when exactly one is selected. NOT the rows on screen, which is what
   // the old "50 of 268 shows" line reported and what the pager's caption
   // already says exactly ("Showing 51-100 of 268").
+  //
+  // No leading separator. The frame prints this beside the `<h1>`, where the
+  // middot joins the two; this renders it on its own line (the heading is
+  // server-rendered in the route's shell and this total is client-derived from
+  // the city filter, so the two cannot share a row without moving the heading
+  // out of the shell), and a separator with nothing to its left is a defect
+  // rather than a style.
   const scopeLabel = useMemo(() => {
     const total = formatCount(listTotal)
     if (selectedCities.length === 1) {
       const { city, state } = selectedCities[0]
-      return `· ${total} in ${city}, ${state}`
+      return `${total} in ${city}, ${state}`
     }
-    return `· ${total} upcoming`
+    return `${total} upcoming`
   }, [listTotal, selectedCities])
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLParagraphElement>()
@@ -603,9 +610,10 @@ export function ShowList() {
           <DayGroupedShowList
             shows={pageShows}
             density={density}
-            isAdmin={isAdmin}
-            userId={user?.id}
             saveCounts={saveCounts}
+            // From the FILTER: exactly one selected metro is the only case
+            // where every row would repeat the same city.
+            showCity={selectedCities.length !== 1}
           />
         )}
 

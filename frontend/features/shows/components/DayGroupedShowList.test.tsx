@@ -56,7 +56,7 @@ function renderList(
   density: 'compact' | 'comfortable' | 'expanded' = 'comfortable'
 ) {
   return render(
-    <DayGroupedShowList shows={shows} density={density} isAdmin={false} />
+    <DayGroupedShowList shows={shows} density={density} showCity={false} />
   )
 }
 
@@ -163,7 +163,7 @@ describe('DayGroupedShowList', () => {
         <DayGroupedShowList
           shows={twoDays}
           density="comfortable"
-          isAdmin={false}
+          showCity={false}
         />
       )
 

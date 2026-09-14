@@ -262,19 +262,3 @@ export function splitBill<T extends BillArtist>(
   return { headliners, support: artists.filter(artist => !leads(artist)) }
 }
 
-/**
- * Upcoming Shows list count label.
- * When the loaded page(s) are a subset of the filter-aware total, show
- * "N of T shows" so users know the catalog is larger than what's on screen.
- */
-export function formatShowCountLabel(loaded: number, total?: number | null): string {
-  const noun = loaded === 1 ? 'show' : 'shows'
-  if (total == null || total <= loaded) {
-    return `${loaded} ${noun}`
-  }
-  // Pinned to en-US, like every date in this list (`formatInTimezone`): the
-  // label is server-rendered since PSY-1624, and a bare `toLocaleString()`
-  // yields "1,234" from Node and "1.234" in a de-DE browser — a hydration
-  // mismatch that only appears once a filter's total passes 999.
-  return `${loaded.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} ${noun}`
-}

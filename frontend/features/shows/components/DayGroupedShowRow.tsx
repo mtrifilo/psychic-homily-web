@@ -11,24 +11,27 @@ import type { Density } from '@/lib/hooks/common/useDensity'
 import { SaveButton } from '@/components/shared/SaveButton'
 import { ShowPrice } from '@/components/shared/ShowPrice'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
-import { formatShowTime } from '@/lib/utils/formatters'
+import { formatShowTimeCompact } from '@/lib/utils/formatters'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
 
 /**
- * The en dash that holds a fixed-width column open when a value is unknown.
- * A blank cell reads as "nobody filled this in"; the dash reads as "there is
- * no value", which is what the row actually knows.
+ * Holds a fixed-width column open when a value is unknown.
+ *
+ * `aria-hidden`, so it is a column that looks continuous to a sighted reader
+ * and is simply absent to a screen reader. An unlabelled "en dash" announced
+ * between the bill and the price is noise, and the row it sits in already says
+ * everything that IS known.
  */
-const UNKNOWN = '–'
+function UnknownCell() {
+  return <span aria-hidden="true">–</span>
+}
 
 export interface DayGroupedShowRowProps {
   show: ShowResponse
   density: Density
-  isAdmin: boolean
-  userId?: string
   /** Forwarded to SaveButton; `'pending'` while the list's batch is in flight. */
   saveData?: BatchedSaveData
   /**
@@ -38,9 +41,11 @@ export interface DayGroupedShowRowProps {
    */
   index: number
   /**
-   * Whether the list currently spans more than one city. The venue column
-   * appends the city only then: on a single-metro list every row would repeat
-   * the same one, which is the column's whole width spent on no information.
+   * Whether the venue column should name the city.
+   *
+   * Decided by the FILTER, not by the rows on screen: a page of an All Cities
+   * list can happen to hold one metro, and deriving from the rows would make
+   * the column appear on page 1 and vanish on page 2 of one filter.
    */
   showCity: boolean
 }
@@ -48,27 +53,50 @@ export interface DayGroupedShowRowProps {
 /**
  * Column widths, read off the approved frame at 1152px of content.
  *
- * Spelled as `sm:` utilities because the row is ONE tree that reflows: below
- * `sm` these cells are a wrapped two-line block and the fixed widths must not
- * apply. The header row and the cells read the same constants, so a width moves
- * in one place.
+ * Spelled as `lg:` utilities, which is where the frame's desktop layout starts.
+ * Below that the row is a stacked two-line block and the fixed widths must not
+ * apply: they total 590px before the bill column gets a pixel, which already
+ * exceeds a 640px viewport. The header row and the cells read the same
+ * constants, so a width moves in one place.
  */
 const COLUMN = {
-  time: 'sm:w-[90px]',
-  venue: 'sm:w-[260px]',
-  price: 'sm:w-[80px]',
-  age: 'sm:w-[60px]',
-  actions: 'sm:w-[100px]',
+  time: 'lg:w-[90px]',
+  venue: 'lg:w-[260px]',
+  price: 'lg:w-[80px]',
+  age: 'lg:w-[60px]',
+  actions: 'lg:w-[100px]',
 } as const
 
-/** Vertical padding per density. The columns themselves do not move. */
+/**
+ * Padding per density, and only once the row IS a column row. The frame gives
+ * the stacked form a flat 8px whatever the density: what density buys on two
+ * lines is nothing, because the lines are already as tight as they read.
+ */
 const ROW_PADDING: Record<Density, string> = {
-  compact: 'py-1 px-2',
-  comfortable: 'py-1.5 px-2',
-  expanded: 'py-2.5 px-2',
+  compact: 'p-2 lg:px-2 lg:py-1',
+  comfortable: 'p-2 lg:px-2 lg:py-1.5',
+  expanded: 'p-2 lg:px-2 lg:py-2.5',
 }
 
-/** `w/ Support, Support` on the bill line. */
+/** Age is the first column the frame collapses, and support the second. */
+function showsAge(density: Density): boolean {
+  return density !== 'compact'
+}
+
+/** One billed act, linked to its artist page when it has one. */
+function ArtistLink({ artist }: { artist: ArtistResponse }) {
+  if (!artist.slug) return <>{artist.name}</>
+  return (
+    <Link
+      href={`/artists/${artist.slug}`}
+      className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
+    >
+      {artist.name}
+    </Link>
+  )
+}
+
+/** `w/ Support, Support`, each act linked. */
 function SupportText({
   artists,
   className,
@@ -78,8 +106,17 @@ function SupportText({
 }) {
   if (artists.length === 0) return null
   return (
-    <span className={cn('text-muted-foreground', className)}>
-      w/ {artists.map(artist => artist.name).join(', ')}
+    <span
+      className={cn('text-muted-foreground', className)}
+      data-testid="row-support"
+    >
+      w/{' '}
+      {artists.map((artist, index) => (
+        <span key={artist.id ?? artist.name}>
+          {index > 0 ? ', ' : null}
+          <ArtistLink artist={artist} />
+        </span>
+      ))}
     </span>
   )
 }
@@ -87,12 +124,16 @@ function SupportText({
 /**
  * One show on the `/shows` list: a dense table row under its day heading.
  *
- * SEPARATE from `ShowCard`, which still serves the home rail and every
- * context list. The two answer different questions. A card repeats the date
- * because it can appear anywhere; these rows sit under a heading that already
- * states the day, so the date column would print the same value on every row
- * of a group. Sharing one component would mean a prop that turns half of it
- * off.
+ * SEPARATE from `ShowCard`, which still serves the home rail and every context
+ * list. The two answer different questions. A card repeats the date because it
+ * can appear anywhere; these rows sit under a heading that already states the
+ * day, so a date column would print the same value on every row of a group.
+ *
+ * WHAT THIS ROW DOES NOT CARRY, all of it on `ShowCard` and none of it in the
+ * frame this row is built to: the admin edit/export/delete controls, the
+ * owner's controls, and the expand-music affordance. `SHOW_LIST_FEATURE_POLICY`
+ * still grants all three to `discovery`, and the home rail still renders them
+ * through `ShowCard`; only this surface drops them.
  *
  * The `<article aria-label>` is load-bearing and not decoration: it is how the
  * save and list-action E2E specs address a specific seeded show
@@ -101,8 +142,6 @@ function SupportText({
 export function DayGroupedShowRow({
   show,
   density,
-  isAdmin,
-  userId,
   saveData,
   index,
   showCity,
@@ -112,30 +151,35 @@ export function DayGroupedShowRow({
     [show.artists]
   )
 
+  // The COMPACT register, which `formatShowTimeCompact` documents as the one
+  // for "a fixed-width lead column in a row of columns, where the full
+  // register's width is the difference between a legible bill and an ellipsis".
+  // This is that column. Both registers refuse a guessed zone by answering null.
   const startTime = useMemo(
     () =>
-      formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone),
+      formatShowTimeCompact(
+        show.event_date,
+        show.state,
+        show.venues?.[0]?.timezone
+      ),
     [show.event_date, show.state, show.venues]
   )
 
   const venue = show.venues?.[0]
   const detailsHref = `/shows/${show.slug || show.id}`
-  const headlinerText =
-    headliners.length > 0
-      ? headliners.map(artist => artist.name).join(' / ')
-      : 'TBA'
 
-  // Expanded gives support its own line under the headliner; the other two
-  // keep it inline. Compact drops it entirely, with age, because those are the
-  // two the frame collapses first.
   const supportOnOwnLine = density === 'expanded'
   const showSupport = density !== 'compact' && support.length > 0
-  const showAge = density !== 'compact'
+  const showAge = showsAge(density)
 
   const stripe = index % 2 === 0 ? 'bg-muted/20' : undefined
 
   const metaClass =
-    'font-mono text-[11.5px] text-muted-foreground tabular-nums sm:text-[12.5px]'
+    'font-mono text-[11.5px] text-muted-foreground tabular-nums lg:text-[12.5px]'
+
+  const venueLabel = [venue?.name, showCity ? show.city : null, showCity ? show.state : null]
+    .filter(Boolean)
+    .join(', ')
 
   return (
     <article
@@ -148,118 +192,151 @@ export function DayGroupedShowRow({
       )}
     >
       {/*
-        ONE tree that reflows, not a mobile copy beside a desktop copy. Two
+        ONE tree that reflows, not a stacked copy beside a column copy. Two
         breakpoint branches would put every row's content in the DOM twice: a
         screen reader reads both, every link counts twice for a crawler, and a
-        50-row page carries double the nodes. `sm:contents` is what lets the
-        mobile metadata run become three separate columns on desktop without a
+        50-row page carries double the nodes. `lg:contents` is what lets the
+        stacked metadata run become three separate columns without a second copy
+        of it.
+
+        Below `lg` the row is two lines: the bill and the actions share the
+        first, and the venue and the metadata share the second. The actions ride
+        line 1 so the venue keeps the whole left of line 2, which is the field
+        that tells two rows apart and the first thing a narrow viewport clips.
+      */}
+      {/*
+        ONE tree that reflows, not a stacked copy beside a column copy. Two
+        breakpoint branches would put every row's content in the DOM twice: a
+        screen reader reads both, every link counts twice for a crawler, and a
+        50-row page carries double the nodes.
+
+        Below `lg` the row is the frame's two lines, and each is a wrapper here.
+        At `lg` every wrapper becomes `contents`, so its children flatten into
+        the one column row and take their place from `lg:order-*`. That is what
+        lets the stacked metadata run become three separate columns without a
         second copy of it.
 
-        Mobile is two lines: the bill takes the first whole (`w-full` forces the
-        wrap), and the venue, the metadata and the actions share the second.
-        Desktop is the frame's single column row, ordered by `sm:order-*`.
+        The actions ride line 1 rather than line 2, so the venue keeps the whole
+        left of its own line: it is the field that tells two rows apart and the
+        first thing a narrow viewport clips.
       */}
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 sm:flex-nowrap">
-        <span className="order-1 flex w-full min-w-0 flex-col gap-0.5 sm:order-2 sm:w-auto sm:flex-1">
-          <span className="flex flex-wrap items-baseline gap-x-1.5">
-            <Link
-              href={detailsHref}
-              className="text-sm font-medium transition-colors hover:text-primary sm:text-[13.5px]"
-            >
-              {headlinerText}
-            </Link>
-            {showSupport && !supportOnOwnLine && (
-              <SupportText artists={support} className="text-[12.5px] sm:text-[13px]" />
+      <div className="flex flex-col gap-y-0.5 lg:flex-row lg:items-baseline lg:gap-x-2">
+        <span className="flex w-full min-w-0 items-baseline gap-x-2 lg:contents">
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5 lg:order-2">
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+              <Link
+                href={detailsHref}
+                className="min-w-0 truncate text-sm font-medium transition-colors hover:text-primary lg:text-[13.5px]"
+              >
+                {headliners.length > 0
+                  ? headliners.map(artist => artist.name).join(' / ')
+                  : 'TBA'}
+              </Link>
+              {showSupport && !supportOnOwnLine && (
+                <SupportText
+                  artists={support}
+                  className="min-w-0 text-[12.5px] lg:text-[13px]"
+                />
+              )}
+              <ShowStatusBadge
+                show={show}
+                cancelledVariant="default"
+                className="inline-flex gap-1"
+              />
+            </span>
+            {showSupport && supportOnOwnLine && (
+              <SupportText
+                artists={support}
+                className="text-[12.5px] lg:text-[13px]"
+              />
             )}
-            <ShowStatusBadge show={show} className="inline-flex gap-1" />
           </span>
-          {showSupport && supportOnOwnLine && (
-            <SupportText artists={support} className="text-[12.5px] sm:text-[13px]" />
-          )}
-        </span>
 
-        <span
-          className={cn(
-            'order-2 min-w-0 flex-1 truncate text-[12.5px] sm:order-3 sm:flex-none sm:text-[13px]',
-            COLUMN.venue
-          )}
-        >
-          {venue?.slug ? (
-            <Link
-              href={`/venues/${venue.slug}`}
-              className="text-primary hover:underline"
-            >
-              {venue.name}
-            </Link>
-          ) : (
-            <span className="text-muted-foreground">{venue?.name}</span>
-          )}
-          {showCity && show.city && (
-            <span className="text-muted-foreground">
-              {' \u00b7 '}
-              {show.city}
-            </span>
-          )}
-        </span>
-
-        {/* One run on mobile, three columns on desktop. */}
-        <span className="order-3 flex shrink-0 items-baseline gap-1 sm:contents">
-          <span className={cn(metaClass, 'shrink-0 sm:order-1', COLUMN.time)}>
-            {startTime ?? UNKNOWN}
-          </span>
-          <span aria-hidden="true" className={cn(metaClass, 'sm:hidden')}>
-            {'\u00b7'}
-          </span>
-          {/* The cell is OURS, not `ShowPrice`'s. With no price to show that
-              component returns a bare fragment, so a className handed to it is
-              dropped along with the column's width and its `order` — which put
-              the fallback dash at the head of the row instead of in the price
-              column. */}
-          <span className={cn(metaClass, 'shrink-0 sm:order-4', COLUMN.price)}>
-            <ShowPrice show={show} fallback={UNKNOWN} />
-          </span>
-          {showAge && show.age_requirement && (
-            <span aria-hidden="true" className={cn(metaClass, 'sm:hidden')}>
-              {'\u00b7'}
-            </span>
-          )}
-          {/* `truncate` rather than wrap: an age that outgrows its column
-              ("All ages") would otherwise take a second line and make that one
-              row taller than every other, breaking the table's rhythm. */}
           <span
             className={cn(
-              metaClass,
-              'shrink-0 truncate sm:order-5',
-              COLUMN.age
+              'flex shrink-0 items-center justify-end gap-1 lg:order-6',
+              COLUMN.actions
             )}
           >
-            {showAge && show.age_requirement ? show.age_requirement : null}
+            {SHOW_LIST_FEATURE_POLICY.discovery.showSaveButton && (
+              <SaveButton
+                showId={show.id}
+                variant="ghost"
+                size="sm"
+                saveData={saveData}
+              />
+            )}
+            {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
+              <Link
+                href={detailsHref}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+                aria-label="View show details"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
           </span>
         </span>
 
-        <span
-          className={cn(
-            'order-4 flex shrink-0 items-center justify-end gap-1 sm:order-6',
-            COLUMN.actions
-          )}
-        >
-          {SHOW_LIST_FEATURE_POLICY.discovery.showSaveButton && (
-            <SaveButton
-              showId={show.id}
-              variant="ghost"
-              size="sm"
-              saveData={saveData}
-            />
-          )}
-          {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
-            <Link
-              href={detailsHref}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
-              aria-label="View show details"
+        <span className="flex w-full min-w-0 items-baseline gap-x-2 lg:contents">
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-[12.5px] lg:order-3 lg:flex-none lg:text-[13px]',
+              COLUMN.venue
+            )}
+            // Truncation hides the tail with no other way to read it.
+            // `ShowPrice` sets a title for the same reason.
+            title={venueLabel || undefined}
+          >
+            {venue?.slug ? (
+              <Link
+                href={`/venues/${venue.slug}`}
+                className="text-primary hover:underline"
+              >
+                {venue.name}
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">{venue?.name}</span>
+            )}
+            {/* City AND state. Two metros can share a name across state lines,
+                so the city alone names nothing on a list that spans them. */}
+            {showCity && show.city && (
+              <span className="text-muted-foreground">
+                {' \u00b7 '}
+                {[show.city, show.state].filter(Boolean).join(', ')}
+              </span>
+            )}
+          </span>
+
+          <span className="flex shrink-0 items-baseline gap-1 lg:contents">
+            <span className={cn(metaClass, 'shrink-0 lg:order-1', COLUMN.time)}>
+              {startTime ?? <UnknownCell />}
+            </span>
+            <span aria-hidden="true" className={cn(metaClass, 'lg:hidden')}>
+              {'\u00b7'}
+            </span>
+            {/* The cell is OURS, not `ShowPrice`'s. With no price to show that
+                component returns a bare fragment, so a className handed to it is
+                dropped along with the column's width and its `order`, which put
+                the fallback dash at the head of the row instead of in the price
+                column. */}
+            <span className={cn(metaClass, 'shrink-0 lg:order-4', COLUMN.price)}>
+              <ShowPrice show={show} fallback={<UnknownCell />} />
+            </span>
+            {showAge && show.age_requirement && (
+              <span aria-hidden="true" className={cn(metaClass, 'lg:hidden')}>
+                {'\u00b7'}
+              </span>
+            )}
+            {/* `truncate` rather than wrap: an age that outgrows its column
+                ("All ages") would otherwise take a second line and make that one
+                row taller than every other, breaking the table's rhythm. */}
+            <span
+              className={cn(metaClass, 'shrink truncate lg:order-5', COLUMN.age)}
             >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
-          )}
+              {showAge && show.age_requirement ? show.age_requirement : null}
+            </span>
+          </span>
         </span>
       </div>
     </article>
@@ -274,18 +351,24 @@ export function DayGroupedShowRow({
  * would arrive as five orphan words before the list. Each row carries its own
  * accessible name, and every cell that could be ambiguous out of context (the
  * price pair) states itself.
+ *
+ * Takes the density because the row does: a compact list renders no age, and a
+ * label over fifty empty cells is a column that is not there.
  */
-export function DayGroupedShowListHeader() {
+export function DayGroupedShowListHeader({ density }: { density: Density }) {
   return (
     <div
-      className="hidden items-baseline gap-2 border-b border-border px-2 pb-1 font-mono text-[10px] font-bold uppercase tracking-[0.8px] text-muted-foreground sm:flex"
+      className="hidden items-baseline gap-2 border-b border-border px-2 pb-1 font-mono text-[10px] font-bold uppercase tracking-[0.8px] text-muted-foreground lg:flex"
       aria-hidden="true"
+      data-testid="show-list-header"
     >
       <span className={cn(COLUMN.time, 'shrink-0')}>Time</span>
       <span className="min-w-0 flex-1">Bill</span>
       <span className={cn(COLUMN.venue, 'shrink-0')}>Venue</span>
       <span className={cn(COLUMN.price, 'shrink-0')}>Price</span>
-      <span className={cn(COLUMN.age, 'shrink-0')}>Age</span>
+      <span className={cn(COLUMN.age, 'shrink-0')}>
+        {showsAge(density) ? 'Age' : null}
+      </span>
       <span className={cn(COLUMN.actions, 'shrink-0')} />
     </div>
   )

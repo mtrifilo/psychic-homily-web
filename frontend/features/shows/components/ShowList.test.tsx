@@ -766,7 +766,7 @@ describe('ShowList', () => {
       })
       render(<ShowList />)
       expect(screen.getByTestId('show-count')).toHaveTextContent(
-        '· 1,088 upcoming'
+        '1,088 upcoming'
       )
     })
 
@@ -786,7 +786,7 @@ describe('ShowList', () => {
       })
       render(<ShowList />)
       expect(screen.getByTestId('show-count')).toHaveTextContent(
-        '· 166 in Phoenix, AZ'
+        '166 in Phoenix, AZ'
       )
     })
   })

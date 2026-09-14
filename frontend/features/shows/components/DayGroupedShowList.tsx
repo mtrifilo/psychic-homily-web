@@ -21,10 +21,15 @@ export interface DayGroupedShowListProps {
   /** Rows in list order. Grouping preserves that order exactly. */
   shows: ShowResponse[]
   density: Density
-  isAdmin: boolean
-  userId?: string
   /** The batch save-count map, as `useShowSaveCountBatch` returns it. */
   saveCounts?: Record<string, SaveCounts>
+  /**
+   * Whether the venue column names the city. Comes from the FILTER rather than
+   * from the rows: a page of an All Cities list can happen to hold one metro,
+   * and a rows-derived flag would make the column appear on page 1 and vanish
+   * on page 2 of one filter.
+   */
+  showCity: boolean
 }
 
 /** Space above a day heading, per density. The first group takes none. */
@@ -50,16 +55,12 @@ const rowsSpacingClass: Record<Density, string> = {
 function DayGroupSection({
   group,
   density,
-  isAdmin,
-  userId,
   saveCounts,
   isFirst,
   showCity,
 }: {
   group: ShowDayGroup
   density: Density
-  isAdmin: boolean
-  userId?: string
   saveCounts?: Record<string, SaveCounts>
   isFirst: boolean
   showCity: boolean
@@ -102,8 +103,6 @@ function DayGroupSection({
           <DayGroupedShowRow
             key={show.id}
             show={show}
-            isAdmin={isAdmin}
-            userId={userId}
             saveData={batchedSaveFor(saveCounts, show.id)}
             density={density}
             index={index}
@@ -135,9 +134,8 @@ function DayGroupSection({
 export function DayGroupedShowList({
   shows,
   density,
-  isAdmin,
-  userId,
   saveCounts,
+  showCity,
 }: DayGroupedShowListProps) {
   const hydrated = useHydrated()
 
@@ -146,28 +144,14 @@ export function DayGroupedShowList({
     [shows, hydrated]
   )
 
-  // Whether the venue column should append a city. Derived from the rows on
-  // screen rather than from the filter, because the two can disagree: an "All
-  // Cities" list whose page happens to hold one metro repeats that city on
-  // every row for nothing, and a filter naming two metros that returned rows
-  // from one is the same case.
-  const showCity = useMemo(() => {
-    const cities = new Set(
-      shows.map(show => show.city).filter((city): city is string => !!city)
-    )
-    return cities.size > 1
-  }, [shows])
-
   return (
     <div className="min-w-0" data-testid="day-grouped-show-list">
-      <DayGroupedShowListHeader />
+      <DayGroupedShowListHeader density={density} />
       {groups.map((group, index) => (
         <DayGroupSection
           key={`${group.dateKey ?? 'undated'}-${index}`}
           group={group}
           density={density}
-          isAdmin={isAdmin}
-          userId={userId}
           saveCounts={saveCounts}
           isFirst={index === 0}
           showCity={showCity}
