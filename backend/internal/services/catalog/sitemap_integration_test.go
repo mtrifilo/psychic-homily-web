@@ -504,6 +504,81 @@ func TestSitemapEntriesSceneWeeksExcludesZeroShowWeeks(t *testing.T) {
 	}
 }
 
+// A week is published as a permalink only when the page behind it has rows, and
+// that page lists the scene's tracked rooms. A week carried entirely by an
+// untracked room renders empty, so announcing it would index a blank page.
+func TestSitemapEntriesSceneWeeksSkipUnverifiedOnlyWeeks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	loc, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	y, w := time.Now().In(loc).ISOWeek()
+	weekStart := ISOWeekStart(y, w, loc)
+	currentKey := ISOWeekKey(weekStart)
+
+	seedSceneWeekGroup(t, td.DB, "phx", "Phoenix", "AZ", seedMetro("Phoenix", "AZ"), "America/Phoenix", weekStart)
+
+	// Two weeks back: inside the published window, and empty but for one show at
+	// a room the scene does not track.
+	quietStart := weekStart.AddDate(0, 0, -14)
+	quietKey := ISOWeekKey(quietStart)
+	house := &catalogm.Venue{
+		Name:     "phx Back Room",
+		Slug:     strPtr("phx-back-room"),
+		City:     "Phoenix",
+		State:    "AZ",
+		Metro:    seedMetro("Phoenix", "AZ"),
+		Timezone: strPtr("America/Phoenix"),
+	}
+	if err := td.DB.Create(house).Error; err != nil {
+		t.Fatalf("seed unverified venue: %v", err)
+	}
+	if err := td.DB.Model(house).Update("verified", false).Error; err != nil {
+		t.Fatalf("unverify venue: %v", err)
+	}
+	show := &catalogm.Show{
+		Title:     "House Show",
+		Slug:      strPtr("phx-house-show"),
+		EventDate: quietStart.Add(48 * time.Hour).UTC(),
+		City:      strPtr("Phoenix"),
+		State:     strPtr("AZ"),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	if err := td.DB.Create(show).Error; err != nil {
+		t.Fatalf("seed show: %v", err)
+	}
+	if err := td.DB.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: house.ID}).Error; err != nil {
+		t.Fatalf("seed show_venue: %v", err)
+	}
+
+	entries, err := NewSitemapService(td.DB).Entries(context.Background(), "scene_weeks")
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	slugs := sitemapSlugsOf(entries.SceneWeeks)
+
+	wantPresent := "phoenix-az/" + currentKey
+	wantAbsent := "phoenix-az/" + quietKey
+	foundCurrent := false
+	for _, got := range slugs {
+		if got == wantAbsent {
+			t.Errorf("scene_weeks announced %q, whose only show is at an untracked room", wantAbsent)
+		}
+		if got == wantPresent {
+			foundCurrent = true
+		}
+	}
+	if !foundCurrent {
+		t.Errorf("scene_weeks = %v, want to include %q", slugs, wantPresent)
+	}
+}
+
 // TestSitemapEntriesVenueYearsMatchesThePastHistogram is the load-bearing
 // guarantee of the venue_years family (PSY-1756): every year it announces has to
 // be a year /venues/{slug}/shows/{year} will actually render, and that page is

@@ -562,6 +562,8 @@ func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNo
 	for _, room := range detail.Venues {
 		suite.NotEqual("Back Room", room.Name)
 	}
+	suite.Equal(2, detail.Pulse.ActiveVenuesThisMonth,
+		"the pulse counts rooms out of the same set the leaderboard ranks")
 
 	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ", "")
 	suite.Require().NoError(err)
@@ -587,6 +589,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNo
 	suite.Equal(5, scenes[0].UpcomingShowCount, "the room's two bookings join the count")
 	suite.Equal(scenes[0].UpcomingShowCount, detail.Stats.UpcomingShowCount)
 	suite.Require().Len(detail.Venues, 3)
+	suite.Equal(3, detail.Pulse.ActiveVenuesThisMonth, "and the room joins the pulse")
 
 	day, err = suite.sceneService.GetSceneDay("Phoenix", "AZ", "")
 	suite.Require().NoError(err)
