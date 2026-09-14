@@ -1,4 +1,4 @@
-import { isArtistSlug } from './graphRootLink'
+import { isArtistNode, isArtistSlug } from './graphRootLink'
 
 /**
  * Which artist a surface's `/graph` link opens the map rooted on when the
@@ -33,31 +33,18 @@ interface ConnectedCandidateEdge {
   target_id: number
 }
 
-const ARTIST_ENTITY_TYPE = 'artist'
-
 /**
- * Artists only, as an ALLOWLIST.
+ * Edges touching each drawn node, counted once per endpoint.
  *
- * A denylist would hand the next node kind a payload gains to an artist
- * endpoint that 404s it, and the deep link would stop working with nothing to
- * catch it. Station and venue payloads carry no discriminator at all, so an
- * absent one is an artist.
- */
-function isArtistNode(node: ConnectedCandidateNode): boolean {
-  return node.entity_type === undefined || node.entity_type === ARTIST_ENTITY_TYPE
-}
-
-/**
- * Edges touching each node id, counted once per endpoint.
- *
- * Every node the payload draws is keyed, including nodes no edge touches, so a
- * lookup never distinguishes "isolate" from "absent".
+ * Only ids the payload draws are keyed, so an edge naming a node outside the
+ * payload counts for nobody.
  */
 function countDegrees(
   nodes: readonly ConnectedCandidateNode[],
   links: readonly ConnectedCandidateEdge[],
 ): Map<number, number> {
-  const degrees = new Map<number, number>(nodes.map(node => [node.id, 0]))
+  const degrees = new Map<number, number>()
+  for (const node of nodes) degrees.set(node.id, 0)
   const bump = (id: number) => {
     const current = degrees.get(id)
     if (current !== undefined) degrees.set(id, current + 1)
@@ -96,9 +83,10 @@ export function pickMostConnectedArtistSlug(
   if (candidates.length === 0) return null
   const degrees = countDegrees(nodes ?? [], links ?? [])
   const degreeOf = (node: ConnectedCandidateNode) => degrees.get(node.id) ?? 0
-  return candidates.reduce((leader, node) => {
-    const byDegree = degreeOf(node) - degreeOf(leader)
-    if (byDegree !== 0) return byDegree > 0 ? node : leader
-    return node.name.localeCompare(leader.name) < 0 ? node : leader
-  }).slug
+  /** The ranking rule, spelled once: most edges first, then by name. */
+  const byDegreeThenName = (a: ConnectedCandidateNode, b: ConnectedCandidateNode) =>
+    degreeOf(b) - degreeOf(a) || a.name.localeCompare(b.name)
+  return candidates.reduce((leader, node) =>
+    byDegreeThenName(node, leader) < 0 ? node : leader,
+  ).slug
 }

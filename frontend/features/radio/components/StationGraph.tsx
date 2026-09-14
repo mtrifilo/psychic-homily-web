@@ -64,13 +64,8 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
 
-  /**
-   * The one knowledge-graph cross-link this section offers.
-   *
-   * Rooted on the most connected artist in this station's rotation, so the map
-   * opens on the station's neighbourhood rather than the whole-catalog
-   * overview; plain `/graph` when the payload names no artist to root on.
-   */
+  // The one knowledge-graph cross-link this section offers, rooted on the
+  // rotation's most connected artist (see mostConnectedArtist).
   const wholeMapHref = useMemo(
     () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
     [data],

@@ -191,18 +191,9 @@ describe('StationGraph', () => {
     expect(links[0]).toHaveAccessibleName(
       'See how KEXP\u2019s rotation connects on the music map',
     )
-    // Rooted on Gatecreeper, the fixture node the most edges touch.
+    // A sentence naming the station has to land on a map that knows it:
+    // rooted on Gatecreeper, the fixture node the most edges touch.
     expect(links[0]).toHaveAttribute('href', '/graph?artist=gatecreeper')
-  })
-
-  // A sentence naming the station has to land on a map that knows it.
-  it('roots the teaser on the most connected artist in the rotation', () => {
-    setMockContainerWidth(500)
-    renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
-    expect(screen.getByRole('link')).toHaveAttribute(
-      'href',
-      '/graph?artist=gatecreeper',
-    )
   })
 
   it('breaks a degree tie by name', async () => {

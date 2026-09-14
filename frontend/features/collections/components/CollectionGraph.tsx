@@ -145,15 +145,9 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     })
   }, [data])
 
-  /**
-   * The one knowledge-graph cross-link this section offers.
-   *
-   * Rooted on the most connected artist among the collection's items, so the
-   * map opens on this collection's neighbourhood rather than the whole-catalog
-   * overview; plain `/graph` when the payload names no artist to root on. The
-   * payload is mixed-type and only artists are candidates, so a collection of
-   * venues and releases keeps the unrooted link.
-   */
+  // The one knowledge-graph cross-link this section offers, rooted on the
+  // collection's most connected artist (see mostConnectedArtist). The payload
+  // is mixed-type, so a collection holding no artist keeps the unrooted link.
   const wholeMapHref = useMemo(
     () => graphRootHref(pickMostConnectedArtistSlug(data?.nodes, data?.links)),
     [data],

@@ -1,4 +1,4 @@
-import { isArtistSlug } from '@/features/graph/graphRootLink'
+import { isArtistNode, isArtistSlug } from '@/features/graph/graphRootLink'
 
 /**
  * Which artist a scene's `/graph` link opens the map rooted on.
@@ -23,21 +23,6 @@ interface SceneRootCandidate {
   name: string
   upcoming_show_count: number
   entity_type?: string
-}
-
-const ARTIST_ENTITY_TYPE = 'artist'
-
-/**
- * Artists only, as an ALLOWLIST.
- *
- * A denylist on the label hub would hand the next node kind the backend emits
- * (a venue hub, a festival) straight to an artist endpoint that 404s it, and
- * the deep link would quietly stop working with nothing to catch it. Payloads
- * served before hubs shipped carry no discriminator, so an absent one is an
- * artist.
- */
-function isArtistNode(node: SceneRootCandidate): boolean {
-  return node.entity_type === undefined || node.entity_type === ARTIST_ENTITY_TYPE
 }
 
 /** The ranking rule, spelled once: most upcoming shows first, then by name. */
