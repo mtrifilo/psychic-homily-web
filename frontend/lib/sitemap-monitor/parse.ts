@@ -124,10 +124,10 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * First path segment → the families claiming it, derived from the shared
  * FAMILY_URL_PREFIXES table rather than restated.
  *
- * Most prefixes have exactly one claimant. `/scenes` and `/venues` have two
- * each, which is why this is a list: the collision is DETECTED here rather than
- * assumed, so a future family sharing an existing prefix surfaces in
- * `SHARED_CLAIMANTS` (and fails the guard test in parse.test.ts) instead of
+ * Most prefixes have exactly one claimant. `/scenes`, `/venues` and `/shows`
+ * have two each, which is why this is a list: the collision is DETECTED here
+ * rather than assumed, so a future family sharing an existing prefix surfaces
+ * in `SHARED_CLAIMANTS` (and fails the guard test in parse.test.ts) instead of
  * being silently misbucketed.
  */
 const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
@@ -159,6 +159,19 @@ const bareScenesPrefix = FAMILY_URL_PREFIXES.scenes.replace(/^\//, '')
 
 /** The `/venues` prefix without its slash. Same comparison, same reason. */
 const bareVenuesPrefix = FAMILY_URL_PREFIXES.venues.replace(/^\//, '')
+
+/** The `/shows` prefix without its slash. Same comparison, same reason. */
+const bareShowsPrefix = FAMILY_URL_PREFIXES.shows.replace(/^\//, '')
+
+/**
+ * The two tail segments of a month URL, `/shows/{year}/{month}` (PSY-2061).
+ *
+ * Fixed width on the month, because that is the only spelling the route serves:
+ * `/shows/2026/9` is a not-found, so counting it as a month URL would report a
+ * family member the generator never emitted.
+ */
+const SHOWS_MONTH_YEAR_PATTERN = /^\d{4}$/
+const SHOWS_MONTH_PATTERN = /^(0[1-9]|1[0-2])$/
 
 /**
  * The segment a venue-year URL carries between the venue slug and the year:
@@ -222,6 +235,23 @@ export function classifyLoc(loc: string): LocBucket {
       VENUE_YEAR_PATTERN.test(segments[3])
     ) {
       return 'venue_years'
+    }
+    return 'other'
+  }
+
+  // `/shows/{slug}` is a show, `/shows/{year}/{month}` a month of the list
+  // (PSY-2061). Strict like the venues rule and for the same reason: `/shows`
+  // carries other child routes, and the day pages below the months are
+  // deliberately not in any sitemap, so anything that is not exactly the month
+  // shape is 'other' rather than a month the generator never emitted.
+  if (prefix === bareShowsPrefix) {
+    if (segments.length === 2) return 'shows'
+    if (
+      segments.length === 3 &&
+      SHOWS_MONTH_YEAR_PATTERN.test(segments[1]) &&
+      SHOWS_MONTH_PATTERN.test(segments[2])
+    ) {
+      return 'shows_months'
     }
     return 'other'
   }

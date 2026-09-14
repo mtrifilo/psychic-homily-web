@@ -200,6 +200,11 @@ const FAMILY_ROUTES: Record<
   // overwhelmingly closed history. Priority sits below the venue page itself
   // because the venue page is the entry point and the archive is a facet of it.
   venue_years: { changeFrequency: 'yearly', priority: 0.4 },
+  // A month of the upcoming list changes whenever a show in it is announced,
+  // edited or cancelled, which on the busiest months is daily. Priority sits
+  // below the list root, which is the entry point, and level with the scene
+  // week pages, which are the same kind of dated window onto the same shows.
+  shows_months: { changeFrequency: 'daily', priority: 0.6 },
   scenes: { changeFrequency: 'weekly', priority: 0.7 },
   scene_weeks: { changeFrequency: 'weekly', priority: 0.6 },
   labels: { changeFrequency: 'monthly', priority: 0.5 },

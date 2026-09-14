@@ -8,6 +8,11 @@
 
 import { API_BASE_URL } from '@/lib/api-base'
 import { SHOWS_PAGE_SIZE } from './showsListNavigation'
+import {
+  appendShowsCalendarWindow,
+  showsCalendarWindowKey,
+  type ShowsCalendarWindow,
+} from './showsCalendarRoute'
 
 // ============================================================================
 // Endpoints
@@ -165,12 +170,54 @@ export const SHOWS_CALENDAR_FIRST_SCREEN_URL = `${showEndpoints.CALENDAR}?limit=
 export const SHOWS_CALENDAR_FIRST_SCREEN_KEY = showQueryKeys.calendar({
   limit: SHOWS_PAGE_SIZE,
   offset: undefined,
+  year: undefined,
+  month: undefined,
+  day: undefined,
   city: undefined,
   state: undefined,
   cities: undefined,
   tags: undefined,
   tagMatch: undefined,
 })
+
+/**
+ * The same first-screen pair for a DATE-ADDRESSED list (`/shows/2026/11`,
+ * `/shows/2026/11/14`), which is the whole of what the month and day routes
+ * seed beyond the shared city facets.
+ *
+ * Functions rather than constants because the window is the route's own
+ * parameter. Everything else about the pair is identical to the root's, and
+ * deliberately so: same page size, same page 1, same filterless key, same
+ * reasoning about who the seeded answer is correct for (see the block above).
+ *
+ * The URL and the key are built from `appendShowsCalendarWindow` and
+ * `showsCalendarWindowKey`, the same two functions `useShowsCalendar` builds
+ * its request and its key from, so the seed cannot drift onto an entry the
+ * hook does not read.
+ */
+export function showsCalendarWindowFirstScreenUrl(
+  window: ShowsCalendarWindow
+): string {
+  const params = new URLSearchParams()
+  params.set('limit', String(SHOWS_PAGE_SIZE))
+  appendShowsCalendarWindow(params, window)
+  return `${showEndpoints.CALENDAR}?${params.toString()}`
+}
+
+export function showsCalendarWindowFirstScreenKey(
+  window: ShowsCalendarWindow
+): readonly unknown[] {
+  return showQueryKeys.calendar({
+    limit: SHOWS_PAGE_SIZE,
+    offset: undefined,
+    ...showsCalendarWindowKey(window),
+    city: undefined,
+    state: undefined,
+    cities: undefined,
+    tags: undefined,
+    tagMatch: undefined,
+  })
+}
 
 export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
 

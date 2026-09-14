@@ -33,8 +33,8 @@ const sceneWeekSitemapWindow = 8
 // frontend/app/sitemap-shards.ts SITEMAP_FAMILIES and with
 // contracts.SitemapEntries.
 var sitemapFamilies = []string{
-	"shows", "artists", "venues", "venue_years", "scenes", "scene_weeks",
-	"labels", "releases", "festivals", "tags",
+	"shows", "artists", "venues", "venue_years", "shows_months", "scenes",
+	"scene_weeks", "labels", "releases", "festivals", "tags",
 }
 
 // sitemapShard is one bucket of an entity family, addressable on the wire as if
@@ -321,16 +321,17 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 
 	family = strings.TrimSpace(family)
 	out := &contracts.SitemapEntries{
-		Shows:      []contracts.SitemapEntry{},
-		Artists:    []contracts.SitemapEntry{},
-		Venues:     []contracts.SitemapEntry{},
-		VenueYears: []contracts.SitemapEntry{},
-		Scenes:     []contracts.SitemapEntry{},
-		SceneWeeks: []contracts.SitemapEntry{},
-		Labels:     []contracts.SitemapEntry{},
-		Releases:   []contracts.SitemapEntry{},
-		Festivals:  []contracts.SitemapEntry{},
-		Tags:       []contracts.SitemapEntry{},
+		Shows:       []contracts.SitemapEntry{},
+		Artists:     []contracts.SitemapEntry{},
+		Venues:      []contracts.SitemapEntry{},
+		VenueYears:  []contracts.SitemapEntry{},
+		Scenes:      []contracts.SitemapEntry{},
+		SceneWeeks:  []contracts.SitemapEntry{},
+		Labels:      []contracts.SitemapEntry{},
+		Releases:    []contracts.SitemapEntry{},
+		Festivals:   []contracts.SitemapEntry{},
+		Tags:        []contracts.SitemapEntry{},
+		ShowsMonths: []contracts.SitemapEntry{},
 	}
 
 	// A sub-shard id resolves to the family it buckets plus the residue to
@@ -402,6 +403,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 			return nil, fmt.Errorf("failed to collect venue-year sitemap entries: %w", err)
 		}
 		out.VenueYears = venueYears
+	}
+
+	if want("shows_months") {
+		showsMonths, err := s.showsMonthEntries(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to collect shows-month sitemap entries: %w", err)
+		}
+		out.ShowsMonths = showsMonths
 	}
 
 	// scenes and scene_weeks are two projections of ONE group set: the same
@@ -580,6 +589,75 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 	// of one another ("club-2/shows/2025" sorts before "club-2-x/shows/1999",
 	// because '/' is below '-'). The emitted document has to be sorted the way
 	// it is read.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
+	return entries, nil
+}
+
+// showsMonthEntries projects one SitemapEntry per venue-local calendar month
+// that has at least one approved UPCOMING show - the crawlable month pages at
+// /shows/{year}/{month} (PSY-2061).
+//
+// UPCOMING only, and that is the whole definition of the surface rather than a
+// filter applied to it: the month route renders the same upcoming partition the
+// GET /shows/months histogram enumerates, and 404s a month that histogram does
+// not carry. A month announced here that the histogram lacks would be a URL the
+// site itself answers with a not-found. The two are kept together by deriving
+// both from shared.VenueLocalDateCondition("upcoming") over the same approved
+// show set, and by TestSitemapShowsMonthsMatchTheMonthHistogram.
+//
+// UNFILTERED, like the histogram the strip and the route read. A reader's city
+// filter is a query param on these URLs, not part of their identity.
+//
+// Unlike the entity families this is NOT one row per table row, so entriesFor
+// cannot serve it: the grain is (year, month) and the slug is composite.
+// UpdatedAt is MAX(show.updated_at) within the bucket, the closest durable
+// "this page's content changed" signal, matching venueYearEntries.
+//
+// The month is ZERO-PADDED because the route accepts exactly that spelling
+// (/shows/2026/09, never /shows/2026/9), so an unpadded slug here would
+// announce a URL that 404s on shape alone.
+//
+// COST: one grouped scan of the approved UPCOMING shows with the venue-zone
+// lateral, which is a small and self-limiting set, since shows leave it as they
+// happen. It emits one row per month that has shows, which is a handful, so
+// neither the Next Data Cache budget nor the 50,000-URL sitemap limit is in
+// reach for this family.
+func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
+	type row struct {
+		Year      int       `gorm:"column:year"`
+		Month     int       `gorm:"column:month"`
+		UpdatedAt time.Time `gorm:"column:updated_at"`
+	}
+
+	var rows []row
+	// The lateral in VenueTZJoin correlates on shows.id, so the model must be
+	// shows when it lands. It inherits the same deliberate asymmetry every other
+	// venue-local surface does: a show billed at two venues is bucketed in the
+	// PRIMARY venue's zone.
+	err := s.db.WithContext(ctx).
+		Model(&catalogm.Show{}).
+		Joins(shared.VenueTZJoin).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(shared.VenueLocalDateCondition("upcoming")).
+		Select(shared.VenueLocalYearSQL + ` AS "year", ` + shared.VenueLocalMonthSQL + ` AS "month", MAX(shows.updated_at) AS updated_at`).
+		Group(shared.VenueLocalYearSQL + ", " + shared.VenueLocalMonthSQL).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]contracts.SitemapEntry, 0, len(rows))
+	for _, r := range rows {
+		entries = append(entries, contracts.SitemapEntry{
+			Slug:      fmt.Sprintf("%04d/%02d", r.Year, r.Month),
+			UpdatedAt: r.UpdatedAt,
+		})
+	}
+	// Deterministic order, so two fetches of an unchanged catalogue compare
+	// cleanly. The zero-padded slug sorts chronologically as a string, which the
+	// year-then-month SQL order would also give; sorting the assembled slug is
+	// what makes that a property of the emitted document rather than of the query
+	// plan.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
 }

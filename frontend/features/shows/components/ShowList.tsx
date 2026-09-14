@@ -11,7 +11,7 @@ import { useProfile } from '@/features/auth'
 import type { CityState } from '@/components/filters'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { DensityToggle } from '@/components/shared'
+import { DensityToggle, MonthStrip } from '@/components/shared'
 import {
   Pagination,
   usePaginationFocusTarget,
@@ -25,6 +25,15 @@ import {
   pageRangeLabelsForWindow,
 } from '../showArchive'
 import { SHOWS_PAGE_SIZE, showsPageHref } from '../showsListNavigation'
+import {
+  SHOWS_ROOT,
+  adjacentMonths,
+  calendarWindowLabel,
+  shortCalendarMonthLabel,
+  showsMonthPath,
+  showsWindowPath,
+  type ShowsCalendarWindow,
+} from '../showsCalendarRoute'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 import {
   citiesEqual,
@@ -43,10 +52,30 @@ import {
   parseTagsParam,
   buildTagsParam,
 } from '@/features/tags'
-import { formatCount } from '@/components/shared/paginationChrome'
+import {
+  formatCount,
+  navLinkClass,
+  navStripClass,
+  navStripListClass,
+  navStripSeparatorClass,
+} from '@/components/shared/paginationChrome'
 import { suggestAlternativeCities } from '../suggestCities'
 
-export function ShowList() {
+export interface ShowListProps {
+  /**
+   * The venue-local calendar window this list is scoped to, or undefined on
+   * the unwindowed root.
+   *
+   * It decides three things together, which is why it is one prop rather than
+   * a set: which rows the list requests, which URL its pager and its filter
+   * writes address, and which month the strip marks as current. A list whose
+   * rows were windowed but whose pager was not would page a month's second
+   * page onto the root's URL.
+   */
+  window?: ShowsCalendarWindow
+}
+
+export function ShowList({ window }: ShowListProps = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, isAuthenticated, authStatus } = useAuthContext()
@@ -175,6 +204,11 @@ export function ShowList() {
     [selectedCities, selectedTags, tagMatch]
   )
 
+  // The URL this list's own navigation is rooted at. Every href and every
+  // router write below is built from it, so a windowed list never writes a
+  // page or a filter onto the root's address.
+  const basePath = window ? showsWindowPath(window) : SHOWS_ROOT
+
   const {
     data,
     isLoading,
@@ -182,7 +216,12 @@ export function ShowList() {
     isPlaceholderData,
     error,
     refetch,
-  } = useShowsCalendar({ offset, limit: SHOWS_PAGE_SIZE, ...listFilters })
+  } = useShowsCalendar({
+    offset,
+    limit: SHOWS_PAGE_SIZE,
+    window,
+    ...listFilters,
+  })
 
   // The month histogram that labels every page link before the reader spends a
   // click on it. Filter-keyed, so paging does not re-request it.
@@ -255,6 +294,48 @@ export function ShowList() {
     [labelBuckets, page, totalPages, rowsAnswerCurrentRequest, data?.total]
   )
 
+  // The strip's bars. The histogram is the ONLY thing that says which months
+  // are documents, so passing it through unfiltered is what keeps the strip
+  // from offering a link the route answers with a not-found.
+  const monthEntries = useMemo(
+    () =>
+      (monthsData?.months ?? []).map(entry => ({
+        year: entry.year,
+        month: entry.month,
+        count: entry.count,
+      })),
+    [monthsData?.months]
+  )
+
+  // The month the strip marks. A day page marks its own month, which is why
+  // the relation below is not always 'page'.
+  const currentMonth = useMemo(
+    () => (window ? { year: window.year, month: window.month } : null),
+    [window]
+  )
+
+  // The neighbours THAT HAVE SHOWS, nearest first, as rendered links. Empty on
+  // the root and on day pages, and empty for a month at either end of the
+  // histogram.
+  const adjacentLinks = useMemo(() => {
+    if (!window || window.day !== undefined) return []
+    const { previous, next } = adjacentMonths(monthEntries, window)
+    const links: Array<{ href: string; label: string }> = []
+    if (previous) {
+      links.push({
+        href: showsMonthPath(previous.year, previous.month),
+        label: `‹ ${shortCalendarMonthLabel(previous.year, previous.month)}`,
+      })
+    }
+    if (next) {
+      links.push({
+        href: showsMonthPath(next.year, next.month),
+        label: `${shortCalendarMonthLabel(next.year, next.month)} ›`,
+      })
+    }
+    return links
+  }, [window, monthEntries])
+
   // The frame's title-row scope: the size of the whole matching set, and the
   // metro when exactly one is selected. NOT the rows on screen, which is what
   // the old "50 of 268 shows" line reported and what the pager's caption
@@ -280,8 +361,8 @@ export function ShowList() {
   // Spreads the params ALREADY on screen and overrides only `page`, so the city
   // filter, the tag filter and any foreign param survive a page click.
   const pageHref = useCallback(
-    (targetPage: number) => showsPageHref(searchParams, targetPage),
-    [searchParams]
+    (targetPage: number) => showsPageHref(searchParams, targetPage, basePath),
+    [searchParams, basePath]
   )
 
   // City filter changes write the `?cities=` param via nuqs (which preserves
@@ -317,12 +398,12 @@ export function ShowList() {
       }
       const queryString = params.toString()
       startTransition(() => {
-        router.push(queryString ? `/shows?${queryString}` : '/shows', {
+        router.push(queryString ? `${basePath}?${queryString}` : basePath, {
           scroll: false,
         })
       })
     },
-    [searchParams, router]
+    [searchParams, router, basePath]
   )
 
   const handleTagsChange = useCallback(
@@ -343,9 +424,9 @@ export function ShowList() {
   const handleClearFilters = useCallback(() => {
     notifyUserInteracted()
     startTransition(() => {
-      router.push('/shows?cities=all', { scroll: false })
+      router.push(`${basePath}?cities=all`, { scroll: false })
     })
-  }, [notifyUserInteracted, router])
+  }, [notifyUserInteracted, router, basePath])
 
   // Keep tags, drop the city constraint (PSY-1433 empty-state suggestion).
   const handleSameTagsAllCities = useCallback(() => {
@@ -357,9 +438,9 @@ export function ShowList() {
       if (tagMatch === 'any') params.set('tag_match', 'any')
     }
     startTransition(() => {
-      router.push(`/shows?${params.toString()}`, { scroll: false })
+      router.push(`${basePath}?${params.toString()}`, { scroll: false })
     })
-  }, [notifyUserInteracted, router, selectedTags, tagMatch])
+  }, [notifyUserInteracted, router, selectedTags, tagMatch, basePath])
 
   const alternativeCities = useMemo(
     () =>
@@ -504,6 +585,55 @@ export function ShowList() {
       </div>
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
+        {/* The month axis. Inside the dimming wrapper rather than above it
+            because its counts come from the same filtered query family as the
+            rows: a strip that stayed bright while the rows faded would be
+            asserting counts for a filter the list has already left.
+
+            Bounded to the months the histogram carries, so no link here can
+            address a month the route 404s. */}
+        <MonthStrip
+          months={monthEntries}
+          hrefFor={showsMonthPath}
+          allHref={SHOWS_ROOT}
+          allLabel="All upcoming"
+          allCount={monthsData?.total}
+          current={currentMonth}
+          // A day page sits INSIDE the marked month rather than being it, so
+          // the mark is a section relation there and `aria-current="page"`
+          // would point a reader at a link that navigates away.
+          currentRelation={window?.day === undefined ? 'page' : 'section'}
+          ariaLabel="Filter shows by month"
+          className="mb-3"
+        />
+
+        {/* The two months either side of this one, for a reader walking
+            forward or back without returning to the strip. Month pages only:
+            on the root there is no current month to be adjacent to, and on a
+            day page the neighbouring MONTHS are the wrong axis. */}
+        {adjacentLinks.length > 0 && (
+          <nav
+            aria-label="Adjacent months"
+            className={cn(navStripClass, 'mb-3')}
+            data-testid="month-adjacent"
+          >
+            <ul className={navStripListClass}>
+              {adjacentLinks.map((link, index) => (
+                <li key={link.href}>
+                  {index > 0 && (
+                    <span aria-hidden="true" className={navStripSeparatorClass}>
+                      ·
+                    </span>
+                  )}
+                  <Link href={link.href} className={navLinkClass}>
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+
         {/* The list's SCOPE, and the pager's focus target.
             A page change only swaps the rows, which would otherwise leave
             focus on a control that has moved or unmounted. It is a stable

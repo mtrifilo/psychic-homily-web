@@ -52,6 +52,7 @@ function emptyFamilies(
     artists: [],
     venues: [],
     venue_years: [],
+    shows_months: [],
     scenes: [],
     scene_weeks: [],
     labels: [],
@@ -129,6 +130,9 @@ describe('sitemap', () => {
           { slug: 'the-van-buren/shows/2025', updated_at: ISO },
         ]
       }
+      if (family === 'shows_months') {
+        body.shows_months = [{ slug: '2026/11', updated_at: ISO }]
+      }
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -145,6 +149,9 @@ describe('sitemap', () => {
     )
     expect(await urlsOf('venue_years')).toContain(
       'https://psychichomily.com/venues/the-van-buren/shows/2025'
+    )
+    expect(await urlsOf('shows_months')).toContain(
+      'https://psychichomily.com/shows/2026/11'
     )
     expect(await urlsOf('scenes')).toContain(
       'https://psychichomily.com/scenes/a-scenes'

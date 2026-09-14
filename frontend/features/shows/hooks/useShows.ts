@@ -22,6 +22,11 @@ import type {
   ShowTimelineResponse,
 } from '../types'
 import { SHOWS_PAGE_SIZE } from '../showsListNavigation'
+import {
+  appendShowsCalendarWindow,
+  showsCalendarWindowKey,
+  type ShowsCalendarWindow,
+} from '../showsCalendarRoute'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
@@ -100,6 +105,15 @@ interface UseShowsCalendarOptions extends ShowListFilterOptions {
   offset?: number
   /** Rows per page. Always sent, so the pager's arithmetic and the request agree. */
   limit?: number
+  /**
+   * The venue-local calendar window the list is scoped to, or undefined for
+   * the whole upcoming set. A month is `{year, month}`; a day adds `day`.
+   *
+   * The backend refuses a half-stated window (a month without a year, a day
+   * without a month), so this travels as one value rather than three loose
+   * fields a caller could set independently.
+   */
+  window?: ShowsCalendarWindow
 }
 
 /**
@@ -168,6 +182,7 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
   const {
     offset,
     limit = SHOWS_PAGE_SIZE,
+    window,
     city,
     state,
     cities,
@@ -178,12 +193,14 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
+  appendShowsCalendarWindow(params, window)
   appendShowListFilters(params, { city, state, cities, tags, tagMatch })
 
   return useQuery({
     queryKey: showQueryKeys.calendar({
       limit,
       offset: offset || undefined,
+      ...showsCalendarWindowKey(window),
       ...showListFilterKey({ city, state, cities, tags, tagMatch }),
     }),
     queryFn: async (): Promise<ShowsCalendarResponse> => {

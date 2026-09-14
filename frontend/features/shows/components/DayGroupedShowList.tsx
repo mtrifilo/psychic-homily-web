@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import type { Density } from '@/lib/hooks/common/useDensity'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
@@ -15,6 +16,7 @@ import {
   groupShowsByVenueLocalDay,
   type ShowDayGroup,
 } from '../dayGroups'
+import { showsDayPathFromDateKey } from '../showsCalendarRoute'
 import type { ShowResponse } from '../types'
 
 export interface DayGroupedShowListProps {
@@ -52,6 +54,29 @@ const rowsSpacingClass: Record<Density, string> = {
   compact: 'mt-1',
   comfortable: 'mt-1.5',
   expanded: 'mt-2',
+}
+
+/**
+ * A day heading's text, linked to that day's own page when the date can be
+ * read.
+ *
+ * The LINK is inside the heading rather than around it so the heading keeps its
+ * anchor id and its role: a reader jumping to `#d-2026-11-14` lands on the
+ * heading, and a reader following the text lands on the day.
+ *
+ * An unlinked heading is the honest fallback for a date the route grammar
+ * refuses, which is the same set of dates the badge above already declines to
+ * name.
+ */
+function DayHeadingLabel({ group }: { group: ShowDayGroup }) {
+  const heading = dayGroupHeading(group)
+  const href = group.dateKey === null ? null : showsDayPathFromDateKey(group.dateKey)
+  if (href === null) return <>{heading}</>
+  return (
+    <Link href={href} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      {heading}
+    </Link>
+  )
 }
 
 function DayGroupSection({
@@ -94,7 +119,7 @@ function DayGroupSection({
               group.isToday ? 'text-primary' : 'text-muted-foreground'
             )}
           >
-            {dayGroupHeading(group)}
+            <DayHeadingLabel group={group} />
           </h2>
           <div
             className={cn(

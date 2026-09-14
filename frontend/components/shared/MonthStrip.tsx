@@ -45,6 +45,19 @@ export interface MonthStripProps {
   /** The month in view, or `null`/omitted when the unscoped view is active. */
   current?: MonthStripTarget | null
   /**
+   * How the marked entry relates to the page being viewed.
+   *
+   * `'page'` when the marked entry's own URL is the current one. `'section'`
+   * when the current page sits INSIDE the marked month without being it — a
+   * day page — where `aria-current="page"` would tell a reader that a link
+   * navigating elsewhere is where they already are. `aria-current="true"` is
+   * the generic "current item in a set", which is the honest claim there.
+   *
+   * It applies to whichever entry is marked, the leading link included, so a
+   * consumer cannot mark one entry `page` and another `section`.
+   */
+  currentRelation?: 'page' | 'section'
+  /**
    * Label for the leading link ("All upcoming" on the shows list). Required
    * rather than defaulted: the copy belongs to the surface, not to this
    * component, and a default here would put one list's wording in a shared one.
@@ -57,6 +70,9 @@ export interface MonthStripProps {
   /** Extra classes on the `<nav>`. */
   className?: string
 }
+
+/** The `aria-current` values this strip stamps. See `currentRelation`. */
+type AriaCurrent = 'page' | 'true'
 
 /** `2026-09`, the identity of a month wherever one has to be compared. */
 function monthKey(target: MonthStripTarget): string {
@@ -79,18 +95,20 @@ function MonthLink({
   entry,
   href,
   isCurrent,
+  currentRelation,
   onNavigate,
 }: {
   entry: MonthStripEntry
   href: string
   isCurrent: boolean
+  currentRelation: AriaCurrent
   onNavigate?: (target: MonthStripTarget | null) => void
 }) {
   const label = formatCalendarMonthParts(entry.year, entry.month).month
   return (
     <Link
       href={href}
-      aria-current={isCurrent ? 'page' : undefined}
+      aria-current={isCurrent ? currentRelation : undefined}
       onClick={event => {
         if (isPlainNavigationClick(event)) {
           onNavigate?.({ year: entry.year, month: entry.month })
@@ -129,10 +147,8 @@ function Separator() {
  * DOM as real links so crawlers reach them, hidden behind their year's
  * disclosure until a reader opens it.
  *
- * NOT MOUNTED ANYWHERE YET. A month href addresses a per-month route, and none
- * exists; mounting this today would render a strip whose every link 404s. It
- * ships with its tests ahead of that route so the route's own change is the
- * small one.
+ * A month href addresses a per-month route, so a consumer must hand it months
+ * that route actually serves — a histogram, not a calendar.
  *
  * Every month is a real `<a href>`. The strip is bounded to the months it is
  * handed, so a consumer passing a histogram gets exactly the months that have
@@ -155,6 +171,7 @@ export function MonthStrip({
   allHref,
   ariaLabel,
   current = null,
+  currentRelation = 'page',
   allLabel,
   allCount,
   onNavigate,
@@ -200,6 +217,9 @@ export function MonthStrip({
 
   const listId = useId()
 
+  // One value for every marked entry in the strip, leading link included.
+  const ariaCurrent: AriaCurrent = currentRelation === 'section' ? 'true' : 'page'
+
   if (visible.length === 0) return null
 
   const toggleYear = (year: number) => {
@@ -224,7 +244,7 @@ export function MonthStrip({
         <li>
           <Link
             href={allHref}
-            aria-current={current === null ? 'page' : undefined}
+            aria-current={current === null ? ariaCurrent : undefined}
             onClick={event => {
               if (isPlainNavigationClick(event)) onNavigate?.(null)
             }}
@@ -241,6 +261,7 @@ export function MonthStrip({
               entry={entry}
               href={hrefFor(entry.year, entry.month)}
               isCurrent={monthKey(entry) === currentKey}
+              currentRelation={ariaCurrent}
               onNavigate={onNavigate}
             />
           </li>
@@ -282,6 +303,7 @@ export function MonthStrip({
                   entry={entry}
                   href={hrefFor(entry.year, entry.month)}
                   isCurrent={monthKey(entry) === currentKey}
+                  currentRelation={ariaCurrent}
                   onNavigate={onNavigate}
                 />
               </li>

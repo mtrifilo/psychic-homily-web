@@ -170,6 +170,51 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 }
 
 /**
+ * Shape of the date segments under `/shows/` — `/shows/2026/11` and
+ * `/shows/2026/11/14` (PSY-2061).
+ *
+ * Fixed width, and EXPORTED so `proxy.shows-calendar.test.ts` can assert these
+ * are the same shapes `features/shows/showsCalendarRoute` accepts rather than
+ * assert each against a literal. The copy is deliberate: this file must not
+ * import `features/`, the same constraint the scenes, charts and venue-year
+ * branches work under.
+ */
+export const SHOWS_CALENDAR_YEAR_SEGMENT = /^\d{4}$/
+export const SHOWS_CALENDAR_MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
+export const SHOWS_CALENDAR_DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
+
+/**
+ * Sub-routes under `/shows/<slug>/` that are NOT date segments.
+ *
+ * `opengraph-image` is a file-convention route on the show detail page. It
+ * reaches the same four-segment shape the month route does, and without this it
+ * would be 404ed as a malformed month. The two cannot collide in the router
+ * either — a static segment outranks a dynamic one — so this list is what keeps
+ * the proxy agreeing with the routing layer.
+ */
+const SHOWS_SLUG_SUBROUTES: ReadonlySet<string> = new Set(['opengraph-image'])
+
+/**
+ * Whether a day segment names a day the calendar actually has.
+ *
+ * `2027/02/31` passes the shape above and does not exist. Decided here rather
+ * than asked of the backend for the reason the scene day permalinks decide it
+ * here: Gregorian arithmetic needs no database, no timezone and no round trip.
+ */
+function isRealShowsCalendarDay(
+  year: string,
+  month: string,
+  day: string
+): boolean {
+  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  return (
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() === Number(month) - 1 &&
+    parsed.getUTCDate() === Number(day)
+  )
+}
+
+/**
  * Fixed allowlist for `/charts/[module]` drill-downs plus numeric-year
  * archive first segments (PSY-1422). Unlike entity slug pages there is no
  * backend existence probe — unknown modules are rewritten here so
@@ -275,6 +320,45 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return NextResponse.next()
     }
     return notFoundResponse(request)
+  }
+
+  // Shows: the month and day list routes sit one level BELOW the show detail
+  // shape — `/shows/2026/11` and `/shows/2026/11/14` (PSY-2061). The generic
+  // check further down only handles the 3-segment detail shape, so without this
+  // branch a malformed date streams a 200 shell before the route's own
+  // `notFound()` resolves, and every junk segment under `/shows/` becomes a
+  // soft-404 (the PSY-897 arc; the scene period routes hit the same trap).
+  //
+  // SHAPE ONLY, and that is the locked scope: whether a well-formed month has
+  // any shows is a question about the upcoming partition under the reader's own
+  // filters, which no probe available here can answer. The route answers it
+  // from the month histogram it already reads. The half settled here is the
+  // half a crawler can walk for free, and it is the larger one — every
+  // four-digit year crossed with every two-character segment.
+  if (
+    entityType === 'shows' &&
+    slug &&
+    (segments.length === 4 || segments.length === 5)
+  ) {
+    if (segments.length === 4 && SHOWS_SLUG_SUBROUTES.has(segments[3])) {
+      return NextResponse.next()
+    }
+    if (
+      !SHOWS_CALENDAR_YEAR_SEGMENT.test(slug) ||
+      !SHOWS_CALENDAR_MONTH_SEGMENT.test(segments[3])
+    ) {
+      return notFoundResponse(request)
+    }
+    if (segments.length === 5) {
+      const day = segments[4]
+      if (
+        !SHOWS_CALENDAR_DAY_SEGMENT.test(day) ||
+        !isRealShowsCalendarDay(slug, segments[3], day)
+      ) {
+        return notFoundResponse(request)
+      }
+    }
+    return NextResponse.next()
   }
 
   // Scenes: the weekly and nightly city pages sit one level BELOW the scene

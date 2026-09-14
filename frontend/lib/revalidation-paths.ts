@@ -73,6 +73,14 @@ export const SCENE_LIST_PAGE = '/scenes'
 // its cached payload, so the rename cascade has to reach it.
 const SHOW_LIST_PAGE = '/shows'
 
+// The date-addressed show lists (PSY-2061). Route patterns rather than paths,
+// for the mutations that cannot name the month they moved a show out of: a
+// delete carries no body, and an update carries only the show's NEW date. Both
+// leave the OLD month holding a row that is no longer there, and the pattern is
+// the only handle on a month nothing in the response mentions.
+export const ALL_SHOW_MONTH_PAGES = '/shows/[slug]/[month]'
+export const ALL_SHOW_DAY_PAGES = '/shows/[slug]/[month]/[day]'
+
 /**
  * Route patterns made stale when an entity of the given segment is renamed,
  * merged, or deleted — the pages that embed the entity's NAME in their own
@@ -119,21 +127,28 @@ export function entityPages(
 
 /**
  * Pages affected by a show mutation: the show itself, the upcoming-show
- * surfaces (/shows, /explore), the /artists and /venues lists (both embed
- * upcoming-show data), the /scenes list and every scene page (per-city show
- * counts in SceneStats), and each billed artist's detail page (artist pages
- * ISR-cache stats.shows_tracked).
+ * surfaces (/shows, /explore), the date-addressed lists the show falls in, the
+ * /artists and /venues lists (both embed upcoming-show data), the /scenes list
+ * and every scene page (per-city show counts in SceneStats), and each billed
+ * artist's detail page (artist pages ISR-cache stats.shows_tracked).
  *
  * Venue detail pages are deliberately absent: the venue ISR payload is the
  * venue record only — VenueDetail client-fetches the show list.
  */
 export function showPages(
   slug: string | undefined,
-  billedArtistSlugs: readonly string[]
+  billedArtistSlugs: readonly string[],
+  /**
+   * The show's own month and day pages, when the mutation response carried a
+   * readable venue-local date. Empty when it did not, which is the honest
+   * answer rather than a guessed month.
+   */
+  datePages: readonly string[] = []
 ): Array<string | undefined> {
   return [
     slug ? `/shows/${slug}` : undefined,
     '/shows',
+    ...datePages,
     '/explore',
     '/artists',
     '/venues',

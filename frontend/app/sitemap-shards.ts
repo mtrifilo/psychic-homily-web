@@ -44,6 +44,7 @@ export const SITEMAP_FAMILIES = [
   'artists',
   'venues',
   'venue_years',
+  'shows_months',
   'scenes',
   'scene_weeks',
   'labels',
@@ -265,13 +266,18 @@ export function shardRoutePath(id: string): string {
  * under that family's one prefix, which is what keeps sub-sharding invisible to
  * the URLs themselves.
  *
- * TWO prefixes are shared, and both for the same reason — a family addressing a
- * SLICE of an entity lives under that entity's prefix:
+ * THREE prefixes are shared, and all for the same reason — a family addressing
+ * a SLICE of an entity, or a WINDOW of a list, lives under that surface's
+ * prefix:
  *
  *   - `scenes` / `scene_weeks` share `/scenes`: `/scenes/{city}` vs
  *     `/scenes/{city}/{iso-week}`.
  *   - `venues` / `venue_years` share `/venues`: `/venues/{slug}` vs
  *     `/venues/{slug}/shows/{year}` (PSY-1756).
+ *   - `shows` / `shows_months` share `/shows`: `/shows/{slug}` vs
+ *     `/shows/{year}/{month}` (PSY-2061). Both tails are ONE segment longer than
+ *     the prefix in the entity case and two in the window case, so segment count
+ *     separates them here as it does the other two pairs.
  *
  * Anything mapping a URL back to a family has to disambiguate each pair by
  * segment count, not by prefix — see `classifyLoc` in lib/sitemap-monitor/parse,
@@ -283,6 +289,7 @@ export const FAMILY_URL_PREFIXES = {
   artists: '/artists',
   venues: '/venues',
   venue_years: '/venues',
+  shows_months: '/shows',
   scenes: '/scenes',
   scene_weeks: '/scenes',
   labels: '/labels',

@@ -8,8 +8,8 @@ import {
   getScenesForWeekIndex,
   getShowsMonthsPayload,
   getUpcomingShows,
-  showsFirstScreenSeeds,
 } from './page'
+import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOWS_CALENDAR_FIRST_SCREEN_KEY,
@@ -163,7 +163,7 @@ describe('showsFirstScreenSeeds', () => {
   const months = { months: [], total: 0 }
 
   it('seeds all three when all three landed', () => {
-    const seeds = showsFirstScreenSeeds({ shows, cities, months })
+    const seeds = showsFirstScreenSeeds({ shows, cities, months, calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY })
 
     expect(seeds?.map(seed => seed.queryKey)).toEqual([
       SHOWS_CALENDAR_FIRST_SCREEN_KEY,
@@ -175,7 +175,7 @@ describe('showsFirstScreenSeeds', () => {
   // The histogram is not a gate: without it the pager renders bare numerals,
   // which is a far smaller loss than server-rendering the skeleton.
   it('still seeds the rows and cities when the histogram failed', () => {
-    const seeds = showsFirstScreenSeeds({ shows, cities, months: null })
+    const seeds = showsFirstScreenSeeds({ shows, cities, months: null, calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY })
 
     expect(seeds?.map(seed => seed.queryKey)).toEqual([
       SHOWS_CALENDAR_FIRST_SCREEN_KEY,
@@ -186,10 +186,10 @@ describe('showsFirstScreenSeeds', () => {
   // Both of these ARE gates: `ShowList` renders its skeleton while either query
   // is loading, so seeding one alone server-renders the skeleton.
   it('seeds nothing when the rows failed', () => {
-    expect(showsFirstScreenSeeds({ shows: null, cities, months })).toBeNull()
+    expect(showsFirstScreenSeeds({ shows: null, cities, months, calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY })).toBeNull()
   })
 
   it('seeds nothing when the cities failed', () => {
-    expect(showsFirstScreenSeeds({ shows, cities: null, months })).toBeNull()
+    expect(showsFirstScreenSeeds({ shows, cities: null, months, calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY })).toBeNull()
   })
 })
