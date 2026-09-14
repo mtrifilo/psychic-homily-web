@@ -520,41 +520,80 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHolds
 		"the seven-night slice cannot exceed the set it slices")
 }
 
-// SEEDBED for the equality above: the card and the page share a night bound,
-// not a room set. The directory reaches verified rooms only
-// (sceneVenueEligibilitySQL); GetSceneDetail's headline scope carries no such
-// filter, so a scene holding an unverified room with a booking reads LOWER on
-// its card than on the page that card opens.
+// The card and the page share a ROOM SET as well as a night bound, and this is
+// the fixture that can tell the difference: the sibling test above proves
+// equality only over a corpus where every room is verified.
 //
-// Asserted rather than left to the fixture, because the sibling test above
-// proves equality only over a corpus where every room is verified, and a reader
-// who takes that for the general rule will file the gap below as a bug.
-func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountReachesOnlyVerifiedRooms() {
+// An unverified room reaches no number and no list on either surface. It is a
+// room whose address the site will not publish, so the scene does not claim its
+// bookings, and verifying it brings every one of them back, which is the half
+// that says the shows are withheld rather than lost.
+func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNoPublishedNumber() {
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
 	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
-	unverified := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
-	band := suite.createArtist("Eligibility Band")
+	back := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
+	band := suite.createArtist("Listed Band")
+	house := suite.createArtist("Back Room Regulars")
 
 	loc, tonight := sceneNightFixture()
-	suite.createApprovedShow("Verified 1", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(2), loc))
-	suite.createApprovedShow("Verified 2", v2.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(3), loc))
-	suite.createApprovedShow("Verified 3", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(4), loc))
-	suite.createApprovedShow("Unverified Room", unverified.ID, band.ID, user.ID,
-		dateOnlyShowInstant(tonight.addDays(2), loc))
+	// One of the verified rows is on tonight so the day bucket is not trivially
+	// empty, and the rest are days out so "upcoming" is more than "tonight".
+	suite.createApprovedShow("Verified Tonight", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	suite.createApprovedShow("Verified Friday", v2.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(3), loc))
+	suite.createApprovedShow("Verified Saturday", v1.ID, band.ID, user.ID, dateOnlyShowInstant(tonight.addDays(4), loc))
+	// The unverified room's own bookings, one on tonight and one ahead, so a
+	// leak would show up in the day bucket and in the counts independently.
+	suite.createApprovedShow("Back Room Tonight", back.ID, house.ID, user.ID, dateOnlyShowInstant(tonight, loc))
+	suite.createApprovedShow("Back Room Friday", back.ID, house.ID, user.ID, dateOnlyShowInstant(tonight.addDays(3), loc))
 
 	scenes, err := suite.sceneService.ListScenes()
 	suite.Require().NoError(err)
 	suite.Require().Len(scenes, 1)
-
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
 	suite.Require().NoError(err)
 
 	suite.Equal(2, scenes[0].VenueCount, "the unverified room is not one of the scene's rooms")
 	suite.Equal(3, scenes[0].UpcomingShowCount, "the card counts the verified rooms' bookings")
-	suite.Equal(4, detail.Stats.UpcomingShowCount, "the page counts the unverified room's booking too")
-	suite.Less(scenes[0].UpcomingShowCount, detail.Stats.UpcomingShowCount,
-		"the two share a night bound, not a room set")
+	suite.Equal(scenes[0].UpcomingShowCount, detail.Stats.UpcomingShowCount,
+		"the card and the page it opens count one set over one night")
+
+	suite.Require().Len(detail.Venues, 2, "the leaderboard ranks the tracked rooms only")
+	for _, room := range detail.Venues {
+		suite.NotEqual("Back Room", room.Name)
+	}
+
+	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+	suite.Require().True(day.IsTonight)
+	suite.Require().Len(day.Shows, 1, "the tonight bucket holds the verified room's row alone")
+	suite.Equal("Verified Tonight", day.Shows[0].Title)
+
+	roster := suite.rosterUpcomingFor("Phoenix", "AZ")
+	suite.Equal(0, suite.rosterArtistByName(roster, "Back Room Regulars").UpcomingShowCount,
+		"a band booked only at an unverified room carries no scene figure")
+	suite.Equal(3, suite.rosterArtistByName(roster, "Listed Band").UpcomingShowCount)
+
+	// Verification is the whole difference. Nothing about the shows changes.
+	suite.Require().NoError(suite.db.Model(back).Update("verified", true).Error)
+
+	scenes, err = suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	detail, err = suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(3, scenes[0].VenueCount)
+	suite.Equal(5, scenes[0].UpcomingShowCount, "the room's two bookings join the count")
+	suite.Equal(scenes[0].UpcomingShowCount, detail.Stats.UpcomingShowCount)
+	suite.Require().Len(detail.Venues, 3)
+
+	day, err = suite.sceneService.GetSceneDay("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+	suite.Equal(2, day.ShowCount, "both of tonight's rows are listed once the room is verified")
+
+	roster = suite.rosterUpcomingFor("Phoenix", "AZ")
+	suite.Equal(2, suite.rosterArtistByName(roster, "Back Room Regulars").UpcomingShowCount)
 }
 
 // The FAR edge: the night in progress and the six after it are in, the seventh
@@ -989,10 +1028,14 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_CarriesV
 	suite.Equal("America/Phoenix", got.VenueTimezone)
 }
 
-// The street address of an UNVERIFIED venue is withheld everywhere else
-// (buildVenueResponse, the show detail payload); a listing endpoint that leaked
-// it would publish a house venue's address before any human reviewed it.
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_WithholdsUnverifiedAddress() {
+// Every scene listing is drawn over the rooms the scene tracks, so a booking
+// whose only room in the metro is unverified is not on it. This is the engine
+// behind the day page, the week page, the digest and the also-tonight rail, so
+// the omission is one decision rather than four.
+//
+// Verifying the room is the whole difference, and the second half asserts it:
+// the show was withheld, not lost.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_OmitsUnverifiedRooms() {
 	user := suite.createUser()
 	suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
 	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
@@ -1006,10 +1049,17 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_Withhold
 	shows, err := suite.sceneService.GetSceneShowsInRange(
 		"Phoenix", "AZ", start.AddDate(0, 0, -1), start.AddDate(0, 0, 1), time.UTC, 10)
 	suite.Require().NoError(err)
+	suite.Empty(shows, "the scene does not list a room it does not track")
+
+	suite.Require().NoError(suite.db.Model(house).Update("verified", true).Error)
+	shows, err = suite.sceneService.GetSceneShowsInRange(
+		"Phoenix", "AZ", start.AddDate(0, 0, -1), start.AddDate(0, 0, 1), time.UTC, 10)
+	suite.Require().NoError(err)
 	suite.Require().Len(shows, 1)
-	suite.Equal("Someone's Basement", shows[0].VenueName, "the venue is still listed")
-	suite.Empty(shows[0].VenueAddress, "but its street address is not published")
-	suite.Equal("Phoenix", shows[0].VenueCity, "city-level location stays")
+	suite.Equal("Someone's Basement", shows[0].VenueName)
+	suite.Equal("123 Private St", shows[0].VenueAddress,
+		"the street address is published once, and only once, a human has reviewed the room")
+	suite.Equal("Phoenix", shows[0].VenueCity)
 }
 
 // Venue columns must all describe ONE room. Under the previous MIN(name) +
@@ -1688,16 +1738,16 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesExcludeU
 	// predicate, so this equality is structural rather than a coincidence.
 	suite.Equal(detail.Stats.VenueCount, len(detail.Venues))
 
-	// And it pins the divergence the contract spends a paragraph defending: the
-	// scene TOTAL still counts the unverified room's 4 shows (5 seeded + 4), so
-	// the per-room counts fall short of it on purpose. Without this, someone
-	// "reconciles" the two numbers and silently changes a published figure.
-	suite.Equal(9, detail.Stats.UpcomingShowCount)
+	// The headline total is drawn over the same rooms, so the unverified room's
+	// 4 shows reach neither figure and the per-room counts add up to it. They
+	// add up only because no show here is billed to two of the scene's rooms;
+	// one that is would be counted by both rows and push the sum past the total.
+	suite.Equal(5, detail.Stats.UpcomingShowCount)
 	roomSum := 0
 	for _, v := range detail.Venues {
 		roomSum += v.UpcomingShowCount
 	}
-	suite.Equal(5, roomSum)
+	suite.Equal(detail.Stats.UpcomingShowCount, roomSum)
 }
 
 // The id tiebreak, which nothing else exercises: two rooms of the same name in

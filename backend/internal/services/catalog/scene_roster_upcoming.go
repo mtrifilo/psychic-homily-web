@@ -33,7 +33,10 @@ const rosterUpcomingVenueCols = `COALESCE(iv.name, '') AS venue_name, COALESCE(i
 // SCOPE IS THE SCENE, not the band's whole calendar. Every other number on the
 // page is metro-scoped, so a band's figure here counts its shows at rooms this
 // scene tracks and nothing else, and Next is the soonest of those. The rule is
-// the scope's own venuePredicate rather than a second metro spelling.
+// trackedVenuePredicate, the scene's one definition of a room it tracks, rather
+// than a second metro spelling: a band whose only booking in the metro is at an
+// unverified room carries no number here, exactly as that booking reaches no
+// other figure on the page.
 //
 // The upcoming boundary is shared.VenueLocalDateCondition: a show leaves the
 // count at midnight in its OWN venue's zone, so a date-only listing for tonight
@@ -96,7 +99,7 @@ func (s *SceneService) batchRosterUpcoming(scope sceneScope, artistIDs []uint) (
 		VenueSlug string `gorm:"column:venue_slug"`
 	}
 
-	vp, vargs := scope.venuePredicate("sv_venue")
+	vp, vargs := trackedVenuePredicate(scope, "sv_venue")
 
 	// The scene test is an EXISTS rather than a join, so a show booked into two
 	// rooms still contributes exactly ONE row. With show_artists keyed

@@ -1018,11 +1018,15 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_CapsTheRai
 	suite.NotContains(suite.showIDs(fmt.Sprint(subject.ID)), subject.ID)
 }
 
-// The row query filters on the metro predicate and approval, NOT on venue
-// verification: only scene EXISTENCE counts verified rooms. So a show at an
-// unverified room is on the rail, with its street address redacted, exactly as
-// it is on the scene-day page. Pinned because the two rules are easy to conflate.
-func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_IncludesUnverifiedRoomsButRedactsTheirAddress() {
+// The rail lists the rooms the scene TRACKS, which is verified rooms: its rows
+// come from the query the scene-day page reads, so a room the scene page will
+// not name cannot appear here either. A verified room's street address is still
+// redacted nowhere, and an unverified room's is moot, since it has no row.
+//
+// Pinned because "on the rail" and "has an address published" are easy to
+// conflate, and because the rail is reached from the SHOW page rather than the
+// scene page, which makes it the caller most likely to be given its own rule.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ExcludesUnverifiedRooms() {
 	loc := suite.alsoTonightLoc()
 	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
 	suite.createAlsoTonightVenue("Space", "Evanston", "IL")
@@ -1041,13 +1045,18 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_IncludesUn
 
 	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
 	suite.Require().NoError(err)
-	suite.Equal([]uint{diy.ID}, suite.showIDs(fmt.Sprint(subject.ID)))
+	suite.Empty(rail.Shows, "the unverified room's show is not the metro's night")
+	suite.NotContains(suite.showIDs(fmt.Sprint(subject.ID)), diy.ID)
+
+	// Verification is the whole difference: the same show, the same night, on a
+	// room the scene now tracks.
+	suite.Require().NoError(suite.db.Model(house).Update("verified", true).Error)
+	rail, err = suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
 	suite.Require().Len(rail.Shows, 1)
 	suite.Equal("The Basement", rail.Shows[0].VenueName)
-	suite.Empty(rail.Shows[0].VenueAddress,
-		"an unverified room's street address must never be published, here as anywhere else")
-	suite.Equal("all ages", rail.Shows[0].VenueAgePolicy,
-		"the house age policy is NOT address-gated: it is served for unverified rooms here exactly as the venue payload serves it")
+	suite.Equal(address, rail.Shows[0].VenueAddress)
+	suite.Equal("all ages", rail.Shows[0].VenueAgePolicy)
 }
 
 // The rail row carries BOTH halves of the age answer: the event's own override

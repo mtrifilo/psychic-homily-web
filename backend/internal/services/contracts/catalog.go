@@ -1557,10 +1557,8 @@ type SceneListResponse struct {
 	// counts until that night ends. SceneStats.UpcomingShowCount is drawn on the
 	// same boundary, so a card and the page it links to name one night.
 	//
-	// They are not the same SET, and the difference is venue eligibility, not
-	// time: this count reaches only VERIFIED rooms, the detail page's reaches
-	// every room in the scope. A metro holding an unverified room with upcoming
-	// shows reads lower here than on its own page.
+	// They are the same SET as well as the same night: both reach the scene's
+	// VERIFIED rooms only, so a card and the page it opens report one number.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	TotalShowCount    int `json:"total_show_count"`
 	// ShowsThisWeek is the seven-night slice of UpcomingShowCount (PSY-1309) —
@@ -1584,12 +1582,10 @@ type SceneListResponse struct {
 	// different questions — the Atlas pulse wants "is anything on soon", a
 	// week link wants "how many are on that page".
 	//
-	// COUNTED OVER A DIFFERENT VENUE POPULATION from every other field here:
-	// the week page includes unverified venues, and this matches it, while
-	// VenueCount/TotalShowCount/UpcomingShowCount/ShowsThisWeek are
-	// verified-only. A scene with unverified rooms can read "3 shows" and
-	// "17 shows this week" on one card. That is the cost of the link telling
-	// the truth; see sceneCalendarWeekCounts before "fixing" it.
+	// Counted over the same verified-room population as every other field here,
+	// which is also the population the week page lists. Whatever room set that
+	// page draws over, this field draws over too: its whole job is to equal the
+	// destination's total, so it follows the page rather than the card.
 	ShowsCalendarWeek int `json:"shows_calendar_week"`
 	// Latitude/Longitude position the scene on the geographic-discovery map
 	// (PSY-1212): the metro principal city's centroid (or the fallback city's,
@@ -1820,14 +1816,10 @@ type SceneVenueSummary struct {
 	// this room's. See sceneVenueLeaderboard for why an instant bound would zero
 	// out a room whose only show is tonight.
 	//
-	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in both
-	// directions on purpose:
-	//   - PAST it, because a show billed to two rooms is counted by both.
-	//   - SHORT of it, because the scene total counts shows at UNVERIFIED rooms,
-	//     which are not tracked and so have no row here.
-	// Both are drawn at the same night start, so the BOUNDARY is not one of the
-	// directions they differ in. Do not "reconcile" the two that remain by
-	// editing the scene total: that silently changes a number already served.
+	// NOT a partition of SceneStats.UpcomingShowCount: a show billed to two of
+	// the scene's rooms is counted by both rows, so these numbers can sum PAST
+	// that total. The two are drawn over one room set at one night start, so
+	// double-billing is the only direction in which they differ.
 	//
 	// CANCELLED shows are counted, because they are still `approved` — the same
 	// convention the scene total and the day/week payloads follow (those ship
@@ -2249,8 +2241,9 @@ type SceneStats struct {
 	// the same set the tonight listing holds, which is the point, but it is not
 	// "shows that have not started".
 	//
-	// It counts shows at UNVERIFIED rooms too, which the per-room leaderboard
-	// beside it cannot; see SceneVenueSummary.UpcomingShowCount.
+	// It counts shows at the scene's VERIFIED rooms — the set VenueCount reports
+	// and the leaderboard beside it ranks; see SceneVenueSummary.UpcomingShowCount
+	// for the two ways a room's number and this total still differ.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	FestivalCount     int `json:"festival_count"`
 }

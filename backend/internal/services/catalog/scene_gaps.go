@@ -120,10 +120,11 @@ func (s *SceneService) GetSceneGaps(city, state string) (*contracts.SceneGapsRes
 	// DISTINCT because a band that played the scene ten times is ONE gap.
 	//
 	// Venue scope is venuePredicate (every room in the scene's scope), NOT
-	// trackedVenuePredicate (verified rooms only). That matches the show-side
-	// figures in GetSceneDetail rather than the venue leaderboard: a band that
-	// played an unverified room in the metro still played this scene, and its
-	// missing location is still this scene's to fix.
+	// trackedVenuePredicate (verified rooms only), which is what every published
+	// scene figure counts over. The question here is not what the scene
+	// publishes but what it can be claimed to have hosted: a band that played an
+	// unverified room in the metro still played this scene, and its missing
+	// location is still this scene's to fix.
 	countArgs := append(append([]any{}, vargs...), catalogm.ShowStatusApproved)
 	var missingLocation int64
 	if err := s.db.Raw(`

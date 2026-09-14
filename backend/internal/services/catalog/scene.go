@@ -837,9 +837,9 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// venue zone, which is the boundary GetSceneDetail's headline figure takes. A
 	// card here links to that page, so the two numbers must name the same night.
 	//
-	// The NIGHT is all they share. This count reaches only verified rooms
-	// (sceneVenueEligibilitySQL); the detail page's scope has no such filter, so
-	// a scene holding an unverified room with upcoming shows reads lower here.
+	// This count reaches only verified rooms (sceneVenueEligibilitySQL), which
+	// is the room set GetSceneDetail's headline figure is drawn over too, so a
+	// card and the page it opens report the same number.
 	//
 	// this_week_count is the sceneThisWeekDays-night slice of that same set
 	// (PSY-1309), driving the Atlas globe's pulse: one more FILTER aggregate in
@@ -1006,7 +1006,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	if err != nil {
 		return nil, err
 	}
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	ap, aargs := s.artistPredicate(scope, "a2")
 	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
 	// across queries) followed by extra args, in placeholder order.
@@ -1021,11 +1021,17 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	// Upcoming show count (metro-wide), bounded at the NIGHT in progress rather
-	// than at the request instant. The status band prints this figure beside a
-	// count of the shows on tonight, and the tonight bucket holds a night until
-	// 06:00 local, so a boundary drawn anywhere earlier reports fewer shows to
-	// come than the page lists under it.
+	// Upcoming show count, bounded at the NIGHT in progress rather than at the
+	// request instant. The status band prints this figure beside a count of the
+	// shows on tonight, and the tonight bucket holds a night until 06:00 local,
+	// so a boundary drawn anywhere earlier reports fewer shows to come than the
+	// page lists under it.
+	//
+	// The room set is trackedVenuePredicate: the scene's VERIFIED rooms, the
+	// same set the directory card counts, the rooms leaderboard ranks and
+	// Stats.VenueCount reports. Every show figure this function publishes is
+	// drawn over that one set, so no number here can outrun the rooms the page
+	// is willing to name.
 	//
 	// The scene test is an EXISTS rather than a join, so a show booked into two
 	// metro rooms contributes ONE row and the zone lateral resolves once per
@@ -1227,6 +1233,11 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 // so the digest email and the public page can never disagree about which shows
 // belong to a scene.
 //
+// The room set is trackedVenuePredicate: the scene's VERIFIED rooms, the same
+// set the rooms leaderboard ranks, the day and week payloads name under
+// TrackedVenues, and SceneStats.UpcomingShowCount is counted over. A show whose
+// only room in the scope is unverified is not listed by any scene surface.
+//
 // `loc` is the zone EventDate is rendered in. It matters: a show at 21:00
 // Sunday in Chicago is 02:00 Monday UTC, so formatting in UTC would file it
 // under the wrong day — and, at a week boundary, under the wrong week.
@@ -1269,7 +1280,7 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	now := from
 	windowEnd := to
 

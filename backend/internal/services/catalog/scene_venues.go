@@ -13,13 +13,20 @@ import (
 // positional bind args. The alias must name a VENUES table or row; the fragment
 // is self-parenthesised, so it is safe to AND or OR it into a larger predicate.
 //
-// It exists so "a room this scene tracks" has ONE definition. Three queries ask
-// it — the day page's footer, the detail page's leaderboard, and the
-// verifiedVenueCount that gates scene existence — and they project, order and
-// count differently, so they cannot share a whole query. What they must never
-// disagree on is WHICH rooms count: excluding (say) permanently-closed rooms
-// from one query alone would leave two pages naming different rooms for the same
-// city, or a scene whose venue_count and venue LIST disagree.
+// It exists so "a room this scene tracks" has ONE definition. Every scene
+// surface asks it — the day and week footers, the detail page's leaderboard,
+// the verifiedVenueCount that gates scene existence, and the show and count
+// queries behind the header figure, the day/week listings, the roster's
+// per-band numbers and the sitemap's week permalinks — and they project, order
+// and count differently, so they cannot share a whole query. What they must
+// never disagree on is WHICH rooms count: excluding (say) permanently-closed
+// rooms from one query alone would leave two pages naming different rooms for
+// the same city, or a scene whose venue_count and venue LIST disagree.
+//
+// It is NOT the rule for asking whether a band, collection or crew belongs to a
+// place: `verified` is a publication gate on a room's address, and those three
+// publish no address. They take scope.venuePredicate, which is geography alone;
+// each states its own reason at its query.
 //
 // BINDING: args go in SQL TEXT order, not "predicate first". The rule
 // venuePredicate states for its own callers — splice it first so its args lead —
@@ -41,9 +48,10 @@ func trackedVenuePredicate(scope sceneScope, alias string) (string, []any) {
 // November, is precisely the failure a leaderboard cannot have, and an instant
 // bound produces it from the moment the first set starts.
 //
-// SceneStats.UpcomingShowCount is drawn on the same boundary, so the two agree
-// about which nights they are counting. They still differ in WHAT they count:
-// see the contract on SceneVenueSummary.UpcomingShowCount.
+// SceneStats.UpcomingShowCount is drawn on the same boundary and over the same
+// rooms, so the two agree about which nights and which rooms they are counting.
+// They still differ in WHAT they count: see the contract on
+// SceneVenueSummary.UpcomingShowCount.
 //
 // The zone that dates a row is the show's PRIMARY venue's, not v2's, because
 // the boundary is the repo's shared one. For a bill split across two rooms the
