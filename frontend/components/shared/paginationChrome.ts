@@ -59,9 +59,9 @@ export function toPageNumber(value: number, fallback: number): number {
 /**
  * The page a pager will actually SHOW for a requested page number.
  *
- * A `?page=` can name a page past the end — a stale bookmark, a hand-typed
- * number, a result set that shrank — and `Pagination` renders that as the last
- * real page rather than as "Page 99 of 3".
+ * A `?page=` can name a page past the end: a stale bookmark, a hand-typed
+ * number, a result set that shrank. `Pagination` renders that as the last real
+ * page rather than as "Page 99 of 3".
  *
  * Anything that LABELS or CAPTIONS the current page has to clamp the same way,
  * or it keys that state on a page number nothing on screen refers to. What a
@@ -93,7 +93,7 @@ const FULL_STRIP_MAX_PAGES = 7
  * strip instead of a crash or an empty nav.
  *
  * Lives here rather than beside the component because it is pure arithmetic and
- * `showArchive.ts` — imported by server routes — derives page labels from it.
+ * `showArchive.ts`, which server routes import, derives page labels from it.
  * `Pagination.tsx` re-exports it for importers that reach for both.
  */
 export function paginationWindow(

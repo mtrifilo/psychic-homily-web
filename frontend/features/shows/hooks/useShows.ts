@@ -69,8 +69,8 @@ function appendShowListFilters(
 /**
  * The cache-key half of the same contract.
  *
- * Normalizes the two fields with a non-obvious empty form — an empty tag list
- * and the default tag match both key as `undefined` — so the same filter state
+ * Normalizes the two fields with a non-obvious empty form: an empty tag list
+ * and the default tag match both key as `undefined`, so the same filter state
  * lands on one entry however a caller spelled it. Written once, or the list and
  * its histogram could key apart under filters that request identically.
  */

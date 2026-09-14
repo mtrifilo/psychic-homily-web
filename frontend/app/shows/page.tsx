@@ -105,9 +105,9 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * `/shows/months` is one small object per month and was never near the cap. The
  * build's own budget check counts every entry and passes; re-measure the
  * calendar row rather than quoting this table if a field is added to the show
- * response. (The `/shows/upcoming` response — not `/shows/cities`,
- * which has no such field — echoes a `timezone` parameter the backend ignores.
- * Nothing consumes it; show times render from each venue's own zone.)
+ * response. (The `/shows/upcoming` response echoes a `timezone` parameter the
+ * backend ignores. `/shows/cities` has no such field. Nothing consumes it
+ * either way; show times render from each venue's own zone.)
  *
  * Both show fetches state their bound in THIS repo, in the constants named
  * above. `/scenes` has no bound at all; it is the same unbounded-list shape that
@@ -133,22 +133,22 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * was argued on this call running in the prerendered shell and the seed running
  * at request time. A `next build` against a reachable backend (2026-09-13) puts
  * `/shows` at Partial Prerender, and its prerendered `shows.html` is 9.9 KB
- * carrying NEITHER this `ItemList` nor the list's rows — so both appear to
- * stream, and the render-pass half of that argument is unverified. The budgets
- * themselves are still the right way round on the costs above.
+ * carrying NEITHER this `ItemList` nor the list's rows. Both therefore appear
+ * to stream, and the render-pass half of that argument is unverified. The
+ * budgets themselves are still the right way round on the costs above.
  *
  * `React.cache` does not bridge the two: under `cacheComponents` a shell and a
  * postponed resume are different render passes, so a `cache()` entry made in
  * one is not visible in the other. What dedupes a repeated URL is Next's Data
- * Cache, and only when the URLs match — which is why keeping the two calls on
- * DIFFERENT URLs is what keeps their budgets separate.
+ * Cache, and only when the URLs match. Keeping the two calls on DIFFERENT URLs
+ * is therefore what keeps their budgets separate.
  *
  * It reads the CURSOR endpoint while the list below reads the offset one. The
  * two share one predicate set and one ordering, and the backend states that an
  * unwindowed offset page matches the cursor page row for row
  * (`GetUpcomingShowsPage`), so this block advertises the rows the page renders.
  * Both are 50 rows; the bounds are separate constants because they answer
- * separate questions — how many entries a crawler is offered, and how many rows
+ * separate questions: how many entries a crawler is offered, and how many rows
  * a reader gets per page. Two Data Cache entries, invalidated together by
  * `lib/proxy-revalidation.ts`.
  */
@@ -192,7 +192,7 @@ function getShowName(show: ShowListItem): string {
  * request. Two Data Cache entries, invalidated together. Do not "dedupe" them
  * onto one call without reading that block first.
  *
- * PAGE 1 only. `?page=2` and beyond are client-fetched — a long tail of
+ * PAGE 1 only. `?page=2` and beyond are client-fetched: a long tail of
  * addresses, none of which a cold visitor or a crawler lands on.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
@@ -206,9 +206,9 @@ function getShowName(show: ShowListItem): string {
  * The GATING RULE lives here rather than inline so it can be stated once and
  * tested: `ShowList` returns its skeleton while EITHER the rows or the cities
  * are still loading, so seeding one without the other server-renders the
- * skeleton and buys nothing. The month histogram is NOT a gate — the list
- * renders with bare page numerals without it — so a missing one is dropped from
- * the seed rather than suppressing the other two.
+ * skeleton and buys nothing. The month histogram is NOT a gate, because the
+ * list renders with bare page numerals without it, so a missing one is dropped
+ * from the seed rather than suppressing the other two.
  */
 export function showsFirstScreenSeeds({
   shows,
@@ -240,8 +240,8 @@ export function showsFirstScreenSeeds({
  * that block sits behind `await connection()`, so its 60s is request-time and
  * private to it, while this is an ordinary cached fetch in a prerenderable
  * scope. A `next build` with 60s here moved the ROUTE's revalidate from 1h to
- * 1m (measured 2026-09-13) — sixty times the regeneration on the site's busiest
- * page, which is a cost decision rather than a cleanup.
+ * 1m (measured 2026-09-13). That is sixty times the regeneration on the site's
+ * busiest page, which is a cost decision rather than a cleanup.
  *
  * What the hour exposes is bounded: the seeded labels can name a month that has
  * ended, in the SERVER-RENDERED paint only. `useShowMonths` holds a 60s
@@ -275,7 +275,7 @@ async function HydratedShowList() {
     // Not a gate on the first paint: a `null` leaves the list rendering bare
     // numerals, and the seed below is skipped rather than suppressed. The one
     // failure it does NOT absorb is a Data Cache budget overrun, which
-    // `fetchListPayload` rethrows on purpose — that rejection escapes this
+    // `fetchListPayload` rethrows on purpose. That rejection escapes this
     // `Promise.all` and takes the whole subtree, which is what a build-time
     // budget gate is for.
     //

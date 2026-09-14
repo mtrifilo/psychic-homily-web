@@ -132,7 +132,7 @@ export const showQueryKeys = {
  * PER-VIEWER input. `GET /shows/calendar` decides "upcoming" against each show's
  * own venue timezone, so one canonical answer is the correct answer for every
  * visitor. The filterless KEY below is therefore exactly what the hooks ask for
- * on a cold anon `/shows` — the seeded entry is a hit, and the hydration commit
+ * on a cold anon `/shows`. The seeded entry is a hit, and the hydration commit
  * has nothing to refetch.
  *
  * The handlers do consult `upcomingListIncludesNonApproved`, but neither route

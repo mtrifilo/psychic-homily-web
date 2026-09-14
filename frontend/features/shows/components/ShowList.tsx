@@ -212,10 +212,10 @@ export function ShowList() {
   // The page LABELS rest on a second query, and it holds its own previous data.
   // The histogram's premise check compares its bucket sum against the list's
   // total, so a stale histogram whose total happens to equal the current one's
-  // passes the check and labels every page with the wrong months — the one path
-  // that gets an unverified label past the withhold rule and into the live
-  // region. Both queries have to answer the current filters for a label to be
-  // stated at all.
+  // passes the check and labels every page with the wrong months. That is the
+  // one path that gets an unverified label past the withhold rule and into the
+  // live region. Both queries have to answer the current filters for a label to
+  // be stated at all.
   const labelsAnswerCurrentRequest =
     rowsAnswerCurrentRequest && !monthsArePlaceholder
 
@@ -244,7 +244,7 @@ export function ShowList() {
         // The count that arrived WITH the rows, and whether those rows answer
         // this request. The premise being checked is that the histogram's
         // ordinals are the list's ordinals, and only the list can attest to
-        // that — so a disagreement blanks every label rather than printing a
+        // that, so a disagreement blanks every label rather than printing a
         // span the page does not cover.
         total: data?.total,
         rowsAnswerCurrentRequest: labelsAnswerCurrentRequest,
@@ -486,7 +486,7 @@ export function ShowList() {
         {/* The pager's focus target: a page change only swaps the rows, which
             would otherwise leave focus on a control that has moved or
             unmounted. It is a stable LANDMARK at the top of the list, not a
-            report of the change — the text is the same on most pages, and the
+            report of the change: the text is the same on most pages, and the
             pager's live region is what announces the new position. */}
         <p
           className="mb-3 text-sm text-muted-foreground"

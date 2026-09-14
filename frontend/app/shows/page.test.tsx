@@ -136,9 +136,9 @@ describe('getShowsMonthsPayload', () => {
 
   // Takes the default window ON PURPOSE. Overriding it to the 60s its
   // calendar-scoped payload argues for pulled the whole ROUTE's revalidate from
-  // 1h to 1m, because this fetch — unlike the scene-week one — is not behind
-  // `connection()`. Pinned so that trade is re-decided deliberately rather than
-  // re-made by an edit.
+  // 1h to 1m, because this fetch is not behind `connection()` the way the
+  // scene-week one is. Pinned so that trade is re-decided deliberately rather
+  // than re-made by an edit.
   it('does not override the first-screen revalidate window', async () => {
     fetchListPayload.mockResolvedValue({ months: [], total: 0 })
 

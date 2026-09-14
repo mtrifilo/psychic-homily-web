@@ -9,8 +9,8 @@
  * Rows per page on `/shows`.
  *
  * Stated rather than inherited. The backend's `default:"50"` is the same
- * number, but the pager's arithmetic — which page a row ordinal falls on, which
- * months a page covers — has to agree with the limit the request actually
+ * number, but the pager's arithmetic (which page a row ordinal falls on, which
+ * months a page covers) has to agree with the limit the request actually
  * carried, and a default living in another repo layer could move without
  * anything here noticing. The request sends this explicitly for the same
  * reason.

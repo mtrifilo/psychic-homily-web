@@ -191,8 +191,8 @@ describe('useShows', () => {
     }
 
     // The page size is SENT, not inherited from the endpoint's own default. The
-    // pager's arithmetic — which page a row ordinal is on, which months a page
-    // covers — has to agree with the limit the request actually carried.
+    // pager's arithmetic (which page a row ordinal is on, which months a page
+    // covers) has to agree with the limit the request actually carried.
     it('sends the page size and no offset on page 1', async () => {
       mockApiRequest.mockResolvedValueOnce(calendarPage)
 

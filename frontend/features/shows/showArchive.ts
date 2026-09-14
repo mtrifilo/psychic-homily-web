@@ -3,8 +3,8 @@
  * archive, the artist page's, and the upcoming list on `/shows`.
  *
  * The archive vocabulary throughout ("archive", `MAX_ARCHIVE_PAGE`) predates
- * the third consumer and describes the SHAPE — a chronological list paged by
- * number and labelled by month — rather than a direction in time. `/shows` runs
+ * the third consumer and describes the SHAPE, a chronological list paged by
+ * number and labelled by month, rather than a direction in time. `/shows` runs
  * forwards and shares every rule here.
  *
  * Everything here is a function of rows the caller already has — no fetching,
@@ -471,8 +471,8 @@ export function pageRangeLabelsForWindow({
 /**
  * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
  * bounded empty page instead of an arbitrarily large offset. The backend does
- * not reject one — its `offset` carries a minimum and no maximum — so this is
- * the only bound there is. At 50 rows a page it covers 50,000 rows.
+ * not reject one, since its `offset` carries a minimum and no maximum, so this
+ * is the only bound there is. At 50 rows a page it covers 50,000 rows.
  *
  * That is roughly two orders of magnitude past the busiest venue and the
  * most-played artist observed, which is the measurement the two entity archives

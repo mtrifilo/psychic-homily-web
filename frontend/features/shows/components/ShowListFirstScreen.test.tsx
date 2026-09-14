@@ -154,8 +154,8 @@ describe('ShowList reading a server-seeded first screen', () => {
     // commit and in the server render. That used to matter a great deal: the
     // Load More control it replaced had to ship DISABLED, because a painted
     // button that React has not attached to yet swallows the click. A page link
-    // has no such window — it is an `<a href>`, which the browser follows with
-    // no JavaScript at all — so the whole hazard is gone rather than managed.
+    // has no such window, being an `<a href>` the browser follows with no
+    // JavaScript at all, so the whole hazard is gone rather than managed.
     renderSeeded()
 
     // Two pagers, top and bottom, so both instances are checked rather than

@@ -32,7 +32,7 @@ export interface MonthStripTarget {
 
 export interface MonthStripProps {
   /**
-   * Months in display order (soonest first, by convention). Rendered as given —
+   * Months in display order (soonest first, by convention). Rendered as given:
    * this component never sorts, so the consumer's ordering is the contract.
    */
   months: MonthStripEntry[]
@@ -123,8 +123,8 @@ function Separator() {
  * Month filter strip for a forward-looking list:
  * `All upcoming (268) · Sep (64) · Oct (112) · Nov (68) · Dec (13) · 2027 ▸ (11)`.
  *
- * Designed to compose above a `Pagination` row rather than be part of it — the
- * two navigate different axes. The month sibling of `YearStrip`, and it borrows
+ * Designed to compose above a `Pagination` row rather than be part of it, since
+ * the two navigate different axes. The month sibling of `YearStrip`, and it borrows
  * that component's collapse mechanics: months past the leading year stay in the
  * DOM as real links so crawlers reach them, hidden behind their year's
  * disclosure until a reader opens it.
@@ -163,8 +163,8 @@ export function MonthStrip({
   const visible = months.filter(isUsableEntry)
 
   // The strip leads with one year's months; anything in a later year folds
-  // behind that year's own token. With one boundary — the shape the data has —
-  // that is a single `2027 ▸ (11)` at the end of the row.
+  // behind that year's own token. With one boundary, which is the shape the
+  // data has, that is a single `2027 ▸ (11)` at the end of the row.
   const leadingYear = visible.length > 0 ? visible[0].year : null
   const head = visible.filter(entry => entry.year === leadingYear)
   const tail = visible.filter(entry => entry.year !== leadingYear)

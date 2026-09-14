@@ -1,8 +1,8 @@
 /**
  * Day grouping for the `/shows` list: the pure half of `DayGroupedShowList`.
  *
- * Kept out of the component so the awkward parts — cross-zone runs, the anchor
- * that must stay unique, the tonight test — are exercised against fixtures
+ * Kept out of the component so the awkward parts (cross-zone runs, the anchor
+ * that must stay unique, the tonight test) are exercised against fixtures
  * rather than through a rendered list.
  */
 
@@ -23,7 +23,7 @@ export interface ShowDayGroup {
   dateKey: string | null
   /**
    * DOM id for this group's heading, or `null` when the group carries no
-   * anchor. Only the FIRST group with a given date gets one — see
+   * anchor. Only the FIRST group with a given date gets one. See
    * {@link groupShowsByVenueLocalDay} for why a page can hold two.
    */
   anchorId: string | null
@@ -72,7 +72,7 @@ function zoneCacheKey(zone: ShowTimingInput): string {
  * RUNS, not buckets: the caller's ordering is the list's ordering, and
  * collecting by date would silently reorder rows under merged headings. The
  * cost is that one date can produce more than one group on a page, and it is
- * not hypothetical — the list sorts on the absolute instant while a date is
+ * not hypothetical. The list sorts on the absolute instant while a date is
  * venue-local, so inside the roughly one-day cross-zone band two rows on the
  * same local date can arrive either side of a row on a different one.
  *
@@ -143,7 +143,7 @@ export function groupShowsByVenueLocalDay(
       //
       // Gated on a RESOLVED zone. TONIGHT is a same-day claim, and
       // `resolveShowTimezone` answers with a guess for a venue whose own zone is
-      // unset and whose state is outside the US map — a guess that can be a
+      // unset and whose state is outside the US map. That guess can be a
       // calendar day out. A guessed DATE is a weaker claim and still prints;
       // the word TONIGHT does not (the rule is stated on
       // `isShowTimezoneResolved`).
