@@ -177,9 +177,9 @@ type sceneCalendarWeekTarget struct {
 // approved shows at the scene's VERIFIED rooms, cancelled ones included. This
 // number's only job is to equal the destination page's total, so it has to be
 // counted the way that page counts, not the way that page ideally would. Capped
-// at sceneWeekShowCap for the same reason — the page's total is the length of a
-// capped list, so an uncapped count would overstate it for a scene busy enough
-// to hit the ceiling.
+// at sceneWeekShowCap for the same reason, since the page's total is the length
+// of a capped list and an uncapped count would overstate it for a scene busy
+// enough to hit the ceiling.
 //
 // The verified term is what keeps it equal to that PAGE, and it is deliberately
 // only that term: the page's own predicate is trackedVenuePredicate, which for a

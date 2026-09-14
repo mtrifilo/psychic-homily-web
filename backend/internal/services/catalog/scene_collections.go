@@ -111,7 +111,7 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 	//     venue predicate, so a show's scene membership can never disagree
 	//     with its venue's. It counts APPROVED shows only, matching how every
 	//     other scene surface defines the scene's shows (GetSceneDetail's
-	//     upcoming_show_count, the week/day pages) — a scene is never credited
+	//     upcoming_show_count, the week/day pages): a scene is never credited
 	//     here for a booking it does not publish anywhere else.
 	//     That also closes a ranking exploit: pending submissions are invisible
 	//     to readers but would otherwise be countable, so anyone could pad a

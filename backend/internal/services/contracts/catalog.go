@@ -2245,7 +2245,7 @@ type SceneStats struct {
 	// the same set the tonight listing holds, which is the point, but it is not
 	// "shows that have not started".
 	//
-	// It counts shows at the scene's VERIFIED rooms — the set VenueCount reports
+	// It counts shows at the scene's VERIFIED rooms, the set VenueCount reports
 	// and the leaderboard beside it ranks; see SceneVenueSummary.UpcomingShowCount
 	// for the two ways a room's number and this total still differ.
 	UpcomingShowCount int `json:"upcoming_show_count"`

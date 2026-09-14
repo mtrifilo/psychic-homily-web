@@ -175,7 +175,7 @@ func (s *SceneCalendarFeedSuite) TestSelectsTheRightShows() {
 
 // Unverified venues are DIY spaces and houses. The scene does not track them,
 // so their shows are not the scene's calendar and no part of them reaches this
-// feed — the room name and the street address included.
+// feed, the room name and the street address included.
 //
 // A public calendar feed is the WORST place to publish either: both end up
 // copied into every subscriber's device, where a later redaction can never
