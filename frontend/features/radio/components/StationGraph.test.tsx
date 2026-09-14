@@ -191,7 +191,51 @@ describe('StationGraph', () => {
     expect(links[0]).toHaveAccessibleName(
       'See how KEXP\u2019s rotation connects on the music map',
     )
-    expect(links[0]).toHaveAttribute('href', '/graph')
+    // A sentence naming the station has to land on a map that knows it:
+    // rooted on Gatecreeper, the fixture node the most edges touch.
+    expect(links[0]).toHaveAttribute('href', '/graph?artist=gatecreeper')
+  })
+
+  it('breaks a degree tie by name', async () => {
+    setMockContainerWidth(500)
+    const hooks = await import('../hooks/useStationGraph')
+    vi.mocked(hooks.useStationGraph).mockImplementation(
+      () =>
+        ({
+          data: {
+            ...mockData,
+            links: [
+              { ...mockData.links[0], source_id: 2, target_id: 3 },
+              { ...mockData.links[1], source_id: 3, target_id: 2 },
+            ],
+          },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
+    renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+    // Sundressed and Numb Bats both carry two edges; the name decides.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/graph?artist=numb-bats')
+  })
+
+  it('falls back to the unrooted map when no node carries a usable slug', async () => {
+    setMockContainerWidth(500)
+    const hooks = await import('../hooks/useStationGraph')
+    vi.mocked(hooks.useStationGraph).mockImplementation(
+      () =>
+        ({
+          data: {
+            ...mockData,
+            nodes: mockData.nodes.map(node => ({ ...node, slug: '' })),
+          },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
+    renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/graph')
   })
 
   // The `#graph` deep-link target has to survive the collapse: a Cmd+K entry
