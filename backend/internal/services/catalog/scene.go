@@ -1027,12 +1027,6 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	// so a boundary drawn anywhere earlier reports fewer shows to come than the
 	// page lists under it.
 	//
-	// The room set is trackedVenuePredicate: the scene's VERIFIED rooms, the
-	// same set the directory card counts, the rooms leaderboard ranks and
-	// Stats.VenueCount reports. Every show figure this function publishes is
-	// drawn over that one set, so no number here can outrun the rooms the page
-	// is willing to name.
-	//
 	// The scene test is an EXISTS rather than a join, so a show booked into two
 	// metro rooms contributes ONE row and the zone lateral resolves once per
 	// show rather than once per room. Same shape, and the same reason, as
@@ -1335,9 +1329,10 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 	// lowest venue_id for venue ATTRIBUTION. This pick is scene-scoped and
 	// name-ordered because it is a display label with an address attached.
 	//
-	// Street address is served for VERIFIED venues only, matching
-	// buildVenueResponse and the show detail payload: a DIY/house venue must not
-	// be published before human review.
+	// The venue_address CASE is unreachable: the WHERE already pins v.verified on
+	// this same alias. It is kept fail-closed, because this one query projects
+	// the address for every scene listing surface there is, and a widening of the
+	// predicate would otherwise publish a house address by default.
 	if err := s.db.Raw(`
 		SELECT * FROM (
 			SELECT DISTINCT ON (s.id)
@@ -2338,7 +2333,12 @@ func sortStringsAsc(s []string) {
 // (for the PSY-1277 truncation flag).
 func (s *SceneService) querySceneArtistsWithPrimaryVenue(scope sceneScope) ([]sceneArtistRow, int, error) {
 	ap, aargs := s.artistPredicate(scope, "a")
-	vp, vargs := scope.venuePredicate("v")
+	// trackedVenuePredicate, not the bare scope: primary_venue_name is published
+	// as a roster row's room and as a scene-graph cluster LABEL, so a room the
+	// leaderboard refuses to list cannot be named here either. A band whose only
+	// bookings are at untracked rooms keeps a NULL primary venue, the same state
+	// a band with no bookings at all is in, which buildSceneClusters skips.
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	const q = `
 		WITH scene_artists AS (
 			SELECT a.id AS artist_id FROM artists a WHERE %s

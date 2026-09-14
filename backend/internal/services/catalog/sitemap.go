@@ -755,13 +755,12 @@ func (s *SitemapService) sceneLocation(scope sceneScope, state string) *time.Loc
 	if s.db == nil {
 		return utils.EventLocation(nil, state)
 	}
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	var tz string
 	err := s.db.Raw(`
 		SELECT v.timezone
 		FROM venues v
 		WHERE `+vp+`
-		  AND v.verified = true
 		  AND v.timezone IS NOT NULL
 		  AND v.timezone <> ''
 		GROUP BY v.timezone

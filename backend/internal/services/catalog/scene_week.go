@@ -181,10 +181,13 @@ type sceneCalendarWeekTarget struct {
 // capped list, so an uncapped count would overstate it for a scene busy enough
 // to hit the ceiling.
 //
-// The verified term is what keeps it equal to that page, NOT an independent
-// eligibility rule: it is here because the week page draws its rows over the
-// same room set every other number on SceneListResponse is drawn over. If the
-// page's room set ever moves, this moves with it or the link starts lying.
+// The verified term is what keeps it equal to that PAGE, and it is deliberately
+// only that term: the page's own predicate is trackedVenuePredicate, which for a
+// metro scene is the CBSA plus verified and carries no city/state condition. The
+// eligibility fragment that usually pairs with sceneGroupKeySQL adds one, so
+// splicing it here would drop a verified metro room with a blank city from this
+// count while the page still lists it. If the page's room set moves, this moves
+// with it or the link starts lying.
 //
 // Grouping caveat: see sceneTimezonesByKey. The metro branch is exact; a
 // fallback scene whose place holds both NULL-metro and CBSA venues can
@@ -279,13 +282,12 @@ func (s *SceneService) sceneLocation(scope sceneScope, state string) (*time.Loca
 	if s.db == nil {
 		return shared.EventZone(nil, state)
 	}
-	vp, vargs := scope.venuePredicate("v")
+	vp, vargs := trackedVenuePredicate(scope, "v")
 	var tz string
 	err := s.db.Raw(`
 		SELECT v.timezone
 		FROM venues v
 		WHERE `+vp+`
-		  AND v.verified = true
 		  AND v.timezone IS NOT NULL
 		  AND v.timezone <> ''
 		GROUP BY v.timezone

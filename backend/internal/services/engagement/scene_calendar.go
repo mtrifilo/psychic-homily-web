@@ -403,9 +403,9 @@ func buildSceneCalendar(
 		applyEventSummaryAndStatus(event, show.Title, show.ArtistNames, show.VenueName,
 			show.IsCancelled, show.IsSoldOut)
 
-		// VenueAddress arrives already gated: the scene service serves a street
-		// address for verified venues only, so an unverified room's is "" here and
-		// formatEventLocation is handed nil rather than an empty segment.
+		// nilIfEmpty rather than the raw string: a verified room may simply have no
+		// address on file, and formatEventLocation must be handed nil for that
+		// rather than an empty segment it would render as a stray comma.
 		location := sanitizeICSText(formatEventLocation(
 			show.VenueName, nilIfEmpty(show.VenueAddress), show.VenueCity, show.VenueState))
 		if location != "" {

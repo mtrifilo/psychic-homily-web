@@ -104,10 +104,9 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 	//     decides whether a DIY/house venue's street address may be served),
 	//     and nothing about a room's address is published here — only whether
 	//     it is in town. The consequence is deliberate: a collection of Phoenix
-	//     DIY spaces qualifies for the Phoenix rail even though no publication
-	//     surface on the scene page names those rooms or counts their shows.
-	//     That collection is precisely the community knowledge this rail exists
-	//     to surface.
+	//     DIY spaces qualifies for the Phoenix rail even though the scene's own
+	//     room list and show figures leave those rooms out. That collection is
+	//     precisely the community knowledge this rail exists to surface.
 	//   - scene_shows derives from scene_venues rather than re-spelling the
 	//     venue predicate, so a show's scene membership can never disagree
 	//     with its venue's. It counts APPROVED shows only, matching how every

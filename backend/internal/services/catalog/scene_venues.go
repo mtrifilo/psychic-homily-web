@@ -13,20 +13,18 @@ import (
 // positional bind args. The alias must name a VENUES table or row; the fragment
 // is self-parenthesised, so it is safe to AND or OR it into a larger predicate.
 //
-// It exists so "a room this scene tracks" has ONE definition. Every scene
-// surface asks it — the day and week footers, the detail page's leaderboard,
-// the verifiedVenueCount that gates scene existence, and the show and count
-// queries behind the header figure, the day/week listings, the roster's
-// per-band numbers and the sitemap's week permalinks — and they project, order
-// and count differently, so they cannot share a whole query. What they must
-// never disagree on is WHICH rooms count: excluding (say) permanently-closed
-// rooms from one query alone would leave two pages naming different rooms for
-// the same city, or a scene whose venue_count and venue LIST disagree.
+// It exists so "a room this scene tracks" has ONE definition. A scene surface
+// that NAMES a room or counts its shows asks this; they project, order and count
+// differently, so they cannot share a whole query, and what they must never
+// disagree on is WHICH rooms count. Excluding (say) permanently-closed rooms
+// from one query alone would leave two pages naming different rooms for the same
+// city, or a scene whose venue_count and venue LIST disagree.
 //
-// It is NOT the rule for asking whether a band, collection or crew belongs to a
-// place: `verified` is a publication gate on a room's address, and those three
-// publish no address. They take scope.venuePredicate, which is geography alone;
-// each states its own reason at its query.
+// Asking whether a band, collection or crew BELONGS to a place is the other
+// question, and it takes scope.venuePredicate, which is geography alone. The
+// collections rail, the crews list and the gaps counts are on that side and each
+// states its reason at its query; note that the crews list publishes a per-crew
+// show_count drawn over rooms this predicate excludes.
 //
 // BINDING: args go in SQL TEXT order, not "predicate first". The rule
 // venuePredicate states for its own callers — splice it first so its args lead —

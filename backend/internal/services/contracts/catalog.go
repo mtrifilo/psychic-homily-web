@@ -1697,9 +1697,9 @@ type SceneShowSummary struct {
 	// The billed venue's own details, from the SAME venue row VenueName names —
 	// enough to describe a place without a second round-trip per show.
 	//
-	// VenueAddress follows the site-wide privacy gate: street addresses are
-	// served for VERIFIED venues only, so a DIY/house venue is never published
-	// before human review. The remaining fields are city-level and always safe.
+	// VenueAddress is a street address, and every payload carrying this type is
+	// scoped to the scene's verified rooms, so it is only ever a reviewed room's.
+	// The remaining fields are city-level and always safe.
 	VenueSlug     string `json:"venue_slug,omitempty"`
 	VenueAddress  string `json:"venue_address,omitempty"`
 	VenueCity     string `json:"venue_city,omitempty"`
