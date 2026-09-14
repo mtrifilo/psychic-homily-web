@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { trackAppTimers } from '@/test/appTimers'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import type { ShowResponse } from '../types'
 import { SET_TYPE_OPTIONS } from './show-form-utils'
@@ -687,15 +688,20 @@ describe('ShowForm — successful submit', () => {
     })
   })
 
-  // PSY-1664: the post-submit success flash used to defer `onSuccess` behind a
-  // bare `setTimeout`, so it still fired after the form unmounted and called
-  // into a parent that was already gone. No timer may survive unmount.
+  // No scheduler call the form makes may outlive its unmount: a deferred
+  // `onSuccess` or `router.push` that lands afterwards calls into a parent that is
+  // gone. trackAppTimers scopes the count to first-party call sites, because
+  // TanStack Form throttles a form-state broadcast through @tanstack/pacer-lite on
+  // every field change and unmounting the form does not clear that throttle.
+  // Timers a dependency schedules stay uncounted, but the post-unmount advance
+  // below still runs their callbacks, so one that crashes after unmount fails here.
   it('leaves no pending success timer behind on unmount', async () => {
     mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
       opts?.onSuccess?.({ status: 'approved' })
     })
 
     vi.useFakeTimers()
+    const timers = trackAppTimers()
     try {
       const onSuccess = vi.fn()
       // redirectOnCreate={false} picks the 1500ms onSuccess path over the
@@ -718,7 +724,7 @@ describe('ShowForm — successful submit', () => {
       })
       fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
 
-      const baseline = vi.getTimerCount()
+      const baseline = timers.pending()
 
       // TanStack Form's submit is async, so the mutation (and the timer it
       // arms) only lands after the promise continuation runs.
@@ -727,16 +733,22 @@ describe('ShowForm — successful submit', () => {
       })
 
       expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1)
-      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+      // The armed timer is the success notify, scheduled through the shared
+      // useDismissTimer primitive: a swap to a dependency's scheduler would leave
+      // the unmount assertion below with nothing of ours to count.
+      expect(timers.pending()).toBeGreaterThan(baseline)
+      expect(timers.pendingCallSites()).toContain('useDismissTimer')
 
       unmount()
-      expect(vi.getTimerCount()).toBe(0)
+      expect(timers.pending(), timers.pendingCallSites()).toBe(0)
 
       // Well past the 1500ms delay: the callback must never land after the
       // form is gone.
       await vi.advanceTimersByTimeAsync(5000)
       expect(onSuccess).not.toHaveBeenCalled()
+      expect(mockRouter.push).not.toHaveBeenCalled()
     } finally {
+      timers.restore()
       vi.useRealTimers()
     }
   })
