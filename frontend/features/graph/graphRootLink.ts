@@ -16,6 +16,8 @@ const GRAPH_PATH = '/graph'
 /** The query key naming the artist the Observatory opens rooted on. */
 export const GRAPH_ROOT_PARAM = 'artist'
 
+const ARTIST_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 /**
  * A backend slug: lowercase alphanumerics joined by single hyphens
  * (`utils.GenerateSlug`).
@@ -25,8 +27,6 @@ export const GRAPH_ROOT_PARAM = 'artist'
  * carrying `/` or `?` would aim that request somewhere else. The writer needs
  * the SAME rule or it can emit links the reader will silently refuse.
  */
-const ARTIST_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-
 export function isArtistSlug(value: string): boolean {
   return ARTIST_SLUG_PATTERN.test(value)
 }
