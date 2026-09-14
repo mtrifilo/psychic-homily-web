@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { renderHook } from '@testing-library/react'
+import { useDebouncedCallback } from 'use-debounce'
 import { trackAppTimers, isAppOwnedStack } from './appTimers'
 
 // Captured from a ShowForm render under fake timers: the frame below the tracker
@@ -78,6 +80,21 @@ describe('trackAppTimers', () => {
 
     clearInterval(id)
     expect(tracker.pending()).toBe(0)
+  })
+
+  // Attribution has to hold for the stacks this vitest config actually produces,
+  // not only for the captured samples above.
+  it('does not count a timer scheduled inside a dependency', () => {
+    vi.useFakeTimers()
+    tracker = trackAppTimers()
+
+    const { result } = renderHook(() =>
+      useDebouncedCallback((value: string) => value, 50)
+    )
+    result.current('call')
+
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+    expect(tracker.pending(), tracker.describe()).toBe(0)
   })
 
   it('restores the timer functions it wrapped', () => {

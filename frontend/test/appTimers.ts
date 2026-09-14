@@ -12,6 +12,10 @@
  * module. A frame inside `node_modules` is library-owned and untracked; anything
  * else is app-owned and tracked until it is cleared or fires.
  *
+ * Comparing against a baseline count instead only holds when the dependency's
+ * timers are already pending when the baseline is taken. Ownership does not
+ * depend on when a timer is armed, so it holds either way.
+ *
  * Install it AFTER `vi.useFakeTimers()`, so the wrapped functions are the fake
  * ones, and call `restore()` before `vi.useRealTimers()`.
  */
@@ -28,13 +32,17 @@ function callerFrame(stack: string | undefined): string | undefined {
 }
 
 /**
- * True when the scheduling call site is first-party code. A stack with no frame
- * below this module counts as app-owned, so broken attribution surfaces as a
+ * True when the scheduling call site is first-party code. A call site that
+ * cannot be attributed counts as app-owned, so broken attribution surfaces as a
  * failing assertion rather than a silently vacuous one.
  */
-export function isAppOwnedStack(stack: string | undefined): boolean {
-  const caller = callerFrame(stack)
+export function isAppOwnedCaller(caller: string | undefined): boolean {
   return caller === undefined || !caller.includes('/node_modules/')
+}
+
+/** Ownership of the call site recorded in `stack`. */
+export function isAppOwnedStack(stack: string | undefined): boolean {
+  return isAppOwnedCaller(callerFrame(stack))
 }
 
 export interface AppTimerTracker {
@@ -56,51 +64,61 @@ export function trackAppTimers(): AppTimerTracker {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   function schedule(real: any, args: any[], oneShot: boolean): any {
-    const stack = new Error().stack
-    if (!isAppOwnedStack(stack)) return real(...args)
-
+    const caller = callerFrame(new Error().stack)
     const [fn, ...rest] = args
+    if (!isAppOwnedCaller(caller) || typeof fn !== 'function') {
+      return real.call(globalThis, ...args)
+    }
+
     // The id is only known once the timer is scheduled, so the callback reads it
     // through this handle. A one-shot timer stops being pending when it fires;
     // an interval only stops when it is cleared.
     const handle: { id?: unknown } = {}
-    const tracked =
-      oneShot && typeof fn === 'function'
-        ? (...callArgs: any[]) => {
-            pending.delete(handle.id)
-            return fn(...callArgs)
-          }
-        : fn
-    handle.id = real(tracked, ...rest)
-    pending.set(handle.id, callerFrame(stack) ?? '<no caller frame>')
+    const tracked = oneShot
+      ? (...callArgs: any[]) => {
+          pending.delete(handle.id)
+          return fn(...callArgs)
+        }
+      : fn
+    handle.id = real.call(globalThis, tracked, ...rest)
+    pending.set(handle.id, caller ?? '<no caller frame>')
     return handle.id
   }
 
-  globalThis.setTimeout = ((...args: any[]) =>
-    schedule(realSetTimeout, args, true)) as any
-  globalThis.setInterval = ((...args: any[]) =>
-    schedule(realSetInterval, args, false)) as any
-  globalThis.clearTimeout = ((id: any) => {
+  const wrappedSetTimeout = ((...args: any[]) =>
+    schedule(realSetTimeout, args, true)) as typeof globalThis.setTimeout
+  const wrappedSetInterval = ((...args: any[]) =>
+    schedule(realSetInterval, args, false)) as typeof globalThis.setInterval
+  const wrappedClearTimeout = ((id: any) => {
     pending.delete(id)
-    return (realClearTimeout as any)(id)
-  }) as any
-  globalThis.clearInterval = ((id: any) => {
+    return (realClearTimeout as any).call(globalThis, id)
+  }) as typeof globalThis.clearTimeout
+  const wrappedClearInterval = ((id: any) => {
     pending.delete(id)
-    return (realClearInterval as any)(id)
-  }) as any
+    return (realClearInterval as any).call(globalThis, id)
+  }) as typeof globalThis.clearInterval
+
+  globalThis.setTimeout = wrappedSetTimeout
+  globalThis.setInterval = wrappedSetInterval
+  globalThis.clearTimeout = wrappedClearTimeout
+  globalThis.clearInterval = wrappedClearInterval
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return {
     pending: () => pending.size,
     describe: () =>
-      pending.size === 0
-        ? 'no app-owned timers pending'
-        : `app-owned timers still pending:\n${[...pending.values()].join('\n')}`,
+      `app-owned timers still pending:\n${[...pending.values()].join('\n')}`,
+    // Each slot is restored only while it still holds this tracker's wrapper, so
+    // a restore that runs after vi.useRealTimers() cannot reinstate a dead fake.
     restore: () => {
-      globalThis.setTimeout = realSetTimeout
-      globalThis.clearTimeout = realClearTimeout
-      globalThis.setInterval = realSetInterval
-      globalThis.clearInterval = realClearInterval
+      if (globalThis.setTimeout === wrappedSetTimeout)
+        globalThis.setTimeout = realSetTimeout
+      if (globalThis.clearTimeout === wrappedClearTimeout)
+        globalThis.clearTimeout = realClearTimeout
+      if (globalThis.setInterval === wrappedSetInterval)
+        globalThis.setInterval = realSetInterval
+      if (globalThis.clearInterval === wrappedClearInterval)
+        globalThis.clearInterval = realClearInterval
     },
   }
 }
