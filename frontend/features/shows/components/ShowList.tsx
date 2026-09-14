@@ -293,6 +293,23 @@ export function ShowList({ window }: ShowListProps = {}) {
     [labelBuckets, page, totalPages, rowsAnswerCurrentRequest, data?.total]
   )
 
+  // The href for another WINDOW of this list, built from the params already on
+  // screen so the city filter, the tag filter and any campaign param survive a
+  // jump between months. A strip that minted a bare path would silently drop an
+  // explicit All Cities back to the viewer derived default.
+  //
+  // `page` is the one key it drops: a different month is a different question,
+  // answered from its first page.
+  const windowHref = useCallback(
+    (path: string) => {
+      const next = new URLSearchParams(searchParams.toString())
+      next.delete('page')
+      const query = next.toString()
+      return query ? `${path}?${query}` : path
+    },
+    [searchParams]
+  )
+
   // The strip's bars. The histogram is the ONLY thing that says which months
   // are documents, so passing it through unfiltered is what keeps the strip
   // from offering a link the route answers with a not-found.
@@ -313,6 +330,13 @@ export function ShowList({ window }: ShowListProps = {}) {
     [window]
   )
 
+  // The strip takes a (year, month) pair; this is the same window href with
+  // that shape, memoized so the strip does not see a new function every render.
+  const monthHref = useCallback(
+    (year: number, month: number) => windowHref(showsMonthPath(year, month)),
+    [windowHref]
+  )
+
   // The neighbours THAT HAVE SHOWS, nearest first, as rendered links. Empty on
   // the root and on day pages, and empty for a month at either end of the
   // histogram.
@@ -322,18 +346,18 @@ export function ShowList({ window }: ShowListProps = {}) {
     const links: Array<{ href: string; label: string }> = []
     if (previous) {
       links.push({
-        href: showsMonthPath(previous.year, previous.month),
+        href: windowHref(showsMonthPath(previous.year, previous.month)),
         label: `‹ ${shortCalendarMonthLabel(previous.year, previous.month)}`,
       })
     }
     if (next) {
       links.push({
-        href: showsMonthPath(next.year, next.month),
+        href: windowHref(showsMonthPath(next.year, next.month)),
         label: `${shortCalendarMonthLabel(next.year, next.month)} ›`,
       })
     }
     return links
-  }, [window, monthEntries])
+  }, [window, monthEntries, windowHref])
 
   // The frame's title-row scope: the size of the whole matching set, and the
   // metro when exactly one is selected. NOT the rows on screen, which is what
@@ -363,6 +387,7 @@ export function ShowList({ window }: ShowListProps = {}) {
     (targetPage: number) => showsPageHref(searchParams, targetPage, basePath),
     [searchParams, basePath]
   )
+
 
   // City filter changes write the `?cities=` param via nuqs (which preserves
   // other params). An empty selection becomes the explicit ALL_CITIES sentinel
@@ -593,8 +618,8 @@ export function ShowList({ window }: ShowListProps = {}) {
             address a month the route 404s. */}
         <MonthStrip
           months={monthEntries}
-          hrefFor={showsMonthPath}
-          allHref={SHOWS_ROOT}
+          hrefFor={monthHref}
+          allHref={windowHref(SHOWS_ROOT)}
           allLabel="All upcoming"
           allCount={monthsData?.total}
           current={currentMonth}

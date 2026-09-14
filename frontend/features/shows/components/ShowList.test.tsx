@@ -1260,6 +1260,58 @@ describe('ShowList', () => {
       expect(screen.queryByTestId('month-adjacent')).not.toBeInTheDocument()
     })
 
+    /**
+     * The strip navigates the DATE axis and owns nothing in the query string,
+     * so every other key has to survive a jump between months — otherwise an
+     * explicit All Cities silently falls back to the viewer's derived default,
+     * and a campaign link loses its attribution on the first click.
+     */
+    it('carries the live filter params through a strip link', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('cities=all&tags=noise&utm_source=newsletter')
+      )
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      const december = within(strip).getByRole('link', { name: /^Dec / })
+      expect(december).toHaveAttribute(
+        'href',
+        '/shows/2026/12?cities=all&tags=noise&utm_source=newsletter'
+      )
+      expect(
+        within(strip).getByRole('link', { name: /All upcoming/ })
+      ).toHaveAttribute(
+        'href',
+        '/shows?cities=all&tags=noise&utm_source=newsletter'
+      )
+    })
+
+    it('carries them through an adjacent-month link too', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('cities=all'))
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const adjacent = screen.getByTestId('month-adjacent')
+      expect(
+        within(adjacent).getByRole('link', { name: /Oct 2026/ })
+      ).toHaveAttribute('href', '/shows/2026/10?cities=all')
+    })
+
+    // A different month is a different question, answered from its first page.
+    it('drops the page number when jumping to another month', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('cities=all&page=3')
+      )
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(
+        within(strip).getByRole('link', { name: /^Dec / })
+      ).toHaveAttribute('href', '/shows/2026/12?cities=all')
+    })
+
     it('writes a tag change onto the month URL, not the root', async () => {
       const user = userEvent.setup()
 

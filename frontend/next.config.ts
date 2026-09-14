@@ -111,9 +111,20 @@ const nextConfig: NextConfig = {
         destination: '/sitemap-index',
         permanent: true,
       },
-      // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug
+      // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug.
+      //
+      // The final segment must NOT be day-shaped. `/shows/{yyyy}/{mm}/{dd}` is
+      // the day list route (PSY-2061), and this rule is evaluated BEFORE the
+      // proxy and before the router, so without the exclusion every day URL
+      // 308s to /shows/{dd} — measured on a dev build, not inferred. The two
+      // rules are made disjoint here rather than by reordering, because a
+      // redirect cannot decline a match.
+      //
+      // What it gives up is a legacy show whose slug was exactly two digits in
+      // 01-31. Hugo slugs were band-and-venue names, so that set is empty; the
+      // day route is the live surface either way.
       {
-        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug',
+        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug((?!(?:0[1-9]|[12]\\d|3[01])$)[^/]+)',
         destination: '/shows/:slug',
         permanent: true,
       },
