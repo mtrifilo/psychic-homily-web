@@ -169,6 +169,13 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
+    # Outer safety net only. The `go test` step carries its own -timeout,
+    # which is what names a wedged package; this bounds the job when
+    # something outside the test binaries hangs, instead of letting GitHub's
+    # 6-hour default run. Green main runs land between 6 and 11 minutes of
+    # wall time, and the worst case with one package burning its full 14m
+    # test timeout is under 20.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -206,9 +213,24 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
+      # An explicit per-package timeout, not Go's implicit 10m default. It is
+      # applied to every test binary `./...` builds, so a package that wedges
+      # fails as a named timeout in that package rather than as an
+      # unattributed goroutine dump.
+      #
+      # 14m comes from the per-package baseline in
+      # docs/runbooks/ci-go-test-timing.md (agent-only, gitignored), measured
+      # on three green main runs on 2026-09-14. The slowest package is
+      # internal/services/catalog at 209s min / 402s max across those runs;
+      # 2 x 402s = 805s, rounded up to the next whole minute is 14m. That
+      # leaves catalog 7.3 minutes of headroom at its measured max, against
+      # the 3.3 minutes the 10m default leaves it.
+      #
+      # Re-measure and resize when any package's max crosses 60% of this
+      # value; the runbook carries the one-line recipe.
       - name: Run backend tests with coverage
         working-directory: ./backend
-        run: go test -coverprofile=coverage.out ./...
+        run: go test -timeout 14m -coverprofile=coverage.out ./...
 
       # PSY-1723: the nightly graph-overview layout runs in a Node subprocess
       # (backend/layout), and its test suite is the ONLY coverage of the
