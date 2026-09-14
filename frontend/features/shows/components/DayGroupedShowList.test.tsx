@@ -4,8 +4,11 @@ import { renderToString } from 'react-dom/server'
 import { DayGroupedShowList } from './DayGroupedShowList'
 import type { ShowResponse } from '../types'
 
-vi.mock('./ShowCard', () => ({
-  ShowCard: ({
+// The ROW is mocked: this file tests the GROUPING (runs, anchors, headings,
+// the tonight gate). The row's own columns are pinned by
+// `DayGroupedShowRow.test.tsx`.
+vi.mock('./DayGroupedShowRow', () => ({
+  DayGroupedShowRow: ({
     show,
     density,
   }: {
@@ -16,6 +19,7 @@ vi.mock('./ShowCard', () => ({
       {show.title}
     </article>
   ),
+  DayGroupedShowListHeader: () => <div data-testid="show-list-header" />,
 }))
 
 function makeShow(

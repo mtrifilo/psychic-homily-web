@@ -43,8 +43,8 @@ import {
   parseTagsParam,
   buildTagsParam,
 } from '@/features/tags'
+import { formatCount } from '@/components/shared/paginationChrome'
 import { suggestAlternativeCities } from '../suggestCities'
-import { formatShowCountLabel } from '../utils'
 
 export function ShowList() {
   const router = useRouter()
@@ -254,6 +254,19 @@ export function ShowList() {
       }),
     [labelBuckets, page, totalPages, rowsAnswerCurrentRequest, data?.total]
   )
+
+  // The frame's title-row scope: the size of the whole matching set, and the
+  // metro when exactly one is selected. NOT the rows on screen, which is what
+  // the old "50 of 268 shows" line reported and what the pager's caption
+  // already says exactly ("Showing 51-100 of 268").
+  const scopeLabel = useMemo(() => {
+    const total = formatCount(listTotal)
+    if (selectedCities.length === 1) {
+      const { city, state } = selectedCities[0]
+      return `· ${total} in ${city}, ${state}`
+    }
+    return `· ${total} upcoming`
+  }, [listTotal, selectedCities])
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLParagraphElement>()
 
@@ -484,17 +497,20 @@ export function ShowList() {
       </div>
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
-        {/* The pager's focus target: a page change only swaps the rows, which
-            would otherwise leave focus on a control that has moved or
-            unmounted. It is a stable LANDMARK at the top of the list, not a
-            report of the change: the text is the same on most pages, and the
-            pager's live region is what announces the new position. */}
+        {/* The list's SCOPE, and the pager's focus target.
+            A page change only swaps the rows, which would otherwise leave
+            focus on a control that has moved or unmounted. It is a stable
+            LANDMARK at the top of the list, not a report of the change: the
+            pager's live region announces the new position, and the pager's
+            own caption states which rows are on screen. This line states the
+            whole matching set instead, which is what the frame's title row
+            carries. */}
         <p
-          className="mb-3 text-sm text-muted-foreground"
+          className="mb-3 font-mono text-[13px] text-muted-foreground"
           data-testid="show-count"
           {...targetProps}
         >
-          {formatShowCountLabel(pageShows.length, data?.total)}
+          {scopeLabel}
           {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
         </p>
 

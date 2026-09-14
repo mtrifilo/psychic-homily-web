@@ -6,7 +6,10 @@ import type { Density } from '@/lib/hooks/common/useDensity'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { batchedSaveFor } from '@/components/shared/batchedSaveData'
 import type { SaveCounts } from '@/components/shared/batchedSaveData'
-import { ShowCard } from './ShowCard'
+import {
+  DayGroupedShowListHeader,
+  DayGroupedShowRow,
+} from './DayGroupedShowRow'
 import {
   dayGroupHeading,
   groupShowsByVenueLocalDay,
@@ -31,11 +34,17 @@ const groupSpacingClass: Record<Density, string> = {
   expanded: 'mt-8',
 }
 
-/** Space between the day's rule and its first row, per density. */
+/**
+ * Space between the day's rule and its first row, per density.
+ *
+ * No gap BETWEEN rows: they carry an alternating fill, and a gap would break
+ * the stripe into floating bands. Density moves the padding inside each row
+ * instead, which is what `DayGroupedShowRow` does.
+ */
 const rowsSpacingClass: Record<Density, string> = {
-  compact: 'mt-1 gap-0.5',
-  comfortable: 'mt-3 gap-3',
-  expanded: 'mt-4 gap-5',
+  compact: 'mt-1',
+  comfortable: 'mt-1.5',
+  expanded: 'mt-2',
 }
 
 function DayGroupSection({
@@ -45,6 +54,7 @@ function DayGroupSection({
   userId,
   saveCounts,
   isFirst,
+  showCity,
 }: {
   group: ShowDayGroup
   density: Density
@@ -52,6 +62,7 @@ function DayGroupSection({
   userId?: string
   saveCounts?: Record<string, SaveCounts>
   isFirst: boolean
+  showCity: boolean
 }) {
   return (
     <section
@@ -87,14 +98,16 @@ function DayGroupSection({
         </>
       )}
       <div className={cn('flex flex-col', rowsSpacingClass[density])}>
-        {group.rows.map(show => (
-          <ShowCard
+        {group.rows.map((show, index) => (
+          <DayGroupedShowRow
             key={show.id}
             show={show}
             isAdmin={isAdmin}
             userId={userId}
             saveData={batchedSaveFor(saveCounts, show.id)}
             density={density}
+            index={index}
+            showCity={showCity}
           />
         ))}
       </div>
@@ -133,8 +146,21 @@ export function DayGroupedShowList({
     [shows, hydrated]
   )
 
+  // Whether the venue column should append a city. Derived from the rows on
+  // screen rather than from the filter, because the two can disagree: an "All
+  // Cities" list whose page happens to hold one metro repeats that city on
+  // every row for nothing, and a filter naming two metros that returned rows
+  // from one is the same case.
+  const showCity = useMemo(() => {
+    const cities = new Set(
+      shows.map(show => show.city).filter((city): city is string => !!city)
+    )
+    return cities.size > 1
+  }, [shows])
+
   return (
     <div className="min-w-0" data-testid="day-grouped-show-list">
+      <DayGroupedShowListHeader />
       {groups.map((group, index) => (
         <DayGroupSection
           key={`${group.dateKey ?? 'undated'}-${index}`}
@@ -144,6 +170,7 @@ export function DayGroupedShowList({
           userId={userId}
           saveCounts={saveCounts}
           isFirst={index === 0}
+          showCity={showCity}
         />
       ))}
     </div>

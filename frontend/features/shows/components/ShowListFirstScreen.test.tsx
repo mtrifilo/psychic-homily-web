@@ -58,10 +58,11 @@ vi.mock('@/components/filters/useGeoDefaultCity', () => ({
   shouldShowGeoAffordance: () => false,
 }))
 
-vi.mock('./ShowCard', () => ({
-  ShowCard: ({ show }: { show: { id: number; title: string } }) => (
+vi.mock('./DayGroupedShowRow', () => ({
+  DayGroupedShowRow: ({ show }: { show: { id: number; title: string } }) => (
     <article data-testid={`show-card-${show.id}`}>{show.title}</article>
   ),
+  DayGroupedShowListHeader: () => <div data-testid="show-list-header" />,
 }))
 
 vi.mock('./ShowListSkeleton', () => ({

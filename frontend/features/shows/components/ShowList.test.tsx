@@ -102,13 +102,22 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: () => ({ density: 'comfortable', setDensity: vi.fn() }),
 }))
 
-// Mock child components
+// Mock child components. The ROW is mocked for the same reason `ShowCard` was
+// before it: this file tests paging, filters and the scope line, and the row's
+// own anatomy is pinned by `DayGroupedShowRow.test.tsx`.
 const showCardSaveData: unknown[] = []
-vi.mock('./ShowCard', () => ({
-  ShowCard: ({ show, saveData }: { show: ShowResponse; saveData?: unknown }) => {
+vi.mock('./DayGroupedShowRow', () => ({
+  DayGroupedShowRow: ({
+    show,
+    saveData,
+  }: {
+    show: ShowResponse
+    saveData?: unknown
+  }) => {
     showCardSaveData.push(saveData)
     return <article data-testid={`show-card-${show.id}`}>{show.title}</article>
   },
+  DayGroupedShowListHeader: () => <div data-testid="show-list-header" />,
 }))
 
 vi.mock('./ShowListSkeleton', () => ({
@@ -740,7 +749,11 @@ describe('ShowList', () => {
       expect(screen.queryByTestId('shows-page-beyond-end')).toBeNull()
     })
 
-    it('reports how many rows are on screen out of the matching total', () => {
+    // The scope line states the WHOLE matching set, not the rows on screen.
+    // The pager's caption already says exactly which rows those are ("Showing
+    // 51-100 of 1,088"), so repeating a second, page-scoped count above it was
+    // two readings of one fact.
+    it('states the size of the whole matching set, not the page', () => {
       mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow(), makeShow({ id: 2 })],
@@ -752,14 +765,19 @@ describe('ShowList', () => {
         refetch: vi.fn(),
       })
       render(<ShowList />)
-      expect(screen.getByTestId('show-count')).toHaveTextContent('2 of 1,088 shows')
+      expect(screen.getByTestId('show-count')).toHaveTextContent(
+        '· 1,088 upcoming'
+      )
     })
 
-    it('shows a simple count when the full matching set is loaded', () => {
+    it('names the metro when exactly one city is selected', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
       mockUseShowsCalendar.mockReturnValue({
         data: {
           shows: [makeShow()],
-          total: 1,
+          total: 166,
         },
         isLoading: false,
         isFetching: false,
@@ -767,7 +785,9 @@ describe('ShowList', () => {
         refetch: vi.fn(),
       })
       render(<ShowList />)
-      expect(screen.getByTestId('show-count')).toHaveTextContent('1 show')
+      expect(screen.getByTestId('show-count')).toHaveTextContent(
+        '· 166 in Phoenix, AZ'
+      )
     })
   })
 
