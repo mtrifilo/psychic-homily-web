@@ -1,10 +1,20 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import {
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Density } from '@/lib/hooks/common/useDensity'
+import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { useAuthContext } from '@/lib/context/AuthContext'
 // Imported by path, not through the `components/shared` barrel: that barrel is
 // ~30 client components and any route reaching it pulls the lot into its module
 // graph (the reason `SceneWeekView` imports `ShareButton` the same way).
@@ -13,6 +23,10 @@ import { ShowPrice } from '@/components/shared/ShowPrice'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { formatShowTimeCompact } from '@/lib/utils/formatters'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
+import { DeleteShowDialog } from './DeleteShowDialog'
+import { ExportShowButton } from './ExportShowButton'
+import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
+import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
@@ -32,6 +46,10 @@ function UnknownCell() {
 export interface DayGroupedShowRowProps {
   show: ShowResponse
   density: Density
+  /** Gates the admin controls, exactly as it does on `ShowCard`. */
+  isAdmin: boolean
+  /** The viewer, for the owner's delete control. */
+  userId?: string
   /** Forwarded to SaveButton; `'pending'` while the list's batch is in flight. */
   saveData?: BatchedSaveData
   /**
@@ -129,11 +147,12 @@ function SupportText({
  * can appear anywhere; these rows sit under a heading that already states the
  * day, so a date column would print the same value on every row of a group.
  *
- * WHAT THIS ROW DOES NOT CARRY, all of it on `ShowCard` and none of it in the
- * frame this row is built to: the admin edit/export/delete controls, the
- * owner's controls, and the expand-music affordance. `SHOW_LIST_FEATURE_POLICY`
- * still grants all three to `discovery`, and the home rail still renders them
- * through `ShowCard`; only this surface drops them.
+ * The ACTIONS column carries exactly what `ShowCard` carries for the same
+ * viewer, gated on the same `SHOW_LIST_FEATURE_POLICY.discovery` flags: save,
+ * outbound, expand-music, and the admin and owner controls. The frame draws
+ * that column simplified; it was never a decision to remove capability, and the
+ * open players behind the expand control are a locked decision. The column
+ * wraps rather than dropping anything.
  *
  * The `<article aria-label>` is load-bearing and not decoration: it is how the
  * save and list-action E2E specs address a specific seeded show
@@ -142,14 +161,31 @@ function SupportText({
 export function DayGroupedShowRow({
   show,
   density,
+  isAdmin,
+  userId,
   saveData,
   index,
   showCity,
 }: DayGroupedShowRowProps) {
-  const { headliners, support } = useMemo(
-    () => splitBill(show.artists ?? []),
-    [show.artists]
-  )
+  const { user } = useAuthContext()
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+
+  const artists = show.artists ?? []
+  const { headliners, support } = useMemo(() => splitBill(artists), [artists])
+
+  const hasArtistMusic = showHasArtistMusic(artists)
+
+  // Admin, or the reader who submitted this show. Same rule as `ShowCard`.
+  const resolvedUserId = userId || user?.id
+  const canDelete =
+    isAdmin ||
+    !!(
+      resolvedUserId &&
+      show.submitted_by &&
+      String(show.submitted_by) === resolvedUserId
+    )
 
   // The COMPACT register, which `formatShowTimeCompact` documents as the one
   // for "a fixed-width lead column in a row of columns, where the full
@@ -252,12 +288,38 @@ export function DayGroupedShowRow({
             )}
           </span>
 
+          {/* The column is a MINIMUM width, not a cap: an admin viewer carries
+              five controls here and the frame's 100px was drawn for two. It
+              wraps rather than dropping any of them. */}
           <span
             className={cn(
-              'flex shrink-0 items-center justify-end gap-1 lg:order-6',
+              'flex shrink-0 flex-wrap items-center justify-end gap-0.5 lg:order-6',
               COLUMN.actions
             )}
           >
+            {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
+              hasArtistMusic && (
+                <Button
+                  // In server HTML since PSY-1624: rows paint before hydration,
+                  // so this is clickable while still dead without the replay
+                  // root.
+                  {...replayOnHydrate}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="h-7 w-7 p-0"
+                  aria-label={
+                    isExpanded ? 'Hide artist music' : 'Discover artist music'
+                  }
+                >
+                  {isExpanded ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+
             {SHOW_LIST_FEATURE_POLICY.discovery.showSaveButton && (
               <SaveButton
                 showId={show.id}
@@ -266,6 +328,7 @@ export function DayGroupedShowRow({
                 saveData={saveData}
               />
             )}
+
             {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
               <Link
                 href={detailsHref}
@@ -274,6 +337,45 @@ export function DayGroupedShowRow({
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </Link>
+            )}
+
+            {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions && isAdmin && (
+              <Button
+                variant={isEditing ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="h-7 w-7 p-0"
+                aria-label={isEditing ? 'Cancel editing' : 'Edit show'}
+              >
+                {isEditing ? (
+                  <X className="h-4 w-4" />
+                ) : (
+                  <Pencil className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            )}
+
+            {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions && isAdmin && (
+              <ExportShowButton
+                showId={show.id}
+                showTitle={show.title}
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                iconOnly
+              />
+            )}
+
+            {SHOW_LIST_FEATURE_POLICY.discovery.showOwnerActions && canDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                aria-label="Delete show"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
             )}
           </span>
         </span>
@@ -339,6 +441,30 @@ export function DayGroupedShowRow({
           </span>
         </span>
       </div>
+
+      {isExpanded && hasArtistMusic && (
+        <ShowArtistMusicPanel
+          artists={artists}
+          className="mt-3 border-t border-border/50 pt-3"
+        />
+      )}
+
+      {isEditing && (
+        <div className="mt-3 border-t border-border/50 pt-3">
+          <ShowForm
+            mode="edit"
+            initialData={show}
+            onSuccess={() => setIsEditing(false)}
+            onCancel={() => setIsEditing(false)}
+          />
+        </div>
+      )}
+
+      <DeleteShowDialog
+        show={show}
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      />
     </article>
   )
 }

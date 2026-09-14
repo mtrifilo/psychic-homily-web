@@ -21,6 +21,8 @@ export interface DayGroupedShowListProps {
   /** Rows in list order. Grouping preserves that order exactly. */
   shows: ShowResponse[]
   density: Density
+  isAdmin: boolean
+  userId?: string
   /** The batch save-count map, as `useShowSaveCountBatch` returns it. */
   saveCounts?: Record<string, SaveCounts>
   /**
@@ -55,12 +57,16 @@ const rowsSpacingClass: Record<Density, string> = {
 function DayGroupSection({
   group,
   density,
+  isAdmin,
+  userId,
   saveCounts,
   isFirst,
   showCity,
 }: {
   group: ShowDayGroup
   density: Density
+  isAdmin: boolean
+  userId?: string
   saveCounts?: Record<string, SaveCounts>
   isFirst: boolean
   showCity: boolean
@@ -103,6 +109,8 @@ function DayGroupSection({
           <DayGroupedShowRow
             key={show.id}
             show={show}
+            isAdmin={isAdmin}
+            userId={userId}
             saveData={batchedSaveFor(saveCounts, show.id)}
             density={density}
             index={index}
@@ -134,6 +142,8 @@ function DayGroupSection({
 export function DayGroupedShowList({
   shows,
   density,
+  isAdmin,
+  userId,
   saveCounts,
   showCity,
 }: DayGroupedShowListProps) {
@@ -152,6 +162,8 @@ export function DayGroupedShowList({
           key={`${group.dateKey ?? 'undated'}-${index}`}
           group={group}
           density={density}
+          isAdmin={isAdmin}
+          userId={userId}
           saveCounts={saveCounts}
           isFirst={index === 0}
           showCity={showCity}

@@ -610,6 +610,8 @@ export function ShowList() {
           <DayGroupedShowList
             shows={pageShows}
             density={density}
+            isAdmin={isAdmin}
+            userId={user?.id}
             saveCounts={saveCounts}
             // From the FILTER: exactly one selected metro is the only case
             // where every row would repeat the same city.

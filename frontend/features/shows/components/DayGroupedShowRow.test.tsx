@@ -1,10 +1,48 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {
   DayGroupedShowListHeader,
   DayGroupedShowRow,
 } from './DayGroupedShowRow'
 import type { ShowResponse } from '../types'
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    logout: vi.fn(),
+  }),
+}))
+
+// The edit form and the delete dialog are heavy trees that this file's subject
+// does not include: what it pins is which CONTROLS the row offers, and the
+// controls' own behaviour is tested where those components live.
+vi.mock('./ShowForm', () => ({ ShowForm: () => <div data-testid="show-form" /> }))
+vi.mock('./DeleteShowDialog', () => ({
+  DeleteShowDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="delete-dialog" /> : null,
+}))
+// The PANEL is stubbed and the predicates are kept real: what decides whether
+// the expand control appears is `showHasArtistMusic`, and stubbing that would
+// test the stub. The panel itself mounts `MusicEmbed`, which needs a query
+// client this file has no reason to provide.
+vi.mock('./ShowArtistMusic', async importOriginal => {
+  const actual = await importOriginal<typeof import('./ShowArtistMusic')>()
+  return {
+    ...actual,
+    ShowArtistMusicPanel: () => <div data-testid="artist-music-panel" />,
+  }
+})
+
+vi.mock('./ExportShowButton', () => ({
+  ExportShowButton: () => (
+    <button type="button" aria-label="Export show">
+      export
+    </button>
+  ),
+}))
 
 vi.mock('@/components/shared/SaveButton', () => ({
   SaveButton: () => (
@@ -29,7 +67,13 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
       { id: 7, name: 'Valley Bar', slug: 'valley-bar', timezone: 'America/Phoenix' },
     ] as never,
     artists: [
-      { id: 1, name: 'Sunn Amps', slug: 'sunn-amps', is_headliner: true },
+      {
+        id: 1,
+        name: 'Sunn Amps',
+        slug: 'sunn-amps',
+        is_headliner: true,
+        socials: { bandcamp: 'https://sunnamps.bandcamp.com' },
+      },
       { id: 2, name: 'Low Ceiling', slug: 'low-ceiling', is_headliner: false },
     ] as never,
     created_at: '2026-01-01T00:00:00Z',
@@ -45,6 +89,7 @@ function renderRow(overrides: Partial<ShowResponse> = {}, props = {}) {
     <DayGroupedShowRow
       show={makeShow(overrides)}
       density="comfortable"
+      isAdmin={false}
       index={0}
       showCity={false}
       {...props}
@@ -186,6 +231,102 @@ describe('DayGroupedShowRow', () => {
     expect(
       within(row).getByRole('link', { name: 'View show details' })
     ).toHaveAttribute('href', '/shows/desert-doom')
+  })
+
+  // The frame drew the ACTIONS column simplified; it was never a decision to
+  // remove capability. This row offers what `ShowCard` offers the same viewer.
+  describe('the action set', () => {
+    it('offers the expand-music control when the bill has music', () => {
+      renderRow()
+
+      expect(
+        screen.getByRole('button', { name: 'Discover artist music' })
+      ).toBeInTheDocument()
+    })
+
+    it('offers no expand control when no act has music', () => {
+      renderRow({
+        artists: [
+          { id: 1, name: 'Sunn Amps', slug: 'sunn-amps', is_headliner: true },
+        ] as never,
+      })
+
+      expect(
+        screen.queryByRole('button', { name: 'Discover artist music' })
+      ).toBeNull()
+    })
+
+    // Players open on one click, never behind a facade (locked decision).
+    it('opens the players in place', async () => {
+      const user = userEvent.setup()
+      renderRow()
+
+      await user.click(
+        screen.getByRole('button', { name: 'Discover artist music' })
+      )
+
+      expect(
+        screen.getByRole('button', { name: 'Hide artist music' })
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
+    })
+
+    it('hides the admin controls from an ordinary viewer', () => {
+      renderRow()
+
+      expect(screen.queryByRole('button', { name: 'Edit show' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Export show' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Delete show' })).toBeNull()
+    })
+
+    it('offers the admin controls to an admin', () => {
+      renderRow({}, { isAdmin: true })
+
+      expect(
+        screen.getByRole('button', { name: 'Edit show' })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Export show' })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Delete show' })
+      ).toBeInTheDocument()
+    })
+
+    it('opens the edit form in place for an admin', async () => {
+      const user = userEvent.setup()
+      renderRow({}, { isAdmin: true })
+
+      await user.click(screen.getByRole('button', { name: 'Edit show' }))
+
+      expect(screen.getByTestId('show-form')).toBeInTheDocument()
+    })
+
+    // The owner of a submission can delete it without being an admin.
+    it('offers delete to the show s submitter', () => {
+      renderRow({ submitted_by: 42 } as never, { userId: '42' })
+
+      expect(
+        screen.getByRole('button', { name: 'Delete show' })
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Edit show' })).toBeNull()
+    })
+
+    it('offers delete to nobody else', () => {
+      renderRow({ submitted_by: 42 } as never, { userId: '7' })
+
+      expect(screen.queryByRole('button', { name: 'Delete show' })).toBeNull()
+    })
+
+    // The control is in server HTML before hydration wires it, so the replay
+    // root is what stops that first click being swallowed.
+    it('marks the expand control for click replay', () => {
+      renderRow()
+
+      expect(
+        screen.getByRole('button', { name: 'Discover artist music' })
+      ).toHaveAttribute('data-replay-on-hydrate')
+    })
   })
 
   // The row carries no date of its own: the day heading above it states the
