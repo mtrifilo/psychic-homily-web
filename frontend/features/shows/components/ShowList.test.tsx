@@ -582,10 +582,12 @@ describe('ShowList', () => {
       ).toBeGreaterThan(0)
     })
 
-    // The histogram holds its own previous data across a filter change. A
-    // stale one whose bucket sum happens to equal the current total passes the
+    // The histogram holds its own previous data across a filter change. A stale
+    // one whose bucket sum happens to equal the current total would pass the
     // premise check, so the rows answering the request is not enough on its
-    // own: both queries have to.
+    // own. EVERY page in the window loses its label, not just the current one:
+    // withholding the total alone skips the premise check altogether and drops
+    // only the current page.
     it('drops every label while the histogram itself is stale', () => {
       mockUseShowMonths.mockReturnValue({
         data: {
@@ -601,9 +603,38 @@ describe('ShowList', () => {
       setPage(50, 268)
       render(<ShowList />)
 
-      expect(screen.queryByRole('link', { name: /Page 1, / })).toBeNull()
+      expect(screen.queryByRole('link', { name: /Page \d+, / })).toBeNull()
+      // The numbered links are all still there, just unlabelled.
+      for (const page of [1, 2, 6]) {
+        expect(
+          screen.getAllByRole('link', { name: new RegExp(`^page ${page}$`, 'i') })
+            .length
+        ).toBeGreaterThan(0)
+      }
+    })
+
+    // The counterpart: a FRESH histogram labels every page in the window, so
+    // the test above is pinning the gate rather than a list that never labels.
+    it('labels every page in the window while the histogram is fresh', () => {
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 9, count: 60 },
+            { year: 2026, month: 10, count: 120 },
+            { year: 2026, month: 11, count: 88 },
+          ],
+          total: 268,
+        },
+        isPlaceholderData: false,
+      })
+      setPage(50, 268)
+      render(<ShowList />)
+
       expect(
-        screen.getAllByRole('link', { name: /^page 1$/i }).length
+        screen.getAllByRole('link', { name: 'Page 1, Sep 2026' }).length
+      ).toBeGreaterThan(0)
+      expect(
+        screen.getAllByRole('link', { name: /^Page 6, / }).length
       ).toBeGreaterThan(0)
     })
 

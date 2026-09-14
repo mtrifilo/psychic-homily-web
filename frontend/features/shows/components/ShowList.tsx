@@ -209,15 +209,16 @@ export function ShowList() {
   // number rather than a stale one.
   const rowsAnswerCurrentRequest = !isPlaceholderData
 
-  // The page LABELS rest on a second query, and it holds its own previous data.
-  // The histogram's premise check compares its bucket sum against the list's
-  // total, so a stale histogram whose total happens to equal the current one's
-  // passes the check and labels every page with the wrong months. That is the
-  // one path that gets an unverified label past the withhold rule and into the
-  // live region. Both queries have to answer the current filters for a label to
-  // be stated at all.
-  const labelsAnswerCurrentRequest =
-    rowsAnswerCurrentRequest && !monthsArePlaceholder
+  // The buckets the labels may be derived from, and NOTHING while the histogram
+  // holds its own previous filters' data.
+  //
+  // Withholding the total is not enough on its own: the premise check inside
+  // `monthRangeLabelsByPage` is skipped when no total is supplied (the
+  // histogram is then trusted alone), and the current page's label is the only
+  // one dropped. A stale histogram would go on labelling every OTHER page in
+  // the window with the wrong months. Handing it no buckets is what makes the
+  // family's rule hold here: a label is verified or absent.
+  const labelBuckets = monthsArePlaceholder ? [] : (monthsData?.months ?? [])
 
   // The URL named a page this list does not have. Distinguished from a genuinely
   // empty list, which is the same zero rows and a very different sentence.
@@ -237,7 +238,7 @@ export function ShowList() {
     () =>
       pageRangeLabelsForWindow({
         // Soonest first from the API, which is the order this list pages in.
-        months: monthsData?.months ?? [],
+        months: labelBuckets,
         page,
         totalPages,
         pageSize: SHOWS_PAGE_SIZE,
@@ -247,11 +248,11 @@ export function ShowList() {
         // that, so a disagreement blanks every label rather than printing a
         // span the page does not cover.
         total: data?.total,
-        rowsAnswerCurrentRequest: labelsAnswerCurrentRequest,
+        rowsAnswerCurrentRequest,
         // The list spans years, so a label may never elide the year.
         scope: 'all-years',
       }),
-    [monthsData?.months, page, totalPages, labelsAnswerCurrentRequest, data?.total]
+    [labelBuckets, page, totalPages, rowsAnswerCurrentRequest, data?.total]
   )
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLParagraphElement>()

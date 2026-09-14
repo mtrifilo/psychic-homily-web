@@ -479,9 +479,8 @@ export function pageRangeLabelsForWindow({
  * were sized on. The upcoming list is catalog-wide rather than per-entity, so
  * its premise is a different one and smaller: it holds only shows that have not
  * happened yet. `GET /shows/upcoming` reported 9,263 of them across all cities
- * on 2026-09-11 (recorded in `docs/research/shows-list-pagination-inventory-2026-09.md`),
- * an order of magnitude inside this bound. Re-read that total rather than this
- * sentence before relying on the headroom.
+ * on 2026-09-11, an order of magnitude inside this bound. Re-read that
+ * endpoint's `total` rather than this sentence before relying on the headroom.
  *
  * ONE constant for all three paged show lists (PSY-1842, PSY-2060). The two
  * archives had identical copies, and `/shows` shares this one rather than

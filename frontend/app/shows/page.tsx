@@ -102,10 +102,13 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * same venue-local partition as the cursor read above it (the backend states
  * that an unwindowed offset page matches row for row), but its envelope drops
  * `pagination` and adds six scalars, so the byte count differs by a little.
- * `/shows/months` is one small object per month and was never near the cap. The
- * build's own budget check counts every entry and passes; re-measure the
- * calendar row rather than quoting this table if a field is added to the show
- * response. (The `/shows/upcoming` response echoes a `timezone` parameter the
+ * `/shows/months` is one small object per month and was never near the cap.
+ *
+ * WHICH ROWS THE BUILD CAN FAIL ON is narrower than this table: the check only
+ * judges what a build actually writes, and the three fetches in
+ * `HydratedShowList` reach `await connection()` inside `seedFirstScreen`, the
+ * same reason `/scenes` is called out below. Re-measure a row rather than
+ * quoting this table if a field is added to the show response. (The `/shows/upcoming` response echoes a `timezone` parameter the
  * backend ignores. `/shows/cities` has no such field. Nothing consumes it
  * either way; show times render from each venue's own zone.)
  *
@@ -144,9 +147,10 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * is therefore what keeps their budgets separate.
  *
  * It reads the CURSOR endpoint while the list below reads the offset one. The
- * two share one predicate set and one ordering, and the backend states that an
- * unwindowed offset page matches the cursor page row for row
- * (`GetUpcomingShowsPage`), so this block advertises the rows the page renders.
+ * two share one predicate set and one ordering, and the backend pins their
+ * agreement with an integration test,
+ * `TestGetUpcomingShowsPage_NoWindowMatchesTheCursorList`, so this block
+ * advertises the rows the page renders.
  * Both are 50 rows; the bounds are separate constants because they answer
  * separate questions: how many entries a crawler is offered, and how many rows
  * a reader gets per page. Two Data Cache entries, invalidated together by
@@ -236,17 +240,17 @@ export function showsFirstScreenSeeds({
  * TAKES THE DEFAULT HOUR, and the shorter window its payload argues for was
  * measured and rejected rather than overlooked. It is scoped to CALENDAR
  * MONTHS, the shape `fetchListPayload` says should shorten its revalidate and
- * the scene-week block below does shorten. The difference is where the two run:
- * that block sits behind `await connection()`, so its 60s is request-time and
- * private to it, while this is an ordinary cached fetch in a prerenderable
- * scope. A `next build` with 60s here moved the ROUTE's revalidate from 1h to
- * 1m (measured 2026-09-13). That is sixty times the regeneration on the site's
- * busiest page, which is a cost decision rather than a cleanup.
+ * the scene-week block below does shorten. Setting 60s here moved the ROUTE's
+ * own revalidate from 1h to 1m, measured on a `next build` 2026-09-13, which is
+ * sixty times the regeneration on the site's busiest page. That is a cost
+ * decision rather than a cleanup. (The scene-week block sets 60s without that
+ * effect; why the two differ is the same render-pass question the OPEN QUESTION
+ * above leaves open, so it is not restated here as a mechanism.)
  *
  * What the hour exposes is bounded: the seeded labels can name a month that has
- * ended, in the SERVER-RENDERED paint only. `useShowMonths` holds a 60s
- * `staleTime` so the client corrects it on hydration, and the pager's
- * live-region announcement fires on a page CHANGE, which is after that.
+ * ended, in the SERVER-RENDERED paint only. `seedFirstScreen` stamps every seed
+ * `updatedAt: 0`, so this query is stale on mount and refetches immediately;
+ * the 60s `staleTime` on `useShowMonths` bounds later refetches, not that one.
  */
 export function getShowsMonthsPayload(): Promise<ShowMonthsResponse | null> {
   return fetchListPayload<ShowMonthsResponse>({
