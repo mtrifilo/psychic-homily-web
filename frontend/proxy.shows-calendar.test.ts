@@ -243,6 +243,35 @@ describe('proxy, shows month and day routes', () => {
     }
   })
 
+  /**
+   * An unanswered probe is remembered too, on a shorter window: a backend that
+   * is down or rate-limiting must not be asked again by every request that
+   * arrives while it is, and it must be asked again soon after.
+   */
+  it('re-probes an unanswered span after the short window and not before', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      fetchMock.mockResolvedValue(rangeResponse({}, 503))
+      const proxy = await freshProxy()
+      const rangeCalls = () =>
+        fetchMock.mock.calls.filter((call: unknown[]) => call[0] === RANGE_URL)
+
+      await proxy(requestFor(pathFromNow(-2)))
+      expect(rangeCalls()).toHaveLength(1)
+
+      vi.advanceTimersByTime(29_000)
+      await proxy(requestFor(pathFromNow(-2)))
+      expect(rangeCalls()).toHaveLength(1)
+
+      vi.advanceTimersByTime(2_000)
+      await proxy(requestFor(pathFromNow(-2)))
+      expect(rangeCalls()).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('passes a leap day in a leap year and 404s one in a common year', async () => {
     fetchMock.mockResolvedValue(
       rangeResponse({ first_month: monthFromNow(-1), last_month: { year: 2028, month: 3 } })

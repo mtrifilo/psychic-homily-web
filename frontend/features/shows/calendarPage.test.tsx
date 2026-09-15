@@ -112,6 +112,39 @@ describe('ShowsCalendarContent renders every window it is given', () => {
 
 })
 
+/**
+ * The head and the body ask for the SAME window URL.
+ *
+ * That is the half this module controls: one request scope reads it once,
+ * through `React.cache` keyed on that URL and through Next's own fetch
+ * memoization. Neither memo exists outside a request, so what is asserted here
+ * is the input they both key on. A head that asked for a different URL (a
+ * smaller limit, say) would read the backend a second time on every month and
+ * day request, and no other test would notice.
+ */
+describe('the head and the body read one window URL', () => {
+  it('asks for the same URL from both', async () => {
+    answerWith({ rows: page(68), months: HISTOGRAM })
+
+    await Promise.all([
+      buildShowsCalendarMetadata(NOVEMBER),
+      ShowsCalendarContent({
+        window: NOVEMBER,
+        searchParams: Promise.resolve({}),
+      }),
+    ])
+
+    const windowUrls = new Set(
+      fetchListPayload.mock.calls
+        .map((call: unknown[]) => (call[0] as { url: string }).url)
+        .filter((url: string) => url.includes('/shows/calendar'))
+    )
+    expect(windowUrls).toEqual(
+      new Set([showsCalendarWindowFirstScreenUrl(NOVEMBER)])
+    )
+  })
+})
+
 describe('ShowsCalendarContent, the first-screen seed', () => {
   it('reads page 1 of the window at the URL the hook asks for', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM })

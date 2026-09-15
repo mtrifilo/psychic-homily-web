@@ -81,11 +81,15 @@ function windowSelfUrl(window: ShowsCalendarWindow): string {
 /**
  * Page 1 of a window, read at most once per request.
  *
- * `React.cache` so the head and the body share ONE trip to the API, the same
- * wrapper the scene pages use for the same reason. The argument is the URL
- * STRING because `cache` matches arguments by identity: keyed on the window,
- * the head and the body would each pass their own object literal and neither
- * would ever hit the other's entry.
+ * `React.cache` so the head and the body share ONE trip to the API inside a
+ * request, the same wrapper the scene pages use for the same reason. The
+ * argument is the URL STRING because `cache` matches arguments by identity:
+ * keyed on the window, the head and the body would each pass their own object
+ * literal and neither would ever hit the other's entry.
+ *
+ * The memo belongs to the request scope, so the half a unit test can hold is
+ * the input: both callers reach this through `readWindowPage`, so both key on
+ * one URL.
  */
 const readWindowFirstScreen = cache(
   (url: string): Promise<ShowsCalendarResponse | null> =>

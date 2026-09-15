@@ -702,9 +702,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestShowsMonthSitemapStaysInsideTh
 // The LAST edge is the last month that holds an upcoming show, and every quiet
 // month between here and there is inside the span.
 //
-// The quiet months are the whole point of the range: the histogram would answer
-// with the two months that have rows, and a rule built on it would 404 the four
-// between them.
+// The quiet months are the whole point of the range: it is a span rather than a
+// set, so a month between the edges is addressable whether or not it holds a
+// row.
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_SpansTheQuietMonthsBeforeTheLastShow() {
 	const zone = "America/Phoenix"
 	venue := newVenueInZone(suite.T(), suite.db, "Far Future Room", "AZ", zone, true)
