@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
+import { matchesSoftKeyboardViewport } from '@/lib/softKeyboardViewport'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
@@ -56,6 +57,36 @@ const MAX_POPULAR_CITIES = 5
 /** Minimum count for a city to be "popular" */
 const MIN_POPULAR_COUNT = 2
 
+/** Keeps the scrolled-to trigger clear of the sticky topbar. */
+const TRIGGER_SCROLL_MT = 'scroll-mt-[calc(var(--topbar-height)+1rem)]'
+
+/**
+ * Bounds the popover to the space left under its trigger, so the list scrolls
+ * inside it with `CommandInput` held at the top.
+ *
+ * `--radix-popover-content-available-height` is measured against the VISUAL
+ * viewport (floating-ui builds its viewport rect from `window.visualViewport`
+ * and re-measures on that object's `resize`), so a software keyboard is
+ * already in that number. Radix publishes it from a `size` middleware that its
+ * `avoidCollisions` prop does not gate. The bottom tab bar is not in that
+ * number: it is fixed below `xl`, so this is one of the surfaces that owes it
+ * the subtraction named in `globals.css`. A fixed bar is laid out against the
+ * layout viewport, so while a keyboard is up the bar is behind the keyboard
+ * and the subtraction costs a row of list it did not have to; the keyboard-down
+ * open, where the bar really does sit over the popover, is what it buys.
+ *
+ * The `max()` floor trades one overflow for a smaller one: below `10rem` of
+ * remaining space the content is taller than the space it was bounded to and
+ * its last rows go under the keyboard, which is the lesser evil against a
+ * popover collapsed to nothing. `CommandList`'s own `max-h-[300px]` still caps
+ * the content if this expression is ever dropped for an unresolved property.
+ */
+export const SOFT_KEYBOARD_CONTENT_CLASS = [
+  'flex flex-col overflow-hidden',
+  'max-h-[max(calc(var(--radix-popover-content-available-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)),10rem)]',
+  'xl:max-h-[max(var(--radix-popover-content-available-height),10rem)]',
+].join(' ')
+
 export function CityFilters({
   cities,
   selectedCities,
@@ -64,6 +95,36 @@ export function CityFilters({
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
+  // Latched at open, never on close, so the treatment cannot change under the
+  // content's exit animation. A viewport change while the popover is open is
+  // not tracked; the next open reads the viewport again.
+  const [softKeyboardViewport, setSoftKeyboardViewport] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+
+  // Composes the two halves of `replayOnHydrate` with a ref of our own: the
+  // spread below sets the marker attribute, and dropping the replay ref while
+  // keeping the attribute would leave a control that looks adopted and still
+  // drops pre-hydration clicks.
+  const setTriggerRef = useCallback((node: HTMLButtonElement | null) => {
+    triggerRef.current = node
+    replayOnHydrate.ref(node)
+  }, [])
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (next) {
+      const softKeyboard = matchesSoftKeyboardViewport()
+      setSoftKeyboardViewport(softKeyboard)
+      // The pinned popover can only use the space under the trigger, and the
+      // keyboard that will shrink that space has not risen yet, so there is
+      // nothing here to measure against: the trigger goes to the top of the
+      // page unconditionally to give the list room.
+      if (softKeyboard) {
+        triggerRef.current?.scrollIntoView?.({ block: 'start' })
+      }
+    }
+    setOpen(next)
+  }, [])
+
   const selectedSet = useMemo(
     () => new Set(selectedCities.map(cityKey)),
     [selectedCities]
@@ -108,7 +169,7 @@ export function CityFilters({
       {/* Filter bar: combobox + active chips + children */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Searchable combobox */}
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <button
               // In server HTML since PSY-1624, so it is painted and clickable
@@ -118,12 +179,14 @@ export function CityFilters({
               // on the trigger rather than the surrounding bar because the
               // trigger is the element that owns the interaction.
               {...replayOnHydrate}
+              ref={setTriggerRef}
               role="combobox"
               aria-expanded={open}
               aria-label="Filter by city"
               data-testid="city-filter-combobox"
               className={cn(
                 'flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm transition-colors',
+                TRIGGER_SCROLL_MT,
                 'hover:bg-muted hover:border-border',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 open && 'border-border bg-muted',
@@ -136,7 +199,22 @@ export function CityFilters({
               <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-[240px] p-0" align="start">
+          <PopoverContent
+            className={cn(
+              'w-[240px] p-0',
+              softKeyboardViewport && SOFT_KEYBOARD_CONTENT_CLASS
+            )}
+            align="start"
+            side="bottom"
+            // Collision avoidance is what flips the popover over the trigger
+            // when a keyboard shrinks the visual viewport, carrying the search
+            // field off-screen. Off, it stays under the trigger even where the
+            // page cannot scroll the trigger clear of the keyboard. The same
+            // prop gates horizontal shifting, which this control can afford to
+            // lose: the trigger is the first item in the bar, so a 240px
+            // content starts at the bar's own inline edge.
+            avoidCollisions={!softKeyboardViewport}
+          >
             <Command>
               <CommandInput placeholder="Search cities..." />
               <CommandList>

@@ -1,7 +1,14 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { CityFilters, type CityWithCount, type CityState } from './CityFilters'
+import {
+  CityFilters,
+  SOFT_KEYBOARD_CONTENT_CLASS,
+  type CityWithCount,
+  type CityState,
+} from './CityFilters'
+import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/softKeyboardViewport'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 // jsdom does not implement scrollIntoView (required by cmdk)
 beforeAll(() => {
@@ -34,11 +41,12 @@ describe('CityFilters', () => {
     expect(screen.getByText('Filter by city...')).toBeInTheDocument()
   })
 
-  // The trigger reaches server HTML on /shows and /venues (PSY-1624), so it is
-  // clickable for the whole pre-hydration window and a click there is dropped
-  // unless it is a replay root. The marker attribute is the load-bearing half
-  // of `replayOnHydrate` — `PopoverTrigger asChild` composes the ref half, and
-  // a ref refactor that lost the attribute would silently reinstate the drop.
+  // The trigger reaches server HTML on /shows and /venues, so it is clickable
+  // for the whole pre-hydration window and a click there is dropped unless it
+  // is a replay root. `replayOnHydrate` has two halves and both are needed: the
+  // marker attribute below, and the ref that consumes the buffered click. The
+  // component composes that ref with one of its own, so each half is pinned
+  // separately - either one lost alone leaves a control that looks adopted.
   it('marks the combobox trigger as a click-replay root', () => {
     render(
       <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
@@ -47,6 +55,22 @@ describe('CityFilters', () => {
     expect(screen.getByTestId('city-filter-combobox')).toHaveAttribute(
       'data-replay-on-hydrate'
     )
+  })
+
+  it('hands the trigger node to the click-replay ref', () => {
+    const replayRef = vi.spyOn(
+      replayOnHydrate as { ref: (node: HTMLElement | null) => void },
+      'ref'
+    )
+
+    render(
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+    )
+
+    expect(replayRef).toHaveBeenCalledWith(
+      screen.getByTestId('city-filter-combobox')
+    )
+    replayRef.mockRestore()
   })
 
   it('opens the dropdown when combobox is clicked', async () => {
@@ -321,5 +345,116 @@ describe('CityFilters', () => {
     )
 
     expect(screen.getByTestId('city-filter-all')).toHaveTextContent('All Venues')
+  })
+
+  describe('soft-keyboard viewports', () => {
+    // jsdom has no layout: it can show that the treatment is selected for the
+    // right viewport, and nothing about the geometry that results. The props
+    // handed to the popover are pinned in CityFilters.popoverProps.test.tsx
+    // and the geometry in e2e/pages/city-filter-mobile.spec.ts.
+    const originalMatchMedia = window.matchMedia
+
+    function mockSoftKeyboardViewport(matches: boolean) {
+      window.matchMedia = vi.fn(
+        (query: string) =>
+          ({
+            matches: matches && query === SOFT_KEYBOARD_VIEWPORT_QUERY,
+            media: query,
+          }) as MediaQueryList
+      )
+    }
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia
+    })
+
+    it('bounds the popover height on a soft-keyboard viewport', async () => {
+      mockSoftKeyboardViewport(true)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      await user.click(screen.getByTestId('city-filter-combobox'))
+
+      expect(screen.getByRole('dialog').className).toContain(
+        SOFT_KEYBOARD_CONTENT_CLASS
+      )
+    })
+
+    it('leaves the popover unbounded on a pointer viewport', async () => {
+      mockSoftKeyboardViewport(false)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      await user.click(screen.getByTestId('city-filter-combobox'))
+
+      expect(screen.getByRole('dialog').className).not.toContain(
+        SOFT_KEYBOARD_CONTENT_CLASS
+      )
+    })
+
+    it('scrolls the trigger to the top of the page on open', async () => {
+      mockSoftKeyboardViewport(true)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      const trigger = screen.getByTestId('city-filter-combobox')
+      trigger.scrollIntoView = vi.fn()
+
+      await user.click(trigger)
+
+      expect(trigger.scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+    })
+
+    it('does not scroll the page again when the popover closes', async () => {
+      mockSoftKeyboardViewport(true)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      const trigger = screen.getByTestId('city-filter-combobox')
+      trigger.scrollIntoView = vi.fn()
+
+      await user.click(trigger)
+      await user.keyboard('{Escape}')
+
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      expect(trigger.scrollIntoView).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not scroll the page on a pointer viewport', async () => {
+      mockSoftKeyboardViewport(false)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      const trigger = screen.getByTestId('city-filter-combobox')
+      trigger.scrollIntoView = vi.fn()
+
+      await user.click(trigger)
+
+      expect(trigger.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('keeps the search field focused when the popover is pinned', async () => {
+      mockSoftKeyboardViewport(true)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      const trigger = screen.getByTestId('city-filter-combobox')
+      await user.click(trigger)
+
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByPlaceholderText('Search cities...')).toHaveFocus()
+    })
   })
 })

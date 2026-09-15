@@ -121,7 +121,8 @@
    * reports 0. Every viewport-sized surface must
    * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
    * `xl` — current subtractors: AppShell padding, Sidebar + AdminSidebar
-   * heights, AtlasGlobe height, CookieConsentBanner bottom offset. */
+   * heights, AtlasGlobe height, CookieConsentBanner bottom offset, CityFilters
+   * popover max-height (on soft-keyboard viewports only). */
   --bottom-tab-bar-height: calc(3.5rem + 1px);
 
   /* Radius scale — sharp editorial corners (2/4/6/8px) */
