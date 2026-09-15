@@ -51,12 +51,12 @@ export const releaseQueryKeys = {
     ['releases', 'detail', String(idOrSlug)] as const,
   artistReleases: (artistIdOrSlug: string | number) =>
     ['releases', 'artist', String(artistIdOrSlug)] as const,
-  savedList: (limit: number, offset: number, userId?: string | number) =>
+  savedList: (limit: number, offset: number, userId?: string) =>
     ['releases', 'saved', 'list', userId ?? null, limit, offset] as const,
   saveCount: (
     releaseId: number,
     isAuthenticated: boolean,
-    userId?: string | number
+    userId?: string
   ) =>
     [
       'releases',
@@ -66,12 +66,12 @@ export const releaseQueryKeys = {
       userId ?? null,
       releaseId,
     ] as const,
-  saveCountBatchPrefix: (userId?: string | number) =>
+  saveCountBatchPrefix: (userId?: string) =>
     ['releases', 'save-state', 'batch', true, userId ?? null] as const,
   saveCountBatch: (
     releaseIds: number[],
     isAuthenticated: boolean,
-    userId?: string | number
+    userId?: string
   ) =>
     [
       'releases',

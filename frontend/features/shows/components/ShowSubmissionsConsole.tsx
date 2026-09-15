@@ -49,7 +49,7 @@ import {
 } from '@/components/shared'
 import { VenueDeniedDialog } from '@/features/venues/components/VenueDeniedDialog'
 import type { ShowResponse } from '../types'
-import { showTimingInput } from '../utils'
+import { canModerateShow, showTimingInput } from '../utils'
 import { useMySubmissions } from '../hooks'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { MakePrivateDialog } from './MakePrivateDialog'
@@ -63,7 +63,7 @@ const SUBMISSIONS_PAGE_SIZE = 50
 
 interface SubmissionShowCardProps {
   show: ShowResponse
-  currentUserId?: number
+  currentUserId?: string
   isAdmin?: boolean
   onSubmissionChanged: () => void
   onSubmissionDeleted: () => void
@@ -86,9 +86,11 @@ function SubmissionShowCard({
   const setCancelledMutation = useSetShowCancelled()
   const venue = show.venues[0]
   const artists = show.artists
-  const isOwner =
-    currentUserId !== undefined && show.submitted_by === currentUserId
-  const canManage = Boolean(isAdmin || isOwner)
+  const canManage = canModerateShow({
+    submittedBy: show.submitted_by,
+    viewerId: currentUserId,
+    isAdmin: Boolean(isAdmin),
+  })
   const canUnpublish = show.status === 'approved' && canManage
   const canMakePrivate = show.status === 'pending' && canManage
   const canPublish =
@@ -454,7 +456,7 @@ export function ShowSubmissionsConsole() {
   const [dialogDismissed, setDialogDismissed] = useState(false)
   const isPrivateSubmission = searchParams.get('submitted') === 'private'
   const showSuccessDialog = !dialogDismissed && isPrivateSubmission
-  const currentUserId = user?.id ? Number(user.id) : undefined
+  const currentUserId = user?.id
   const refreshSubmissions = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.mySubmissions.all,

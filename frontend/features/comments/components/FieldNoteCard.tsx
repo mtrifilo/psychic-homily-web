@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { MessageSquare, Star, Eye, EyeOff, Flag, Clock, Pencil, Trash2, History } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
@@ -64,8 +65,7 @@ export function FieldNoteCard({
   replies = [],
 }: FieldNoteCardProps) {
   const { user, isAuthenticated } = useAuthContext()
-  const currentUserId = user?.id ? Number(user.id) : null
-  const isOwner = currentUserId === comment.user_id
+  const isOwner = isSameUserId(user?.id, comment.user_id)
   const isAdmin = Boolean(user?.is_admin)
   // PSY-567: 30-min author-edit window. Computed on each render — no
   // ticking interval; buttons disappear naturally as the note ages out

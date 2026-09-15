@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useShow, useShowTimeline } from '../hooks/useShows'
+import { canModerateShow } from '../utils'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -109,31 +110,33 @@ export function ShowDetail({
   const setSoldOutMutation = useSetShowSoldOut()
   const setCancelledMutation = useSetShowCancelled()
 
-  // Check if user is the show owner (submitter)
-  const isOwner = !!(user?.id && show?.submitted_by && String(show.submitted_by) === user.id)
-
-  // ONE moderation predicate, owned here. Delete, status flags, direct edit,
-  // and the whole ShowActions cluster all gate on admin-or-owner today; the
-  // named aliases below exist so the day one of them narrows (say, delete
-  // goes admin-only) the change is a one-line edit at the definition, not a
-  // hunt through the render tree. The one deliberate exception: ShowActions'
-  // own Edit BUTTON is admin-only (moderation chrome) — an owner's edit path
-  // is the provenance line's [Edit], through the same drawer.
-  const canModerateShow = isAdmin || isOwner
+  // ONE moderation predicate, read from the shared definition rather than
+  // re-derived here. Delete, status flags, direct edit, and the whole
+  // ShowActions cluster all gate on admin-or-owner; the named aliases below
+  // exist so the day one of them narrows (say, delete goes admin-only) the
+  // change is a one-line edit at the definition, not a hunt through the render
+  // tree. The one deliberate exception: ShowActions' own Edit BUTTON is
+  // admin-only (moderation chrome) — an owner's edit path is the provenance
+  // line's [Edit], through the same drawer.
+  const canModerate = canModerateShow({
+    submittedBy: show?.submitted_by,
+    viewerId: user?.id,
+    isAdmin,
+  })
 
   // Check if user can delete: admin or show owner
-  const canDelete = canModerateShow
+  const canDelete = canModerate
 
   // Check if user can manage status flags: admin or show owner
-  const canManageStatus = canModerateShow
+  const canManageStatus = canModerate
 
   // PSY-563: shows route through the EntityEditDrawer + show direct-save
   // path. The suggest-edit pipeline is intentionally NOT extended to
   // shows (PSY-461 / PSY-489); the drawer dispatches show saves to
-  // /shows/{id} PUT via useShowEdit. An alias of canModerateShow, not a
-  // fresh derivation — the "one predicate" comment above only holds if
-  // every gate actually routes through the definition.
-  const canEditShow = canModerateShow
+  // /shows/{id} PUT via useShowEdit. An alias of the predicate above, not a
+  // fresh derivation — the "one predicate" comment only holds if every gate
+  // actually routes through the definition.
+  const canEditShow = canModerate
 
   const handleToggleSoldOut = () => {
     if (!show) return
@@ -229,7 +232,7 @@ export function ShowDetail({
               // ShowHeader an element that renders null would still reserve
               // the slot's margin under the ticket row for every public
               // viewer.
-              canModerateShow ? (
+              canModerate ? (
                 <ShowActions
                   show={show}
                   isAdmin={isAdmin}

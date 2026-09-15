@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Trophy, Medal, Award, Crown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import { useLeaderboard } from '../hooks/useLeaderboard'
 import type { LeaderboardDimension, LeaderboardPeriod, LeaderboardEntry } from '../types'
 import { DIMENSION_LABELS, PERIOD_LABELS } from '../types'
@@ -176,14 +177,15 @@ export function LeaderboardPage() {
             <LeaderboardRow
               key={entry.user_id}
               entry={entry}
-              isCurrentUser={Number(user?.id) === entry.user_id}
+              isCurrentUser={isSameUserId(user?.id, entry.user_id)}
             />
           ))}
         </div>
       )}
 
       {/* Current user's rank */}
-      {data?.user_rank && !data.entries.some((e) => e.user_id === Number(user?.id)) && (
+      {data?.user_rank &&
+        !data.entries.some((e) => isSameUserId(user?.id, e.user_id)) && (
         <div className="border-t border-border pt-4">
           <p className="text-sm text-muted-foreground mb-2">Your rank</p>
           <div className="flex items-center gap-4 rounded-lg border border-primary/50 bg-primary/5 p-3">

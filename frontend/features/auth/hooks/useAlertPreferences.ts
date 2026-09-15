@@ -64,7 +64,7 @@ export const useAlertPreferences = (enabled = true) => {
       apiRequest<AlertPreferences>(API_ENDPOINTS.AUTH.ALERT_PREFERENCES, {
         method: 'GET',
       }),
-    enabled: enabled && isAuthenticated && viewerId !== undefined,
+    enabled: enabled && isAuthenticated && !!viewerId,
     staleTime: 5 * 60 * 1000,
   })
 }

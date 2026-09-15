@@ -1,3 +1,4 @@
+import { isSameUserId, type UserIdLike } from '@/features/auth/authUser'
 import { formatLocation } from '@/lib/formatLocation'
 import type { ShowTimingInput } from '@/lib/utils/showTiming'
 import type { ShowResponse } from './types'
@@ -263,18 +264,19 @@ export function splitBill<T extends BillArtist>(
 }
 
 /**
- * Whether a viewer may delete a show: an admin, or the reader who submitted it.
+ * Whether a viewer may moderate a show: an admin, or the reader who submitted
+ * it.
  *
- * BOTH ids are coerced before the comparison. A viewer id is declared
- * `string` but arrives from the wire as a number, so a `===` against an
- * uncoerced viewer id answers false for the very reader who submitted the
- * show and takes their own delete control with it. Gate a delete control on
- * this rather than comparing the two ids at the call site.
+ * The single definition of that authority: every show surface that gates a
+ * control on admin-or-owner calls this rather than comparing the two ids
+ * itself. A surface that re-derives it lets one show be the viewer's on the
+ * list and someone else's on its own page, and a narrowing of the rule then
+ * reaches some of them and not the others. Narrowing it is an edit here.
  *
  * Returns a `boolean` rather than the truthy union a `&&` chain would, so a
  * caller using it as a JSX guard cannot paint a falsy id into the page.
  */
-export function canDeleteShow({
+export function canModerateShow({
   submittedBy,
   viewerId,
   isAdmin,
@@ -282,14 +284,10 @@ export function canDeleteShow({
   // Taken from the wire type rather than restated, so a widening of the field
   // reaches this signature instead of being silently absorbed by it.
   submittedBy: ShowResponse['submitted_by']
-  viewerId: string | number | null | undefined
+  viewerId: UserIdLike
   isAdmin: boolean
 }): boolean {
   if (isAdmin) return true
-  return !!(
-    viewerId &&
-    submittedBy &&
-    String(submittedBy) === String(viewerId)
-  )
+  return isSameUserId(submittedBy, viewerId)
 }
 

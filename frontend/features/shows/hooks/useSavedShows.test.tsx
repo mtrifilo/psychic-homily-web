@@ -40,7 +40,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     savedShows: {
-      listPrefix: (userId?: string | number) => [
+      listPrefix: (userId?: string) => [
         'savedShows',
         'list',
         userId ?? null,
@@ -57,10 +57,10 @@ vi.mock('@/lib/queryClient', () => ({
         { limit, offset, timeFilter },
       ],
       infiniteList: (
-        userId: number | undefined,
+        userId: string | undefined,
         timeFilter: 'upcoming' | 'past'
       ) => ['savedShows', 'infiniteList', userId ?? null, timeFilter],
-      infiniteListPrefix: (userId: number | undefined) => [
+      infiniteListPrefix: (userId?: string) => [
         'savedShows',
         'infiniteList',
         userId ?? null,
@@ -184,7 +184,7 @@ describe('useSavedShows', () => {
         offset: 4,
       })
 
-    const { result } = renderHook(() => useInfiniteSavedShows('upcoming', 1), {
+    const { result } = renderHook(() => useInfiniteSavedShows('upcoming', '1'), {
       wrapper: createWrapper(),
     })
 
@@ -230,7 +230,7 @@ describe('useSavedShows', () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
 
-    const alice = renderHook(() => useInfiniteSavedShows('upcoming', 1), {
+    const alice = renderHook(() => useInfiniteSavedShows('upcoming', '1'), {
       wrapper,
     })
     await waitFor(() => expect(alice.result.current.isSuccess).toBe(true))
@@ -239,7 +239,7 @@ describe('useSavedShows', () => {
     )
     alice.unmount()
 
-    const bob = renderHook(() => useInfiniteSavedShows('upcoming', 2), {
+    const bob = renderHook(() => useInfiniteSavedShows('upcoming', '2'), {
       wrapper,
     })
     await waitFor(() => expect(bob.result.current.isSuccess).toBe(true))
@@ -259,7 +259,7 @@ describe('useSavedShows', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const queryKey = queryKeys.savedShows.infiniteList(1, 'upcoming')
+    const queryKey = queryKeys.savedShows.infiniteList('1', 'upcoming')
     queryClient.setQueryData(queryKey, {
       pages: [
         {
@@ -285,7 +285,7 @@ describe('useSavedShows', () => {
     )
 
     const { result } = renderHook(
-      () => useUnsaveShow({ syncMode: 'patch-infinite', userId: 1 }),
+      () => useUnsaveShow({ syncMode: 'patch-infinite', userId: '1' }),
       { wrapper }
     )
     await act(async () => {
@@ -300,7 +300,7 @@ describe('useSavedShows', () => {
     expect(cached?.pages[1].total).toBe(104)
     expect(mockInvalidateSavedShows).not.toHaveBeenCalled()
 
-    const infinite = renderHook(() => useInfiniteSavedShows('upcoming', 1), {
+    const infinite = renderHook(() => useInfiniteSavedShows('upcoming', '1'), {
       wrapper,
     })
     await act(async () => {

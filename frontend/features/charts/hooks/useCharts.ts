@@ -297,7 +297,7 @@ export function usePersonalChartsStats(
       apiRequest<PersonalChartsStats>(chartEndpoints.PERSONAL, {
         method: 'GET',
       }),
-    enabled: enabled && userId != null,
+    enabled: enabled && !!userId,
   })
 }
 

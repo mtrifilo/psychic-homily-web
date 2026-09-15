@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   basedInPhrase,
-  canDeleteShow,
+  canModerateShow,
   splitBill,
   dedupVenueShows,
   showTimingInput,
@@ -236,47 +236,55 @@ describe('basedInPhrase', () => {
   })
 })
 
-describe('canDeleteShow', () => {
+describe('canModerateShow', () => {
   it('lets an admin delete any show, submitted or not', () => {
     expect(
-      canDeleteShow({ submittedBy: 42, viewerId: '7', isAdmin: true })
+      canModerateShow({ submittedBy: 42, viewerId: '7', isAdmin: true })
     ).toBe(true)
     expect(
-      canDeleteShow({ submittedBy: undefined, viewerId: null, isAdmin: true })
+      canModerateShow({ submittedBy: undefined, viewerId: null, isAdmin: true })
     ).toBe(true)
   })
 
   it('lets the submitter delete their own show', () => {
     expect(
-      canDeleteShow({ submittedBy: 42, viewerId: '42', isAdmin: false })
+      canModerateShow({ submittedBy: 42, viewerId: '42', isAdmin: false })
     ).toBe(true)
   })
 
   it('recognises the submitter through either id shape', () => {
     expect(
-      canDeleteShow({ submittedBy: 42, viewerId: 42, isAdmin: false })
+      canModerateShow({ submittedBy: 42, viewerId: 42, isAdmin: false })
     ).toBe(true)
   })
 
   it('refuses everyone else', () => {
     expect(
-      canDeleteShow({ submittedBy: 42, viewerId: '7', isAdmin: false })
+      canModerateShow({ submittedBy: 42, viewerId: '7', isAdmin: false })
     ).toBe(false)
     expect(
-      canDeleteShow({ submittedBy: 42, viewerId: 7, isAdmin: false })
+      canModerateShow({ submittedBy: 42, viewerId: 7, isAdmin: false })
+    ).toBe(false)
+  })
+
+  // The context spells an absent id `''` (see toAuthUser), which names no
+  // viewer and must not moderate anything.
+  it('refuses a viewer whose id is empty', () => {
+    expect(
+      canModerateShow({ submittedBy: 42, viewerId: '', isAdmin: false })
     ).toBe(false)
   })
 
   // Neither side may borrow the other's falsy id to match.
   it('refuses when either side has no id', () => {
     expect(
-      canDeleteShow({ submittedBy: undefined, viewerId: '42', isAdmin: false })
+      canModerateShow({ submittedBy: undefined, viewerId: '42', isAdmin: false })
     ).toBe(false)
     expect(
-      canDeleteShow({ submittedBy: 42, viewerId: undefined, isAdmin: false })
+      canModerateShow({ submittedBy: 42, viewerId: undefined, isAdmin: false })
     ).toBe(false)
     expect(
-      canDeleteShow({ submittedBy: undefined, viewerId: null, isAdmin: false })
+      canModerateShow({ submittedBy: undefined, viewerId: null, isAdmin: false })
     ).toBe(false)
   })
 })

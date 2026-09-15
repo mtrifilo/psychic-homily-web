@@ -30,7 +30,7 @@ export const useUserFollowStatus = (username: string, enabled = true) => {
       enabled &&
       authStatus !== 'pending' &&
       Boolean(username) &&
-      (!isAuthenticated || viewerId !== undefined),
+      (!isAuthenticated || !!viewerId),
     staleTime: 2 * 60 * 1000,
   })
 }

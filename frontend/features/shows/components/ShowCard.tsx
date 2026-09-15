@@ -25,7 +25,7 @@ import { ShowStatusBadge } from './ShowStatusBadge'
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { canDeleteShow, splitBill } from '../utils'
+import { canModerateShow, splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 function ArtistLink({ artist, className }: { artist: ArtistResponse; className?: string }) {
@@ -137,7 +137,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
   const hasArtistMusic = showHasArtistMusic(artists)
 
   const resolvedUserId = userId || user?.id
-  const canDelete = canDeleteShow({
+  const canDelete = canModerateShow({
     submittedBy: show.submitted_by,
     viewerId: resolvedUserId,
     isAdmin,

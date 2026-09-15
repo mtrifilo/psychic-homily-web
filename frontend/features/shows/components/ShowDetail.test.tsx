@@ -7,8 +7,11 @@ import type { ShowResponse, ArtistResponse } from '../types'
 // Mock AuthContext.
 // Return type widened so individual tests can override `user`/`isAuthenticated`
 // without TS narrowing from the default-null literal.
+// `id` carries the wire's union rather than the context's `string`: the tests
+// below render this component with each shape, and a `string`-only mock would
+// need a cast to express the one the page was broken by.
 type MockAuthContextValue = {
-  user: { id: string; is_admin: boolean } | null
+  user: { id: string | number; is_admin: boolean } | null
   isAuthenticated: boolean
   isLoading: boolean
   logout: () => void
@@ -911,6 +914,61 @@ describe('ShowDetail', () => {
         screen.getByRole('button', { name: 'Edit this show listing' })
       )
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
+    })
+
+    // The wire's spelling of the viewer id, which the cases above (the
+    // context's declared `string`) do not cover. Every control here gates on
+    // one predicate, so all four answer together for either spelling.
+    it('gives the submitter every owner control when the viewer id is a number', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: 42, is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseShow.mockReturnValue({
+        data: makeShow({ submitted_by: 42 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" renderedAt={DETAIL_RENDERED_AT} />)
+      expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Mark Sold Out' })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Mark Cancelled' })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Edit this show listing' })
+      ).toBeInTheDocument()
+    })
+
+    it('gives a non-owner none of them when the viewer id is a number', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: 99, is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseShow.mockReturnValue({
+        data: makeShow({ submitted_by: 42 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" renderedAt={DETAIL_RENDERED_AT} />)
+      expect(
+        screen.queryByRole('button', { name: /Delete/ })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Mark Sold Out' })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Mark Cancelled' })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Edit this show listing' })
+      ).not.toBeInTheDocument()
     })
   })
 
