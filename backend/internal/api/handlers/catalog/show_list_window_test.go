@@ -375,3 +375,54 @@ func TestGetShowsCalendarHandler_FloorsAndEchoesTheOffset(t *testing.T) {
 		}
 	}
 }
+
+// The range is PUBLIC where the histogram beside it is private, and the
+// difference is observable only in this header. The body is computed without
+// reading the caller, so a shared cache handing one reader's answer to another
+// is correct here and a contract break next door.
+func TestGetShowsCalendarRangeHandler_IsPubliclyCacheable(t *testing.T) {
+	mock := &testhelpers.MockShowService{
+		GetUpcomingShowsCalendarRangeFn: func() (contracts.ShowCalendarRange, error) {
+			return contracts.ShowCalendarRange{
+				FirstMonth: contracts.ShowCalendarMonth{Year: 2026, Month: 9},
+				LastMonth:  contracts.ShowCalendarMonth{Year: 2027, Month: 1},
+			}, nil
+		},
+	}
+
+	resp, err := newCalendarShowHandler(mock).GetShowsCalendarRangeHandler(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CacheControl != "public, max-age=300" {
+		t.Errorf("Cache-Control = %q, want public: nothing in this body depends on who asked",
+			resp.CacheControl)
+	}
+	if resp.Body.FirstMonth != (contracts.ShowCalendarMonth{Year: 2026, Month: 9}) ||
+		resp.Body.LastMonth != (contracts.ShowCalendarMonth{Year: 2027, Month: 1}) {
+		t.Errorf("range = %+v, want the service's own edges", resp.Body)
+	}
+}
+
+// A failed read is a 500, never an empty span. The proxy in front of this
+// endpoint turns a span into 404s, so answering a failure with a zero-value
+// range would take every dated show URL on the site with it.
+func TestGetShowsCalendarRangeHandler_FailsRatherThanPublishingAnEmptySpan(t *testing.T) {
+	mock := &testhelpers.MockShowService{
+		GetUpcomingShowsCalendarRangeFn: func() (contracts.ShowCalendarRange, error) {
+			return contracts.ShowCalendarRange{}, errors.New("database unavailable")
+		},
+	}
+
+	resp, err := newCalendarShowHandler(mock).GetShowsCalendarRangeHandler(context.Background(), nil)
+	if err == nil {
+		t.Fatalf("read failure answered with %+v, want an error", resp)
+	}
+	var status huma.StatusError
+	if !errors.As(err, &status) || status.GetStatus() != http.StatusInternalServerError {
+		t.Errorf("error = %v, want a 500", err)
+	}
+	if strings.Contains(err.Error(), "database unavailable") {
+		t.Errorf("error message = %q, want the handler's own summary rather than the driver's", err.Error())
+	}
+}

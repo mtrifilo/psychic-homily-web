@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -566,4 +567,124 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowMonths_EmptyCat
 	suite.Require().NoError(err)
 	suite.Require().NotNil(filtered)
 	suite.Require().Empty(filtered)
+}
+
+// mustLoadZone is the zone or a failed test, so a fixture cannot silently fall
+// back to UTC and assert against a calendar the service never used.
+func mustLoadZone(t *testing.T, zone string) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation(zone)
+	require.NoError(t, err, "load zone %q", zone)
+	return loc
+}
+
+// requireMonthInRange asserts a month is addressable, naming both edges when it
+// is not so a failure says which end it fell off.
+func (suite *ShowServiceIntegrationTestSuite) requireMonthInRange(
+	rng contracts.ShowCalendarRange,
+	month contracts.ShowCalendarMonth,
+	because string,
+) {
+	suite.T().Helper()
+	suite.Require().GreaterOrEqual(showCalendarMonthOrdinal(month), showCalendarMonthOrdinal(rng.FirstMonth),
+		"%s: %v is before the first addressable month %v", because, month, rng.FirstMonth)
+	suite.Require().LessOrEqual(showCalendarMonthOrdinal(month), showCalendarMonthOrdinal(rng.LastMonth),
+		"%s: %v is past the last addressable month %v", because, month, rng.LastMonth)
+}
+
+// An empty catalog is still addressable at TODAY, on every clock a reader could
+// be asking from.
+//
+// The sweep is the assertion. The span is stated in months and a month has no
+// zone, so the property that matters is not which UTC month the edges landed in
+// but that no inhabited zone's own current month falls outside them — which is
+// exactly the dead-end a Tonight link would hit on the one night a year the two
+// calendars disagree.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_EmptyCatalogStillAddressesTodayEverywhere() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Empty Range Room", "AZ", zone, true)
+	user := suite.createTestUser()
+	// One PAST show, so the emptiness is the upcoming partition's rather than the
+	// table's, and a past month cannot drag an edge backwards.
+	past := venueLocalInstant(suite.T(), zone, -40, 20)
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", past)
+
+	rng, err := suite.showService.GetUpcomingShowsCalendarRange()
+	suite.Require().NoError(err)
+	suite.Require().LessOrEqual(showCalendarMonthOrdinal(rng.FirstMonth), showCalendarMonthOrdinal(rng.LastMonth),
+		"the span must never be inverted")
+
+	for _, callerZone := range everyCallerOffsetZone() {
+		loc, err := time.LoadLocation(callerZone)
+		suite.Require().NoError(err, "load zone %q", callerZone)
+		today := time.Now().In(loc)
+		suite.requireMonthInRange(rng,
+			contracts.ShowCalendarMonth{Year: today.Year(), Month: int(today.Month())},
+			"today in "+callerZone)
+	}
+
+	pastYear, pastMonth, _ := venueLocalYMD(suite.T(), past, zone)
+	suite.Require().Greater(showCalendarMonthOrdinal(rng.FirstMonth),
+		showCalendarMonthOrdinal(contracts.ShowCalendarMonth{Year: pastYear, Month: pastMonth}),
+		"a past show must not extend the span backwards")
+}
+
+// The LAST edge is the last month that holds an upcoming show, and every quiet
+// month between here and there is inside the span.
+//
+// The quiet months are the whole point of the range: the histogram would answer
+// with the two months that have rows, and a rule built on it would 404 the four
+// between them.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_SpansTheQuietMonthsBeforeTheLastShow() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Far Future Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	// Four months out, on the first of the month so no venue-local shift can
+	// carry the fixture into a neighbouring month.
+	todayLocal := time.Now().In(mustLoadZone(suite.T(), zone))
+	farYear, farMonth := addMonths(todayLocal.Year(), int(todayLocal.Month()), 4)
+	far := venueLocalDateAt(suite.T(), zone, farYear, farMonth, 1, 20)
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", far)
+
+	rng, err := suite.showService.GetUpcomingShowsCalendarRange()
+	suite.Require().NoError(err)
+
+	suite.Require().Equal(contracts.ShowCalendarMonth{Year: farYear, Month: farMonth}, rng.LastMonth,
+		"the last edge must be the last upcoming month")
+	for delta := 0; delta <= 4; delta++ {
+		year, month := addMonths(todayLocal.Year(), int(todayLocal.Month()), delta)
+		suite.requireMonthInRange(rng, contracts.ShowCalendarMonth{Year: year, Month: month},
+			"a quiet month inside the span")
+	}
+
+	beyondYear, beyondMonth := addMonths(farYear, farMonth, 1)
+	suite.Require().Greater(showCalendarMonthOrdinal(contracts.ShowCalendarMonth{Year: beyondYear, Month: beyondMonth}),
+		showCalendarMonthOrdinal(rng.LastMonth),
+		"the month after the last show must fall outside the span")
+}
+
+// A show nobody can see does not make a month addressable. The span is published
+// to an anonymous cache, so a pending submission moving an edge would advertise a
+// month whose page renders nothing.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_NonApprovedShowsDoNotMoveTheEdges() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Pending Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayLocal := time.Now().In(mustLoadZone(suite.T(), zone))
+	farYear, farMonth := addMonths(todayLocal.Year(), int(todayLocal.Month()), 6)
+	pending := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ",
+		venueLocalDateAt(suite.T(), zone, farYear, farMonth, 1, 20))
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", pending.ID).
+		Update("status", catalogm.ShowStatusPending).Error)
+
+	rng, err := suite.showService.GetUpcomingShowsCalendarRange()
+	suite.Require().NoError(err)
+	suite.Require().Less(showCalendarMonthOrdinal(rng.LastMonth),
+		showCalendarMonthOrdinal(contracts.ShowCalendarMonth{Year: farYear, Month: farMonth}),
+		"a pending show must not extend the span")
+	suite.requireMonthInRange(rng,
+		contracts.ShowCalendarMonth{Year: todayLocal.Year(), Month: int(todayLocal.Month())},
+		"today")
 }

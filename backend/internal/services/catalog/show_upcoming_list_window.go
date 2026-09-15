@@ -3,6 +3,7 @@ package catalog
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -251,4 +252,84 @@ func (s *ShowService) GetUpcomingShowMonths(
 		}
 	}
 	return months, nil
+}
+
+// calendarRangeClockSkewDays is how far either side of UTC now the "current
+// month" edge of the addressable range reaches.
+//
+// One day covers every inhabited UTC offset, which spans UTC-12 to UTC+14: no
+// wall clock on earth is more than a day from UTC's, so the months touched by
+// now plus or minus a day contain every zone's current month. The range is
+// stated in whole months and a month has no zone, while the readers it bounds
+// partition per row on their own venue's clock, so the edge has to hold every
+// clock a reader could be asking from at once.
+//
+// Widening is the safe direction. A month inside the span that turns out to
+// hold nothing renders as a quiet page, which is recoverable; a month outside
+// it is a hard 404 on a URL the site's own chrome may be linking.
+const calendarRangeClockSkewDays = 1
+
+// showCalendarMonthOf is the calendar month an instant falls in, read on the
+// instant's own zone.
+func showCalendarMonthOf(at time.Time) contracts.ShowCalendarMonth {
+	return contracts.ShowCalendarMonth{Year: at.Year(), Month: int(at.Month())}
+}
+
+// showCalendarMonthOrdinal orders two months on one axis, so a comparison
+// cannot read a December as earlier than the January after it.
+func showCalendarMonthOrdinal(month contracts.ShowCalendarMonth) int {
+	return month.Year*12 + month.Month
+}
+
+// GetUpcomingShowsCalendarRange returns the month span the date-addressed
+// upcoming list is addressable over.
+//
+// See contracts.ShowServiceInterface for the contract. Both edges are computed
+// here rather than left to the caller because they answer one question and a
+// caller holding half of it would have to guess the other half.
+//
+// The LAST edge is read through upcomingShowPredicates, the same applier the
+// windowed page and the month histogram build on, so the last addressable month
+// and the last month the strip offers cannot disagree about which shows are
+// upcoming. It reads ONE row: the partition's latest venue-local date, whose
+// month is the edge. A COUNT or a histogram would carry every bucket back to
+// learn the last one.
+func (s *ShowService) GetUpcomingShowsCalendarRange() (contracts.ShowCalendarRange, error) {
+	if s.db == nil {
+		return contracts.ShowCalendarRange{}, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	first := showCalendarMonthOf(now.AddDate(0, 0, -calendarRangeClockSkewDays))
+	last := showCalendarMonthOf(now.AddDate(0, 0, calendarRangeClockSkewDays))
+
+	applyPredicates := s.upcomingShowPredicates(false, nil, contracts.ShowCalendarWindow{})
+
+	var latest struct {
+		Year  int
+		Month int
+	}
+	// The aliases are quoted for the reason scanVenueLocalMonthBuckets quotes
+	// its own: `year` and `month` are keywords Postgres is otherwise free to
+	// resolve against something else.
+	result := applyPredicates(s.db.Model(&catalogm.Show{})).
+		Select(shared.VenueLocalYearSQL + ` AS "year", ` + shared.VenueLocalMonthSQL + ` AS "month"`).
+		Order(shared.VenueLocalDateSQL + " DESC").
+		Limit(1).
+		Scan(&latest)
+	if result.Error != nil {
+		return contracts.ShowCalendarRange{}, fmt.Errorf("failed to read the last upcoming show month: %w", result.Error)
+	}
+
+	// RowsAffected, not a zero Year: an empty upcoming partition scans nothing
+	// and leaves the struct at its zero value, which reads as year 0 month 0 and
+	// would move the edge to the beginning of the calendar.
+	if result.RowsAffected > 0 {
+		latestMonth := contracts.ShowCalendarMonth{Year: latest.Year, Month: latest.Month}
+		if showCalendarMonthOrdinal(latestMonth) > showCalendarMonthOrdinal(last) {
+			last = latestMonth
+		}
+	}
+
+	return contracts.ShowCalendarRange{FirstMonth: first, LastMonth: last}, nil
 }

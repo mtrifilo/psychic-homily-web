@@ -108,6 +108,50 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 	return resp, nil
 }
 
+// upcomingCalendarRangeCacheControl is PUBLIC, where the month histogram beside
+// it is private, and the difference is the body: this one is computed without
+// reading the caller at all, so every reader gets the same answer and any cache
+// between here and them may keep it.
+//
+// Five minutes rather than the histogram's sixty seconds because the span moves
+// at a different rate than the counts do. A new show changes a bar immediately;
+// it moves an EDGE only when it lands beyond the last month already addressable,
+// and the frontend that reads this fails open, so a stale edge costs a page that
+// renders rather than a page that 404s.
+const upcomingCalendarRangeCacheControl = "public, max-age=300"
+
+// GetShowsCalendarRangeResponse represents the HTTP response for the addressable
+// month span of the date-addressed upcoming list.
+type GetShowsCalendarRangeResponse struct {
+	// CacheControl: see upcomingCalendarRangeCacheControl.
+	CacheControl string `header:"Cache-Control"`
+	Body         contracts.ShowCalendarRange
+}
+
+// GetShowsCalendarRangeHandler handles GET /shows/calendar/range - the month span
+// the date-addressed list can be asked about.
+//
+// It takes NO parameters, filters included. The span decides which URLs exist,
+// and a URL that exists for one reader exists for every other; a filtered span
+// would make a month's existence depend on the city a reader happens to have
+// selected. That is also what lets the answer be cached publicly and shared.
+func (h *ShowHandler) GetShowsCalendarRangeHandler(ctx context.Context, _ *struct{}) (*GetShowsCalendarRangeResponse, error) {
+	window, err := h.showService.GetUpcomingShowsCalendarRange()
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		logger.FromContext(ctx).Error("shows_calendar_range_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to read the addressable show calendar range")
+	}
+
+	return &GetShowsCalendarRangeResponse{
+		CacheControl: upcomingCalendarRangeCacheControl,
+		Body:         window,
+	}, nil
+}
+
 // GetShowMonthsRequest represents the HTTP request for the catalog-wide upcoming
 // month histogram. It takes the list's filters and no window: the histogram is
 // what enumerates the months.

@@ -3670,20 +3670,21 @@ func (m *MockShowReportService) GetReportByID(reportID uint) (*communitym.ShowRe
 // ============================================================================
 
 type MockShowService struct {
-	CreateShowFn              func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
-	GetShowFn                 func(uint) (*contracts.ShowResponse, error)
-	GetShowBySlugFn           func(string) (*contracts.ShowResponse, error)
-	GetShowTimelineFn         func(string) (*contracts.ShowTimelineResponse, error)
-	GetShowsFn                func(map[string]interface{}, contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error)
-	GetUserSubmissionsFn      func(uint, int, int) ([]contracts.ShowResponse, int, error)
-	UpdateShowFn              func(uint, *contracts.UpdateShowRequest) (*contracts.ShowResponse, error)
-	UpdateShowWithRelationsFn func(uint, *contracts.UpdateShowRequest, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
-	GetUpcomingShowsFn        func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error)
-	GetUpcomingShowsPageFn    func(contracts.ShowCalendarQuery, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error)
-	GetUpcomingShowMonthsFn   func(bool, *contracts.UpcomingShowsFilter) ([]contracts.ShowMonthCount, error)
-	GetShowCitiesFn           func(string) ([]contracts.ShowCityResponse, error)
-	DeleteShowFn              func(uint) error
-	SearchShowsFn             func(string) ([]*contracts.ShowSearchResult, error)
+	CreateShowFn                    func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
+	GetShowFn                       func(uint) (*contracts.ShowResponse, error)
+	GetShowBySlugFn                 func(string) (*contracts.ShowResponse, error)
+	GetShowTimelineFn               func(string) (*contracts.ShowTimelineResponse, error)
+	GetShowsFn                      func(map[string]interface{}, contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error)
+	GetUserSubmissionsFn            func(uint, int, int) ([]contracts.ShowResponse, int, error)
+	UpdateShowFn                    func(uint, *contracts.UpdateShowRequest) (*contracts.ShowResponse, error)
+	UpdateShowWithRelationsFn       func(uint, *contracts.UpdateShowRequest, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
+	GetUpcomingShowsFn              func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error)
+	GetUpcomingShowsPageFn          func(contracts.ShowCalendarQuery, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error)
+	GetUpcomingShowMonthsFn         func(bool, *contracts.UpcomingShowsFilter) ([]contracts.ShowMonthCount, error)
+	GetUpcomingShowsCalendarRangeFn func() (contracts.ShowCalendarRange, error)
+	GetShowCitiesFn                 func(string) ([]contracts.ShowCityResponse, error)
+	DeleteShowFn                    func(uint) error
+	SearchShowsFn                   func(string) ([]*contracts.ShowSearchResult, error)
 }
 
 func (m *MockShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
@@ -3751,6 +3752,12 @@ func (m *MockShowService) GetUpcomingShowMonths(includeNonApproved bool, filters
 		return m.GetUpcomingShowMonthsFn(includeNonApproved, filters)
 	}
 	return nil, nil
+}
+func (m *MockShowService) GetUpcomingShowsCalendarRange() (contracts.ShowCalendarRange, error) {
+	if m.GetUpcomingShowsCalendarRangeFn != nil {
+		return m.GetUpcomingShowsCalendarRangeFn()
+	}
+	return contracts.ShowCalendarRange{}, nil
 }
 func (m *MockShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
 	if m.GetShowCitiesFn != nil {
