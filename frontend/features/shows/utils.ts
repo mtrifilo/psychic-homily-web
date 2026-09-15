@@ -265,11 +265,14 @@ export function splitBill<T extends BillArtist>(
 /**
  * Whether a viewer may delete a show: an admin, or the reader who submitted it.
  *
- * BOTH ids are coerced before the comparison. The declared `id: string` is
- * narrower than the wire, which sends a number, so a `===` against an
+ * BOTH ids are coerced before the comparison. A viewer id is declared
+ * `string` but arrives from the wire as a number, so a `===` against an
  * uncoerced viewer id answers false for the very reader who submitted the
  * show and takes their own delete control with it. Gate a delete control on
  * this rather than comparing the two ids at the call site.
+ *
+ * Returns a `boolean` rather than the truthy union a `&&` chain would, so a
+ * caller using it as a JSX guard cannot paint a falsy id into the page.
  */
 export function canDeleteShow({
   submittedBy,
