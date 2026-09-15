@@ -267,6 +267,14 @@ describe('canModerateShow', () => {
     ).toBe(false)
   })
 
+  // The context spells an absent id `''` (see toAuthUser), which names no
+  // viewer and must not moderate anything.
+  it('refuses a viewer whose id is empty', () => {
+    expect(
+      canModerateShow({ submittedBy: 42, viewerId: '', isAdmin: false })
+    ).toBe(false)
+  })
+
   // Neither side may borrow the other's falsy id to match.
   it('refuses when either side has no id', () => {
     expect(

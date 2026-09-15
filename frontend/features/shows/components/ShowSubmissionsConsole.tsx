@@ -18,7 +18,6 @@ import {
   X,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { UserIdLike } from '@/features/auth/authUser'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { queryKeys } from '@/lib/queryClient'
 import {
@@ -64,7 +63,7 @@ const SUBMISSIONS_PAGE_SIZE = 50
 
 interface SubmissionShowCardProps {
   show: ShowResponse
-  currentUserId?: UserIdLike
+  currentUserId?: string
   isAdmin?: boolean
   onSubmissionChanged: () => void
   onSubmissionDeleted: () => void

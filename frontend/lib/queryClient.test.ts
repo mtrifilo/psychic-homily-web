@@ -71,11 +71,11 @@ describe('queryClient module', () => {
       expect(queryKeys.follows.batch('artists', [7], 42)).not.toEqual(
         queryKeys.follows.batch('artists', [7], 84)
       )
-      expect(queryKeys.savedShows.count(9, true, 42)).not.toEqual(
-        queryKeys.savedShows.count(9, true, 84)
+      expect(queryKeys.savedShows.count(9, true, '42')).not.toEqual(
+        queryKeys.savedShows.count(9, true, '84')
       )
-      expect(queryKeys.savedShows.countBatch([9], true, 42)).not.toEqual(
-        queryKeys.savedShows.countBatch([9], true, 84)
+      expect(queryKeys.savedShows.countBatch([9], true, '42')).not.toEqual(
+        queryKeys.savedShows.countBatch([9], true, '84')
       )
     })
 

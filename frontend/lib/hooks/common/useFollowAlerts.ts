@@ -58,7 +58,7 @@ export const useFollowAlerts = (
         API_ENDPOINTS.FOLLOW.ALERTS(entityType, entityId),
         { method: 'GET' }
       ),
-    enabled: enabled && isAuthenticated && viewerId !== undefined,
+    enabled: enabled && isAuthenticated && !!viewerId,
     // Matches the sibling follow-status query. A shorter window buys nothing:
     // every path that can change this value already reaches the cache without
     // a refetch (the PATCH seeds it, follow/unfollow invalidate it, and both

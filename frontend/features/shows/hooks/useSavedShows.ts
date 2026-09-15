@@ -107,7 +107,7 @@ export const useShowSaveCount = (
   showId: number,
   isAuthenticated: boolean,
   enabled: boolean = true,
-  userId?: string | number
+  userId?: string
 ) => {
   const { authStatus } = useAuthContext()
   return useQuery({
@@ -128,7 +128,7 @@ export const useShowSaveCount = (
       showId > 0 &&
       enabled &&
       authStatus !== 'pending' &&
-      (!isAuthenticated || userId !== undefined),
+      (!isAuthenticated || !!userId),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -144,7 +144,7 @@ export const useShowSaveCount = (
 export const useShowSaveCountBatch = (
   showIds: number[],
   isAuthenticated: boolean,
-  userId?: string | number
+  userId?: string
 ) => {
   const { authStatus } = useAuthContext()
   return useQuery({
@@ -175,7 +175,7 @@ export const useShowSaveCountBatch = (
     enabled:
       showIds.length > 0 &&
       authStatus !== 'pending' &&
-      (!isAuthenticated || userId !== undefined),
+      (!isAuthenticated || !!userId),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -302,7 +302,7 @@ export const useUnsaveShow = ({
 export const useSaveShowToggle = (
   showId: number,
   isSaved: boolean,
-  userId?: string | number
+  userId?: string
 ) => {
   const queryClient = useQueryClient()
   const saveShow = useSaveShow()

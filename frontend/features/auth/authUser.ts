@@ -44,10 +44,13 @@ export interface User {
  * generated schema instead is a change with its own blast radius, not a
  * rename.
  *
- * `id` is declared as the union the wire can carry rather than the `string`
- * the context {@link User} exposes: the backend serializes it as a JSON
- * number. {@link toAuthUser} is the ONE place that narrows it, and the union
- * is what forces that narrowing to be written rather than assumed.
+ * `id` is declared WIDER than the wire, which sends a JSON number
+ * (`components['schemas']['User']` declares `id: number`). The union is not a
+ * claim that a string arrives; it is what makes the narrowing in
+ * {@link toAuthUser} a written step rather than an assumption, and it keeps
+ * {@link toAuthUser} total over either spelling should a second serializer
+ * ever answer these endpoints. `string` is what the context {@link User}
+ * exposes, and this mapper is the only place the two meet.
  *
  * `user_tier` is a bare string rather than {@link UserTier}: the value is a
  * server-controlled enum, and {@link toAuthUser} asserts the union without
@@ -86,9 +89,10 @@ export interface AuthApiUser {
  * conversion its neighbours may not make, and two spellings of one viewer are
  * two cache entries and two answers to "is this mine".
  *
- * An absent id maps to `''`, which {@link isSameUserId} and every predicate
- * built on it read as no viewer. That fails closed: the alternative,
- * `String(undefined)`, is the truthy string `'undefined'`.
+ * An absent id maps to `''`, never to `String(undefined)`, which is the truthy
+ * string `'undefined'`. `''` is falsy, so a viewer with no id matches nobody
+ * and enables no viewer-scoped query: every gate on this value tests it for
+ * truth, not against `undefined`.
  */
 export function toAuthUser(apiUser: AuthApiUser): User {
   return {

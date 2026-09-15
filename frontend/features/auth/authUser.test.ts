@@ -41,16 +41,15 @@ describe('toAuthUser', () => {
     })
   })
 
-  // The defect the coercion exists for: the backend serializes `id` as a JSON
-  // number, the context declares it `string`, and a gate comparing a viewer id
-  // to an entity's owner column then answers false for the very reader who
-  // owns the row.
+  // The case every viewer-identity gate depends on: the wire sends a number
+  // and the context declares a string, so an uncoerced id matches nobody.
   it('narrows a numeric wire id to the string the context declares', () => {
     const mapped = toAuthUser({ ...apiUser, id: 42 })
     expect(mapped.id).toBe('42')
     expect(typeof mapped.id).toBe('string')
   })
 
+  // Narrowing is idempotent: an id that is already a string is not respelled.
   it('leaves a string id alone', () => {
     expect(toAuthUser({ ...apiUser, id: '42' }).id).toBe('42')
   })

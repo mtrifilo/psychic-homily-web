@@ -74,7 +74,7 @@ describe('release save hooks', () => {
 
   it('fetches the authenticated saved-release list with pagination', async () => {
     mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0 })
-    const { result } = renderHook(() => useSavedReleases(20, 40, 42), {
+    const { result } = renderHook(() => useSavedReleases(20, 40, '42'), {
       wrapper: createWrapper(),
     })
 
@@ -119,8 +119,8 @@ describe('release save hooks', () => {
         mutations: { retry: false },
       },
     })
-    const singleKey = releaseQueryKeys.saveCount(7, true, 42)
-    const batchKey = releaseQueryKeys.saveCountBatch([7], true, 42)
+    const singleKey = releaseQueryKeys.saveCount(7, true, '42')
+    const batchKey = releaseQueryKeys.saveCountBatch([7], true, '42')
     const personalChartsKey = ['charts', 'personal', '42'] as const
     queryClient.setQueryData(singleKey, {
       release_id: 7,
@@ -133,7 +133,7 @@ describe('release save hooks', () => {
     queryClient.setQueryData(personalChartsKey, { first_activity_at: null })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
-    const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
+    const { result } = renderHook(() => useReleaseSaveToggle(7, false, '42'), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -159,7 +159,7 @@ describe('release save hooks', () => {
         mutations: { retry: false },
       },
     })
-    const batchKey = releaseQueryKeys.saveCountBatch([7, 8], true, 42)
+    const batchKey = releaseQueryKeys.saveCountBatch([7, 8], true, '42')
     const personalChartsKey = ['charts', 'personal', '42'] as const
     queryClient.setQueryData(batchKey, {
       '7': { save_count: 2, is_saved: false },
@@ -176,7 +176,7 @@ describe('release save hooks', () => {
       throw new Error('save failed')
     })
 
-    const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
+    const { result } = renderHook(() => useReleaseSaveToggle(7, false, '42'), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -201,8 +201,8 @@ describe('release save hooks', () => {
         mutations: { retry: false },
       },
     })
-    const userBatch = releaseQueryKeys.saveCountBatch([7], true, 42)
-    const otherUserBatch = releaseQueryKeys.saveCountBatch([7], true, 84)
+    const userBatch = releaseQueryKeys.saveCountBatch([7], true, '42')
+    const otherUserBatch = releaseQueryKeys.saveCountBatch([7], true, '84')
     queryClient.setQueryData(userBatch, {
       '7': { save_count: 2, is_saved: false },
     })
@@ -211,7 +211,7 @@ describe('release save hooks', () => {
     })
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
-    const { result } = renderHook(() => useReleaseSaveToggle(7, false, 42), {
+    const { result } = renderHook(() => useReleaseSaveToggle(7, false, '42'), {
       wrapper: createWrapperWithClient(queryClient),
     })
 

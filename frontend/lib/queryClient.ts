@@ -478,18 +478,18 @@ export const queryKeys = {
     count: (
       showId: number,
       isAuthenticated: boolean,
-      userId?: string | number
+      userId?: string
     ) =>
       ['savedShows', 'count', isAuthenticated, userId ?? null, showId] as const,
     // Prefix, exported so the optimistic-update path can patch every cached
     // batch without re-typing the key segments (a rename here would otherwise
     // silently stop matching).
-    countBatchPrefix: (userId?: string | number) =>
+    countBatchPrefix: (userId?: string) =>
       [...SAVED_SHOWS_COUNT_BATCH_PREFIX, true, userId ?? null] as const,
     countBatch: (
       showIds: number[],
       isAuthenticated: boolean,
-      userId?: string | number
+      userId?: string
     ) =>
       [
         ...SAVED_SHOWS_COUNT_BATCH_PREFIX,

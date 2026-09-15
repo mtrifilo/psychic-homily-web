@@ -916,11 +916,9 @@ describe('ShowDetail', () => {
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
     })
 
-    // The shape the page was broken by. The backend serializes the viewer's
-    // id as a JSON number, so a page comparing it to `submitted_by` without
-    // coercing both sides took delete, the flags and the edit path from every
-    // submitter on their own show. The cases above mock the context's declared
-    // `string` and cannot see it.
+    // The wire's spelling of the viewer id, which the cases above (the
+    // context's declared `string`) do not cover. Every control here gates on
+    // one predicate, so all four answer together for either spelling.
     it('gives the submitter every owner control when the viewer id is a number', () => {
       mockAuthContext.mockReturnValue({
         user: { id: 42, is_admin: false },

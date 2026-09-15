@@ -16,7 +16,7 @@ import type {
 export function useSavedReleases(
   limit: number,
   offset: number,
-  userId: string | number | undefined
+  userId: string | undefined
 ) {
   const params = new URLSearchParams({
     limit: String(limit),
@@ -29,7 +29,7 @@ export function useSavedReleases(
         `${releaseEndpoints.SAVED_LIST}?${params.toString()}`,
         { method: 'GET' }
       ),
-    enabled: userId !== undefined,
+    enabled: !!userId,
   })
 }
 
@@ -37,7 +37,7 @@ export function useReleaseSaveCount(
   releaseId: number,
   isAuthenticated: boolean,
   enabled = true,
-  userId?: string | number
+  userId?: string
 ) {
   const { authStatus } = useAuthContext()
   return useQuery({
@@ -58,7 +58,7 @@ export function useReleaseSaveCount(
 export function useReleaseSaveCountBatch(
   releaseIds: number[],
   isAuthenticated: boolean,
-  userId?: string | number
+  userId?: string
 ) {
   const { authStatus } = useAuthContext()
   return useQuery({
@@ -94,7 +94,7 @@ export function useReleaseSaveCountBatch(
 export function useReleaseSaveToggle(
   releaseId: number,
   isSaved: boolean,
-  userId?: string | number
+  userId?: string
 ) {
   const queryClient = useQueryClient()
   const invalidateQueries = createInvalidateQueries(queryClient)

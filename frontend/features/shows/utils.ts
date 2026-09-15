@@ -267,12 +267,11 @@ export function splitBill<T extends BillArtist>(
  * Whether a viewer may moderate a show: an admin, or the reader who submitted
  * it.
  *
- * The single definition of that authority. Every surface that gates on it
- * calls this: the show page's delete, sold-out, cancelled and direct-edit
- * controls, the submissions console's manage cluster, and the delete control
- * on the show card and the day-grouped row. A surface that re-derives it
- * compares the two ids itself, and one show is then the viewer's on the list
- * and someone else's on its own page. A narrowing of the rule is an edit here.
+ * The single definition of that authority: every show surface that gates a
+ * control on admin-or-owner calls this rather than comparing the two ids
+ * itself. A surface that re-derives it lets one show be the viewer's on the
+ * list and someone else's on its own page, and a narrowing of the rule then
+ * reaches some of them and not the others. Narrowing it is an edit here.
  *
  * Returns a `boolean` rather than the truthy union a `&&` chain would, so a
  * caller using it as a JSX guard cannot paint a falsy id into the page.

@@ -188,7 +188,7 @@ export const useFollowStatus = (
       authStatus !== 'pending' &&
       (typeof entityId === 'number' ? entityId > 0 : entityId.length > 0) &&
       !!entityType &&
-      (!isAuthenticated || viewerId !== undefined),
+      (!isAuthenticated || !!viewerId),
     staleTime: 2 * 60 * 1000, // 2 minutes
   })
 }
@@ -224,7 +224,7 @@ export const useBatchFollowStatus = (
       entityIds.length > 0 &&
       !!entityType &&
       authStatus !== 'pending' &&
-      (!isAuthenticated || viewerId !== undefined),
+      (!isAuthenticated || !!viewerId),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -618,7 +618,7 @@ export const useMyFollowing = (options: UseMyFollowingOptions = {}) => {
     queryFn: async (): Promise<FollowingListResponse> => {
       return apiRequest<FollowingListResponse>(endpoint, { method: 'GET' })
     },
-    enabled: isAuthenticated && viewerId !== undefined,
+    enabled: isAuthenticated && !!viewerId,
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -663,7 +663,7 @@ export const useAllMyFollowing = (type: string) => {
 
       return { following, total, limit: following.length, offset: 0 }
     },
-    enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
+    enabled: isAuthenticated && !!viewerId && type.length > 0,
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -679,7 +679,7 @@ export const useLibraryFollowingCounts = () => {
       apiRequest<LibraryFollowingCounts>(API_ENDPOINTS.FOLLOW.LIBRARY_COUNTS, {
         method: 'GET',
       }),
-    enabled: isAuthenticated && viewerId !== undefined,
+    enabled: isAuthenticated && !!viewerId,
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -704,7 +704,7 @@ export const useLibraryFollowing = (type: string) => {
       )
     },
     getNextPageParam: page => page.next_cursor,
-    enabled: isAuthenticated && viewerId !== undefined && type.length > 0,
+    enabled: isAuthenticated && !!viewerId && type.length > 0,
     staleTime: 2 * 60 * 1000,
   })
 }

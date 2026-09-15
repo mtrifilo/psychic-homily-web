@@ -282,7 +282,8 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Releases · 0',
       ])
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
-      // The context id verbatim. See the page's own note on why.
+      // The context id verbatim: the tab and the SaveButton in its own rows
+      // scope their cache entries on the same value.
       expect(mockUseSavedShows).toHaveBeenCalledWith('upcoming', '1', true)
       expect(mockUseSavedShows).toHaveBeenCalledWith('past', '1', true)
       expect(mockUseLibraryFollowingCounts).toHaveBeenCalledTimes(1)

@@ -84,14 +84,14 @@ describe('releaseQueryKeys', () => {
   })
 
   it('partitions private save state by authenticated user identity', () => {
-    expect(releaseQueryKeys.savedList(50, 0, 42)).not.toEqual(
-      releaseQueryKeys.savedList(50, 0, 84)
+    expect(releaseQueryKeys.savedList(50, 0, '42')).not.toEqual(
+      releaseQueryKeys.savedList(50, 0, '84')
     )
-    expect(releaseQueryKeys.saveCount(7, true, 42)).not.toEqual(
-      releaseQueryKeys.saveCount(7, true, 84)
+    expect(releaseQueryKeys.saveCount(7, true, '42')).not.toEqual(
+      releaseQueryKeys.saveCount(7, true, '84')
     )
-    expect(releaseQueryKeys.saveCountBatch([7], true, 42)).not.toEqual(
-      releaseQueryKeys.saveCountBatch([7], true, 84)
+    expect(releaseQueryKeys.saveCountBatch([7], true, '42')).not.toEqual(
+      releaseQueryKeys.saveCountBatch([7], true, '84')
     )
   })
 })
