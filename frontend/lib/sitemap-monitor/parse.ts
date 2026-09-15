@@ -230,12 +230,14 @@ export function classifyLoc(loc: string): LocBucket {
     return 'other'
   }
 
-  // `/shows/{slug}` is a show, `/shows/{year}/{month}` a month of the list
-  // (PSY-2061). The month tail is judged by the ROUTE's own grammar, so this
-  // classifier and the pages it counts cannot disagree about which URLs exist. Strict like the venues rule and for the same reason: `/shows`
-  // carries other child routes, and the day pages below the months are
-  // deliberately not in any sitemap, so anything that is not exactly the month
-  // shape is 'other' rather than a month the generator never emitted.
+  // `/shows/{slug}` is a show, `/shows/{year}/{month}` a month of the list.
+  // The month tail is judged by the ROUTE's own grammar, so this classifier and
+  // the pages it counts cannot disagree about which URLs exist.
+  //
+  // Strict like the venues rule and for the same reason: `/shows` carries other
+  // child routes, and the day pages below the months are deliberately in no
+  // sitemap, so anything that is not exactly the month shape is 'other' rather
+  // than a month the generator never emitted.
   if (prefix === bareShowsPrefix) {
     if (segments.length === 2) return 'shows'
     if (

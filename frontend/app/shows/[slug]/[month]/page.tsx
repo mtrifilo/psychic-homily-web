@@ -8,7 +8,7 @@ import {
 import { parseMonthSegments } from '@/features/shows/showsCalendarRoute'
 
 /**
- * `/shows/{yyyy}/{mm}` — the upcoming list scoped to one venue-local month.
+ * `/shows/{yyyy}/{mm}`, the upcoming list scoped to one venue-local month.
  *
  * THE FIRST SEGMENT IS NAMED `[slug]` BECAUSE THE ROUTER REQUIRES IT. Next
  * refuses two different dynamic names at one position, and `app/shows/[slug]`
@@ -28,7 +28,7 @@ interface ShowsMonthRouteProps {
   /**
    * Passed straight through and awaited under the boundary, never here.
    * Awaiting it in this body would make the whole route dynamic and cost it the
-   * prerendered shell. `generateMetadata` does not take it at all — that is what
+   * prerendered shell. `generateMetadata` does not take it at all, that is what
    * keeps every `?page=` of a month on one canonical.
    */
   searchParams: ShowsCalendarSearchParams

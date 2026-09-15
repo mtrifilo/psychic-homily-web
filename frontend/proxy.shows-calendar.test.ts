@@ -26,7 +26,7 @@ function requestFor(pathname: string): NextRequest {
 /**
  * `/shows/{yyyy}/{mm}` and `/shows/{yyyy}/{mm}/{dd}` sit one level below the
  * entity-detail shape the generic check handles, so they need their own branch
- * here or every malformed date soft-404s — a 404 BODY committed at HTTP 200
+ * here or every malformed date soft-404s, a 404 BODY committed at HTTP 200
  * once the shell has streamed (the PSY-897 arc, the same failure the scene
  * periods and the venue year archives hit).
  *
@@ -34,7 +34,7 @@ function requestFor(pathname: string): NextRequest {
  * is a question about the upcoming partition under the reader's own filters,
  * and the route answers it from the month histogram it already reads.
  */
-describe('proxy — shows month and day routes', () => {
+describe('proxy, shows month and day routes', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -105,7 +105,7 @@ describe('proxy — shows month and day routes', () => {
   /**
    * The show detail page's file-convention OG card reaches the same
    * four-segment shape a month does. A static segment outranks a dynamic one in
-   * the router, so the card is what actually renders — and this branch has to
+   * the router, so the card is what actually renders, and this branch has to
    * agree with the router rather than 404 it as a malformed month.
    */
   it('leaves the show OG card route alone', async () => {
@@ -146,7 +146,7 @@ describe('proxy — shows month and day routes', () => {
 
   /**
    * The proxy keeps its OWN copy of the segment shapes because it must not
-   * import `features/` — the constraint the scenes, charts and venue-year
+   * import `features/`, the constraint the scenes, charts and venue-year
    * branches work under too. This is what keeps the two copies honest: the
    * proxy's verdict and the route's parse must agree on every input, or a URL
    * the proxy waves through renders a not-found at HTTP 200 (or worse, a URL

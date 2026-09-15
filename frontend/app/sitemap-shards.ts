@@ -266,7 +266,7 @@ export function shardRoutePath(id: string): string {
  * under that family's one prefix, which is what keeps sub-sharding invisible to
  * the URLs themselves.
  *
- * THREE prefixes are shared, and all for the same reason — a family addressing
+ * THREE prefixes are shared, and all for the same reason, a family addressing
  * a SLICE of an entity, or a WINDOW of a list, lives under that surface's
  * prefix:
  *

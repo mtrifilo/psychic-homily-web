@@ -8,7 +8,7 @@ import {
 import { parseDaySegments } from '@/features/shows/showsCalendarRoute'
 
 /**
- * `/shows/{yyyy}/{mm}/{dd}` — the upcoming list scoped to one venue-local day.
+ * `/shows/{yyyy}/{mm}/{dd}`, the upcoming list scoped to one venue-local day.
  *
  * The first segment is named `[slug]` for the router's sake; see the month
  * route above it for why. It carries the year here.

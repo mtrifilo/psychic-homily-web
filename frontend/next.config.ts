@@ -111,20 +111,25 @@ const nextConfig: NextConfig = {
         destination: '/sitemap-index',
         permanent: true,
       },
-      // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug.
+      // Hugo shows used /shows/YYYY/MM/slug/, flatten to /shows/slug.
       //
       // The final segment must NOT be day-shaped. `/shows/{yyyy}/{mm}/{dd}` is
-      // the day list route (PSY-2061), and this rule is evaluated BEFORE the
-      // proxy and before the router, so without the exclusion every day URL
-      // 308s to /shows/{dd} — measured on a dev build, not inferred. The two
-      // rules are made disjoint here rather than by reordering, because a
-      // redirect cannot decline a match.
+      // the day list route, and this rule is evaluated BEFORE the proxy and
+      // before the router, so without the exclusion it claims every day URL and
+      // 308s it to `/shows/{dd}`. The two rules are made disjoint here rather
+      // than by reordering, because a redirect cannot decline a match.
       //
-      // What it gives up is a legacy show whose slug was exactly two digits in
-      // 01-31. Hugo slugs were band-and-venue names, so that set is empty; the
-      // day route is the live surface either way.
+      // The exclusion is exactly the day shape, so this rule claims a final
+      // segment if and only if the day route does not. A legacy slug that is
+      // itself two digits in 01-31 therefore no longer flattens.
+      // `next.config.shows-redirect.test.ts` asserts the partition.
+      //
+      // The lookahead ends on a SEGMENT boundary rather than a path end.
+      // path-to-regexp appends its own optional `[/#?]` suffix, so a bare `$`
+      // inside the lookahead stops matching as soon as anything follows the day
+      // and the rule reclaims `/shows/2026/11/14/`.
       {
-        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug((?!(?:0[1-9]|[12]\\d|3[01])$)[^/]+)',
+        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug((?!(?:0[1-9]|[12]\\d|3[01])(?:[/#?]|$))[^/]+)',
         destination: '/shows/:slug',
         permanent: true,
       },

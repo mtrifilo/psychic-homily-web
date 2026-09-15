@@ -281,7 +281,7 @@ test.describe('Shows month and day routes', () => {
 
   /**
    * SHAPE is settled by `proxy.ts` before anything renders, so these are real
-   * HTTP 404s rather than a not-found body at 200 — the soft-404 the proxy
+   * HTTP 404s rather than a not-found body at 200, the soft-404 the proxy
    * exists to prevent.
    */
   for (const path of [
@@ -301,7 +301,7 @@ test.describe('Shows month and day routes', () => {
    * `/shows/{yyyy}/{mm}/{slug}` flattens to `/shows/{slug}`, which is evaluated
    * before the proxy and before the router. The day route's grammar is excluded
    * from that pattern in `next.config.ts`, and this is the other half of that
-   * split — without it, narrowing the redirect could silently swallow the
+   * split, without it, narrowing the redirect could silently swallow the
    * legacy URLs it exists for.
    */
   test('a legacy Hugo show URL still flattens to the show', async ({ page }) => {
@@ -322,8 +322,8 @@ test.describe('Shows month and day routes', () => {
 
   /**
    * A well-formed month with no shows is a not-found PAGE. Its status is 200
-   * under `cacheComponents` — the shell has streamed by the time the histogram
-   * read resolves — with the `noindex` Next injects, so the assertion is on the
+   * under `cacheComponents`, the shell has streamed by the time the histogram
+   * read resolves, with the `noindex` Next injects, so the assertion is on the
    * rendered body rather than the status. A status-bearing month-existence
    * probe is the follow-up that would make this a hard 404.
    */

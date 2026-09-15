@@ -170,22 +170,20 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 }
 
 /**
- * Shape of the date segments under `/shows/` — `/shows/2026/11` and
- * `/shows/2026/11/14` (PSY-2061).
+ * Shape of the date segments under `/shows/`: `/shows/2026/11` and
+ * `/shows/2026/11/14`.
  *
- * Fixed width, and EXPORTED so `proxy.shows-calendar.test.ts` can assert these
- * are the same shapes `features/shows/showsCalendarRoute` accepts rather than
- * assert each against a literal. The copy is deliberate: this file must not
- * import `features/`, the same constraint the scenes, charts and venue-year
- * branches work under.
+ * Fixed width, and EXPORTED so a test can compare this branch's verdict against
+ * the route grammar's on every input rather than assert each against a literal.
+ * The copy is deliberate: this file must not import `features/`, the same
+ * constraint the scenes, charts and venue-year branches work under.
  */
 export const SHOWS_CALENDAR_MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
 export const SHOWS_CALENDAR_DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
 
 /**
- * The years a shows window may name. MUST stay in lockstep with
- * `SHOWS_CALENDAR_MIN_YEAR`/`MAX_YEAR` in features/shows/showsCalendarRoute,
- * which `proxy.shows-calendar.test.ts` asserts.
+ * The years a shows window may name. MUST stay in lockstep with the route
+ * grammar's own bound; the test that pins the segment shapes pins these too.
  *
  * Not decoration, and the bound does more than the shape. Four digits alone
  * admits `0026`, whose page emits a canonical the router cannot serve, and
@@ -208,7 +206,7 @@ export function isAddressableShowsYear(segment: string): boolean {
  * `opengraph-image` is a file-convention route on the show detail page. It
  * reaches the same four-segment shape the month route does, and without this it
  * would be 404ed as a malformed month. The two cannot collide in the router
- * either — a static segment outranks a dynamic one — so this list is what keeps
+ * either, a static segment outranks a dynamic one, so this list is what keeps
  * the proxy agreeing with the routing layer.
  */
 const SHOWS_SLUG_SUBROUTES: ReadonlySet<string> = new Set(['opengraph-image'])
@@ -341,7 +339,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   }
 
   // Shows: the month and day list routes sit one level BELOW the show detail
-  // shape — `/shows/2026/11` and `/shows/2026/11/14` (PSY-2061). The generic
+  // shape: `/shows/2026/11` and `/shows/2026/11/14`. The generic
   // check further down only handles the 3-segment detail shape, so without this
   // branch a malformed date streams a 200 shell before the route's own
   // `notFound()` resolves, and every junk segment under `/shows/` becomes a
@@ -355,9 +353,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // MEMBERSHIP is not settled here, and the consequence is stated rather than
   // implied: a well-formed month with no shows reaches the route, whose
   // `notFound()` lands after the shell has streamed and so commits a 404 body
-  // at HTTP 200. The venue year archives closed the same gap with a
-  // status-bearing `exists` probe (PSY-1770); an equivalent endpoint for the
-  // upcoming month histogram is the follow-up that would close this one.
+  // at HTTP 200. Closing that needs a status-bearing existence probe, which is
+  // the shape every other branch in this file uses and which the upcoming month
+  // histogram has no endpoint for.
   if (
     entityType === 'shows' &&
     slug &&

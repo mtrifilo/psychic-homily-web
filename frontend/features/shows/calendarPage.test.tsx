@@ -8,8 +8,8 @@ vi.mock('next/navigation', () => ({
 }))
 
 // The list is a client component with its own hooks; this file tests the
-// SERVER decisions around it — which windows are documents, and what gets
-// seeded — so it is stubbed to a marker.
+// SERVER decisions around it, which windows are documents, and what gets
+// seeded, so it is stubbed to a marker.
 vi.mock('./components/ShowList', () => ({
   ShowList: (): null => null,
 }))
@@ -72,7 +72,7 @@ beforeEach(() => {
   seedFirstScreen.mockResolvedValue({ queries: [] })
 })
 
-describe('ShowsCalendarContent — which windows are documents', () => {
+describe('ShowsCalendarContent, which windows are documents', () => {
   it('renders a month the histogram carries', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM })
 
@@ -143,7 +143,7 @@ describe('ShowsCalendarContent — which windows are documents', () => {
   /**
    * The zero-rows guard covers MONTHS as well as days. It is a second opinion
    * the histogram has already given, and it fires only when the two disagree
-   * about what "upcoming" means — at which point the page has no rows to show,
+   * about what "upcoming" means, at which point the page has no rows to show,
    * so a not-found is the honest answer rather than an empty month.
    */
   it('404s a month the histogram carries but the window read answers empty', async () => {
@@ -171,7 +171,7 @@ describe('ShowsCalendarContent — which windows are documents', () => {
   /**
    * 404 only on a POSITIVE absence. A failed histogram read is not an answer,
    * and treating it as one turns a backend blip into a not-found body for every
-   * month on the site — which the proxy deliberately does not do either.
+   * month on the site, which the proxy deliberately does not do either.
    */
   it('renders rather than 404s when the histogram read failed', async () => {
     answerWith({ rows: page(68), months: null })
@@ -196,7 +196,7 @@ describe('ShowsCalendarContent — which windows are documents', () => {
   })
 })
 
-describe('ShowsCalendarContent — the first-screen seed', () => {
+describe('ShowsCalendarContent, the first-screen seed', () => {
   it('reads page 1 of the window at the URL the hook asks for', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM })
 

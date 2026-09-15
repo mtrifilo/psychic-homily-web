@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Throws, like the real one — which is typed `never`. A non-throwing mock lets
+// Throws, like the real one, which is typed `never`. A non-throwing mock lets
 // the page body carry on past `notFound()` and return its Suspense element with
 // a null window, so a test could assert "rejected the segments" while the route
 // in fact rendered.
@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
-// These tests exercise the route's OWN job — segment validation and the head —
+// These tests exercise the route's OWN job, segment validation and the head,
 // so the body, which fetches, is stubbed out.
 vi.mock('@/features/shows/calendarPage', async importOriginal => {
   const actual = await importOriginal<
@@ -36,7 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('/shows/{yyyy}/{mm} — segment validation', () => {
+describe('/shows/{yyyy}/{mm}, segment validation', () => {
   it('renders a well-formed month', async () => {
     await expect(
       ShowsMonthPage({ params: monthParams('2026', '11'), searchParams })
@@ -57,7 +57,7 @@ describe('/shows/{yyyy}/{mm} — segment validation', () => {
   })
 })
 
-describe('/shows/{yyyy}/{mm}/{dd} — segment validation', () => {
+describe('/shows/{yyyy}/{mm}/{dd}, segment validation', () => {
   it('renders a well-formed day', async () => {
     await expect(
       ShowsDayPage({ params: dayParams('2026', '11', '14'), searchParams })

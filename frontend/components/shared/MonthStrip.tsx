@@ -48,8 +48,8 @@ export interface MonthStripProps {
    * How the marked entry relates to the page being viewed.
    *
    * `'page'` when the marked entry's own URL is the current one. `'section'`
-   * when the current page sits INSIDE the marked month without being it — a
-   * day page — where `aria-current="page"` would tell a reader that a link
+   * when the current page sits INSIDE the marked month without being it, a
+   * day page, where `aria-current="page"` would tell a reader that a link
    * navigating elsewhere is where they already are. `aria-current="true"` is
    * the generic "current item in a set", which is the honest claim there.
    *
@@ -148,7 +148,7 @@ function Separator() {
  * disclosure until a reader opens it.
  *
  * A month href addresses a per-month route, so a consumer must hand it months
- * that route actually serves — a histogram, not a calendar.
+ * that route actually serves, a histogram, not a calendar.
  *
  * Every month is a real `<a href>`. The strip is bounded to the months it is
  * handed, so a consumer passing a histogram gets exactly the months that have

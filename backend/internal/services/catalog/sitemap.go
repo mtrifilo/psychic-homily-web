@@ -593,25 +593,37 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 	return entries, nil
 }
 
+// showsMonthSitemapMinYear and showsMonthSitemapMaxYear bound the months this
+// family may announce, and they are the SAME bound the month route applies to
+// its year segment.
+//
+// A show can carry any event_date the submitter typed, so without this a single
+// mistyped year publishes a URL the frontend answers with a hard 404: the route
+// refuses a year outside the bound before it renders. The sitemap must never
+// announce an address the site refuses, so the bound belongs on both sides.
+const (
+	showsMonthSitemapMinYear = 2000
+	showsMonthSitemapMaxYear = 2100
+)
+
 // showsMonthEntries projects one SitemapEntry per venue-local calendar month
-// that has at least one approved UPCOMING show - the crawlable month pages at
-// /shows/{year}/{month} (PSY-2061).
+// that has at least one approved UPCOMING show: the crawlable month pages at
+// /shows/{year}/{month}.
 //
 // UPCOMING only, and that is the whole definition of the surface rather than a
-// filter applied to it: the month route renders the same upcoming partition the
-// GET /shows/months histogram enumerates, and 404s a month that histogram does
-// not carry. A month announced here that the histogram lacks would be a URL the
-// site itself answers with a not-found.
+// filter applied to it. The set this emits must equal the set
+// GetUpcomingShowMonths returns for an unfiltered public read, bounded by the
+// years above, because that histogram is what decides whether a month page
+// renders; a month announced here that it does not carry is a URL this site
+// answers with a not-found.
 //
-// THE AGREEMENT IS HELD BY A TEST, NOT BY CONSTRUCTION. This query restates the
-// partition rather than composing ShowService.upcomingShowPredicates, which is
-// what the histogram builds on and which carries predicates this does not (an
-// admin status branch, the city and tag filters). The two agree today on the
-// public, unfiltered path, and TestSitemapEntriesShowsMonthsMatchTheMonthHistogram
-// is what says so. A predicate added to that applier does not reach here.
+// THE EQUALITY IS HELD BY A TEST, NOT BY CONSTRUCTION. This query restates the
+// partition rather than composing the applier the histogram builds on, so a
+// predicate added there does not reach here. The integration test alongside
+// this file asserts the two sets match; it is the guard when either side moves.
 //
-// UNFILTERED, like the histogram the strip and the route read. A reader's city
-// filter is a query param on these URLs, not part of their identity.
+// UNFILTERED, like the histogram. A reader's city filter is a query param on
+// these URLs, not part of their identity.
 //
 // Unlike the entity families this is NOT one row per table row, so entriesFor
 // cannot serve it: the grain is (year, month) and the slug is composite.
@@ -622,11 +634,9 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 // (/shows/2026/09, never /shows/2026/9), so an unpadded slug here would
 // announce a URL that 404s on shape alone.
 //
-// COST: one grouped scan of the approved UPCOMING shows with the venue-zone
-// lateral, which is a small and self-limiting set, since shows leave it as they
-// happen. It emits one row per month that has shows, which is a handful, so
-// neither the Next Data Cache budget nor the 50,000-URL sitemap limit is in
-// reach for this family.
+// One grouped scan of the approved UPCOMING shows with the venue-zone lateral,
+// over a set that is small and self-limiting since shows leave it as they
+// happen, emitting one row per month that has shows.
 func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
 	type row struct {
 		Year      int       `gorm:"column:year"`
@@ -644,6 +654,7 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 		Joins(shared.VenueTZJoin).
 		Where("shows.status = ?", catalogm.ShowStatusApproved).
 		Where(shared.VenueLocalDateCondition("upcoming")).
+		Where(shared.VenueLocalYearSQL+" BETWEEN ? AND ?", showsMonthSitemapMinYear, showsMonthSitemapMaxYear).
 		Select(shared.VenueLocalYearSQL + ` AS "year", ` + shared.VenueLocalMonthSQL + ` AS "month", MAX(shows.updated_at) AS updated_at`).
 		Group(shared.VenueLocalYearSQL + ", " + shared.VenueLocalMonthSQL).
 		Scan(&rows).Error

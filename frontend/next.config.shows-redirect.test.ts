@@ -28,10 +28,9 @@ import { SHOWS_CALENDAR_DAY_SEGMENT } from './proxy'
  * day route's shape does not.
  *
  * The shape, not `parseDaySegments`: the redirect cannot know how long a month
- * is, so `/shows/2026/11/31` is claimed by neither (`proxy.ts` 404s it on the
- * calendar test). `SHOWS_CALENDAR_DAY_SEGMENT` is the proxy's copy, which
- * `proxy.shows-calendar.test.ts` already pins to the route's — so asserting
- * against it chains all three copies together.
+ * is, so `/shows/2026/11/31` is claimed by neither and the proxy 404s it on the
+ * calendar test. The shape asserted against is the proxy's exported copy, which
+ * is itself asserted equal to the route grammar's, so this chains onto that.
  */
 describe('the legacy Hugo shows redirect', () => {
   async function flattenRule() {
@@ -46,39 +45,71 @@ describe('the legacy Hugo shows redirect', () => {
   }
 
   /**
-   * The rule's `source` is path-to-regexp, and the only part this test needs to
-   * evaluate is the custom pattern on `:slug`. Extracting it keeps the test
-   * honest about WHICH text it is checking rather than re-stating the lookahead.
+   * The rule's `source` compiled the way Next compiles it, through its own
+   * bundled matcher.
+   *
+   * Compiling the WHOLE source rather than extracting the `:slug` sub-pattern
+   * is what makes this test able to see the optional `[/#?]` suffix
+   * path-to-regexp appends: a lookahead anchored on `$` stops applying the
+   * moment anything follows the day segment, and a sub-pattern lifted out of
+   * its context cannot show that.
    */
-  function slugPattern(source: string): RegExp {
-    const match = source.match(/:slug\((.*)\)$/)
-    expect(match, `no custom :slug pattern in ${source}`).not.toBeNull()
-    return new RegExp(`^(?:${match![1]})$`)
+  async function ruleMatcher() {
+    const rule = await flattenRule()
+    // Next bundles its own copy and ships no types for it. The cast is the
+    // narrowest statement of what this test needs: the compiler Next itself
+    // applies to a redirect source.
+    const compiled = (await import(
+      // @ts-expect-error - no type declarations ship with the bundled copy
+      'next/dist/compiled/path-to-regexp/index.js'
+    )) as { pathToRegexp: (source: string) => RegExp }
+    return compiled.pathToRegexp(rule.source)
   }
 
   it('claims a final segment exactly when the day route does not', async () => {
-    const rule = await flattenRule()
-    const pattern = slugPattern(rule.source)
+    const matcher = await ruleMatcher()
 
-    const segments: string[] = ['a-real-show-slug', '2026-03-20-a-show', 'x', '0']
+    const segments: string[] = [
+      'a-real-show-slug',
+      '2026-03-20-a-show',
+      'x',
+      '0',
+      '001',
+      '100',
+      '011',
+    ]
     for (let value = 0; value < 100; value += 1) {
       segments.push(String(value).padStart(2, '0'))
       segments.push(String(value))
     }
 
+    // A bare path, and every suffix path-to-regexp's own trailing group can
+    // absorb. The suffixed forms are the ones a lookahead anchored on `$` gets
+    // wrong, and they are exactly the shape the legacy Hugo URLs had.
+    const suffixes = ['', '/', '#frag', '?page=2']
+
     for (const segment of segments) {
       const isDayShaped = SHOWS_CALENDAR_DAY_SEGMENT.test(segment)
-      expect(
-        pattern.test(segment),
-        `redirect and day shape disagree about /shows/2026/11/${segment}`
-      ).toBe(!isDayShaped)
+      for (const suffix of suffixes) {
+        const path = `/shows/2026/11/${segment}${suffix}`
+        expect(
+          matcher.test(path),
+          `redirect and day shape disagree about ${path}`
+        ).toBe(!isDayShaped)
+      }
     }
   })
 
-  // The rule's own reason for existing: a legacy show URL still flattens.
-  it('still claims a word slug', async () => {
+  // The rule's own reason for existing: a legacy show URL still flattens,
+  // trailing slash and all, which is the form those URLs were written in.
+  it('still claims a word slug, with or without a trailing slash', async () => {
+    const matcher = await ruleMatcher()
     const rule = await flattenRule()
-    expect(slugPattern(rule.source).test('bright-eyes-at-the-rebel-lounge')).toBe(
+
+    expect(matcher.test('/shows/2026/11/bright-eyes-at-the-rebel-lounge')).toBe(
+      true
+    )
+    expect(matcher.test('/shows/2026/11/bright-eyes-at-the-rebel-lounge/')).toBe(
       true
     )
     expect(rule.permanent).toBe(true)

@@ -5,6 +5,8 @@
  * link says can be tested without a rendered list.
  */
 
+import { SHOWS_ROOT } from './showsCalendarRoute'
+
 /**
  * Rows per page on `/shows`.
  *
@@ -36,7 +38,7 @@ export const SHOWS_PAGE_SIZE = 50
 export function showsPageHref(
   params: URLSearchParams | { toString: () => string },
   page: number,
-  basePath = '/shows'
+  basePath: string = SHOWS_ROOT
 ): string {
   const next = new URLSearchParams(params.toString())
   if (page > 1) next.set('page', String(page))

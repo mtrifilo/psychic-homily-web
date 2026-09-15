@@ -10,7 +10,7 @@
  * from the seed rather than suppressing the other two.
  *
  * Shared by the root list and the date-addressed ones, which differ only in
- * WHICH calendar entry the rows land on — hence `calendarKey`.
+ * WHICH calendar entry the rows land on, hence `calendarKey`.
  */
 
 import {

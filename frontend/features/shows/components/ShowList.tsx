@@ -311,8 +311,15 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   )
 
   // The strip's bars. The histogram is the ONLY thing that says which months
-  // are documents, so passing it through unfiltered is what keeps the strip
-  // from offering a link the route answers with a not-found.
+  // are documents, so passing it through is what keeps the strip from offering
+  // a link the route answers with a not-found.
+  //
+  // Held across a filter change, where `labelBuckets` above is withheld. The
+  // two carry different claims: a page label states which months a page the
+  // reader has not opened covers, and a wrong one cannot be corrected by
+  // arriving; a bar states a count beside a link that re-filters on arrival, so
+  // the outgoing filter's counts are stale for the moment the rows beside them
+  // are, and blanking the navigation would take the way out with them.
   const monthEntries = monthsData?.months ?? NO_MONTHS
 
   // The strip takes a (year, month) pair; this is the same window href with
@@ -599,10 +606,9 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
       </div>
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
-        {/* The month axis. Inside the dimming wrapper rather than above it
-            because its counts come from the same filtered query family as the
-            rows: a strip that stayed bright while the rows faded would be
-            asserting counts for a filter the list has already left.
+        {/* The month axis. Inside the dimming wrapper because its counts come
+            from the same filtered query family as the rows, so the two fade
+            and settle together.
 
             Bounded to the months the histogram carries, so no link here can
             address a month the route 404s. */}

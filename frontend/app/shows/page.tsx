@@ -206,8 +206,8 @@ export function getShowsMonthsPayload(): Promise<ShowMonthsResponse | null> {
 }
 
 /**
- * Seed the two cache entries `ShowList` blocks its first paint on — the first
- * page of upcoming shows and the city facet counts — so dates, artists, venues
+ * Seed the two cache entries `ShowList` blocks its first paint on, the first
+ * page of upcoming shows and the city facet counts, so dates, artists, venues
  * and cities reach the server HTML (PSY-1624).
  *
  * BOTH are required: `ShowList` returns its skeleton while EITHER query is

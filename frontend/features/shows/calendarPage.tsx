@@ -1,15 +1,15 @@
 /**
- * `/shows/{yyyy}/{mm}` and `/shows/{yyyy}/{mm}/{dd}` — the upcoming list scoped
+ * `/shows/{yyyy}/{mm}` and `/shows/{yyyy}/{mm}/{dd}`, the upcoming list scoped
  * to one venue-local calendar month or day, served as a crawlable document.
  *
  * WHY A PATH SEGMENT rather than `?month=` on `/shows`: a month is the identity
  * of a result set, not a slice of one. It has to be bookmarkable, linkable from
  * the strip, and announceable in the sitemap, and a query facet is none of
- * those under the site's canonicalize-to-root pagination policy — every
+ * those under the site's canonicalize-to-root pagination policy, every
  * `?month=` would collapse onto `/shows` and no month would be indexable.
  *
  * `?page=` inside a window stays a QUERY and stays client-side, and
- * `buildShowsCalendarMetadata` is reached from `params` alone — which is what
+ * `buildShowsCalendarMetadata` is reached from `params` alone, which is what
  * makes every page of a window canonicalize to the window root structurally
  * rather than by remembering to. The venue year archive settled this shape; see
  * `features/venues/yearArchivePage.tsx`.
@@ -69,7 +69,7 @@ function windowUrl(window: ShowsCalendarWindow): string {
  * Metadata for one window.
  *
  * The canonical is SELF-referencing and always the window root, so a `?page=2`
- * of this month canonicalizes here rather than declaring itself — the site's
+ * of this month canonicalizes here rather than declaring itself, the site's
  * pagination policy (`listRootCanonical`), and it holds because nothing in this
  * function can see the page number.
  *
@@ -102,7 +102,7 @@ export function buildShowsCalendarMetadata(
  * Page 1's rows, or null when this URL is not asking for page 1.
  *
  * `ShowList` reads `?page=` for itself, and a seed attaches to whatever key is
- * current — so seeding page 2 with page 1's slice would look like a cache hit
+ * current, so seeding page 2 with page 1's slice would look like a cache hit
  * and never correct itself. An async function rather than an inline branch so
  * the caller can hand it straight to `Promise.all`: awaiting `searchParams`
  * first and only then deciding would put the row read BEHIND the other two
@@ -138,7 +138,7 @@ async function readSeedableWindowPage(
  *
  * A `notFound()` here renders the not-found BODY. Under `cacheComponents` the
  * shell has already streamed by the time these reads resolve, so the status on
- * that response is 200 with the `noindex` Next injects, not 404 — the same
+ * that response is 200 with the `noindex` Next injects, not 404, the same
  * soft-404 the venue year archive's in-page `notFound()` paths carry, and the
  * reason `proxy.ts` decides the SHAPE of these URLs before the render starts.
  * Shape is all the proxy can decide without a backend probe; membership is a
@@ -167,7 +167,7 @@ export async function ShowsCalendarContent({
 
   // WHICH MONTHS ARE DOCUMENTS is asked of the histogram, which is the same
   // source the strip links from and the `shows_months` sitemap family is
-  // projected from — so the set announced, the set that renders and the set the
+  // projected from, so the set announced, the set that renders and the set the
   // strip offers cannot drift apart. It is page-INDEPENDENT, which is what
   // makes `?page=2` of a dead month a not-found too, and it is the whole of the
   // past-month rule: the histogram covers the UPCOMING partition, so a month
@@ -195,7 +195,7 @@ export async function ShowsCalendarContent({
   // For a DAY this is the only gate there is: a day inside a month that does
   // have shows still has to have its own, and the histogram buckets months.
   // For a MONTH it is a second opinion the histogram has already given, and it
-  // fires only if the two disagree about what "upcoming" means — in which case
+  // fires only if the two disagree about what "upcoming" means, in which case
   // the month page renders no rows, so a not-found is the honest answer.
   //
   // It needs the window's own total, which is read on page 1 and skipped on

@@ -3,10 +3,13 @@
  * `/shows/{yyyy}/{mm}/{dd}`.
  *
  * Pure: no React, no router, no fetching, so the rules that decide whether a
- * path segment names a month can be tested without a rendered route. The proxy
- * keeps its own copy of the SHAPE rules (it must not import `features/`, the
- * same constraint the scenes and venue-year branches work under); the two are
- * pinned against each other by `proxy.shows-calendar.test.ts`.
+ * path segment names a month can be tested without a rendered route.
+ *
+ * THIS IS THE AUTHORITY on that grammar. The proxy keeps its own copy, because
+ * it may not import `features/`, and a test asserts the two reach the same
+ * verdict on every input; the legacy redirect in `next.config.ts` carries the
+ * day shape as an exclusion, and a test asserts it claims a segment if and only
+ * if this grammar does not. Widen anything here and both of those go red.
  */
 
 import { formatCalendarMonthParts } from '@/lib/utils/formatters'
@@ -39,12 +42,13 @@ export const SHOWS_ROOT = '/shows'
  *     NO WINDOW: the request would answer with the whole upcoming list under a
  *     heading naming one month.
  *   - It is the crawl bound. Four digits alone is ten thousand years crossed
- *     with twelve months, and a month that has no shows is a page this route
- *     renders as a not-found body rather than a status (see `calendarPage`).
+ *     with twelve months, and a month that has no shows renders as a not-found
+ *     body rather than a status.
  *
- * The range is the one the backend already accepts for a year a reader may
- * address (`GetVenueShowsRequest.Year`, `minimum:"2000" maximum:"2100"`), so
- * this narrows the URL space without narrowing the catalogue.
+ * The range is wide enough to hold every show this catalogue can carry and
+ * narrow enough that the addressable space is a few thousand URLs rather than
+ * a hundred thousand. It matches the range the API accepts for a year a reader
+ * may address.
  */
 const YEAR_SEGMENT = /^\d{4}$/
 export const SHOWS_CALENDAR_MIN_YEAR = 2000
@@ -69,8 +73,8 @@ function pad2(value: number): string {
  *
  * `2027-02-31` passes the segment shapes above and does not exist. `Date.UTC`
  * normalizes an out-of-range date, so comparing the components back is the
- * whole check — the same derivation `proxy.ts` uses for scene day permalinks,
- * for the same reason: Gregorian arithmetic needs no database and no timezone.
+ * whole check: a day's validity is Gregorian arithmetic, which needs no
+ * database, no timezone and no round trip.
  */
 export function isRealCalendarDay(
   year: number,

@@ -206,7 +206,7 @@ describe('shows first-screen prefetch contract', () => {
  * seed `showsCalendarWindowFirstScreenKey(window)` from
  * `showsCalendarWindowFirstScreenUrl(window)`, and the pair has to describe
  * what `ShowList` asks for on page 1 of that window or the month page quietly
- * stops being server-rendered — the same silent regression, with no error
+ * stops being server-rendered, the same silent regression, with no error
  * anywhere, that the root's contract above exists to prevent.
  */
 describe('shows window first-screen prefetch contract', () => {

@@ -1104,8 +1104,8 @@ describe('ShowList', () => {
 
   /**
    * The date-addressed lists (PSY-2061). One `window` prop decides three things
-   * together — which rows are requested, which URL the pager and the filter
-   * writes address, and which month the strip marks — so each is asserted here
+   * together, which rows are requested, which URL the pager and the filter
+   * writes address, and which month the strip marks, so each is asserted here
    * rather than inferred from the others.
    */
   describe('month and day windows', () => {
@@ -1170,7 +1170,7 @@ describe('ShowList', () => {
     })
 
     // Page 1 writes no `page`, so the month root is reachable by paging back
-    // and has exactly one address — the same rule the list root follows.
+    // and has exactly one address, the same rule the list root follows.
     it('pages back to the bare month URL', () => {
       mockSearchParams.mockReturnValue(new URLSearchParams('page=2'))
 
@@ -1262,7 +1262,7 @@ describe('ShowList', () => {
 
     /**
      * The strip navigates the DATE axis and owns nothing in the query string,
-     * so every other key has to survive a jump between months — otherwise an
+     * so every other key has to survive a jump between months, otherwise an
      * explicit All Cities silently falls back to the viewer's derived default,
      * and a campaign link loses its attribution on the first click.
      */
