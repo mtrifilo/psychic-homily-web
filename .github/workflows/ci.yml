@@ -169,6 +169,19 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
+    # Outer safety net for the steps that carry no timeout of their own:
+    # checkout, the two Node-pin gates, Docker login, setup-go, setup-node,
+    # the graph-layout step (`npm ci` plus `node --test`, a second test
+    # suite with no bound of its own), and the Codecov upload. The Go suite
+    # is bounded by the `-timeout` on its own step.
+    #
+    # 25 = ~17.5 worst case plus slack: one package wedging for the full 14m
+    # below, the ~3 minutes the remaining packages add to that step's wall
+    # time, and ~0.4 for every other step. Wall time aggregates across
+    # concurrently scheduled packages even though the per-package timeouts
+    # do not, so two simultaneous wedges exceed this cap, and a kill here
+    # costs the goroutine dump the step-level timeout would have printed.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -206,9 +219,27 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
+      # `-timeout` is handed to each package's test binary, so this is 14m
+      # per package, not 14m for the run. Go's implicit default is 10m,
+      # under 4 minutes above the slowest package's measured CI max.
+      #
+      # 14m = 2x that max, rounded up to a whole minute. The slowest package
+      # is internal/services/catalog, 209.3s min and 402.4s max across CI
+      # runs 34903945713, 34902324043 and 34898614580: 2 x 402.4s = 804.8s,
+      # so 14m, leaving it 7.3 minutes of headroom. Its runtime scales with
+      # the migration count, because it starts a fresh postgres container
+      # and replays every migration once per test suite, so that max
+      # ratchets upward on its own.
+      #
+      # To re-measure: take `ok <pkg> <seconds>` out of the Backend Tests
+      # job log of the last three green main runs and keep each package's
+      # max. One run tracks runner speed, not the code. The sizing rule puts
+      # the slowest package at 50% of this value; resize once it passes 60%
+      # (504s). Full table and derivation: docs/runbooks/ci-go-test-timing.md,
+      # which `.gitignore` excludes, so it is in no clone.
       - name: Run backend tests with coverage
         working-directory: ./backend
-        run: go test -coverprofile=coverage.out ./...
+        run: go test -timeout 14m -coverprofile=coverage.out ./...
 
       # PSY-1723: the nightly graph-overview layout runs in a Node subprocess
       # (backend/layout), and its test suite is the ONLY coverage of the
@@ -877,13 +908,16 @@ jobs:
     # failed — the whole point — but a human cancelling the RUN no longer
     # files a spurious issue. A job killed by its own `timeout-minutes` does
     # NOT set the RUN-level cancelled() flag this job-level `if:` reads, so
-    # timeout-cancelled e2e jobs still page via the `!= 'success'` clauses
+    # timeout-cancelled jobs still page via the `!= 'success'` clauses
     # (which also sidestep any assumption about how a 4-leg matrix
-    # aggregates one cancelled shard). 'skipped' is not a reachable false
-    # positive: e2e-tests has no needs and shares this job's push+main gate,
+    # aggregates one cancelled shard). Every job that carries a
+    # `timeout-minutes` of its own needs that form, because a cap kill
+    # resolves to 'cancelled', not 'failure'. 'skipped' is not a reachable
+    # false positive for any of them: backend-tests has neither `needs:` nor
+    # an `if:`, e2e-tests has no needs and shares this job's push+main gate,
     # and e2e-report skips only under the same `!cancelled()` guard this
     # job carries, so the two skip together. Scoped to main-branch pushes.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.cli-tests.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result != 'success' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.cli-tests.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
     needs:
       - migration-lint
       - migration-reversibility
