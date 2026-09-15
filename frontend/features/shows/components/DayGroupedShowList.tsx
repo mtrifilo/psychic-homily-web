@@ -44,7 +44,7 @@ const groupSpacingClass: Record<Density, string> = {
 }
 
 /**
- * Space between the day's rule and its first row, per density.
+ * Space between the day's heading and its first row, per density.
  *
  * No gap BETWEEN rows: they carry an alternating fill, and a gap would break
  * the stripe into floating bands. Density moves the padding inside each row
@@ -134,7 +134,14 @@ function DayGroupSection({
         </h2>
       )}
       <div
-        className={cn('shows-day-rows flex flex-col', rowsSpacingClass[density])}
+        className={cn(
+          'flex flex-col',
+          // Only where a heading actually sticks above these rows: the class
+          // buys their focusable content clearance for one, and a run with no
+          // readable date renders none.
+          group.dateKey !== null && 'shows-day-rows',
+          rowsSpacingClass[density]
+        )}
       >
         {group.rows.map((show, index) => (
           <DayGroupedShowRow
@@ -166,8 +173,9 @@ function DayGroupSection({
  * answers, which React reports as a hydration error and repairs by throwing the
  * server's markup away. `useHydrated` is the gate for exactly that: it returns
  * the same value in both passes and the refined answer arrives a commit later
- * (see its own doc). The prefix is a text change inside a full-width heading
- * row, so nothing beside it moves when it arrives, and
+ * (see its own doc). The prefix grows the label to the RIGHT from a left edge
+ * the heading's padding fixes, so the only thing it moves is where the
+ * decorative rule beside it starts; no link or control changes position, and
  * `DayGroupedShowList.test.tsx` pins the server render making no TONIGHT claim.
  */
 export function DayGroupedShowList({

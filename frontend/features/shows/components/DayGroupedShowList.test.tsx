@@ -206,49 +206,35 @@ describe('DayGroupedShowList', () => {
   // styling: `/shows`, the month pages and the day pages all render this
   // component, and there is no second place to set them.
   describe('the day heading treatment', () => {
-    it('renders each heading at Space Mono bold 14 in the primary colour', () => {
+    // `pt-3.5`, `text-sm` and `pb-1.5` are the three classes
+    // `--shows-day-header-height` is the sum of (globals.css), so they are
+    // pinned here: editing one without the token would shorten the clearance
+    // the rows below rely on.
+    it('renders every heading stuck, primary, at Space Mono bold 14', () => {
       renderList()
 
-      for (const heading of screen.getAllByRole('heading', { level: 2 })) {
+      const headings = screen.getAllByRole('heading', { level: 2 })
+      expect(headings.length).toBeGreaterThan(0)
+      for (const heading of headings) {
         expect(heading).toHaveClass(
           'font-mono',
           'text-sm',
           'font-bold',
           'tracking-[1px]',
           'uppercase',
-          'text-primary'
-        )
-      }
-    })
-
-    it('sticks each heading at the top bar height, over its rows', () => {
-      renderList()
-
-      for (const heading of screen.getAllByRole('heading', { level: 2 })) {
-        expect(heading).toHaveClass(
+          'text-primary',
+          'pt-3.5',
+          'pb-1.5',
           'sticky',
           'top-[var(--topbar-height)]',
           'z-20',
-          // Opaque, or the rows would show through the stuck heading.
           'bg-background'
         )
-      }
-    })
-
-    it('carries the primary rule inside the heading that sticks', () => {
-      renderList()
-
-      for (const heading of screen.getAllByRole('heading', { level: 2 })) {
         const rule = heading.querySelector('[aria-hidden="true"]')
-        expect(rule).not.toBeNull()
         expect(rule).toHaveClass('h-px', 'bg-primary')
       }
     })
 
-    // The anchor target IS the sticky element, so its scroll margin is the top
-    // bar alone: a fragment jump then lands the heading on the same line it
-    // pins to, instead of a heading-height below it with the previous day's
-    // tail in the gap.
     it('gives each anchored heading the top bar as its scroll margin', () => {
       renderList()
 
@@ -257,11 +243,9 @@ describe('DayGroupedShowList', () => {
       expect(heading).toHaveClass('scroll-mt-[var(--topbar-height)]')
     })
 
-    // Focus lands on the links and buttons inside a row, and those can be
-    // scrolled to a position the stuck heading covers. The clearance is a
-    // stylesheet rule keyed on this class (globals.css), so losing the class
-    // loses the guarantee silently.
-    it('marks the rows of every group as sitting under a stuck heading', () => {
+    // The clearance itself is a stylesheet rule keyed on this class
+    // (globals.css), so losing the class loses the guarantee silently.
+    it('marks rows that sit under a heading, and only those', () => {
       const { container } = renderList()
 
       const groups = container.querySelectorAll(
@@ -269,15 +253,23 @@ describe('DayGroupedShowList', () => {
       )
       expect(groups.length).toBeGreaterThan(0)
       for (const group of groups) {
-        expect(group.querySelector('.shows-day-rows')).not.toBeNull()
+        const hasHeading = group.querySelector('h2') !== null
+        expect(group.querySelector('.shows-day-rows') !== null).toBe(hasHeading)
       }
     })
 
-    // `position: sticky` is inert inside any scroll container other than the
-    // one it is meant to stick to, and an ancestor with a non-visible
-    // `overflow` is exactly that. Nothing between the heading and the document
-    // may introduce one.
-    it('puts no scroll container between the heading and the document', () => {
+    it('leaves an undated run s rows unmarked, having no heading to clear', () => {
+      const { container } = renderList([makeShow(9, 'not-a-date')])
+
+      expect(container.querySelector('h2')).toBeNull()
+      expect(container.querySelector('.shows-day-rows')).toBeNull()
+    })
+
+    // Scoped to this component's own wrappers, which is all it renders: a
+    // non-visible `overflow` on the section or the list box would make
+    // `position: sticky` inert. An `overflow` introduced by the route shell
+    // above would do the same and is NOT covered here.
+    it('adds no scroll container of its own around the heading', () => {
       const { container } = renderList()
 
       const heading = screen.getByRole('heading', { name: 'FRI · SEP 11' })

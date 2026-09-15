@@ -90,11 +90,14 @@
   --sidebar-width: 15rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
-  /* Rendered height of a `/shows` day heading: pt-3.5 (14px) + the text-sm
-   * line box (20px) + pb-1.5 (6px). The heading is sticky at
+  /* Rendered height of a `/shows` day heading, as the three classes that
+   * produce it: `pt-3.5` + the `text-sm` line box + `pb-1.5` on the `h2` in
+   * `DayGroupedShowList.tsx`. Those three are asserted by that component's
+   * test, so editing one without this fails there rather than silently
+   * shortening the clearance below. The heading is sticky at
    * `--topbar-height`, so this is the second band of the viewport that list
    * content can be hidden behind; `.shows-day-rows` below spends it. */
-  --shows-day-header-height: 2.5rem;
+  --shows-day-header-height: calc(0.875rem + 1.25rem + 0.375rem);
   /* Mobile bottom tab bar (PSY-1020) — the bar's FULL rendered height above the
    * safe area: the 3.5rem tab row PLUS its 1px border-t. The border is folded in
    * here (PSY-1820) because every subtractor below reserves space for the whole
@@ -264,17 +267,23 @@
 }
 
 /* A `/shows` day heading is sticky under the top bar, so anything focusable in
- * the rows beneath it can be scrolled to a position the heading covers. The
- * clearance rides on those targets rather than on `scroll-padding-top` of the
- * document: the document is the scroll container for every route, and a value
- * there would add itself to every `scroll-mt-*` anchor on the site (profile,
- * alert settings, collection nav), each of which is written against a padding
- * of zero. WCAG 2.4.11.
+ * the rows beneath it can be scrolled to a position the heading covers
+ * (WCAG 2.4.11).
  *
- * The rule matches descendants rather than the row box because focus lands on
- * the links and buttons inside a row, and scroll-into-view reads the margin off
- * the element it is scrolling to. */
-.shows-day-rows :is(a, button, input, select, textarea, summary, [tabindex]) {
+ * The clearance is per-target rather than `scroll-padding-top` on the document
+ * because this page needs TWO offsets against ONE scroll container: the heading
+ * is the sticky element, so a fragment jump to it wants the bar alone, while
+ * content under it wants the bar plus the heading. `scroll-padding` carries a
+ * single value per container and cannot say both. It is a stylesheet rule
+ * rather than the co-located `scroll-mt-*` constant the collection and alert
+ * anchors use (`ANCHOR_SECTION_SCROLL_MT`, `ALERTS_SCROLL_MT`) because the
+ * targets here are whatever a row happens to render, not a fixed set of
+ * headings: focus lands on the links and buttons inside a row, and
+ * scroll-into-view reads the margin off the element it scrolls to.
+ *
+ * `:where()` keeps the specificity at the class alone, so a row can still
+ * override this without escalating. */
+.shows-day-rows :where(a, button, input, select, textarea, [tabindex]) {
   scroll-margin-top: calc(
     var(--topbar-height) + var(--shows-day-header-height)
   );
