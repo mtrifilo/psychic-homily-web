@@ -109,27 +109,33 @@ function DayGroupSection({
           a non-date. Without one the rows simply appear ungrouped, which is
           what is actually known about them. */}
       {group.dateKey !== null && (
-        <>
-          <h2
-            // Only the first group of a date carries the anchor: an id is
-            // unique per document, and a page can hold two groups of one date.
-            id={group.anchorId ?? undefined}
-            className={cn(
-              'scroll-mt-20 pb-1.5 font-mono text-[10.5px] font-bold tracking-[1px] uppercase',
-              group.isToday ? 'text-primary' : 'text-muted-foreground'
-            )}
-          >
+        <h2
+          // Only the first group of a date carries the anchor: an id is
+          // unique per document, and a page can hold two groups of one date.
+          id={group.anchorId ?? undefined}
+          // `scroll-mt` is the top bar alone and not the top bar plus this
+          // heading's own height: the anchor target IS the sticky element, so
+          // aligning its top with the offset it pins to is what leaves a
+          // fragment jump exactly where scrolling to the day would.
+          className={cn(
+            'sticky top-[var(--topbar-height)] z-20 flex scroll-mt-[var(--topbar-height)] items-center gap-2',
+            // Opaque, so the rows of this day pass underneath rather than
+            // through the heading. `z-20` keeps it over those rows and under
+            // the top bar (z-50) and any overlay.
+            'bg-background px-2 pb-1.5 pt-3.5',
+            'font-mono text-sm font-bold uppercase tracking-[1px] text-primary'
+          )}
+        >
+          <span className="shrink-0">
             <DayHeadingLabel group={group} />
-          </h2>
-          <div
-            className={cn(
-              'border-t',
-              group.isToday ? 'border-primary' : 'border-border'
-            )}
-          />
-        </>
+          </span>
+          {/* Decoration: the heading text beside it already names the day. */}
+          <span aria-hidden="true" className="h-px flex-1 bg-primary" />
+        </h2>
       )}
-      <div className={cn('flex flex-col', rowsSpacingClass[density])}>
+      <div
+        className={cn('shows-day-rows flex flex-col', rowsSpacingClass[density])}
+      >
         {group.rows.map((show, index) => (
           <DayGroupedShowRow
             key={show.id}

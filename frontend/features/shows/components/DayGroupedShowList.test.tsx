@@ -189,14 +189,127 @@ describe('DayGroupedShowList', () => {
       expect(html).not.toContain('TONIGHT')
     })
 
-    it('carries the heading s emphasis on the rule beneath it too', () => {
+    // Every heading carries the same primary treatment, so the label is the
+    // ONLY thing that separates tonight from any other day.
+    it('separates tonight from the other days by label alone', () => {
+      renderList()
+
+      const [tonight, other] = screen.getAllByRole('heading', { level: 2 })
+      expect(tonight.textContent).toBe('TONIGHT · FRI SEP 11')
+      expect(other.textContent).toBe('SAT · SEP 12')
+      expect(tonight.className).toBe(other.className)
+    })
+  })
+
+  // The heading is the one thing a reader scanning a long list navigates by,
+  // so its size, its colour and its stuck position are a contract rather than
+  // styling: `/shows`, the month pages and the day pages all render this
+  // component, and there is no second place to set them.
+  describe('the day heading treatment', () => {
+    it('renders each heading at Space Mono bold 14 in the primary colour', () => {
+      renderList()
+
+      for (const heading of screen.getAllByRole('heading', { level: 2 })) {
+        expect(heading).toHaveClass(
+          'font-mono',
+          'text-sm',
+          'font-bold',
+          'tracking-[1px]',
+          'uppercase',
+          'text-primary'
+        )
+      }
+    })
+
+    it('sticks each heading at the top bar height, over its rows', () => {
+      renderList()
+
+      for (const heading of screen.getAllByRole('heading', { level: 2 })) {
+        expect(heading).toHaveClass(
+          'sticky',
+          'top-[var(--topbar-height)]',
+          'z-20',
+          // Opaque, or the rows would show through the stuck heading.
+          'bg-background'
+        )
+      }
+    })
+
+    it('carries the primary rule inside the heading that sticks', () => {
+      renderList()
+
+      for (const heading of screen.getAllByRole('heading', { level: 2 })) {
+        const rule = heading.querySelector('[aria-hidden="true"]')
+        expect(rule).not.toBeNull()
+        expect(rule).toHaveClass('h-px', 'bg-primary')
+      }
+    })
+
+    // The anchor target IS the sticky element, so its scroll margin is the top
+    // bar alone: a fragment jump then lands the heading on the same line it
+    // pins to, instead of a heading-height below it with the previous day's
+    // tail in the gap.
+    it('gives each anchored heading the top bar as its scroll margin', () => {
+      renderList()
+
+      const heading = screen.getByRole('heading', { name: 'FRI · SEP 11' })
+      expect(heading).toHaveAttribute('id', 'd-2026-09-11')
+      expect(heading).toHaveClass('scroll-mt-[var(--topbar-height)]')
+    })
+
+    // Focus lands on the links and buttons inside a row, and those can be
+    // scrolled to a position the stuck heading covers. The clearance is a
+    // stylesheet rule keyed on this class (globals.css), so losing the class
+    // loses the guarantee silently.
+    it('marks the rows of every group as sitting under a stuck heading', () => {
       const { container } = renderList()
 
       const groups = container.querySelectorAll(
         '[data-testid="show-day-group"]'
       )
-      expect(groups[0].querySelector('.border-primary')).not.toBeNull()
-      expect(groups[1].querySelector('.border-primary')).toBeNull()
+      expect(groups.length).toBeGreaterThan(0)
+      for (const group of groups) {
+        expect(group.querySelector('.shows-day-rows')).not.toBeNull()
+      }
+    })
+
+    // `position: sticky` is inert inside any scroll container other than the
+    // one it is meant to stick to, and an ancestor with a non-visible
+    // `overflow` is exactly that. Nothing between the heading and the document
+    // may introduce one.
+    it('puts no scroll container between the heading and the document', () => {
+      const { container } = renderList()
+
+      const heading = screen.getByRole('heading', { name: 'FRI · SEP 11' })
+      const offenders: string[] = []
+      for (
+        let node = heading.parentElement;
+        node !== null && node !== container.parentElement;
+        node = node.parentElement
+      ) {
+        const style = node.getAttribute('style') ?? ''
+        const className = node.getAttribute('class') ?? ''
+        if (/overflow(-[xy])?\s*:\s*(?!visible)/.test(style)) {
+          offenders.push(`style="${style}"`)
+        }
+        if (/(^|\s|:)overflow-(x-|y-)?(auto|hidden|scroll|clip)(\s|$)/.test(className)) {
+          offenders.push(`class="${className}"`)
+        }
+      }
+      expect(offenders).toEqual([])
+    })
+
+    it('keeps the same heading in the compact density', () => {
+      const comfortable = renderList(twoDays, 'comfortable')
+      const comfortableClass = screen
+        .getAllByRole('heading', { level: 2 })[0]
+        .className
+      comfortable.unmount()
+
+      renderList(twoDays, 'compact')
+      expect(
+        screen.getAllByRole('heading', { level: 2 })[0].className
+      ).toBe(comfortableClass)
     })
   })
 

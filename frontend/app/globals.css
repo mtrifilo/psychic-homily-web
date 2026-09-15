@@ -90,6 +90,11 @@
   --sidebar-width: 15rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
+  /* Rendered height of a `/shows` day heading: pt-3.5 (14px) + the text-sm
+   * line box (20px) + pb-1.5 (6px). The heading is sticky at
+   * `--topbar-height`, so this is the second band of the viewport that list
+   * content can be hidden behind; `.shows-day-rows` below spends it. */
+  --shows-day-header-height: 2.5rem;
   /* Mobile bottom tab bar (PSY-1020) — the bar's FULL rendered height above the
    * safe area: the 3.5rem tab row PLUS its 1px border-t. The border is folded in
    * here (PSY-1820) because every subtractor below reserves space for the whole
@@ -256,6 +261,23 @@
     z-index: -1;
     background: var(--background);
   }
+}
+
+/* A `/shows` day heading is sticky under the top bar, so anything focusable in
+ * the rows beneath it can be scrolled to a position the heading covers. The
+ * clearance rides on those targets rather than on `scroll-padding-top` of the
+ * document: the document is the scroll container for every route, and a value
+ * there would add itself to every `scroll-mt-*` anchor on the site (profile,
+ * alert settings, collection nav), each of which is written against a padding
+ * of zero. WCAG 2.4.11.
+ *
+ * The rule matches descendants rather than the row box because focus lands on
+ * the links and buttons inside a row, and scroll-into-view reads the margin off
+ * the element it is scrolling to. */
+.shows-day-rows :is(a, button, input, select, textarea, summary, [tabindex]) {
+  scroll-margin-top: calc(
+    var(--topbar-height) + var(--shows-day-header-height)
+  );
 }
 
 /* Music embed container for responsive iframes */
