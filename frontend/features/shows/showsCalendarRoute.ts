@@ -346,7 +346,7 @@ export function calendarDayLabel(
 
 /**
  * The calendar months a window touches, in order: one for a month or a day, and
- * one or two for a run.
+ * every month a run passes through.
  *
  * What the histogram is asked about. A run that starts in a month with nothing
  * in it and ends in one that is busy is a real page, so asking about the anchor

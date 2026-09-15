@@ -122,7 +122,7 @@ describe('QuickWindowChips', () => {
    * it and the other reads as an ordinary link.
    */
   it('marks one chip when two name the same window on a Sunday', () => {
-    // 20 September 2026 is a Sunday; 07:00 UTC is midnight in Phoenix.
+    // 18:00 UTC is 11:00 on Sunday 20 September 2026 in Phoenix.
     vi.setSystemTime(new Date('2026-09-20T18:00:00Z'))
     renderChips({ pathname: '/shows/2026/09/20', currentDays: undefined })
 

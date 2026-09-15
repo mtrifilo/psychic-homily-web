@@ -539,11 +539,13 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
 
   // Only show skeleton on FIRST load (no data yet)
   if ((isLoading && !data) || (citiesLoading && !citiesData)) {
+    // A plain container, because the skeleton brings the `<section>`: two of
+    // them nested would be two unnamed landmarks where the list has one.
     return (
-      <section className="w-full max-w-6xl">
+      <div className="w-full max-w-6xl">
         {quickWindows}
         <ShowListSkeleton />
-      </section>
+      </div>
     )
   }
 
