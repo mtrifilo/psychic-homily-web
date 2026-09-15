@@ -43,11 +43,21 @@ vi.mock('@/components/shared', async () => {
     SaveButton: ({ showId }: { showId: number }) => (
       <button data-testid="save-button">Save {showId}</button>
     ),
-    SocialLinks: () => <div data-testid="social-links" />,
-    MusicEmbed: () => <div data-testid="music-embed" />,
     ShowPrice: showPrice.ShowPrice,
   }
 })
+
+// `ShowArtistMusicPanel` renders for REAL here, so the card's music assertions
+// observe the panel it actually ships. The panel reaches the two leaves by
+// path rather than through the barrel above, so each is stubbed at its own
+// module specifier.
+vi.mock('@/components/shared/SocialLinks', () => ({
+  SocialLinks: () => <div data-testid="social-links" />,
+}))
+
+vi.mock('@/components/shared/MusicEmbed', () => ({
+  MusicEmbed: () => <div data-testid="music-embed" />,
+}))
 
 vi.mock('./ShowForm', () => ({
   ShowForm: ({ onCancel }: { onCancel: () => void }) => (
@@ -337,6 +347,36 @@ describe('ShowCard', () => {
     })
     const show = makeShow({ submitted_by: 42 })
     render(<ShowCard show={show} isAdmin={false} userId="99" />)
+    expect(
+      screen.queryByRole('button', { name: /delete show/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // No `userId` prop, so these two also pin the card's fallback to the context
+  // id, which is the shape the home rail renders with.
+  it('shows delete button for a show owner whose viewer id is a number', () => {
+    mockAuthContext.mockReturnValue({
+      user: { id: 42 as never, is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    const show = makeShow({ submitted_by: 42 })
+    render(<ShowCard show={show} isAdmin={false} />)
+    expect(
+      screen.getByRole('button', { name: /delete show/i })
+    ).toBeInTheDocument()
+  })
+
+  it('hides delete from a non-owner whose viewer id is a number', () => {
+    mockAuthContext.mockReturnValue({
+      user: { id: 99 as never, is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    const show = makeShow({ submitted_by: 42 })
+    render(<ShowCard show={show} isAdmin={false} />)
     expect(
       screen.queryByRole('button', { name: /delete show/i })
     ).not.toBeInTheDocument()

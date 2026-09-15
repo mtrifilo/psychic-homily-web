@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   basedInPhrase,
+  canDeleteShow,
   splitBill,
   dedupVenueShows,
   showTimingInput,
@@ -232,5 +233,50 @@ describe('basedInPhrase', () => {
     expect(basedInPhrase(undefined)).toBeNull()
     expect(basedInPhrase('')).toBeNull()
     expect(basedInPhrase('   ')).toBeNull()
+  })
+})
+
+describe('canDeleteShow', () => {
+  it('lets an admin delete any show, submitted or not', () => {
+    expect(
+      canDeleteShow({ submittedBy: 42, viewerId: '7', isAdmin: true })
+    ).toBe(true)
+    expect(
+      canDeleteShow({ submittedBy: undefined, viewerId: null, isAdmin: true })
+    ).toBe(true)
+  })
+
+  it('lets the submitter delete their own show', () => {
+    expect(
+      canDeleteShow({ submittedBy: 42, viewerId: '42', isAdmin: false })
+    ).toBe(true)
+  })
+
+  it('recognises the submitter through either id shape', () => {
+    expect(
+      canDeleteShow({ submittedBy: 42, viewerId: 42, isAdmin: false })
+    ).toBe(true)
+  })
+
+  it('refuses everyone else', () => {
+    expect(
+      canDeleteShow({ submittedBy: 42, viewerId: '7', isAdmin: false })
+    ).toBe(false)
+    expect(
+      canDeleteShow({ submittedBy: 42, viewerId: 7, isAdmin: false })
+    ).toBe(false)
+  })
+
+  // Neither side may borrow the other's falsy id to match.
+  it('refuses when either side has no id', () => {
+    expect(
+      canDeleteShow({ submittedBy: undefined, viewerId: '42', isAdmin: false })
+    ).toBe(false)
+    expect(
+      canDeleteShow({ submittedBy: 42, viewerId: undefined, isAdmin: false })
+    ).toBe(false)
+    expect(
+      canDeleteShow({ submittedBy: undefined, viewerId: null, isAdmin: false })
+    ).toBe(false)
   })
 })

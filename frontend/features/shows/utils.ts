@@ -262,3 +262,34 @@ export function splitBill<T extends BillArtist>(
   return { headliners, support: artists.filter(artist => !leads(artist)) }
 }
 
+/**
+ * Whether a viewer may delete a show: an admin, or the reader who submitted it.
+ *
+ * BOTH ids are coerced before the comparison. A viewer id is declared
+ * `string` but arrives from the wire as a number, so a `===` against an
+ * uncoerced viewer id answers false for the very reader who submitted the
+ * show and takes their own delete control with it. Gate a delete control on
+ * this rather than comparing the two ids at the call site.
+ *
+ * Returns a `boolean` rather than the truthy union a `&&` chain would, so a
+ * caller using it as a JSX guard cannot paint a falsy id into the page.
+ */
+export function canDeleteShow({
+  submittedBy,
+  viewerId,
+  isAdmin,
+}: {
+  // Taken from the wire type rather than restated, so a widening of the field
+  // reaches this signature instead of being silently absorbed by it.
+  submittedBy: ShowResponse['submitted_by']
+  viewerId: string | number | null | undefined
+  isAdmin: boolean
+}): boolean {
+  if (isAdmin) return true
+  return !!(
+    viewerId &&
+    submittedBy &&
+    String(submittedBy) === String(viewerId)
+  )
+}
+
