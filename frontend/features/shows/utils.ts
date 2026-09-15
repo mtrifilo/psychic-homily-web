@@ -276,7 +276,9 @@ export function canDeleteShow({
   viewerId,
   isAdmin,
 }: {
-  submittedBy: number | undefined
+  // Taken from the wire type rather than restated, so a widening of the field
+  // reaches this signature instead of being silently absorbed by it.
+  submittedBy: ShowResponse['submitted_by']
   viewerId: string | number | null | undefined
   isAdmin: boolean
 }): boolean {
