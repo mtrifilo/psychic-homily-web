@@ -214,9 +214,7 @@ export function applyWindowDays(
  * route serves, and `null` for a value it refuses.
  *
  * Three answers rather than two because they lead three different places: no run
- * renders the day, a run renders the span, and a refusal is a not-found. Shared
- * by {@link applyWindowDays} and by the chips, so the value that decides which
- * chip is current is read on the same rule the route resolved.
+ * renders the day, a run renders the span, and a refusal is a not-found.
  */
 export function parseWindowDays(
   raw: string | string[] | undefined
@@ -246,26 +244,49 @@ export function showsWindowHref(window: ShowsCalendarWindow): string {
   return window.days === undefined ? path : `${path}?days=${window.days}`
 }
 
-/**
- * The last venue-local date a window covers, as its calendar parts.
- *
- * Arithmetic on the anchor rather than on the month's length, through `Date.UTC`
- * so a run rolls over a month, a year and a leap day the way the calendar does.
- * Only a run has an end distinct from its start.
- */
-function windowEndDay(window: ShowsCalendarWindow): {
+/** A calendar date as its parts, with the weekday it fell on (0 is Sunday). */
+export interface CalendarDayParts {
   year: number
+  /** Calendar month, 1-12, matching this grammar and NOT JavaScript's. */
   month: number
   day: number
-} | null {
-  if (window.day === undefined) return null
-  const span = window.days ?? 1
-  const end = new Date(Date.UTC(window.year, window.month - 1, window.day + span - 1))
+  weekday: number
+}
+
+/**
+ * The calendar date `offset` days from the given one.
+ *
+ * The one calendar-shift in this feature, so a run's end, a chip's anchor and
+ * anything later built on either roll over months, years and leap days by the
+ * same arithmetic. `Date.UTC` is calendar arithmetic and nothing else here: no
+ * instant is converted between zones, so no offset or DST rule applies.
+ */
+export function shiftCalendarDay(
+  year: number,
+  month: number,
+  day: number,
+  offset: number
+): CalendarDayParts {
+  const shifted = new Date(Date.UTC(year, month - 1, day + offset))
   return {
-    year: end.getUTCFullYear(),
-    month: end.getUTCMonth() + 1,
-    day: end.getUTCDate(),
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    weekday: shifted.getUTCDay(),
   }
+}
+
+/**
+ * The last venue-local date a run covers. Takes the run's own parts, so a month
+ * window, which has no end distinct from its start, cannot reach it.
+ */
+function runEndDay(
+  year: number,
+  month: number,
+  day: number,
+  days: number
+): CalendarDayParts {
+  return shiftCalendarDay(year, month, day, days - 1)
 }
 
 /**
@@ -331,11 +352,11 @@ export function calendarDayLabel(
 export function windowMonths(
   window: ShowsCalendarWindow
 ): Array<{ year: number; month: number }> {
-  const end = windowEndDay(window)
   const months = [{ year: window.year, month: window.month }]
-  if (end === null || (end.year === window.year && end.month === window.month)) {
-    return months
-  }
+  if (window.day === undefined || window.days === undefined) return months
+
+  const end = runEndDay(window.year, window.month, window.day, window.days)
+  if (end.year === window.year && end.month === window.month) return months
   // A run is bounded at SHOWS_WINDOW_MAX_DAYS, which is shorter than any month,
   // so it spans at most the two months named by its own edges.
   months.push({ year: end.year, month: end.month })
@@ -359,14 +380,18 @@ function shortCalendarDayLabel(year: number, month: number, day: number): string
  * date rather than the half-open bound the query carries, because a heading that
  * named a date holding none of the rows beneath it would be false.
  */
-function calendarRunLabel(window: ShowsCalendarWindow): string {
-  const start = { year: window.year, month: window.month, day: window.day as number }
-  const end = windowEndDay(window) as { year: number; month: number; day: number }
-  const startLabel = shortCalendarDayLabel(start.year, start.month, start.day)
+function calendarRunLabel(
+  year: number,
+  month: number,
+  day: number,
+  days: number
+): string {
+  const end = runEndDay(year, month, day, days)
+  const startLabel = shortCalendarDayLabel(year, month, day)
   const endLabel = shortCalendarDayLabel(end.year, end.month, end.day)
-  return start.year === end.year
+  return year === end.year
     ? `${startLabel} to ${endLabel}, ${end.year}`
-    : `${startLabel}, ${start.year} to ${endLabel}, ${end.year}`
+    : `${startLabel}, ${year} to ${endLabel}, ${end.year}`
 }
 
 /** The reader-facing name of a window: a month, a day, or a run of days. */
@@ -375,7 +400,7 @@ export function calendarWindowLabel(window: ShowsCalendarWindow): string {
   if (window.days === undefined) {
     return calendarDayLabel(window.year, window.month, window.day)
   }
-  return calendarRunLabel(window)
+  return calendarRunLabel(window.year, window.month, window.day, window.days)
 }
 
 /**

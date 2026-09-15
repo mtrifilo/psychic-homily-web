@@ -624,11 +624,8 @@ func VenueLocalMonthCondition(year, month int) (string, []any) {
 // its user an error for one refuses it before asking: the empty fragment here is
 // indistinguishable from "no window requested".
 func VenueLocalDayCondition(year, month, day int) (string, []any) {
-	if year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
-		return "", nil
-	}
-	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-	if start.Year() != year || int(start.Month()) != month || start.Day() != day {
+	start, ok := venueLocalDayStart(year, month, day)
+	if !ok {
 		return "", nil
 	}
 
@@ -656,11 +653,11 @@ func VenueLocalDayCondition(year, month, day int) (string, []any) {
 // contract question, answered by ShowCalendarWindow.Validate and by the request
 // schema; this builds whatever run it is handed.
 func VenueLocalDayRangeCondition(year, month, day, days int) (string, []any) {
-	if days < 2 || year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
+	if days < 2 {
 		return "", nil
 	}
-	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-	if start.Year() != year || int(start.Month()) != month || start.Day() != day {
+	start, ok := venueLocalDayStart(year, month, day)
+	if !ok {
 		return "", nil
 	}
 	end := start.AddDate(0, 0, days)
@@ -668,4 +665,43 @@ func VenueLocalDayRangeCondition(year, month, day, days int) (string, []any) {
 	return coarseBoundedPeriodCondition(start, end,
 		VenueLocalDateSQL+" >= ?::date AND "+VenueLocalDateSQL+" < ?::date",
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
+
+// venueLocalDayStart is the UTC midnight of a calendar date, and whether the
+// triple names a real one.
+//
+// The single real-date gate the day and run conditions share. time.Date
+// normalises 31 February into 3 March rather than failing, so the round-trip is
+// the check, and having it in one place is what keeps the two windows agreeing
+// about which dates exist.
+func venueLocalDayStart(year, month, day int) (time.Time, bool) {
+	if year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return time.Time{}, false
+	}
+	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	if start.Year() != year || int(start.Month()) != month || start.Day() != day {
+		return time.Time{}, false
+	}
+	return start, true
+}
+
+// VenueLocalWindowCondition is the ONE fragment a calendar window names,
+// narrowest resolution first: a run of days, then a single day, then a month.
+//
+// The ladder lives here rather than at each call site because which resolution
+// wins is a property of the window vocabulary, not of any one reader, and the
+// three builders below signal "not my resolution" by answering with an empty
+// fragment. A caller reading that convention for itself re-derives, every time,
+// why a run of one must not take the range builder.
+//
+// An empty answer means the window narrows NOTHING, which every caller has to
+// tell apart from a window it refused: in SQL the two are the same query.
+func VenueLocalWindowCondition(year, month, day, days int) (string, []any) {
+	if condition, args := VenueLocalDayRangeCondition(year, month, day, days); condition != "" {
+		return condition, args
+	}
+	if condition, args := VenueLocalDayCondition(year, month, day); condition != "" {
+		return condition, args
+	}
+	return VenueLocalMonthCondition(year, month)
 }

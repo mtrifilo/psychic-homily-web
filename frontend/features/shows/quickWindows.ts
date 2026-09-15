@@ -13,7 +13,13 @@
  * same thing tomorrow as it does tonight, which is what a shared link has to do.
  */
 
-import { showsDayPath, showsMonthPath } from './showsCalendarRoute'
+import { isValidTimeZone } from '@/lib/utils/formatters'
+import {
+  shiftCalendarDay,
+  showsDayPath,
+  showsMonthPath,
+  type CalendarDayParts,
+} from './showsCalendarRoute'
 import { showsPageHref } from './showsListNavigation'
 
 /** The four windows the row offers, keyed by the concept rather than the URL. */
@@ -43,21 +49,13 @@ export const QUICK_WINDOW_ORDER: QuickWindowKey[] = [
 export const NEXT_7_DAYS = 7
 
 /**
- * A calendar date read on one clock in one zone, with the weekday that date
- * actually fell on.
+ * A calendar date read on one clock in one zone, with the weekday it fell on.
  *
  * The weekday travels WITH the date rather than being derived later: deriving it
  * means rebuilding a `Date` from the parts, and a `Date` built from parts carries
  * the runtime's own zone, which is the fault this type exists to keep out.
  */
-export interface CivilDate {
-  year: number
-  /** Calendar month, 1-12, matching the route grammar and NOT JavaScript's. */
-  month: number
-  day: number
-  /** 0 is Sunday, matching `Date.prototype.getDay`. */
-  weekday: number
-}
+export type CivilDate = CalendarDayParts
 
 /** Weekday numbers, named, so the weekend rule below reads as the rule it is. */
 const SUNDAY = 0
@@ -94,17 +92,17 @@ export function civilDateInZone(
 ): CivilDate | null {
   let formatter = dayPartsFormatters.get(timeZone)
   if (!formatter) {
-    try {
-      formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        weekday: 'short',
-      })
-    } catch {
-      return null
-    }
+    // The validity question is asked through the memoized probe the date
+    // helpers already share, rather than by catching the constructor here,
+    // which would be a second cache of one answer.
+    if (!isValidTimeZone(timeZone)) return null
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+    })
     dayPartsFormatters.set(timeZone, formatter)
   }
 
@@ -123,24 +121,6 @@ export function civilDateInZone(
     return null
   }
   return { year, month, day, weekday }
-}
-
-/**
- * The civil date `offset` days after `date`, weekday included.
- *
- * `Date.UTC` is calendar arithmetic here and nothing else: no instant in this
- * function is ever converted between zones, so there is no offset or DST rule
- * for it to be wrong about. It rolls over months, years and leap days exactly as
- * the calendar does, which is why the weekend rule never counts a month's length.
- */
-function shiftCivilDate(date: CivilDate, offset: number): CivilDate {
-  const shifted = new Date(Date.UTC(date.year, date.month - 1, date.day + offset))
-  return {
-    year: shifted.getUTCFullYear(),
-    month: shifted.getUTCMonth() + 1,
-    day: shifted.getUTCDate(),
-    weekday: shifted.getUTCDay(),
-  }
 }
 
 /** One chip: where it points, and how long a run it asks for. */
@@ -173,7 +153,12 @@ function weekendWindow(today: CivilDate): { anchor: CivilDate; days: number } {
   // arithmetic: the weekend it belongs to began two days BEFORE it.
   if (today.weekday === SUNDAY) return { anchor: today, days: 1 }
   const untilFriday = FRIDAY - today.weekday
-  if (untilFriday > 0) return { anchor: shiftCivilDate(today, untilFriday), days: 3 }
+  if (untilFriday > 0) {
+    return {
+      anchor: shiftCalendarDay(today.year, today.month, today.day, untilFriday),
+      days: 3,
+    }
+  }
   // Friday itself (0) and Saturday (-1): the anchor is today and the window ends
   // on the Sunday that is `2 + untilFriday` days out.
   return { anchor: today, days: 3 + untilFriday }
@@ -243,12 +228,8 @@ export function quickWindowHref(
  * Whether a chip names the window the reader is already looking at.
  *
  * Compared on the PATH and the run, never on the whole URL: a filter or a page
- * number is a different slice of the same window, and a chip that stopped being
- * current the moment a city was picked would be reporting on the query string
- * rather than on where the reader is.
- *
- * `currentDays` is the run the route resolved, so `?days=1` and no parameter at
- * all are one window here exactly as they are there.
+ * number is a different slice of the same window. `currentDays` is the run the
+ * route resolved, so `?days=1` and no parameter are one window here too.
  */
 export function isQuickWindowCurrent(
   target: QuickWindowTarget,

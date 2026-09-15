@@ -15,6 +15,7 @@ import {
   isQuickWindowCurrent,
   quickWindowHref,
   quickWindowTargets,
+  type QuickWindowTarget,
 } from '../quickWindows'
 
 export interface QuickWindowChipsProps {
@@ -82,19 +83,17 @@ function windowTimeZone(metroState: string | undefined): string | null {
  * Tonight, this weekend, the next seven days and this month, as four links to
  * absolute dated URLs.
  *
- * WHY THE ROW RENDERS TWICE. Which day "tonight" is depends on a clock and a
- * zone, and on the first render there is neither: the server has no viewer, and
- * a `?cities=`-less URL resolves its metro from favourites and IP geo that only
- * the browser knows. So the pre-hydration row is the same four chips as plain
- * text, and the commit after hydration replaces them with the links. Both
- * renders agree by construction (`useHydrated`), the boxes are the same size, so
- * nothing on the page moves, and no reader is ever shown a date computed from a
- * clock that is not theirs.
+ * WHY THE ROW RENDERS TWICE. Which day "tonight" is takes a clock and a zone,
+ * and the first render has neither: the server has no viewer, and a
+ * `?cities=`-less URL resolves its metro from favourites and IP geo only the
+ * browser knows. So before hydration the four chips are plain text, and the
+ * commit after it replaces them with links. Both renders agree by construction
+ * (`useHydrated`) and the two shapes share one box, so nothing moves and no
+ * date is ever computed from a clock that is not the reader's.
  *
- * The cost is stated rather than hidden: a crawler that runs no JavaScript sees
- * the words and not the links. That costs the crawl nothing here, because every
- * URL these chips reach is already linked from the month strip or from a day
- * heading in the list below.
+ * The cost, stated rather than hidden: a crawler running no JavaScript sees the
+ * words and not the links. Every URL these chips reach is already linked from
+ * the month strip or from a day heading in the list below.
  */
 export function QuickWindowChips({
   metroState,
@@ -107,10 +106,23 @@ export function QuickWindowChips({
   const labelId = useId()
 
   // Read once per render, and only after hydration. A date is a claim about
-  // now, and the only `now` worth making it from is the reader's.
+  // now, and the only `now` worth making it from is the reader's. Per render
+  // rather than memoized, so a row left open past midnight corrects itself on
+  // the next one.
   const timeZone = hydrated ? windowTimeZone(metroState) : null
   const today = timeZone === null ? null : civilDateInZone(new Date(), timeZone)
-  const targets = today === null ? null : quickWindowTargets(today)
+
+  // One list, rendered by one map: the linked chips when a date could be read,
+  // and the same four labels as plain text when it could not. Two maps would
+  // leave the no-layout-shift claim above resting on two class lists agreeing.
+  const chips: Array<{ key: string; label: string; target?: QuickWindowTarget }> =
+    today === null
+      ? QUICK_WINDOW_ORDER.map(key => ({ key, label: QUICK_WINDOW_LABEL[key] }))
+      : quickWindowTargets(today).map(target => ({
+          key: target.key,
+          label: target.label,
+          target,
+        }))
 
   return (
     <nav
@@ -128,33 +140,32 @@ export function QuickWindowChips({
         Jump to
       </span>
       <ul className="flex items-center gap-2 sm:flex-wrap sm:gap-y-1">
-        {targets === null
-          ? QUICK_WINDOW_ORDER.map(key => (
-              <li key={key}>
-                <span className={cn(chipClass, chipRestingClass)}>
-                  {QUICK_WINDOW_LABEL[key]}
-                </span>
-              </li>
-            ))
-          : targets.map(target => {
-              const isCurrent = isQuickWindowCurrent(target, pathname, currentDays)
-              return (
-                <li key={target.key}>
-                  <Link
-                    href={quickWindowHref(params, target)}
-                    aria-current={isCurrent ? 'page' : undefined}
-                    className={cn(
-                      chipClass,
-                      chipLinkClass,
-                      isCurrent ? chipCurrentClass : chipRestingClass
-                    )}
-                    data-testid={`shows-quick-window-${target.key}`}
-                  >
-                    {target.label}
-                  </Link>
-                </li>
-              )
-            })}
+        {chips.map(({ key, label, target }) => {
+          const isCurrent =
+            target !== undefined &&
+            isQuickWindowCurrent(target, pathname, currentDays)
+          const className = cn(
+            chipClass,
+            target !== undefined && chipLinkClass,
+            isCurrent ? chipCurrentClass : chipRestingClass
+          )
+          return (
+            <li key={key}>
+              {target === undefined ? (
+                <span className={className}>{label}</span>
+              ) : (
+                <Link
+                  href={quickWindowHref(params, target)}
+                  aria-current={isCurrent ? 'page' : undefined}
+                  className={className}
+                  data-testid={`shows-quick-window-${key}`}
+                >
+                  {label}
+                </Link>
+              )}
+            </li>
+          )
+        })}
       </ul>
     </nav>
   )

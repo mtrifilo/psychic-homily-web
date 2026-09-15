@@ -652,7 +652,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
         }
         params={searchParams}
         pathname={pathname}
-        currentDays={calendarWindow?.days}
+        currentDays={windowDays}
         className="mb-4"
       />
 

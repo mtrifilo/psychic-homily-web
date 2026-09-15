@@ -377,6 +377,42 @@ func TestVenueLocalDayRangeCondition(t *testing.T) {
 	}
 }
 
+// The ladder: narrowest resolution wins, and a window that names no period
+// narrows nothing. Pinned as an ORDERING, because the alternative is every
+// caller re-deriving why a run of one must not take the range builder.
+func TestVenueLocalWindowCondition(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		year, month, day, days int
+		want                   string
+	}{
+		{"a run", 2026, 11, 14, 3, "run"},
+		{"a run of one is the day", 2026, 11, 14, 1, "day"},
+		{"a day", 2026, 11, 14, 0, "day"},
+		{"a month", 2026, 11, 0, 0, "month"},
+		{"an impossible day falls back to its month", 2027, 2, 31, 0, "month"},
+		{"no window", 0, 0, 0, 0, "none"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := VenueLocalWindowCondition(tc.year, tc.month, tc.day, tc.days)
+
+			var want string
+			switch tc.want {
+			case "run":
+				want, _ = VenueLocalDayRangeCondition(tc.year, tc.month, tc.day, tc.days)
+			case "day":
+				want, _ = VenueLocalDayCondition(tc.year, tc.month, tc.day)
+			case "month":
+				want, _ = VenueLocalMonthCondition(tc.year, tc.month)
+			}
+			if got != want {
+				t.Errorf("window (%d, %d, %d, %d) took the wrong resolution:\n got %q\nwant %q",
+					tc.year, tc.month, tc.day, tc.days, got, want)
+			}
+		})
+	}
+}
+
 // The three period filters must share one margin. A margin that reached the year
 // window and not the narrower ones would leave a month or day window dropping
 // rows the year window keeps, which is the class the shared constant closes.

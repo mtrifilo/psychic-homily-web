@@ -44,23 +44,17 @@ func (s *ShowService) upcomingShowPredicates(
 	// The narrowest fragment the window names, built once outside the applier: it
 	// is a pure function of the window, and the applier runs per read. Each
 	// resolution already implies the wider one, so the narrowest fragment alone
-	// IS the window, and one predicate does the work overlapping ones would.
+	// IS the window, and one predicate does the work overlapping ones would;
+	// which resolution that is belongs to the vocabulary, so the SQL package
+	// owns the choice.
 	//
-	// The run is tried first and answers nothing for a span of one, which is the
-	// single-day equality below. A day already implies its month the same way.
-	//
-	// An impossible day yields no day fragment and lands on its month. That is
-	// WIDER than the caller addressed, not narrower, and it is a backstop rather
-	// than a path: ShowCalendarWindow.Validate refuses every such triple at both
-	// entry points. It is still the right backstop, because the alternative when
-	// the day fragment is empty is no window at all.
-	windowCondition, windowArgs := shared.VenueLocalDayRangeCondition(window.Year, window.Month, window.Day, window.Days)
-	if windowCondition == "" {
-		windowCondition, windowArgs = shared.VenueLocalDayCondition(window.Year, window.Month, window.Day)
-	}
-	if windowCondition == "" {
-		windowCondition, windowArgs = shared.VenueLocalMonthCondition(window.Year, window.Month)
-	}
+	// An impossible day lands on its month. That is WIDER than the caller
+	// addressed, not narrower, and it is a backstop rather than a path:
+	// ShowCalendarWindow.Validate refuses every such triple at both entry points.
+	// It is still the right backstop, because the alternative is no window.
+	windowCondition, windowArgs := shared.VenueLocalWindowCondition(
+		window.Year, window.Month, window.Day, window.Days,
+	)
 
 	return func(query *gorm.DB) *gorm.DB {
 		// Every predicate below is table-qualified. The venue-local lateral
