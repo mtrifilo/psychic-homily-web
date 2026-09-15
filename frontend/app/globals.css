@@ -317,24 +317,32 @@
       var(--topbar-height) + var(--shows-day-header-height) + 0.25rem
     );
   }
+}
 
-  /* Forced colors paints every background Canvas, which would erase a rule
-     drawn as a background and leave the heading with no rule at all. A border
-     is painted CanvasText instead, so the rule survives as a line. */
-  @media (forced-colors: active) {
-    .shows-day-heading-rule {
-      background: none;
-      border-top: 1px solid CanvasText;
-    }
+/* The two rules below are UNLAYERED on purpose, the opposite call from the
+ * block above. Each overrides a property a Tailwind utility on the same
+ * element already sets (`bg-primary`, `sticky`); from a layer they would lose
+ * to `@layer utilities` whatever their specificity and do nothing at all.
+ * Verified in a browser, not assumed: from `@layer components` both were
+ * silently inert. */
+
+/* Forced colors paints every background Canvas, which would erase a rule drawn
+ * as a background and leave the heading with no rule at all. A border is
+ * painted CanvasText instead, so the rule survives as a line. The box is
+ * border-box at 1px tall, so the border fills it rather than adding to it. */
+@media (forced-colors: active) {
+  .shows-day-heading-rule {
+    background: none;
+    border-top: 1px solid CanvasText;
   }
+}
 
-  /* A viewport this short is a 400%-zoom viewport: the top bar and the mobile
-     tab bar already own most of it, and a third fixed band would leave about
-     two rows of list. The heading goes back in flow and scrolls with them. */
-  @media (max-height: 25rem) {
-    .shows-day-heading {
-      position: static;
-    }
+/* A viewport this short is a 400%-zoom viewport: the top bar and, below `xl`,
+ * the tab bar already own most of it, and a third fixed band would leave about
+ * two rows of list. The heading goes back in flow and scrolls with them. */
+@media (max-height: 25rem) {
+  .shows-day-heading {
+    position: static;
   }
 }
 
