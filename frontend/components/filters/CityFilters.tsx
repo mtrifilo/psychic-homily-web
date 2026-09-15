@@ -5,7 +5,7 @@ import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
-import { useSoftKeyboardViewport } from './useSoftKeyboardViewport'
+import { matchesSoftKeyboardViewport } from '@/lib/softKeyboardViewport'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
@@ -57,32 +57,27 @@ const MAX_POPULAR_CITIES = 5
 /** Minimum count for a city to be "popular" */
 const MIN_POPULAR_COUNT = 2
 
-/**
- * Space kept clear under the popover on a soft-keyboard viewport: the fixed
- * bottom tab bar (`--bottom-tab-bar-height`, 3.5rem + 1px) plus a gutter.
- * Radix feeds this padding to floating-ui's `size` middleware, which runs
- * whether or not collision avoidance is on, so it bounds
- * `--radix-popover-content-available-height` even with `avoidCollisions`
- * disabled.
- */
-const SOFT_KEYBOARD_COLLISION_PADDING = { bottom: 65 }
+/** Keeps the scrolled-to trigger clear of the sticky topbar. */
+const TRIGGER_SCROLL_MT = 'scroll-mt-[calc(var(--topbar-height)+1rem)]'
 
 /**
- * Popover treatment for viewports whose software keyboard can shrink the
- * visual viewport: pinned under the trigger and bounded to the space left
- * under it, so the list scrolls inside the popover with `CommandInput` held at
- * the top rather than the whole popover flipping over the trigger and carrying
- * the search field off-screen.
+ * Bounds the popover to the space left under its trigger, so the list scrolls
+ * inside it with `CommandInput` held at the top.
  *
  * `--radix-popover-content-available-height` is measured against the VISUAL
  * viewport (floating-ui builds its viewport rect from `window.visualViewport`
- * and re-measures on that object's `resize`), so the keyboard is already in
- * that number. The `max()` floor keeps the input plus a row or two usable in
- * the case that number goes to nearly zero, which happens when the trigger
+ * and re-measures on that object's `resize`), so a software keyboard is
+ * already in that number. The bottom tab bar is not: it is fixed below `xl`,
+ * so this is one of the surfaces that owes it the subtraction named in
+ * `globals.css`. The `max()` floor keeps the input plus a row or two usable
+ * when the remaining space goes to nearly zero, which happens when the trigger
  * itself cannot be scrolled clear of the keyboard.
  */
-const SOFT_KEYBOARD_CONTENT_CLASS =
-  'flex flex-col overflow-hidden max-h-[max(var(--radix-popover-content-available-height),10rem)]'
+export const SOFT_KEYBOARD_CONTENT_CLASS = [
+  'flex flex-col overflow-hidden',
+  'max-h-[max(calc(var(--radix-popover-content-available-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)),10rem)]',
+  'xl:max-h-[max(var(--radix-popover-content-available-height),10rem)]',
+].join(' ')
 
 export function CityFilters({
   cities,
@@ -92,7 +87,9 @@ export function CityFilters({
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
-  const softKeyboardViewport = useSoftKeyboardViewport()
+  // Read when the popover opens, not subscribed to: it only decides how the
+  // content is mounted, and every page here renders this control closed.
+  const [softKeyboardViewport, setSoftKeyboardViewport] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
 
   // Composes the two halves of `replayOnHydrate` with a ref of our own: the
@@ -104,19 +101,16 @@ export function CityFilters({
     replayOnHydrate.ref(node)
   }, [])
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      setOpen(next)
-      // The pinned popover can only use the space under the trigger, so on a
-      // soft-keyboard viewport the trigger goes to the top of the scroll
-      // container to give the list room. `scroll-mt` on the trigger keeps it
-      // clear of the sticky topbar.
-      if (next && softKeyboardViewport) {
-        triggerRef.current?.scrollIntoView({ block: 'start' })
-      }
-    },
-    [softKeyboardViewport]
-  )
+  const handleOpenChange = useCallback((next: boolean) => {
+    const softKeyboard = next && matchesSoftKeyboardViewport()
+    setSoftKeyboardViewport(softKeyboard)
+    setOpen(next)
+    // The pinned popover can only use the space under the trigger, so the
+    // trigger goes to the top of the page to give the list room.
+    if (softKeyboard) {
+      triggerRef.current?.scrollIntoView?.({ block: 'start' })
+    }
+  }, [])
 
   const selectedSet = useMemo(
     () => new Set(selectedCities.map(cityKey)),
@@ -179,7 +173,7 @@ export function CityFilters({
               data-testid="city-filter-combobox"
               className={cn(
                 'flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm transition-colors',
-                'scroll-mt-[calc(var(--topbar-height)+0.5rem)]',
+                TRIGGER_SCROLL_MT,
                 'hover:bg-muted hover:border-border',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 open && 'border-border bg-muted',
@@ -198,13 +192,12 @@ export function CityFilters({
               softKeyboardViewport && SOFT_KEYBOARD_CONTENT_CLASS
             )}
             align="start"
-            {...(softKeyboardViewport
-              ? {
-                  side: 'bottom' as const,
-                  avoidCollisions: false,
-                  collisionPadding: SOFT_KEYBOARD_COLLISION_PADDING,
-                }
-              : {})}
+            side="bottom"
+            // Collision avoidance is what flips the popover over the trigger
+            // when a keyboard shrinks the visual viewport, carrying the search
+            // field off-screen. Below, bounded, and scrolled to is the answer
+            // there; on a pointer viewport the flip is still the right call.
+            avoidCollisions={!softKeyboardViewport}
           >
             <Command>
               <CommandInput placeholder="Search cities..." />

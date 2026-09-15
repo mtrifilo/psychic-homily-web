@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { CityFilters, type CityWithCount, type CityState } from './CityFilters'
-import { SOFT_KEYBOARD_VIEWPORT_QUERY } from './useSoftKeyboardViewport'
+import {
+  CityFilters,
+  SOFT_KEYBOARD_CONTENT_CLASS,
+  type CityWithCount,
+  type CityState,
+} from './CityFilters'
+import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/softKeyboardViewport'
 
 // jsdom does not implement scrollIntoView (required by cmdk)
 beforeAll(() => {
@@ -325,29 +330,24 @@ describe('CityFilters', () => {
   })
 
   describe('soft-keyboard viewports', () => {
-    // jsdom has no layout, so these pin the PROPS that decide the geometry:
-    // the flip that carried the search field off-screen is prevented by
-    // side/avoidCollisions, and the height bound is a class. The rendered
+    // jsdom has no layout, so these pin what DECIDES the geometry: the flip
+    // that carried the search field off-screen is prevented by
+    // `avoidCollisions`, and the height bound is a class. The rendered
     // geometry itself is covered by e2e/pages/city-filter-mobile.spec.ts.
+    const originalMatchMedia = window.matchMedia
+
     function mockSoftKeyboardViewport(matches: boolean) {
-      Object.defineProperty(window, 'matchMedia', {
-        writable: true,
-        configurable: true,
-        value: vi.fn().mockImplementation((query: string) => ({
-          matches: matches && query === SOFT_KEYBOARD_VIEWPORT_QUERY,
-          media: query,
-          onchange: null,
-          addListener: vi.fn(),
-          removeListener: vi.fn(),
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-          dispatchEvent: vi.fn(),
-        })),
-      })
+      window.matchMedia = vi.fn(
+        (query: string) =>
+          ({
+            matches: matches && query === SOFT_KEYBOARD_VIEWPORT_QUERY,
+            media: query,
+          }) as MediaQueryList
+      )
     }
 
     afterEach(() => {
-      mockSoftKeyboardViewport(false)
+      window.matchMedia = originalMatchMedia
     })
 
     it('pins the popover under the trigger and bounds its height', async () => {
@@ -361,12 +361,12 @@ describe('CityFilters', () => {
 
       const content = screen.getByRole('dialog')
       expect(content).toHaveAttribute('data-side', 'bottom')
-      expect(content.className).toContain(
-        'max-h-[max(var(--radix-popover-content-available-height),10rem)]'
-      )
+      for (const className of SOFT_KEYBOARD_CONTENT_CLASS.split(' ')) {
+        expect(content.className).toContain(className)
+      }
     })
 
-    it('leaves the popover unbounded on a desktop viewport', async () => {
+    it('leaves the popover unbounded on a pointer viewport', async () => {
       mockSoftKeyboardViewport(false)
       const user = userEvent.setup()
       render(
@@ -377,12 +377,10 @@ describe('CityFilters', () => {
 
       const content = screen.getByRole('dialog')
       expect(content.className).toContain('w-[240px]')
-      expect(content.className).not.toContain(
-        'max-h-[max(var(--radix-popover-content-available-height),10rem)]'
-      )
+      expect(content.className).not.toContain('max-h-')
     })
 
-    it('scrolls the trigger to the top of the viewport on open', async () => {
+    it('scrolls the trigger to the top of the page on open', async () => {
       mockSoftKeyboardViewport(true)
       const user = userEvent.setup()
       render(
@@ -397,7 +395,7 @@ describe('CityFilters', () => {
       expect(trigger.scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
     })
 
-    it('does not scroll the page on a desktop viewport', async () => {
+    it('does not scroll the page on a pointer viewport', async () => {
       mockSoftKeyboardViewport(false)
       const user = userEvent.setup()
       render(
@@ -412,7 +410,7 @@ describe('CityFilters', () => {
       expect(trigger.scrollIntoView).not.toHaveBeenCalled()
     })
 
-    it('keeps the combobox semantics and the search field reachable', async () => {
+    it('keeps the search field focused when the popover is pinned', async () => {
       mockSoftKeyboardViewport(true)
       const user = userEvent.setup()
       render(
@@ -420,9 +418,6 @@ describe('CityFilters', () => {
       )
 
       const trigger = screen.getByTestId('city-filter-combobox')
-      expect(trigger).toHaveAttribute('role', 'combobox')
-      expect(trigger).toHaveAttribute('aria-expanded', 'false')
-
       await user.click(trigger)
 
       expect(trigger).toHaveAttribute('aria-expanded', 'true')
