@@ -28,7 +28,7 @@ import { ExportShowButton } from './ExportShowButton'
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
-import { splitBill } from '../utils'
+import { canDeleteShow, splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
 
 /**
@@ -186,21 +186,12 @@ export function DayGroupedShowRow({
     [artists]
   )
 
-  // Admin, or the reader who submitted this show.
-  //
-  // BOTH sides are coerced. `AuthContext` records that the declared `id: string`
-  // is narrower than what arrives at runtime, and a numeric id compared with
-  // `===` against a string silently fails, taking the submitter's own delete
-  // control with it. `ShowCard` coerces one side; that copy has the same latent
-  // hole and is worth a follow-up.
   const resolvedUserId = userId || user?.id
-  const canDelete =
-    isAdmin ||
-    !!(
-      resolvedUserId &&
-      show.submitted_by &&
-      String(show.submitted_by) === String(resolvedUserId)
-    )
+  const canDelete = canDeleteShow({
+    submittedBy: show.submitted_by,
+    viewerId: resolvedUserId,
+    isAdmin,
+  })
 
   // The COMPACT register, which `formatShowTimeCompact` documents as the one
   // for "a fixed-width lead column in a row of columns, where the full

@@ -51,10 +51,9 @@ export function ArtistBase({ artist }: { artist: ArtistResponse }) {
  * discovery loop is a reader scanning tonight's shows for bands they have never
  * heard, and any second click kills it.
  *
- * The `/shows` row renders this panel. `ShowCard` keeps its own inline copies,
- * one per density, and reads the predicates and {@link ArtistBase} from here,
- * so the two surfaces cannot disagree about which acts have music to open.
- * Folding those copies into this panel is a reasonable follow-up.
+ * The single definition: the `/shows` row and `ShowCard` both render it, each
+ * passing its own outer spacing through `className`, so the two surfaces cannot
+ * disagree about which acts have music to open or how an act reads.
  */
 export function ShowArtistMusicPanel({
   artists,

@@ -17,22 +17,17 @@ import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ShowForm } from './ShowForm'
-import { SaveButton, ShowPrice, SocialLinks, MusicEmbed } from '@/components/shared'
+import { SaveButton, ShowPrice } from '@/components/shared'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
-// The music predicates and the per-act base line live beside the panel that
-// uses them, so the card and the `/shows` row cannot disagree about which acts
-// have something to open.
-import {
-  ArtistBase,
-  artistHasMusic,
-  showHasArtistMusic,
-} from './ShowArtistMusic'
+// One music panel, shared with the `/shows` row, so the two surfaces cannot
+// disagree about which acts have something to open or how an act reads.
+import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { splitBill } from '../utils'
+import { canDeleteShow, splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 function ArtistLink({ artist, className }: { artist: ArtistResponse; className?: string }) {
@@ -143,11 +138,12 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
   // Check if any artist has music to show the expand button
   const hasArtistMusic = showHasArtistMusic(artists)
 
-  // Check if user can delete: admin or show owner
   const resolvedUserId = userId || user?.id
-  const canDelete =
-    isAdmin ||
-    (resolvedUserId && show.submitted_by && String(show.submitted_by) === resolvedUserId)
+  const canDelete = canDeleteShow({
+    submittedBy: show.submitted_by,
+    viewerId: resolvedUserId,
+    isAdmin,
+  })
 
   // One memo for both: they read the same three fields and resolve the same
   // zone, so a second hook would duplicate that lookup and give a future editor
@@ -416,37 +412,10 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
 
         {/* Always-visible artist music section in expanded mode (when artists have music) */}
         {isExpanded && hasArtistMusic && (
-          <div className="mt-5 pt-5 border-t border-border/50">
-            <div className="space-y-6">
-              {artists.filter(artistHasMusic).map(artist => (
-                <div key={artist.id} className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      {artist.slug ? (
-                        <Link
-                          href={`/artists/${artist.slug}`}
-                          className="font-medium hover:text-primary transition-colors"
-                        >
-                          {artist.name}
-                        </Link>
-                      ) : (
-                        <span className="font-medium">{artist.name}</span>
-                      )}
-                      <ArtistBase artist={artist} />
-                    </div>
-                    <SocialLinks social={artist.socials} className="shrink-0" />
-                  </div>
-                  <MusicEmbed
-                    bandcampAlbumUrl={artist.bandcamp_embed_url}
-                    bandcampProfileUrl={artist.socials?.bandcamp}
-                    spotifyUrl={artist.socials?.spotify}
-                    artistName={artist.name}
-                    compact
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          <ShowArtistMusicPanel
+            artists={artists}
+            className="mt-5 pt-5 border-t border-border/50"
+          />
         )}
 
         {/* Inline Edit Form */}
@@ -649,37 +618,10 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
 
       {/* Expanded Artist Music Section */}
       {isExpanded && hasArtistMusic && (
-        <div className="mt-4 pt-4 border-t border-border/50">
-          <div className="space-y-6">
-            {artists.filter(artistHasMusic).map(artist => (
-              <div key={artist.id} className="space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    {artist.slug ? (
-                      <Link
-                        href={`/artists/${artist.slug}`}
-                        className="font-medium hover:text-primary transition-colors"
-                      >
-                        {artist.name}
-                      </Link>
-                    ) : (
-                      <span className="font-medium">{artist.name}</span>
-                    )}
-                    <ArtistBase artist={artist} />
-                  </div>
-                  <SocialLinks social={artist.socials} className="shrink-0" />
-                </div>
-                <MusicEmbed
-                  bandcampAlbumUrl={artist.bandcamp_embed_url}
-                  bandcampProfileUrl={artist.socials?.bandcamp}
-                  spotifyUrl={artist.socials?.spotify}
-                  artistName={artist.name}
-                  compact
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+        <ShowArtistMusicPanel
+          artists={artists}
+          className="mt-4 pt-4 border-t border-border/50"
+        />
       )}
 
       {/* Inline Edit Form */}

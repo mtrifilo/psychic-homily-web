@@ -262,3 +262,34 @@ export function splitBill<T extends BillArtist>(
   return { headliners, support: artists.filter(artist => !leads(artist)) }
 }
 
+/**
+ * Whether a viewer may delete a show: an admin, or the reader who submitted it.
+ *
+ * BOTH ids are coerced before the comparison. `AuthContext` records that the
+ * declared `id: string` is narrower than the wire, which sends a number, so a
+ * `===` against an uncoerced viewer id answers false for the very reader who
+ * submitted the show and takes their own delete control with it.
+ *
+ * An unsubmitted show (no `submitted_by`) has no owner, so only an admin
+ * deletes it.
+ *
+ * Shared, so the `/shows` row and the card cannot disagree about who owns a
+ * submission.
+ */
+export function canDeleteShow({
+  submittedBy,
+  viewerId,
+  isAdmin,
+}: {
+  submittedBy: number | undefined
+  viewerId: string | number | null | undefined
+  isAdmin: boolean
+}): boolean {
+  if (isAdmin) return true
+  return !!(
+    viewerId &&
+    submittedBy &&
+    String(submittedBy) === String(viewerId)
+  )
+}
+
