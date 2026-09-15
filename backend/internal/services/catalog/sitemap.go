@@ -613,10 +613,10 @@ const showsMonthSitemapMaxYear = 2100
 // UPCOMING only, and that is the whole definition of the surface rather than a
 // filter applied to it. The set this emits must equal the set
 // GetUpcomingShowMonths returns for an unfiltered public read, MINUS the months
-// past showsMonthSitemapMaxYear, because that histogram is what decides whether
-// a month page renders; a month announced here that it does not carry is a URL
-// this site answers with a not-found, and a month past the bound is one the
-// route refuses before it reads anything.
+// past showsMonthSitemapMaxYear. A month announced here is a month the frontend
+// must both serve and index: a month with no upcoming shows still renders, but
+// it carries `noindex`, so announcing one would advertise a URL the site itself
+// asks crawlers to skip. A month past the bound is refused on shape alone.
 //
 // THE EQUALITY IS HELD BY A TEST, NOT BY CONSTRUCTION. This query restates the
 // partition rather than composing the applier the histogram builds on, so a
