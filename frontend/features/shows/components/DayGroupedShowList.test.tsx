@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
@@ -228,19 +230,28 @@ describe('DayGroupedShowList', () => {
           'sticky',
           'top-[var(--topbar-height)]',
           'z-20',
-          'bg-background'
+          'bg-background',
+          // The hook globals.css keys the heading link's clearance, the
+          // forced-colors rule and the short-viewport unsticking on.
+          'shows-day-heading'
         )
         const rule = heading.querySelector('[aria-hidden="true"]')
-        expect(rule).toHaveClass('h-px', 'bg-primary')
+        expect(rule).toHaveClass('h-px', 'bg-primary', 'shows-day-heading-rule')
       }
     })
 
-    it('gives each anchored heading the top bar as its scroll margin', () => {
+    it('gives every anchored heading the top bar as its scroll margin', () => {
       renderList()
 
-      const heading = screen.getByRole('heading', { name: 'FRI · SEP 11' })
-      expect(heading).toHaveAttribute('id', 'd-2026-09-11')
-      expect(heading).toHaveClass('scroll-mt-[var(--topbar-height)]')
+      const anchored: Array<[string, string]> = [
+        ['FRI · SEP 11', 'd-2026-09-11'],
+        ['SAT · SEP 12', 'd-2026-09-12'],
+      ]
+      for (const [name, id] of anchored) {
+        const heading = screen.getByRole('heading', { name })
+        expect(heading).toHaveAttribute('id', id)
+        expect(heading).toHaveClass('scroll-mt-[var(--topbar-height)]')
+      }
     })
 
     // The clearance itself is a stylesheet rule keyed on this class
@@ -256,6 +267,27 @@ describe('DayGroupedShowList', () => {
         const hasHeading = group.querySelector('h2') !== null
         expect(group.querySelector('.shows-day-rows') !== null).toBe(hasHeading)
       }
+    })
+
+    // jsdom loads no stylesheet, so the class assertions above prove only that
+    // the component asks for the clearance. The rule that grants it lives in
+    // globals.css, where renaming or deleting it would leave every one of them
+    // green. This reads the stylesheet as text so that it does not.
+    it('keeps the stylesheet rule the marker classes depend on', () => {
+      const css = readFileSync(
+        resolve(__dirname, '../../../app/globals.css'),
+        'utf8'
+      )
+
+      expect(css).toContain('--shows-day-header-height')
+      expect(css).toMatch(
+        /\.shows-day-rows :where\([^)]*\)\s*\{\s*scroll-margin-top: calc\(\s*var\(--topbar-height\) \+ var\(--shows-day-header-height\)/
+      )
+      expect(css).toMatch(
+        /\.shows-day-heading :where\(a\)\s*\{\s*scroll-margin-top: calc\(/
+      )
+      expect(css).toMatch(/\.shows-day-heading \{\s*position: static/)
+      expect(css).toContain('.shows-day-heading-rule')
     })
 
     it('leaves an undated run s rows unmarked, having no heading to clear', () => {

@@ -118,6 +118,10 @@ function DayGroupSection({
           // aligning its top with the offset it pins to is what leaves a
           // fragment jump exactly where scrolling to the day would.
           className={cn(
+            // `shows-day-heading` is the hook for the rules globals.css cannot
+            // express as utilities: the heading link's scroll clearance, and
+            // going back in flow on a 400%-zoom viewport.
+            'shows-day-heading',
             'sticky top-[var(--topbar-height)] z-20 flex scroll-mt-[var(--topbar-height)] items-center gap-2',
             // Opaque, so the rows of this day pass underneath rather than
             // through the heading. `z-20` keeps it over those rows and under
@@ -130,7 +134,10 @@ function DayGroupSection({
             <DayHeadingLabel group={group} />
           </span>
           {/* Decoration: the heading text beside it already names the day. */}
-          <span aria-hidden="true" className="h-px flex-1 bg-primary" />
+          <span
+            aria-hidden="true"
+            className="shows-day-heading-rule h-px flex-1 bg-primary"
+          />
         </h2>
       )}
       <div
