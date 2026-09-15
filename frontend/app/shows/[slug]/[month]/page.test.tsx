@@ -11,6 +11,24 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
+// The head reads the window's total to decide whether the window is indexable.
+// Answered here with a window that HAS rows, so every `robots` assertion below
+// is about the route's own rules rather than about what a backend happened to
+// be serving: unmocked, the answer would depend on whether a dev API is
+// listening, which is the definition of a flaky head assertion.
+vi.mock('@/lib/ssr/fetchListPayload', () => ({
+  fetchListPayload: async () => ({
+    shows: [],
+    total: 12,
+    limit: 50,
+    offset: 0,
+    year: 0,
+    month: 0,
+    day: 0,
+    days: 0,
+  }),
+}))
+
 // These tests exercise the route's OWN job, segment validation and the head,
 // so the body, which fetches, is stubbed out.
 vi.mock('@/features/shows/calendarPage', async importOriginal => {

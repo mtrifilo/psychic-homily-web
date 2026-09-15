@@ -17,7 +17,7 @@ import (
 func TestShowListWindowRoutesAreRegisteredOnceAsStaticPaths(t *testing.T) {
 	routes := chiRoutes(t, newTestRouter(t))
 
-	for _, path := range []string{"/shows/calendar", "/shows/months"} {
+	for _, path := range []string{"/shows/calendar", "/shows/months", "/shows/calendar/range"} {
 		got := matching(routes, http.MethodGet, path)
 		if len(got) != 1 {
 			t.Fatalf("GET %s: %d registered routes %v, want exactly 1. chi keeps only the "+
@@ -44,6 +44,10 @@ func TestShowListWindowPathsResolveAnonymously(t *testing.T) {
 		"/shows/calendar?year=2026&month=11&day=14&days=7",
 		"/shows/months",
 		"/shows/months?cities=Phoenix,AZ",
+		// The proxy reads this one anonymously on behalf of every visitor, and a
+		// 404 or a 405 here is indistinguishable from a backend that does not
+		// carry the route yet, which is the deploy-skew case it fails open on.
+		"/shows/calendar/range",
 	} {
 		router := newTestRouter(t)
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -98,7 +102,7 @@ func TestShowListWindowRefusesIncoherentWindows(t *testing.T) {
 // Public, anonymous and unauthenticated, so both stay on the ordinary
 // public-read budget rather than any exemption lane.
 func TestShowListWindowRoutesAreNotExemptFromRateLimiting(t *testing.T) {
-	for _, path := range []string{"/shows/calendar", "/shows/months"} {
+	for _, path := range []string{"/shows/calendar", "/shows/months", "/shows/calendar/range"} {
 		if token := personalFeedTokenFromPath(path); token != "" {
 			t.Errorf("path %q reads as personal-feed token %q: a public unauthenticated endpoint must stay metered",
 				path, token)

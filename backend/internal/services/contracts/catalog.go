@@ -449,6 +449,36 @@ type ShowMonthCount struct {
 	Count int64 `json:"count" doc:"Upcoming shows in that venue-local month, under the requested filters"`
 }
 
+// ShowCalendarMonth names one venue-local calendar month.
+//
+// A month, not a count: it is an EDGE of the addressable span rather than a bar
+// of the histogram, so it carries no rows and cannot be mistaken for one.
+type ShowCalendarMonth struct {
+	Year  int `json:"year" doc:"Venue-local calendar year"`
+	Month int `json:"month" doc:"Venue-local calendar month, 1-12"`
+}
+
+// ShowCalendarRange is the month span the date-addressed upcoming list can be
+// asked about: the current month through the last month holding an upcoming
+// show, inclusive at both ends.
+//
+// Every month between the two edges is inside the span whether or not it holds
+// a show, because the span answers "could this URL ever be a page", not "does
+// this URL have rows". A month with no rows inside the span is a quiet page; a
+// month outside it is not a page at all.
+//
+// UNFILTERED and approved-only, so the answer is the same for every caller and
+// the response is shareable by any cache between here and the reader.
+//
+// FirstMonth is a 404 bound, not a display bound. It is deliberately WIDE
+// enough to hold the current month on every clock a reader could be asking
+// from, so a surface that printed it as "the earliest month we have" would
+// sometimes print a month that ended yesterday where the reader stands.
+type ShowCalendarRange struct {
+	FirstMonth ShowCalendarMonth `json:"first_month" doc:"Earliest addressable venue-local month. A bound on which URLs exist, wide enough to hold the current month in every timezone"`
+	LastMonth  ShowCalendarMonth `json:"last_month" doc:"Latest addressable venue-local month, never earlier than first_month"`
+}
+
 // ShowCityResponse represents a city with the count of upcoming shows.
 //
 // Latitude/Longitude are the city's geocoded centroid (the same offline
@@ -2718,6 +2748,17 @@ type ShowServiceInterface interface {
 	// derive an offset into the unwindowed list: that list is ordered by the
 	// stored instant, so a month's rows are not contiguous in it.
 	GetUpcomingShowMonths(includeNonApproved bool, filters *UpcomingShowsFilter) ([]ShowMonthCount, error)
+	// GetUpcomingShowsCalendarRange returns the month span the date-addressed
+	// list is addressable over: the current month through the last month that
+	// holds an upcoming show, inclusive.
+	//
+	// UNFILTERED and approved-only, whatever the caller is: the span decides
+	// which URLs exist, and a URL that exists for one reader exists for all of
+	// them. That is also what makes the response cacheable by anything.
+	//
+	// LastMonth is never earlier than FirstMonth, so an empty catalog answers
+	// with the current month at both edges rather than an inverted span.
+	GetUpcomingShowsCalendarRange() (ShowCalendarRange, error)
 	// GetShowCities counts the SAME venue-local upcoming partition
 	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an
 	// empty list. Its timezone parameter is inert for the same reason.

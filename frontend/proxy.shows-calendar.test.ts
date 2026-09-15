@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 import {
   isAddressableShowsYear,
   isRealShowsCalendarDay,
-  proxy,
   SHOWS_CALENDAR_DAY_SEGMENT,
   SHOWS_CALENDAR_MAX_YEAR,
   SHOWS_CALENDAR_MIN_YEAR,
@@ -23,6 +22,57 @@ function requestFor(pathname: string): NextRequest {
   } as unknown as NextRequest
 }
 
+const RANGE_URL = 'http://localhost:8080/shows/calendar/range'
+
+/**
+ * A month relative to the CURRENT one, as the endpoint spells an edge.
+ *
+ * Every span below is built from the clock rather than written down, for the
+ * reason the backend suite gives about its own fixtures: the proxy refuses a
+ * span that does not hold today, so a span pinned to literal months would start
+ * failing on a date nobody chose.
+ */
+function monthFromNow(delta: number): { year: number; month: number } {
+  const now = new Date()
+  const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + delta, 1))
+  return { year: at.getUTCFullYear(), month: at.getUTCMonth() + 1 }
+}
+
+/** The dated path of a month relative to this one, with an optional day. */
+function pathFromNow(delta: number, day?: number): string {
+  const { year, month } = monthFromNow(delta)
+  const base = `/shows/${year}/${String(month).padStart(2, '0')}`
+  return day === undefined ? base : `${base}/${String(day).padStart(2, '0')}`
+}
+
+/** The span most cases below are read against: last month through four out. */
+const SPAN = {
+  first_month: monthFromNow(-1),
+  last_month: monthFromNow(4),
+}
+
+function rangeResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+/**
+ * A proxy whose span cache is empty.
+ *
+ * The cache is module state that lives for the life of the instance, which is
+ * the whole point of it in production and a shared fixture between test cases.
+ * Re-importing per case is what keeps one case's span out of the next one's.
+ */
+async function freshProxy(): Promise<(request: NextRequest) => Promise<Response>> {
+  vi.resetModules()
+  const proxyModule = await import('./proxy')
+  return proxyModule.proxy as unknown as (
+    request: NextRequest
+  ) => Promise<Response>
+}
+
 /**
  * `/shows/{yyyy}/{mm}` and `/shows/{yyyy}/{mm}/{dd}` sit one level below the
  * entity-detail shape the generic check handles, so they need their own branch
@@ -30,39 +80,204 @@ function requestFor(pathname: string): NextRequest {
  * once the shell has streamed (the PSY-897 arc, the same failure the scene
  * periods and the venue year archives hit).
  *
- * The branch is SHAPE-only by decision. Whether a well-formed month HAS shows
- * is a question about the upcoming partition under the reader's own filters,
- * and the route answers it from the month histogram it already reads.
+ * SHAPE is decided here without a backend. MEMBERSHIP is decided against the
+ * addressable span: a month outside it is a real 404, and a month inside it
+ * with nothing on is the list's quiet state at 200.
  */
 describe('proxy, shows month and day routes', () => {
+  let fetchMock: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchMock = vi.spyOn(globalThis, 'fetch')
+    fetchMock.mockResolvedValue(rangeResponse(SPAN))
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  /**
-   * The load-bearing property: no backend round trip on these paths at all.
-   * A probe per request would be two backend calls for every month page, on
-   * the site's busiest prefix, to answer a question the page re-asks anyway.
-   */
-  it('passes a well-formed month through without touching the backend', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+  it('passes a month inside the addressable span', async () => {
+    const proxy = await freshProxy()
 
-    const response = await proxy(requestFor('/shows/2026/11'))
+    const response = await proxy(requestFor(pathFromNow(1)))
 
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledWith(RANGE_URL, expect.anything())
+  })
+
+  it('passes a day inside the addressable span', async () => {
+    const proxy = await freshProxy()
+
+    const response = await proxy(requestFor(pathFromNow(1, 14)))
+
     expect(response.status).toBe(200)
   })
 
-  it('passes a well-formed day through without touching the backend', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+  it('404s a month before the span and a month after it', async () => {
+    const proxy = await freshProxy()
 
-    const response = await proxy(requestFor('/shows/2026/11/14'))
+    expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(404)
+    expect((await proxy(requestFor(pathFromNow(5)))).status).toBe(404)
+  })
 
-    expect(fetchMock).not.toHaveBeenCalled()
+  /** A day is addressable exactly when its month is. */
+  it('404s a day whose month is outside the span', async () => {
+    const proxy = await freshProxy()
+
+    expect((await proxy(requestFor(pathFromNow(-2, 28)))).status).toBe(404)
+    expect((await proxy(requestFor(pathFromNow(5, 1)))).status).toBe(404)
+  })
+
+  /**
+   * The edges are INCLUSIVE. The first edge is the current month, which is
+   * where every Tonight link lands, and the last is the month holding the last
+   * upcoming show.
+   */
+  it('passes both edge months', async () => {
+    const proxy = await freshProxy()
+
+    expect((await proxy(requestFor(pathFromNow(-1)))).status).toBe(200)
+    expect((await proxy(requestFor(pathFromNow(4)))).status).toBe(200)
+  })
+
+  /**
+   * A run keeps its own address. The proxy passes it through rather than
+   * rewriting, so the day route still reads the span it was asked for.
+   */
+  it('leaves a run parameter untouched on the way through', async () => {
+    const proxy = await freshProxy()
+    const run = `${pathFromNow(1, 11)}?days=3`
+    const request = {
+      nextUrl: new URL(`http://localhost:3000${run}`),
+      url: `http://localhost:3000${run}`,
+    } as unknown as NextRequest
+
+    const response = await proxy(request)
+
     expect(response.status).toBe(200)
+    expect(response.headers.get('x-middleware-rewrite')).toBeNull()
+  })
+
+  /**
+   * One probe per instance, not one per URL. A crawler walking a family of
+   * dated URLs would otherwise spend a backend call on each, against an
+   * anonymous per-IP budget every reader behind one address shares.
+   */
+  it('reads the span once and reuses it', async () => {
+    const proxy = await freshProxy()
+
+    await Promise.all([
+      proxy(requestFor(pathFromNow(1))),
+      proxy(requestFor(pathFromNow(2))),
+      proxy(requestFor(pathFromNow(3, 2))),
+    ])
+    await proxy(requestFor(pathFromNow(4)))
+
+    const rangeCalls = fetchMock.mock.calls.filter(
+      (call: unknown[]) => call[0] === RANGE_URL
+    )
+    expect(rangeCalls).toHaveLength(1)
+  })
+
+  /**
+   * FAIL OPEN, on every answer that is not a span. A 404 produced from a span
+   * nobody answered for would take out every dated URL at once, the ones the
+   * site's own chips link included; a quiet month rendered at 200 is transient.
+   *
+   * The 404 row is the deploy skew: the frontend goes live before the backend
+   * carries the route, and chi answers an unrouted path with a 404.
+   */
+  it.each([
+    ['a 5xx', () => Promise.resolve(rangeResponse({}, 500))],
+    ['a 404 from an API that does not carry the route yet', () =>
+      Promise.resolve(new Response('404 page not found', { status: 404 }))],
+    ['a 429', () => Promise.resolve(rangeResponse({}, 429))],
+    ['a network error', () => Promise.reject(new Error('ECONNREFUSED'))],
+    ['a body that is not a span', () => Promise.resolve(rangeResponse({ months: [] }))],
+    ['an inverted span', () =>
+      Promise.resolve(
+        rangeResponse({ first_month: monthFromNow(4), last_month: monthFromNow(-1) })
+      )],
+    ['a span that does not hold today', () =>
+      Promise.resolve(
+        rangeResponse({ first_month: monthFromNow(6), last_month: monthFromNow(9) })
+      )],
+    ['an edge outside the addressable years', () =>
+      Promise.resolve(
+        rangeResponse({ first_month: { year: 0, month: 1 }, last_month: monthFromNow(4) })
+      )],
+  ])('serves the page when the probe answers %s', async (_label, answer) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    fetchMock.mockImplementation(() => answer() as Promise<Response>)
+    const proxy = await freshProxy()
+
+    // A month that would be 404ed under the span above.
+    expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(200)
+  })
+
+  /**
+   * A refresh that fails keeps the span it had, rather than falling open on
+   * every dated URL at the moment the backend is least able to serve them: a
+   * rendered window costs three backend reads where a 404 costs none.
+   */
+  it('keeps the last good span when a later probe fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      const proxy = await freshProxy()
+      expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(404)
+
+      fetchMock.mockResolvedValue(rangeResponse({}, 503))
+      vi.advanceTimersByTime(300_001)
+
+      expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(404)
+      expect((await proxy(requestFor(pathFromNow(1)))).status).toBe(200)
+      // The refresh must actually have been attempted, or the assertions above
+      // would be reading the first probe's entry and proving nothing.
+      const rangeCalls = fetchMock.mock.calls.filter(
+        (call: unknown[]) => call[0] === RANGE_URL
+      )
+      expect(rangeCalls.length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * An unanswered probe is remembered too, on a shorter window: a backend that
+   * is down or rate-limiting must not be asked again by every request that
+   * arrives while it is, and it must be asked again soon after.
+   */
+  it('re-probes an unanswered span after the short window and not before', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      fetchMock.mockResolvedValue(rangeResponse({}, 503))
+      const proxy = await freshProxy()
+      const rangeCalls = () =>
+        fetchMock.mock.calls.filter((call: unknown[]) => call[0] === RANGE_URL)
+
+      await proxy(requestFor(pathFromNow(-2)))
+      expect(rangeCalls()).toHaveLength(1)
+
+      vi.advanceTimersByTime(29_000)
+      await proxy(requestFor(pathFromNow(-2)))
+      expect(rangeCalls()).toHaveLength(1)
+
+      vi.advanceTimersByTime(2_000)
+      await proxy(requestFor(pathFromNow(-2)))
+      expect(rangeCalls()).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('passes a leap day in a leap year and 404s one in a common year', async () => {
+    fetchMock.mockResolvedValue(
+      rangeResponse({ first_month: monthFromNow(-1), last_month: { year: 2028, month: 3 } })
+    )
+    const proxy = await freshProxy()
+
     expect((await proxy(requestFor('/shows/2028/02/29'))).status).toBe(200)
     expect((await proxy(requestFor('/shows/2027/02/29'))).status).toBe(404)
   })
@@ -94,11 +309,13 @@ describe('proxy, shows month and day routes', () => {
     '/shows/2026/11/31',
     '/shows/some-show-slug/edit',
   ])('404s %s before anything renders', async pathname => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const proxy = await freshProxy()
 
     const response = await proxy(requestFor(pathname))
 
     expect(response.status).toBe(404)
+    // Shape is settled without a backend, which is what keeps the larger half
+    // of the crawlable space off the probe entirely.
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -109,7 +326,7 @@ describe('proxy, shows month and day routes', () => {
    * agree with the router rather than 404 it as a malformed month.
    */
   it('leaves the show OG card route alone', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const proxy = await freshProxy()
 
     const response = await proxy(
       requestFor('/shows/2026-03-20-a-show/opengraph-image')
@@ -124,9 +341,8 @@ describe('proxy, shows month and day routes', () => {
    * segments and still goes to the existence probe.
    */
   it('still existence-checks the show detail shape', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 200 }))
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }))
+    const proxy = await freshProxy()
 
     await proxy(requestFor('/shows/2026-03-20-a-show'))
 
@@ -137,7 +353,7 @@ describe('proxy, shows month and day routes', () => {
   })
 
   it('still lets the reserved static sub-routes through', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const proxy = await freshProxy()
 
     expect((await proxy(requestFor('/shows/submit'))).status).toBe(200)
     expect((await proxy(requestFor('/shows/saved'))).status).toBe(200)

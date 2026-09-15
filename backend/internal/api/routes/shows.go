@@ -30,6 +30,13 @@ func setupShowRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/shows/calendar", showHandler.GetShowsCalendarHandler)
 	huma.Get(rc.API, "/shows/months", showHandler.GetShowMonthsHandler)
 
+	// The addressable month span behind the window routes' real 404s, read by
+	// frontend/proxy.ts. Anonymous for the reason GetShowsCalendarRangeHandler
+	// gives, and static under a static parent: chi resolves it before
+	// /shows/{show_id}/calendar.ics, which is the same shape with a parameter in
+	// the first slot, exactly as /shows/calendar resolves before /shows/{show_id}.
+	huma.Get(rc.API, "/shows/calendar/range", showHandler.GetShowsCalendarRangeHandler)
+
 	// Show detail with optional auth for access control on non-approved shows
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))

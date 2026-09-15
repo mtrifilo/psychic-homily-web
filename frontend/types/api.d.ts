@@ -6096,6 +6096,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows/calendar/range": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get shows calendar range */
+        get: operations["get-shows-calendar-range"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows/cities": {
         parameters: {
             query?: never;
@@ -16704,6 +16721,30 @@ export interface components {
             twitter: string | null;
             website: string | null;
             youtube: string | null;
+        };
+        ShowCalendarMonth: {
+            /**
+             * Format: int64
+             * @description Venue-local calendar month, 1-12
+             */
+            month: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar year
+             */
+            year: number;
+        };
+        ShowCalendarRange: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ShowCalendarRange.json
+             */
+            readonly $schema?: string;
+            /** @description Earliest addressable venue-local month. A bound on which URLs exist, wide enough to hold the current month in every timezone */
+            first_month: components["schemas"]["ShowCalendarMonth"];
+            /** @description Latest addressable venue-local month, never earlier than first_month */
+            last_month: components["schemas"]["ShowCalendarMonth"];
         };
         ShowCityResponse: {
             city: string;
@@ -33653,6 +33694,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetShowsCalendarResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-shows-calendar-range": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowCalendarRange"];
                 };
             };
             /** @description Error */

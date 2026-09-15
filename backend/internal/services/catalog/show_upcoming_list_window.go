@@ -3,6 +3,7 @@ package catalog
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -251,4 +252,94 @@ func (s *ShowService) GetUpcomingShowMonths(
 		}
 	}
 	return months, nil
+}
+
+// The two bands around now that the addressable range holds open whatever the
+// catalogue contains. Both exist so a URL the list's own chrome can produce is
+// never outside the range, because outside it is a hard 404.
+//
+// BACKWARD is one day, which covers every inhabited UTC offset: the range is
+// stated in whole months and a month has no zone, while the readers it bounds
+// partition per row on their own venue's clock, and no wall clock on earth is
+// more than a day from UTC's. Nothing points further back than today: the quick
+// windows anchor on the later of today and their own start.
+//
+// FORWARD is a week, which covers the same offset band plus the furthest date
+// the quick-window row can address: "This weekend" anchors on the coming Friday,
+// four days out on a Monday. Without it, a Monday in the last days of a month
+// with nothing upcoming next month sends that chip to a hard 404, the dead end
+// the range exists to prevent. A week leaves margin for the run lengths those
+// chips carry.
+//
+// Widening is the safe direction in both. A month inside the range that holds
+// nothing renders as a quiet page, which is recoverable; a month outside it is
+// a hard 404 on a URL the site itself is printing.
+const (
+	calendarRangeBackwardDays = 1
+	calendarRangeForwardDays  = 7
+)
+
+// showCalendarMonthOf is the calendar month an instant falls in, read on the
+// instant's own zone.
+func showCalendarMonthOf(at time.Time) contracts.ShowCalendarMonth {
+	return contracts.ShowCalendarMonth{Year: at.Year(), Month: int(at.Month())}
+}
+
+// showCalendarMonthOrdinal orders two months on one axis, so a comparison
+// cannot read a December as earlier than the January after it.
+func showCalendarMonthOrdinal(month contracts.ShowCalendarMonth) int {
+	return month.Year*12 + month.Month
+}
+
+// GetUpcomingShowsCalendarRange returns the month span the date-addressed
+// upcoming list is addressable over.
+//
+// See contracts.ShowServiceInterface for the contract. Both edges are computed
+// here rather than left to the caller because they answer one question and a
+// caller holding half of it would have to guess the other half.
+//
+// The LAST edge is read through upcomingShowPredicates, the same applier the
+// windowed page and the month histogram build on, so the last addressable month
+// and the last month the strip offers cannot disagree about which shows are
+// upcoming. It reads ONE row: the partition's latest venue-local date, whose
+// month is the edge. A COUNT or a histogram would carry every bucket back to
+// learn the last one.
+func (s *ShowService) GetUpcomingShowsCalendarRange() (contracts.ShowCalendarRange, error) {
+	if s.db == nil {
+		return contracts.ShowCalendarRange{}, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	first := showCalendarMonthOf(now.AddDate(0, 0, -calendarRangeBackwardDays))
+	last := showCalendarMonthOf(now.AddDate(0, 0, calendarRangeForwardDays))
+
+	applyPredicates := s.upcomingShowPredicates(false, nil, contracts.ShowCalendarWindow{})
+
+	var latest struct {
+		Year  int
+		Month int
+	}
+	// The aliases are quoted for the reason scanVenueLocalMonthBuckets quotes
+	// its own: `year` and `month` are keywords Postgres is otherwise free to
+	// resolve against something else.
+	result := applyPredicates(s.db.Model(&catalogm.Show{})).
+		Select(shared.VenueLocalYearSQL + ` AS "year", ` + shared.VenueLocalMonthSQL + ` AS "month"`).
+		Order(shared.VenueLocalDateSQL + " DESC").
+		Limit(1).
+		Scan(&latest)
+	if result.Error != nil {
+		return contracts.ShowCalendarRange{}, fmt.Errorf("failed to read the last upcoming show month: %w", result.Error)
+	}
+
+	// RowsAffected, not a zero Year: an empty upcoming partition scans nothing
+	// and leaves the struct at its zero value, which reads as year 0 month 0 and
+	// would move the edge to the beginning of the calendar.
+	if result.RowsAffected > 0 {
+		latestMonth := contracts.ShowCalendarMonth{Year: latest.Year, Month: latest.Month}
+		if showCalendarMonthOrdinal(latestMonth) > showCalendarMonthOrdinal(last) {
+			last = latestMonth
+		}
+	}
+
+	return contracts.ShowCalendarRange{FirstMonth: first, LastMonth: last}, nil
 }

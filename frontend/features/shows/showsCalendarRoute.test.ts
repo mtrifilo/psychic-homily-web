@@ -23,7 +23,6 @@ import {
   showsMonthPath,
   showsWindowHref,
   showsWindowPath,
-  windowMonths,
 } from './showsCalendarRoute'
 
 describe('parseMonthSegments', () => {
@@ -393,45 +392,6 @@ describe('calendarWindowLabel and showsCalendarWindowTitle, for a run', () => {
     expect(
       calendarWindowLabel({ year: 2026, month: 12, day: 29, days: 7 })
     ).toBe('Dec 29, 2026 to Jan 4, 2027')
-  })
-})
-
-describe('windowMonths', () => {
-  it('is the window itself for a month, a day, and a run inside one month', () => {
-    expect(windowMonths({ year: 2026, month: 11 })).toEqual([
-      { year: 2026, month: 11 },
-    ])
-    expect(windowMonths({ year: 2026, month: 11, day: 14 })).toEqual([
-      { year: 2026, month: 11 },
-    ])
-    expect(windowMonths({ year: 2026, month: 11, day: 14, days: 3 })).toEqual([
-      { year: 2026, month: 11 },
-    ])
-  })
-
-  // What the histogram gate asks about. A run opening in a quiet month and
-  // closing in a busy one is a real page, and asking about the anchor month
-  // alone would 404 it.
-  it('names both months a run spans, across a year boundary too', () => {
-    expect(windowMonths({ year: 2026, month: 11, day: 29, days: 7 })).toEqual([
-      { year: 2026, month: 11 },
-      { year: 2026, month: 12 },
-    ])
-    expect(windowMonths({ year: 2026, month: 12, day: 29, days: 7 })).toEqual([
-      { year: 2026, month: 12 },
-      { year: 2027, month: 1 },
-    ])
-  })
-
-  // Walked rather than read off the edges, so a run longer than a month would
-  // still name the months in the middle. No such run is addressable today; this
-  // is what makes raising the bound safe rather than silently lossy.
-  it('names every month a run passes through, not only its edges', () => {
-    expect(windowMonths({ year: 2026, month: 11, day: 29, days: 40 })).toEqual([
-      { year: 2026, month: 11 },
-      { year: 2026, month: 12 },
-      { year: 2027, month: 1 },
-    ])
   })
 })
 

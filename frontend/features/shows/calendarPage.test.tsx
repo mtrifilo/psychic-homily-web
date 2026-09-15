@@ -1,15 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const NOT_FOUND = 'NEXT_NOT_FOUND'
-vi.mock('next/navigation', () => ({
-  notFound: vi.fn(() => {
-    throw new Error(NOT_FOUND)
-  }),
-}))
-
 // The list is a client component with its own hooks; this file tests the
-// SERVER decisions around it, which windows are documents, and what gets
-// seeded, so it is stubbed to a marker.
+// SERVER decisions around it, what renders and what the head says about it,
+// so it is stubbed to a marker.
 vi.mock('./components/ShowList', () => ({
   ShowList: (): null => null,
 }))
@@ -25,7 +18,11 @@ vi.mock('@/lib/ssr/fetchListPayload', () => ({
   fetchListPayload: (options: { url: string }) => fetchListPayload(options),
 }))
 
-import { ShowsCalendarContent } from './calendarPage'
+import {
+  buildShowsCalendarMetadata,
+  ShowsCalendarContent,
+  showsCalendarRouteMetadata,
+} from './calendarPage'
 import {
   showsCalendarWindowFirstScreenKey,
   showsCalendarWindowFirstScreenUrl,
@@ -81,190 +78,70 @@ beforeEach(() => {
   seedFirstScreen.mockResolvedValue({ queries: [] })
 })
 
-describe('ShowsCalendarContent, which windows are documents', () => {
-  it('renders a month the histogram carries', async () => {
+/**
+ * EVERY window that reaches this component is a page.
+ *
+ * Whether the URL exists at all is decided in `proxy.ts` against the
+ * addressable span, before the render starts and while a status can still be
+ * set. What is left here cannot answer a not-found without committing a 404
+ * body at HTTP 200, so it does not try: a window with nothing in it renders the
+ * list's quiet state, which keeps the chips, the month axis and the filters
+ * that are the way out of it.
+ */
+describe('ShowsCalendarContent renders every window it is given', () => {
+  it.each([
+    ['a month that has shows', NOVEMBER, page(68), HISTOGRAM],
+    ['a month with nothing in it', NOVEMBER, page(0), HISTOGRAM],
+    ['a day with nothing in it', NOVEMBER_14, page(0), HISTOGRAM],
+    ['a run with nothing in it', { ...NOVEMBER_14, days: 3 }, page(0), HISTOGRAM],
+    // The histogram bounds the month AXIS; the addressable span bounds the URL
+    // space, and a month the histogram does not carry is one of the quiet
+    // pages this route now serves rather than a question for this component.
+    ['a month the histogram does not carry', { year: 2199, month: 1 }, page(0), HISTOGRAM],
+    ['a window whose reads failed', NOVEMBER, null, null],
+  ])('renders %s', async (_label, window, rows, months) => {
+    answerWith({ rows, months })
+
+    await expect(
+      ShowsCalendarContent({
+        window,
+        searchParams: Promise.resolve({}),
+      })
+    ).resolves.toBeTruthy()
+  })
+
+})
+
+/**
+ * The head and the body ask for the SAME window URL.
+ *
+ * That is the half this module controls: one request scope reads it once,
+ * through `React.cache` keyed on that URL and through Next's own fetch
+ * memoization. Neither memo exists outside a request, so what is asserted here
+ * is the input they both key on. A head that asked for a different URL (a
+ * smaller limit, say) would read the backend a second time on every month and
+ * day request, and no other test would notice.
+ */
+describe('the head and the body read one window URL', () => {
+  it('asks for the same URL from both', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM })
 
-    await expect(
+    await Promise.all([
+      buildShowsCalendarMetadata(NOVEMBER),
       ShowsCalendarContent({
         window: NOVEMBER,
         searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
+      }),
+    ])
 
-  /**
-   * The histogram is the same source the strip links from and the
-   * `shows_months` sitemap family is projected from, so the set announced, the
-   * set that renders and the set the strip offers cannot drift apart.
-   */
-  it('404s a month the histogram does not carry', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2199, month: 1 },
-        searchParams: Promise.resolve({}),
-      })
-    ).rejects.toThrow(NOT_FOUND)
-  })
-
-  /**
-   * Page-independent, which is what makes `?page=2` of a dead month a
-   * not-found too. On a deep page the row read is skipped, so the window total
-   * is unavailable and the histogram is the only thing that can answer.
-   */
-  it('404s a dead month on a deep page as well as on page 1', async () => {
-    answerWith({ rows: null, months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2199, month: 1 },
-        searchParams: Promise.resolve({ page: '2' }),
-      })
-    ).rejects.toThrow(NOT_FOUND)
-  })
-
-  // The upcoming histogram is what makes the past-month rule fall out for free:
-  // a month that has ended is simply not in it. No redirect, by decision.
-  it('404s a past month, which the upcoming histogram never carries', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2019, month: 6 },
-        searchParams: Promise.resolve({}),
-      })
-    ).rejects.toThrow(NOT_FOUND)
-  })
-
-  it('404s a day inside a live month that has no shows of its own', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER_14,
-        searchParams: Promise.resolve({}),
-      })
-    ).rejects.toThrow(NOT_FOUND)
-  })
-
-  /**
-   * The zero-rows guard covers MONTHS as well as days. It is a second opinion
-   * the histogram has already given, and it fires only when the two disagree
-   * about what "upcoming" means, at which point the page has no rows to show,
-   * so a not-found is the honest answer rather than an empty month.
-   */
-  it('404s a month the histogram carries but the window read answers empty', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER,
-        searchParams: Promise.resolve({}),
-      })
-    ).rejects.toThrow(NOT_FOUND)
-  })
-
-  it('renders a day that has shows', async () => {
-    answerWith({ rows: page(4), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER_14,
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  /**
-   * 404 only on a POSITIVE absence. A failed histogram read is not an answer,
-   * and treating it as one turns a backend blip into a not-found body for every
-   * month on the site, which the proxy deliberately does not do either.
-   */
-  it('renders rather than 404s when the histogram read failed', async () => {
-    answerWith({ rows: page(68), months: null })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2199, month: 1 },
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  it('renders rather than 404s when the row read failed', async () => {
-    answerWith({ rows: null, months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER,
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  /**
-   * A RUN is asked about every month it touches. One that opens in a month the
-   * histogram does not carry and closes in one it does is a real page: the rows
-   * are in the second month, and 404ing on the anchor alone would take them
-   * away from a reader whose "next 7 days" happens to start in a quiet month.
-   */
-  it('renders a run that reaches a month the histogram carries', async () => {
-    answerWith({ rows: page(9), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        // 28 September plus seven days reaches 4 October, which the histogram has.
-        window: { year: 2026, month: 9, day: 28, days: 7 },
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  it('404s a run that touches no month the histogram carries', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2199, month: 1, day: 28, days: 7 },
-        searchParams: Promise.resolve({}),
-      })
-    ).rejects.toThrow(NOT_FOUND)
-  })
-
-  /**
-   * A run inside a live month with nothing in it RENDERS, where the same day
-   * alone would 404.
-   *
-   * The difference is identity versus chrome. An empty day is an address a
-   * crawler should not keep; a run is noindex and canonical to its anchor day,
-   * so a not-found buys the index nothing and costs a reader who followed "this
-   * weekend" the page they came from. The chips are computed from a clock alone,
-   * so a quiet weekend is a state the row can reach in one click.
-   */
-  it('renders a run inside a live month that has no shows of its own', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { ...NOVEMBER_14, days: 3 },
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  // The month gate still applies to a run, so a junk far-future anchor is a
-  // not-found rather than an empty page the crawler can walk.
-  it('404s a run anchored on a month the histogram does not carry', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2199, month: 1, day: 14, days: 3 },
-        searchParams: Promise.resolve({}),
-      })
-    ).rejects.toThrow(NOT_FOUND)
+    const windowUrls = new Set(
+      fetchListPayload.mock.calls
+        .map((call: unknown[]) => (call[0] as { url: string }).url)
+        .filter((url: string) => url.includes('/shows/calendar'))
+    )
+    expect(windowUrls).toEqual(
+      new Set([showsCalendarWindowFirstScreenUrl(NOVEMBER)])
+    )
   })
 })
 
@@ -308,7 +185,9 @@ describe('ShowsCalendarContent, the first-screen seed', () => {
       searchParams: Promise.resolve({ page: '3' }),
     })
 
-    const urls = fetchListPayload.mock.calls.map(([options]) => options.url)
+    const urls = fetchListPayload.mock.calls.map(
+      (call: unknown[]) => (call[0] as { url: string }).url
+    )
     expect(urls.some((url: string) => url.includes('/shows/calendar'))).toBe(false)
     expect(seedFirstScreen).not.toHaveBeenCalled()
   })
@@ -345,5 +224,75 @@ describe('ShowsCalendarContent, the first-screen seed', () => {
     })
 
     expect(seedFirstScreen).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The head is where an empty window is kept out of the index. A quiet page is
+ * real, worth serving and worth linking out of; it is not worth an index entry,
+ * and `follow` stays on because the way out of it is the links on it.
+ */
+describe('buildShowsCalendarMetadata, which windows are indexable', () => {
+  it('leaves a window with shows indexable', async () => {
+    answerWith({ rows: page(68), months: HISTOGRAM })
+
+    const metadata = await buildShowsCalendarMetadata(NOVEMBER)
+
+    expect(metadata.robots).toBeUndefined()
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/shows/2026/11'
+    )
+  })
+
+  it.each([
+    ['a month', NOVEMBER],
+    ['a day', NOVEMBER_14],
+  ])('noindexes %s with nothing in it', async (_label, window) => {
+    answerWith({ rows: page(0), months: HISTOGRAM })
+
+    const metadata = await buildShowsCalendarMetadata(window)
+
+    expect(metadata.robots).toEqual({ index: false, follow: true })
+  })
+
+  /**
+   * Suppression on a POSITIVE zero only. A read that failed is not an answer,
+   * and treating it as one would noindex every window on the site during a
+   * backend blip.
+   */
+  it('leaves a window indexable when the read failed', async () => {
+    answerWith({ rows: null, months: HISTOGRAM })
+
+    const metadata = await buildShowsCalendarMetadata(NOVEMBER)
+
+    expect(metadata.robots).toBeUndefined()
+  })
+
+  /** A run is chrome, so it is noindexed whether or not it has rows. */
+  it('noindexes a run that has shows', async () => {
+    answerWith({ rows: page(9), months: HISTOGRAM })
+
+    const metadata = await buildShowsCalendarMetadata({
+      ...NOVEMBER_14,
+      days: 3,
+    })
+
+    expect(metadata.robots).toEqual({ index: false, follow: true })
+    // Canonical to the anchor day, run parameter dropped.
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/shows/2026/11/14'
+    )
+    // A run is suppressed on its shape, so the head reads nothing for one.
+    expect(fetchListPayload).not.toHaveBeenCalled()
+  })
+
+  /** Segments that cannot be a window need no read at all. */
+  it('answers the not-found head without reading anything', async () => {
+    answerWith({ rows: page(0), months: HISTOGRAM })
+
+    const metadata = await showsCalendarRouteMetadata(null)
+
+    expect(metadata.robots).toEqual({ index: false, follow: false })
+    expect(fetchListPayload).not.toHaveBeenCalled()
   })
 })
