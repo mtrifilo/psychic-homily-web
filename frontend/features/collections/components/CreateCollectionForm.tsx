@@ -21,6 +21,7 @@ import {
   useMyCollections,
 } from '../hooks'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import {
   COLLECTION_UNLIMITED,
   TIERS_HELP_PATH,
@@ -64,13 +65,13 @@ export function CreateCollectionForm({
   // hidden" and counting on it would count a fork as an original and block a
   // create the backend would allow.
   const myCollections = useMyCollections()
+  const viewerId = user?.id
   const ownedCount = useMemo(() => {
-    if (!user?.id) return 0
-    const userId = Number(user.id)
+    if (!viewerId) return 0
     return (myCollections.data?.collections ?? []).filter(
-      (c) => c.creator_id === userId && !c.is_fork
+      (c) => isSameUserId(viewerId, c.creator_id) && !c.is_fork
     ).length
-  }, [myCollections.data?.collections, user?.id])
+  }, [myCollections.data?.collections, viewerId])
 
   const tier = user?.user_tier ?? 'new_user'
   const limit = getCollectionLimitForTier(tier)

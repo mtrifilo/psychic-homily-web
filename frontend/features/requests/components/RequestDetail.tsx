@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { Breadcrumb, UserAttribution } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import {
   useRequest,
   useUpdateRequest,
@@ -124,8 +125,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
     )
   }
 
-  const currentUserId = user?.id ? Number(user.id) : undefined
-  const isRequester = currentUserId === request.requester_id
+  const isRequester = isSameUserId(user?.id, request.requester_id)
   const isAdmin = user?.is_admin === true
   const canEdit = isRequester || isAdmin
   const canDelete = isRequester || isAdmin

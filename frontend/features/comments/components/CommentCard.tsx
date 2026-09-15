@@ -5,6 +5,7 @@ import { MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { cn } from '@/lib/utils'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
@@ -56,8 +57,7 @@ export function CommentCard({
   autoExpandThread = false,
 }: CommentCardProps) {
   const { user, isAuthenticated } = useAuthContext()
-  const currentUserId = user?.id ? Number(user.id) : null
-  const isOwner = currentUserId === comment.user_id
+  const isOwner = isSameUserId(user?.id, comment.user_id)
   const isAdmin = Boolean(user?.is_admin)
 
   const [isReplying, setIsReplying] = useState(false)

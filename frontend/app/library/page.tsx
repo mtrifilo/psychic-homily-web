@@ -341,7 +341,7 @@ function SavedShowsSection({
   )
 }
 
-function ShowsTab({ currentUserId }: { currentUserId?: number }) {
+function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const { view, setView } = useLibraryView()
   const upcoming = useInfiniteSavedShows(
     'upcoming',
@@ -517,7 +517,7 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
 
 const SAVED_RELEASES_PAGE_SIZE = 50
 
-function ReleasesTab({ userId }: { userId?: number }) {
+function ReleasesTab({ userId }: { userId?: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const rawPage = Number.parseInt(searchParams.get('release_page') ?? '1', 10)
@@ -887,7 +887,11 @@ function ActiveLibraryContent({
   const { user } = useAuthContext()
   const gate = useAuthRouteGuard('redirect')
   const followingTabCounts = useFollowingTabCounts()
-  const currentUserId = user?.id ? Number(user.id) : undefined
+  // The context id verbatim. Every viewer-scoped saved-shows and
+  // saved-releases key on this page and on the cards it renders is built from
+  // it, and a conversion here would scope this tab's cache entries to a
+  // different key than the SaveButton inside its own rows writes.
+  const currentUserId = user?.id
   const savedReleaseCount = useSavedReleases(1, 0, currentUserId)
   const tabCounts: Partial<Record<LibraryTab, number>> = {
     ...followingTabCounts,

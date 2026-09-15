@@ -203,11 +203,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Same mapper on both sides, so the two describe a viewer in one shape.
     if (profileData?.success && profileData?.user) {
       const profileUser = toAuthUser(profileData.user)
-      // Compared as strings because the declared `id: string` is narrower than
-      // the wire, which sends a number (see AuthApiUser): both sides pass
-      // through `toAuthUser` unconverted today, and a future normalization on
-      // one side alone would otherwise make every id look different.
-      if (userOverride && String(userOverride.id) !== String(profileUser.id)) {
+      // A plain comparison: both sides are the output of `toAuthUser`, which
+      // narrows the wire's id to `string`, so neither can hold the other
+      // spelling of the same viewer.
+      if (userOverride && userOverride.id !== profileUser.id) {
         return userOverride
       }
       return profileUser

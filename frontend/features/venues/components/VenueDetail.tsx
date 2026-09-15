@@ -9,6 +9,7 @@ import type { VenueShowYearsResponse } from '../types'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton, EntityHeader } from '@/components/shared'
@@ -101,7 +102,7 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
     user?.is_admin ||
     userTier === 'trusted_contributor' ||
     userTier === 'local_ambassador' ||
-    (venue?.submitted_by != null && venue.submitted_by === Number(user?.id))
+    isSameUserId(user?.id, venue?.submitted_by)
   )
 
   const handleVenueUpdated = (result: EntityEditSuccess) => {

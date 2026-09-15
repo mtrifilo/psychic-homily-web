@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId, type UserIdLike } from '@/features/auth/authUser'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { queryKeys } from '@/lib/queryClient'
 import {
@@ -63,7 +64,7 @@ const SUBMISSIONS_PAGE_SIZE = 50
 
 interface SubmissionShowCardProps {
   show: ShowResponse
-  currentUserId?: number
+  currentUserId?: UserIdLike
   isAdmin?: boolean
   onSubmissionChanged: () => void
   onSubmissionDeleted: () => void
@@ -86,8 +87,7 @@ function SubmissionShowCard({
   const setCancelledMutation = useSetShowCancelled()
   const venue = show.venues[0]
   const artists = show.artists
-  const isOwner =
-    currentUserId !== undefined && show.submitted_by === currentUserId
+  const isOwner = isSameUserId(currentUserId, show.submitted_by)
   const canManage = Boolean(isAdmin || isOwner)
   const canUnpublish = show.status === 'approved' && canManage
   const canMakePrivate = show.status === 'pending' && canManage
@@ -454,7 +454,7 @@ export function ShowSubmissionsConsole() {
   const [dialogDismissed, setDialogDismissed] = useState(false)
   const isPrivateSubmission = searchParams.get('submitted') === 'private'
   const showSuccessDialog = !dialogDismissed && isPrivateSubmission
-  const currentUserId = user?.id ? Number(user.id) : undefined
+  const currentUserId = user?.id
   const refreshSubmissions = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.mySubmissions.all,

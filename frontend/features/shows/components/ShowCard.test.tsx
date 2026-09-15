@@ -6,9 +6,11 @@ import type { ShowResponse, ArtistResponse } from '../types'
 
 // Mock AuthContext.
 // Return type widened so individual tests can override `user`/`isAuthenticated`
-// without TS narrowing from the default-null literal.
+// without TS narrowing from the default-null literal. `id` carries the wire's
+// union rather than the context's `string` so the numeric cases below need no
+// cast.
 type MockAuthContextValue = {
-  user: { id: string; is_admin: boolean } | null
+  user: { id: string | number; is_admin: boolean } | null
   isAuthenticated: boolean
   isLoading: boolean
   logout: () => void
@@ -356,7 +358,7 @@ describe('ShowCard', () => {
   // id, which is the shape the home rail renders with.
   it('shows delete button for a show owner whose viewer id is a number', () => {
     mockAuthContext.mockReturnValue({
-      user: { id: 42 as never, is_admin: false },
+      user: { id: 42, is_admin: false },
       isAuthenticated: true,
       isLoading: false,
       logout: vi.fn(),
@@ -370,7 +372,7 @@ describe('ShowCard', () => {
 
   it('hides delete from a non-owner whose viewer id is a number', () => {
     mockAuthContext.mockReturnValue({
-      user: { id: 99 as never, is_admin: false },
+      user: { id: 99, is_admin: false },
       isAuthenticated: true,
       isLoading: false,
       logout: vi.fn(),

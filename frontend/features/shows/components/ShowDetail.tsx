@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useShow, useShowTimeline } from '../hooks/useShows'
+import { isShowOwner } from '../utils'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -109,8 +110,13 @@ export function ShowDetail({
   const setSoldOutMutation = useSetShowSoldOut()
   const setCancelledMutation = useSetShowCancelled()
 
-  // Check if user is the show owner (submitter)
-  const isOwner = !!(user?.id && show?.submitted_by && String(show.submitted_by) === user.id)
+  // Check if user is the show owner (submitter). The shared predicate, which
+  // the show CARD and the day-grouped row gate on too, so one show cannot be
+  // the viewer's on the list and someone else's on its own page.
+  const isOwner = isShowOwner({
+    submittedBy: show?.submitted_by,
+    viewerId: user?.id,
+  })
 
   // ONE moderation predicate, owned here. Delete, status flags, direct edit,
   // and the whole ShowActions cluster all gate on admin-or-owner today; the

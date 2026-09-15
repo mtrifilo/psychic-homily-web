@@ -1,3 +1,4 @@
+import { isSameUserId, type UserIdLike } from '@/features/auth/authUser'
 import { formatLocation } from '@/lib/formatLocation'
 import type { ShowTimingInput } from '@/lib/utils/showTiming'
 import type { ShowResponse } from './types'
@@ -263,33 +264,43 @@ export function splitBill<T extends BillArtist>(
 }
 
 /**
- * Whether a viewer may delete a show: an admin, or the reader who submitted it.
+ * Whether a viewer submitted a show. IDENTITY, with no privilege in it.
  *
- * BOTH ids are coerced before the comparison. A viewer id is declared
- * `string` but arrives from the wire as a number, so a `===` against an
- * uncoerced viewer id answers false for the very reader who submitted the
- * show and takes their own delete control with it. Gate a delete control on
- * this rather than comparing the two ids at the call site.
+ * Separate from the policy below because the show page gates four different
+ * controls on admin-or-owner and needs to name the owner half on its own. A
+ * surface that re-derives the identity test instead compares the ids itself,
+ * which is the shape that shipped the defect this exists to prevent.
  *
  * Returns a `boolean` rather than the truthy union a `&&` chain would, so a
  * caller using it as a JSX guard cannot paint a falsy id into the page.
+ */
+export function isShowOwner({
+  submittedBy,
+  viewerId,
+}: {
+  // Taken from the wire type rather than restated, so a widening of the field
+  // reaches this signature instead of being silently absorbed by it.
+  submittedBy: ShowResponse['submitted_by']
+  viewerId: UserIdLike
+}): boolean {
+  return isSameUserId(submittedBy, viewerId)
+}
+
+/**
+ * Whether a viewer may delete a show: an admin, or the reader who submitted
+ * it. POLICY, stated once so a delete control is never gated on a comparison
+ * written at the call site.
  */
 export function canDeleteShow({
   submittedBy,
   viewerId,
   isAdmin,
 }: {
-  // Taken from the wire type rather than restated, so a widening of the field
-  // reaches this signature instead of being silently absorbed by it.
   submittedBy: ShowResponse['submitted_by']
-  viewerId: string | number | null | undefined
+  viewerId: UserIdLike
   isAdmin: boolean
 }): boolean {
   if (isAdmin) return true
-  return !!(
-    viewerId &&
-    submittedBy &&
-    String(submittedBy) === String(viewerId)
-  )
+  return isShowOwner({ submittedBy, viewerId })
 }
 

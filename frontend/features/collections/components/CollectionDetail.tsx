@@ -91,6 +91,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
@@ -270,8 +271,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
     )
   }
 
-  const currentUserId = user?.id ? Number(user.id) : undefined
-  const isCreator = currentUserId === collection.creator_id
+  const isCreator = isSameUserId(user?.id, collection.creator_id)
   const isAdmin = user?.is_admin === true
   const canSubscribe = isAuthenticated && !isCreator
   // PSY-351: per ticket, the clone button is hidden on the user's own

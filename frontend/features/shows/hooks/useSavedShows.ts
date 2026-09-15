@@ -69,7 +69,7 @@ const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
  */
 export const useInfiniteSavedShows = (
   timeFilter: 'upcoming' | 'past',
-  userId: number | undefined,
+  userId: string | number | undefined,
   enabled: boolean = true
 ) =>
   useInfiniteQuery({
@@ -217,7 +217,7 @@ export const useSaveShow = () => {
  */
 interface UseUnsaveShowOptions {
   syncMode?: 'invalidate' | 'patch-infinite'
-  userId?: number
+  userId?: string | number
 }
 
 export const useUnsaveShow = ({

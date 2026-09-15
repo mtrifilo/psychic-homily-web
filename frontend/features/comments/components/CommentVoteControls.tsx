@@ -3,6 +3,7 @@
 import { type ReactNode } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isSameUserId } from '@/features/auth/authUser'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { MutationErrorBanner } from './MutationErrorBanner'
@@ -64,8 +65,7 @@ export function CommentVoteControls({
   marginTop = 'mt-2',
 }: CommentVoteControlsProps) {
   const { user, isAuthenticated } = useAuthContext()
-  const currentUserId = user?.id ? Number(user.id) : null
-  const isOwner = currentUserId === comment.user_id
+  const isOwner = isSameUserId(user?.id, comment.user_id)
 
   const voteMutation = useVoteComment()
   const unvoteMutation = useUnvoteComment()

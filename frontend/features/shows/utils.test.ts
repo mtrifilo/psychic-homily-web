@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   basedInPhrase,
   canDeleteShow,
+  isShowOwner,
   splitBill,
   dedupVenueShows,
   showTimingInput,
@@ -233,6 +234,29 @@ describe('basedInPhrase', () => {
     expect(basedInPhrase(undefined)).toBeNull()
     expect(basedInPhrase('')).toBeNull()
     expect(basedInPhrase('   ')).toBeNull()
+  })
+})
+
+describe('isShowOwner', () => {
+  it('recognises the submitter through either id shape', () => {
+    expect(isShowOwner({ submittedBy: 42, viewerId: '42' })).toBe(true)
+    expect(isShowOwner({ submittedBy: 42, viewerId: 42 })).toBe(true)
+  })
+
+  it('refuses a different user', () => {
+    expect(isShowOwner({ submittedBy: 42, viewerId: '7' })).toBe(false)
+  })
+
+  // Identity carries no privilege: the admin bit belongs to the policy above
+  // this, and a surface reading only this half must not get a moderator.
+  it('says nothing about admins', () => {
+    expect(isShowOwner({ submittedBy: 42, viewerId: '7' })).toBe(false)
+  })
+
+  it('refuses when either side has no id', () => {
+    expect(isShowOwner({ submittedBy: undefined, viewerId: '42' })).toBe(false)
+    expect(isShowOwner({ submittedBy: 42, viewerId: undefined })).toBe(false)
+    expect(isShowOwner({ submittedBy: undefined, viewerId: null })).toBe(false)
   })
 })
 
