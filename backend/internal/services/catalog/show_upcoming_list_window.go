@@ -42,16 +42,22 @@ func (s *ShowService) upcomingShowPredicates(
 	window contracts.ShowCalendarWindow,
 ) func(*gorm.DB) *gorm.DB {
 	// The narrowest fragment the window names, built once outside the applier: it
-	// is a pure function of the window, and the applier runs per read. A day
-	// already implies its month, so the day fragment alone IS the window, and one
-	// predicate does the work two overlapping ones would.
+	// is a pure function of the window, and the applier runs per read. Each
+	// resolution already implies the wider one, so the narrowest fragment alone
+	// IS the window, and one predicate does the work overlapping ones would.
+	//
+	// The run is tried first and answers nothing for a span of one, which is the
+	// single-day equality below. A day already implies its month the same way.
 	//
 	// An impossible day yields no day fragment and lands on its month. That is
 	// WIDER than the caller addressed, not narrower, and it is a backstop rather
 	// than a path: ShowCalendarWindow.Validate refuses every such triple at both
 	// entry points. It is still the right backstop, because the alternative when
 	// the day fragment is empty is no window at all.
-	windowCondition, windowArgs := shared.VenueLocalDayCondition(window.Year, window.Month, window.Day)
+	windowCondition, windowArgs := shared.VenueLocalDayRangeCondition(window.Year, window.Month, window.Day, window.Days)
+	if windowCondition == "" {
+		windowCondition, windowArgs = shared.VenueLocalDayCondition(window.Year, window.Month, window.Day)
+	}
 	if windowCondition == "" {
 		windowCondition, windowArgs = shared.VenueLocalMonthCondition(window.Year, window.Month)
 	}

@@ -636,3 +636,36 @@ func VenueLocalDayCondition(year, month, day int) (string, []any) {
 	return coarseBoundedPeriodCondition(start, start.AddDate(0, 0, 1),
 		VenueLocalDateSQL+" = ?::date", isoDate)
 }
+
+// VenueLocalDayRangeCondition returns the WHERE fragment and bind arguments
+// narrowing a show list to a RUN of consecutive venue-local calendar dates
+// beginning on the given date, or ("", nil) when the triple does not name a real
+// date or the run is shorter than two days.
+//
+// A run of ONE is refused rather than served: VenueLocalDayCondition already is
+// that window, and an equality is the narrower predicate. Callers pick between
+// the two on the span they were handed, which is what keeps one day at exactly
+// one SQL spelling.
+//
+// Both edges are venue-local DATES compared against VenueLocalDateSQL, the same
+// expression the single-day window and the date tile a row prints derive from,
+// so a run and the days inside it cannot disagree about which rows they hold.
+// Half-open at the end, so consecutive runs tile without overlapping.
+//
+// The run's LENGTH is not bounded here. How long a run a caller may ask for is a
+// contract question, answered by ShowCalendarWindow.Validate and by the request
+// schema; this builds whatever run it is handed.
+func VenueLocalDayRangeCondition(year, month, day, days int) (string, []any) {
+	if days < 2 || year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return "", nil
+	}
+	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	if start.Year() != year || int(start.Month()) != month || start.Day() != day {
+		return "", nil
+	}
+	end := start.AddDate(0, 0, days)
+
+	return coarseBoundedPeriodCondition(start, end,
+		VenueLocalDateSQL+" >= ?::date AND "+VenueLocalDateSQL+" < ?::date",
+		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}

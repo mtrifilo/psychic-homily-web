@@ -321,6 +321,62 @@ func TestVenueLocalDayCondition(t *testing.T) {
 	}
 }
 
+// The multi-day run. Half-open on the same venue-local date expression the
+// single-day window uses, and silent for a span of one so the two windows cannot
+// both claim the same day.
+func TestVenueLocalDayRangeCondition(t *testing.T) {
+	for _, tc := range []struct{ year, month, day, days int }{
+		{2026, 11, 14, 1}, {2026, 11, 14, 0}, {2026, 11, 14, -3},
+		{0, 11, 14, 3}, {2026, 0, 14, 3}, {2026, 11, 0, 3},
+		{2027, 2, 29, 3}, {2026, 13, 1, 3}, {2026, 11, 32, 3},
+	} {
+		got, args := VenueLocalDayRangeCondition(tc.year, tc.month, tc.day, tc.days)
+		if got != "" || args != nil {
+			t.Errorf("(%d, %d, %d, %d) must not filter, got %q %v",
+				tc.year, tc.month, tc.day, tc.days, got, args)
+		}
+	}
+
+	sql, args := VenueLocalDayRangeCondition(2026, 11, 14, 3)
+	if !strings.Contains(sql, VenueLocalDateSQL+" >= ?::date") ||
+		!strings.Contains(sql, VenueLocalDateSQL+" < ?::date") {
+		t.Errorf("run filter must bound the shared venue-local date expression, got %q", sql)
+	}
+	if !strings.Contains(sql, "shows.event_date >= ?") || !strings.Contains(sql, "shows.event_date < ?") {
+		t.Errorf("run filter lost its sargable bounds, got %q", sql)
+	}
+	if len(args) != 4 {
+		t.Fatalf("run filter must bind 4 arguments, got %v", args)
+	}
+	// Half-open: a three-day run from the 14th ends BEFORE the 17th, so the 16th
+	// is the last date in it.
+	if args[2] != "2026-11-14" || args[3] != "2026-11-17" {
+		t.Errorf("run filter must bind its half-open ISO edges, got %v", args[2:])
+	}
+	if strings.Contains(sql, "2026-11-14") || strings.Contains(sql, "2026-11-17") {
+		t.Errorf("run filter interpolated its dates into %q", sql)
+	}
+
+	// A run crossing a month, a year and a leap day is arithmetic on the anchor
+	// rather than on the month's length.
+	sql, args = VenueLocalDayRangeCondition(2027, 12, 30, 7)
+	if sql == "" || len(args) != 4 || args[2] != "2027-12-30" || args[3] != "2028-01-06" {
+		t.Errorf("a run must cross a year boundary, got %q %v", sql, args)
+	}
+	_, args = VenueLocalDayRangeCondition(2028, 2, 27, 3)
+	if len(args) != 4 || args[3] != "2028-03-01" {
+		t.Errorf("a run must count the leap day, got %v", args)
+	}
+
+	// The same margin the other three period filters share.
+	_, dayArgs := VenueLocalDayCondition(2026, 1, 1)
+	_, runArgs := VenueLocalDayRangeCondition(2026, 1, 1, 2)
+	if !dayArgs[0].(time.Time).Equal(runArgs[0].(time.Time)) {
+		t.Errorf("a run must share the day window's lower coarse bound: %v vs %v",
+			dayArgs[0], runArgs[0])
+	}
+}
+
 // The three period filters must share one margin. A margin that reached the year
 // window and not the narrower ones would leave a month or day window dropping
 // rows the year window keeps, which is the class the shared constant closes.

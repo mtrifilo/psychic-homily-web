@@ -103,6 +103,72 @@ func TestGetShowsCalendarHandler_AcceptsWholeWindows(t *testing.T) {
 	}
 }
 
+// A run is anchored on a DATE and bounded in length. Both rules are enforced
+// here as well as by the request schema, which only guards the HTTP path: a
+// run with no anchor narrows nothing in SQL, and an unbounded one is a
+// full-catalog scan behind a URL naming a fortnight.
+func TestGetShowsCalendarHandler_RefusesUnanchoredAndOversizedRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		year, month, day, days int
+	}{
+		{"days with no window at all", 0, 0, 0, 3},
+		{"days with a year alone", 2026, 0, 0, 3},
+		{"days on a whole month", 2026, 11, 0, 3},
+		{"days past the bound", 2026, 11, 14, contracts.ShowCalendarMaxWindowDays + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			mock := &testhelpers.MockShowService{
+				GetUpcomingShowsPageFn: func(contracts.ShowCalendarQuery, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+					called = true
+					return nil, 0, nil
+				},
+			}
+
+			_, err := newCalendarShowHandler(mock).GetShowsCalendarHandler(context.Background(),
+				&GetShowsCalendarRequest{Year: tc.year, Month: tc.month, Day: tc.day, Days: tc.days, Limit: 50})
+
+			var status huma.StatusError
+			if !errors.As(err, &status) {
+				t.Fatalf("expected a huma.StatusError, got %T (%v)", err, err)
+			}
+			if status.GetStatus() != http.StatusUnprocessableEntity {
+				t.Errorf("expected 422, got %d", status.GetStatus())
+			}
+			if called {
+				t.Error("a refused window must not reach the service")
+			}
+		})
+	}
+}
+
+// A run reaches the service whole and comes back in the envelope, so a client
+// built from a URL can assert the span it rendered is the span it addressed.
+func TestGetShowsCalendarHandler_CarriesAndEchoesARun(t *testing.T) {
+	for _, days := range []int{1, 3, 7, contracts.ShowCalendarMaxWindowDays} {
+		var got contracts.ShowCalendarQuery
+		mock := &testhelpers.MockShowService{
+			GetUpcomingShowsPageFn: func(query contracts.ShowCalendarQuery, _ bool, _ *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+				got = query
+				return nil, 3, nil
+			},
+		}
+
+		resp, err := newCalendarShowHandler(mock).GetShowsCalendarHandler(context.Background(),
+			&GetShowsCalendarRequest{Year: 2026, Month: 11, Day: 14, Days: days, Limit: 50})
+		if err != nil {
+			t.Fatalf("days %d: unexpected error: %v", days, err)
+		}
+		if got.Days != days {
+			t.Errorf("days %d reached the service as %d", days, got.Days)
+		}
+		if resp.Body.Days != days {
+			t.Errorf("days %d echoed as %d", days, resp.Body.Days)
+		}
+	}
+}
+
 // A caller-supplied limit is capped in the handler as well as by the schema,
 // because the schema only guards the HTTP path.
 func TestGetShowsCalendarHandler_ClampsTheLimit(t *testing.T) {
