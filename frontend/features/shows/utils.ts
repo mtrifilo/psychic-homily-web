@@ -265,16 +265,11 @@ export function splitBill<T extends BillArtist>(
 /**
  * Whether a viewer may delete a show: an admin, or the reader who submitted it.
  *
- * BOTH ids are coerced before the comparison. `AuthContext` records that the
- * declared `id: string` is narrower than the wire, which sends a number, so a
- * `===` against an uncoerced viewer id answers false for the very reader who
- * submitted the show and takes their own delete control with it.
- *
- * An unsubmitted show (no `submitted_by`) has no owner, so only an admin
- * deletes it.
- *
- * Shared, so the `/shows` row and the card cannot disagree about who owns a
- * submission.
+ * BOTH ids are coerced before the comparison. The declared `id: string` is
+ * narrower than the wire, which sends a number, so a `===` against an
+ * uncoerced viewer id answers false for the very reader who submitted the
+ * show and takes their own delete control with it. Gate a delete control on
+ * this rather than comparing the two ids at the call site.
  */
 export function canDeleteShow({
   submittedBy,

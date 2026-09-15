@@ -252,8 +252,6 @@ describe('canDeleteShow', () => {
     ).toBe(true)
   })
 
-  // The wire sends a numeric id while the type declares a string, so an
-  // uncoerced `===` would answer false for the submitter themselves.
   it('recognises the submitter through either id shape', () => {
     expect(
       canDeleteShow({ submittedBy: 42, viewerId: 42, isAdmin: false })
@@ -269,8 +267,7 @@ describe('canDeleteShow', () => {
     ).toBe(false)
   })
 
-  // A show with no submitter has no owner, and an unidentified viewer owns
-  // nothing. Neither may borrow the other's falsy id to match.
+  // Neither side may borrow the other's falsy id to match.
   it('refuses when either side has no id', () => {
     expect(
       canDeleteShow({ submittedBy: undefined, viewerId: '42', isAdmin: false })

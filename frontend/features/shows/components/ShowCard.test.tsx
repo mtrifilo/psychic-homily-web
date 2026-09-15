@@ -352,9 +352,8 @@ describe('ShowCard', () => {
     ).not.toBeInTheDocument()
   })
 
-  // `AuthContext` records that the declared `id: string` is narrower than what
-  // arrives at runtime, which is a number. Comparing the two with `===` without
-  // coercing both would take the submitter's own delete control away silently.
+  // No `userId` prop, so these two also pin the card's fallback to the context
+  // id, which is the shape the home rail renders with.
   it('shows delete button for a show owner whose viewer id is a number', () => {
     mockAuthContext.mockReturnValue({
       user: { id: 42 as never, is_admin: false },

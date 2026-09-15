@@ -22,8 +22,6 @@ import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
-// One music panel, shared with the `/shows` row, so the two surfaces cannot
-// disagree about which acts have something to open or how an act reads.
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
