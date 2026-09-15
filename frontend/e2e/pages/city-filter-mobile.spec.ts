@@ -4,23 +4,25 @@ import { expect } from '@playwright/test'
 const PHONE_VIEWPORT = { width: 390, height: 844 }
 
 /**
- * Space left under the trigger once the simulated keyboard is up. Small
- * enough that the popover (search field plus list, around 345px) cannot fit
- * below the trigger, which is the geometry that had collision avoidance flip
- * it over the trigger and carry the search field off the top of the screen.
+ * Height the visual viewport is shrunk to once the "keyboard" is up. Small
+ * enough that the popover, around 345px of search field plus list, cannot fit
+ * under a trigger sitting where the page renders it.
  */
-const SPACE_UNDER_TRIGGER = 60
+const KEYBOARD_VIEWPORT_HEIGHT = 302
+
+type ViewportShim = { __shrinkVisualViewport: (height: number) => void }
 
 /**
- * Shrinks `window.visualViewport` the way an iOS software keyboard does: the
- * layout viewport keeps its height and only the visual viewport gets shorter.
- * Playwright cannot raise a real keyboard and `setViewportSize` would shrink
- * both viewports, so this is the only faithful simulation available here.
- * floating-ui builds its viewport rect from this object and re-measures on its
- * `resize`, so the popover sees exactly what it sees on a real phone.
+ * Stands in for an iOS software keyboard: the layout viewport keeps its
+ * height and only the visual viewport shrinks, on demand, with a `resize` on
+ * the object floating-ui listens to. Playwright cannot raise a real keyboard,
+ * and `setViewportSize` would shrink both viewports, which is not the geometry
+ * being tested. floating-ui builds its viewport rect from `window.visualViewport`
+ * and re-measures on that object's `resize`, so this drives the real path.
  */
-function installVisualViewportShim(height: number) {
+function installVisualViewportShim() {
   const real = window.visualViewport
+  let height = real ? real.height : window.innerHeight
   const shim = {
     get width() {
       return real ? real.width : window.innerWidth
@@ -45,6 +47,12 @@ function installVisualViewportShim(height: number) {
     configurable: true,
     get: () => shim,
   })
+  // Listeners registered through the shim land on the real object, so the
+  // resize has to be dispatched there for floating-ui to hear it.
+  ;(window as unknown as ViewportShim).__shrinkVisualViewport = (next: number) => {
+    height = next
+    real?.dispatchEvent(new Event('resize'))
+  }
 }
 
 test.describe('City filter on a phone viewport', () => {
@@ -73,30 +81,28 @@ test.describe('City filter on a phone viewport', () => {
     )
   })
 
-  test('keeps the search field on screen when the keyboard shrinks the visual viewport', async ({
+  test('keeps the search field and the list on screen when the keyboard rises', async ({
     page,
   }) => {
+    await page.addInitScript(installVisualViewportShim)
     await page.goto('/venues')
 
     const trigger = page.getByTestId('city-filter-combobox')
     await expect(trigger).toBeVisible({ timeout: 10_000 })
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
 
-    // Measured rather than hardcoded so the case survives layout changes
-    // above the filter bar: the point is the RATIO, not the pixel value.
-    const closedBox = (await trigger.boundingBox())!
-    const keyboardViewportHeight = Math.round(
-      closedBox.y + closedBox.height + SPACE_UNDER_TRIGGER
-    )
-    expect(SPACE_UNDER_TRIGGER).toBeLessThan(closedBox.y)
-
-    await page.addInitScript(installVisualViewportShim, keyboardViewportHeight)
-    await page.reload()
-    await expect(trigger).toBeVisible({ timeout: 10_000 })
-
+    // Open first, then raise the keyboard: that is the reported sequence, and
+    // it is the re-measure that flipped the popover over the trigger.
     await trigger.click()
-
     const input = page.getByPlaceholder('Search cities...')
     await expect(input).toBeVisible()
+
+    await page.evaluate(
+      (height) =>
+        (window as unknown as ViewportShim).__shrinkVisualViewport(height),
+      KEYBOARD_VIEWPORT_HEIGHT
+    )
+    await page.waitForTimeout(200)
 
     const triggerBox = (await trigger.boundingBox())!
     const inputBox = (await input.boundingBox())!
@@ -105,7 +111,15 @@ test.describe('City filter on a phone viewport', () => {
     expect(inputBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height)
     // And inside the part of the screen the keyboard leaves visible.
     expect(inputBox.y + inputBox.height).toBeLessThanOrEqual(
-      keyboardViewportHeight
+      KEYBOARD_VIEWPORT_HEIGHT
+    )
+
+    // The list under it has to be usable too, not just the field: the first
+    // option is what a user reaches for after typing.
+    const firstOption = page.getByRole('option').first()
+    const optionBox = (await firstOption.boundingBox())!
+    expect(optionBox.y + optionBox.height).toBeLessThanOrEqual(
+      KEYBOARD_VIEWPORT_HEIGHT
     )
   })
 })

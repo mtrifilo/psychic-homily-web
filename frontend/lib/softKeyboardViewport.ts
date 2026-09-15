@@ -3,6 +3,10 @@
  * below Tailwind's `md` breakpoint, plus every coarse pointer. Both halves
  * carry weight - a tablet in landscape is wider than `md` and still raises a
  * keyboard, and a narrow desktop window raises none but is the same geometry.
+ *
+ * The query is deliberately wider than "has a keyboard": a touch laptop and a
+ * narrow mouse-driven window both match and get the pinned treatment, which
+ * includes a page scroll on open that neither needed.
  */
 export const SOFT_KEYBOARD_VIEWPORT_QUERY =
   '(max-width: 767px), (pointer: coarse)'

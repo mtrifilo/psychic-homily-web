@@ -67,11 +67,19 @@ const TRIGGER_SCROLL_MT = 'scroll-mt-[calc(var(--topbar-height)+1rem)]'
  * `--radix-popover-content-available-height` is measured against the VISUAL
  * viewport (floating-ui builds its viewport rect from `window.visualViewport`
  * and re-measures on that object's `resize`), so a software keyboard is
- * already in that number. The bottom tab bar is not: it is fixed below `xl`,
- * so this is one of the surfaces that owes it the subtraction named in
- * `globals.css`. The `max()` floor keeps the input plus a row or two usable
- * when the remaining space goes to nearly zero, which happens when the trigger
- * itself cannot be scrolled clear of the keyboard.
+ * already in that number. Radix publishes it from a `size` middleware that its
+ * `avoidCollisions` prop does not gate. The bottom tab bar is not in that
+ * number: it is fixed below `xl`, so this is one of the surfaces that owes it
+ * the subtraction named in `globals.css`. A fixed bar is laid out against the
+ * layout viewport, so while a keyboard is up the bar is behind the keyboard
+ * and the subtraction costs a row of list it did not have to; the keyboard-down
+ * open, where the bar really does sit over the popover, is what it buys.
+ *
+ * The `max()` floor trades one overflow for a smaller one: below `10rem` of
+ * remaining space the content is taller than the space it was bounded to and
+ * its last rows go under the keyboard, which is the lesser evil against a
+ * popover collapsed to nothing. `CommandList`'s own `max-h-[300px]` still caps
+ * the content if this expression is ever dropped for an unresolved property.
  */
 export const SOFT_KEYBOARD_CONTENT_CLASS = [
   'flex flex-col overflow-hidden',
@@ -87,8 +95,9 @@ export function CityFilters({
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
-  // Read when the popover opens, not subscribed to: it only decides how the
-  // content is mounted, and every page here renders this control closed.
+  // Latched at open, never on close, so the treatment cannot change under the
+  // content's exit animation. A viewport change while the popover is open is
+  // not tracked; the next open reads the viewport again.
   const [softKeyboardViewport, setSoftKeyboardViewport] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
 
@@ -102,14 +111,18 @@ export function CityFilters({
   }, [])
 
   const handleOpenChange = useCallback((next: boolean) => {
-    const softKeyboard = next && matchesSoftKeyboardViewport()
-    setSoftKeyboardViewport(softKeyboard)
-    setOpen(next)
-    // The pinned popover can only use the space under the trigger, so the
-    // trigger goes to the top of the page to give the list room.
-    if (softKeyboard) {
-      triggerRef.current?.scrollIntoView?.({ block: 'start' })
+    if (next) {
+      const softKeyboard = matchesSoftKeyboardViewport()
+      setSoftKeyboardViewport(softKeyboard)
+      // The pinned popover can only use the space under the trigger, and the
+      // keyboard that will shrink that space has not risen yet, so there is
+      // nothing here to measure against: the trigger goes to the top of the
+      // page unconditionally to give the list room.
+      if (softKeyboard) {
+        triggerRef.current?.scrollIntoView?.({ block: 'start' })
+      }
     }
+    setOpen(next)
   }, [])
 
   const selectedSet = useMemo(
@@ -195,8 +208,11 @@ export function CityFilters({
             side="bottom"
             // Collision avoidance is what flips the popover over the trigger
             // when a keyboard shrinks the visual viewport, carrying the search
-            // field off-screen. Below, bounded, and scrolled to is the answer
-            // there; on a pointer viewport the flip is still the right call.
+            // field off-screen. Off, it stays under the trigger even where the
+            // page cannot scroll the trigger clear of the keyboard. The same
+            // prop gates horizontal shifting, which this control can afford to
+            // lose: the trigger is the first item in the bar, so a 240px
+            // content starts at the bar's own inline edge.
             avoidCollisions={!softKeyboardViewport}
           >
             <Command>

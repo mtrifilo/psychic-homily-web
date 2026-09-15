@@ -330,10 +330,10 @@ describe('CityFilters', () => {
   })
 
   describe('soft-keyboard viewports', () => {
-    // jsdom has no layout, so these pin what DECIDES the geometry: the flip
-    // that carried the search field off-screen is prevented by
-    // `avoidCollisions`, and the height bound is a class. The rendered
-    // geometry itself is covered by e2e/pages/city-filter-mobile.spec.ts.
+    // jsdom has no layout: it can show that the treatment is selected for the
+    // right viewport, and nothing about the geometry that results. The props
+    // handed to the popover are pinned in CityFilters.popoverProps.test.tsx
+    // and the geometry in e2e/pages/city-filter-mobile.spec.ts.
     const originalMatchMedia = window.matchMedia
 
     function mockSoftKeyboardViewport(matches: boolean) {
@@ -350,7 +350,7 @@ describe('CityFilters', () => {
       window.matchMedia = originalMatchMedia
     })
 
-    it('pins the popover under the trigger and bounds its height', async () => {
+    it('bounds the popover height on a soft-keyboard viewport', async () => {
       mockSoftKeyboardViewport(true)
       const user = userEvent.setup()
       render(
@@ -359,11 +359,9 @@ describe('CityFilters', () => {
 
       await user.click(screen.getByTestId('city-filter-combobox'))
 
-      const content = screen.getByRole('dialog')
-      expect(content).toHaveAttribute('data-side', 'bottom')
-      for (const className of SOFT_KEYBOARD_CONTENT_CLASS.split(' ')) {
-        expect(content.className).toContain(className)
-      }
+      expect(screen.getByRole('dialog').className).toContain(
+        SOFT_KEYBOARD_CONTENT_CLASS
+      )
     })
 
     it('leaves the popover unbounded on a pointer viewport', async () => {
@@ -375,9 +373,9 @@ describe('CityFilters', () => {
 
       await user.click(screen.getByTestId('city-filter-combobox'))
 
-      const content = screen.getByRole('dialog')
-      expect(content.className).toContain('w-[240px]')
-      expect(content.className).not.toContain('max-h-')
+      expect(screen.getByRole('dialog').className).not.toContain(
+        SOFT_KEYBOARD_CONTENT_CLASS
+      )
     })
 
     it('scrolls the trigger to the top of the page on open', async () => {
