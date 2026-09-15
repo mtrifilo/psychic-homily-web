@@ -236,4 +236,46 @@ describe('DayGroupedShowList', () => {
       expect(row).toHaveAttribute('data-show-city', 'false')
     })
   })
+
+  /**
+   * Each heading is the entry point to that day's own page (PSY-2061). The link
+   * is INSIDE the heading rather than around it, so the heading keeps its
+   * anchor id and its role: a reader jumping to `#d-2026-09-11` lands on the
+   * heading, and a reader following the text lands on the day.
+   */
+  describe('day headings link to their day page', () => {
+    it('links each heading at its venue-local date', () => {
+      renderList()
+
+      expect(screen.getByRole('link', { name: 'FRI · SEP 11' })).toHaveAttribute(
+        'href',
+        '/shows/2026/09/11'
+      )
+      expect(screen.getByRole('link', { name: 'SAT · SEP 12' })).toHaveAttribute(
+        'href',
+        '/shows/2026/09/12'
+      )
+    })
+
+    it('keeps the anchor on the heading rather than moving it to the link', () => {
+      renderList()
+
+      const heading = screen.getByRole('heading', { name: 'FRI · SEP 11' })
+      expect(heading).toHaveAttribute('id', 'd-2026-09-11')
+      expect(heading.querySelector('a')).toHaveAttribute(
+        'href',
+        '/shows/2026/09/11'
+      )
+    })
+
+    // A run whose date cannot be read gets no heading at all, so there is
+    // nothing to link; the guard is what keeps an unreadable date from becoming
+    // a link to a URL the route would refuse.
+    it('renders no heading, and so no link, for an unreadable date', () => {
+      renderList([makeShow(9, 'not-a-date')])
+
+      expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+  })
 })

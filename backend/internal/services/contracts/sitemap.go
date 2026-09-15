@@ -66,6 +66,11 @@ import "time"
 //   - venue_years: "{venue-slug}/shows/{year}" (e.g. "the-van-buren/shows/2025").
 //     UpdatedAt is MAX(show.updated_at) among that venue's approved past shows
 //     in that venue-local year.
+//   - shows_months: "{year}/{month}" (e.g. "2026/11"), month ZERO-PADDED to two
+//     digits because the route accepts exactly that spelling. UpdatedAt is
+//     MAX(show.updated_at) among approved upcoming shows in that venue-local
+//     month. It shares the "/shows" prefix with the single-segment shows family,
+//     so the segment-count rule below is what tells the two apart.
 //
 // Anything mapping a URL back to a family has to disambiguate families sharing
 // a prefix by segment count — see FAMILY_URL_PREFIXES in the frontend.
@@ -86,12 +91,15 @@ type SitemapEntries struct {
 	Artists    []SitemapEntry `json:"artists"`
 	Venues     []SitemapEntry `json:"venues"`
 	VenueYears []SitemapEntry `json:"venue_years"`
-	Scenes     []SitemapEntry `json:"scenes"`
-	SceneWeeks []SitemapEntry `json:"scene_weeks"`
-	Labels     []SitemapEntry `json:"labels"`
-	Releases   []SitemapEntry `json:"releases"`
-	Festivals  []SitemapEntry `json:"festivals"`
-	Tags       []SitemapEntry `json:"tags"`
+	// ShowsMonths addresses a month of the upcoming list, not a row: see the
+	// composite-slug note above for its shape.
+	ShowsMonths []SitemapEntry `json:"shows_months"`
+	Scenes      []SitemapEntry `json:"scenes"`
+	SceneWeeks  []SitemapEntry `json:"scene_weeks"`
+	Labels      []SitemapEntry `json:"labels"`
+	Releases    []SitemapEntry `json:"releases"`
+	Festivals   []SitemapEntry `json:"festivals"`
+	Tags        []SitemapEntry `json:"tags"`
 }
 
 // Counts returns per-family entry counts keyed by JSON field name, for logging.
@@ -102,15 +110,16 @@ type SitemapEntries struct {
 // not this comment, is what actually keeps the two in sync.
 func (e SitemapEntries) Counts() map[string]int {
 	return map[string]int{
-		"shows":       len(e.Shows),
-		"artists":     len(e.Artists),
-		"venues":      len(e.Venues),
-		"venue_years": len(e.VenueYears),
-		"scenes":      len(e.Scenes),
-		"scene_weeks": len(e.SceneWeeks),
-		"labels":      len(e.Labels),
-		"releases":    len(e.Releases),
-		"festivals":   len(e.Festivals),
-		"tags":        len(e.Tags),
+		"shows":        len(e.Shows),
+		"artists":      len(e.Artists),
+		"venues":       len(e.Venues),
+		"venue_years":  len(e.VenueYears),
+		"shows_months": len(e.ShowsMonths),
+		"scenes":       len(e.Scenes),
+		"scene_weeks":  len(e.SceneWeeks),
+		"labels":       len(e.Labels),
+		"releases":     len(e.Releases),
+		"festivals":    len(e.Festivals),
+		"tags":         len(e.Tags),
 	}
 }

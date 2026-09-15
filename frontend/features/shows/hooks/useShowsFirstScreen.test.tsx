@@ -20,6 +20,8 @@ import {
   SHOWS_CALENDAR_FIRST_SCREEN_URL,
   SHOWS_MONTHS_FIRST_SCREEN_KEY,
   SHOWS_MONTHS_FIRST_SCREEN_URL,
+  showsCalendarWindowFirstScreenKey,
+  showsCalendarWindowFirstScreenUrl,
 } from '@/features/shows/api'
 import { useShowCities, useShowMonths, useShowsCalendar } from './useShows'
 
@@ -196,5 +198,82 @@ describe('shows first-screen prefetch contract', () => {
     const cached = queryClient.getQueryCache().getAll()
     expect(cached).toHaveLength(1)
     expect(cached[0].queryHash).toBe(hashKey(SHOWS_MONTHS_FIRST_SCREEN_KEY))
+  })
+})
+
+/**
+ * The same contract for the DATE-ADDRESSED lists (PSY-2061). The window routes
+ * seed `showsCalendarWindowFirstScreenKey(window)` from
+ * `showsCalendarWindowFirstScreenUrl(window)`, and the pair has to describe
+ * what `ShowList` asks for on page 1 of that window or the month page quietly
+ * stops being server-rendered, the same silent regression, with no error
+ * anywhere, that the root's contract above exists to prevent.
+ */
+describe('shows window first-screen prefetch contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it.each([
+    ['a month', { year: 2026, month: 11 }],
+    ['a day', { year: 2026, month: 11, day: 4 }],
+    ['a single-digit month', { year: 2026, month: 9 }],
+  ])('useShowsCalendar pairs the URL and key for %s', async (_label, window) => {
+    mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(() => useShowsCalendar({ window }), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      showsCalendarWindowFirstScreenUrl(window),
+      { method: 'GET' }
+    )
+
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(
+      hashKey(showsCalendarWindowFirstScreenKey(window))
+    )
+  })
+
+  /**
+   * A window entry and the root entry must never be the same entry: seeding one
+   * as the other would serve a month's rows as the whole upcoming list, or the
+   * reverse, and look like a cache hit either way.
+   */
+  it('keys a window apart from the root and from its own sibling windows', () => {
+    const month = hashKey(showsCalendarWindowFirstScreenKey({ year: 2026, month: 11 }))
+    const day = hashKey(
+      showsCalendarWindowFirstScreenKey({ year: 2026, month: 11, day: 4 })
+    )
+    const otherMonth = hashKey(
+      showsCalendarWindowFirstScreenKey({ year: 2026, month: 12 })
+    )
+
+    expect(new Set([month, day, otherMonth, hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY)]).size).toBe(4)
+  })
+
+  /**
+   * The unwindowed key is unchanged by windows existing at all: react-query
+   * hashes through `JSON.stringify`, which drops the undefined members the
+   * window contributes to a filterless call.
+   */
+  it('leaves the root entry where it was', async () => {
+    mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(() => useShowsCalendar(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(queryClient.getQueryCache().getAll()[0].queryHash).toBe(
+      hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY)
+    )
   })
 })

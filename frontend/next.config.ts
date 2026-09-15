@@ -111,9 +111,25 @@ const nextConfig: NextConfig = {
         destination: '/sitemap-index',
         permanent: true,
       },
-      // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug
+      // Hugo shows used /shows/YYYY/MM/slug/, flatten to /shows/slug.
+      //
+      // The final segment must NOT be day-shaped. `/shows/{yyyy}/{mm}/{dd}` is
+      // the day list route, and this rule is evaluated BEFORE the proxy and
+      // before the router, so without the exclusion it claims every day URL and
+      // 308s it to `/shows/{dd}`. The two rules are made disjoint here rather
+      // than by reordering, because a redirect cannot decline a match.
+      //
+      // The exclusion is exactly the day shape, so this rule claims a final
+      // segment if and only if the day route does not. A legacy slug that is
+      // itself two digits in 01-31 therefore no longer flattens.
+      // `next.config.shows-redirect.test.ts` asserts the partition.
+      //
+      // The lookahead ends on a SEGMENT boundary rather than a path end. The
+      // compiled rule carries an optional trailing group of its own, so a bare
+      // `$` inside the lookahead stops applying as soon as anything follows the
+      // day, and the rule reclaims `/shows/2026/11/14/`.
       {
-        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug',
+        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug((?!(?:0[1-9]|[12]\\d|3[01])(?:[/#?]|$))[^/]+)',
         destination: '/shows/:slug',
         permanent: true,
       },

@@ -174,3 +174,167 @@ test.describe('Shows list', () => {
     })
   })
 })
+
+/**
+ * The date-addressed lists (PSY-2061). Every case drives the MONTH STRIP rather
+ * than a hard-coded month: which months have shows is a property of the seed,
+ * and a literal here would rot the first time the seed moved.
+ */
+test.describe('Shows month and day routes', () => {
+  /** The first month the strip offers, as the served HTML carries it. */
+  async function firstMonthHref(page: import('@playwright/test').Page) {
+    await page.goto('/shows')
+    const strip = page.getByTestId('month-strip')
+    await expect(strip).toBeVisible({ timeout: 15_000 })
+    const href = await strip
+      .locator('a[href^="/shows/"]')
+      .first()
+      .getAttribute('href')
+    expect(href).toMatch(/^\/shows\/\d{4}\/\d{2}$/)
+    return href as string
+  }
+
+  test('the root carries the month strip as real links', async ({ page }) => {
+    const response = await page.goto('/shows')
+    const html = (await response?.text()) ?? ''
+
+    // In the RESPONSE BYTES, not merely painted after hydration: the strip is
+    // the crawl path into the month family.
+    expect(html).toMatch(/href="\/shows\/\d{4}\/\d{2}"/)
+  })
+
+  test('a month deep link renders the day-grouped list with its month active', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+
+    const href = await firstMonthHref(page)
+    const [, , year, month] = href.split('/')
+
+    const response = await page.goto(href)
+    expect(response?.status()).toBe(200)
+
+    await expect(page).toHaveTitle(/Shows in \w+ \d{4}/)
+    await expect(
+      page.getByRole('heading', { level: 1, name: /^Shows in \w+ \d{4}$/ })
+    ).toBeVisible()
+
+    // The rows, grouped under day headings that link to their own day page.
+    await expect(page.getByTestId('day-grouped-show-list')).toBeVisible({
+      timeout: 15_000,
+    })
+    const dayHeading = page.locator(`a[href^="/shows/${year}/${month}/"]`).first()
+    await expect(dayHeading).toBeVisible()
+
+    // The strip marks this month, and the mark is on the month's OWN link.
+    const current = page.getByTestId('month-strip').locator('[aria-current="page"]')
+    await expect(current).toHaveAttribute('href', href)
+  })
+
+  test('pages inside a month at the month URL', async ({ page }) => {
+    test.setTimeout(60_000)
+
+    const href = await firstMonthHref(page)
+    await page.goto(href)
+    await expect(page.getByTestId('day-grouped-show-list')).toBeVisible({
+      timeout: 15_000,
+    })
+
+    const page2 = page.getByRole('link', { name: /^Page 2\b/ }).first()
+    if ((await page2.count()) === 0) {
+      test.skip(
+        true,
+        'the seeded month fits one page; the pager is exercised on the root above'
+      )
+      return
+    }
+
+    // Nested, not onto the root: `?page=` means the same thing inside a month
+    // as it does on the list, and only the list it pages through changes.
+    await expect(page2).toHaveAttribute('href', `${href}?page=2`)
+    await page.waitForLoadState('networkidle')
+    await page2.click()
+    await expect(page).toHaveURL(new RegExp(`${href}\\?page=2$`))
+  })
+
+  test('a day deep link renders that day', async ({ page }) => {
+    test.setTimeout(60_000)
+
+    const href = await firstMonthHref(page)
+    await page.goto(href)
+    await expect(page.getByTestId('day-grouped-show-list')).toBeVisible({
+      timeout: 15_000,
+    })
+
+    const dayHref = await page
+      .locator('h2 a[href^="/shows/"]')
+      .first()
+      .getAttribute('href')
+    expect(dayHref).toMatch(/^\/shows\/\d{4}\/\d{2}\/\d{2}$/)
+
+    const response = await page.goto(dayHref as string)
+    expect(response?.status()).toBe(200)
+    await expect(
+      page.getByRole('heading', { level: 1, name: /^Shows on \w+ \d+, \d{4}$/ })
+    ).toBeVisible()
+  })
+
+  /**
+   * SHAPE is settled by `proxy.ts` before anything renders, so these are real
+   * HTTP 404s rather than a not-found body at 200, the soft-404 the proxy
+   * exists to prevent.
+   */
+  for (const path of [
+    '/shows/2026/13',
+    '/shows/2026/9',
+    '/shows/2026/11/31',
+    '/shows/2027/02/29',
+  ]) {
+    test(`${path} returns HTTP 404`, async ({ page }) => {
+      const response = await page.goto(path)
+      expect(response?.status()).toBe(404)
+    })
+  }
+
+  /**
+   * The legacy Hugo form still owns a final segment that is NOT day-shaped:
+   * `/shows/{yyyy}/{mm}/{slug}` flattens to `/shows/{slug}`, which is evaluated
+   * before the proxy and before the router. The day route's grammar is excluded
+   * from that pattern in `next.config.ts`, and this is the other half of that
+   * split, without it, narrowing the redirect could silently swallow the
+   * legacy URLs it exists for.
+   */
+  test('a legacy Hugo show URL still flattens to the show', async ({ page }) => {
+    await page.goto('/shows')
+    // The row's own Details link, not any `/shows/...` href: the day headings
+    // are date-shaped by construction, which is exactly the set the redirect no
+    // longer claims.
+    const href = (await page
+      .getByRole('link', { name: 'Details' })
+      .first()
+      .getAttribute('href')) as string
+    const showSlug = href.split('/').pop() as string
+
+    await page.goto(`/shows/2026/11/${showSlug}`)
+
+    await expect(page).toHaveURL(new RegExp(`/shows/${showSlug}$`))
+  })
+
+  /**
+   * A well-formed month with no shows is a not-found PAGE. Its status is 200
+   * under `cacheComponents`, the shell has streamed by the time the histogram
+   * read resolves, with the `noindex` Next injects, so the assertion is on the
+   * rendered body rather than the status. A status-bearing month-existence
+   * probe is the follow-up that would make this a hard 404.
+   */
+  test('a month with no upcoming shows renders the not-found page', async ({
+    page,
+  }) => {
+    await page.goto('/shows/2199/01')
+
+    await expect(page.getByRole('heading', { name: '404' })).toBeVisible({
+      timeout: 15_000,
+    })
+    await expect(page.getByTestId('day-grouped-show-list')).toHaveCount(0)
+  })
+})

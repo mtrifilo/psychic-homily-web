@@ -2,6 +2,8 @@ import * as Sentry from '@sentry/nextjs'
 import { safeRevalidatePath } from './revalidate-entity'
 import {
   ALL_SCENE_PAGES,
+  ALL_SHOW_DAY_PAGES,
+  ALL_SHOW_MONTH_PAGES,
   ALL_SHOW_PAGES,
   SCENE_LIST_PAGE,
   SINGULAR_TO_SEGMENT,
@@ -10,6 +12,11 @@ import {
   releasePages as releasePagesFor,
   showPages as showPagesFor,
 } from './revalidation-paths'
+import {
+  showsDayPath,
+  showsMonthPath,
+} from '@/features/shows/showsCalendarRoute'
+import { venueLocalDateKey } from '@/lib/utils/showTiming'
 
 /**
  * ISR revalidation rules for mutations routed through the catch-all API
@@ -164,7 +171,37 @@ function bodySlugPagesWithCascade(
 
 /** showPages for a show mutation response body. */
 function showPages(body: unknown): Array<string | undefined> {
-  return showPagesFor(slugOf(body), nestedSlugs(body, 'artists'))
+  return showPagesFor(
+    slugOf(body),
+    nestedSlugs(body, 'artists'),
+    showDatePages(body)
+  )
+}
+
+/**
+ * The month and day list pages a show falls on, read on the VENUE's calendar.
+ *
+ * The same derivation the list itself groups rows by (`venueLocalDateKey`), so
+ * a show near midnight lands on the page that actually shows it rather than on
+ * the one the server's clock would pick. An unreadable date yields no paths: a
+ * guessed month would revalidate the wrong page and leave the right one stale.
+ *
+ * It names the show's CURRENT month only. A mutation that MOVED the show out of
+ * another month leaves that one stale, which is why the rules for the mutations
+ * that can move a date blast the route patterns alongside these paths.
+ */
+function showDatePages(body: unknown): string[] {
+  const record = asRecord(body)
+  if (!record) return []
+  const venues = Array.isArray(record.venues) ? record.venues : []
+  const dateKey = venueLocalDateKey({
+    eventDate: stringField(record, 'event_date') ?? null,
+    state: stringField(record, 'state'),
+    timezone: stringField(asRecord(venues[0]), 'timezone'),
+  })
+  if (dateKey === null) return []
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return [showsMonthPath(year, month), showsDayPath(year, month, day)]
 }
 
 /** releasePages for a release mutation response body. */
@@ -211,7 +248,17 @@ const RULES: readonly RevalidationRule[] = [
     methods: ['PUT'],
     pattern: /^\/shows\/\d+$/,
     // A title edit also stales collection pages embedding the show's name.
-    paths: ({ body }) => [...showPages(body), ...cascadePages('shows')],
+    //
+    // The date-page PATTERNS replace the concrete paths here rather than
+    // joining them: an edit can MOVE the show, the response carries only the
+    // new date, and a pattern already covers every page of its route including
+    // the two `showPages` would name.
+    paths: ({ body }) => [
+      ...showPagesFor(slugOf(body), nestedSlugs(body, 'artists')),
+      ALL_SHOW_MONTH_PAGES,
+      ALL_SHOW_DAY_PAGES,
+      ...cascadePages('shows'),
+    ],
   },
   {
     name: 'show-delete',
@@ -219,8 +266,12 @@ const RULES: readonly RevalidationRule[] = [
     pattern: /^\/shows\/\d+$/,
     // Empty response body — the show's own page can't be resolved, but every
     // list surface that embedded it can, plus collection pages that listed it.
+    // The date pages are among them and cannot be named either, so the route
+    // patterns stand in for the one month and day that actually changed.
     paths: () => [
       '/shows',
+      ALL_SHOW_MONTH_PAGES,
+      ALL_SHOW_DAY_PAGES,
       '/explore',
       '/artists',
       '/venues',
@@ -251,6 +302,8 @@ const RULES: readonly RevalidationRule[] = [
     paths: () => [
       ALL_SHOW_PAGES,
       '/shows',
+      ALL_SHOW_MONTH_PAGES,
+      ALL_SHOW_DAY_PAGES,
       '/explore',
       '/artists',
       '/venues',

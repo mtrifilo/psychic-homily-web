@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ShowList } from './ShowList'
 import type { ShowResponse, ArtistResponse } from '../types'
@@ -148,9 +148,16 @@ vi.mock('@/components/filters/SaveDefaultsButton', () => ({
   SaveDefaultsButton: () => <button data-testid="save-defaults">Save defaults</button>,
 }))
 
-vi.mock('@/components/shared', () => ({
-  DensityToggle: () => <div data-testid="density-toggle" />,
-}))
+// The REAL `MonthStrip`, because the window cases below assert its hrefs and
+// its current-month mark: a stub would assert the props this file passes rather
+// than the links a reader gets.
+vi.mock('@/components/shared', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/components/shared')>()
+  return {
+    ...actual,
+    DensityToggle: () => <div data-testid="density-toggle" />,
+  }
+})
 
 vi.mock('@/components/ui/button', () => ({
   Button: ({ children, onClick, disabled, ...props }: {
@@ -1092,6 +1099,280 @@ describe('ShowList', () => {
       render(<ShowList />)
 
       expect(showCardSaveData).toContainEqual({ save_count: 3, is_saved: true })
+    })
+  })
+
+  /**
+   * The date-addressed lists (PSY-2061). One `window` prop decides three things
+   * together, which rows are requested, which URL the pager and the filter
+   * writes address, and which month the strip marks, so each is asserted here
+   * rather than inferred from the others.
+   */
+  describe('month and day windows', () => {
+    const NOVEMBER = { year: 2026, month: 11 }
+
+    const setRows = (total = 120) =>
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [makeShow()], total },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+    const setHistogram = () =>
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 10, count: 112 },
+            { year: 2026, month: 11, count: 68 },
+            { year: 2026, month: 12, count: 13 },
+          ],
+          total: 193,
+        },
+        isPlaceholderData: false,
+      })
+
+    beforeEach(() => {
+      setRows()
+      setHistogram()
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', show_count: 68 }] },
+        isLoading: false,
+        isFetching: false,
+      })
+    })
+
+    it('requests the window alongside the page offset', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('page=2'))
+
+      render(<ShowList window={NOVEMBER} />)
+
+      expect(mockUseShowsCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ window: NOVEMBER, offset: 50 })
+      )
+    })
+
+    it('sends no window on the root', () => {
+      render(<ShowList />)
+
+      expect(mockUseShowsCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ window: undefined })
+      )
+    })
+
+    it('pages inside the month rather than onto the root', () => {
+      render(<ShowList window={NOVEMBER} />)
+
+      const page2 = screen.getAllByRole('link', { name: /^Page 2\b/ })[0]
+      expect(page2).toHaveAttribute('href', '/shows/2026/11?page=2')
+    })
+
+    // Page 1 writes no `page`, so the month root is reachable by paging back
+    // and has exactly one address, the same rule the list root follows.
+    it('pages back to the bare month URL', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('page=2'))
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const page1 = screen.getAllByRole('link', { name: /^Page 1\b/ })[0]
+      expect(page1).toHaveAttribute('href', '/shows/2026/11')
+    })
+
+    it('carries a foreign param through a page click inside the month', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('cities=all&utm_source=newsletter')
+      )
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const page2 = screen.getAllByRole('link', { name: /^Page 2\b/ })[0]
+      expect(page2.getAttribute('href')).toContain('utm_source=newsletter')
+      expect(page2.getAttribute('href')).toMatch(/^\/shows\/2026\/11\?/)
+    })
+
+    /**
+     * A show carrying a mistyped far-future date puts a bucket in the histogram
+     * whose URL the route refuses on its year bound, and a bar is a link.
+     */
+    it('drops a month the route would not address', () => {
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 11, count: 68 },
+            { year: 2200, month: 3, count: 1 },
+          ],
+          total: 69,
+        },
+        isPlaceholderData: false,
+      })
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(within(strip).getByRole('link', { name: /^Nov / })).toBeInTheDocument()
+      expect(
+        within(strip).queryByRole('link', { name: /^Mar / })
+      ).not.toBeInTheDocument()
+      expect(strip.innerHTML).not.toContain('/shows/2200/03')
+    })
+
+    it('marks the month in view as the current page in the strip', () => {
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      const current = within(strip).getByRole('link', { name: /^Nov / })
+      expect(current).toHaveAttribute('aria-current', 'page')
+      expect(current).toHaveAttribute('href', '/shows/2026/11')
+    })
+
+    /**
+     * A day page sits INSIDE the marked month rather than being it, so the mark
+     * is a section relation. `aria-current="page"` there would tell a reader
+     * that a link navigating elsewhere is where they already are.
+     */
+    it('marks the month as a section, not the page, on a day', () => {
+      render(<ShowList window={{ ...NOVEMBER, day: 14 }} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(
+        within(strip).getByRole('link', { name: /^Nov / })
+      ).toHaveAttribute('aria-current', 'true')
+    })
+
+    it('marks the leading link as current on the root', () => {
+      render(<ShowList />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(
+        within(strip).getByRole('link', { name: /All upcoming/ })
+      ).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('offers the neighbouring months that have shows, on month pages only', () => {
+      render(<ShowList window={NOVEMBER} />)
+
+      const adjacent = screen.getByTestId('month-adjacent')
+      expect(within(adjacent).getByRole('link', { name: /Oct 2026/ })).toHaveAttribute(
+        'href',
+        '/shows/2026/10'
+      )
+      expect(within(adjacent).getByRole('link', { name: /Dec 2026/ })).toHaveAttribute(
+        'href',
+        '/shows/2026/12'
+      )
+    })
+
+    it('offers no adjacent months on the root or on a day', () => {
+      const { unmount } = render(<ShowList />)
+      expect(screen.queryByTestId('month-adjacent')).not.toBeInTheDocument()
+      unmount()
+
+      render(<ShowList window={{ ...NOVEMBER, day: 14 }} />)
+      expect(screen.queryByTestId('month-adjacent')).not.toBeInTheDocument()
+    })
+
+    // Neighbours come from the histogram, never from the calendar, so a link is
+    // never offered to a month the route answers with a not-found.
+    it('offers no neighbour the histogram does not carry', () => {
+      mockUseShowMonths.mockReturnValue({
+        data: { months: [{ year: 2026, month: 11, count: 68 }], total: 68 },
+        isPlaceholderData: false,
+      })
+
+      render(<ShowList window={NOVEMBER} />)
+
+      expect(screen.queryByTestId('month-adjacent')).not.toBeInTheDocument()
+    })
+
+    /**
+     * The strip navigates the DATE axis and owns nothing in the query string,
+     * so every other key has to survive a jump between months, otherwise an
+     * explicit All Cities silently falls back to the viewer's derived default,
+     * and a campaign link loses its attribution on the first click.
+     */
+    it('carries the live filter params through a strip link', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('cities=all&tags=noise&utm_source=newsletter')
+      )
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      const december = within(strip).getByRole('link', { name: /^Dec / })
+      expect(december).toHaveAttribute(
+        'href',
+        '/shows/2026/12?cities=all&tags=noise&utm_source=newsletter'
+      )
+      expect(
+        within(strip).getByRole('link', { name: /All upcoming/ })
+      ).toHaveAttribute(
+        'href',
+        '/shows?cities=all&tags=noise&utm_source=newsletter'
+      )
+    })
+
+    it('carries them through an adjacent-month link too', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('cities=all'))
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const adjacent = screen.getByTestId('month-adjacent')
+      expect(
+        within(adjacent).getByRole('link', { name: /Oct 2026/ })
+      ).toHaveAttribute('href', '/shows/2026/10?cities=all')
+    })
+
+    // A different month is a different question, answered from its first page.
+    it('drops the page number when jumping to another month', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('cities=all&page=3')
+      )
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(
+        within(strip).getByRole('link', { name: /^Dec / })
+      ).toHaveAttribute('href', '/shows/2026/12?cities=all')
+    })
+
+    it('writes a tag change onto the month URL, not the root', async () => {
+      const user = userEvent.setup()
+
+      render(<ShowList window={NOVEMBER} />)
+      await user.click(screen.getByTestId('mock-toggle-tag'))
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/shows/2026/11?tags=noise',
+          expect.anything()
+        )
+      })
+    })
+
+    it('clears filters onto the month URL, not the root', async () => {
+      const user = userEvent.setup()
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockSearchParams.mockReturnValue(new URLSearchParams('tags=noise'))
+
+      render(<ShowList window={NOVEMBER} />)
+      await user.click(screen.getByText('Clear filters'))
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/shows/2026/11?cities=all',
+          expect.anything()
+        )
+      })
     })
   })
 })

@@ -91,16 +91,23 @@ describe('no-op cases', () => {
 })
 
 describe('show rules', () => {
+  // The date fields are what the month and day pages are derived from
+  // (PSY-2061), read on the VENUE's calendar: 02:00 UTC on July 2 is July 1 in
+  // Phoenix, which is the day the list itself groups this row under.
   const showBody = JSON.stringify({
     id: 7,
     slug: 'bright-eyes-at-the-rebel-lounge-2026-07-01',
+    event_date: '2026-07-02T02:00:00Z',
+    state: 'AZ',
     artists: [{ id: 1, slug: 'bright-eyes' }, { id: 2, slug: 'cursive' }],
-    venues: [{ id: 3, slug: 'the-rebel-lounge' }],
+    venues: [{ id: 3, slug: 'the-rebel-lounge', timezone: 'America/Phoenix' }],
   })
 
   const expectedShowPages = [
     '/shows/bright-eyes-at-the-rebel-lounge-2026-07-01',
     '/shows',
+    '/shows/2026/07',
+    '/shows/2026/07/01',
     '/explore',
     '/artists',
     '/venues',
@@ -117,10 +124,17 @@ describe('show rules', () => {
     expect(revalidated()).toEqual(expectedShowPages)
   })
 
-  it('show update revalidates the same set plus the collection cascade', async () => {
+  it('show update swaps the date paths for their patterns, and cascades', async () => {
     await run({ method: 'PUT', path: '/shows/7', responseText: showBody })
-    // Title edits stale collection pages embedding the show's name.
-    expect(revalidated()).toEqual([...expectedShowPages, '/collections/[slug]'])
+    // Title edits stale collection pages embedding the show's name. The date
+    // PATTERNS replace the concrete paths rather than joining them: an edit can
+    // MOVE the show, and a pattern already covers every page of its route.
+    expect(revalidated()).toEqual([
+      ...expectedShowPages.filter(path => !/^\/shows\/\d{4}\//.test(path)),
+      '/shows/[slug]/[month]',
+      '/shows/[slug]/[month]/[day]',
+      '/collections/[slug]',
+    ])
   })
 
   it('show status ops revalidate the same set', async () => {
@@ -154,6 +168,9 @@ describe('show rules', () => {
     const expectedBatchPages = [
       '/shows/[slug]',
       '/shows',
+      // Counts, not slugs, so the month and day pages cannot be named either.
+      '/shows/[slug]/[month]',
+      '/shows/[slug]/[month]/[day]',
       '/explore',
       '/artists',
       '/venues',
@@ -183,6 +200,10 @@ describe('show rules', () => {
     await run({ method: 'DELETE', path: '/shows/7' })
     expect(revalidated()).toEqual([
       '/shows',
+      // An empty response body names no month, so the patterns stand in for
+      // the one month and day that actually changed.
+      '/shows/[slug]/[month]',
+      '/shows/[slug]/[month]/[day]',
       '/explore',
       '/artists',
       '/venues',
@@ -190,6 +211,88 @@ describe('show rules', () => {
       '/scenes/[slug]',
       '/collections/[slug]',
     ])
+  })
+
+
+  /**
+   * The date-addressed lists (PSY-2061). A show's month and day pages hold its
+   * row, so every mutation that changes the row has to reach them.
+   */
+  describe('the month and day pages of a show', () => {
+    function bodyWith(fields: Record<string, unknown>) {
+      return JSON.stringify({ id: 7, slug: 'a-show', artists: [], ...fields })
+    }
+
+    // The venue's zone, not the server's: 02:00 UTC on July 2 is still July 1
+    // in Phoenix, and the list groups the row under the day it happens where it
+    // happens.
+    it('reads the month and day on the venue calendar', async () => {
+      await run({
+        method: 'POST',
+        path: '/shows',
+        responseText: bodyWith({
+          event_date: '2026-07-02T02:00:00Z',
+          venues: [{ id: 3, timezone: 'America/Phoenix' }],
+        }),
+      })
+
+      expect(revalidated()).toContain('/shows/2026/07')
+      expect(revalidated()).toContain('/shows/2026/07/01')
+    })
+
+    it('falls back to the state when the venue has no resolved zone', async () => {
+      await run({
+        method: 'POST',
+        path: '/shows',
+        responseText: bodyWith({
+          event_date: '2026-07-02T02:00:00Z',
+          state: 'AZ',
+          venues: [{ id: 3 }],
+        }),
+      })
+
+      expect(revalidated()).toContain('/shows/2026/07/01')
+    })
+
+    it('zero-pads the month and day, the only spelling the route serves', async () => {
+      await run({
+        method: 'POST',
+        path: '/shows',
+        responseText: bodyWith({
+          event_date: '2026-09-04T19:00:00Z',
+          venues: [{ id: 3, timezone: 'America/Phoenix' }],
+        }),
+      })
+
+      expect(revalidated()).toContain('/shows/2026/09')
+      expect(revalidated()).toContain('/shows/2026/09/04')
+    })
+
+    // A guessed month would revalidate the wrong page and leave the right one
+    // stale, which is worse than leaving both alone.
+    it('names no date page when the date cannot be read', async () => {
+      await run({
+        method: 'POST',
+        path: '/shows',
+        responseText: bodyWith({ event_date: 'not-a-date', venues: [] }),
+      })
+
+      expect(revalidated().some(path => /^\/shows\/\d{4}\//.test(path))).toBe(
+        false
+      )
+    })
+
+    it('names no date page when the response carries no date at all', async () => {
+      await run({
+        method: 'POST',
+        path: '/shows',
+        responseText: bodyWith({ venues: [] }),
+      })
+
+      expect(revalidated().some(path => /^\/shows\/\d{4}\//.test(path))).toBe(
+        false
+      )
+    })
   })
 
   it('degrades to list surfaces when the response body is not JSON', async () => {
@@ -883,9 +986,9 @@ describe('resilience', () => {
     await expect(
       run({ method: 'DELETE', path: '/shows/7' })
     ).resolves.toBeUndefined()
-    // show-delete touches 4 list pages + scenes + the collection cascade;
-    // each failure is captured separately.
-    expect(mockCaptureException).toHaveBeenCalledTimes(7)
+    // show-delete touches 4 list pages + the two date-page patterns + scenes +
+    // the collection cascade; each failure is captured separately.
+    expect(mockCaptureException).toHaveBeenCalledTimes(9)
   })
 
   it('never throws when the lookup fetch rejects — skips the page and reports', async () => {

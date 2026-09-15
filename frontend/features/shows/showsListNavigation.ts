@@ -5,6 +5,8 @@
  * link says can be tested without a rendered list.
  */
 
+import { SHOWS_ROOT } from './showsCalendarRoute'
+
 /**
  * Rows per page on `/shows`.
  *
@@ -18,8 +20,8 @@
 export const SHOWS_PAGE_SIZE = 50
 
 /**
- * The `/shows` href for a 1-based page, built FROM the params already on
- * screen.
+ * The href for a 1-based page of the list rooted at `basePath`, built FROM the
+ * params already on screen.
  *
  * Every key but `page` is carried through untouched. The list shares its query
  * string with the city filter, the tag filter, and whatever a campaign link
@@ -27,15 +29,20 @@ export const SHOWS_PAGE_SIZE = 50
  * silently drop all of it on every page click.
  *
  * Page 1 writes NO `page`, so the first page of any filter state has exactly
- * one address and the canonical `/shows` is reachable by paging back.
+ * one address and the root is reachable by paging back.
+ *
+ * `basePath` is what makes `?page=` mean the same thing inside a month as it
+ * does on the root: the page axis is a query in both places, and only the list
+ * it pages through changes.
  */
 export function showsPageHref(
   params: URLSearchParams | { toString: () => string },
-  page: number
+  page: number,
+  basePath: string = SHOWS_ROOT
 ): string {
   const next = new URLSearchParams(params.toString())
   if (page > 1) next.set('page', String(page))
   else next.delete('page')
   const query = next.toString()
-  return query ? `/shows?${query}` : '/shows'
+  return query ? `${basePath}?${query}` : basePath
 }

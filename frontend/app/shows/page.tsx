@@ -34,6 +34,7 @@ import type {
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_ENDPOINTS } from '@/lib/api'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
+import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
@@ -179,62 +180,6 @@ function getShowName(show: ShowListItem): string {
 }
 
 /**
- * Seed the two cache entries `ShowList` blocks its first paint on — the first
- * page of upcoming shows and the city facet counts — so dates, artists, venues
- * and cities reach the server HTML (PSY-1624).
- *
- * BOTH are required: `ShowList` returns its skeleton while EITHER query is
- * still loading, so seeding the rows alone server-renders the skeleton.
- *
- * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
- * above, and against a different endpoint: the OFFSET reader the list pages
- * with, rather than the cursor one the `ItemList` reads. That is deliberate on
- * both counts and the reasoning is on `getUpcomingShowsPayload`: they need
- * different abort budgets, and this one requests exactly what the client hook
- * requests. The seed lands by KEY either way; matching the URL is what keeps
- * `SHOWS_CALENDAR_FIRST_SCREEN_URL` an honest description of the hook's
- * request. Two Data Cache entries, invalidated together. Do not "dedupe" them
- * onto one call without reading that block first.
- *
- * PAGE 1 only. `?page=2` and beyond are client-fetched: a long tail of
- * addresses, none of which a cold visitor or a crawler lands on.
- *
- * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
- * component fetches for itself and owns the error state (see
- * `fetchListPayload`).
- */
-/**
- * Which cache entries a set of first-screen payloads may seed, or `null` when
- * the page must render unseeded.
- *
- * The GATING RULE lives here rather than inline so it can be stated once and
- * tested: `ShowList` returns its skeleton while EITHER the rows or the cities
- * are still loading, so seeding one without the other server-renders the
- * skeleton and buys nothing. The month histogram is NOT a gate, because the
- * list renders with bare page numerals without it, so a missing one is dropped
- * from the seed rather than suppressing the other two.
- */
-export function showsFirstScreenSeeds({
-  shows,
-  cities,
-  months,
-}: {
-  shows: ShowsCalendarResponse | null
-  cities: ShowCitiesResponse | null
-  months: ShowMonthsResponse | null
-}): Array<{ queryKey: readonly unknown[]; data: unknown }> | null {
-  if (!shows || !cities) return null
-
-  return [
-    { queryKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY, data: shows },
-    { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
-    ...(months
-      ? [{ queryKey: SHOWS_MONTHS_FIRST_SCREEN_KEY, data: months }]
-      : []),
-  ]
-}
-
-/**
  * The pager's month histogram, seeded so it is not a third client call.
  *
  * TAKES THE DEFAULT HOUR, and the shorter window its payload argues for was
@@ -260,6 +205,31 @@ export function getShowsMonthsPayload(): Promise<ShowMonthsResponse | null> {
   })
 }
 
+/**
+ * Seed the two cache entries `ShowList` blocks its first paint on, the first
+ * page of upcoming shows and the city facet counts, so dates, artists, venues
+ * and cities reach the server HTML (PSY-1624).
+ *
+ * BOTH are required: `ShowList` returns its skeleton while EITHER query is
+ * still loading, so seeding the rows alone server-renders the skeleton.
+ *
+ * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
+ * above, and against a different endpoint: the OFFSET reader the list pages
+ * with, rather than the cursor one the `ItemList` reads. That is deliberate on
+ * both counts and the reasoning is on `getUpcomingShowsPayload`: they need
+ * different abort budgets, and this one requests exactly what the client hook
+ * requests. The seed lands by KEY either way; matching the URL is what keeps
+ * `SHOWS_CALENDAR_FIRST_SCREEN_URL` an honest description of the hook's
+ * request. Two Data Cache entries, invalidated together. Do not "dedupe" them
+ * onto one call without reading that block first.
+ *
+ * PAGE 1 only. `?page=2` and beyond are client-fetched: a long tail of
+ * addresses, none of which a cold visitor or a crawler lands on.
+ *
+ * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
+ * component fetches for itself and owns the error state (see
+ * `fetchListPayload`).
+ */
 async function HydratedShowList() {
   const [shows, cities, months] = await Promise.all([
     fetchListPayload<ShowsCalendarResponse>({
@@ -293,7 +263,12 @@ async function HydratedShowList() {
     getShowsMonthsPayload(),
   ])
 
-  const seeds = showsFirstScreenSeeds({ shows, cities, months })
+  const seeds = showsFirstScreenSeeds({
+    shows,
+    cities,
+    months,
+    calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+  })
 
   if (!seeds) {
     return <ShowList />

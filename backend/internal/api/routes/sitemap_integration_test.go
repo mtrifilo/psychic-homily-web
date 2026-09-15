@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -56,15 +58,16 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 			Slug      string    `json:"slug"`
 			UpdatedAt time.Time `json:"updated_at"`
 		} `json:"shows"`
-		Artists    []json.RawMessage `json:"artists"`
-		Venues     []json.RawMessage `json:"venues"`
-		VenueYears []json.RawMessage `json:"venue_years"`
-		Scenes     []json.RawMessage `json:"scenes"`
-		SceneWeeks []json.RawMessage `json:"scene_weeks"`
-		Labels     []json.RawMessage `json:"labels"`
-		Releases   []json.RawMessage `json:"releases"`
-		Festivals  []json.RawMessage `json:"festivals"`
-		Tags       []json.RawMessage `json:"tags"`
+		Artists     []json.RawMessage `json:"artists"`
+		Venues      []json.RawMessage `json:"venues"`
+		VenueYears  []json.RawMessage `json:"venue_years"`
+		ShowsMonths []json.RawMessage `json:"shows_months"`
+		Scenes      []json.RawMessage `json:"scenes"`
+		SceneWeeks  []json.RawMessage `json:"scene_weeks"`
+		Labels      []json.RawMessage `json:"labels"`
+		Releases    []json.RawMessage `json:"releases"`
+		Festivals   []json.RawMessage `json:"festivals"`
+		Tags        []json.RawMessage `json:"tags"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("parse response: %v; body: %s", err, w.Body.String())
@@ -82,12 +85,77 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 	// and silent when forgotten.
 	for name, raw := range map[string][]json.RawMessage{
 		"artists": body.Artists, "venues": body.Venues, "venue_years": body.VenueYears,
-		"scenes":      body.Scenes,
-		"scene_weeks": body.SceneWeeks, "labels": body.Labels, "releases": body.Releases,
+		"shows_months": body.ShowsMonths,
+		"scenes":       body.Scenes,
+		"scene_weeks":  body.SceneWeeks, "labels": body.Labels, "releases": body.Releases,
 		"festivals": body.Festivals, "tags": body.Tags,
 	} {
 		if raw == nil {
 			t.Errorf("%s serialised as null, want []; body: %s", name, w.Body.String())
+		}
+	}
+}
+
+// TestSitemapEntriesFamilyScopedStillServesEveryFamilyAsAnArray pins the half of
+// the empty-family contract a whole-payload request cannot reach.
+//
+// TestSitemapEntriesEndToEnd sends no `family`, so every want() branch runs and
+// every field is assigned before it serialises. A FAMILY-SCOPED request runs one
+// branch, and every other field ships whatever the Entries initializer left it
+// as - which is the only thing standing between a new family and a `null` the
+// generator rejects with `missing the "X" family` (frontend/app/sitemap.ts).
+//
+// It reads the wire, not the struct: a field added to contracts.SitemapEntries
+// and missed in the initializer is invisible to the compiler and to every test
+// that names fields by hand. This one names none.
+func TestSitemapEntriesFamilyScopedStillServesEveryFamilyAsAnArray(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	router := chi.NewRouter()
+	SetupRoutes(router, services.NewServiceContainer(td.DB, cfg), cfg)
+
+	// The field names are read off the contract rather than listed, so a family
+	// added to the struct is covered the day it is added.
+	var families []string
+	entriesType := reflect.TypeOf(contracts.SitemapEntries{})
+	for i := range entriesType.NumField() {
+		tag := entriesType.Field(i).Tag.Get("json")
+		if tag != "" {
+			families = append(families, tag)
+		}
+	}
+	if len(families) < 2 {
+		t.Fatalf("read %d families off SitemapEntries, want the whole set", len(families))
+	}
+
+	for _, requested := range families {
+		req := httptest.NewRequest(http.MethodGet, "/sitemap/entries?family="+requested, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /sitemap/entries?family=%s = %d, want 200; body: %s", requested, w.Code, w.Body.String())
+		}
+
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("parse response for family=%s: %v", requested, err)
+		}
+
+		for _, family := range families {
+			raw, ok := body[family]
+			if !ok {
+				t.Errorf("family=%s: %q absent from the response", requested, family)
+				continue
+			}
+			if string(raw) == "null" {
+				t.Errorf("family=%s: %q serialised as null, want []", requested, family)
+			}
 		}
 	}
 }
