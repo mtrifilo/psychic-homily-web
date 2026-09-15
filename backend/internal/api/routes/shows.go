@@ -31,9 +31,9 @@ func setupShowRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/shows/months", showHandler.GetShowMonthsHandler)
 
 	// The addressable month span behind the window routes' real 404s, read by
-	// frontend/proxy.ts. Static under a static parent, so it is resolved before
-	// /shows/{show_id} for the same reason its siblings above are, and anonymous
-	// for the reason GetShowsCalendarRangeHandler gives.
+	// frontend/proxy.ts. Anonymous for the reason GetShowsCalendarRangeHandler
+	// gives. Its shape is three static segments, which nothing else in this file
+	// registers, so unlike its siblings it competes with no parameter node.
 	huma.Get(rc.API, "/shows/calendar/range", showHandler.GetShowsCalendarRangeHandler)
 
 	// Show detail with optional auth for access control on non-approved shows

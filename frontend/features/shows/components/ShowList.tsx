@@ -341,8 +341,8 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // The strip's bars. The histogram is what says which months have shows, and
   // the year bound is what says which of those are addressable: a show carrying
   // a mistyped far-future date puts a bucket in the histogram whose URL the
-  // route refuses, and a bar is a link. Both filters, so no bar can be a
-  // not-found.
+  // route refuses on shape alone, and a bar is a link. Both filters, so no bar
+  // can be a not-found.
   //
   // Held across a filter change, where `labelBuckets` above is withheld. The
   // two carry different claims: a page label states which months a page the
@@ -688,8 +688,9 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
             from the same filtered query family as the rows, so the two fade
             and settle together.
 
-            Bounded to the months the histogram carries, so no link here can
-            address a month the route 404s. */}
+            Bounded to the months the histogram carries, and a month with an
+            upcoming show is inside the addressable span by construction, so no
+            link here can address a month the proxy 404s. */}
         <MonthStrip
           months={monthEntries}
           hrefFor={monthHref}

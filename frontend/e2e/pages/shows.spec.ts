@@ -390,13 +390,16 @@ test.describe('Shows month and day routes', () => {
     await expect(page.getByTestId('month-strip')).toBeVisible()
     await expect(page.getByRole('heading', { name: '404' })).toHaveCount(0)
 
+    // Scoped to `head`. A robots tag streamed into the BODY is not honoured by
+    // crawlers, and an unscoped locator matches it either way, so the assertion
+    // that the window is not indexed has to say where the tag landed.
     const robots = await page
-      .locator('meta[name="robots"]')
+      .locator('head meta[name="robots"]')
       .first()
       .getAttribute('content')
     expect(
       robots,
-      'a quiet window is served but not indexed'
+      'a quiet window is served but not indexed, and the tag has to be in the head to say so'
     ).toMatch(/noindex/)
   })
 })

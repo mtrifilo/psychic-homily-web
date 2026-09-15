@@ -24,10 +24,31 @@ function requestFor(pathname: string): NextRequest {
 
 const RANGE_URL = 'http://localhost:8080/shows/calendar/range'
 
-/** The span most cases below are read against: November 2026 to March 2027. */
+/**
+ * A month relative to the CURRENT one, as the endpoint spells an edge.
+ *
+ * Every span below is built from the clock rather than written down, for the
+ * reason the backend suite gives about its own fixtures: the proxy refuses a
+ * span that does not hold today, so a span pinned to literal months would start
+ * failing on a date nobody chose.
+ */
+function monthFromNow(delta: number): { year: number; month: number } {
+  const now = new Date()
+  const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + delta, 1))
+  return { year: at.getUTCFullYear(), month: at.getUTCMonth() + 1 }
+}
+
+/** The dated path of a month relative to this one, with an optional day. */
+function pathFromNow(delta: number, day?: number): string {
+  const { year, month } = monthFromNow(delta)
+  const base = `/shows/${year}/${String(month).padStart(2, '0')}`
+  return day === undefined ? base : `${base}/${String(day).padStart(2, '0')}`
+}
+
+/** The span most cases below are read against: last month through four out. */
 const SPAN = {
-  first_month: { year: 2026, month: 11 },
-  last_month: { year: 2027, month: 3 },
+  first_month: monthFromNow(-1),
+  last_month: monthFromNow(4),
 }
 
 function rangeResponse(body: unknown, status = 200): Response {
@@ -78,7 +99,7 @@ describe('proxy, shows month and day routes', () => {
   it('passes a month inside the addressable span', async () => {
     const proxy = await freshProxy()
 
-    const response = await proxy(requestFor('/shows/2026/12'))
+    const response = await proxy(requestFor(pathFromNow(1)))
 
     expect(response.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledWith(RANGE_URL, expect.anything())
@@ -87,7 +108,7 @@ describe('proxy, shows month and day routes', () => {
   it('passes a day inside the addressable span', async () => {
     const proxy = await freshProxy()
 
-    const response = await proxy(requestFor('/shows/2026/12/14'))
+    const response = await proxy(requestFor(pathFromNow(1, 14)))
 
     expect(response.status).toBe(200)
   })
@@ -95,16 +116,16 @@ describe('proxy, shows month and day routes', () => {
   it('404s a month before the span and a month after it', async () => {
     const proxy = await freshProxy()
 
-    expect((await proxy(requestFor('/shows/2026/10'))).status).toBe(404)
-    expect((await proxy(requestFor('/shows/2027/04'))).status).toBe(404)
+    expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(404)
+    expect((await proxy(requestFor(pathFromNow(5)))).status).toBe(404)
   })
 
   /** A day is addressable exactly when its month is. */
   it('404s a day whose month is outside the span', async () => {
     const proxy = await freshProxy()
 
-    expect((await proxy(requestFor('/shows/2026/10/31'))).status).toBe(404)
-    expect((await proxy(requestFor('/shows/2027/04/01'))).status).toBe(404)
+    expect((await proxy(requestFor(pathFromNow(-2, 28)))).status).toBe(404)
+    expect((await proxy(requestFor(pathFromNow(5, 1)))).status).toBe(404)
   })
 
   /**
@@ -115,8 +136,8 @@ describe('proxy, shows month and day routes', () => {
   it('passes both edge months', async () => {
     const proxy = await freshProxy()
 
-    expect((await proxy(requestFor('/shows/2026/11'))).status).toBe(200)
-    expect((await proxy(requestFor('/shows/2027/03'))).status).toBe(200)
+    expect((await proxy(requestFor(pathFromNow(-1)))).status).toBe(200)
+    expect((await proxy(requestFor(pathFromNow(4)))).status).toBe(200)
   })
 
   /**
@@ -125,9 +146,10 @@ describe('proxy, shows month and day routes', () => {
    */
   it('leaves a run parameter untouched on the way through', async () => {
     const proxy = await freshProxy()
+    const run = `${pathFromNow(1, 11)}?days=3`
     const request = {
-      nextUrl: new URL('http://localhost:3000/shows/2026/12/11?days=3'),
-      url: 'http://localhost:3000/shows/2026/12/11?days=3',
+      nextUrl: new URL(`http://localhost:3000${run}`),
+      url: `http://localhost:3000${run}`,
     } as unknown as NextRequest
 
     const response = await proxy(request)
@@ -145,11 +167,11 @@ describe('proxy, shows month and day routes', () => {
     const proxy = await freshProxy()
 
     await Promise.all([
-      proxy(requestFor('/shows/2026/12')),
-      proxy(requestFor('/shows/2027/01')),
-      proxy(requestFor('/shows/2027/02/02')),
+      proxy(requestFor(pathFromNow(1))),
+      proxy(requestFor(pathFromNow(2))),
+      proxy(requestFor(pathFromNow(3, 2))),
     ])
-    await proxy(requestFor('/shows/2027/03'))
+    await proxy(requestFor(pathFromNow(4)))
 
     const rangeCalls = fetchMock.mock.calls.filter(
       (call: unknown[]) => call[0] === RANGE_URL
@@ -174,10 +196,15 @@ describe('proxy, shows month and day routes', () => {
     ['a body that is not a span', () => Promise.resolve(rangeResponse({ months: [] }))],
     ['an inverted span', () =>
       Promise.resolve(
-        rangeResponse({
-          first_month: { year: 2027, month: 3 },
-          last_month: { year: 2026, month: 11 },
-        })
+        rangeResponse({ first_month: monthFromNow(4), last_month: monthFromNow(-1) })
+      )],
+    ['a span that does not hold today', () =>
+      Promise.resolve(
+        rangeResponse({ first_month: monthFromNow(6), last_month: monthFromNow(9) })
+      )],
+    ['an edge outside the addressable years', () =>
+      Promise.resolve(
+        rangeResponse({ first_month: { year: 0, month: 1 }, last_month: monthFromNow(4) })
       )],
   ])('serves the page when the probe answers %s', async (_label, answer) => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -185,15 +212,40 @@ describe('proxy, shows month and day routes', () => {
     const proxy = await freshProxy()
 
     // A month that would be 404ed under the span above.
-    expect((await proxy(requestFor('/shows/2026/10'))).status).toBe(200)
+    expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(200)
+  })
+
+  /**
+   * A refresh that fails keeps the span it had, rather than falling open on
+   * every dated URL at the moment the backend is least able to serve them: a
+   * rendered window costs three backend reads where a 404 costs none.
+   */
+  it('keeps the last good span when a later probe fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      const proxy = await freshProxy()
+      expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(404)
+
+      fetchMock.mockResolvedValue(rangeResponse({}, 503))
+      vi.advanceTimersByTime(300_001)
+
+      expect((await proxy(requestFor(pathFromNow(-2)))).status).toBe(404)
+      expect((await proxy(requestFor(pathFromNow(1)))).status).toBe(200)
+      // The refresh must actually have been attempted, or the assertions above
+      // would be reading the first probe's entry and proving nothing.
+      const rangeCalls = fetchMock.mock.calls.filter(
+        (call: unknown[]) => call[0] === RANGE_URL
+      )
+      expect(rangeCalls.length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('passes a leap day in a leap year and 404s one in a common year', async () => {
     fetchMock.mockResolvedValue(
-      rangeResponse({
-        first_month: { year: 2026, month: 11 },
-        last_month: { year: 2028, month: 3 },
-      })
+      rangeResponse({ first_month: monthFromNow(-1), last_month: { year: 2028, month: 3 } })
     )
     const proxy = await freshProxy()
 

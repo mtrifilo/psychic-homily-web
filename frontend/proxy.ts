@@ -768,13 +768,18 @@ interface ShowsCalendarRange {
 const SHOWS_CALENDAR_RANGE_URL = `${API_BASE_URL}/shows/calendar/range`
 
 /**
- * How long a span is reused, matching the `max-age` the endpoint publishes.
+ * How long a span is reused.
  *
  * `next: { revalidate }` has no effect inside proxy, so the cache is this
  * module's own and lives for the life of the instance. That is what keeps the
  * probe off the per-request path: one call per instance per window, against a
  * backend whose anonymous budget is shared by every reader behind one address,
  * rather than one per dated URL a crawler walks.
+ *
+ * The endpoint publishes the same number as its `max-age`, and nothing here
+ * reads that header: the two are set to agree by hand, and a change to either
+ * one is a change to how long a month approved beyond the last edge keeps
+ * 404ing.
  */
 const SHOWS_CALENDAR_RANGE_TTL_MS = 300_000
 
@@ -815,10 +820,20 @@ function showsCalendarMonthOrdinal(year: number, month: number): number {
  * unanswered probe rather than a span of `NaN`, which would compare false
  * against everything and 404 the whole family.
  */
+/**
+ * One edge of the span as a comparable month, or `null` when it is not one.
+ *
+ * The YEAR is bounded by the same window the route grammar accepts, not merely
+ * checked for being a number. An edge of year 0 is well-typed, orders correctly
+ * against its sibling, and would place the whole span before every addressable
+ * month: the proxy would then hard-404 every dated shows URL on the site from a
+ * body it accepted. Out-of-range is an unanswered probe, which fails open.
+ */
 function edgeOrdinal(edge: unknown): number | null {
   if (typeof edge !== 'object' || edge === null) return null
   const { year, month } = edge as { year?: unknown; month?: unknown }
   if (typeof year !== 'number' || !Number.isInteger(year)) return null
+  if (year < SHOWS_CALENDAR_MIN_YEAR || year > SHOWS_CALENDAR_MAX_YEAR) return null
   if (typeof month !== 'number' || !Number.isInteger(month)) return null
   if (month < 1 || month > 12) return null
   return showsCalendarMonthOrdinal(year, month)
@@ -833,6 +848,25 @@ function parseShowsCalendarRange(body: unknown): ShowsCalendarRange | null {
   if (firstOrdinal === null || lastOrdinal === null) return null
   // An inverted span would 404 every month including the current one.
   if (lastOrdinal < firstOrdinal) return null
+
+  // A span that does not hold TODAY is refused whatever its shape, and this is
+  // the check that bounds the blast radius of every fault upstream of here: a
+  // clock adrift on the API host, an API_BASE_URL pointing at the wrong
+  // environment, an origin answering with someone else's data. Each of those
+  // arrives as a well-ordered span that happens to sit elsewhere on the
+  // calendar, and acting on one would hard-404 every dated shows URL at once,
+  // the chips included. Refused, it is an unanswered probe, which fails open.
+  //
+  // It cannot reject an honest span: the backend's own edges are computed from
+  // its clock as a band around now, so an honest answer always contains the
+  // current month on any clock within a day of this one.
+  const now = new Date()
+  const currentOrdinal = showsCalendarMonthOrdinal(
+    now.getUTCFullYear(),
+    now.getUTCMonth() + 1
+  )
+  if (currentOrdinal < firstOrdinal || currentOrdinal > lastOrdinal) return null
+
   return { first: firstOrdinal, last: lastOrdinal }
 }
 
@@ -873,19 +907,33 @@ async function fetchShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
   }
 }
 
-/** The span, from this instance's cache when it is warm. */
+/**
+ * The span, from this instance's cache when it is warm.
+ *
+ * A REFRESH THAT FAILS KEEPS THE SPAN IT HAD. Dropping to "unknown" would fail
+ * open on every dated URL at the moment the backend is least able to serve
+ * them: each one would then render, and a rendered window costs three backend
+ * reads where a 404 costs none, which is the amplification loop a 429 storm
+ * feeds on. A span minutes old is a better answer than no span, and only a cold
+ * instance genuinely has none.
+ */
 function readShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
   const now = Date.now()
-  if (showsCalendarRangeCache && showsCalendarRangeCache.expiresAt > now) {
-    return showsCalendarRangeCache.range
+  const cached = showsCalendarRangeCache
+  if (cached && cached.expiresAt > now) {
+    return cached.range
   }
 
+  const probe = fetchShowsCalendarRange()
   const entry = {
-    range: fetchShowsCalendarRange(),
+    range: probe.then(async range => range ?? (cached ? await cached.range : null)),
     expiresAt: now + SHOWS_CALENDAR_RANGE_UNKNOWN_TTL_MS,
   }
   showsCalendarRangeCache = entry
-  void entry.range.then(range => {
+  // Stamped from the PROBE rather than from what the entry serves: a span kept
+  // because the refresh failed is still an unanswered probe, and it is retried
+  // on the short window rather than held for the full one.
+  void probe.then(range => {
     entry.expiresAt =
       Date.now() +
       (range === null
@@ -902,6 +950,12 @@ function readShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
  * exactly when its month is. The list runs forward from tonight, so the only
  * question a day adds is which month it falls in, and asking the backend per
  * day would turn a span every window shares into a probe per URL.
+ *
+ * A RUN is judged on its ANCHOR month alone, which is the month its URL names
+ * and the month its canonical points at. A hand-built run anchored in a month
+ * outside the span but reaching into one inside it is therefore a 404; nothing
+ * on the site produces one, because every quick window anchors on today or
+ * later and the span holds a week forward of now for exactly that reason.
  *
  * FAILS OPEN, like every other probe in this file and for a stronger reason. A
  * 404 produced from a span nobody answered for would take out every month and

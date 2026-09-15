@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -625,6 +627,76 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_
 	suite.Require().Greater(showCalendarMonthOrdinal(rng.FirstMonth),
 		showCalendarMonthOrdinal(contracts.ShowCalendarMonth{Year: pastYear, Month: pastMonth}),
 		"a past show must not extend the span backwards")
+}
+
+// Every date the quick-window row can address is inside the span, on a catalog
+// that holds nothing at all.
+//
+// The row is arithmetic on a clock: "This weekend" anchors on the coming Friday,
+// which is four days out on a Monday, so on a Monday near the end of a month it
+// names the NEXT month. Bounded by the shows alone that month would be outside
+// the span and the chip would land on a hard 404, which is the dead end the
+// whole surface exists to avoid.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_HoldsEveryQuickWindowAnchor() {
+	const zone = "America/Phoenix"
+	newVenueInZone(suite.T(), suite.db, "Chip Horizon Room", "AZ", zone, true)
+
+	rng, err := suite.showService.GetUpcomingShowsCalendarRange()
+	suite.Require().NoError(err)
+
+	// Four days is the furthest anchor the row produces; the loop walks every
+	// shorter one so a rule change that moves an intermediate chip is caught too.
+	today := time.Now().UTC()
+	for offset := 0; offset <= 4; offset++ {
+		anchor := today.AddDate(0, 0, offset)
+		suite.requireMonthInRange(rng,
+			contracts.ShowCalendarMonth{Year: anchor.Year(), Month: int(anchor.Month())},
+			fmt.Sprintf("a quick-window anchor %d days out", offset))
+	}
+}
+
+// Every month the sitemap announces is a month the span holds open.
+//
+// The two are computed from different queries: the sitemap restates the
+// upcoming partition, the span composes upcomingShowPredicates. They agree today
+// because a month with an upcoming show cannot be outside a span that runs to
+// the last such month, and this is what says so when either side moves. A
+// sitemap entry outside the span is a URL this site announces and then answers
+// with a hard 404.
+func (suite *ShowServiceIntegrationTestSuite) TestShowsMonthSitemapStaysInsideTheCalendarRange() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Sitemap Range Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	todayLocal := time.Now().In(mustLoadZone(suite.T(), zone))
+	for _, monthsOut := range []int{0, 1, 5} {
+		year, month := addMonths(todayLocal.Year(), int(todayLocal.Month()), monthsOut)
+		day := 15
+		if monthsOut == 0 {
+			// The current month's fixture has to be upcoming, so it is anchored on
+			// the venue's own tomorrow rather than on a fixed day of the month.
+			tomorrow := todayLocal.AddDate(0, 0, 1)
+			year, month, day = tomorrow.Year(), int(tomorrow.Month()), tomorrow.Day()
+		}
+		suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ",
+			venueLocalDateAt(suite.T(), zone, year, month, day, 20))
+	}
+
+	rng, err := suite.showService.GetUpcomingShowsCalendarRange()
+	suite.Require().NoError(err)
+
+	entries, err := NewSitemapService(suite.db).showsMonthEntries(context.Background())
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(entries, "the fixtures must produce sitemap months")
+
+	for _, entry := range entries {
+		var year, month int
+		_, err := fmt.Sscanf(entry.Slug, "%d/%d", &year, &month)
+		suite.Require().NoError(err, "sitemap slug %q", entry.Slug)
+		suite.requireMonthInRange(rng,
+			contracts.ShowCalendarMonth{Year: year, Month: month},
+			"sitemap month "+entry.Slug)
+	}
 }
 
 // The LAST edge is the last month that holds an upcoming show, and every quiet

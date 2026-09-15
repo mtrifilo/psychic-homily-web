@@ -51,9 +51,9 @@ export const SHOWS_ROOT = '/shows'
  *   - `0000` parses to year 0, and `GET /shows/calendar` reads a zero year as
  *     NO WINDOW: the request would answer with the whole upcoming list under a
  *     heading naming one month.
- *   - It is the crawl bound. Four digits alone is ten thousand years crossed
- *     with twelve months, and a month that has no shows renders as a not-found
- *     body rather than a status.
+ *   - It is the crawl bound, and the only one that costs no backend call. Four
+ *     digits alone is ten thousand years crossed with twelve months, and every
+ *     one of those the proxy has to ask the addressable span about.
  *
  * The range is wide enough to hold every show this catalogue can carry and
  * narrow enough that the addressable space is a few thousand URLs rather than

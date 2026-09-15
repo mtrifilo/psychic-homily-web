@@ -114,10 +114,16 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 // between here and them may keep it.
 //
 // Five minutes rather than the histogram's sixty seconds because the span moves
-// at a different rate than the counts do. A new show changes a bar immediately;
-// it moves an EDGE only when it lands beyond the last month already addressable,
-// and the frontend that reads this fails open, so a stale edge costs a page that
-// renders rather than a page that 404s.
+// far more rarely than the counts do: a new show changes a bar immediately, and
+// moves an EDGE only when it lands beyond the last month already addressable.
+//
+// THE STALENESS IS NOT FREE, in one direction. A span cached after a show is
+// approved beyond the last edge is NARROWER than reality, and the frontend
+// reads a narrow span as an answer rather than as a failure, so that month is a
+// hard 404 until the window passes. It self-heals within the window and reaches
+// only a month nothing else links yet; the reader-facing edge, which is where
+// today is, cannot go stale in that direction because it is computed from the
+// clock rather than from the rows.
 const upcomingCalendarRangeCacheControl = "public, max-age=300"
 
 // GetShowsCalendarRangeResponse represents the HTTP response for the addressable

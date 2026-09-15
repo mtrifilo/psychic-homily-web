@@ -254,20 +254,30 @@ func (s *ShowService) GetUpcomingShowMonths(
 	return months, nil
 }
 
-// calendarRangeClockSkewDays is how far either side of UTC now the "current
-// month" edge of the addressable range reaches.
+// The two bands around now that the addressable range holds open whatever the
+// catalogue contains. Both exist so a URL the list's own chrome can produce is
+// never outside the range, because outside it is a hard 404.
 //
-// One day covers every inhabited UTC offset, which spans UTC-12 to UTC+14: no
-// wall clock on earth is more than a day from UTC's, so the months touched by
-// now plus or minus a day contain every zone's current month. The range is
+// BACKWARD is one day, which covers every inhabited UTC offset: the range is
 // stated in whole months and a month has no zone, while the readers it bounds
-// partition per row on their own venue's clock, so the edge has to hold every
-// clock a reader could be asking from at once.
+// partition per row on their own venue's clock, and no wall clock on earth is
+// more than a day from UTC's. Nothing points further back than today: the quick
+// windows anchor on the later of today and their own start.
 //
-// Widening is the safe direction. A month inside the span that turns out to
-// hold nothing renders as a quiet page, which is recoverable; a month outside
-// it is a hard 404 on a URL the site's own chrome may be linking.
-const calendarRangeClockSkewDays = 1
+// FORWARD is a week, which covers the same offset band plus the furthest date
+// the quick-window row can address: "This weekend" anchors on the coming Friday,
+// four days out on a Monday. Without it, a Monday in the last days of a month
+// with nothing upcoming next month sends that chip to a hard 404 — the dead end
+// the range exists to prevent. A week leaves margin for the run lengths those
+// chips carry.
+//
+// Widening is the safe direction in both. A month inside the range that holds
+// nothing renders as a quiet page, which is recoverable; a month outside it is
+// a hard 404 on a URL the site itself is printing.
+const (
+	calendarRangeBackwardDays = 1
+	calendarRangeForwardDays  = 7
+)
 
 // showCalendarMonthOf is the calendar month an instant falls in, read on the
 // instant's own zone.
@@ -300,8 +310,8 @@ func (s *ShowService) GetUpcomingShowsCalendarRange() (contracts.ShowCalendarRan
 	}
 
 	now := time.Now().UTC()
-	first := showCalendarMonthOf(now.AddDate(0, 0, -calendarRangeClockSkewDays))
-	last := showCalendarMonthOf(now.AddDate(0, 0, calendarRangeClockSkewDays))
+	first := showCalendarMonthOf(now.AddDate(0, 0, -calendarRangeBackwardDays))
+	last := showCalendarMonthOf(now.AddDate(0, 0, calendarRangeForwardDays))
 
 	applyPredicates := s.upcomingShowPredicates(false, nil, contracts.ShowCalendarWindow{})
 
