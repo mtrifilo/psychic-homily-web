@@ -23,7 +23,10 @@ interface UseSavedShowsOptions {
   limit?: number
   offset?: number
   enabled?: boolean
-  userId?: string | number
+  // The context viewer id verbatim. These keys scope a cache entry to a
+  // viewer, so a caller that converts the id first writes a second entry for
+  // the same reader and the prefix invalidations below stop matching it.
+  userId?: string
   timeFilter?: 'upcoming' | 'past'
 }
 
@@ -42,12 +45,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
   const endpoint = `${API_ENDPOINTS.SAVED_SHOWS.LIST}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.savedShows.list(
-      userId?.toString(),
-      limit,
-      offset,
-      timeFilter
-    ),
+    queryKey: queryKeys.savedShows.list(userId, limit, offset, timeFilter),
     queryFn: async (): Promise<SavedShowsListResponse> => {
       return apiRequest<SavedShowsListResponse>(endpoint, {
         method: 'GET',
@@ -69,7 +67,7 @@ const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
  */
 export const useInfiniteSavedShows = (
   timeFilter: 'upcoming' | 'past',
-  userId: string | number | undefined,
+  userId: string | undefined,
   enabled: boolean = true
 ) =>
   useInfiniteQuery({
@@ -217,7 +215,7 @@ export const useSaveShow = () => {
  */
 interface UseUnsaveShowOptions {
   syncMode?: 'invalidate' | 'patch-infinite'
-  userId?: string | number
+  userId?: string
 }
 
 export const useUnsaveShow = ({

@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { isSameUserId, type UserIdLike } from '@/features/auth/authUser'
+import type { UserIdLike } from '@/features/auth/authUser'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { queryKeys } from '@/lib/queryClient'
 import {
@@ -50,7 +50,7 @@ import {
 } from '@/components/shared'
 import { VenueDeniedDialog } from '@/features/venues/components/VenueDeniedDialog'
 import type { ShowResponse } from '../types'
-import { showTimingInput } from '../utils'
+import { canModerateShow, showTimingInput } from '../utils'
 import { useMySubmissions } from '../hooks'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { MakePrivateDialog } from './MakePrivateDialog'
@@ -87,8 +87,11 @@ function SubmissionShowCard({
   const setCancelledMutation = useSetShowCancelled()
   const venue = show.venues[0]
   const artists = show.artists
-  const isOwner = isSameUserId(currentUserId, show.submitted_by)
-  const canManage = Boolean(isAdmin || isOwner)
+  const canManage = canModerateShow({
+    submittedBy: show.submitted_by,
+    viewerId: currentUserId,
+    isAdmin: Boolean(isAdmin),
+  })
   const canUnpublish = show.status === 'approved' && canManage
   const canMakePrivate = show.status === 'pending' && canManage
   const canPublish =

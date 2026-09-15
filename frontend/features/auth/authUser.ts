@@ -45,10 +45,9 @@ export interface User {
  * rename.
  *
  * `id` is declared as the union the wire can carry rather than the `string`
- * the context {@link User} exposes. The backend serializes it as a JSON
- * number, and declaring it `string` here made the narrowing invisible:
- * {@link toAuthUser} is the ONE place that narrows it, and the union is what
- * forces that narrowing to be written rather than assumed.
+ * the context {@link User} exposes: the backend serializes it as a JSON
+ * number. {@link toAuthUser} is the ONE place that narrows it, and the union
+ * is what forces that narrowing to be written rather than assumed.
  *
  * `user_tier` is a bare string rather than {@link UserTier}: the value is a
  * server-controlled enum, and {@link toAuthUser} asserts the union without

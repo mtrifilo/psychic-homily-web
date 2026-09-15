@@ -28,7 +28,7 @@ import { ExportShowButton } from './ExportShowButton'
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
-import { canDeleteShow, splitBill } from '../utils'
+import { canModerateShow, splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
 
 /**
@@ -187,7 +187,7 @@ export function DayGroupedShowRow({
   )
 
   const resolvedUserId = userId || user?.id
-  const canDelete = canDeleteShow({
+  const canDelete = canModerateShow({
     submittedBy: show.submitted_by,
     viewerId: resolvedUserId,
     isAdmin,

@@ -264,43 +264,31 @@ export function splitBill<T extends BillArtist>(
 }
 
 /**
- * Whether a viewer submitted a show. IDENTITY, with no privilege in it.
+ * Whether a viewer may moderate a show: an admin, or the reader who submitted
+ * it.
  *
- * Separate from the policy below because the show page gates four different
- * controls on admin-or-owner and needs to name the owner half on its own. A
- * surface that re-derives the identity test instead compares the ids itself,
- * which is the shape that shipped the defect this exists to prevent.
+ * The single definition of that authority. Every surface that gates on it
+ * calls this: the show page's delete, sold-out, cancelled and direct-edit
+ * controls, the submissions console's manage cluster, and the delete control
+ * on the show card and the day-grouped row. A surface that re-derives it
+ * compares the two ids itself, and one show is then the viewer's on the list
+ * and someone else's on its own page. A narrowing of the rule is an edit here.
  *
  * Returns a `boolean` rather than the truthy union a `&&` chain would, so a
  * caller using it as a JSX guard cannot paint a falsy id into the page.
  */
-export function isShowOwner({
+export function canModerateShow({
   submittedBy,
   viewerId,
+  isAdmin,
 }: {
   // Taken from the wire type rather than restated, so a widening of the field
   // reaches this signature instead of being silently absorbed by it.
   submittedBy: ShowResponse['submitted_by']
   viewerId: UserIdLike
-}): boolean {
-  return isSameUserId(submittedBy, viewerId)
-}
-
-/**
- * Whether a viewer may delete a show: an admin, or the reader who submitted
- * it. POLICY, stated once so a delete control is never gated on a comparison
- * written at the call site.
- */
-export function canDeleteShow({
-  submittedBy,
-  viewerId,
-  isAdmin,
-}: {
-  submittedBy: ShowResponse['submitted_by']
-  viewerId: UserIdLike
   isAdmin: boolean
 }): boolean {
   if (isAdmin) return true
-  return isShowOwner({ submittedBy, viewerId })
+  return isSameUserId(submittedBy, viewerId)
 }
 

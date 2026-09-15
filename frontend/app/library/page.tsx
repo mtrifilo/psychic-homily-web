@@ -891,7 +891,11 @@ function ActiveLibraryContent({
   // saved-releases key on this page and on the cards it renders is built from
   // it, and a conversion here would scope this tab's cache entries to a
   // different key than the SaveButton inside its own rows writes.
-  const currentUserId = user?.id
+  //
+  // `|| undefined`, not the id alone: an empty id names no viewer (see
+  // toAuthUser), and the tabs below read `undefined` as "no viewer yet" to
+  // hold their queries closed.
+  const currentUserId = user?.id || undefined
   const savedReleaseCount = useSavedReleases(1, 0, currentUserId)
   const tabCounts: Partial<Record<LibraryTab, number>> = {
     ...followingTabCounts,
