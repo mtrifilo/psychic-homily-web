@@ -326,20 +326,79 @@ test.describe('Shows month and day routes', () => {
   })
 
   /**
-   * A well-formed month with no shows is a not-found PAGE. Its status is 200
-   * under `cacheComponents`, the shell has streamed by the time the histogram
-   * read resolves, with the `noindex` Next injects, so the assertion is on the
-   * rendered body rather than the status. A status-bearing month-existence
-   * probe is the follow-up that would make this a hard 404.
+   * OUTSIDE the addressable span there is no page. `proxy.ts` reads the span
+   * before the render starts, which is the only place a status can still be
+   * set under `cacheComponents`, so these are real 404s rather than a not-found
+   * body at HTTP 200.
    */
-  test('a month with no upcoming shows renders the not-found page', async ({
+  for (const [path, why] of [
+    ['/shows/2000/01', 'a month before the current one'],
+    ['/shows/2099/12', 'a month past the last one with an upcoming show'],
+    ['/shows/2099/12/25', 'a day in a month past the last one'],
+  ]) {
+    test(`${path} returns HTTP 404 (${why})`, async ({ page }) => {
+      const response = await page.goto(path)
+      expect(response?.status()).toBe(404)
+    })
+  }
+
+  /**
+   * INSIDE the span, a window with nothing on is a PAGE: 200, the list's quiet
+   * state, and the chips and month axis that are the way out of it. That is
+   * what keeps the Tonight and This weekend chips from dead-ending on a quiet
+   * night, and the noindex in the head is what keeps it out of the index.
+   *
+   * The empty day is DERIVED from the served page rather than hardcoded: which
+   * days the seed fills is the seed's business, and a fixed date would either
+   * rot or pass while testing nothing.
+   */
+  test('an empty day inside the span serves the quiet state at 200', async ({
     page,
   }) => {
-    await page.goto('/shows/2199/01')
+    test.setTimeout(60_000)
 
-    await expect(page.getByRole('heading', { name: '404' })).toBeVisible({
+    const href = await firstMonthHref(page)
+    const [, , year, month] = href.split('/')
+    await page.goto(href)
+    await expect(page.getByTestId('day-grouped-show-list')).toBeVisible({
       timeout: 15_000,
     })
-    await expect(page.getByTestId('day-grouped-show-list')).toHaveCount(0)
+
+    const filled = new Set(
+      (
+        await page
+          .getByTestId('day-grouped-show-list')
+          .locator(`a[href^="/shows/${year}/${month}/"]`)
+          .evaluateAll(links =>
+            links.map(link => (link as HTMLAnchorElement).getAttribute('href'))
+          )
+      ).map(dayHref => dayHref?.split('/').pop())
+    )
+
+    const quietDay = Array.from({ length: 28 }, (_, index) =>
+      String(index + 1).padStart(2, '0')
+    ).find(day => !filled.has(day))
+    expect(quietDay, 'the seeded month must leave at least one day empty').toBeTruthy()
+
+    const response = await page.goto(`${href}/${quietDay}`)
+    expect(
+      response?.status(),
+      'a day inside the addressable span is a page even with nothing on it'
+    ).toBe(200)
+    await expect(page.getByTestId('shows-zero-result')).toBeVisible({
+      timeout: 15_000,
+    })
+    // The way out of a quiet day, still on the page.
+    await expect(page.getByTestId('month-strip')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '404' })).toHaveCount(0)
+
+    const robots = await page
+      .locator('meta[name="robots"]')
+      .first()
+      .getAttribute('content')
+    expect(
+      robots,
+      'a quiet window is served but not indexed'
+    ).toMatch(/noindex/)
   })
 })

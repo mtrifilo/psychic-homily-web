@@ -22,9 +22,8 @@
  * route its prerendered shell AND gives each `?page=` its own canonical. The
  * document names the window; the page names the city, beside the `<h1>`.
  */
-import { Suspense } from 'react'
+import { cache, Suspense } from 'react'
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { Breadcrumb } from '@/components/shared'
@@ -48,7 +47,6 @@ import {
   showsCalendarWindowTitle,
   showsWindowHref,
   showsWindowPath,
-  windowMonths,
   type ShowsCalendarWindow,
 } from './showsCalendarRoute'
 import type {
@@ -81,6 +79,29 @@ function windowSelfUrl(window: ShowsCalendarWindow): string {
 }
 
 /**
+ * Page 1 of a window, read at most once per request.
+ *
+ * `React.cache` so the head and the body share ONE trip to the API, the same
+ * wrapper the scene pages use for the same reason. The key is the URL rather
+ * than the window, so the two callers cannot miss each other by building the
+ * same request two ways.
+ */
+const readWindowFirstScreen = cache(
+  (url: string): Promise<ShowsCalendarResponse | null> =>
+    fetchListPayload<ShowsCalendarResponse>({
+      url,
+      collection: 'shows',
+      service: 'shows-calendar-window-first-screen',
+    })
+)
+
+function readWindowPage(
+  window: ShowsCalendarWindow
+): Promise<ShowsCalendarResponse | null> {
+  return readWindowFirstScreen(showsCalendarWindowFirstScreenUrl(window))
+}
+
+/**
  * Metadata for one window.
  *
  * The canonical is SELF-referencing and always the window root, so a `?page=2`
@@ -88,32 +109,42 @@ function windowSelfUrl(window: ShowsCalendarWindow): string {
  * pagination policy (`listRootCanonical`), and it holds because nothing in this
  * function can see the page number.
  *
- * It reads NOTHING. A month with no shows is a not-found page, and the route
- * body is where that is decided; emitting `noindex` here would mean a second
- * read of the same histogram in the head, on every request, to restate a
- * verdict the body already reaches. Next stamps the not-found response
- * `noindex` on its own.
+ * It reads the window's own total, and that is the ONE thing it reads. The read
+ * is shared with the body, so a page-1 request pays for it once; a deep page
+ * pays for it alone, which is the cost of a suppression verdict that is the
+ * same on every page of a window. A window's total is page-independent, so
+ * nothing here needs the page number to reach the verdict.
  */
-export function buildShowsCalendarMetadata(
+export async function buildShowsCalendarMetadata(
   window: ShowsCalendarWindow
-): Metadata {
+): Promise<Metadata> {
   const label = calendarWindowLabel(window)
   const title = showsCalendarWindowTitle(window)
   const description = `Every upcoming show we have on record ${windowPreposition(window)} ${label}.`
   const canonical = windowUrl(window)
 
+  // A RUN is a relative window resolved to an absolute anchor: "this weekend"
+  // means a different three days every week, so the URL a reader shares is
+  // worth keeping and the page behind it is not worth an index entry. It is
+  // already canonical to the day root, which is the identity that IS indexed;
+  // `follow` because every row on it links somewhere that should be crawled.
+  //
+  // A QUIET window is suppressed on the same terms and for the same reason the
+  // scene pages suppress an empty night: real, worth serving, worth linking out
+  // of, not worth an index entry. Outside the addressable span there is no page
+  // at all, and `proxy.ts` answers those with a status before this runs.
+  //
+  // Only a POSITIVE zero suppresses. A read that FAILED is not an answer, and
+  // treating it as one would noindex every window on the site during a backend
+  // blip.
+  const page = await readWindowPage(window)
+  const suppress = window.days !== undefined || page?.total === 0
+
   return {
     title,
     description,
     alternates: { canonical },
-    // A RUN is a relative window resolved to an absolute anchor: "this weekend"
-    // means a different three days every week, so the URL a reader shares is
-    // worth keeping and the page behind it is not worth an index entry. It is
-    // already canonical to the day root, which is the identity that IS indexed;
-    // `follow` because every row on it links somewhere that should be crawled.
-    ...(window.days === undefined
-      ? {}
-      : { robots: { index: false, follow: true } }),
+    ...(suppress ? { robots: { index: false, follow: true } } : {}),
     openGraph: { title, description, url: canonical, type: 'website' },
   }
 }
@@ -147,11 +178,7 @@ async function readSeedableWindowPage(
   searchParams: ShowsCalendarSearchParams
 ): Promise<ShowsCalendarResponse | null> {
   if (!archiveIsFirstPage(await searchParams)) return null
-  return fetchListPayload<ShowsCalendarResponse>({
-    url: showsCalendarWindowFirstScreenUrl(window),
-    collection: 'shows',
-    service: 'shows-calendar-window-first-screen',
-  })
+  return readWindowPage(window)
 }
 
 /**
@@ -166,13 +193,14 @@ async function readSeedableWindowPage(
  *
  * All three reads start TOGETHER; none takes an input from another.
  *
- * A `notFound()` here renders the not-found BODY. Under `cacheComponents` the
- * shell has already streamed by the time these reads resolve, so the status on
- * that response is 200 with the `noindex` Next injects, not 404, the same
- * soft-404 the venue year archive's in-page `notFound()` paths carry, and the
- * reason `proxy.ts` decides the SHAPE of these URLs before the render starts.
- * Shape is all the proxy can decide without a backend probe; membership is a
- * data question and it is answered here.
+ * NOTHING here produces a not-found. Under `cacheComponents` the shell has
+ * already streamed by the time these reads resolve, so a `notFound()` would
+ * commit a 404 BODY at HTTP 200; whether these URLs exist at all is decided in
+ * `proxy.ts`, which runs before the render and can still set a status. What is
+ * left here is a window that EXISTS, so every state it can be in is a page: a
+ * month or day inside the addressable span with nothing on renders the list's
+ * own quiet state, keeping the chips, the month axis and the filters that are
+ * the way out of it.
  */
 export async function ShowsCalendarContent({
   window,
@@ -194,61 +222,6 @@ export async function ShowsCalendarContent({
       service: 'shows-months-first-screen',
     }),
   ])
-
-  // WHICH MONTHS ARE DOCUMENTS is asked of the histogram, which is the same
-  // source the strip links from and the `shows_months` sitemap family is
-  // projected from, so the set announced, the set that renders and the set the
-  // strip offers cannot drift apart. It is page-INDEPENDENT, which is what
-  // makes `?page=2` of a dead month a not-found too, and it is the whole of the
-  // past-month rule: the histogram covers the UPCOMING partition, so a month
-  // that has ended is simply not in it. No redirect, by decision.
-  //
-  // 404 only on a POSITIVE absence. A read that FAILED is not an answer, and
-  // treating it as one turns a backend blip into a not-found body for every
-  // month on the site.
-  //
-  // Both reads are UNFILTERED. A month that exists but holds nothing for the
-  // reader's own city filter renders the list's zero-result state, with its
-  // filter suggestions; a 404 there would be a claim about the catalogue rather
-  // than about the filter.
-  //
-  // A RUN is asked about every month it touches and passes on any of them. A
-  // run that opens in a quiet month and closes in a busy one is a real page, and
-  // asking about its anchor month alone would 404 it.
-  const monthIsAddressable =
-    months === null ||
-    windowMonths(window).some(period =>
-      months.months.some(
-        bucket => bucket.year === period.year && bucket.month === period.month
-      )
-    )
-  if (!monthIsAddressable) {
-    notFound()
-  }
-
-  // A WINDOW the read answered for, with nothing in it.
-  //
-  // For a DAY this is the only gate there is: a day inside a month that does
-  // have shows still has to have its own, and the histogram buckets months.
-  // For a MONTH it is a second opinion the histogram has already given, and it
-  // fires only if the two disagree about what "upcoming" means, in which case
-  // the month page renders no rows, so a not-found is the honest answer.
-  //
-  // A RUN is exempt, and the exemption is the difference between an identity
-  // and a piece of chrome. An empty day and an empty month are addresses a
-  // crawler should not keep, so they 404; a run is noindex and canonical to its
-  // anchor day, so a 404 buys the index nothing and costs a reader who followed
-  // "this weekend" from the list the whole page they came from, quiet row state
-  // and filter suggestions included. It stays inside its month gate above, so a
-  // run anchored on a month nothing reaches is still a not-found.
-  //
-  // It needs the window's own total, which is read on page 1 and skipped on
-  // every other. A deep page of an empty day therefore renders the list's
-  // past-the-end state instead; it carries this route's canonical back to the
-  // day root, which is the URL that 404s.
-  if (shows && shows.total === 0 && window.days === undefined) {
-    notFound()
-  }
 
   const seeds = showsFirstScreenSeeds({
     shows,
@@ -299,7 +272,7 @@ export async function ShowsCalendarContent({
  */
 export function showsCalendarRouteMetadata(
   window: ShowsCalendarWindow | null
-): Metadata {
+): Promise<Metadata> | Metadata {
   if (window === null) {
     return { title: 'Shows not found', robots: { index: false, follow: false } }
   }

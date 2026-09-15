@@ -344,34 +344,6 @@ export function calendarDayLabel(
   return `${longMonthName(month)} ${day}, ${year}`
 }
 
-/**
- * The calendar months a window touches, in order: one for a month or a day, and
- * every month a run passes through.
- *
- * What the histogram is asked about. A run that starts in a month with nothing
- * in it and ends in one that is busy is a real page, so asking about the anchor
- * month alone would 404 it.
- */
-export function windowMonths(
-  window: ShowsCalendarWindow
-): Array<{ year: number; month: number }> {
-  const months = [{ year: window.year, month: window.month }]
-  if (window.day === undefined || window.days === undefined) return months
-
-  // Walked day by day rather than read off the two edges. A run shorter than a
-  // month touches only the months its edges name, and every run this grammar
-  // serves is shorter than a month; walking holds without depending on that,
-  // so raising the bound cannot quietly drop a month from the middle.
-  for (let offset = 1; offset < window.days; offset++) {
-    const at = shiftCalendarDay(window.year, window.month, window.day, offset)
-    const last = months[months.length - 1]
-    if (at.year !== last.year || at.month !== last.month) {
-      months.push({ year: at.year, month: at.month })
-    }
-  }
-  return months
-}
-
 /** `Sep 18`, the compact form a run's two edges are named in. */
 function shortCalendarDayLabel(year: number, month: number, day: number): string {
   return `${formatCalendarMonthParts(year, month).month} ${day}`
