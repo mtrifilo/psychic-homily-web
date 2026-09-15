@@ -49,13 +49,13 @@ export const QUICK_WINDOW_ORDER: QuickWindowKey[] = [
 export const NEXT_7_DAYS = 7
 
 /**
- * A calendar date read on one clock in one zone, with the weekday it fell on.
- *
- * The weekday travels WITH the date rather than being derived later: deriving it
- * means rebuilding a `Date` from the parts, and a `Date` built from parts carries
- * the runtime's own zone, which is the fault this type exists to keep out.
+ * A calendar date read on one clock in one zone, in the shape the route grammar
+ * names dates in. The weekday travels WITH the date rather than being derived
+ * later: deriving it means rebuilding a `Date` from the parts, and a `Date`
+ * built from parts carries the runtime's own zone, which is the fault this type
+ * exists to keep out.
  */
-export type CivilDate = CalendarDayParts
+export type { CalendarDayParts }
 
 /** Weekday numbers, named, so the weekend rule below reads as the rule it is. */
 const SUNDAY = 0
@@ -89,7 +89,7 @@ const dayPartsFormatters = new Map<string, Intl.DateTimeFormat>()
 export function civilDateInZone(
   instant: Date,
   timeZone: string
-): CivilDate | null {
+): CalendarDayParts | null {
   let formatter = dayPartsFormatters.get(timeZone)
   if (!formatter) {
     // The validity question is asked through the memoized probe the date
@@ -148,7 +148,7 @@ export interface QuickWindowTarget {
  * longer holds it: the URL would promise three nights and the page would show
  * two, with no way for a reader to tell which.
  */
-function weekendWindow(today: CivilDate): { anchor: CivilDate; days: number } {
+function weekendWindow(today: CalendarDayParts): { anchor: CalendarDayParts; days: number } {
   // Sunday is `0`, so it is the one weekday that is not "days until Friday"
   // arithmetic: the weekend it belongs to began two days BEFORE it.
   if (today.weekday === SUNDAY) return { anchor: today, days: 1 }
@@ -171,10 +171,14 @@ function weekendWindow(today: CivilDate): { anchor: CivilDate; days: number } {
  * dates, so a link shared on Friday still opens that weekend on Monday.
  *
  * A run of one day is emitted as the bare day path rather than as `?days=1`,
- * which is the same normalization the route applies when it reads the parameter
- * back: one window, one address.
+ * the same normalization the route applies when it reads the parameter back, so
+ * no chip mints a second spelling of a window that already has one.
+ *
+ * Two chips can name ONE window: on a Sunday the weekend still running is one
+ * night, which is also tonight. The row is a set of true descriptions, not a
+ * partition, and the current-chip rule is what keeps one of them marked.
  */
-export function quickWindowTargets(today: CivilDate): QuickWindowTarget[] {
+export function quickWindowTargets(today: CalendarDayParts): QuickWindowTarget[] {
   const weekend = weekendWindow(today)
   const byKey: Record<QuickWindowKey, QuickWindowTarget> = {
     tonight: {

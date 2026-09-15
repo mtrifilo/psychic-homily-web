@@ -219,7 +219,10 @@ export function applyWindowDays(
 export function parseWindowDays(
   raw: string | string[] | undefined
 ): number | undefined | null {
-  if (raw === undefined) return undefined
+  // A key with no value names no run, which is the same as not being there.
+  // Every query-string builder writes `days=` when it clears the key, and
+  // refusing that would 404 a real day over a URL that said nothing.
+  if (raw === undefined || raw === '') return undefined
   // A repeated `?days=` names two spans, which is no span at all.
   if (Array.isArray(raw)) return null
   // `Number` on a blank string is 0, and on a padded or signed one it is a
@@ -355,11 +358,17 @@ export function windowMonths(
   const months = [{ year: window.year, month: window.month }]
   if (window.day === undefined || window.days === undefined) return months
 
-  const end = runEndDay(window.year, window.month, window.day, window.days)
-  if (end.year === window.year && end.month === window.month) return months
-  // A run is bounded at SHOWS_WINDOW_MAX_DAYS, which is shorter than any month,
-  // so it spans at most the two months named by its own edges.
-  months.push({ year: end.year, month: end.month })
+  // Walked day by day rather than read off the two edges. A run shorter than a
+  // month touches only the months its edges name, and every run this grammar
+  // serves is shorter than a month; walking holds without depending on that,
+  // so raising the bound cannot quietly drop a month from the middle.
+  for (let offset = 1; offset < window.days; offset++) {
+    const at = shiftCalendarDay(window.year, window.month, window.day, offset)
+    const last = months[months.length - 1]
+    if (at.year !== last.year || at.month !== last.month) {
+      months.push({ year: at.year, month: at.month })
+    }
+  }
   return months
 }
 

@@ -7,13 +7,13 @@ import {
   QUICK_WINDOW_ORDER,
   quickWindowHref,
   quickWindowTargets,
-  type CivilDate,
+  type CalendarDayParts,
   type QuickWindowKey,
 } from './quickWindows'
 import { SHOWS_WINDOW_MAX_DAYS } from './showsCalendarRoute'
 
 /** The chip for one key, by key, so a table reads as the rule it pins. */
-function target(today: CivilDate, key: QuickWindowKey) {
+function target(today: CalendarDayParts, key: QuickWindowKey) {
   const found = quickWindowTargets(today).find(chip => chip.key === key)
   if (!found) throw new Error(`no ${key} chip`)
   return found
@@ -24,7 +24,7 @@ function target(today: CivilDate, key: QuickWindowKey) {
  * Tuesday, so 14-20 September is a whole Monday-to-Sunday week, and every
  * weekday below is the weekday that date actually fell on.
  */
-const WEEK_2026_09: Array<CivilDate & { name: string }> = [
+const WEEK_2026_09: Array<CalendarDayParts & { name: string }> = [
   { name: 'Monday', year: 2026, month: 9, day: 14, weekday: 1 },
   { name: 'Tuesday', year: 2026, month: 9, day: 15, weekday: 2 },
   { name: 'Wednesday', year: 2026, month: 9, day: 16, weekday: 3 },
@@ -174,8 +174,8 @@ describe('civilDateInZone', () => {
     expect(phoenix).not.toBeNull()
     // Saturday in Tokyo, still Friday in Phoenix: a two-day weekend there and a
     // three-day one here.
-    expect(target(tokyo as CivilDate, 'this-weekend').days).toBe(2)
-    expect(target(phoenix as CivilDate, 'this-weekend').days).toBe(3)
+    expect(target(tokyo as CalendarDayParts, 'this-weekend').days).toBe(2)
+    expect(target(phoenix as CalendarDayParts, 'this-weekend').days).toBe(3)
   })
 
   /**
@@ -276,5 +276,55 @@ describe('isQuickWindowCurrent', () => {
   it('is not current on another day, or on the root', () => {
     expect(isQuickWindowCurrent(tonight, '/shows/2026/09/19', undefined)).toBe(false)
     expect(isQuickWindowCurrent(tonight, '/shows', undefined)).toBe(false)
+  })
+
+  /**
+   * On a Sunday the weekend still running is one night, which is also tonight,
+   * so two chips name ONE window and both are true of it. The row is a set of
+   * true descriptions rather than a partition; marking exactly one of them is
+   * the component's job, pinned in `QuickWindowChips.test.tsx`.
+   */
+  it('is true of both chips that name the same window on a Sunday', () => {
+    const sunday = WEEK_2026_09[6]
+    const sundayTonight = target(sunday, 'tonight')
+    const sundayWeekend = target(sunday, 'this-weekend')
+
+    expect(sundayWeekend.path).toBe(sundayTonight.path)
+    expect(sundayWeekend.days).toBe(sundayTonight.days)
+    expect(isQuickWindowCurrent(sundayTonight, '/shows/2026/09/20', undefined)).toBe(true)
+    expect(isQuickWindowCurrent(sundayWeekend, '/shows/2026/09/20', undefined)).toBe(true)
+  })
+})
+
+/**
+ * A run is whole venue-local DAYS from an anchor date, so a clock change inside
+ * it moves nothing: the span is calendar arithmetic and the membership test the
+ * backend runs is on dates. Pinned for the two US transitions, where an
+ * hour-based span would be a day out at one edge.
+ */
+describe('spans across a DST transition', () => {
+  it.each([
+    // Sunday 8 March 2026 springs forward; the week from the Wednesday before
+    // still ends on the following Tuesday.
+    [{ year: 2026, month: 3, day: 4, weekday: 3 }, '/shows/2026/03/04', '2026-03-10'],
+    // Sunday 1 November 2026 falls back.
+    [{ year: 2026, month: 10, day: 28, weekday: 3 }, '/shows/2026/10/28', '2026-11-03'],
+  ])('next 7 days from %o covers seven dates', (today, path, lastDate) => {
+    const chip = target(today, 'next-7-days')
+    expect(chip.path).toBe(path)
+    expect(chip.days).toBe(NEXT_7_DAYS)
+
+    const end = new Date(
+      Date.UTC(today.year, today.month - 1, today.day + NEXT_7_DAYS - 1)
+    )
+    expect(end.toISOString().slice(0, 10)).toBe(lastDate)
+  })
+
+  // The weekend that straddles a transition is still Friday through Sunday.
+  it('the weekend containing a spring-forward is three days', () => {
+    // Thursday 5 March 2026 reaches Friday the 6th; the 8th springs forward.
+    const chip = target({ year: 2026, month: 3, day: 5, weekday: 4 }, 'this-weekend')
+    expect(chip.path).toBe('/shows/2026/03/06')
+    expect(chip.days).toBe(3)
   })
 })

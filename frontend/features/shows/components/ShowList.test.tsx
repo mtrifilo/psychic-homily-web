@@ -1485,5 +1485,72 @@ describe('ShowList', () => {
       // The month chip is not a run, so it clears the key it owns.
       expect(month.getAttribute('href')).not.toContain('days=')
     })
+
+    // The strip and the adjacent links navigate to a DIFFERENT window, so they
+    // drop the run with the page number rather than minting a second address
+    // for a month whose page has no run on it to describe.
+    it('drops the run from the month strip and the adjacent links', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('days=3&cities=all'))
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 11, count: 68 },
+            { year: 2026, month: 12, count: 13 },
+          ],
+          total: 81,
+        },
+        isPlaceholderData: false,
+      })
+
+      render(<ShowList window={RUN} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(within(strip).getByRole('link', { name: /^Dec / })).toHaveAttribute(
+        'href',
+        '/shows/2026/12?cities=all'
+      )
+      expect(
+        within(strip).getByRole('link', { name: /All upcoming/ })
+      ).toHaveAttribute('href', '/shows?cities=all')
+    })
+  })
+
+  /**
+   * The chip row owes the rows on screen nothing: every href is arithmetic on a
+   * date and a zone. Withholding it until the rows arrive would shift the page
+   * when they did, and withholding it on a failed read would take away the one
+   * affordance left that can ask a different question.
+   */
+  describe('the quick windows in the non-list states', () => {
+    it('renders them over the skeleton', () => {
+      mockUseShowsCalendar.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isFetching: true,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<ShowList />)
+
+      expect(screen.getByTestId('shows-quick-windows')).toBeInTheDocument()
+    })
+
+    it('renders them beside the error state', () => {
+      mockUseShowsCalendar.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: new Error('boom'),
+        refetch: vi.fn(),
+      })
+
+      render(<ShowList />)
+
+      expect(screen.getByText(/Failed to load shows/)).toBeInTheDocument()
+      expect(screen.getByTestId('shows-quick-windows')).toBeInTheDocument()
+    })
   })
 })

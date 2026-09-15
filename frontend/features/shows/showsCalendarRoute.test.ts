@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   adjacentMonths,
   applyWindowDays,
@@ -254,6 +256,33 @@ describe('showsCalendarWindowKey', () => {
   })
 })
 
+/**
+ * The bound this module enforces and the bound the API enforces are ONE bound,
+ * spelled in two languages: raise the Go constant alone and these routes 404
+ * runs the API would serve, raise this one alone and every chip past the old
+ * bound links to a 422.
+ *
+ * Read off the GENERATED contract rather than off a second literal here, so the
+ * check is against what the backend actually publishes. The description is the
+ * only place the OpenAPI document carries the range (`openapi-typescript` drops
+ * numeric bounds), which is why the Go side pins that string to its own
+ * constant in `show_list_window_test.go`.
+ */
+describe('SHOWS_WINDOW_MAX_DAYS', () => {
+  it('matches the range the generated API contract states', () => {
+    const contract = readFileSync(
+      join(import.meta.dirname, '../../types/api.d.ts'),
+      'utf8'
+    )
+    const documented = contract.match(
+      /Length in venue-local days of a run beginning on the requested day, 1-(\d+)\./
+    )
+
+    expect(documented).not.toBeNull()
+    expect(Number(documented?.[1])).toBe(SHOWS_WINDOW_MAX_DAYS)
+  })
+})
+
 describe('parseWindowDays', () => {
   it('names no run when the parameter is absent', () => {
     expect(parseWindowDays(undefined)).toBeUndefined()
@@ -277,11 +306,17 @@ describe('parseWindowDays', () => {
     '3.5',
     '+3',
     '03',
-    '',
     ' 3',
     'three',
   ])('refuses %s', raw => {
     expect(parseWindowDays(raw)).toBeNull()
+  })
+
+  // A key with no value names no run, which is the same as not being there.
+  // Query-string builders write `days=` when they clear the key, and refusing
+  // that would 404 a real day over a URL that said nothing.
+  it('reads a valueless parameter as no run', () => {
+    expect(parseWindowDays('')).toBeUndefined()
   })
 
   it('refuses a repeated parameter, which names two runs', () => {
@@ -383,6 +418,17 @@ describe('windowMonths', () => {
       { year: 2026, month: 12 },
     ])
     expect(windowMonths({ year: 2026, month: 12, day: 29, days: 7 })).toEqual([
+      { year: 2026, month: 12 },
+      { year: 2027, month: 1 },
+    ])
+  })
+
+  // Walked rather than read off the edges, so a run longer than a month would
+  // still name the months in the middle. No such run is addressable today; this
+  // is what makes raising the bound safe rather than silently lossy.
+  it('names every month a run passes through, not only its edges', () => {
+    expect(windowMonths({ year: 2026, month: 11, day: 29, days: 40 })).toEqual([
+      { year: 2026, month: 11 },
       { year: 2026, month: 12 },
       { year: 2027, month: 1 },
     ])

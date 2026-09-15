@@ -118,7 +118,11 @@ export function buildShowsCalendarMetadata(
   }
 }
 
-/** `in November 2026`, `on November 14, 2026`, `from Sep 18 to Oct 1, 2026`. */
+/**
+ * The preposition a window takes in a sentence: `in` a month, `on` a day, `from`
+ * one date to another. The same three the title rule uses, so the description
+ * and the title cannot read a window two ways.
+ */
 function windowPreposition(window: ShowsCalendarWindow): string {
   if (window.day === undefined) return 'in'
   return window.days === undefined ? 'on' : 'from'
@@ -230,11 +234,19 @@ export async function ShowsCalendarContent({
   // fires only if the two disagree about what "upcoming" means, in which case
   // the month page renders no rows, so a not-found is the honest answer.
   //
+  // A RUN is exempt, and the exemption is the difference between an identity
+  // and a piece of chrome. An empty day and an empty month are addresses a
+  // crawler should not keep, so they 404; a run is noindex and canonical to its
+  // anchor day, so a 404 buys the index nothing and costs a reader who followed
+  // "this weekend" from the list the whole page they came from, quiet row state
+  // and filter suggestions included. It stays inside its month gate above, so a
+  // run anchored on a month nothing reaches is still a not-found.
+  //
   // It needs the window's own total, which is read on page 1 and skipped on
   // every other. A deep page of an empty day therefore renders the list's
   // past-the-end state instead; it carries this route's canonical back to the
   // day root, which is the URL that 404s.
-  if (shows && shows.total === 0) {
+  if (shows && shows.total === 0 && window.days === undefined) {
     notFound()
   }
 

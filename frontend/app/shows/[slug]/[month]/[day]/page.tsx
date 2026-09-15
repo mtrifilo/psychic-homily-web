@@ -35,11 +35,10 @@ interface ShowsDayRouteProps {
  * it lists, and quietly answering with a different span is the kind of wrong a
  * reader cannot see.
  *
- * READING `searchParams` HERE COSTS THIS ROUTE ITS PRERENDERED SHELL, which the
- * month route beside it keeps. It is the price of a run being addressed by a
- * query parameter at all: the head has to name the span and mark it noindex, and
- * nothing but the query says how long it is. `?page=` is deliberately not read —
- * every page of a window still canonicalizes to the window root.
+ * The head reads `searchParams` because a run is addressed by one: the `<title>`
+ * has to name the span and the page has to carry `noindex`, and nothing but the
+ * query says how long the run is. `?page=` is deliberately NOT read, which is
+ * what keeps every page of a window on the window root's canonical.
  */
 async function dayWindow(
   params: ShowsDayRouteProps['params'],

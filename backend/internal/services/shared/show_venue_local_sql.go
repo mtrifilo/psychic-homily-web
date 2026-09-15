@@ -690,7 +690,7 @@ func venueLocalDayStart(year, month, day int) (time.Time, bool) {
 //
 // The ladder lives here rather than at each call site because which resolution
 // wins is a property of the window vocabulary, not of any one reader, and the
-// three builders below signal "not my resolution" by answering with an empty
+// three builders it calls signal "not my resolution" by answering with an empty
 // fragment. A caller reading that convention for itself re-derives, every time,
 // why a run of one must not take the range builder.
 //

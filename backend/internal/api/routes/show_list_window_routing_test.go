@@ -78,7 +78,8 @@ func TestShowListWindowRefusesIncoherentWindows(t *testing.T) {
 		"/shows/calendar?year=2027&month=2&day=31",
 		"/shows/calendar?days=3",
 		"/shows/calendar?year=2026&month=11&days=3",
-		// Refused by the request schema's own bounds, before the handler runs.
+		// Out of range. Two guards produce these, the request schema's bounds and
+		// Validate; this pins only that the STATUS is one answer either way.
 		"/shows/calendar?year=2026&month=13",
 		"/shows/calendar?year=2026&month=11&day=32",
 		"/shows/calendar?year=2026&month=11&day=14&days=15",

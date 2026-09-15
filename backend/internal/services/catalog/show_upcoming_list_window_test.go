@@ -279,6 +279,27 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RunWindow
 	suite.Require().Equal(int64(1), single.Total)
 }
 
+// A run anchored at the far edge of the addressable year range is an EMPTY page
+// rather than a database error.
+//
+// The request schema admits years up to 9999, and a run from the last day of
+// that year ends in year 10000, which is the one window whose ISO edge carries
+// five digits. That string reaches Postgres as a bind parameter, so the question
+// is whether the driver and the date type take it; the answer is asserted here
+// rather than reasoned about, because the failure mode is a 500 on a URL anyone
+// can type.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RunAtTheEndOfTheYearRangeIsEmptyNotAnError() {
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{
+			Year: 9999, Month: 12, Day: 31,
+			Days: contracts.ShowCalendarMaxWindowDays,
+		},
+	}, nil)
+
+	suite.Require().Empty(page.IDs)
+	suite.Require().Equal(int64(0), page.Total)
+}
+
 // A run crosses a month boundary, which is what separates it from the month
 // window it is addressed under.
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RunWindowCrossesAMonthBoundary() {

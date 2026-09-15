@@ -100,7 +100,7 @@ describe('/shows/{yyyy}/{mm}/{dd}?days=N, the run', () => {
   // A run this route will not serve is a NOT-FOUND rather than the nearest run
   // it would: a window names the days it lists, and answering `?days=99` with a
   // fortnight puts a span on screen that the address contradicts.
-  it.each(['15', '99', '0', '-3', '3.5', '+3', '03', '', 'three'])(
+  it.each(['15', '99', '0', '-3', '3.5', '+3', '03', 'three'])(
     '404s ?days=%s',
     async days => {
       await expect(
@@ -111,6 +111,24 @@ describe('/shows/{yyyy}/{mm}/{dd}?days=N, the run', () => {
       ).rejects.toThrow(NOT_FOUND)
     }
   )
+
+  // A key with no value names no run. Query-string builders write `days=` when
+  // they clear the key, and refusing it would 404 a real day over a URL that
+  // said nothing.
+  it('renders the day for a valueless ?days=', async () => {
+    const metadata = await dayMetadata({
+      params: dayParams('2026', '11', '14'),
+      searchParams: withDays(''),
+    })
+
+    expect(metadata.title).toBe('Shows on November 14, 2026')
+    await expect(
+      ShowsDayPage({
+        params: dayParams('2026', '11', '14'),
+        searchParams: withDays(''),
+      })
+    ).resolves.toBeTruthy()
+  })
 
   // Two spellings of one window would be two addresses for one page, so the
   // one-day run is the day itself, under the day's own title and canonical.

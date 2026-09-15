@@ -12862,7 +12862,7 @@ export interface components {
             day: number;
             /**
              * Format: int64
-             * @description Length in venue-local days of the run that was read, 0 when the window is a single day, a whole month or unwindowed
+             * @description Run length echoed back exactly as requested, 0 when the request named none. A run of 1 reads the same rows as the bare day and is echoed as 1
              */
             days: number;
             /**

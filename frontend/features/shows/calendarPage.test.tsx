@@ -233,14 +233,35 @@ describe('ShowsCalendarContent, which windows are documents', () => {
     ).rejects.toThrow(NOT_FOUND)
   })
 
-  // The window's own total is the only gate a run inside a live month has: the
-  // histogram buckets MONTHS, and a busy month can hold a dead three days.
-  it('404s a run inside a live month that has no shows of its own', async () => {
+  /**
+   * A run inside a live month with nothing in it RENDERS, where the same day
+   * alone would 404.
+   *
+   * The difference is identity versus chrome. An empty day is an address a
+   * crawler should not keep; a run is noindex and canonical to its anchor day,
+   * so a not-found buys the index nothing and costs a reader who followed "this
+   * weekend" the page they came from. The chips are computed from a clock alone,
+   * so a quiet weekend is a state the row can reach in one click.
+   */
+  it('renders a run inside a live month that has no shows of its own', async () => {
     answerWith({ rows: page(0), months: HISTOGRAM })
 
     await expect(
       ShowsCalendarContent({
         window: { ...NOVEMBER_14, days: 3 },
+        searchParams: Promise.resolve({}),
+      })
+    ).resolves.toBeTruthy()
+  })
+
+  // The month gate still applies to a run, so a junk far-future anchor is a
+  // not-found rather than an empty page the crawler can walk.
+  it('404s a run anchored on a month the histogram does not carry', async () => {
+    answerWith({ rows: page(0), months: HISTOGRAM })
+
+    await expect(
+      ShowsCalendarContent({
+        window: { year: 2199, month: 1, day: 14, days: 3 },
         searchParams: Promise.resolve({}),
       })
     ).rejects.toThrow(NOT_FOUND)

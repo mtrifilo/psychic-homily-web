@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -100,6 +102,28 @@ func TestGetShowsCalendarHandler_AcceptsWholeWindows(t *testing.T) {
 				t.Errorf("envelope mismatch: %+v", resp.Body)
 			}
 		})
+	}
+}
+
+// The schema's own bound and the contract's are ONE bound, spelled twice: a
+// struct tag cannot interpolate a constant, so nothing but this keeps the number
+// a caller is validated against and the number the service enforces together.
+// Raise one alone and the API answers 422 for runs the product offers, or scans
+// runs the contract refuses.
+func TestGetShowsCalendarRequestBoundsDaysAtTheContractMaximum(t *testing.T) {
+	field, ok := reflect.TypeOf(GetShowsCalendarRequest{}).FieldByName("Days")
+	if !ok {
+		t.Fatal("GetShowsCalendarRequest has no Days field")
+	}
+
+	want := strconv.Itoa(contracts.ShowCalendarMaxWindowDays)
+	if got := field.Tag.Get("maximum"); got != want {
+		t.Errorf("days schema maximum is %q, contract maximum is %q", got, want)
+	}
+	// The doc string carries the bound to every generated client, including the
+	// frontend's own types, so it has to name the same number.
+	if doc := field.Tag.Get("doc"); !strings.Contains(doc, "1-"+want) {
+		t.Errorf("days doc does not state the 1-%s range: %q", want, doc)
 	}
 }
 

@@ -124,6 +124,15 @@ export function QuickWindowChips({
           target,
         }))
 
+  // The FIRST chip naming the window in view, and only it. Two chips can name
+  // one window honestly: on a Sunday the weekend that is still running is one
+  // night, which is also tonight. `aria-current="page"` may be worn by one
+  // element, so the shorter window, which comes first in row order, wears it.
+  const currentIndex = chips.findIndex(
+    ({ target }) =>
+      target !== undefined && isQuickWindowCurrent(target, pathname, currentDays)
+  )
+
   return (
     <nav
       aria-labelledby={labelId}
@@ -140,11 +149,9 @@ export function QuickWindowChips({
         Jump to
       </span>
       <ul className="flex items-center gap-2 sm:flex-wrap sm:gap-y-1">
-        {chips.map(({ key, label, target }) => {
-          const isCurrent =
-            target !== undefined &&
-            isQuickWindowCurrent(target, pathname, currentDays)
-          const className = cn(
+        {chips.map(({ key, label, target }, index) => {
+          const isCurrent = index === currentIndex
+          const chipClassName = cn(
             chipClass,
             target !== undefined && chipLinkClass,
             isCurrent ? chipCurrentClass : chipRestingClass
@@ -152,12 +159,12 @@ export function QuickWindowChips({
           return (
             <li key={key}>
               {target === undefined ? (
-                <span className={className}>{label}</span>
+                <span className={chipClassName}>{label}</span>
               ) : (
                 <Link
                   href={quickWindowHref(params, target)}
                   aria-current={isCurrent ? 'page' : undefined}
-                  className={className}
+                  className={chipClassName}
                   data-testid={`shows-quick-window-${key}`}
                 >
                   {label}

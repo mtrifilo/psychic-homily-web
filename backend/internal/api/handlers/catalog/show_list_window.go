@@ -53,7 +53,7 @@ type GetShowsCalendarResponse struct {
 		Year   int                       `json:"year" doc:"Venue-local year the window was taken on, 0 when unwindowed"`
 		Month  int                       `json:"month" doc:"Venue-local month the window was taken on, 0 when unwindowed"`
 		Day    int                       `json:"day" doc:"Venue-local day the window was taken on, 0 when the window is a whole month or unwindowed"`
-		Days   int                       `json:"days" doc:"Length in venue-local days of the run that was read, 0 when the window is a single day, a whole month or unwindowed"`
+		Days   int                       `json:"days" doc:"Run length echoed back exactly as requested, 0 when the request named none. A run of 1 reads the same rows as the bare day and is echoed as 1"`
 	}
 }
 

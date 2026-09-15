@@ -326,7 +326,15 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // a different month is a different question, answered from its first page.
   // Reusing it is what keeps "carry every key but `page`" stated once.
   const windowHref = useCallback(
-    (path: string) => showsPageHref(searchParams, 1, path),
+    (path: string) => {
+      // `days` goes with the page number, and for the same reason: it belongs to
+      // the window being left, not to the filters being carried. Left in place
+      // it would mint `/shows/2026/10?days=3`, a second address for a month
+      // whose page has no run on it to describe.
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('days')
+      return showsPageHref(params, 1, path)
+    },
     [searchParams]
   )
 
@@ -511,9 +519,32 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // Determine if "Save as default" / "Clear defaults" should show
   const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
 
+  // The quick windows, under the filters and above the month axis they are a
+  // shortcut through.
+  //
+  // Built here and rendered in EVERY return below, the skeleton and the error
+  // state included. Every chip href is arithmetic on a date and a zone, so the
+  // row owes the rows on screen nothing: withholding it until they arrive would
+  // shift the page when they did, and withholding it on a failed read would
+  // take away the one affordance that could ask a different question.
+  const quickWindows = (
+    <QuickWindowChips
+      metroState={selectedCities.length === 1 ? selectedCities[0].state : undefined}
+      params={searchParams}
+      pathname={pathname}
+      currentDays={windowDays}
+      className="mb-4"
+    />
+  )
+
   // Only show skeleton on FIRST load (no data yet)
   if ((isLoading && !data) || (citiesLoading && !citiesData)) {
-    return <ShowListSkeleton />
+    return (
+      <section className="w-full max-w-6xl">
+        {quickWindows}
+        <ShowListSkeleton />
+      </section>
+    )
   }
 
   // Track if we're updating (fetching but already have data)
@@ -545,12 +576,15 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // has to surface.
   if (error && (!data || isPlaceholderData)) {
     return (
-      <div className="text-center py-12 text-destructive">
-        <p>Failed to load shows. Please try again later.</p>
-        <Button variant="outline" className="mt-4" onClick={() => refetch()}>
-          Retry
-        </Button>
-      </div>
+      <section className="w-full max-w-6xl">
+        {quickWindows}
+        <div className="text-center py-12 text-destructive">
+          <p>Failed to load shows. Please try again later.</p>
+          <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      </section>
     )
   }
 
@@ -642,19 +676,10 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
         />
       </div>
 
-      {/* The quick windows, under the filters and above the month axis they are
-          a shortcut through. OUTSIDE the dimming wrapper below: every chip href
-          is arithmetic on a date, so none of it goes stale while a filter
-          change is in flight, and fading it would say otherwise. */}
-      <QuickWindowChips
-        metroState={
-          selectedCities.length === 1 ? selectedCities[0].state : undefined
-        }
-        params={searchParams}
-        pathname={pathname}
-        currentDays={windowDays}
-        className="mb-4"
-      />
+      {/* OUTSIDE the dimming wrapper below: every chip href is arithmetic on a
+          date, so none of it goes stale while a filter change is in flight, and
+          fading it would say otherwise. */}
+      {quickWindows}
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
         {/* The month axis. Inside the dimming wrapper because its counts come

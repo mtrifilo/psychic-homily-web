@@ -115,6 +115,30 @@ describe('QuickWindowChips', () => {
     ).not.toHaveAttribute('aria-current')
   })
 
+  /**
+   * On a Sunday the weekend still running is one night, which is also tonight,
+   * so two chips point at one URL and both are true of it. `aria-current="page"`
+   * may be worn by one element, so the shorter window, first in row order, wears
+   * it and the other reads as an ordinary link.
+   */
+  it('marks one chip when two name the same window on a Sunday', () => {
+    // 20 September 2026 is a Sunday; 07:00 UTC is midnight in Phoenix.
+    vi.setSystemTime(new Date('2026-09-20T18:00:00Z'))
+    renderChips({ pathname: '/shows/2026/09/20', currentDays: undefined })
+
+    const tonight = screen.getByRole('link', { name: QUICK_WINDOW_LABEL.tonight })
+    const weekend = screen.getByRole('link', {
+      name: QUICK_WINDOW_LABEL['this-weekend'],
+    })
+
+    expect(weekend).toHaveAttribute('href', tonight.getAttribute('href') as string)
+    expect(tonight).toHaveAttribute('aria-current', 'page')
+    expect(weekend).not.toHaveAttribute('aria-current')
+    expect(
+      document.querySelectorAll('[data-testid="shows-quick-windows"] [aria-current]')
+    ).toHaveLength(1)
+  })
+
   // Weight and border carry the state as well as colour does, because colour
   // alone is not a sufficient distinction (WCAG 1.4.1).
   it('marks the current chip with more than a colour', () => {
