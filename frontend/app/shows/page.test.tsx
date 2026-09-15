@@ -158,6 +158,7 @@ describe('showsFirstScreenSeeds', () => {
     year: 0,
     month: 0,
     day: 0,
+    days: 0,
   }
   const cities = { cities: [] }
   const months = { months: [], total: 0 }

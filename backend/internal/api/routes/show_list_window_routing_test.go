@@ -41,6 +41,7 @@ func TestShowListWindowPathsResolveAnonymously(t *testing.T) {
 		"/shows/calendar",
 		"/shows/calendar?year=2026&month=11",
 		"/shows/calendar?year=2026&month=11&day=14&offset=50",
+		"/shows/calendar?year=2026&month=11&day=14&days=7",
 		"/shows/months",
 		"/shows/months?cities=Phoenix,AZ",
 	} {
@@ -75,9 +76,13 @@ func TestShowListWindowRefusesIncoherentWindows(t *testing.T) {
 		"/shows/calendar?month=11",
 		"/shows/calendar?year=2026",
 		"/shows/calendar?year=2027&month=2&day=31",
-		// Refused by the request schema's own bounds, before the handler runs.
+		"/shows/calendar?days=3",
+		"/shows/calendar?year=2026&month=11&days=3",
+		// Out of range. Two guards produce these, the request schema's bounds and
+		// Validate; this pins only that the STATUS is one answer either way.
 		"/shows/calendar?year=2026&month=13",
 		"/shows/calendar?year=2026&month=11&day=32",
+		"/shows/calendar?year=2026&month=11&day=14&days=15",
 	} {
 		router := newTestRouter(t)
 		req := httptest.NewRequest(http.MethodGet, path, nil)

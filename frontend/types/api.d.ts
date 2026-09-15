@@ -12862,6 +12862,11 @@ export interface components {
             day: number;
             /**
              * Format: int64
+             * @description Run length echoed back exactly as requested, 0 when the request named none. A run of 1 reads the same rows as the bare day and is echoed as 1
+             */
+            days: number;
+            /**
+             * Format: int64
              * @description Limit used in query
              */
             limit: number;
@@ -33612,6 +33617,8 @@ export interface operations {
                 month?: number;
                 /** @description Venue-local calendar day of month, 1-31. Requires year and month. */
                 day?: number;
+                /** @description Length in venue-local days of a run beginning on the requested day, 1-14. Requires year, month and day; omit (or 0 or 1) for that day alone. */
+                days?: number;
                 /** @description Number of shows per page (max 200). Defaults to 50. */
                 limit?: number;
                 /** @description Offset for pagination */

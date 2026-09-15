@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   adjacentMonths,
+  applyWindowDays,
   appendShowsCalendarWindow,
   calendarDayLabel,
   calendarMonthLabel,
@@ -8,14 +11,19 @@ import {
   isRealCalendarDay,
   parseDaySegments,
   parseMonthSegments,
+  parseWindowDays,
   SHOWS_CALENDAR_MAX_YEAR,
   SHOWS_CALENDAR_MIN_YEAR,
+  SHOWS_WINDOW_MAX_DAYS,
   shortCalendarMonthLabel,
   showsCalendarWindowKey,
+  showsCalendarWindowTitle,
   showsDayPath,
   showsDayPathFromDateKey,
   showsMonthPath,
+  showsWindowHref,
   showsWindowPath,
+  windowMonths,
 } from './showsCalendarRoute'
 
 describe('parseMonthSegments', () => {
@@ -199,6 +207,12 @@ describe('appendShowsCalendarWindow', () => {
     appendShowsCalendarWindow(day, { year: 2026, month: 11, day: 4 })
     expect(day.toString()).toBe('year=2026&month=11&day=4')
   })
+
+  it('sends the run length for a run', () => {
+    const run = new URLSearchParams()
+    appendShowsCalendarWindow(run, { year: 2026, month: 11, day: 4, days: 3 })
+    expect(run.toString()).toBe('year=2026&month=11&day=4&days=3')
+  })
 })
 
 describe('showsCalendarWindowKey', () => {
@@ -209,6 +223,7 @@ describe('showsCalendarWindowKey', () => {
       year: undefined,
       month: undefined,
       day: undefined,
+      days: undefined,
     })
   })
 
@@ -217,6 +232,7 @@ describe('showsCalendarWindowKey', () => {
       year: 2026,
       month: 11,
       day: undefined,
+      days: undefined,
     })
   })
 
@@ -224,6 +240,198 @@ describe('showsCalendarWindowKey', () => {
     expect(
       JSON.stringify(showsCalendarWindowKey({ year: 2026, month: 11, day: 4 }))
     ).not.toBe(JSON.stringify(showsCalendarWindowKey({ year: 2026, month: 11 })))
+  })
+
+  // A run and its anchor day are different sets of rows, so they must be
+  // different cache entries: sharing one would serve three days' rows to the day
+  // page that asked for one.
+  it('distinguishes a run from the day it anchors on', () => {
+    expect(
+      JSON.stringify(
+        showsCalendarWindowKey({ year: 2026, month: 11, day: 4, days: 3 })
+      )
+    ).not.toBe(
+      JSON.stringify(showsCalendarWindowKey({ year: 2026, month: 11, day: 4 }))
+    )
+  })
+})
+
+/**
+ * The bound this module enforces and the bound the API enforces are ONE bound,
+ * spelled in two languages: raise the Go constant alone and these routes 404
+ * runs the API would serve, raise this one alone and every chip past the old
+ * bound links to a 422.
+ *
+ * Read off the GENERATED contract rather than off a second literal here, so the
+ * check is against what the backend actually publishes. The description is the
+ * only place the OpenAPI document carries the range (`openapi-typescript` drops
+ * numeric bounds), which is why the Go side pins that string to its own
+ * constant in `show_list_window_test.go`.
+ */
+describe('SHOWS_WINDOW_MAX_DAYS', () => {
+  it('matches the range the generated API contract states', () => {
+    const contract = readFileSync(
+      join(import.meta.dirname, '../../types/api.d.ts'),
+      'utf8'
+    )
+    const documented = contract.match(
+      /Length in venue-local days of a run beginning on the requested day, 1-(\d+)\./
+    )
+
+    expect(documented).not.toBeNull()
+    expect(Number(documented?.[1])).toBe(SHOWS_WINDOW_MAX_DAYS)
+  })
+})
+
+describe('parseWindowDays', () => {
+  it('names no run when the parameter is absent', () => {
+    expect(parseWindowDays(undefined)).toBeUndefined()
+  })
+
+  // One day is the day itself, which is already an address. Carrying the run
+  // would give that one window two spellings.
+  it('reads 1 as no run', () => {
+    expect(parseWindowDays('1')).toBeUndefined()
+  })
+
+  it.each([2, 3, 7, SHOWS_WINDOW_MAX_DAYS])('reads %s as a run', days => {
+    expect(parseWindowDays(String(days))).toBe(days)
+  })
+
+  it.each([
+    String(SHOWS_WINDOW_MAX_DAYS + 1),
+    '99',
+    '0',
+    '-3',
+    '3.5',
+    '+3',
+    '03',
+    ' 3',
+    'three',
+  ])('refuses %s', raw => {
+    expect(parseWindowDays(raw)).toBeNull()
+  })
+
+  // A key with no value names no run, which is the same as not being there.
+  // Query-string builders write `days=` when they clear the key, and refusing
+  // that would 404 a real day over a URL that said nothing.
+  it('reads a valueless parameter as no run', () => {
+    expect(parseWindowDays('')).toBeUndefined()
+  })
+
+  it('refuses a repeated parameter, which names two runs', () => {
+    expect(parseWindowDays(['3', '7'])).toBeNull()
+  })
+})
+
+describe('applyWindowDays', () => {
+  const day = { year: 2026, month: 11, day: 14 }
+
+  it('leaves a month window alone whatever the parameter says', () => {
+    const month = { year: 2026, month: 11 }
+    expect(applyWindowDays(month, '3')).toEqual(month)
+    expect(applyWindowDays(month, '99')).toEqual(month)
+  })
+
+  it('carries a run onto a day window', () => {
+    expect(applyWindowDays(day, '3')).toEqual({ ...day, days: 3 })
+  })
+
+  it('leaves the day itself for no parameter and for the one-day spelling', () => {
+    expect(applyWindowDays(day, undefined)).toEqual(day)
+    expect(applyWindowDays(day, '1')).toEqual(day)
+  })
+
+  it('refuses a run it will not serve rather than serving a nearer one', () => {
+    expect(applyWindowDays(day, '15')).toBeNull()
+    expect(applyWindowDays(day, 'three')).toBeNull()
+  })
+})
+
+describe('showsWindowHref', () => {
+  // The href is the window's OWN address and the path is its canonical. They
+  // differ for exactly one shape, and that difference is what keeps a run
+  // canonicalizing to its anchor day.
+  it('carries the run, where the path does not', () => {
+    const run = { year: 2026, month: 11, day: 4, days: 3 }
+    expect(showsWindowHref(run)).toBe('/shows/2026/11/04?days=3')
+    expect(showsWindowPath(run)).toBe('/shows/2026/11/04')
+  })
+
+  it('is the path itself for a month and for a day', () => {
+    expect(showsWindowHref({ year: 2026, month: 11 })).toBe('/shows/2026/11')
+    expect(showsWindowHref({ year: 2026, month: 11, day: 4 })).toBe(
+      '/shows/2026/11/04'
+    )
+  })
+})
+
+describe('calendarWindowLabel and showsCalendarWindowTitle, for a run', () => {
+  // The end named is the run's LAST date, not the half-open bound the query
+  // carries: a heading naming a date that holds none of the rows beneath it
+  // would be false.
+  it('names both edges and prints the year once', () => {
+    expect(
+      calendarWindowLabel({ year: 2026, month: 9, day: 18, days: 3 })
+    ).toBe('Sep 18 to Sep 20, 2026')
+    expect(
+      showsCalendarWindowTitle({ year: 2026, month: 9, day: 18, days: 3 })
+    ).toBe('Shows from Sep 18 to Sep 20, 2026')
+  })
+
+  it.each([
+    [{ year: 2026, month: 11, day: 29, days: 7 }, 'Nov 29 to Dec 5, 2026'],
+    [{ year: 2028, month: 2, day: 27, days: 3 }, 'Feb 27 to Feb 29, 2028'],
+    [{ year: 2027, month: 2, day: 27, days: 3 }, 'Feb 27 to Mar 1, 2027'],
+  ])('rolls over the calendar: %o', (window, want) => {
+    expect(calendarWindowLabel(window)).toBe(want)
+  })
+
+  // A span whose edges carry no year is a date a reader has to guess at, and
+  // this list runs into the following year.
+  it('names both years when the run crosses one', () => {
+    expect(
+      calendarWindowLabel({ year: 2026, month: 12, day: 29, days: 7 })
+    ).toBe('Dec 29, 2026 to Jan 4, 2027')
+  })
+})
+
+describe('windowMonths', () => {
+  it('is the window itself for a month, a day, and a run inside one month', () => {
+    expect(windowMonths({ year: 2026, month: 11 })).toEqual([
+      { year: 2026, month: 11 },
+    ])
+    expect(windowMonths({ year: 2026, month: 11, day: 14 })).toEqual([
+      { year: 2026, month: 11 },
+    ])
+    expect(windowMonths({ year: 2026, month: 11, day: 14, days: 3 })).toEqual([
+      { year: 2026, month: 11 },
+    ])
+  })
+
+  // What the histogram gate asks about. A run opening in a quiet month and
+  // closing in a busy one is a real page, and asking about the anchor month
+  // alone would 404 it.
+  it('names both months a run spans, across a year boundary too', () => {
+    expect(windowMonths({ year: 2026, month: 11, day: 29, days: 7 })).toEqual([
+      { year: 2026, month: 11 },
+      { year: 2026, month: 12 },
+    ])
+    expect(windowMonths({ year: 2026, month: 12, day: 29, days: 7 })).toEqual([
+      { year: 2026, month: 12 },
+      { year: 2027, month: 1 },
+    ])
+  })
+
+  // Walked rather than read off the edges, so a run longer than a month would
+  // still name the months in the middle. No such run is addressable today; this
+  // is what makes raising the bound safe rather than silently lossy.
+  it('names every month a run passes through, not only its edges', () => {
+    expect(windowMonths({ year: 2026, month: 11, day: 29, days: 40 })).toEqual([
+      { year: 2026, month: 11 },
+      { year: 2026, month: 12 },
+      { year: 2027, month: 1 },
+    ])
   })
 })
 

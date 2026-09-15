@@ -23,6 +23,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '/shows',
 }))
 
 vi.mock('nuqs', async importOriginal => {

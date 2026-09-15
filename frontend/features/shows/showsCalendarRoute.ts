@@ -21,6 +21,16 @@ export interface ShowsCalendarWindow {
   month: number
   /** Calendar day of month, 1-31. Absent on a month window. */
   day?: number
+  /**
+   * Days in a RUN starting on `day`, 2 or more, the anchor day included.
+   * Absent on every window that is one day, one month, or the whole list.
+   *
+   * A run is chrome: it is addressed as `?days=` on the day's own path, so its
+   * canonical is that path and a reader who bookmarks it keeps the day. One is
+   * never stored here, because a run of one IS the day and two spellings of one
+   * window is what makes a title and a canonical drift apart.
+   */
+  days?: number
 }
 
 /** The list root every window hangs off. */
@@ -149,11 +159,137 @@ export function showsDayPath(
   return `${showsMonthPath(year, month)}/${pad2(day)}`
 }
 
-/** The path a window is addressed at, month or day. */
+/**
+ * The path a window is addressed at, month or day.
+ *
+ * A RUN has no path of its own: it hangs off its anchor day's, which is what
+ * makes the run's canonical the day root structurally rather than by
+ * remembering to strip a parameter.
+ */
 export function showsWindowPath(window: ShowsCalendarWindow): `/${string}` {
   return window.day === undefined
     ? showsMonthPath(window.year, window.month)
     : showsDayPath(window.year, window.month, window.day)
+}
+
+/**
+ * The longest run a day window may name, matching the bound the API enforces.
+ *
+ * A run is a relative window ("this weekend", "the next seven days") resolved to
+ * an absolute anchor rather than an identity anyone bookmarks, and it is bounded
+ * on both counts: an unbounded run is a full-catalog scan behind a URL that
+ * reads like one day, and anchor-crossed-with-length is the addressable space.
+ */
+export const SHOWS_WINDOW_MAX_DAYS = 14
+
+/**
+ * The window a day route's `?days=` names, or `null` when the parameter refuses
+ * one.
+ *
+ * `null` is a NOT-FOUND, not a fallback to the bare day. A run names the span it
+ * lists, so a URL asking for a span this route will not serve must not quietly
+ * answer with a different one: the address and the rows have to agree, and the
+ * reader who hand-edited the number is the one who would never find out.
+ *
+ * A run of one is normalized AWAY rather than carried, so `?days=1` renders
+ * exactly the day it anchors on, under that day's own title and canonical.
+ *
+ * Applied to a MONTH window the parameter is ignored: a month is not anchored on
+ * a date, so there is no run for the value to name and nothing for it to break.
+ * A repeated `?days=` (an array here) names two spans, which is no span at all.
+ */
+export function applyWindowDays(
+  window: ShowsCalendarWindow,
+  raw: string | string[] | undefined
+): ShowsCalendarWindow | null {
+  if (window.day === undefined) return window
+  const days = parseWindowDays(raw)
+  if (days === null) return null
+  return days === undefined ? window : { ...window, days }
+}
+
+/**
+ * The run length a `?days=` value names: `undefined` when it names none (the
+ * parameter is absent, or spells the anchor day alone), a number for a run this
+ * route serves, and `null` for a value it refuses.
+ *
+ * Three answers rather than two because they lead three different places: no run
+ * renders the day, a run renders the span, and a refusal is a not-found.
+ */
+export function parseWindowDays(
+  raw: string | string[] | undefined
+): number | undefined | null {
+  // A key with no value names no run, which is the same as not being there.
+  // Every query-string builder writes `days=` when it clears the key, and
+  // refusing that would 404 a real day over a URL that said nothing.
+  if (raw === undefined || raw === '') return undefined
+  // A repeated `?days=` names two spans, which is no span at all.
+  if (Array.isArray(raw)) return null
+  // `Number` on a blank string is 0, and on a padded or signed one it is a
+  // number the reader did not write. The shape test is what keeps `?days=+3`,
+  // `?days=03` and `?days=3.0` from all addressing one window.
+  if (!/^[1-9]\d*$/.test(raw)) return null
+  const days = Number(raw)
+  if (days > SHOWS_WINDOW_MAX_DAYS) return null
+  return days === 1 ? undefined : days
+}
+
+/**
+ * The window's own address, the run's `?days=` included.
+ *
+ * Distinct from {@link showsWindowPath}, which is the run's CANONICAL. The two
+ * differ for exactly one window shape, and each call site wants one of them: a
+ * link to the run wants this, and the canonical and the pager's base path want
+ * the path.
+ */
+export function showsWindowHref(window: ShowsCalendarWindow): string {
+  const path = showsWindowPath(window)
+  return window.days === undefined ? path : `${path}?days=${window.days}`
+}
+
+/** A calendar date as its parts, with the weekday it fell on (0 is Sunday). */
+export interface CalendarDayParts {
+  year: number
+  /** Calendar month, 1-12, matching this grammar and NOT JavaScript's. */
+  month: number
+  day: number
+  weekday: number
+}
+
+/**
+ * The calendar date `offset` days from the given one.
+ *
+ * The one calendar-shift in this feature, so a run's end, a chip's anchor and
+ * anything later built on either roll over months, years and leap days by the
+ * same arithmetic. `Date.UTC` is calendar arithmetic and nothing else here: no
+ * instant is converted between zones, so no offset or DST rule applies.
+ */
+export function shiftCalendarDay(
+  year: number,
+  month: number,
+  day: number,
+  offset: number
+): CalendarDayParts {
+  const shifted = new Date(Date.UTC(year, month - 1, day + offset))
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    weekday: shifted.getUTCDay(),
+  }
+}
+
+/**
+ * The last venue-local date a run covers. Takes the run's own parts, so a month
+ * window, which has no end distinct from its start, cannot reach it.
+ */
+function runEndDay(
+  year: number,
+  month: number,
+  day: number,
+  days: number
+): CalendarDayParts {
+  return shiftCalendarDay(year, month, day, days - 1)
 }
 
 /**
@@ -208,24 +344,87 @@ export function calendarDayLabel(
   return `${longMonthName(month)} ${day}, ${year}`
 }
 
-/** The reader-facing name of a window, month or day. */
+/**
+ * The calendar months a window touches, in order: one for a month or a day, and
+ * every month a run passes through.
+ *
+ * What the histogram is asked about. A run that starts in a month with nothing
+ * in it and ends in one that is busy is a real page, so asking about the anchor
+ * month alone would 404 it.
+ */
+export function windowMonths(
+  window: ShowsCalendarWindow
+): Array<{ year: number; month: number }> {
+  const months = [{ year: window.year, month: window.month }]
+  if (window.day === undefined || window.days === undefined) return months
+
+  // Walked day by day rather than read off the two edges. A run shorter than a
+  // month touches only the months its edges name, and every run this grammar
+  // serves is shorter than a month; walking holds without depending on that,
+  // so raising the bound cannot quietly drop a month from the middle.
+  for (let offset = 1; offset < window.days; offset++) {
+    const at = shiftCalendarDay(window.year, window.month, window.day, offset)
+    const last = months[months.length - 1]
+    if (at.year !== last.year || at.month !== last.month) {
+      months.push({ year: at.year, month: at.month })
+    }
+  }
+  return months
+}
+
+/** `Sep 18`, the compact form a run's two edges are named in. */
+function shortCalendarDayLabel(year: number, month: number, day: number): string {
+  return `${formatCalendarMonthParts(year, month).month} ${day}`
+}
+
+/**
+ * `Sep 18 to Oct 1, 2026`, and `Dec 29, 2026 to Jan 4, 2027` across a new year.
+ *
+ * The year is never elided: this list runs into the following year, and a span
+ * whose edges carry no year is a date a reader has to guess at. It is printed
+ * ONCE when both edges share it, which is the ordinary case, and on both edges
+ * when they do not.
+ *
+ * Both edges are the days the window actually holds. The end is the run's LAST
+ * date rather than the half-open bound the query carries, because a heading that
+ * named a date holding none of the rows beneath it would be false.
+ */
+function calendarRunLabel(
+  year: number,
+  month: number,
+  day: number,
+  days: number
+): string {
+  const end = runEndDay(year, month, day, days)
+  const startLabel = shortCalendarDayLabel(year, month, day)
+  const endLabel = shortCalendarDayLabel(end.year, end.month, end.day)
+  return year === end.year
+    ? `${startLabel} to ${endLabel}, ${end.year}`
+    : `${startLabel}, ${year} to ${endLabel}, ${end.year}`
+}
+
+/** The reader-facing name of a window: a month, a day, or a run of days. */
 export function calendarWindowLabel(window: ShowsCalendarWindow): string {
-  return window.day === undefined
-    ? calendarMonthLabel(window.year, window.month)
-    : calendarDayLabel(window.year, window.month, window.day)
+  if (window.day === undefined) return calendarMonthLabel(window.year, window.month)
+  if (window.days === undefined) {
+    return calendarDayLabel(window.year, window.month, window.day)
+  }
+  return calendarRunLabel(window.year, window.month, window.day, window.days)
 }
 
 /**
  * The document's own name for a window: `Shows in November 2026`, `Shows on
- * November 14, 2026`. A month is a period one is IN and a day is one one is ON,
- * and that preposition is the only part that differs.
+ * November 14, 2026`, `Shows from Sep 18 to Oct 1, 2026`. A month is a period
+ * one is IN, a day is one one is ON, and a run is one one goes FROM and TO;
+ * that preposition is the only part that differs.
  *
  * One function because the `<h1>` and the `<title>` must say the same thing,
  * and nothing but this would keep them saying it.
  */
 export function showsCalendarWindowTitle(window: ShowsCalendarWindow): string {
   const label = calendarWindowLabel(window)
-  return window.day === undefined ? `Shows in ${label}` : `Shows on ${label}`
+  if (window.day === undefined) return `Shows in ${label}`
+  return window.days === undefined ? `Shows on ${label}` : `Shows from ${label}`
 }
 
 /** `Nov 2026`, the compact form the adjacent-month links carry. */
@@ -250,6 +449,7 @@ export function appendShowsCalendarWindow(
   params.set('year', String(window.year))
   params.set('month', String(window.month))
   if (window.day !== undefined) params.set('day', String(window.day))
+  if (window.days !== undefined) params.set('days', String(window.days))
 }
 
 /**
@@ -261,11 +461,12 @@ export function appendShowsCalendarWindow(
  */
 export function showsCalendarWindowKey(
   window: ShowsCalendarWindow | undefined
-): { year?: number; month?: number; day?: number } {
+): { year?: number; month?: number; day?: number; days?: number } {
   return {
     year: window?.year,
     month: window?.month,
     day: window?.day,
+    days: window?.days,
   }
 }
 

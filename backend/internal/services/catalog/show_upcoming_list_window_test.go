@@ -239,6 +239,94 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_DayWindow
 	suite.Require().Equal(int64(1), page.Total)
 }
 
+// A run window lists its anchor date and the days that follow it, and stops
+// there. The edges are the assertion: a run that leaked one day either way would
+// still look right in the middle.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RunWindowSpansConsecutiveVenueLocalDates() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Run Window Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	// One show per venue-local day, on five consecutive days starting tomorrow.
+	// 20:00 local sits on the following UTC day, so a run read on UTC dates would
+	// select a different five.
+	byOffset := make(map[int]uint, 5)
+	for offset := 1; offset <= 5; offset++ {
+		at := venueLocalInstant(suite.T(), zone, offset, 20)
+		requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
+		byOffset[offset] = suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", at).ID
+	}
+
+	anchor := venueLocalInstant(suite.T(), zone, 2, 20)
+	year, month, day := venueLocalYMD(suite.T(), anchor, zone)
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{
+			Year: year, Month: month, Day: day, Days: 3,
+		},
+	}, nil)
+
+	suite.Require().Equal([]uint{byOffset[2], byOffset[3], byOffset[4]}, page.IDs)
+	suite.Require().Equal(int64(3), page.Total)
+
+	// A run of one is the day itself, on the same predicate the bare day window
+	// builds, so the two cannot answer differently for the same date.
+	single := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{
+			Year: year, Month: month, Day: day, Days: 1,
+		},
+	}, nil)
+	suite.Require().Equal([]uint{byOffset[2]}, single.IDs)
+	suite.Require().Equal(int64(1), single.Total)
+}
+
+// A run anchored at the far edge of the addressable year range is an EMPTY page
+// rather than a database error.
+//
+// The request schema admits years up to 9999, and a run from the last day of
+// that year ends in year 10000, which is the one window whose ISO edge carries
+// five digits. That string reaches Postgres as a bind parameter, so the question
+// is whether the driver and the date type take it; the answer is asserted here
+// rather than reasoned about, because the failure mode is a 500 on a URL anyone
+// can type.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RunAtTheEndOfTheYearRangeIsEmptyNotAnError() {
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{
+			Year: 9999, Month: 12, Day: 31,
+			Days: contracts.ShowCalendarMaxWindowDays,
+		},
+	}, nil)
+
+	suite.Require().Empty(page.IDs)
+	suite.Require().Equal(int64(0), page.Total)
+}
+
+// A run crosses a month boundary, which is what separates it from the month
+// window it is addressed under.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RunWindowCrossesAMonthBoundary() {
+	const zone = "America/Phoenix"
+	venue := newVenueInZone(suite.T(), suite.db, "Run Across Months Room", "AZ", zone, true)
+	user := suite.createTestUser()
+
+	// The last day of a month far enough ahead that today cannot fall inside the
+	// run, so every seeded show is upcoming whatever hour the suite runs at.
+	todayYear, todayMonth, _ := venueLocalYMD(suite.T(), time.Now(), zone)
+	year, month := addMonths(todayYear, todayMonth, 2)
+	lastDay := lastDayOfMonth(year, month)
+
+	last := venueLocalDateAt(suite.T(), zone, year, month, lastDay, 20)
+	lastShow := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", last)
+	firstOfNext := last.AddDate(0, 0, 1)
+	nextShow := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", firstOfNext)
+
+	page := suite.calendarWindow(contracts.ShowCalendarQuery{
+		ShowCalendarWindow: contracts.ShowCalendarWindow{
+			Year: year, Month: month, Day: lastDay, Days: 2,
+		},
+	}, nil)
+	suite.Require().Equal([]uint{lastShow.ID, nextShow.ID}, page.IDs)
+	suite.Require().Equal(int64(2), page.Total)
+}
+
 // A month nothing is booked in is an empty page with a real zero, not an error.
 // Whether that is a page or a 404 is the route's call, and this is the answer it
 // makes the call from.
@@ -389,6 +477,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsPage_RefusesMa
 		{Year: -1, Month: -5},
 		{Year: 2027, Month: -1},
 		{Year: 2027, Month: 11, Day: -1},
+		// A run with no anchor narrows nothing, and a run longer than the bound
+		// is a full-catalog scan behind a URL naming a fortnight.
+		{Days: 3},
+		{Year: 2027, Days: 3},
+		{Year: 2027, Month: 11, Days: 3},
+		{Year: 2027, Month: 11, Day: 14, Days: -1},
+		{Year: 2027, Month: 11, Day: 14, Days: contracts.ShowCalendarMaxWindowDays + 1},
 	} {
 		shows, total, err := suite.showService.GetUpcomingShowsPage(
 			contracts.ShowCalendarQuery{ShowCalendarWindow: window, Limit: 50}, false, nil)

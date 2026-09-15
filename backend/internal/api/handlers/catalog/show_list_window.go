@@ -28,6 +28,7 @@ type GetShowsCalendarRequest struct {
 	Year     int    `query:"year" minimum:"0" maximum:"9999" doc:"Venue-local calendar year of the window. Omit (or 0) with month and day for the whole upcoming list."`
 	Month    int    `query:"month" minimum:"0" maximum:"12" doc:"Venue-local calendar month, 1-12. Requires year."`
 	Day      int    `query:"day" minimum:"0" maximum:"31" doc:"Venue-local calendar day of month, 1-31. Requires year and month."`
+	Days     int    `query:"days" minimum:"0" maximum:"14" doc:"Length in venue-local days of a run beginning on the requested day, 1-14. Requires year, month and day; omit (or 0 or 1) for that day alone."`
 	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of shows per page (max 200). Defaults to 50."`
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	City     string `query:"city" doc:"Filter by city name (exact match). Legacy, prefer 'cities' param."`
@@ -52,6 +53,7 @@ type GetShowsCalendarResponse struct {
 		Year   int                       `json:"year" doc:"Venue-local year the window was taken on, 0 when unwindowed"`
 		Month  int                       `json:"month" doc:"Venue-local month the window was taken on, 0 when unwindowed"`
 		Day    int                       `json:"day" doc:"Venue-local day the window was taken on, 0 when the window is a whole month or unwindowed"`
+		Days   int                       `json:"days" doc:"Run length echoed back exactly as requested, 0 when the request named none. A run of 1 reads the same rows as the bare day and is echoed as 1"`
 	}
 }
 
@@ -62,7 +64,7 @@ type GetShowsCalendarResponse struct {
 // 200s with total 0. Whether an addressable month that has no shows is a page or
 // a 404 is the frontend route's call, and it has the total it needs to make it.
 func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShowsCalendarRequest) (*GetShowsCalendarResponse, error) {
-	window := contracts.ShowCalendarWindow{Year: req.Year, Month: req.Month, Day: req.Day}
+	window := contracts.ShowCalendarWindow{Year: req.Year, Month: req.Month, Day: req.Day, Days: req.Days}
 	// A half-stated window is a client error, not a wider list. The rule and the
 	// message both live on the window type; the service refuses the same shapes
 	// for a caller that never passes through here.
@@ -102,6 +104,7 @@ func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShows
 	resp.Body.Year = window.Year
 	resp.Body.Month = window.Month
 	resp.Body.Day = window.Day
+	resp.Body.Days = window.Days
 	return resp, nil
 }
 

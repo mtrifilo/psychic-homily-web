@@ -26,9 +26,11 @@ const mockReplace = vi.fn()
 // params rather than reading one key at a time: a `{ get }` stub would answer
 // every lookup and still serve `?page=2` with every other param dropped.
 const mockSearchParams = vi.fn(() => new URLSearchParams())
+const mockPathname = vi.fn(() => '/shows')
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams(),
+  usePathname: () => mockPathname(),
 }))
 
 // nuqs `useQueryState` is bridged to the SAME mocked searchParams the component
@@ -1373,6 +1375,182 @@ describe('ShowList', () => {
           expect.anything()
         )
       })
+    })
+  })
+
+  /**
+   * A RUN is part of the page's identity rather than one of its filters: a
+   * reader clearing a city filter inside a three-day window is asking for all
+   * cities in those three days, not for one day of them. So every write that
+   * mints a fresh query string has to carry `?days=` across, and every write
+   * that copies the params on screen gets it for free.
+   */
+  describe('inside a run window', () => {
+    const RUN = { year: 2026, month: 11, day: 14, days: 3 }
+
+    const emptyList = () => {
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 0 },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+    }
+
+    beforeEach(() => {
+      mockPathname.mockReturnValue('/shows/2026/11/14')
+      mockUseShowsCalendar.mockReturnValue({
+        data: { shows: [], total: 120 },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', show_count: 68 }] },
+        isLoading: false,
+        isFetching: false,
+      })
+    })
+
+    it('requests the run, not the day it anchors on', () => {
+      render(<ShowList window={RUN} />)
+
+      expect(mockUseShowsCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ window: RUN })
+      )
+    })
+
+    // The pager copies the params on screen, so the run rides along and a deep
+    // page of a run is still that run.
+    it('keeps the run through a page click', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('days=3'))
+
+      render(<ShowList window={RUN} />)
+
+      const page2 = screen.getAllByRole('link', { name: /^Page 2\b/ })[0]
+      expect(page2).toHaveAttribute('href', '/shows/2026/11/14?days=3&page=2')
+    })
+
+    it('keeps the run when the filters are cleared', async () => {
+      const user = userEvent.setup()
+      emptyList()
+      mockSearchParams.mockReturnValue(new URLSearchParams('days=3&tags=noise'))
+
+      render(<ShowList window={RUN} />)
+      await user.click(screen.getByText('Clear filters'))
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/shows/2026/11/14?days=3&cities=all',
+          expect.anything()
+        )
+      })
+    })
+
+    it('keeps the run when the city constraint alone is dropped', async () => {
+      const user = userEvent.setup()
+      emptyList()
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('days=3&tags=noise&cities=Phoenix%2CAZ')
+      )
+
+      render(<ShowList window={RUN} />)
+      await user.click(screen.getByTestId('shows-suggest-same-tags-all-cities'))
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(
+          '/shows/2026/11/14?days=3&cities=all&tags=noise',
+          expect.anything()
+        )
+      })
+    })
+
+    // The chips navigate the DATE axis and own only `days` and `page`, so a
+    // campaign param and an explicit All Cities survive a jump between windows.
+    it('mounts the quick windows and carries the live params through them', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams('days=3&cities=all&utm_source=newsletter')
+      )
+
+      render(<ShowList window={RUN} />)
+
+      const chips = screen.getByTestId('shows-quick-windows')
+      const month = within(chips).getByRole('link', { name: 'This month' })
+      expect(month.getAttribute('href')).toContain('cities=all')
+      expect(month.getAttribute('href')).toContain('utm_source=newsletter')
+      // The month chip is not a run, so it clears the key it owns.
+      expect(month.getAttribute('href')).not.toContain('days=')
+    })
+
+    // The strip and the adjacent links navigate to a DIFFERENT window, so they
+    // drop the run with the page number rather than minting a second address
+    // for a month whose page has no run on it to describe.
+    it('drops the run from the month strip and the adjacent links', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams('days=3&cities=all'))
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 11, count: 68 },
+            { year: 2026, month: 12, count: 13 },
+          ],
+          total: 81,
+        },
+        isPlaceholderData: false,
+      })
+
+      render(<ShowList window={RUN} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(within(strip).getByRole('link', { name: /^Dec / })).toHaveAttribute(
+        'href',
+        '/shows/2026/12?cities=all'
+      )
+      expect(
+        within(strip).getByRole('link', { name: /All upcoming/ })
+      ).toHaveAttribute('href', '/shows?cities=all')
+    })
+  })
+
+  /**
+   * The chip row owes the rows on screen nothing: every href is arithmetic on a
+   * date and a zone. Withholding it until the rows arrive would shift the page
+   * when they did, and withholding it on a failed read would take away the one
+   * affordance left that can ask a different question.
+   */
+  describe('the quick windows in the non-list states', () => {
+    it('renders them over the skeleton', () => {
+      mockUseShowsCalendar.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isFetching: true,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<ShowList />)
+
+      expect(screen.getByTestId('shows-quick-windows')).toBeInTheDocument()
+    })
+
+    it('renders them beside the error state', () => {
+      mockUseShowsCalendar.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: new Error('boom'),
+        refetch: vi.fn(),
+      })
+
+      render(<ShowList />)
+
+      expect(screen.getByText(/Failed to load shows/)).toBeInTheDocument()
+      expect(screen.getByTestId('shows-quick-windows')).toBeInTheDocument()
     })
   })
 })

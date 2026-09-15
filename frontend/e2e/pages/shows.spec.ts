@@ -223,7 +223,12 @@ test.describe('Shows month and day routes', () => {
     await expect(page.getByTestId('day-grouped-show-list')).toBeVisible({
       timeout: 15_000,
     })
-    const dayHeading = page.locator(`a[href^="/shows/${year}/${month}/"]`).first()
+    // Scoped to the LIST: the quick-window chips above it also link day URLs,
+    // and an unscoped locator would assert a chip while claiming a heading.
+    const dayHeading = page
+      .getByTestId('day-grouped-show-list')
+      .locator(`a[href^="/shows/${year}/${month}/"]`)
+      .first()
     await expect(dayHeading).toBeVisible()
 
     // The strip marks this month, and the mark is on the month's OWN link.

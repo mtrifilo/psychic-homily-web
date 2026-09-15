@@ -624,15 +624,84 @@ func VenueLocalMonthCondition(year, month int) (string, []any) {
 // its user an error for one refuses it before asking: the empty fragment here is
 // indistinguishable from "no window requested".
 func VenueLocalDayCondition(year, month, day int) (string, []any) {
-	if year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
-		return "", nil
-	}
-	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-	if start.Year() != year || int(start.Month()) != month || start.Day() != day {
+	start, ok := venueLocalDayStart(year, month, day)
+	if !ok {
 		return "", nil
 	}
 
 	isoDate := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
 	return coarseBoundedPeriodCondition(start, start.AddDate(0, 0, 1),
 		VenueLocalDateSQL+" = ?::date", isoDate)
+}
+
+// VenueLocalDayRangeCondition returns the WHERE fragment and bind arguments
+// narrowing a show list to a RUN of consecutive venue-local calendar dates
+// beginning on the given date, or ("", nil) when the triple does not name a real
+// date or the run is shorter than two days.
+//
+// A run of ONE is refused rather than served: VenueLocalDayCondition already is
+// that window, and an equality is the narrower predicate. Callers pick between
+// the two on the span they were handed, which is what keeps one day at exactly
+// one SQL spelling.
+//
+// Both edges are venue-local DATES compared against VenueLocalDateSQL, the same
+// expression the single-day window and the date tile a row prints derive from,
+// so a run and the days inside it cannot disagree about which rows they hold.
+// Half-open at the end, so consecutive runs tile without overlapping.
+//
+// The run's LENGTH is not bounded here. How long a run a caller may ask for is a
+// contract question, answered by ShowCalendarWindow.Validate and by the request
+// schema; this builds whatever run it is handed.
+func VenueLocalDayRangeCondition(year, month, day, days int) (string, []any) {
+	if days < 2 {
+		return "", nil
+	}
+	start, ok := venueLocalDayStart(year, month, day)
+	if !ok {
+		return "", nil
+	}
+	end := start.AddDate(0, 0, days)
+
+	return coarseBoundedPeriodCondition(start, end,
+		VenueLocalDateSQL+" >= ?::date AND "+VenueLocalDateSQL+" < ?::date",
+		start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
+
+// venueLocalDayStart is the UTC midnight of a calendar date, and whether the
+// triple names a real one.
+//
+// The single real-date gate the day and run conditions share. time.Date
+// normalises 31 February into 3 March rather than failing, so the round-trip is
+// the check, and having it in one place is what keeps the two windows agreeing
+// about which dates exist.
+func venueLocalDayStart(year, month, day int) (time.Time, bool) {
+	if year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return time.Time{}, false
+	}
+	start := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	if start.Year() != year || int(start.Month()) != month || start.Day() != day {
+		return time.Time{}, false
+	}
+	return start, true
+}
+
+// VenueLocalWindowCondition is the ONE fragment a calendar window names,
+// narrowest resolution first: a run of days, then a single day, then a month.
+//
+// The ladder lives here rather than at each call site because which resolution
+// wins is a property of the window vocabulary, not of any one reader, and the
+// three builders it calls signal "not my resolution" by answering with an empty
+// fragment. A caller reading that convention for itself re-derives, every time,
+// why a run of one must not take the range builder.
+//
+// An empty answer means the window narrows NOTHING, which every caller has to
+// tell apart from a window it refused: in SQL the two are the same query.
+func VenueLocalWindowCondition(year, month, day, days int) (string, []any) {
+	if condition, args := VenueLocalDayRangeCondition(year, month, day, days); condition != "" {
+		return condition, args
+	}
+	if condition, args := VenueLocalDayCondition(year, month, day); condition != "" {
+		return condition, args
+	}
+	return VenueLocalMonthCondition(year, month)
 }

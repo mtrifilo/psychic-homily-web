@@ -4,6 +4,7 @@ package contracts
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -340,7 +341,20 @@ type ShowCalendarWindow struct {
 	Year  int
 	Month int
 	Day   int
+	// Days extends a DAY window forward into a run of consecutive venue-local
+	// dates, the anchor date included. Zero and one both mean the anchor date
+	// alone. Meaningless without a day, and refused there rather than ignored.
+	Days int
 }
+
+// ShowCalendarMaxWindowDays is the longest run a day window may name.
+//
+// A run is a RELATIVE window ("this weekend", "the next seven days") resolved to
+// an absolute anchor, not an identity a reader bookmarks, so it is bounded on
+// both counts: an unbounded run is a full-catalog scan behind a URL that reads
+// like one day, and the addressable space of anchor-crossed-with-length is the
+// crawl surface. Fourteen holds every window the product offers with room over.
+const ShowCalendarMaxWindowDays = 14
 
 // Validate reports whether the window names a period, returning an error whose
 // message is safe to hand a caller verbatim.
@@ -363,9 +377,17 @@ type ShowCalendarWindow struct {
 // "unset" is how a miscomputed window turns into the whole catalog.
 func (w ShowCalendarWindow) Validate() error {
 	switch {
-	case w.Year < 0 || w.Month < 0 || w.Day < 0:
-		return errors.New("year, month and day must not be negative")
+	case w.Year < 0 || w.Month < 0 || w.Day < 0 || w.Days < 0:
+		return errors.New("year, month, day and days must not be negative")
+	case w.Days > ShowCalendarMaxWindowDays:
+		return fmt.Errorf("days must be 1-%d", ShowCalendarMaxWindowDays)
 	case w.Year == 0 && w.Month == 0 && w.Day == 0:
+		// A run with no anchor is refused here rather than at the end, because a
+		// bare `days` reaching SQL narrows nothing and would answer the whole
+		// upcoming catalog to a caller who asked for a week of it.
+		if w.Days > 0 {
+			return errors.New("days requires a year, a month and a day")
+		}
 		return nil
 	case w.Year == 0:
 		return errors.New("month and day require a year")
@@ -374,6 +396,9 @@ func (w ShowCalendarWindow) Validate() error {
 	case w.Month > 12:
 		return errors.New("month must be 1-12")
 	case w.Day == 0:
+		if w.Days > 0 {
+			return errors.New("days requires a day")
+		}
 		return nil
 	case !isRealCalendarDate(w.Year, w.Month, w.Day):
 		return errors.New("year, month and day do not name a real calendar date")
