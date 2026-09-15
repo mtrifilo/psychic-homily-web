@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
+import { useSoftKeyboardViewport } from './useSoftKeyboardViewport'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
@@ -56,6 +57,33 @@ const MAX_POPULAR_CITIES = 5
 /** Minimum count for a city to be "popular" */
 const MIN_POPULAR_COUNT = 2
 
+/**
+ * Space kept clear under the popover on a soft-keyboard viewport: the fixed
+ * bottom tab bar (`--bottom-tab-bar-height`, 3.5rem + 1px) plus a gutter.
+ * Radix feeds this padding to floating-ui's `size` middleware, which runs
+ * whether or not collision avoidance is on, so it bounds
+ * `--radix-popover-content-available-height` even with `avoidCollisions`
+ * disabled.
+ */
+const SOFT_KEYBOARD_COLLISION_PADDING = { bottom: 65 }
+
+/**
+ * Popover treatment for viewports whose software keyboard can shrink the
+ * visual viewport: pinned under the trigger and bounded to the space left
+ * under it, so the list scrolls inside the popover with `CommandInput` held at
+ * the top rather than the whole popover flipping over the trigger and carrying
+ * the search field off-screen.
+ *
+ * `--radix-popover-content-available-height` is measured against the VISUAL
+ * viewport (floating-ui builds its viewport rect from `window.visualViewport`
+ * and re-measures on that object's `resize`), so the keyboard is already in
+ * that number. The `max()` floor keeps the input plus a row or two usable in
+ * the case that number goes to nearly zero, which happens when the trigger
+ * itself cannot be scrolled clear of the keyboard.
+ */
+const SOFT_KEYBOARD_CONTENT_CLASS =
+  'flex flex-col overflow-hidden max-h-[max(var(--radix-popover-content-available-height),10rem)]'
+
 export function CityFilters({
   cities,
   selectedCities,
@@ -64,6 +92,32 @@ export function CityFilters({
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
+  const softKeyboardViewport = useSoftKeyboardViewport()
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+
+  // Composes the two halves of `replayOnHydrate` with a ref of our own: the
+  // spread below sets the marker attribute, and dropping the replay ref while
+  // keeping the attribute would leave a control that looks adopted and still
+  // drops pre-hydration clicks.
+  const setTriggerRef = useCallback((node: HTMLButtonElement | null) => {
+    triggerRef.current = node
+    replayOnHydrate.ref(node)
+  }, [])
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next)
+      // The pinned popover can only use the space under the trigger, so on a
+      // soft-keyboard viewport the trigger goes to the top of the scroll
+      // container to give the list room. `scroll-mt` on the trigger keeps it
+      // clear of the sticky topbar.
+      if (next && softKeyboardViewport) {
+        triggerRef.current?.scrollIntoView({ block: 'start' })
+      }
+    },
+    [softKeyboardViewport]
+  )
+
   const selectedSet = useMemo(
     () => new Set(selectedCities.map(cityKey)),
     [selectedCities]
@@ -108,7 +162,7 @@ export function CityFilters({
       {/* Filter bar: combobox + active chips + children */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Searchable combobox */}
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <button
               // In server HTML since PSY-1624, so it is painted and clickable
@@ -118,12 +172,14 @@ export function CityFilters({
               // on the trigger rather than the surrounding bar because the
               // trigger is the element that owns the interaction.
               {...replayOnHydrate}
+              ref={setTriggerRef}
               role="combobox"
               aria-expanded={open}
               aria-label="Filter by city"
               data-testid="city-filter-combobox"
               className={cn(
                 'flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm transition-colors',
+                'scroll-mt-[calc(var(--topbar-height)+0.5rem)]',
                 'hover:bg-muted hover:border-border',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 open && 'border-border bg-muted',
@@ -136,7 +192,20 @@ export function CityFilters({
               <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-[240px] p-0" align="start">
+          <PopoverContent
+            className={cn(
+              'w-[240px] p-0',
+              softKeyboardViewport && SOFT_KEYBOARD_CONTENT_CLASS
+            )}
+            align="start"
+            {...(softKeyboardViewport
+              ? {
+                  side: 'bottom' as const,
+                  avoidCollisions: false,
+                  collisionPadding: SOFT_KEYBOARD_COLLISION_PADDING,
+                }
+              : {})}
+          >
             <Command>
               <CommandInput placeholder="Search cities..." />
               <CommandList>
