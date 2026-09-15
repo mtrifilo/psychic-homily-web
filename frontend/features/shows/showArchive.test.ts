@@ -432,7 +432,7 @@ describe('archiveIsFirstPage matches the client parser', () => {
    *
    * WHAT IT PINS, which is the volatile part: that `nuqs/server`'s parser agrees
    * with `nuqs`'s. Those are two structurally separate bundled copies (verified
-   * in nuqs 2.9.0: `dist/index.js` and `dist/server.js` each carry their own
+   * in nuqs 2.10.1: `dist/index.js` and `dist/server.js` each carry their own
    * `createParser`), and the server's answer decides whether page 1's rows are
    * seeded while the client's decides which page is asked for. Going through
    * `parseServerSide` on both sides would compare the server helper with itself

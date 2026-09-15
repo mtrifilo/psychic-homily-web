@@ -28,7 +28,7 @@ import { toPageNumber } from '@/components/shared/paginationChrome'
  * `nuqs` client entry point, and the two must agree about what `?page=+2` or
  * `?page=2abc` names or the canonical page renders unseeded. They cannot be one
  * constant — `nuqs` and `nuqs/server` ship SEPARATE bundled copies of the same
- * runtime (verified in nuqs 2.9.0: `dist/index.js` and `dist/server.js` each
+ * runtime (verified in nuqs 2.10.1: `dist/index.js` and `dist/server.js` each
  * carry their own `createParser`), so a value from one does not satisfy the
  * other's `useQueryState`, and importing the client entry here is the very thing
  * this module exists to avoid. The agreement is pinned by the equivalence

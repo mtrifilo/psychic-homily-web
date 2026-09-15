@@ -30,6 +30,14 @@ export function Providers({ children }: ProvidersProps) {
         // (the App Router adapter). Outermost so every search-param consumer in
         // the tree — the shows/venues/artists/explore filter surfaces — sits
         // under it.
+        //
+        // The `nuqs` floor in package.json is a correctness floor, not a
+        // compatibility one: below 2.10.1, `useQueryState` can be left serving
+        // a stale value for the life of the page once React discards the
+        // concurrent render that first read new search params, which is what a
+        // `<Link>` navigation carrying only a search param produces. Every
+        // pager whose links are real hrefs reads its page number through this
+        // adapter, so the floor is what makes those links work at all.
         <NuqsAdapter>
             <QueryClientProvider client={queryClient}>
                 {children}
