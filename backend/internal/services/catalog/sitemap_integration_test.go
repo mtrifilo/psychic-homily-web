@@ -683,6 +683,136 @@ func TestSitemapEntriesVenueYearsMatchesThePastHistogram(t *testing.T) {
 	}
 }
 
+// TestSitemapEntriesShowsMonthsMatchTheMonthHistogram is the load-bearing
+// guarantee of the shows_months family (PSY-2061): every month it announces has
+// to be a month /shows/{year}/{month} will actually render, and that page 404s
+// a month GetUpcomingShowMonths does not carry. A month announced here that the
+// histogram lacks is a URL the site itself answers with a not-found, which is
+// the failure this family exists to avoid rather than cause.
+//
+// It also pins the two exclusion rules that fall out of the same query: a PAST
+// month is not an upcoming list, and a non-approved show is not publicly
+// reachable.
+func TestSitemapEntriesShowsMonthsMatchTheMonthHistogram(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	venue := &catalogm.Venue{
+		Name:     "Month Room",
+		Slug:     strPtr("month-room"),
+		City:     "Phoenix",
+		State:    "AZ",
+		Timezone: strPtr("America/Phoenix"),
+	}
+	if err := td.DB.Create(venue).Error; err != nil {
+		t.Fatalf("seed venue: %v", err)
+	}
+
+	loc, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	now := time.Now().In(loc)
+	// Mid-month on purpose: a date near a boundary would make the expected slug
+	// depend on the hour this test runs at.
+	soon := time.Date(now.Year(), now.Month(), 15, 20, 0, 0, 0, loc).AddDate(0, 2, 0)
+	later := soon.AddDate(0, 1, 0)
+
+	seed := []struct {
+		slug   string
+		when   time.Time
+		status catalogm.ShowStatus
+	}{
+		// Two in the same upcoming month: the grain is (year, MONTH), not per show.
+		{"sm-soon-a", soon, catalogm.ShowStatusApproved},
+		{"sm-soon-b", soon.AddDate(0, 0, 3), catalogm.ShowStatusApproved},
+		{"sm-later", later, catalogm.ShowStatusApproved},
+		// Past: not upcoming, so its month must not be announced.
+		{"sm-past", now.AddDate(-1, 0, 0), catalogm.ShowStatusApproved},
+		// Upcoming but not publicly reachable.
+		{"sm-pending", soon.AddDate(0, 0, 1), catalogm.ShowStatusPending},
+		// A mistyped event_date. Upcoming, approved, and past the year the
+		// route will address, so the histogram carries it and this family must
+		// not: announcing it would publish a URL the frontend hard-404s.
+		{"sm-far-future", soon.AddDate(showsMonthSitemapMaxYear-soon.Year()+1, 0, 0), catalogm.ShowStatusApproved},
+	}
+	for _, seeded := range seed {
+		show := &catalogm.Show{
+			Title:     "Month " + seeded.slug,
+			Slug:      strPtr(seeded.slug),
+			EventDate: seeded.when.UTC(),
+			Status:    seeded.status,
+		}
+		if err := td.DB.Create(show).Error; err != nil {
+			t.Fatalf("seed show %s: %v", seeded.slug, err)
+		}
+		if err := td.DB.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error; err != nil {
+			t.Fatalf("seed show_venue %s: %v", seeded.slug, err)
+		}
+	}
+
+	entries, err := NewSitemapService(td.DB).Entries(context.Background(), "shows_months")
+	if err != nil {
+		t.Fatalf("Entries(shows_months): %v", err)
+	}
+
+	got := sitemapSlugsOf(entries.ShowsMonths)
+	want := []string{
+		fmt.Sprintf("%04d/%02d", soon.Year(), int(soon.Month())),
+		fmt.Sprintf("%04d/%02d", later.Year(), int(later.Month())),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("shows_months = %v, want exactly %v", got, want)
+	}
+	for i, slug := range want {
+		if got[i] != slug {
+			t.Fatalf("shows_months = %v, want exactly %v (chronological)", got, want)
+		}
+	}
+	if entries.ShowsMonths[0].UpdatedAt.IsZero() {
+		t.Error("shows-month entry has zero UpdatedAt, <lastmod> would be empty")
+	}
+
+	// The page's own authority on which months exist. Anything this family
+	// announces must appear here, or the URL 404s.
+	months, err := NewShowService(td.DB).GetUpcomingShowMonths(false, nil)
+	if err != nil {
+		t.Fatalf("GetUpcomingShowMonths: %v", err)
+	}
+	histogram := map[string]bool{}
+	for _, m := range months {
+		histogram[fmt.Sprintf("%04d/%02d", m.Year, m.Month)] = true
+	}
+	for _, slug := range got {
+		if !histogram[slug] {
+			t.Errorf("shows_months announces %q, which the month histogram (%+v) does not carry", slug, months)
+		}
+	}
+
+	// The histogram is UNBOUNDED, so the two sets differ by exactly the months
+	// past showsMonthSitemapMaxYear. Counting the excess here rather than
+	// asserting equality is what keeps a far-future row from reading as a
+	// histogram disagreement.
+	addressable := 0
+	sawBeyondBound := false
+	for _, m := range months {
+		if m.Year <= showsMonthSitemapMaxYear {
+			addressable++
+		} else {
+			sawBeyondBound = true
+		}
+	}
+	if !sawBeyondBound {
+		t.Fatal("the far-future row did not reach the histogram, so the year bound is untested here")
+	}
+	if len(got) != addressable {
+		t.Errorf("shows_months = %v (%d), want the %d addressable months of %+v", got, len(got), addressable, months)
+	}
+}
+
 // seedSceneWeekGroup seeds one qualifying scene group with the shows spread
 // over every room.
 func seedSceneWeekGroup(t *testing.T, db *gorm.DB, label, city, state string, metro *string, tz string, weekStart time.Time) {

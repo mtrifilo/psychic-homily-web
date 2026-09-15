@@ -167,6 +167,7 @@ describe('classifyLoc', () => {
     const compositeSlugs: Partial<Record<(typeof SITEMAP_FAMILIES)[number], string>> = {
       scene_weeks: 'austin-tx/2026-W28',
       venue_years: 'the-van-buren/shows/2025',
+      shows_months: '2026/11',
     }
     for (const family of SITEMAP_FAMILIES) {
       const slug = compositeSlugs[family] ?? 'a-slug'
@@ -186,6 +187,7 @@ describe('classifyLoc', () => {
     expect(SHARED_CLAIMANTS).toEqual({
       venues: ['venue_years', 'venues'],
       scenes: ['scene_weeks', 'scenes'],
+      shows: ['shows', 'shows_months'],
     })
   })
 })

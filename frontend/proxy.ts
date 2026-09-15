@@ -170,6 +170,67 @@ const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 }
 
 /**
+ * Shape of the date segments under `/shows/`: `/shows/2026/11` and
+ * `/shows/2026/11/14`.
+ *
+ * Fixed width, and EXPORTED so a test can compare this branch's verdict against
+ * the route grammar's on every input rather than assert each against a literal.
+ * The copy is deliberate: this file must not import `features/`, the same
+ * constraint the scenes, charts and venue-year branches work under.
+ */
+export const SHOWS_CALENDAR_MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
+export const SHOWS_CALENDAR_DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
+
+/**
+ * The years a shows window may name. MUST stay in lockstep with the route
+ * grammar's own bound; the test that pins the segment shapes pins these too.
+ *
+ * Not decoration, and the bound does more than the shape. Four digits alone
+ * admits `0026`, whose page emits a canonical the router cannot serve, and
+ * `0000`, which the backend reads as no window at all. It is also the crawl
+ * bound: the page 404s a month with no shows, and a `notFound()` the proxy
+ * waved through commits a 404 BODY at HTTP 200.
+ */
+export const SHOWS_CALENDAR_MIN_YEAR = 2000
+export const SHOWS_CALENDAR_MAX_YEAR = 2100
+
+export function isAddressableShowsYear(segment: string): boolean {
+  if (!/^\d{4}$/.test(segment)) return false
+  const year = Number(segment)
+  return year >= SHOWS_CALENDAR_MIN_YEAR && year <= SHOWS_CALENDAR_MAX_YEAR
+}
+
+/**
+ * Sub-routes under `/shows/<slug>/` that are NOT date segments.
+ *
+ * `opengraph-image` is a file-convention route on the show detail page. It
+ * reaches the same four-segment shape the month route does, and without this it
+ * would be 404ed as a malformed month. The two cannot collide in the router
+ * either, a static segment outranks a dynamic one, so this list is what keeps
+ * the proxy agreeing with the routing layer.
+ */
+const SHOWS_SLUG_SUBROUTES: ReadonlySet<string> = new Set(['opengraph-image'])
+
+/**
+ * Whether three date segments name a day the calendar actually has.
+ *
+ * The same rule `isRealCalendarDate` applies to a scene permalink, reached
+ * through the one implementation rather than a second copy: a day's validity is
+ * Gregorian arithmetic, which needs no database, no timezone and no round trip.
+ *
+ * Exported alongside the segment shapes so `proxy.shows-calendar.test.ts` can
+ * compare this verdict against the route grammar's own on every input, rather
+ * than re-deriving it and testing the re-derivation.
+ */
+export function isRealShowsCalendarDay(
+  year: string,
+  month: string,
+  day: string
+): boolean {
+  return isRealCalendarDate(`${year}-${month}-${day}`)
+}
+
+/**
  * Fixed allowlist for `/charts/[module]` drill-downs plus numeric-year
  * archive first segments (PSY-1422). Unlike entity slug pages there is no
  * backend existence probe — unknown modules are rewritten here so
@@ -275,6 +336,50 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return NextResponse.next()
     }
     return notFoundResponse(request)
+  }
+
+  // Shows: the month and day list routes sit one level BELOW the show detail
+  // shape: `/shows/2026/11` and `/shows/2026/11/14`. The generic
+  // check further down only handles the 3-segment detail shape, so without this
+  // branch a malformed date streams a 200 shell before the route's own
+  // `notFound()` resolves, and every junk segment under `/shows/` becomes a
+  // soft-404 (the PSY-897 arc; the scene period routes hit the same trap).
+  //
+  // SHAPE ONLY, which is the locked scope for this prefix rather than the limit
+  // of what could be checked. The half settled here is the half a crawler can
+  // walk for free, and it is the larger one: every four-digit year crossed with
+  // every two-character segment.
+  //
+  // MEMBERSHIP is not settled here, and the consequence is stated rather than
+  // implied: a well-formed month with no shows reaches the route, whose
+  // `notFound()` lands after the shell has streamed and so commits a 404 body
+  // at HTTP 200. Closing that needs a status-bearing existence probe, which is
+  // the shape every other branch in this file uses and which the upcoming month
+  // histogram has no endpoint for.
+  if (
+    entityType === 'shows' &&
+    slug &&
+    (segments.length === 4 || segments.length === 5)
+  ) {
+    if (segments.length === 4 && SHOWS_SLUG_SUBROUTES.has(segments[3])) {
+      return NextResponse.next()
+    }
+    if (
+      !isAddressableShowsYear(slug) ||
+      !SHOWS_CALENDAR_MONTH_SEGMENT.test(segments[3])
+    ) {
+      return notFoundResponse(request)
+    }
+    if (segments.length === 5) {
+      const day = segments[4]
+      if (
+        !SHOWS_CALENDAR_DAY_SEGMENT.test(day) ||
+        !isRealShowsCalendarDay(slug, segments[3], day)
+      ) {
+        return notFoundResponse(request)
+      }
+    }
+    return NextResponse.next()
   }
 
   // Scenes: the weekly and nightly city pages sit one level BELOW the scene
