@@ -593,18 +593,18 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 	return entries, nil
 }
 
-// showsMonthSitemapMinYear and showsMonthSitemapMaxYear bound the months this
-// family may announce, and they are the SAME bound the month route applies to
-// its year segment.
+// showsMonthSitemapMaxYear is the last year this family may announce, and it is
+// the upper half of the bound the month route applies to its year segment.
 //
 // A show can carry any event_date the submitter typed, so without this a single
 // mistyped year publishes a URL the frontend answers with a hard 404: the route
-// refuses a year outside the bound before it renders. The sitemap must never
-// announce an address the site refuses, so the bound belongs on both sides.
-const (
-	showsMonthSitemapMinYear = 2000
-	showsMonthSitemapMaxYear = 2100
-)
+// refuses a year outside its bound before it renders, and a sitemap must never
+// announce an address the site refuses.
+//
+// ONLY the upper half is stated here. The lower one cannot fire: the upcoming
+// condition below already excludes every date behind today, so no surviving row
+// can sit below the current year.
+const showsMonthSitemapMaxYear = 2100
 
 // showsMonthEntries projects one SitemapEntry per venue-local calendar month
 // that has at least one approved UPCOMING show: the crawlable month pages at
@@ -612,10 +612,11 @@ const (
 //
 // UPCOMING only, and that is the whole definition of the surface rather than a
 // filter applied to it. The set this emits must equal the set
-// GetUpcomingShowMonths returns for an unfiltered public read, bounded by the
-// years above, because that histogram is what decides whether a month page
-// renders; a month announced here that it does not carry is a URL this site
-// answers with a not-found.
+// GetUpcomingShowMonths returns for an unfiltered public read, MINUS the months
+// past showsMonthSitemapMaxYear, because that histogram is what decides whether
+// a month page renders; a month announced here that it does not carry is a URL
+// this site answers with a not-found, and a month past the bound is one the
+// route refuses before it reads anything.
 //
 // THE EQUALITY IS HELD BY A TEST, NOT BY CONSTRUCTION. This query restates the
 // partition rather than composing the applier the histogram builds on, so a
@@ -654,7 +655,7 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 		Joins(shared.VenueTZJoin).
 		Where("shows.status = ?", catalogm.ShowStatusApproved).
 		Where(shared.VenueLocalDateCondition("upcoming")).
-		Where(shared.VenueLocalYearSQL+" BETWEEN ? AND ?", showsMonthSitemapMinYear, showsMonthSitemapMaxYear).
+		Where(shared.VenueLocalYearSQL+" <= ?", showsMonthSitemapMaxYear).
 		Select(shared.VenueLocalYearSQL + ` AS "year", ` + shared.VenueLocalMonthSQL + ` AS "month", MAX(shows.updated_at) AS updated_at`).
 		Group(shared.VenueLocalYearSQL + ", " + shared.VenueLocalMonthSQL).
 		Scan(&rows).Error

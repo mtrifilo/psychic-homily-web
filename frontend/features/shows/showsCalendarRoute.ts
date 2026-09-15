@@ -56,11 +56,14 @@ export const SHOWS_CALENDAR_MAX_YEAR = 2100
 const MONTH_SEGMENT = /^(0[1-9]|1[0-2])$/
 const DAY_SEGMENT = /^(0[1-9]|[12]\d|3[01])$/
 
+/** Whether a year is inside the addressable range. */
+export function isAddressableYearNumber(year: number): boolean {
+  return year >= SHOWS_CALENDAR_MIN_YEAR && year <= SHOWS_CALENDAR_MAX_YEAR
+}
+
 /** Whether a four-digit year segment is inside the addressable range. */
 export function isAddressableYear(yearSegment: string): boolean {
-  if (!YEAR_SEGMENT.test(yearSegment)) return false
-  const year = Number(yearSegment)
-  return year >= SHOWS_CALENDAR_MIN_YEAR && year <= SHOWS_CALENDAR_MAX_YEAR
+  return YEAR_SEGMENT.test(yearSegment) && isAddressableYearNumber(Number(yearSegment))
 }
 
 /** Two digits, the spelling every month and day segment is written in. */

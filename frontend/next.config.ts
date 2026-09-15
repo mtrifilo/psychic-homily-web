@@ -124,10 +124,10 @@ const nextConfig: NextConfig = {
       // itself two digits in 01-31 therefore no longer flattens.
       // `next.config.shows-redirect.test.ts` asserts the partition.
       //
-      // The lookahead ends on a SEGMENT boundary rather than a path end.
-      // path-to-regexp appends its own optional `[/#?]` suffix, so a bare `$`
-      // inside the lookahead stops matching as soon as anything follows the day
-      // and the rule reclaims `/shows/2026/11/14/`.
+      // The lookahead ends on a SEGMENT boundary rather than a path end. The
+      // compiled rule carries an optional trailing group of its own, so a bare
+      // `$` inside the lookahead stops applying as soon as anything follows the
+      // day, and the rule reclaims `/shows/2026/11/14/`.
       {
         source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug((?!(?:0[1-9]|[12]\\d|3[01])(?:[/#?]|$))[^/]+)',
         destination: '/shows/:slug',

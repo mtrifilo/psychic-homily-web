@@ -45,25 +45,35 @@ describe('the legacy Hugo shows redirect', () => {
   }
 
   /**
-   * The rule's `source` compiled the way Next compiles it, through its own
-   * bundled matcher.
+   * The rule's `source` compiled by Next's OWN compiler, `buildCustomRoute`,
+   * rather than by this file's idea of it.
    *
-   * Compiling the WHOLE source rather than extracting the `:slug` sub-pattern
-   * is what makes this test able to see the optional `[/#?]` suffix
-   * path-to-regexp appends: a lookahead anchored on `$` stops applying the
-   * moment anything follows the day segment, and a sub-pattern lifted out of
-   * its context cannot show that.
+   * Compiling the whole source rather than extracting the `:slug` sub-pattern
+   * is what makes this test able to see the optional trailing group Next
+   * appends: a lookahead anchored on `$` stops applying the moment anything
+   * follows the day segment, and a sub-pattern lifted out of its context
+   * cannot show that. Reaching for Next's compiler rather than calling
+   * `pathToRegexp` directly is what keeps the options (`strict`, the delimiter,
+   * the redirect-specific regex rewrite) the ones that actually run.
    */
   async function ruleMatcher() {
     const rule = await flattenRule()
-    // Next bundles its own copy and ships no types for it. The cast is the
-    // narrowest statement of what this test needs: the compiler Next itself
-    // applies to a redirect source.
-    const compiled = (await import(
-      // @ts-expect-error - no type declarations ship with the bundled copy
-      'next/dist/compiled/path-to-regexp/index.js'
-    )) as { pathToRegexp: (source: string) => RegExp }
-    return compiled.pathToRegexp(rule.source)
+    // Next's internals carry their own declarations, so the shape is asserted
+    // rather than suppressed: this test needs exactly the compiled regex.
+    const { buildCustomRoute } = (await import(
+      'next/dist/lib/build-custom-route.js'
+    )) as unknown as {
+      buildCustomRoute: (
+        type: string,
+        route: { source: string; destination: string; permanent: boolean }
+      ) => { regex: string }
+    }
+    const built = buildCustomRoute('redirect', {
+      source: rule.source,
+      destination: rule.destination,
+      permanent: rule.permanent === true,
+    })
+    return new RegExp(built.regex)
   }
 
   it('claims a final segment exactly when the day route does not', async () => {
@@ -83,10 +93,11 @@ describe('the legacy Hugo shows redirect', () => {
       segments.push(String(value))
     }
 
-    // A bare path, and every suffix path-to-regexp's own trailing group can
-    // absorb. The suffixed forms are the ones a lookahead anchored on `$` gets
-    // wrong, and they are exactly the shape the legacy Hugo URLs had.
-    const suffixes = ['', '/', '#frag', '?page=2']
+    // A bare path and the trailing-slash form. Next matches the PATHNAME, so
+    // those are the two shapes that reach this rule, and the slashed one is how
+    // the legacy Hugo URLs were written. It is also the one a lookahead
+    // anchored on a path end gets wrong.
+    const suffixes = ['', '/']
 
     for (const segment of segments) {
       const isDayShaped = SHOWS_CALENDAR_DAY_SEGMENT.test(segment)

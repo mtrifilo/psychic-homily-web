@@ -1192,6 +1192,32 @@ describe('ShowList', () => {
       expect(page2.getAttribute('href')).toMatch(/^\/shows\/2026\/11\?/)
     })
 
+    /**
+     * A show carrying a mistyped far-future date puts a bucket in the histogram
+     * whose URL the route refuses on its year bound, and a bar is a link.
+     */
+    it('drops a month the route would not address', () => {
+      mockUseShowMonths.mockReturnValue({
+        data: {
+          months: [
+            { year: 2026, month: 11, count: 68 },
+            { year: 2200, month: 3, count: 1 },
+          ],
+          total: 69,
+        },
+        isPlaceholderData: false,
+      })
+
+      render(<ShowList window={NOVEMBER} />)
+
+      const strip = screen.getByTestId('month-strip')
+      expect(within(strip).getByRole('link', { name: /^Nov / })).toBeInTheDocument()
+      expect(
+        within(strip).queryByRole('link', { name: /^Mar / })
+      ).not.toBeInTheDocument()
+      expect(strip.innerHTML).not.toContain('/shows/2200/03')
+    })
+
     it('marks the month in view as the current page in the strip', () => {
       render(<ShowList window={NOVEMBER} />)
 

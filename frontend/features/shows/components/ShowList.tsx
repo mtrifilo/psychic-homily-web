@@ -28,6 +28,7 @@ import { SHOWS_PAGE_SIZE, showsPageHref } from '../showsListNavigation'
 import {
   SHOWS_ROOT,
   adjacentMonths,
+  isAddressableYearNumber,
   shortCalendarMonthLabel,
   showsMonthPath,
   showsWindowPath,
@@ -310,9 +311,11 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
     [searchParams]
   )
 
-  // The strip's bars. The histogram is the ONLY thing that says which months
-  // are documents, so passing it through is what keeps the strip from offering
-  // a link the route answers with a not-found.
+  // The strip's bars. The histogram is what says which months have shows, and
+  // the year bound is what says which of those are addressable: a show carrying
+  // a mistyped far-future date puts a bucket in the histogram whose URL the
+  // route refuses, and a bar is a link. Both filters, so no bar can be a
+  // not-found.
   //
   // Held across a filter change, where `labelBuckets` above is withheld. The
   // two carry different claims: a page label states which months a page the
@@ -320,7 +323,13 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // arriving; a bar states a count beside a link that re-filters on arrival, so
   // the outgoing filter's counts are stale for the moment the rows beside them
   // are, and blanking the navigation would take the way out with them.
-  const monthEntries = monthsData?.months ?? NO_MONTHS
+  const monthEntries = useMemo(
+    () =>
+      (monthsData?.months ?? NO_MONTHS).filter(entry =>
+        isAddressableYearNumber(entry.year)
+      ),
+    [monthsData?.months]
+  )
 
   // The strip takes a (year, month) pair; this is the same window href with
   // that shape, memoized so the strip does not see a new function every render.

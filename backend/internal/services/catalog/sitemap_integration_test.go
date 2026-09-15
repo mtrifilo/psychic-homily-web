@@ -734,6 +734,10 @@ func TestSitemapEntriesShowsMonthsMatchTheMonthHistogram(t *testing.T) {
 		{"sm-past", now.AddDate(-1, 0, 0), catalogm.ShowStatusApproved},
 		// Upcoming but not publicly reachable.
 		{"sm-pending", soon.AddDate(0, 0, 1), catalogm.ShowStatusPending},
+		// A mistyped event_date. Upcoming, approved, and past the year the
+		// route will address, so the histogram carries it and this family must
+		// not: announcing it would publish a URL the frontend hard-404s.
+		{"sm-far-future", soon.AddDate(showsMonthSitemapMaxYear-soon.Year()+1, 0, 0), catalogm.ShowStatusApproved},
 	}
 	for _, seeded := range seed {
 		show := &catalogm.Show{
@@ -787,8 +791,25 @@ func TestSitemapEntriesShowsMonthsMatchTheMonthHistogram(t *testing.T) {
 			t.Errorf("shows_months announces %q, which the month histogram (%+v) does not carry", slug, months)
 		}
 	}
-	if len(histogram) != len(got) {
-		t.Errorf("month histogram = %+v, want exactly the %d announced months", months, len(got))
+
+	// The histogram is UNBOUNDED, so the two sets differ by exactly the months
+	// past showsMonthSitemapMaxYear. Counting the excess here rather than
+	// asserting equality is what keeps a far-future row from reading as a
+	// histogram disagreement.
+	addressable := 0
+	sawBeyondBound := false
+	for _, m := range months {
+		if m.Year <= showsMonthSitemapMaxYear {
+			addressable++
+		} else {
+			sawBeyondBound = true
+		}
+	}
+	if !sawBeyondBound {
+		t.Fatal("the far-future row did not reach the histogram, so the year bound is untested here")
+	}
+	if len(got) != addressable {
+		t.Errorf("shows_months = %v (%d), want the %d addressable months of %+v", got, len(got), addressable, months)
 	}
 }
 
