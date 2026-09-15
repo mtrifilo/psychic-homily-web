@@ -599,7 +599,7 @@ func (suite *ShowServiceIntegrationTestSuite) requireMonthInRange(
 //
 // The sweep is the assertion. The span is stated in months and a month has no
 // zone, so the property that matters is not which UTC month the edges landed in
-// but that no inhabited zone's own current month falls outside them — which is
+// but that no inhabited zone's own current month falls outside them, which is
 // exactly the dead-end a Tonight link would hit on the one night a year the two
 // calendars disagree.
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_EmptyCatalogStillAddressesTodayEverywhere() {

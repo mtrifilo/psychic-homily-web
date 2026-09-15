@@ -267,7 +267,7 @@ func (s *ShowService) GetUpcomingShowMonths(
 // FORWARD is a week, which covers the same offset band plus the furthest date
 // the quick-window row can address: "This weekend" anchors on the coming Friday,
 // four days out on a Monday. Without it, a Monday in the last days of a month
-// with nothing upcoming next month sends that chip to a hard 404 — the dead end
+// with nothing upcoming next month sends that chip to a hard 404, the dead end
 // the range exists to prevent. A week leaves margin for the run lengths those
 // chips carry.
 //
