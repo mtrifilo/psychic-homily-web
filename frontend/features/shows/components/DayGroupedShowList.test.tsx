@@ -281,8 +281,11 @@ describe('DayGroupedShowList', () => {
 
       expect(css).toContain('--shows-day-header-height')
       expect(css).toMatch(
-        /\.shows-day-rows :where\([^)]*\)\s*\{\s*scroll-margin-top: calc\(\s*var\(--topbar-height\) \+ var\(--shows-day-header-height\)/
+        /\.shows-day-rows\s+:where\([^)]*\)\s*\{\s*scroll-margin-top: calc\(\s*var\(--topbar-height\) \+ var\(--shows-day-header-height\)/
       )
+      // The expanded row mounts a music embed, so the clearance has to reach an
+      // iframe as well as the links and buttons of a collapsed row.
+      expect(css).toMatch(/\.shows-day-rows\s+:where\([^)]*\biframe\b[^)]*\)/)
       expect(css).toMatch(
         /\.shows-day-heading :where\(a\)\s*\{\s*scroll-margin-top: calc\(/
       )
