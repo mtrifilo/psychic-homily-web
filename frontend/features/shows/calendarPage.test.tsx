@@ -89,116 +89,108 @@ beforeEach(() => {
  * that are the way out of it.
  */
 describe('ShowsCalendarContent renders every window it is given', () => {
-  it('renders a month that has shows', async () => {
-    answerWith({ rows: page(68), months: HISTOGRAM })
+  it.each([
+    ['a month that has shows', NOVEMBER, page(68), HISTOGRAM],
+    ['a month with nothing in it', NOVEMBER, page(0), HISTOGRAM],
+    ['a day with nothing in it', NOVEMBER_14, page(0), HISTOGRAM],
+    ['a run with nothing in it', { ...NOVEMBER_14, days: 3 }, page(0), HISTOGRAM],
+    // The histogram bounds the month AXIS; the addressable span bounds the URL
+    // space, and a month the histogram does not carry is one of the quiet
+    // pages this route now serves rather than a question for this component.
+    ['a month the histogram does not carry', { year: 2199, month: 1 }, page(0), HISTOGRAM],
+    ['a window whose reads failed', NOVEMBER, null, null],
+  ])('renders %s', async (_label, window, rows, months) => {
+    answerWith({ rows, months })
 
     await expect(
       ShowsCalendarContent({
-        window: NOVEMBER,
+        window,
         searchParams: Promise.resolve({}),
       })
     ).resolves.toBeTruthy()
   })
 
-  it('renders a month with nothing in it', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
+})
 
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER,
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  it('renders a day with nothing in it', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER_14,
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  it('renders a run with nothing in it', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { ...NOVEMBER_14, days: 3 },
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  /**
-   * A month the histogram does not carry is no longer the component's question.
-   * The histogram bounds the month AXIS; the span bounds the URL space, and a
-   * quiet month inside the span is exactly the page this route now serves.
-   */
-  it('renders a month the histogram does not carry', async () => {
-    answerWith({ rows: page(0), months: HISTOGRAM })
-
-    await expect(
-      ShowsCalendarContent({
-        window: { year: 2199, month: 1 },
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  it('renders when a read failed', async () => {
-    answerWith({ rows: null, months: null })
-
-    await expect(
-      ShowsCalendarContent({
-        window: NOVEMBER,
-        searchParams: Promise.resolve({}),
-      })
-    ).resolves.toBeTruthy()
-  })
-
-  /**
-   * A deep page skips the row read: a seed attaches to whatever key is current,
-   * so seeding page 2 with page 1's slice would look like a cache hit and never
-   * correct itself.
-   */
-  it('seeds page 1 and skips the row read on a deep page', async () => {
+describe('ShowsCalendarContent, the first-screen seed', () => {
+  it('reads page 1 of the window at the URL the hook asks for', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM })
 
     await ShowsCalendarContent({
       window: NOVEMBER,
       searchParams: Promise.resolve({}),
     })
-    const firstScreenUrl = showsCalendarWindowFirstScreenUrl(NOVEMBER)
-    expect(
-      fetchListPayload.mock.calls.some(
-        (call: unknown[]) => (call[0] as { url: string }).url === firstScreenUrl
-      )
-    ).toBe(true)
-    expect(seedFirstScreen).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          queryKey: showsCalendarWindowFirstScreenKey(NOVEMBER),
-        }),
-      ])
-    )
 
-    vi.clearAllMocks()
-    seedFirstScreen.mockResolvedValue({ queries: [] })
+    expect(fetchListPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: showsCalendarWindowFirstScreenUrl(NOVEMBER),
+      })
+    )
+  })
+
+  it('seeds the rows onto the WINDOW entry, never the root list one', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM })
 
     await ShowsCalendarContent({
       window: NOVEMBER,
-      searchParams: Promise.resolve({ page: '2' }),
+      searchParams: Promise.resolve({}),
     })
-    expect(
-      fetchListPayload.mock.calls.some(
-        (call: unknown[]) => (call[0] as { url: string }).url === firstScreenUrl
-      )
-    ).toBe(false)
+
+    const seeds = seedFirstScreen.mock.calls[0][0]
+    expect(seeds[0].queryKey).toEqual(showsCalendarWindowFirstScreenKey(NOVEMBER))
+  })
+
+  /**
+   * A seed attaches to whatever key is current, so seeding page 2 with page 1's
+   * slice would look like a cache hit and never correct itself.
+   */
+  it('reads no rows at all on a deep page', async () => {
+    answerWith({ rows: page(68), months: HISTOGRAM })
+
+    await ShowsCalendarContent({
+      window: NOVEMBER,
+      searchParams: Promise.resolve({ page: '3' }),
+    })
+
+    const urls = fetchListPayload.mock.calls.map(
+      (call: unknown[]) => (call[0] as { url: string }).url
+    )
+    expect(urls.some((url: string) => url.includes('/shows/calendar'))).toBe(false)
+    expect(seedFirstScreen).not.toHaveBeenCalled()
+  })
+
+  // `ShowList` renders its skeleton while EITHER the rows or the cities are
+  // loading, so seeding one without the other server-renders the skeleton.
+  // A run and its anchor day are different sets of rows, so the seed has to
+  // land on the run's own entry or the page renders the skeleton and refetches.
+  it('seeds a run onto the run s entry, not the day s', async () => {
+    const run = { ...NOVEMBER_14, days: 3 }
+    answerWith({ rows: page(9), months: HISTOGRAM })
+
+    await ShowsCalendarContent({
+      window: run,
+      searchParams: Promise.resolve({}),
+    })
+
+    expect(fetchListPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ url: showsCalendarWindowFirstScreenUrl(run) })
+    )
+    const seeds = seedFirstScreen.mock.calls[0][0]
+    expect(seeds[0].queryKey).toEqual(showsCalendarWindowFirstScreenKey(run))
+    expect(seeds[0].queryKey).not.toEqual(
+      showsCalendarWindowFirstScreenKey(NOVEMBER_14)
+    )
+  })
+
+  it('seeds nothing when the cities read failed', async () => {
+    answerWith({ rows: page(68), months: HISTOGRAM, cities: null })
+
+    await ShowsCalendarContent({
+      window: NOVEMBER,
+      searchParams: Promise.resolve({}),
+    })
+
+    expect(seedFirstScreen).not.toHaveBeenCalled()
   })
 })
 
@@ -257,6 +249,8 @@ describe('buildShowsCalendarMetadata, which windows are indexable', () => {
     expect(metadata.alternates?.canonical).toBe(
       'https://psychichomily.com/shows/2026/11/14'
     )
+    // A run is suppressed on its shape, so the head reads nothing for one.
+    expect(fetchListPayload).not.toHaveBeenCalled()
   })
 
   /** Segments that cannot be a window need no read at all. */

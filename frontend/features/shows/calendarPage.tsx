@@ -82,9 +82,10 @@ function windowSelfUrl(window: ShowsCalendarWindow): string {
  * Page 1 of a window, read at most once per request.
  *
  * `React.cache` so the head and the body share ONE trip to the API, the same
- * wrapper the scene pages use for the same reason. The key is the URL rather
- * than the window, so the two callers cannot miss each other by building the
- * same request two ways.
+ * wrapper the scene pages use for the same reason. The argument is the URL
+ * STRING because `cache` matches arguments by identity: keyed on the window,
+ * the head and the body would each pass their own object literal and neither
+ * would ever hit the other's entry.
  */
 const readWindowFirstScreen = cache(
   (url: string): Promise<ShowsCalendarResponse | null> =>
@@ -123,22 +124,23 @@ export async function buildShowsCalendarMetadata(
   const description = `Every upcoming show we have on record ${windowPreposition(window)} ${label}.`
   const canonical = windowUrl(window)
 
+  // Two windows are served but not indexed, and `follow` stays on for both
+  // because the way out of either is the links on it.
+  //
   // A RUN is a relative window resolved to an absolute anchor: "this weekend"
   // means a different three days every week, so the URL a reader shares is
   // worth keeping and the page behind it is not worth an index entry. It is
-  // already canonical to the day root, which is the identity that IS indexed;
-  // `follow` because every row on it links somewhere that should be crawled.
+  // already canonical to the day root, which is the identity that IS indexed.
+  // Its shape decides it, so it short-circuits the read: the chips resolve to
+  // runs, and reading here would be a request per followed chip to restate a
+  // verdict the shape already gives.
   //
-  // A QUIET window is suppressed on the same terms and for the same reason the
-  // scene pages suppress an empty night: real, worth serving, worth linking out
-  // of, not worth an index entry. Outside the addressable span there is no page
-  // at all, and `proxy.ts` answers those with a status before this runs.
-  //
-  // Only a POSITIVE zero suppresses. A read that FAILED is not an answer, and
-  // treating it as one would noindex every window on the site during a backend
-  // blip.
-  const page = await readWindowPage(window)
-  const suppress = window.days !== undefined || page?.total === 0
+  // A QUIET window is suppressed on the same terms the scene pages suppress an
+  // empty night: real, worth serving, not worth an index entry. Only a POSITIVE
+  // zero counts. A read that FAILED is not an answer, and treating it as one
+  // would noindex every window on the site during a backend blip.
+  const suppress =
+    window.days !== undefined || (await readWindowPage(window))?.total === 0
 
   return {
     title,
@@ -270,9 +272,9 @@ export async function ShowsCalendarContent({
  * stated once. `window` is already parsed when it arrives: parsing is the
  * route file's own job, and the only one it has.
  */
-export function showsCalendarRouteMetadata(
+export async function showsCalendarRouteMetadata(
   window: ShowsCalendarWindow | null
-): Promise<Metadata> | Metadata {
+): Promise<Metadata> {
   if (window === null) {
     return { title: 'Shows not found', robots: { index: false, follow: false } }
   }

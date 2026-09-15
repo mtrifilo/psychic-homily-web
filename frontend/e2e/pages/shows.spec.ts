@@ -365,14 +365,12 @@ test.describe('Shows month and day routes', () => {
     })
 
     const filled = new Set(
-      (
-        await page
-          .getByTestId('day-grouped-show-list')
-          .locator(`a[href^="/shows/${year}/${month}/"]`)
-          .evaluateAll(links =>
-            links.map(link => (link as HTMLAnchorElement).getAttribute('href'))
-          )
-      ).map(dayHref => dayHref?.split('/').pop())
+      await page
+        .getByTestId('day-grouped-show-list')
+        .locator(`a[href^="/shows/${year}/${month}/"]`)
+        .evaluateAll(links =>
+          links.map(link => link.getAttribute('href')?.split('/').pop())
+        )
     )
 
     const quietDay = Array.from({ length: 28 }, (_, index) =>

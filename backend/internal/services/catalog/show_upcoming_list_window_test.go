@@ -615,9 +615,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShowsCalendarRange_
 		"the span must never be inverted")
 
 	for _, callerZone := range everyCallerOffsetZone() {
-		loc, err := time.LoadLocation(callerZone)
-		suite.Require().NoError(err, "load zone %q", callerZone)
-		today := time.Now().In(loc)
+		today := time.Now().In(mustLoadZone(suite.T(), callerZone))
 		suite.requireMonthInRange(rng,
 			contracts.ShowCalendarMonth{Year: today.Year(), Month: int(today.Month())},
 			"today in "+callerZone)

@@ -469,8 +469,13 @@ type ShowCalendarMonth struct {
 //
 // UNFILTERED and approved-only, so the answer is the same for every caller and
 // the response is shareable by any cache between here and the reader.
+//
+// FirstMonth is a 404 bound, not a display bound. It is deliberately WIDE
+// enough to hold the current month on every clock a reader could be asking
+// from, so a surface that printed it as "the earliest month we have" would
+// sometimes print a month that ended yesterday where the reader stands.
 type ShowCalendarRange struct {
-	FirstMonth ShowCalendarMonth `json:"first_month" doc:"Earliest addressable venue-local month"`
+	FirstMonth ShowCalendarMonth `json:"first_month" doc:"Earliest addressable venue-local month. A bound on which URLs exist, wide enough to hold the current month in every timezone"`
 	LastMonth  ShowCalendarMonth `json:"last_month" doc:"Latest addressable venue-local month, never earlier than first_month"`
 }
 

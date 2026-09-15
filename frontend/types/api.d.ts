@@ -16741,7 +16741,7 @@ export interface components {
              * @example https://example.com/schemas/ShowCalendarRange.json
              */
             readonly $schema?: string;
-            /** @description Earliest addressable venue-local month */
+            /** @description Earliest addressable venue-local month. A bound on which URLs exist, wide enough to hold the current month in every timezone */
             first_month: components["schemas"]["ShowCalendarMonth"];
             /** @description Latest addressable venue-local month, never earlier than first_month */
             last_month: components["schemas"]["ShowCalendarMonth"];

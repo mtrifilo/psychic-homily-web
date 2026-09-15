@@ -624,6 +624,13 @@ const API_ERROR_CONTENT_TYPE = 'application/problem+json'
  * instead — the backend can answer the question in one indexed row, and a body
  * this function parses is a body every OTHER caller pays to receive.
  *
+ * `readShowsCalendarRange` below is the ONE exception, and what makes it one is
+ * that it asks about the URL SPACE rather than about a URL: one span bounds
+ * every dated shows window, so it is read once per instance and compared here
+ * in memory, where a status-bearing probe would be a backend call per dated URL
+ * a crawler walks. A probe that answers about ONE address belongs in this
+ * function.
+ *
  * The fail-open rules are the load-bearing part: a backend 404 is the only
  * "missing", and anything else (5xx, 403, 429, a network error) lets the page
  * render. Producing a 404 on a transient blip would mask a real outage as
@@ -781,12 +788,20 @@ const SHOWS_CALENDAR_RANGE_TTL_MS = 300_000
  */
 const SHOWS_CALENDAR_RANGE_UNKNOWN_TTL_MS = 30_000
 
+/**
+ * The cached span, held as the PROMISE rather than the resolved value.
+ *
+ * One entry is both the cache and the single-flight guard: a request arriving
+ * while the probe is open finds the entry and awaits the same promise, so a
+ * cold instance taking a burst of dated URLs sends one probe rather than one
+ * per request. The entry is stamped with the unknown window first and restamped
+ * when the probe settles, which is safe because `fetchShowsCalendarRange`
+ * resolves for every outcome and rejects for none.
+ */
 let showsCalendarRangeCache: {
-  range: ShowsCalendarRange | null
+  range: Promise<ShowsCalendarRange | null>
   expiresAt: number
 } | null = null
-
-let showsCalendarRangeInFlight: Promise<ShowsCalendarRange | null> | null = null
 
 /** Two months on one axis, so December cannot compare as later than January. */
 function showsCalendarMonthOrdinal(year: number, month: number): number {
@@ -800,19 +815,21 @@ function showsCalendarMonthOrdinal(year: number, month: number): number {
  * unanswered probe rather than a span of `NaN`, which would compare false
  * against everything and 404 the whole family.
  */
+function edgeOrdinal(edge: unknown): number | null {
+  if (typeof edge !== 'object' || edge === null) return null
+  const { year, month } = edge as { year?: unknown; month?: unknown }
+  if (typeof year !== 'number' || !Number.isInteger(year)) return null
+  if (typeof month !== 'number' || !Number.isInteger(month)) return null
+  if (month < 1 || month > 12) return null
+  return showsCalendarMonthOrdinal(year, month)
+}
+
 function parseShowsCalendarRange(body: unknown): ShowsCalendarRange | null {
   if (typeof body !== 'object' || body === null) return null
   const { first_month: first, last_month: last } = body as Record<string, unknown>
-  const ordinalOf = (month: unknown): number | null => {
-    if (typeof month !== 'object' || month === null) return null
-    const { year, month: monthNumber } = month as Record<string, unknown>
-    if (!Number.isInteger(year) || !Number.isInteger(monthNumber)) return null
-    if ((monthNumber as number) < 1 || (monthNumber as number) > 12) return null
-    return showsCalendarMonthOrdinal(year as number, monthNumber as number)
-  }
 
-  const firstOrdinal = ordinalOf(first)
-  const lastOrdinal = ordinalOf(last)
+  const firstOrdinal = edgeOrdinal(first)
+  const lastOrdinal = edgeOrdinal(last)
   if (firstOrdinal === null || lastOrdinal === null) return null
   // An inverted span would 404 every month including the current one.
   if (lastOrdinal < firstOrdinal) return null
@@ -856,41 +873,26 @@ async function fetchShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
   }
 }
 
-/**
- * The span, from this instance's cache when it is warm.
- *
- * Concurrent misses share ONE request. Without that, a cold instance taking a
- * burst of dated URLs would send one probe per request, which is the shape this
- * cache exists to avoid.
- */
+/** The span, from this instance's cache when it is warm. */
 function readShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
   const now = Date.now()
   if (showsCalendarRangeCache && showsCalendarRangeCache.expiresAt > now) {
-    return Promise.resolve(showsCalendarRangeCache.range)
-  }
-  if (showsCalendarRangeInFlight) {
-    return showsCalendarRangeInFlight
+    return showsCalendarRangeCache.range
   }
 
-  const request = fetchShowsCalendarRange()
-    .then(range => {
-      showsCalendarRangeCache = {
-        range,
-        expiresAt:
-          Date.now() +
-          (range === null
-            ? SHOWS_CALENDAR_RANGE_UNKNOWN_TTL_MS
-            : SHOWS_CALENDAR_RANGE_TTL_MS),
-      }
-      return range
-    })
-    .finally(() => {
-      if (showsCalendarRangeInFlight === request) {
-        showsCalendarRangeInFlight = null
-      }
-    })
-  showsCalendarRangeInFlight = request
-  return request
+  const entry = {
+    range: fetchShowsCalendarRange(),
+    expiresAt: now + SHOWS_CALENDAR_RANGE_UNKNOWN_TTL_MS,
+  }
+  showsCalendarRangeCache = entry
+  void entry.range.then(range => {
+    entry.expiresAt =
+      Date.now() +
+      (range === null
+        ? SHOWS_CALENDAR_RANGE_UNKNOWN_TTL_MS
+        : SHOWS_CALENDAR_RANGE_TTL_MS)
+  })
+  return entry.range
 }
 
 /**
