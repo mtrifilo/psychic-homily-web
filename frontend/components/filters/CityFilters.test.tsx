@@ -8,6 +8,7 @@ import {
   type CityState,
 } from './CityFilters'
 import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/softKeyboardViewport'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 // jsdom does not implement scrollIntoView (required by cmdk)
 beforeAll(() => {
@@ -40,11 +41,12 @@ describe('CityFilters', () => {
     expect(screen.getByText('Filter by city...')).toBeInTheDocument()
   })
 
-  // The trigger reaches server HTML on /shows and /venues (PSY-1624), so it is
-  // clickable for the whole pre-hydration window and a click there is dropped
-  // unless it is a replay root. The marker attribute is the load-bearing half
-  // of `replayOnHydrate` — `PopoverTrigger asChild` composes the ref half, and
-  // a ref refactor that lost the attribute would silently reinstate the drop.
+  // The trigger reaches server HTML on /shows and /venues, so it is clickable
+  // for the whole pre-hydration window and a click there is dropped unless it
+  // is a replay root. `replayOnHydrate` has two halves and both are needed: the
+  // marker attribute below, and the ref that consumes the buffered click. The
+  // component composes that ref with one of its own, so each half is pinned
+  // separately - either one lost alone leaves a control that looks adopted.
   it('marks the combobox trigger as a click-replay root', () => {
     render(
       <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
@@ -53,6 +55,22 @@ describe('CityFilters', () => {
     expect(screen.getByTestId('city-filter-combobox')).toHaveAttribute(
       'data-replay-on-hydrate'
     )
+  })
+
+  it('hands the trigger node to the click-replay ref', () => {
+    const replayRef = vi.spyOn(
+      replayOnHydrate as { ref: (node: HTMLElement | null) => void },
+      'ref'
+    )
+
+    render(
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+    )
+
+    expect(replayRef).toHaveBeenCalledWith(
+      screen.getByTestId('city-filter-combobox')
+    )
+    replayRef.mockRestore()
   })
 
   it('opens the dropdown when combobox is clicked', async () => {
@@ -391,6 +409,23 @@ describe('CityFilters', () => {
       await user.click(trigger)
 
       expect(trigger.scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+    })
+
+    it('does not scroll the page again when the popover closes', async () => {
+      mockSoftKeyboardViewport(true)
+      const user = userEvent.setup()
+      render(
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      )
+
+      const trigger = screen.getByTestId('city-filter-combobox')
+      trigger.scrollIntoView = vi.fn()
+
+      await user.click(trigger)
+      await user.keyboard('{Escape}')
+
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      expect(trigger.scrollIntoView).toHaveBeenCalledTimes(1)
     })
 
     it('does not scroll the page on a pointer viewport', async () => {

@@ -10,6 +10,9 @@ const PHONE_VIEWPORT = { width: 390, height: 844 }
  */
 const KEYBOARD_VIEWPORT_HEIGHT = 302
 
+/** `--topbar-height` in globals.css, the sticky header the trigger scrolls under. */
+const TOPBAR_HEIGHT = 56
+
 type ViewportShim = { __shrinkVisualViewport: (height: number) => void }
 
 /**
@@ -91,8 +94,8 @@ test.describe('City filter on a phone viewport', () => {
     await expect(trigger).toBeVisible({ timeout: 10_000 })
     expect(await page.evaluate(() => window.scrollY)).toBe(0)
 
-    // Open first, then raise the keyboard: that is the reported sequence, and
-    // it is the re-measure that flipped the popover over the trigger.
+    // Open first, then raise the keyboard: the re-measure that the shrinking
+    // visual viewport triggers is what decides the popover's side.
     await trigger.click()
     const input = page.getByPlaceholder('Search cities...')
     await expect(input).toBeVisible()
@@ -107,6 +110,9 @@ test.describe('City filter on a phone viewport', () => {
     const triggerBox = (await trigger.boundingBox())!
     const inputBox = (await input.boundingBox())!
 
+    // Opening scrolled the trigger up for room, and its scroll margin kept it
+    // clear of the sticky topbar rather than under it.
+    expect(triggerBox.y).toBeGreaterThanOrEqual(TOPBAR_HEIGHT)
     // Below the trigger, not flipped over it.
     expect(inputBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height)
     // And inside the part of the screen the keyboard leaves visible.
