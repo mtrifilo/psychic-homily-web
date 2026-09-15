@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useTransition } from 'react'
 import Link from 'next/link'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { parseAsInteger, useQueryState } from 'nuqs'
 import { useShowsCalendar, useShowCities, useShowMonths } from '../hooks/useShows'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
@@ -18,6 +18,7 @@ import {
 } from '@/components/shared/Pagination'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { DayGroupedShowList } from './DayGroupedShowList'
+import { QuickWindowChips } from './QuickWindowChips'
 import { ShowListSkeleton } from './ShowListSkeleton'
 import {
   clampPage,
@@ -81,6 +82,7 @@ export interface ShowListProps {
 
 export function ShowList({ window: calendarWindow }: ShowListProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user, isAuthenticated, authStatus } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
@@ -212,6 +214,23 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // router write below is built from it, so a windowed list never writes a
   // page or a filter onto the root's address.
   const basePath = calendarWindow ? showsWindowPath(calendarWindow) : SHOWS_ROOT
+
+  // The run this page is a window of, as the query key that addresses it.
+  //
+  // It has to be carried by every write that mints a FRESH query string rather
+  // than copying the one on screen, because the run is part of this page's
+  // identity and not one of its filters: a reader clearing a city filter inside
+  // a three-day window is asking for all cities in those three days, not for
+  // one day of them. The writes that copy the current params keep it for free.
+  const windowDays = calendarWindow?.days
+
+  // A fresh query string for this page, seeded with the run. The one place the
+  // rule above is spelled, so a third combined write cannot forget it.
+  const freshWindowParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (windowDays !== undefined) params.set('days', String(windowDays))
+    return params
+  }, [windowDays])
 
   const {
     data,
@@ -453,15 +472,17 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // the `?cities=all` reset could be silently dropped. One write avoids that.
   const handleClearFilters = useCallback(() => {
     notifyUserInteracted()
+    const params = freshWindowParams()
+    params.set('cities', 'all')
     startTransition(() => {
-      router.push(`${basePath}?cities=all`, { scroll: false })
+      router.push(`${basePath}?${params.toString()}`, { scroll: false })
     })
-  }, [notifyUserInteracted, router, basePath])
+  }, [notifyUserInteracted, router, basePath, freshWindowParams])
 
   // Keep tags, drop the city constraint (PSY-1433 empty-state suggestion).
   const handleSameTagsAllCities = useCallback(() => {
     notifyUserInteracted()
-    const params = new URLSearchParams()
+    const params = freshWindowParams()
     params.set('cities', 'all')
     if (selectedTags.length > 0) {
       params.set('tags', buildTagsParam(selectedTags))
@@ -470,7 +491,14 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
     startTransition(() => {
       router.push(`${basePath}?${params.toString()}`, { scroll: false })
     })
-  }, [notifyUserInteracted, router, selectedTags, tagMatch, basePath])
+  }, [
+    notifyUserInteracted,
+    router,
+    selectedTags,
+    tagMatch,
+    basePath,
+    freshWindowParams,
+  ])
 
   const alternativeCities = useMemo(
     () =>
@@ -613,6 +641,20 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
           layout="bar"
         />
       </div>
+
+      {/* The quick windows, under the filters and above the month axis they are
+          a shortcut through. OUTSIDE the dimming wrapper below: every chip href
+          is arithmetic on a date, so none of it goes stale while a filter
+          change is in flight, and fading it would say otherwise. */}
+      <QuickWindowChips
+        metroState={
+          selectedCities.length === 1 ? selectedCities[0].state : undefined
+        }
+        params={searchParams}
+        pathname={pathname}
+        currentDays={calendarWindow?.days}
+        className="mb-4"
+      />
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
         {/* The month axis. Inside the dimming wrapper because its counts come

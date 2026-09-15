@@ -85,6 +85,106 @@ describe('/shows/{yyyy}/{mm}/{dd}, segment validation', () => {
   })
 })
 
+describe('/shows/{yyyy}/{mm}/{dd}?days=N, the run', () => {
+  const withDays = (days: string) => Promise.resolve({ days })
+
+  it.each(['2', '3', '7', '14'])('renders a run of %s days', async days => {
+    await expect(
+      ShowsDayPage({
+        params: dayParams('2026', '11', '14'),
+        searchParams: withDays(days),
+      })
+    ).resolves.toBeTruthy()
+  })
+
+  // A run this route will not serve is a NOT-FOUND rather than the nearest run
+  // it would: a window names the days it lists, and answering `?days=99` with a
+  // fortnight puts a span on screen that the address contradicts.
+  it.each(['15', '99', '0', '-3', '3.5', '+3', '03', '', 'three'])(
+    '404s ?days=%s',
+    async days => {
+      await expect(
+        ShowsDayPage({
+          params: dayParams('2026', '11', '14'),
+          searchParams: withDays(days),
+        })
+      ).rejects.toThrow(NOT_FOUND)
+    }
+  )
+
+  // Two spellings of one window would be two addresses for one page, so the
+  // one-day run is the day itself, under the day's own title and canonical.
+  it('reads ?days=1 as the day itself', async () => {
+    const metadata = await dayMetadata({
+      params: dayParams('2026', '11', '14'),
+      searchParams: withDays('1'),
+    })
+
+    expect(metadata.title).toBe('Shows on November 14, 2026')
+    expect(metadata.robots).toBeUndefined()
+  })
+
+  it('names the span, canonicalizes to the day root, and noindexes it', async () => {
+    const metadata = await dayMetadata({
+      params: dayParams('2026', '11', '14'),
+      searchParams: withDays('3'),
+    })
+
+    expect(metadata.title).toBe('Shows from Nov 14 to Nov 16, 2026')
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/shows/2026/11/14'
+    )
+    expect(metadata.robots).toEqual({ index: false, follow: true })
+  })
+
+  // The run rolls over a month, a year and a leap day on the calendar rather
+  // than on the anchor month's length.
+  it.each([
+    [['2026', '11', '29'], '7', 'Shows from Nov 29 to Dec 5, 2026'],
+    [['2026', '12', '29'], '7', 'Shows from Dec 29, 2026 to Jan 4, 2027'],
+    [['2028', '02', '27'], '3', 'Shows from Feb 27 to Feb 29, 2028'],
+    [['2027', '02', '27'], '3', 'Shows from Feb 27 to Mar 1, 2027'],
+  ])('names the span of %s over %s days', async (date, days, want) => {
+    const [year, month, day] = date
+    const metadata = await dayMetadata({
+      params: dayParams(year, month, day),
+      searchParams: withDays(days),
+    })
+
+    expect(metadata.title).toBe(want)
+  })
+
+  /**
+   * The head reads `?days=` and NOTHING else from the query. A page number is a
+   * slice of the run, not another window, so it carries the same canonical the
+   * run does, which is the site's canonicalize-to-root pagination policy.
+   */
+  it('cannot be reached by a page number', async () => {
+    const metadata = await dayMetadata({
+      params: dayParams('2026', '11', '14'),
+      searchParams: Promise.resolve({ days: '3', page: '2' }),
+    })
+
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/shows/2026/11/14'
+    )
+  })
+
+  // `?days=` names a run, and a month is not anchored on a date, so there is no
+  // run for it to name there and nothing for it to break.
+  it('ignores ?days= on a month', async () => {
+    const metadata = await generateMetadata({ params: monthParams('2026', '11') })
+    expect(metadata.title).toBe('Shows in November 2026')
+
+    await expect(
+      ShowsMonthPage({
+        params: monthParams('2026', '11'),
+        searchParams: withDays('99'),
+      })
+    ).resolves.toBeTruthy()
+  })
+})
+
 describe('generateMetadata', () => {
   it('names the month and self-canonicalizes', async () => {
     const metadata = await generateMetadata({ params: monthParams('2026', '11') })
@@ -98,12 +198,14 @@ describe('generateMetadata', () => {
   it('names the day and self-canonicalizes', async () => {
     const metadata = await dayMetadata({
       params: dayParams('2026', '11', '14'),
+      searchParams,
     })
 
     expect(metadata.title).toBe('Shows on November 14, 2026')
     expect(metadata.alternates?.canonical).toBe(
       'https://psychichomily.com/shows/2026/11/14'
     )
+    expect(metadata.robots).toBeUndefined()
   })
 
   /**

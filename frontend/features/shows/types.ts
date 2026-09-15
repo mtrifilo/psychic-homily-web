@@ -257,9 +257,9 @@ export interface UpcomingShowsResponse {
 /**
  * One offset page of the venue-local upcoming partition (`GET /shows/calendar`).
  *
- * `year`, `month` and `day` echo the venue-local window the page was taken on,
- * and are 0 on the unwindowed list the `/shows` root reads. There is no
- * `pagination` envelope: the page is addressed by `limit` and `offset`, and
+ * `year`, `month`, `day` and `days` echo the venue-local window the page was
+ * taken on, and are 0 on the unwindowed list the `/shows` root reads. There is
+ * no `pagination` envelope: the page is addressed by `limit` and `offset`, and
  * `total` bounds how many of them there are.
  */
 export interface ShowsCalendarResponse {
@@ -278,6 +278,8 @@ export interface ShowsCalendarResponse {
   year: number
   month: number
   day: number
+  /** Days in the run that was read, 0 for a single day, a month or no window. */
+  days: number
 }
 
 /** One bar of the upcoming-shows month histogram (`GET /shows/months`). */

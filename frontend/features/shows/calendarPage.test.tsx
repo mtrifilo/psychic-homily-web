@@ -43,7 +43,16 @@ const HISTOGRAM = {
 }
 
 function page(total: number) {
-  return { shows: [], total, limit: 50, offset: 0, year: 2026, month: 11, day: 0 }
+  return {
+    shows: [],
+    total,
+    limit: 50,
+    offset: 0,
+    year: 2026,
+    month: 11,
+    day: 0,
+    days: 0,
+  }
 }
 
 /**
@@ -194,6 +203,48 @@ describe('ShowsCalendarContent, which windows are documents', () => {
       })
     ).resolves.toBeTruthy()
   })
+
+  /**
+   * A RUN is asked about every month it touches. One that opens in a month the
+   * histogram does not carry and closes in one it does is a real page: the rows
+   * are in the second month, and 404ing on the anchor alone would take them
+   * away from a reader whose "next 7 days" happens to start in a quiet month.
+   */
+  it('renders a run that reaches a month the histogram carries', async () => {
+    answerWith({ rows: page(9), months: HISTOGRAM })
+
+    await expect(
+      ShowsCalendarContent({
+        // 28 September plus seven days reaches 4 October, which the histogram has.
+        window: { year: 2026, month: 9, day: 28, days: 7 },
+        searchParams: Promise.resolve({}),
+      })
+    ).resolves.toBeTruthy()
+  })
+
+  it('404s a run that touches no month the histogram carries', async () => {
+    answerWith({ rows: page(0), months: HISTOGRAM })
+
+    await expect(
+      ShowsCalendarContent({
+        window: { year: 2199, month: 1, day: 28, days: 7 },
+        searchParams: Promise.resolve({}),
+      })
+    ).rejects.toThrow(NOT_FOUND)
+  })
+
+  // The window's own total is the only gate a run inside a live month has: the
+  // histogram buckets MONTHS, and a busy month can hold a dead three days.
+  it('404s a run inside a live month that has no shows of its own', async () => {
+    answerWith({ rows: page(0), months: HISTOGRAM })
+
+    await expect(
+      ShowsCalendarContent({
+        window: { ...NOVEMBER_14, days: 3 },
+        searchParams: Promise.resolve({}),
+      })
+    ).rejects.toThrow(NOT_FOUND)
+  })
 })
 
 describe('ShowsCalendarContent, the first-screen seed', () => {
@@ -243,6 +294,27 @@ describe('ShowsCalendarContent, the first-screen seed', () => {
 
   // `ShowList` renders its skeleton while EITHER the rows or the cities are
   // loading, so seeding one without the other server-renders the skeleton.
+  // A run and its anchor day are different sets of rows, so the seed has to
+  // land on the run's own entry or the page renders the skeleton and refetches.
+  it('seeds a run onto the run s entry, not the day s', async () => {
+    const run = { ...NOVEMBER_14, days: 3 }
+    answerWith({ rows: page(9), months: HISTOGRAM })
+
+    await ShowsCalendarContent({
+      window: run,
+      searchParams: Promise.resolve({}),
+    })
+
+    expect(fetchListPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ url: showsCalendarWindowFirstScreenUrl(run) })
+    )
+    const seeds = seedFirstScreen.mock.calls[0][0]
+    expect(seeds[0].queryKey).toEqual(showsCalendarWindowFirstScreenKey(run))
+    expect(seeds[0].queryKey).not.toEqual(
+      showsCalendarWindowFirstScreenKey(NOVEMBER_14)
+    )
+  })
+
   it('seeds nothing when the cities read failed', async () => {
     answerWith({ rows: page(68), months: HISTOGRAM, cities: null })
 

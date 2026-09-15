@@ -46,7 +46,9 @@ import {
   SHOWS_ROOT,
   calendarWindowLabel,
   showsCalendarWindowTitle,
+  showsWindowHref,
   showsWindowPath,
+  windowMonths,
   type ShowsCalendarWindow,
 } from './showsCalendarRoute'
 import type {
@@ -60,9 +62,22 @@ export type ShowsCalendarSearchParams = Promise<
   Record<string, string | string[] | undefined>
 >
 
-/** The window's own URL, absolute. Its canonical, and the crumb it links. */
+/**
+ * The window's CANONICAL, absolute. A run canonicalizes to its anchor day, which
+ * is what `showsWindowPath` returns for one.
+ */
 function windowUrl(window: ShowsCalendarWindow): string {
   return listRootCanonical(showsWindowPath(window))
+}
+
+/**
+ * The window's OWN address, absolute, which for a run carries its `?days=`.
+ *
+ * The crumb links this rather than the canonical: a breadcrumb names where the
+ * reader is, and for a run that is the span, not the day it opens on.
+ */
+function windowSelfUrl(window: ShowsCalendarWindow): string {
+  return `${SITE_URL}${showsWindowHref(window)}`
 }
 
 /**
@@ -84,18 +99,29 @@ export function buildShowsCalendarMetadata(
 ): Metadata {
   const label = calendarWindowLabel(window)
   const title = showsCalendarWindowTitle(window)
-  const description =
-    window.day === undefined
-      ? `Every upcoming show we have on record in ${label}.`
-      : `Every upcoming show we have on record on ${label}.`
+  const description = `Every upcoming show we have on record ${windowPreposition(window)} ${label}.`
   const canonical = windowUrl(window)
 
   return {
     title,
     description,
     alternates: { canonical },
+    // A RUN is a relative window resolved to an absolute anchor: "this weekend"
+    // means a different three days every week, so the URL a reader shares is
+    // worth keeping and the page behind it is not worth an index entry. It is
+    // already canonical to the day root, which is the identity that IS indexed;
+    // `follow` because every row on it links somewhere that should be crawled.
+    ...(window.days === undefined
+      ? {}
+      : { robots: { index: false, follow: true } }),
     openGraph: { title, description, url: canonical, type: 'website' },
   }
+}
+
+/** `in November 2026`, `on November 14, 2026`, `from Sep 18 to Oct 1, 2026`. */
+function windowPreposition(window: ShowsCalendarWindow): string {
+  if (window.day === undefined) return 'in'
+  return window.days === undefined ? 'on' : 'from'
 }
 
 /**
@@ -181,10 +207,16 @@ export async function ShowsCalendarContent({
   // reader's own city filter renders the list's zero-result state, with its
   // filter suggestions; a 404 there would be a claim about the catalogue rather
   // than about the filter.
+  //
+  // A RUN is asked about every month it touches and passes on any of them. A
+  // run that opens in a quiet month and closes in a busy one is a real page, and
+  // asking about its anchor month alone would 404 it.
   const monthIsAddressable =
     months === null ||
-    months.months.some(
-      bucket => bucket.year === window.year && bucket.month === window.month
+    windowMonths(window).some(period =>
+      months.months.some(
+        bucket => bucket.year === period.year && bucket.month === period.month
+      )
     )
   if (!monthIsAddressable) {
     notFound()
@@ -222,7 +254,7 @@ export async function ShowsCalendarContent({
         data={generateBreadcrumbSchema([
           { name: 'Home', url: SITE_URL },
           { name: 'Shows', url: `${SITE_URL}${SHOWS_ROOT}` },
-          { name: label, url: windowUrl(window) },
+          { name: label, url: windowSelfUrl(window) },
         ])}
       />
       <Breadcrumb
