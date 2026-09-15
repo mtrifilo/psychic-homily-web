@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
@@ -189,14 +191,152 @@ describe('DayGroupedShowList', () => {
       expect(html).not.toContain('TONIGHT')
     })
 
-    it('carries the heading s emphasis on the rule beneath it too', () => {
+    // Every heading carries the same primary treatment, so the label is the
+    // ONLY thing that separates tonight from any other day.
+    it('separates tonight from the other days by label alone', () => {
+      renderList()
+
+      const [tonight, other] = screen.getAllByRole('heading', { level: 2 })
+      expect(tonight.textContent).toBe('TONIGHT · FRI SEP 11')
+      expect(other.textContent).toBe('SAT · SEP 12')
+      expect(tonight.className).toBe(other.className)
+    })
+  })
+
+  // The heading is the one thing a reader scanning a long list navigates by,
+  // so its size, its colour and its stuck position are a contract rather than
+  // styling: `/shows`, the month pages and the day pages all render this
+  // component, and there is no second place to set them.
+  describe('the day heading treatment', () => {
+    // `pt-3.5`, `text-sm` and `pb-1.5` are the three classes
+    // `--shows-day-header-height` is the sum of (globals.css), so they are
+    // pinned here: editing one without the token would shorten the clearance
+    // the rows below rely on.
+    it('renders every heading stuck, primary, at Space Mono bold 14', () => {
+      renderList()
+
+      const headings = screen.getAllByRole('heading', { level: 2 })
+      expect(headings.length).toBeGreaterThan(0)
+      for (const heading of headings) {
+        expect(heading).toHaveClass(
+          'font-mono',
+          'text-sm',
+          'font-bold',
+          'tracking-[1px]',
+          'uppercase',
+          'text-primary',
+          'pt-3.5',
+          'pb-1.5',
+          'sticky',
+          'top-[var(--topbar-height)]',
+          'z-20',
+          'bg-background',
+          // The hook globals.css keys the heading link's clearance, the
+          // forced-colors rule and the short-viewport unsticking on.
+          'shows-day-heading'
+        )
+        const rule = heading.querySelector('[aria-hidden="true"]')
+        expect(rule).toHaveClass('h-px', 'bg-primary', 'shows-day-heading-rule')
+      }
+    })
+
+    it('gives every anchored heading the top bar as its scroll margin', () => {
+      renderList()
+
+      const anchored: Array<[string, string]> = [
+        ['FRI · SEP 11', 'd-2026-09-11'],
+        ['SAT · SEP 12', 'd-2026-09-12'],
+      ]
+      for (const [name, id] of anchored) {
+        const heading = screen.getByRole('heading', { name })
+        expect(heading).toHaveAttribute('id', id)
+        expect(heading).toHaveClass('scroll-mt-[var(--topbar-height)]')
+      }
+    })
+
+    // The clearance itself is a stylesheet rule keyed on this class
+    // (globals.css), so losing the class loses the guarantee silently.
+    it('marks rows that sit under a heading, and only those', () => {
       const { container } = renderList()
 
       const groups = container.querySelectorAll(
         '[data-testid="show-day-group"]'
       )
-      expect(groups[0].querySelector('.border-primary')).not.toBeNull()
-      expect(groups[1].querySelector('.border-primary')).toBeNull()
+      expect(groups.length).toBeGreaterThan(0)
+      for (const group of groups) {
+        const hasHeading = group.querySelector('h2') !== null
+        expect(group.querySelector('.shows-day-rows') !== null).toBe(hasHeading)
+      }
+    })
+
+    // jsdom loads no stylesheet, so the class assertions above prove only that
+    // the component asks for the clearance. The rule that grants it lives in
+    // globals.css, where renaming or deleting it would leave every one of them
+    // green. This reads the stylesheet as text so that it does not.
+    it('keeps the stylesheet rule the marker classes depend on', () => {
+      const css = readFileSync(
+        resolve(__dirname, '../../../app/globals.css'),
+        'utf8'
+      )
+
+      expect(css).toContain('--shows-day-header-height')
+      expect(css).toMatch(
+        /\.shows-day-rows\s+:where\([^)]*\)\s*\{\s*scroll-margin-top: calc\(\s*var\(--topbar-height\) \+ var\(--shows-day-header-height\)/
+      )
+      // The expanded row mounts a music embed, so the clearance has to reach an
+      // iframe as well as the links and buttons of a collapsed row.
+      expect(css).toMatch(/\.shows-day-rows\s+:where\([^)]*\biframe\b[^)]*\)/)
+      expect(css).toMatch(
+        /\.shows-day-heading :where\(a\)\s*\{\s*scroll-margin-top: calc\(/
+      )
+      expect(css).toMatch(/\.shows-day-heading \{\s*position: static/)
+      expect(css).toContain('.shows-day-heading-rule')
+    })
+
+    it('leaves an undated run s rows unmarked, having no heading to clear', () => {
+      const { container } = renderList([makeShow(9, 'not-a-date')])
+
+      expect(container.querySelector('h2')).toBeNull()
+      expect(container.querySelector('.shows-day-rows')).toBeNull()
+    })
+
+    // Scoped to this component's own wrappers, which is all it renders: a
+    // non-visible `overflow` on the section or the list box would make
+    // `position: sticky` inert. An `overflow` introduced by the route shell
+    // above would do the same and is NOT covered here.
+    it('adds no scroll container of its own around the heading', () => {
+      const { container } = renderList()
+
+      const heading = screen.getByRole('heading', { name: 'FRI · SEP 11' })
+      const offenders: string[] = []
+      for (
+        let node = heading.parentElement;
+        node !== null && node !== container.parentElement;
+        node = node.parentElement
+      ) {
+        const style = node.getAttribute('style') ?? ''
+        const className = node.getAttribute('class') ?? ''
+        if (/overflow(-[xy])?\s*:\s*(?!visible)/.test(style)) {
+          offenders.push(`style="${style}"`)
+        }
+        if (/(^|\s|:)overflow-(x-|y-)?(auto|hidden|scroll|clip)(\s|$)/.test(className)) {
+          offenders.push(`class="${className}"`)
+        }
+      }
+      expect(offenders).toEqual([])
+    })
+
+    it('keeps the same heading in the compact density', () => {
+      const comfortable = renderList(twoDays, 'comfortable')
+      const comfortableClass = screen
+        .getAllByRole('heading', { level: 2 })[0]
+        .className
+      comfortable.unmount()
+
+      renderList(twoDays, 'compact')
+      expect(
+        screen.getAllByRole('heading', { level: 2 })[0].className
+      ).toBe(comfortableClass)
     })
   })
 
