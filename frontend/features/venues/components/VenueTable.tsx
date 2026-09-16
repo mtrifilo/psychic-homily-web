@@ -6,6 +6,7 @@ import { BadgeCheck } from 'lucide-react'
 import { DenseTable } from '@/components/shared'
 import { formatCount } from '@/components/shared/paginationChrome'
 import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
+import { socialLinkHref } from '@/lib/socialLinks'
 import { cn } from '@/lib/utils'
 import type { VenueWithShowCount } from '../types'
 import type { VenueSort } from '../venuesListNavigation'
@@ -39,6 +40,14 @@ export interface VenueTableProps {
   sort: VenueSort
   /** Applies a new order. The consumer owns the URL write and the page reset. */
   onSortChange: (sort: VenueSort) => void
+  /**
+   * Whether a row has to say which city it is in.
+   *
+   * True whenever the list is NOT scoped to exactly one city, where the heading
+   * already names it and every row would repeat it. Without this an all-cities
+   * or multi-city list is rows of names with no way to tell them apart.
+   */
+  showCity: boolean
 }
 
 /**
@@ -49,7 +58,13 @@ export interface VenueTableProps {
  * prints its LAST show where an active one prints its next, and the two fields
  * partition the room's shows on one boundary (see `VenueListShowRef`).
  */
-function VenueRow({ venue }: { venue: VenueWithShowCount }) {
+function VenueRow({
+  venue,
+  showCity,
+}: {
+  venue: VenueWithShowCount
+  showCity: boolean
+}) {
   const isQuiet = venue.upcoming_show_count === 0
   const show = isQuiet ? venue.last_show : venue.next_show
 
@@ -66,11 +81,23 @@ function VenueRow({ venue }: { venue: VenueWithShowCount }) {
     ? `${isQuiet ? 'last: ' : ''}${date}${!isQuiet && time ? ` ${time}` : ''}`
     : null
 
-  const website = venue.social?.website
+  // Through the shared gate, never raw: the column is user-editable free text,
+  // so a stored `javascript:` value would otherwise become a live link, and a
+  // scheme-less one a relative href into /venues.
+  // The place line: the street when the scope already names the city, and the
+  // city itself when it does not.
+  const place = showCity
+    ? [venue.address, `${venue.city}, ${venue.state}`].filter(Boolean).join(' · ')
+    : (venue.address ?? '')
+
+  // Through the shared gate, never raw: the column is user-editable free text,
+  // so a stored `javascript:` value would otherwise become a live link, and a
+  // scheme-less one a relative href into /venues.
+  const website = socialLinkHref('website', venue.social?.website)
 
   return (
-    <tr className={cn(rowGridClass, isQuiet && 'text-muted-foreground')}>
-      <td className={cn(leadCellClass, 'col-start-1 row-start-1')}>
+    <tr role="row" className={cn(rowGridClass, isQuiet && 'text-muted-foreground')}>
+      <td role="cell" className={cn(leadCellClass, 'col-start-1 row-start-1')}>
         {venue.slug ? (
           <Link
             href={`/venues/${venue.slug}`}
@@ -94,15 +121,19 @@ function VenueRow({ venue }: { venue: VenueWithShowCount }) {
       </td>
 
       <td
+        role="cell"
         className={cn(
           trailCellClass,
-          'col-start-1 row-start-2 truncate text-muted-foreground'
+          'col-start-1 row-start-2 text-muted-foreground sm:max-w-[14rem]'
         )}
       >
-        {venue.address ?? ''}
+        {/* The clip lives on a block child: `text-overflow` does nothing on an
+            auto-layout table cell, which sizes to its content instead. */}
+        <span className="block truncate">{place}</span>
       </td>
 
       <td
+        role="cell"
         className={cn(
           trailCellClass,
           'col-start-2 row-start-2 whitespace-nowrap text-right font-mono text-xs sm:text-left sm:text-sm'
@@ -112,6 +143,7 @@ function VenueRow({ venue }: { venue: VenueWithShowCount }) {
       </td>
 
       <td
+        role="cell"
         className={cn(
           leadCellClass,
           'col-start-2 row-start-1 whitespace-nowrap text-right'
@@ -123,7 +155,7 @@ function VenueRow({ venue }: { venue: VenueWithShowCount }) {
         <span className="sm:hidden"> upcoming</span>
       </td>
 
-      <td className="hidden whitespace-nowrap sm:table-cell">
+      <td role="cell" className="hidden whitespace-nowrap sm:table-cell">
         {website ? (
           <a
             href={website}
@@ -165,7 +197,11 @@ function SortableHeader({
 }) {
   const isActive = current === sortKey
   return (
-    <th scope="col" aria-sort={isActive ? SORT_DIRECTION[sortKey] : 'none'}>
+    <th
+      role="columnheader"
+      scope="col"
+      aria-sort={isActive ? SORT_DIRECTION[sortKey] : 'none'}
+    >
       {/* A flex wrapper rather than `text-right` on the cell: DenseTable sets
           the column alignment through a descendant selector, which outranks a
           utility class on the cell itself. */}
@@ -198,8 +234,9 @@ function SortableHeader({
  */
 function QuietRoomsHeader() {
   return (
-    <tr className="block sm:table-row">
+    <tr role="row" className="block sm:table-row">
       <th
+        role="rowheader"
         scope="rowgroup"
         colSpan={COLUMN_COUNT}
         className="block pt-4 sm:table-cell"
@@ -235,20 +272,29 @@ function QuietRoomsHeader() {
  * the order they arrived in. A page that begins inside the quiet block still
  * gets the divider: it is what says why these rows read `last:`.
  */
-export function VenueTable({ venues, sort, onSortChange }: VenueTableProps) {
+export function VenueTable({
+  venues,
+  sort,
+  onSortChange,
+  showCity,
+}: VenueTableProps) {
   const firstQuietIndex = venues.findIndex(v => v.upcoming_show_count === 0)
 
   return (
-    <DenseTable variant="alternating" className="block sm:table">
-      <thead className="hidden sm:table-header-group">
-        <tr>
+    // Explicit roles: below `sm` the display of the table, its groups, rows and
+    // cells is overridden, which strips the implicit table semantics with it.
+    <DenseTable role="table" variant="alternating" className="block sm:table">
+      <thead role="rowgroup" className="hidden sm:table-header-group">
+        <tr role="row">
           <SortableHeader
             sortKey="name"
             label="Room"
             current={sort}
             onSortChange={onSortChange}
           />
-          <th scope="col">Neighbourhood</th>
+          <th role="columnheader" scope="col">
+            Neighbourhood
+          </th>
           <SortableHeader
             sortKey="next"
             label="Next show"
@@ -262,14 +308,16 @@ export function VenueTable({ venues, sort, onSortChange }: VenueTableProps) {
             onSortChange={onSortChange}
             align="right"
           />
-          <th scope="col">Links</th>
+          <th role="columnheader" scope="col">
+            Links
+          </th>
         </tr>
       </thead>
-      <tbody className="block sm:table-row-group">
+      <tbody role="rowgroup" className="block sm:table-row-group">
         {venues.map((venue, index) => (
           <Fragment key={venue.id}>
             {index === firstQuietIndex && <QuietRoomsHeader />}
-            <VenueRow venue={venue} />
+            <VenueRow venue={venue} showCity={showCity} />
           </Fragment>
         ))}
       </tbody>

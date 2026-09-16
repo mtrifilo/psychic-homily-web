@@ -48,9 +48,9 @@ export interface CityState {
  * What a surface outside the filter bar can ask the filter to do.
  *
  * One verb, deliberately: a "change city" affordance rendered elsewhere on the
- * page (the derived-city line on /venues) has to be able to OPEN the picker,
- * and nothing more. Lifting the whole open state into every caller would make
- * four surfaces own a boolean that only one of them reads.
+ * page has to be able to OPEN the picker, and nothing more. Lifting the whole
+ * open state into the caller would make every consumer own a boolean almost
+ * none of them read.
  */
 export interface CityFiltersControl {
   /** Opens whichever overlay this viewport uses. */

@@ -7,10 +7,15 @@ import { useVenues } from './useVenues'
  * The directory row order, against the shared `/venues` MSW fixture.
  *
  * The sibling `useVenues.test.tsx` mocks `apiRequest`, so it can only assert
- * what the hook ASKS for. This file lets a real response through, which is the
- * only place in frontend CI where the contract the table depends on is visible:
- * the API hands back quiet rooms after active ones under every sort, and the
- * table inserts its divider where that block begins rather than re-sorting.
+ * what the hook ASKS for. This file lets a response through the real client
+ * path instead.
+ *
+ * What it pins is the FIXTURE, not the backend: the order below is a
+ * hand-written stand-in for the API's own quiet-rooms-last ordering, and the
+ * server-side rule is held by `venue_list_fields_test.go`. Its value here is
+ * that the shape the table assumes about a response (quiet rooms in a trailing
+ * block, `next_show` and `last_show` partitioned) is written down in frontend
+ * CI at all, where before there was no `/venues` fixture to write it in.
  */
 describe('useVenues row order (MSW fixture)', () => {
   it('returns quiet rooms after every room with something booked', async () => {
@@ -63,6 +68,8 @@ describe('useVenues row order (MSW fixture)', () => {
       () => useVenues({ cities: [{ city: 'Chicago', state: 'IL' }] }),
       { wrapper: createWrapper() }
     )
+    // Chicago is in neither fixture: the rows are all Phoenix and the facet
+    // lists Phoenix alone, so the two halves cannot disagree.
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data!.venues).toEqual([])

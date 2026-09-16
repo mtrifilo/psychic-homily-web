@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VenueList } from './VenueList'
 import type { VenueWithShowCount } from '../types'
@@ -177,6 +177,8 @@ describe('VenueList', () => {
       isLoading: false,
       isFetching: false,
       isPlaceholderData: false,
+      error: null,
+      refetch: vi.fn(),
     })
     setVenues([makeVenue()])
   })
@@ -303,6 +305,86 @@ describe('VenueList', () => {
       expect(mockUseVenues).toHaveBeenCalledWith(
         expect.objectContaining({ enabled: false })
       )
+    })
+
+    it('filters by the legacy ?city=&state= pair when ?cities= is absent', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ city: 'Chicago', state: 'IL' })
+      )
+      render(<VenueList />)
+
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ cities: [{ city: 'Chicago', state: 'IL' }] })
+      )
+      // A URL-named city is not a derived one, so nothing claims it was.
+      expect(screen.queryByTestId('venues-derived-city')).not.toBeInTheDocument()
+    })
+
+    it('lets an explicit ?cities= win over co-present legacy params', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({
+          cities: 'Phoenix,AZ',
+          city: 'Chicago',
+          state: 'IL',
+        })
+      )
+      render(<VenueList />)
+
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ cities: [PHOENIX] })
+      )
+    })
+
+    it('names every derived city when the favourites are more than one', () => {
+      authedWithFavourite()
+      mockUseProfile.mockReturnValue({
+        data: {
+          user: {
+            preferences: {
+              favorite_cities: [PHOENIX, { city: 'Chicago', state: 'IL' }],
+            },
+          },
+        },
+      })
+
+      render(<VenueList />)
+
+      expect(screen.getByTestId('venues-derived-city')).toHaveTextContent(
+        'Showing Phoenix, AZ and Chicago, IL from your favourites'
+      )
+    })
+
+    it('does not put an unrecognised URL city into the heading', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Not A Real City,ZZ' })
+      )
+      render(<VenueList />)
+
+      // The list still filters on what the URL asked for, but the page refuses
+      // to name a city the facet does not know: an attacker-crafted link cannot
+      // put arbitrary text in this page's heading.
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cities: [{ city: 'Not A Real City', state: 'ZZ' }],
+        })
+      )
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+        'Venues'
+      )
+      expect(
+        screen.queryByText(/Not A Real City/)
+      ).not.toBeInTheDocument()
+    })
+
+    it('resolves a lower-case URL city to the facet spelling', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'phoenix,az' })
+      )
+      render(<VenueList />)
+
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Venues in Phoenix, AZ' })
+      ).toBeInTheDocument()
     })
   })
 
@@ -639,6 +721,21 @@ describe('VenueList', () => {
 
   describe('empty city', () => {
     it('says so quietly and offers the one action', () => {
+      // In the facet, because the geo hook only ever derives a city that is:
+      // `matchByGeo` returns a row from the list, never the raw header.
+      mockUseVenueCities.mockReturnValue({
+        data: {
+          cities: [
+            { city: 'Chicago', state: 'IL', venue_count: 42 },
+            { city: 'Flagstaff', state: 'AZ', venue_count: 0 },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
       anonWithGeo({ city: 'Flagstaff', state: 'AZ' })
       setVenues([], 0)
 
@@ -701,6 +798,142 @@ describe('VenueList', () => {
 
       expect(screen.queryByText(/Failed to load venues/)).not.toBeInTheDocument()
       expect(screen.getByRole('table')).toBeInTheDocument()
+    })
+
+    it('says so and offers a retry when the city facet fails', async () => {
+      const user = userEvent.setup()
+      const refetchCities = vi.fn()
+      mockUseVenueCities.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: new Error('boom'),
+        refetch: refetchCities,
+      })
+
+      render(<VenueList />)
+
+      // Every route off this page is built from the facet, so a bare
+      // choose-a-city state here would be an invitation with nothing to pick.
+      expect(screen.getByTestId('venues-cities-error')).toBeInTheDocument()
+      expect(screen.queryByTestId('venues-city-chooser')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(refetchCities).toHaveBeenCalled()
+    })
+  })
+
+  describe('scope beyond one city', () => {
+    it('names each row\'s city when the list is not scoped to one', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams({ cities: 'all' }))
+      setVenues([
+        makeVenue({ id: 1, name: 'Room A', city: 'Phoenix', state: 'AZ' }),
+        makeVenue({
+          id: 2,
+          slug: 'b',
+          name: 'Room B',
+          city: 'Chicago',
+          state: 'IL',
+        }),
+      ])
+
+      render(<VenueList />)
+
+      expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
+      expect(screen.getByText(/Chicago, IL/)).toBeInTheDocument()
+    })
+
+    it('leaves the city off the rows when the heading already names it', () => {
+      anonWithGeo()
+      setVenues([makeVenue({ name: 'Room A' })])
+
+      render(<VenueList />)
+
+      expect(screen.getByText('101 Main St')).toBeInTheDocument()
+      expect(screen.queryByText(/101 Main St ·/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('sort affordances', () => {
+    it('applies an order from the desktop strip', async () => {
+      const user = userEvent.setup()
+      anonWithGeo()
+      render(<VenueList />)
+
+      await user.click(screen.getByTestId('venue-sort-option-next'))
+
+      expect(mockSetSort).toHaveBeenCalledWith('next')
+      expect(mockSetPage).toHaveBeenCalledWith(null)
+    })
+
+    it('applies an order from the sheet and closes it', async () => {
+      const user = userEvent.setup()
+      anonWithGeo()
+      render(<VenueList />)
+
+      await user.click(screen.getByTestId('venue-sort-chip'))
+      const option = await screen.findByTestId('venue-sort-sheet-option-name')
+      await user.click(option)
+
+      expect(mockSetSort).toHaveBeenCalledWith('name')
+      expect(mockSetPage).toHaveBeenCalledWith(null)
+      await waitFor(() =>
+        expect(
+          screen.queryByTestId('venue-sort-sheet-option-name')
+        ).not.toBeInTheDocument()
+      )
+    })
+  })
+
+  describe('row edge cases', () => {
+    it('renders a slug-less room as unlinked text', () => {
+      anonWithGeo()
+      setVenues([makeVenue({ slug: '', name: 'No Slug Room' })])
+
+      render(<VenueList />)
+
+      expect(screen.getByText('No Slug Room')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'No Slug Room' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('drops the hour when the room has no resolvable zone', () => {
+      anonWithGeo()
+      setVenues([
+        makeVenue({
+          name: 'Zoneless',
+          timezone: null,
+          state: 'ZZ',
+          next_show: {
+            event_date: '2026-09-15T02:30:00Z',
+            slug: 'a-show',
+            title: '',
+          },
+        }),
+      ])
+
+      render(<VenueList />)
+
+      // The date is a weaker claim than the hour and stays; the hour would be a
+      // guess, so it and its separator go.
+      expect(screen.queryByText(/PM|AM/)).not.toBeInTheDocument()
+    })
+
+    it('refuses a website that is not an http(s) URL', () => {
+      anonWithGeo()
+      setVenues([
+        makeVenue({
+          id: 7,
+          name: 'Hostile',
+          social: { website: 'javascript:alert(1)' },
+        }),
+      ])
+
+      render(<VenueList />)
+
+      expect(screen.queryByTestId('venue-site-link-7')).not.toBeInTheDocument()
     })
   })
 })

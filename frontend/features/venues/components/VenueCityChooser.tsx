@@ -11,6 +11,8 @@ const BUSIEST_CITY_COUNT = 10
 export interface VenueCityChooserProps {
   /** Every city with rooms, in any order; this picks and orders its own. */
   cities: CityWithCount[]
+  /** The params on screen, which every chip href carries but for the city. */
+  params: { toString: () => string }
 }
 
 /**
@@ -25,7 +27,7 @@ export interface VenueCityChooserProps {
  * The chips are links rather than filter presses so this state is reachable and
  * shareable the same way the rest of the directory is.
  */
-export function VenueCityChooser({ cities }: VenueCityChooserProps) {
+export function VenueCityChooser({ cities, params }: VenueCityChooserProps) {
   const busiest = [...cities]
     .sort((a, b) => b.count - a.count || a.city.localeCompare(b.city))
     .slice(0, BUSIEST_CITY_COUNT)
@@ -33,6 +35,12 @@ export function VenueCityChooser({ cities }: VenueCityChooserProps) {
   return (
     <div data-testid="venues-city-chooser">
       <p className="mb-3 text-sm">Choose a city to see its rooms.</p>
+
+      {busiest.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No cities to choose from yet.
+        </p>
+      )}
 
       {busiest.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -49,7 +57,7 @@ export function VenueCityChooser({ cities }: VenueCityChooserProps) {
             {busiest.map((city, index) => (
               <li key={`${city.city}-${city.state}`}>
                 <Link
-                  href={venuesCityHref(city.city, city.state)}
+                  href={venuesCityHref(params, city.city, city.state)}
                   // The unit is printed once, on the leading chip, and carried
                   // for every chip in the accessible name: a reader who meets
                   // the fourth chip first must still be told what 24 counts.

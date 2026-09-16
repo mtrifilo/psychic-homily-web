@@ -102,9 +102,9 @@ interface UseGeoDefaultCityResult {
    * It separates the two nulls for a surface whose CONTENT depends on the
    * derived city rather than merely defaulting a filter. Such a surface must
    * render a loading state while this is true; treating the pending null as
-   * "no city" would flash a no-city state at every visitor who has one. The
-   * filter surfaces (/shows, /explore, home) ignore it: an unfiltered list is
-   * a truthful thing to show for the window, and narrowing it afterwards is
+   * "no city" would flash a no-city state at every visitor who has one. A
+   * surface that merely defaults a FILTER has no use for it: an unfiltered list
+   * is a truthful thing to show for the window, and narrowing it afterwards is
    * not a correction.
    */
   isResolving: boolean

@@ -171,9 +171,8 @@ describe('useVenues', () => {
       expect(mockApiRequest.mock.calls[0][0]).not.toContain('metro_rollup')
     })
 
-    // PSY-2077: the default order is the API's own, so sending it would give
-    // one row order two request URLs and two cache entries, one of which would
-    // no longer match the server-seeded first screen.
+    // The default order is the API's own, so sending it would give one row
+    // order two request URLs and two cache entries that can never disagree.
     it('sends no sort param for the default order', async () => {
       mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
 

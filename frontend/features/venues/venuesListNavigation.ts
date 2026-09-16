@@ -55,17 +55,29 @@ export function venuesPageHref(
 }
 
 /**
- * The directory scoped to one city, as a shareable address.
+ * The directory scoped to one city, as a shareable address, built FROM the
+ * params already on screen.
  *
- * Built through `buildCitiesParam`, the single source of truth for the
- * `?cities=` wire format, so a chip here and a pick in the city filter address
- * the same page.
+ * Carrying them is the same rule the pager follows: a chosen order or tag
+ * filter is part of the question the reader is asking, and only the city is
+ * being answered here. `page` goes, because a different city is answered from
+ * its first page.
+ *
+ * The city itself goes through `buildCitiesParam`, the single source of truth
+ * for the `?cities=` wire format, so a chip here and a pick in the city filter
+ * address the same page.
  */
-export function venuesCityHref(city: string, state: string): string {
-  const params = new URLSearchParams({
-    cities: buildCitiesParam([{ city, state }]),
-  })
-  return `${VENUES_ROOT}?${params.toString()}`
+export function venuesCityHref(
+  params: { toString: () => string },
+  city: string,
+  state: string
+): string {
+  const next = new URLSearchParams(params.toString())
+  next.delete('page')
+  next.delete('city')
+  next.delete('state')
+  next.set('cities', buildCitiesParam([{ city, state }]))
+  return `${VENUES_ROOT}?${next.toString()}`
 }
 
 /**

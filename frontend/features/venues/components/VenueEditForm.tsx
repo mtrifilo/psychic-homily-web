@@ -75,7 +75,8 @@ const makeVenueEditSchema = (stateIsOptional: boolean) =>
 
 // Both variants, built once. The factory's whole input domain is one boolean,
 // and a zod schema is a stateless parser, so per-mount construction would only
-// re-allocate: VenueCard mounts one of these per row, above the admin guard.
+// re-allocate: a list surface can mount one of these per row, above the admin
+// guard.
 const VENUE_EDIT_SCHEMA_STATE_REQUIRED = makeVenueEditSchema(false)
 const VENUE_EDIT_SCHEMA_STATE_OPTIONAL = makeVenueEditSchema(true)
 
@@ -190,7 +191,8 @@ export function VenueEditForm({
   }
 
   // Non-admins should not see this form. Guard here as a safety net;
-  // VenueCard.canEdit should already hide the trigger for non-admins.
+  // The mounting surface's own admin gate should already hide the trigger for
+  // non-admins.
   if (!isAdmin) {
     return null
   }

@@ -18,7 +18,12 @@ import {
   type CityWithCount,
   type CityState,
 } from '@/components/filters'
-import { citiesParser, ALL_CITIES, cityLabel } from '@/components/filters/cityParams'
+import {
+  citiesParser,
+  ALL_CITIES,
+  cityKey,
+  cityLabel,
+} from '@/components/filters/cityParams'
 import { RemovableFilterChip } from '@/components/filters/RemovableFilterChip'
 import { useGeoDefaultCity } from '@/components/filters/useGeoDefaultCity'
 import { Breadcrumb } from '@/components/shared'
@@ -145,6 +150,8 @@ export function VenueList() {
     isLoading: citiesLoading,
     isFetching: citiesFetching,
     isPlaceholderData: citiesArePlaceholder,
+    error: citiesError,
+    refetch: refetchCities,
   } = useVenueCities({ tags: selectedTags, tagMatch })
 
   // Map VenueCity → CityWithCount. Lifted above every early return so the geo
@@ -295,6 +302,11 @@ export function VenueList() {
       params.delete('tags')
       params.delete('tag_match')
       params.delete('page')
+      // The order comes from the nuqs value rather than from `searchParams`,
+      // which lags a write that is still in flight: pressing a sort and then a
+      // tag would otherwise push a URL with the sort missing.
+      params.delete('sort')
+      if (sortState) params.set('sort', sortState)
       if (nextTags.length > 0) {
         params.set('tags', buildTagsParam(nextTags))
         if (nextMatch === 'any') params.set('tag_match', 'any')
@@ -307,7 +319,7 @@ export function VenueList() {
         )
       })
     },
-    [searchParams, router]
+    [searchParams, router, sortState]
   )
 
   const handleTagsChange = useCallback(
@@ -342,16 +354,41 @@ export function VenueList() {
   // answer the current request.
   const rowsAnswerCurrentRequest = !isPlaceholderData
 
-  const scopeCity = selectedCities.length === 1 ? selectedCities[0] : null
+  // The city this page is ABOUT, as the facet spells it.
+  //
+  // Canonical rather than as-typed, and that is the point: `?cities=`, `?city=`
+  // and `?state=` are free text off the URL, and they reach the heading and the
+  // breadcrumb. Matching them against the facet first means a hand-crafted link
+  // cannot put arbitrary text in this page's `<h1>`; an unmatched value still
+  // filters the list (the wire contract is shared with every other surface) but
+  // the page falls back to naming no city.
+  const scopeCity = useMemo(() => {
+    if (selectedCities.length !== 1) return null
+    // Case-insensitive, so `?cities=phoenix,az` still resolves to the facet's
+    // spelling instead of falling back to naming no city.
+    const wanted = cityKey(selectedCities[0]).toLowerCase()
+    const match = cities.find(c => cityKey(c).toLowerCase() === wanted)
+    return match ? { city: match.city, state: match.state } : null
+  }, [selectedCities, cities])
+
   const heading = scopeCity ? `Venues in ${cityLabel(scopeCity)}` : 'Venues'
+  // Every selected city, named. A derived selection of two favourites filters
+  // the list just as hard as one, and without this the reader is shown a subset
+  // of the catalogue under a bare "Venues" with nothing saying which cities.
+  const selectionLabel = selectedCities.map(cityLabel).join(' and ')
 
   // The upcoming total is a SUM OF THE ROWS ON SCREEN, so it is labelled as
   // this page's whenever the page is not the whole set. The API serves no
   // city-wide sum.
   const pageUpcoming = venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
   const wholeSetOnScreen = rowsAnswerCurrentRequest && totalPages === 1
-  const roomsLabel = countLabel(total, 'room')
-  const upcomingLabel = countLabel(pageUpcoming, 'upcoming show')
+  // Null while the rows on screen answer a DIFFERENT request: the heading flips
+  // to the new city on the same render the filter changes, and a count from the
+  // outgoing city beneath it is a wrong number rather than a stale one.
+  const roomsLabel = rowsAnswerCurrentRequest ? countLabel(total, 'room') : null
+  const upcomingLabel = rowsAnswerCurrentRequest
+    ? countLabel(pageUpcoming, 'upcoming show')
+    : null
 
   const chooserScope = useMemo(() => {
     const rooms = cities.reduce((sum, c) => sum + c.count, 0)
@@ -380,25 +417,28 @@ export function VenueList() {
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-2xl font-bold sm:text-3xl">{heading}</h1>
         <p className="font-mono text-[13px] text-muted-foreground" {...targetProps}>
-          {showCityChooser ? chooserScope : roomsLabel}
-          {!showCityChooser && wholeSetOnScreen ? ` · ${upcomingLabel}` : ''}
+          {showCityChooser ? chooserScope : (roomsLabel ?? '')}
+          {!showCityChooser && wholeSetOnScreen && upcomingLabel
+            ? ` · ${upcomingLabel}`
+            : ''}
         </p>
       </div>
 
       {/* Gated on the picker being on screen: "change" opens it, and with no
           cities at all there is nothing to change to. */}
-      {derivedFrom && scopeCity && cities.length > 0 && (
+      {derivedFrom && selectedCities.length > 0 && cities.length > 0 && (
         <p
           className="mb-3 text-sm text-muted-foreground"
           data-testid="venues-derived-city"
         >
-          Showing {cityLabel(scopeCity)} from your{' '}
+          Showing {selectionLabel} from your{' '}
           {derivedFrom === 'favourites' ? 'favourites' : 'location'}
           {' · '}
           <button
             type="button"
             onClick={() => cityFilterControl.current?.open()}
-            className="text-primary hover:underline underline-offset-4"
+            aria-label="Change city"
+            className="inline-flex min-h-11 items-center text-primary hover:underline underline-offset-4"
             data-testid="venues-derived-city-change"
           >
             change
@@ -462,9 +502,9 @@ export function VenueList() {
     </>
   )
 
-  // The mini Atlas pane (PSY-2079) takes the space to the right of the table at
-  // 1280 and up. Its slot is left EMPTY rather than reserved: an empty box would
-  // promise content this page does not yet have.
+  // At 1280 and up the content is bounded to 720px and the space beside it is
+  // left EMPTY rather than reserved: an empty box would promise content this
+  // page does not have.
   const frame = (children: React.ReactNode) => (
     <section className="w-full max-w-6xl">
       {chrome}
@@ -472,8 +512,27 @@ export function VenueList() {
     </section>
   )
 
+  // The city facet is what every route off this page is built from: the picker,
+  // the busiest-city chips, and the geo match that derives a city at all. When
+  // it fails there is nothing to choose and nothing to derive, so the page says
+  // so and offers the retry rather than rendering an empty invitation to pick.
+  if (citiesError && cities.length === 0) {
+    return frame(
+      <div className="py-12 text-center text-destructive" data-testid="venues-cities-error">
+        <p>Failed to load cities. Please try again later.</p>
+        <Button
+          variant="outline"
+          className="mt-4"
+          onClick={() => refetchCities()}
+        >
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
   if (showCityChooser) {
-    return frame(<VenueCityChooser cities={cities} />)
+    return frame(<VenueCityChooser cities={cities} params={searchParams} />)
   }
 
   if (derivationPending || isLoading) {
@@ -527,14 +586,16 @@ export function VenueList() {
     <>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <VenueSortControl sort={sort} onSortChange={handleSortChange} />
-        <p
-          className="hidden text-xs text-muted-foreground sm:block"
-          data-testid="venues-count-rule"
-        >
-          {roomsLabel} &middot; {upcomingLabel}
-          {wholeSetOnScreen ? '' : ' on this page'} at verified rooms, on each
-          venue&apos;s local calendar
-        </p>
+        {roomsLabel && upcomingLabel && (
+          <p
+            className="hidden text-xs text-muted-foreground sm:block"
+            data-testid="venues-count-rule"
+          >
+            {roomsLabel} &middot; {upcomingLabel}
+            {wholeSetOnScreen ? '' : ' on this page'} at verified rooms, on each
+            venue&apos;s local calendar
+          </p>
+        )}
       </div>
 
       <div
@@ -543,7 +604,10 @@ export function VenueList() {
           isUpdating && 'opacity-60'
         )}
       >
-        {renderPager('top')}
+        {/* Not rendered past the end: the pager clamps a hand-typed page to the
+            last real one and would caption "Page 1 of 1" beside a body saying
+            the page does not exist. The link below is the way back. */}
+        {!pageIsBeyondEnd && renderPager('top')}
 
         {pageIsBeyondEnd ? (
           <div
@@ -552,7 +616,10 @@ export function VenueList() {
           >
             <p>That page is past the end of this list.</p>
             <p className="mt-2 text-sm">
-              <Link href={pageHref(1)} className="text-primary hover:underline">
+              <Link
+                href={pageHref(1)}
+                className="inline-flex min-h-11 items-center text-primary hover:underline"
+              >
                 Back to the first page
               </Link>
             </p>
@@ -574,12 +641,15 @@ export function VenueList() {
                 <button
                   type="button"
                   onClick={handleClearFilters}
-                  className="text-primary hover:underline"
+                  className="inline-flex min-h-11 items-center text-primary hover:underline"
                 >
                   Clear filters
                 </button>
               ) : (
-                <Link href="/contribute" className="text-primary hover:underline">
+                <Link
+                  href="/contribute"
+                  className="inline-flex min-h-11 items-center text-primary hover:underline"
+                >
                   Add a venue
                 </Link>
               )}
@@ -591,17 +661,20 @@ export function VenueList() {
               venues={venues}
               sort={sort}
               onSortChange={handleSortChange}
+              // From the SCOPE: exactly one selected city is the only case
+              // where every row would repeat the same city.
+              showCity={selectedCities.length !== 1}
             />
             <p
               className="mt-3 text-xs text-muted-foreground"
               data-testid="venues-verified-legend"
             >
-              &#10003; verified room
+              <span aria-hidden="true">&#10003;</span> verified room
             </p>
           </>
         )}
 
-        {renderPager('bottom')}
+        {!pageIsBeyondEnd && renderPager('bottom')}
       </div>
     </>
   )
