@@ -31,7 +31,9 @@ import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import {
   appendCityCountScope,
+  cityCountQueryKey,
   cityCountScopeKey,
+  cityCountUrl,
   type CityCountScope,
 } from '@/components/filters/cityCountScope'
 
@@ -70,10 +72,10 @@ function appendShowListFilters(
     if (state) params.set('state', state)
   }
 
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  // The tag half is the city facet's whole scope, so the two spell it once: a
+  // list and the facet beside it filtering by different tag semantics is the
+  // disagreement this contract exists to prevent.
+  appendCityCountScope(params, { tags, tagMatch })
 }
 
 /**
@@ -95,8 +97,12 @@ function showListFilterKey({
     city,
     state,
     cities,
-    tags: tags && tags.length > 0 ? tags : undefined,
-    tagMatch: tagMatch === 'any' ? 'any' : undefined,
+    // The tag half is normalized by the same function the city facet keys on,
+    // for the reason appendShowListFilters gives. Spread rather than nested, so
+    // the key shape is unchanged.
+    tags: undefined,
+    tagMatch: undefined,
+    ...cityCountScopeKey({ tags, tagMatch }),
   }
 }
 
@@ -377,23 +383,16 @@ export const useShowCities = (options: UseShowCitiesOptions = {}) => {
   const params = new URLSearchParams()
   appendCityCountScope(params, { tags, tagMatch })
   appendShowsCalendarWindow(params, calendarWindow)
-  const queryString = params.toString()
 
   return useQuery({
-    queryKey: queryString
-      ? [
-          ...showQueryKeys.cities(),
-          {
-            ...cityCountScopeKey({ tags, tagMatch }),
-            ...showsCalendarWindowKey(calendarWindow),
-          },
-        ]
-      : showQueryKeys.cities(),
+    queryKey: cityCountQueryKey(
+      showQueryKeys.cities(),
+      { tags, tagMatch },
+      showsCalendarWindowKey(calendarWindow)
+    ),
     queryFn: async (): Promise<ShowCitiesResponse> => {
       return apiRequest<ShowCitiesResponse>(
-        queryString
-          ? `${SHOW_CITIES_FIRST_SCREEN_URL}?${queryString}`
-          : SHOW_CITIES_FIRST_SCREEN_URL,
+        cityCountUrl(SHOW_CITIES_FIRST_SCREEN_URL, params),
         { method: 'GET' }
       )
     },

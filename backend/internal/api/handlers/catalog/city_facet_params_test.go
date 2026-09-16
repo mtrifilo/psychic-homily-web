@@ -99,6 +99,35 @@ func TestGetArtistCitiesHandler_UnfilteredKeepsTheActivityGate(t *testing.T) {
 	}
 }
 
+// The window parameters are declared twice, once per request struct, because
+// huma builds an operation's parameters from its request type's OWN fields and
+// does not promote an embedded struct's: sharing them through embedding drops
+// the window from the published document while both handlers keep working, so
+// the generated client stops being able to address a window at all.
+//
+// Two copies therefore have to be held together by a test rather than by the
+// type system. Tag-for-tag, because the bounds and the docs are the contract the
+// OpenAPI document publishes, and a facet that accepted a window the list
+// refuses is the disagreement this endpoint pair exists to prevent.
+func TestShowCalendarWindowParamsMatch(t *testing.T) {
+	list := reflect.TypeOf(GetShowsCalendarRequest{})
+	facet := reflect.TypeOf(GetShowCitiesRequest{})
+
+	for _, name := range []string{"Year", "Month", "Day", "Days"} {
+		listField, ok := list.FieldByName(name)
+		if !ok {
+			t.Fatalf("GetShowsCalendarRequest lost its %s field", name)
+		}
+		facetField, ok := facet.FieldByName(name)
+		if !ok {
+			t.Fatalf("GetShowCitiesRequest lost its %s field", name)
+		}
+		if listField.Tag != facetField.Tag {
+			t.Errorf("%s tags drifted:\n  list:  %s\n  facet: %s", name, listField.Tag, facetField.Tag)
+		}
+	}
+}
+
 func TestGetShowCitiesHandler_ThreadsTheTagFilterAndWindow(t *testing.T) {
 	var gotFilters *contracts.UpcomingShowsFilter
 	var gotWindow contracts.ShowCalendarWindow

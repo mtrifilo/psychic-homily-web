@@ -33770,7 +33770,7 @@ export interface operations {
             query?: {
                 /** @description Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only. */
                 timezone?: string;
-                /** @description Venue-local calendar year of the window. Omit (or 0) with month and day to count the whole upcoming list. */
+                /** @description Venue-local calendar year of the window. Omit (or 0) with month and day for the whole upcoming list. */
                 year?: number;
                 /** @description Venue-local calendar month, 1-12. Requires year. */
                 month?: number;

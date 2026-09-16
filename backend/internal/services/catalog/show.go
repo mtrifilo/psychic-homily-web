@@ -1561,16 +1561,13 @@ func showCitiesScope(filters *contracts.UpcomingShowsFilter) *contracts.Upcoming
 // under the same tag filter and calendar window the list is reading.
 // Returns cities sorted by show count (descending).
 //
-// "Upcoming" is the SAME venue-local partition GetUpcomingShows lists, and the
-// predicates are the same applier, which is what stops the picker from offering
-// a city whose count then dead-ends at an empty list (or hiding one that has
-// shows).
+// "Upcoming" is the SAME venue-local partition GetUpcomingShows lists, read
+// through the same applier, so each city's count is the total
+// GET /shows/calendar reports for that city under the same tags and window.
 //
-// Each city's count is therefore the total GET /shows/calendar reports for that
-// city under the same tags and window. The sum over every city equals that
-// total for no city at all EXCEPT for shows carrying no city or state: those
-// belong to the list and to no facet row, because there is no place to file them
-// under. filters.Cities is ignored for the reason GetVenueCities gives.
+// The sum over every city equals that total for no city at all EXCEPT for shows
+// carrying no city or state: those belong to the list and to no facet row,
+// because there is no place to file them under.
 //
 // Approved only, with no viewer parameter: the route is anonymous, as its list
 // siblings are, so both resolve their viewer to the public catalog.

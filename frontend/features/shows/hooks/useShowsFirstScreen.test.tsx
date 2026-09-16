@@ -20,6 +20,8 @@ import {
   SHOWS_CALENDAR_FIRST_SCREEN_URL,
   SHOWS_MONTHS_FIRST_SCREEN_KEY,
   SHOWS_MONTHS_FIRST_SCREEN_URL,
+  showCitiesWindowFirstScreenKey,
+  showCitiesWindowFirstScreenUrl,
   showsCalendarWindowFirstScreenKey,
   showsCalendarWindowFirstScreenUrl,
 } from '@/features/shows/api'
@@ -321,6 +323,42 @@ describe('shows window first-screen prefetch contract', () => {
 
     expect(queryClient.getQueryCache().getAll()[0].queryHash).toBe(
       hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY)
+    )
+  })
+
+  /**
+   * The city facet's half of the same contract. A windowed route seeds a facet
+   * scoped to its own window, so the seed pair has to address the entry
+   * `ShowList` reads there — otherwise the route pays for a payload nothing
+   * reads AND a client round trip for the one it does.
+   */
+  it('seeds the windowed facet on the entry the windowed list reads', async () => {
+    const window = { year: 2026, month: 12, day: 3 }
+    mockApiRequest.mockResolvedValueOnce({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(() => useShowCities({ window }), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      showCitiesWindowFirstScreenUrl(window),
+      { method: 'GET' }
+    )
+    expect(queryClient.getQueryCache().getAll()[0].queryHash).toBe(
+      hashKey(showCitiesWindowFirstScreenKey(window))
+    )
+  })
+
+  // An undefined window is the root's pair, so the root page's constants and
+  // the windowed builders cannot describe two different unwindowed entries.
+  it('collapses the windowed facet pair to the root pair with no window', () => {
+    expect(showCitiesWindowFirstScreenUrl(undefined)).toBe(
+      SHOW_CITIES_FIRST_SCREEN_URL
+    )
+    expect(hashKey(showCitiesWindowFirstScreenKey(undefined))).toBe(
+      hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
     )
   })
 })

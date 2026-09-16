@@ -13,10 +13,7 @@
  * WHICH calendar entry the rows land on, hence `calendarKey`.
  */
 
-import {
-  SHOW_CITIES_FIRST_SCREEN_KEY,
-  SHOWS_MONTHS_FIRST_SCREEN_KEY,
-} from './api'
+import { SHOWS_MONTHS_FIRST_SCREEN_KEY } from './api'
 import type {
   ShowCitiesResponse,
   ShowMonthsResponse,
@@ -34,6 +31,12 @@ export interface ShowsFirstScreenPayloads {
    * made silently.
    */
   calendarKey: readonly unknown[]
+  /**
+   * The cache entry the city facet belongs to. Required for the same reason
+   * `calendarKey` is: the facet is scoped to the window the list is reading, so
+   * a windowed route has its own entry and the root's would never be read.
+   */
+  citiesKey: readonly unknown[]
 }
 
 export function showsFirstScreenSeeds({
@@ -41,6 +44,7 @@ export function showsFirstScreenSeeds({
   cities,
   months,
   calendarKey,
+  citiesKey,
 }: ShowsFirstScreenPayloads): Array<{
   queryKey: readonly unknown[]
   data: unknown
@@ -49,7 +53,7 @@ export function showsFirstScreenSeeds({
 
   return [
     { queryKey: calendarKey, data: shows },
-    { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
+    { queryKey: citiesKey, data: cities },
     ...(months
       ? [{ queryKey: SHOWS_MONTHS_FIRST_SCREEN_KEY, data: months }]
       : []),

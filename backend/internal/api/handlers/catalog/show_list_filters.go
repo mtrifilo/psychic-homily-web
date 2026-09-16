@@ -3,6 +3,8 @@ package catalog
 import (
 	"context"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -42,6 +44,29 @@ func parseUpcomingShowsFilter(cities, city, state, tags, tagMatch string) *contr
 	}
 
 	return filters
+}
+
+// parseShowCalendarWindow turns the venue-local window parameters the date-
+// addressed readers share into a validated window, or into the 422 a
+// half-stated one earns.
+//
+// A half-stated window is a client error, not a wider read: it narrows to
+// nothing in SQL, so an unvalidated one answers for the whole upcoming catalog.
+// The rule and the message live on the window type; one reader here means the
+// offset list and the city facet cannot come to differ about either.
+//
+// The four query FIELDS are still declared per request struct, and must stay
+// spelled alike. They cannot be shared through an embedded struct: huma builds
+// each operation's parameters from the request type's own fields and does not
+// promote an embedded struct's, so embedding drops the window from the published
+// document while the handler keeps working. TestShowCalendarWindowParamsMatch
+// holds the copies together.
+func parseShowCalendarWindow(year, month, day, days int) (contracts.ShowCalendarWindow, error) {
+	window := contracts.ShowCalendarWindow{Year: year, Month: month, Day: day, Days: days}
+	if err := window.Validate(); err != nil {
+		return contracts.ShowCalendarWindow{}, huma.Error422UnprocessableEntity(err.Error())
+	}
+	return window, nil
 }
 
 // clampShowListLimit resolves a caller's page size against the catalog-wide

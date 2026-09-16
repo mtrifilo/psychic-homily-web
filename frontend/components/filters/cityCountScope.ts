@@ -49,15 +49,15 @@ export function cityCountScopeKey(
   scope: CityCountScope | undefined
 ): { tags: string[]; tagMatch?: 'any' } | undefined {
   if (!scope?.tags || scope.tags.length === 0) return undefined
-  return {
-    tags: scope.tags,
-    tagMatch: scope.tagMatch === 'any' ? 'any' : undefined,
-  }
+  return scope.tagMatch === 'any'
+    ? { tags: scope.tags, tagMatch: 'any' }
+    : { tags: scope.tags }
 }
 
 /**
  * Appends a scope fragment to a facet's base query key, leaving the base
- * untouched when there is nothing to scope by.
+ * untouched when there is nothing to scope by. `extra` carries a surface's own
+ * scope dimensions, which today is the /shows calendar window.
  *
  * Both halves of the key live here so a scoped request and the entry it lands in
  * cannot drift: react-query matches by the whole key, and a fragment added to
@@ -65,8 +65,24 @@ export function cityCountScopeKey(
  */
 export function cityCountQueryKey(
   base: readonly unknown[],
-  scope: CityCountScope | undefined
+  scope: CityCountScope | undefined,
+  extra?: Record<string, unknown>
 ): readonly unknown[] {
   const key = cityCountScopeKey(scope)
-  return key ? [...base, key] : base
+  const fragment = { ...key, ...extra }
+  // react-query hashes through JSON.stringify, which drops undefined members,
+  // so a fragment whose every member is undefined is not a distinct entry; the
+  // base has to be returned unchanged instead, or the seeded entry never hits.
+  return Object.values(fragment).some(value => value !== undefined)
+    ? [...base, fragment]
+    : base
+}
+
+/**
+ * A facet's request URL: the bare endpoint when there is nothing to scope by,
+ * which is the request the server-seeded first-screen payload was fetched with.
+ */
+export function cityCountUrl(endpoint: string, params: URLSearchParams): string {
+  const queryString = params.toString()
+  return queryString ? `${endpoint}?${queryString}` : endpoint
 }

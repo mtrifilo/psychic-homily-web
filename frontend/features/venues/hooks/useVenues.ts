@@ -16,6 +16,7 @@ import { buildCitiesParam } from '@/components/filters/cityParams'
 import {
   appendCityCountScope,
   cityCountQueryKey,
+  cityCountUrl,
   type CityCountScope,
 } from '@/components/filters/cityCountScope'
 import type { CityState } from '@/components/filters/CityFilters'
@@ -99,10 +100,9 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  // One spelling of the tag params for the list and the city facet beside it,
+  // which is scoped by exactly this half of the list's filter set.
+  appendCityCountScope(params, { tags, tagMatch })
   if (includeRail) params.set('include_rail', 'true')
   if (metroRollupApplies) params.set('metro_rollup', 'true')
 
@@ -379,15 +379,12 @@ export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
 export const useVenueCities = (scope?: CityCountScope) => {
   const params = new URLSearchParams()
   appendCityCountScope(params, scope)
-  const queryString = params.toString()
 
   return useQuery({
     queryKey: cityCountQueryKey(venueQueryKeys.cities, scope),
     queryFn: async (): Promise<VenueCitiesResponse> => {
       return apiRequest<VenueCitiesResponse>(
-        queryString
-          ? `${venueEndpoints.CITIES}?${queryString}`
-          : venueEndpoints.CITIES,
+        cityCountUrl(venueEndpoints.CITIES, params),
         { method: 'GET' }
       )
     },

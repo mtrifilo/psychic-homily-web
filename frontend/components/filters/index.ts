@@ -9,5 +9,6 @@ export {
   appendCityCountScope,
   cityCountQueryKey,
   cityCountScopeKey,
+  cityCountUrl,
 } from './cityCountScope'
 export type { CityCountScope } from './cityCountScope'

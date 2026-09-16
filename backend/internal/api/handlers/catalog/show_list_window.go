@@ -64,12 +64,9 @@ type GetShowsCalendarResponse struct {
 // 200s with total 0. Whether an addressable month that has no shows is a page or
 // a 404 is the frontend route's call, and it has the total it needs to make it.
 func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShowsCalendarRequest) (*GetShowsCalendarResponse, error) {
-	window := contracts.ShowCalendarWindow{Year: req.Year, Month: req.Month, Day: req.Day, Days: req.Days}
-	// A half-stated window is a client error, not a wider list. The rule and the
-	// message both live on the window type; the service refuses the same shapes
-	// for a caller that never passes through here.
-	if err := window.Validate(); err != nil {
-		return nil, huma.Error422UnprocessableEntity(err.Error())
+	window, err := parseShowCalendarWindow(req.Year, req.Month, req.Day, req.Days)
+	if err != nil {
+		return nil, err
 	}
 
 	// Both page bounds are resolved here so the envelope echoes the page that was

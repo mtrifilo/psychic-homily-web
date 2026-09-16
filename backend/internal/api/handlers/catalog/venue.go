@@ -91,6 +91,21 @@ type ListVenuesResponse struct {
 	}
 }
 
+// applyVenueTagFilter reads the `tags`/`tag_match` pair into a venue filter set.
+//
+// One reader for the list and the city facet, because the facet's counts are
+// only the list's totals while both narrow by the same rule. That includes what
+// is ABSENT: neither bounds the slug list, so the list and its facet select the
+// same set for a request carrying many tags.
+func applyVenueTagFilter(filters *contracts.VenueListFilters, tags, tagMatch string) {
+	tf := parseTagFilter(tags, tagMatch)
+	if !tf.HasTags() {
+		return
+	}
+	filters.TagSlugs = tf.TagSlugs
+	filters.TagMatchAny = tf.MatchAny
+}
+
 // ListVenuesHandler handles GET /venues - returns verified venues with upcoming show counts
 func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesRequest) (*ListVenuesResponse, error) {
 	filters := contracts.VenueListFilters{}
@@ -118,10 +133,7 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 		filters.City = req.City
 		filters.MetroRollup = req.MetroRollup
 	}
-	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
-		filters.TagSlugs = tf.TagSlugs
-		filters.TagMatchAny = tf.MatchAny
-	}
+	applyVenueTagFilter(&filters, req.Tags, req.TagMatch)
 	filters.IncludeRailFields = req.IncludeRail
 
 	// Second gate, not a redundant one: huma's enum rejects an unknown value on
@@ -621,16 +633,9 @@ type GetVenueCitiesResponse struct {
 }
 
 // GetVenueCitiesHandler handles GET /venues/cities - returns distinct cities with venue counts
-//
-// The tag filter is parsed with the same reader ListVenuesHandler uses, and with
-// the same absent bound: neither caps the slug list, so capping here would count
-// a wider set than the list beside it.
 func (h *VenueHandler) GetVenueCitiesHandler(ctx context.Context, req *GetVenueCitiesRequest) (*GetVenueCitiesResponse, error) {
 	filters := contracts.VenueListFilters{}
-	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
-		filters.TagSlugs = tf.TagSlugs
-		filters.TagMatchAny = tf.MatchAny
-	}
+	applyVenueTagFilter(&filters, req.Tags, req.TagMatch)
 
 	cities, err := h.venueService.GetVenueCities(filters)
 	if err != nil {

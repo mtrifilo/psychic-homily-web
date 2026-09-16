@@ -1242,9 +1242,7 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // SELECT, ORDER and LIMIT leak into the count.
 //
 // It is what stops the page, its total and its city facet from describing three
-// different sets. The facet passes a filter set with no place in it, because a
-// per-place breakdown is the one reader that must not be narrowed to a place;
-// everything else it is scoped by reaches it through here.
+// different sets.
 //
 // Every predicate is table-qualified. Two of the three callers hang this on a
 // statement that spans more relations than `venues`, and a reader should not
@@ -1768,19 +1766,23 @@ func (s *VenueService) HasPastShowsInYear(venueID uint, year int) (bool, error) 
 
 // contracts.VenueCityResponse represents a city with venue count for filtering
 
+// venueCitiesScope keeps the half of a venue filter set that a per-place
+// breakdown may be narrowed by, and drops the place half. The show and artist
+// twins are showCitiesScope and artistCitiesScope.
+func venueCitiesScope(filters contracts.VenueListFilters) contracts.VenueListFilters {
+	return contracts.VenueListFilters{
+		TagSlugs:    filters.TagSlugs,
+		TagMatchAny: filters.TagMatchAny,
+	}
+}
+
 // GetVenueCities returns distinct cities that have verified venues, with venue
 // counts, under the same non-place filters the list applies.
 // Results are sorted by venue count (descending) to show most active cities first.
 //
-// The counts are drawn through venueListPredicates, so each city's number is the
-// total GET /venues reports for that city under the same filters, and the sum
-// over every city is the total for no city at all. A facet counted on a wider
-// set than the list it filters offers a city whose row count the list then
-// contradicts.
-//
-// The PLACE half of the filter set is dropped rather than refused: this endpoint
-// answers with one row per place, so narrowing it to a place would leave the
-// picker offering only the place already picked.
+// Drawn through venueListPredicates, so each city's number is the total
+// GET /venues reports for that city under the same filters, and the sum over
+// every city is the total for no city at all.
 func (s *VenueService) GetVenueCities(filters contracts.VenueListFilters) ([]*contracts.VenueCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1792,13 +1794,8 @@ func (s *VenueService) GetVenueCities(filters contracts.VenueListFilters) ([]*co
 		VenueCount int64
 	}
 
-	scope := contracts.VenueListFilters{
-		TagSlugs:    filters.TagSlugs,
-		TagMatchAny: filters.TagMatchAny,
-	}
-
 	var results []CityResult
-	err := s.venueListPredicates(scope)(s.db.Table("venues")).
+	err := s.venueListPredicates(venueCitiesScope(filters))(s.db.Table("venues")).
 		Select("venues.city AS city, venues.state AS state, COUNT(*) as venue_count").
 		Group("venues.city, venues.state").
 		Order("venue_count DESC, city ASC").

@@ -37,7 +37,8 @@ import { ShowList } from './components/ShowList'
 import { ShowListSkeleton } from './components/ShowListSkeleton'
 import {
   SHOWS_MONTHS_FIRST_SCREEN_URL,
-  SHOW_CITIES_FIRST_SCREEN_URL,
+  showCitiesWindowFirstScreenKey,
+  showCitiesWindowFirstScreenUrl,
   showsCalendarWindowFirstScreenKey,
   showsCalendarWindowFirstScreenUrl,
 } from './api'
@@ -218,7 +219,7 @@ export async function ShowsCalendarContent({
   const [shows, cities, months] = await Promise.all([
     readSeedableWindowPage(window, searchParams),
     fetchListPayload<ShowCitiesResponse>({
-      url: SHOW_CITIES_FIRST_SCREEN_URL,
+      url: showCitiesWindowFirstScreenUrl(window),
       collection: 'cities',
       service: 'show-cities-first-screen',
     }),
@@ -234,6 +235,7 @@ export async function ShowsCalendarContent({
     cities,
     months,
     calendarKey: showsCalendarWindowFirstScreenKey(window),
+    citiesKey: showCitiesWindowFirstScreenKey(window),
   })
 
   const label = calendarWindowLabel(window)

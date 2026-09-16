@@ -163,11 +163,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
     isLoading: citiesLoading,
     isFetching: citiesFetching,
     isPlaceholderData: citiesArePlaceholder,
-  } = useShowCities({
-    tags: selectedTags.length > 0 ? selectedTags : undefined,
-    tagMatch,
-    window: calendarWindow,
-  })
+  } = useShowCities({ tags: selectedTags, tagMatch, window: calendarWindow })
 
   // Map ShowCity → CityWithCount (the has-shows list). Lifted above the early
   // returns so the geo hook can read it unconditionally.

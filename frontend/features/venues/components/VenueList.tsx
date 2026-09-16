@@ -75,10 +75,7 @@ export function VenueList() {
     isLoading: citiesLoading,
     isFetching: citiesFetching,
     isPlaceholderData: citiesArePlaceholder,
-  } = useVenueCities({
-    tags: selectedTags.length > 0 ? selectedTags : undefined,
-    tagMatch,
-  })
+  } = useVenueCities({ tags: selectedTags, tagMatch })
   const {
     data,
     isLoading,

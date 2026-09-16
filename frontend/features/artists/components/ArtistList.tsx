@@ -145,10 +145,8 @@ export function ArtistList() {
   // that set is the evergreen one, which is why a city here can carry a count
   // made of artists with nothing booked. NOT scoped to the city selection: the
   // response is the per-city breakdown.
-  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useArtistCities({
-    tags: selectedTags.length > 0 ? selectedTags : undefined,
-    tagMatch,
-  })
+  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } =
+    useArtistCities({ tags: selectedTags, tagMatch })
   const { data, isLoading, isFetching, error, refetch } = useArtists({
     cities: selectedCities.length > 0 ? selectedCities : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,

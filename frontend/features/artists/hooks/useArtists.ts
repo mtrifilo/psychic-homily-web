@@ -21,6 +21,7 @@ import { buildCitiesParam } from '@/components/filters/cityParams'
 import {
   appendCityCountScope,
   cityCountQueryKey,
+  cityCountUrl,
   type CityCountScope,
 } from '@/components/filters/cityCountScope'
 import type { CityState } from '@/components/filters'
@@ -71,10 +72,9 @@ export function useArtists(options: UseArtistsOptions = {}) {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  // One spelling of the tag params for the list and the city facet beside it,
+  // which is scoped by exactly this half of the list's filter set.
+  appendCityCountScope(params, { tags, tagMatch })
   if (missing) params.set(ARTIST_MISSING_PARAM, missing)
 
   const queryString = params.toString()
@@ -120,15 +120,12 @@ export function useArtists(options: UseArtistsOptions = {}) {
 export function useArtistCities(scope?: CityCountScope) {
   const params = new URLSearchParams()
   appendCityCountScope(params, scope)
-  const queryString = params.toString()
 
   return useQuery({
     queryKey: cityCountQueryKey(artistQueryKeys.cities, scope),
     queryFn: async (): Promise<ArtistCitiesResponse> => {
       return apiRequest<ArtistCitiesResponse>(
-        queryString
-          ? `${artistEndpoints.CITIES}?${queryString}`
-          : artistEndpoints.CITIES,
+        cityCountUrl(artistEndpoints.CITIES, params),
         { method: 'GET' }
       )
     },

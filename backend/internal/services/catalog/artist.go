@@ -1039,8 +1039,7 @@ func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 //
 // The sum over every city equals the unplaced total EXCEPT for artists carrying
 // no city or state: they belong to the list and to no facet row, because there
-// is no place to file them under. The place half of the filter set is dropped
-// for the reason GetVenueCities gives.
+// is no place to file them under.
 func (s *ArtistService) GetArtistCities(filters map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

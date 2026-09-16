@@ -224,6 +224,38 @@ export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
 export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities()
 
 /**
+ * The city facet's seed pair for a windowed route.
+ *
+ * The facet is scoped to the window the list is reading, so a windowed route
+ * that seeded the root's entry would compute a payload the hook never reads and
+ * still pay a client round trip for the one it does. The window is the only
+ * difference: no filter reaches these, for the reason the calendar pair above
+ * gives.
+ *
+ * Built from the same two window functions `useShowCities` builds its request
+ * and its key from, so the seed cannot drift onto an entry the hook does not
+ * read. An undefined window collapses both to the root's URL and key.
+ */
+export function showCitiesWindowFirstScreenUrl(
+  window: ShowsCalendarWindow | undefined
+): string {
+  const params = new URLSearchParams()
+  appendShowsCalendarWindow(params, window)
+  const queryString = params.toString()
+  return queryString
+    ? `${SHOW_CITIES_FIRST_SCREEN_URL}?${queryString}`
+    : SHOW_CITIES_FIRST_SCREEN_URL
+}
+
+export function showCitiesWindowFirstScreenKey(
+  window: ShowsCalendarWindow | undefined
+): readonly unknown[] {
+  return window
+    ? [...showQueryKeys.cities(), showsCalendarWindowKey(window)]
+    : SHOW_CITIES_FIRST_SCREEN_KEY
+}
+
+/**
  * The month histogram behind the pager's page labels.
  *
  * Seeded for the same reason the rows are, and with more at stake than the
