@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -28,51 +27,9 @@ func TestVenueListOrderBy_RejectsUnknownSort(t *testing.T) {
 	}
 }
 
-// TestVenueListOrderBy_QuietBlockIsGuardedUnderEverySort pins the structural
-// property the two-block order depends on: the quiet-room term and every
-// active-block term are CASE-guarded on the same count expression, so neither
-// block can order the other.
-func TestVenueListOrderBy_QuietBlockIsGuardedUnderEverySort(t *testing.T) {
-	quietLead := "(" + venueListCountSQL + " = 0) ASC, "
-	quietTerm := "CASE WHEN " + venueListCountSQL + " = 0 THEN last_show.event_date END DESC NULLS LAST"
-	for _, sort := range contracts.VenueListSortValues {
-		order, err := venueListOrderBy(sort)
-		if err != nil {
-			t.Fatalf("venueListOrderBy(%q): %v", sort, err)
-		}
-		if !strings.HasPrefix(order, quietLead) {
-			t.Errorf("sort=%q order %q does not lead with the quiet-room split %q", sort, order, quietLead)
-		}
-		if !strings.Contains(order, quietTerm) {
-			t.Errorf("sort=%q order %q does not carry the guarded last-show term", sort, order)
-		}
-		if !strings.HasSuffix(order, "venues.id ASC") {
-			t.Errorf("sort=%q order %q does not end in a total key; offset pages could overlap", sort, order)
-		}
-	}
-}
-
 // =============================================================================
 // Integration: GET /venues row fields
 // =============================================================================
-
-// createListShow makes one approved show at a venue with a slug and a title, so
-// the next/last projections can be asserted on more than a date.
-func (suite *VenueServiceIntegrationTestSuite) createListShow(
-	venueID, userID uint, title string, eventDate time.Time,
-) *catalogm.Show {
-	slug := fmt.Sprintf("psy2076-%d", time.Now().UnixNano())
-	show := &catalogm.Show{
-		Title:       title,
-		Slug:        &slug,
-		EventDate:   eventDate,
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &userID,
-	}
-	suite.Require().NoError(suite.db.Create(show).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
-	return show
-}
 
 // TestGetVenuesWithShowCounts_CountHoldsAShowUnderWay is the ticket's headline
 // acceptance: a set that started an hour ago is still an upcoming listing, and
@@ -86,7 +43,7 @@ func (suite *VenueServiceIntegrationTestSuite) createListShow(
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_CountHoldsAShowUnderWay() {
 	venue := suite.createTestVenue("Under Way Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
-	suite.createListShow(venue.ID, user.ID, "Doors Open", time.Now().UTC().Add(-time.Hour))
+	suite.createRailShow(venue.ID, user.ID, "Doors Open", time.Now().UTC().Add(-time.Hour))
 
 	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 	suite.Require().NoError(err)
@@ -111,11 +68,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NextA
 	suite.createTestVenue("Empty Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
 
-	soon := suite.createListShow(active.ID, user.ID, "Soonest", time.Now().UTC().AddDate(0, 0, 3))
-	suite.createListShow(active.ID, user.ID, "Later", time.Now().UTC().AddDate(0, 0, 30))
-	activePast := suite.createListShow(active.ID, user.ID, "Old Night", time.Now().UTC().AddDate(0, 0, -40))
-	quietRecent := suite.createListShow(quiet.ID, user.ID, "Last Night Here", time.Now().UTC().AddDate(0, 0, -10))
-	suite.createListShow(quiet.ID, user.ID, "Ancient", time.Now().UTC().AddDate(0, 0, -400))
+	soon := suite.createRailShow(active.ID, user.ID, "Soonest", time.Now().UTC().AddDate(0, 0, 3))
+	suite.createRailShow(active.ID, user.ID, "Later", time.Now().UTC().AddDate(0, 0, 30))
+	activePast := suite.createRailShow(active.ID, user.ID, "Old Night", time.Now().UTC().AddDate(0, 0, -40))
+	quietRecent := suite.createRailShow(quiet.ID, user.ID, "Last Night Here", time.Now().UTC().AddDate(0, 0, -10))
+	suite.createRailShow(quiet.ID, user.ID, "Ancient", time.Now().UTC().AddDate(0, 0, -400))
 
 	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 	suite.Require().NoError(err)
@@ -155,12 +112,12 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Sorts
 	quietOld := suite.createTestVenue("Quiet Old", "Phoenix", "AZ", true)
 
 	for i := 1; i <= 3; i++ {
-		suite.createListShow(busiest.ID, user.ID, "B", time.Now().UTC().AddDate(0, 0, 10+i))
+		suite.createRailShow(busiest.ID, user.ID, "B", time.Now().UTC().AddDate(0, 0, 10+i))
 	}
-	suite.createListShow(soonest.ID, user.ID, "S", time.Now().UTC().AddDate(0, 0, 2))
-	suite.createListShow(alpha.ID, user.ID, "A", time.Now().UTC().AddDate(0, 0, 20))
-	suite.createListShow(quietRecent.ID, user.ID, "QR", time.Now().UTC().AddDate(0, 0, -5))
-	suite.createListShow(quietOld.ID, user.ID, "QO", time.Now().UTC().AddDate(0, 0, -50))
+	suite.createRailShow(soonest.ID, user.ID, "S", time.Now().UTC().AddDate(0, 0, 2))
+	suite.createRailShow(alpha.ID, user.ID, "A", time.Now().UTC().AddDate(0, 0, 20))
+	suite.createRailShow(quietRecent.ID, user.ID, "QR", time.Now().UTC().AddDate(0, 0, -5))
+	suite.createRailShow(quietOld.ID, user.ID, "QO", time.Now().UTC().AddDate(0, 0, -50))
 
 	cases := []struct {
 		sort string
@@ -190,9 +147,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_SortD
 	user := suite.createTestUser()
 	few := suite.createTestVenue("Few", "Phoenix", "AZ", true)
 	many := suite.createTestVenue("Many", "Phoenix", "AZ", true)
-	suite.createListShow(few.ID, user.ID, "F", time.Now().UTC().AddDate(0, 0, 5))
-	suite.createListShow(many.ID, user.ID, "M1", time.Now().UTC().AddDate(0, 0, 6))
-	suite.createListShow(many.ID, user.ID, "M2", time.Now().UTC().AddDate(0, 0, 7))
+	suite.createRailShow(few.ID, user.ID, "F", time.Now().UTC().AddDate(0, 0, 5))
+	suite.createRailShow(many.ID, user.ID, "M1", time.Now().UTC().AddDate(0, 0, 6))
+	suite.createRailShow(many.ID, user.ID, "M2", time.Now().UTC().AddDate(0, 0, 7))
 
 	blank, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 	suite.Require().NoError(err)
@@ -214,11 +171,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Pages
 	user := suite.createTestUser()
 	// Two rooms of the SAME name in different cities, which the unique index
 	// allows, plus enough quiet rooms to force a second page.
-	suite.createListShow(suite.createTestVenue("Twin", "Phoenix", "AZ", true).ID, user.ID, "P", time.Now().UTC().AddDate(0, 0, 4))
-	suite.createListShow(suite.createTestVenue("Twin", "Tucson", "AZ", true).ID, user.ID, "T", time.Now().UTC().AddDate(0, 0, 4))
+	suite.createRailShow(suite.createTestVenue("Twin", "Phoenix", "AZ", true).ID, user.ID, "P", time.Now().UTC().AddDate(0, 0, 4))
+	suite.createRailShow(suite.createTestVenue("Twin", "Tucson", "AZ", true).ID, user.ID, "T", time.Now().UTC().AddDate(0, 0, 4))
 	for i := 0; i < 3; i++ {
 		v := suite.createTestVenue(fmt.Sprintf("Quiet %d", i), "Phoenix", "AZ", true)
-		suite.createListShow(v.ID, user.ID, "Q", time.Now().UTC().AddDate(0, 0, -(i+1)))
+		suite.createRailShow(v.ID, user.ID, "Q", time.Now().UTC().AddDate(0, 0, -(i+1)))
 	}
 
 	for _, sort := range contracts.VenueListSortValues {
@@ -245,7 +202,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestVenueLocalNightConditions_Par
 	for _, offset := range []time.Duration{
 		-400 * 24 * time.Hour, -36 * time.Hour, -time.Hour, time.Hour, 36 * time.Hour, 400 * 24 * time.Hour,
 	} {
-		suite.createListShow(venue.ID, user.ID, "P", time.Now().UTC().Add(offset))
+		suite.createRailShow(venue.ID, user.ID, "P", time.Now().UTC().Add(offset))
 	}
 
 	count := func(condition string) int64 {

@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -101,6 +103,21 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_MultiCityFilter() {
 	s.NoError(err)
 	s.Equal(int64(2), resp.Body.Total)
 	s.Len(resp.Body.Venues, 2)
+}
+
+// TestListVenuesSortEnumTagMatchesVocabulary holds the OpenAPI enum and the
+// accepted set together. huma needs the enum as a literal tag, so the set is
+// written twice; this is what stops the published document, the 422 message and
+// the orders the service can actually render from naming three different sets.
+func TestListVenuesSortEnumTagMatchesVocabulary(t *testing.T) {
+	field, ok := reflect.TypeOf(ListVenuesRequest{}).FieldByName("Sort")
+	if !ok {
+		t.Fatal("ListVenuesRequest has no Sort field")
+	}
+	want := strings.Join(contracts.VenueListSortValues, ",")
+	if got := field.Tag.Get("enum"); got != want {
+		t.Errorf("sort enum tag = %q, want %q", got, want)
+	}
 }
 
 // TestListVenues_InvalidSortIs422 pins the status, not merely the error: a

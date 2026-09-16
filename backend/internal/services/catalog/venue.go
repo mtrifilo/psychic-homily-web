@@ -913,7 +913,9 @@ type VenueWithCount struct {
 }
 
 // venueListShowRef assembles one lateral pick into the wire shape, or nil when
-// the lateral matched no row.
+// the lateral matched no row. The date decides: slug and title are COALESCEd in
+// SQL, so they are non-NULL on any row that matched, and the nil checks are
+// scan-safety rather than a second signal.
 func venueListShowRef(date *time.Time, slug, title *string) *contracts.VenueListShowRef {
 	if date == nil {
 		return nil
@@ -941,15 +943,12 @@ const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 // row: the first under `order`, among the venue's approved shows satisfying
 // `dateCondition`.
 //
-// `alias` names the lateral and prefixes nothing else, so the outer query reads
-// its columns as <alias>.event_date / .slug / .title. `sv` inside is aliased per
-// call because two of these sit in one query, and shared.VenueTZJoin's own
-// lateral uses `sv` in its innermost scope.
+// `alias` names the lateral, so the outer query reads its columns as
+// <alias>.event_date / .slug / .title. `svAlias` must differ per call: two of
+// these sit in one query, and shared.VenueTZJoin's innermost scope already uses
+// `sv`. The show is joined UNALIASED because that join correlates on `shows.id`.
 //
-// The show is joined UNALIASED: shared.VenueTZJoin correlates on `shows.id`.
-//
-// It carries exactly one bind parameter, the approved status, so a caller
-// splices its args in the order the joins appear in the SQL text.
+// It carries exactly one bind parameter, the approved status.
 func venueListShowPickLateral(alias, svAlias, dateCondition, order string) string {
 	return `LEFT JOIN LATERAL (
 			SELECT shows.event_date AS event_date,
@@ -966,41 +965,65 @@ func venueListShowPickLateral(alias, svAlias, dateCondition, order string) strin
 		) ` + alias + ` ON true`
 }
 
-// venueListOrderBy renders the row order for one sort key, or an error when the
-// key is not one of contracts.VenueListSortValues.
+// The two picks and the three orderings never vary, so they are rendered once at
+// package load rather than on every request.
+var (
+	venueNextShowLateral = venueListShowPickLateral("next_show", "nsv",
+		shared.VenueLocalNightDateCondition, "shows.event_date ASC, shows.id ASC")
+	venueLastShowLateral = venueListShowPickLateral("last_show", "lsv",
+		shared.VenueLocalNightPastDateCondition, "shows.event_date DESC, shows.id DESC")
+	venueListOrderBys = buildVenueListOrderBys()
+)
+
+// buildVenueListOrderBys renders the row order for each accepted sort key.
 //
 // TWO BLOCKS UNDER EVERY SORT: rooms with something booked, then quiet rooms.
-// The leading key is what makes that true, and it is not a tie-breaker on any
-// of the three sorts — a quiet room is ranked by none of them, so it sinks and
-// is ordered by how recently it last had a show instead.
+// The leading key is what makes that true, and it is not a tie-breaker on any of
+// the three sorts: a quiet room is ranked by none of them, so it sinks and is
+// ordered by how recently it last had a show instead.
 //
 // Every active-block term yields NULL for a quiet row and the quiet term yields
 // NULL for an active one, because a shared tail term would otherwise order the
-// wrong block: `venues.name ASC` under sort=name would outrank the quiet
-// block's last-show order, and last-show would outrank name in the active one.
+// wrong block: `venues.name ASC` under sort=name would outrank the quiet block's
+// last-show order, and last-show would outrank name in the active one.
 //
 // Name alone does not break a tie: venue names are unique only per city
 // (idx_venues_name_city_unique) and a city filter is optional here, so id ends
 // every key. A total order is what makes offset paging return disjoint pages.
 //
-// Null placement is stated inside each block and can decide nothing across
-// them: the leading key has already separated the two.
-func venueListOrderBy(sort string) (string, error) {
+// Null placement is stated inside each block and decides nothing across them:
+// the leading key has already separated the two.
+func buildVenueListOrderBys() map[string]string {
 	quiet := venueListCountSQL + " = 0"
-	active := ""
-	switch sort {
-	case contracts.VenueListSortName:
-		// Name is the shared tail, so the active block needs no term of its own.
-	case contracts.VenueListSortNext:
-		active = "CASE WHEN " + quiet + " THEN NULL ELSE next_show.event_date END ASC NULLS LAST, "
-	case contracts.VenueListSortUpcoming, "":
-		active = "CASE WHEN " + quiet + " THEN NULL ELSE " + venueListCountSQL + " END DESC NULLS LAST, "
-	default:
+	tail := "CASE WHEN " + quiet + " THEN last_show.event_date END DESC NULLS LAST, " +
+		"venues.name ASC, venues.id ASC"
+	active := map[string]string{
+		// Name is the shared tail, so this block needs no term of its own.
+		contracts.VenueListSortName: "",
+		contracts.VenueListSortNext: "CASE WHEN " + quiet +
+			" THEN NULL ELSE next_show.event_date END ASC NULLS LAST, ",
+		contracts.VenueListSortUpcoming: "CASE WHEN " + quiet +
+			" THEN NULL ELSE " + venueListCountSQL + " END DESC NULLS LAST, ",
+	}
+	out := make(map[string]string, len(active))
+	for sort, term := range active {
+		out[sort] = "(" + quiet + ") ASC, " + term + tail
+	}
+	return out
+}
+
+// venueListOrderBy returns the rendered order for one sort key, or an error when
+// the key is not one of contracts.VenueListSortValues. The empty string is the
+// default, matching contracts.IsVenueListSort.
+func venueListOrderBy(sort string) (string, error) {
+	if sort == "" {
+		sort = contracts.VenueListSortUpcoming
+	}
+	order, ok := venueListOrderBys[sort]
+	if !ok {
 		return "", fmt.Errorf("unknown venue list sort %q", sort)
 	}
-	return "(" + quiet + ") ASC, " + active +
-		"CASE WHEN " + quiet + " THEN last_show.event_date END DESC NULLS LAST, " +
-		"venues.name ASC, venues.id ASC", nil
+	return order, nil
 }
 
 // metroRollupPredicate returns the WHERE fragment that widens a City+State
@@ -1165,17 +1188,12 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // count, their next show and their last one, under filters.Sort.
 //
 // ONE BOUNDARY DECIDES ALL THREE. The count and the next-show pick are drawn on
-// shared.VenueLocalNightDateCondition, per row in that show's own venue zone,
-// and the last-show pick on that condition's exact complement. So the count is
-// above zero exactly when next_show is non-null, no show is ever both picks,
-// and a room whose only booking is tonight ranks above a room with one show in
-// November instead of reading zero the moment the first set starts.
-//
-// It is the same boundary the scene page's rooms leaderboard counts on
-// (catalog/scene_venues.go), so one room reads one number on both pages. It is
-// deliberately NOT the venue page's own list bound, which is venue-local
-// midnight; the two differ only between midnight and shared.NightStartHour and
-// the contract on VenueWithShowCountResponse.UpcomingShowCount says so.
+// shared.VenueLocalNightDateCondition and the last-show pick on that condition's
+// exact complement, so the count is above zero exactly when next_show is
+// non-null and no show is ever both picks. It is the boundary the scene page's
+// rooms leaderboard counts on (catalog/scene_venues.go), and NOT the venue
+// page's own midnight bound; VenueWithShowCountResponse.UpcomingShowCount
+// carries the contract.
 //
 // The zone that dates a show is its PRIMARY venue's, not necessarily the venue
 // whose row is being counted, because the boundary is the repo's shared one.
@@ -1198,6 +1216,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Build the base query with show count subquery
 	// This allows us to sort by show count while also paginating correctly
+	// COUNT(*) counts distinct shows: show_venues is keyed PRIMARY KEY
+	// (show_id, venue_id), so a show cannot appear twice in one venue's group.
 	subquery := s.db.Table("show_venues").
 		Select("show_venues.venue_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
@@ -1215,10 +1235,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 			"next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, "+
 			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
-		Joins(venueListShowPickLateral("next_show", "nsv", shared.VenueLocalNightDateCondition,
-			"shows.event_date ASC, shows.id ASC"), catalogm.ShowStatusApproved).
-		Joins(venueListShowPickLateral("last_show", "lsv", shared.VenueLocalNightPastDateCondition,
-			"shows.event_date DESC, shows.id DESC"), catalogm.ShowStatusApproved).
+		Joins(venueNextShowLateral, catalogm.ShowStatusApproved).
+		Joins(venueLastShowLateral, catalogm.ShowStatusApproved).
 		Where(venueBrowseGate, true)
 
 	// Apply optional filters

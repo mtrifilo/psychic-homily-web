@@ -44,11 +44,16 @@ func TestVenueLocalDate(t *testing.T) {
 
 // createRailShow makes one approved show at a venue, on a given date, with the
 // given title and bill (in listed order).
+//
+// The show gets a unique slug because the /venues row projections link by slug,
+// and an empty one is a real data condition rather than the default.
 func (suite *VenueServiceIntegrationTestSuite) createRailShow(
 	venueID, userID uint, title string, eventDate time.Time, artistNames ...string,
 ) *catalogm.Show {
+	slug := fmt.Sprintf("test-show-%d", time.Now().UnixNano())
 	show := &catalogm.Show{
 		Title:       title,
+		Slug:        &slug,
 		EventDate:   eventDate,
 		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,

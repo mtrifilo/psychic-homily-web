@@ -5,6 +5,7 @@ package contracts
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -1024,26 +1025,31 @@ type VenueListShowRef struct {
 // the list, because a venue row without its meta line still lists.
 type VenueWithShowCountResponse struct {
 	VenueDetailResponse
-	// UpcomingShowCount is the room's approved shows still to come, bounded at
-	// the NIGHT in progress in each show's own venue zone
-	// (shared.VenueLocalNightDateCondition). A set already under way still
-	// counts, and between midnight and shared.NightStartHour the whole previous
-	// local date still counts.
+	// UpcomingShowCount is the room's approved shows still to come, bounded by
+	// shared.VenueLocalNightDateCondition, which owns what that means: a set
+	// already under way still counts.
 	//
-	// It is the same boundary, and so the same number, as the room's entry on a
-	// scene page's rooms leaderboard. It is NOT the same number as the venue
-	// page's own upcoming show list, which is bounded at venue-local MIDNIGHT:
-	// the two agree except between midnight and NightStartHour, where this one
-	// is the wider set.
+	// The same boundary and the same rooms as a scene page's leaderboard entry
+	// for this room, so the two print one number. NOT the same number as the
+	// venue page's own upcoming list, which is bounded at venue-local MIDNIGHT
+	// and is the narrower set between midnight and shared.NightStartHour.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	// NextShow is the soonest show inside UpcomingShowCount's set, and LastShow
-	// the most recent one outside it. Null when the room has none.
+	// the most recent one outside it.
 	//
 	// Both are drawn from ONE boundary, so they partition the room's approved
-	// shows: NextShow is non-null exactly when UpcomingShowCount is above zero,
+	// shows: NextShow is present exactly when UpcomingShowCount is above zero,
 	// and no show is ever both.
-	NextShow *VenueListShowRef `json:"next_show" doc:"The soonest upcoming approved show at this venue, or null. Non-null exactly when upcoming_show_count is above zero."`
-	LastShow *VenueListShowRef `json:"last_show" doc:"The most recent past approved show at this venue, or null. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
+	//
+	// ABSENT rather than null when the room has none, and the omitempty is what
+	// makes the generated client types honest: huma cannot express a nullable
+	// object reference at all (it panics on `nullable:"true"` over an object
+	// $ref), so a key that is always present would be generated as a
+	// non-nullable object the wire can still send null for. Omitting it is the
+	// shape the rest of this file already uses for an optional object, such as
+	// Provenance on the embedded venue.
+	NextShow *VenueListShowRef `json:"next_show,omitempty" doc:"The soonest upcoming approved show at this venue. Absent when the venue has none, which is exactly when upcoming_show_count is zero."`
+	LastShow *VenueListShowRef `json:"last_show,omitempty" doc:"The most recent past approved show at this venue. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
 	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount, driving the
 	// rail's "Next 7 days" filter chip and its header stat.
 	//
@@ -1171,40 +1177,24 @@ type VenueListingEntry struct {
 }
 
 // Venue directory sort keys, the whole accepted set of GET /venues' `sort`.
-//
-// They name what the reader is ranking rooms by, not the SQL: catalog's
-// venueListOrderBy owns the key each one renders to, including the quiet-room
-// block all three end with.
+// catalog's venueListOrderBy owns the ordering each one renders to.
 const (
-	// VenueListSortUpcoming ranks by how much a room has booked. The default,
-	// and what the endpoint did before `sort` existed.
-	VenueListSortUpcoming = "upcoming"
-	// VenueListSortName is alphabetical, for a reader looking for one room
-	// rather than for something to do.
-	VenueListSortName = "name"
-	// VenueListSortNext ranks by how soon the next show is, which is a
-	// different question from how many there are: a room with one show tonight
-	// leads a room with twenty starting in March.
-	VenueListSortNext = "next"
+	VenueListSortUpcoming = "upcoming" // most booked first; the default
+	VenueListSortName     = "name"     // alphabetical
+	VenueListSortNext     = "next"     // soonest next show first
 )
 
-// VenueListSortValues is the accepted set in documentation order. The handler's
-// enum tag and its validation both read it, so the OpenAPI document and the 422
-// cannot name different sets.
+// VenueListSortValues is the accepted set in documentation order.
+//
+// ListVenuesRequest's `enum` tag restates it as a literal, which huma requires,
+// and TestListVenuesSortEnumTagMatchesVocabulary asserts the two agree so the
+// OpenAPI document and the 422 cannot name different sets.
 var VenueListSortValues = []string{VenueListSortUpcoming, VenueListSortName, VenueListSortNext}
 
 // IsVenueListSort reports whether sort names an accepted key. The empty string
 // is accepted and means the default: an absent parameter is not a misspelt one.
 func IsVenueListSort(sort string) bool {
-	if sort == "" {
-		return true
-	}
-	for _, v := range VenueListSortValues {
-		if sort == v {
-			return true
-		}
-	}
-	return false
+	return sort == "" || slices.Contains(VenueListSortValues, sort)
 }
 
 // VenueListFilters contains filter options for listing venues
