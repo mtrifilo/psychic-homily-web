@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverTrigger } from '@/components/ui/popover'
 import {
   Command,
   CommandEmpty,
@@ -11,6 +11,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandPopoverContent,
 } from '@/components/ui/command'
 import { isPlaceableScene, type PlaceableScene } from './globeTypes'
 import { compareScenesByActivity } from './globeScale'
@@ -118,7 +119,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
           </kbd>
         </button>
       </PopoverTrigger>
-      <PopoverContent
+      <CommandPopoverContent
         className="w-[260px] p-0"
         align="start"
         onCloseAutoFocus={(e) => {
@@ -152,7 +153,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
             </CommandGroup>
           </CommandList>
         </Command>
-      </PopoverContent>
+      </CommandPopoverContent>
     </Popover>
   )
 }

@@ -11,7 +11,9 @@ import {
   CommandItem,
   CommandSeparator,
   CommandShortcut,
+  CommandPopoverContent,
 } from './command'
+import { Popover, PopoverTrigger } from './popover'
 
 /**
  * Radix publishes this on popover content. Custom properties inherit, so every
@@ -83,10 +85,10 @@ describe('Command', () => {
 /**
  * jsdom has no layout, so the geometry these classes produce is asserted in
  * `e2e/pages/command-popover-keyboard.spec.ts`. What is checkable here is the
- * placement contract that geometry rests on: the column carries its floor and
- * no ceiling, and a consumer can replace the floor.
+ * placement contract that geometry rests on: which element carries the cap and
+ * which carries the floor, and that a consumer can replace either.
  */
-describe('Command column inside a bounded popover', () => {
+describe('Command surface bounds', () => {
   function renderCommand(className?: string) {
     render(
       <Command data-testid="command" className={className}>
@@ -100,40 +102,76 @@ describe('Command column inside a bounded popover', () => {
     )
   }
 
-  it('floors the column at the input row and carries no ceiling', () => {
+  it('caps the popover frame and shrinks the column into it', () => {
+    render(
+      <Popover open>
+        <PopoverTrigger>Open</PopoverTrigger>
+        <CommandPopoverContent data-testid="frame">
+          <Command data-testid="command">
+            <CommandInput placeholder="Search..." />
+            <CommandList data-testid="list">
+              <CommandGroup>
+                <CommandItem>Item one</CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </CommandPopoverContent>
+      </Popover>
+    )
+    const frame = screen.getByTestId('frame')
+    // The cap is on the frame because that is the box Radix measures the room
+    // from: set inside it, the frame's own borders paint past the edge it was
+    // measured from. Spelled out rather than imported from the component, so a
+    // typo in the variable name fails here instead of matching itself.
+    expect(frame).toHaveClass(BOUND_CLASS)
+    expect(screen.getByTestId('command')).not.toHaveClass(BOUND_CLASS)
+    expect(screen.getByTestId('list')).not.toHaveClass(BOUND_CLASS)
+    // Flex is what carries the cap inward: a block frame would overflow it.
+    expect(frame).toHaveClass('flex')
+    expect(frame).toHaveClass('flex-col')
+  })
+
+  it('floors the column at the input row, not the list', () => {
     renderCommand()
     const column = screen.getByTestId('command')
     const list = screen.getByTestId('list')
 
-    // The ceiling is on the popover's border box instead (`popover.tsx`): the
-    // room Radix publishes is measured from that box's outer top edge, so a
-    // ceiling set anywhere inside leaves its borders to paint past that edge.
-    // Spelled out rather than imported from the component, so a typo in the
-    // variable name fails here instead of matching itself.
-    expect(column).not.toHaveClass(BOUND_CLASS)
-    expect(list).not.toHaveClass(BOUND_CLASS)
     // The floor is the input row's own height token, so the two scale together
     // and the column can never clip the field being typed into.
     expect(column).toHaveClass('min-h-11')
     expect(screen.getByPlaceholderText('Search...')).toHaveClass('h-11')
-    // `overflow-hidden` is what zeroes this column's automatic minimum size, so
-    // it shrinks into the popover's cap instead of forcing the popover open.
+    // `overflow-hidden` is what zeroes the column's automatic minimum size, so
+    // it shrinks into the frame's cap instead of forcing the frame open.
     expect(column).toHaveClass('overflow-hidden')
     // The list keeps its own cap, so a roomy popover is unchanged, and scrolls
-    // rather than overflowing once the popover is bounded.
+    // rather than overflowing once the frame is bounded.
     expect(list).toHaveClass('max-h-[300px]')
     expect(list).toHaveClass('overflow-y-auto')
   })
 
-  it('lets a consumer replace the floor with its own min-height', () => {
-    renderCommand('min-h-0')
-    // tailwind-merge keeps the last min-height, so opting out is silent.
+  it('lets a consumer replace either bound with its own', () => {
+    // tailwind-merge keeps the last value in each group, so opting out of the
+    // cap or the floor is silent.
+    render(
+      <Popover open>
+        <PopoverTrigger>Open</PopoverTrigger>
+        <CommandPopoverContent
+          data-testid="frame"
+          className="max-h-[400px]"
+        >
+          <Command data-testid="command" className="min-h-0" />
+        </CommandPopoverContent>
+      </Popover>
+    )
+    const frame = screen.getByTestId('frame')
+    expect(frame).toHaveClass('max-h-[400px]')
+    expect(frame).not.toHaveClass(BOUND_CLASS)
     const column = screen.getByTestId('command')
     expect(column).toHaveClass('min-h-0')
     expect(column).not.toHaveClass('min-h-11')
   })
 
-  it('gives the dialog path the same column, with no bound of its own', () => {
+  it('gives the dialog path the same column, with no cap of its own', () => {
     render(
       <CommandDialog open onOpenChange={() => {}}>
         <CommandInput placeholder="Search..." />
@@ -144,9 +182,8 @@ describe('Command column inside a bounded popover', () => {
         </CommandList>
       </CommandDialog>
     )
-    // One code path, not two: the dialog renders the same unbounded column, and
-    // the dialog frame it sits in publishes no available height to bound it by.
-    // `CommandList`'s own 300px cap is what sizes this surface.
+    // One column, two frames: the dialog frame publishes no available height,
+    // so `CommandList`'s own 300px cap is what sizes this surface.
     const column = screen.getByTestId('list').closest('[cmdk-root]')
     expect(column).not.toHaveClass(BOUND_CLASS)
     expect(column).toHaveClass('min-h-11')

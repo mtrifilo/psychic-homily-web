@@ -40,6 +40,17 @@ function availableHeightPx(content: Locator): Promise<number> {
   )
 }
 
+/**
+ * Whether the rows scroll, as a single cheap read. Polling the full
+ * {@link measure} for this one boolean would re-wait a frame per tick.
+ */
+function listScrolls(content: Locator): Promise<boolean> {
+  return content.evaluate(el => {
+    const list = el.querySelector('[cmdk-list]') as HTMLElement
+    return list.scrollHeight > list.clientHeight
+  })
+}
+
 type Geometry = {
   available: number
   columnHeight: number
@@ -55,19 +66,23 @@ type Geometry = {
 }
 
 /**
- * One round-trip for every measurement, so the whole reading is taken from a
- * single layout rather than from several that a reposition tick can fall
- * between.
+ * Waits out the popover's enter animation, then takes the whole reading in one
+ * round-trip so it comes from a single layout rather than from several that a
+ * reposition tick can fall between.
  *
- * The enter animation scales and slides the popover, so a rect read while it
- * runs describes a smaller box than the one that settles on screen. Waiting it
- * out is what makes these numbers the geometry the reader gets: a reading taken
- * mid-animation understates the bottom edge by a couple of px, which is enough
- * to hide exactly the overshoot this spec exists to catch.
+ * The wait is inside the reader, not a step beside it, because a reading taken
+ * mid-animation is the failure this spec exists to catch: the enter animation
+ * scales and slides the popover, so a rect read while it runs understates the
+ * bottom edge by a couple of px, which is exactly the size of the overshoot
+ * being asserted against. A settled reading has to be the only kind available.
+ * A cancelled animation never finishes, so its rejection is swallowed rather
+ * than failing the reading.
  */
 function measure(content: Locator): Promise<Geometry> {
   return content.evaluate(async el => {
-    await Promise.all(el.getAnimations().map(animation => animation.finished))
+    await Promise.all(
+      el.getAnimations().map(animation => animation.finished.catch(() => {}))
+    )
     await new Promise(resolve => requestAnimationFrame(resolve))
     const style = getComputedStyle(el)
     const rect = el.getBoundingClientRect()
@@ -118,10 +133,11 @@ test.describe('Atlas search popover under a software keyboard', () => {
       .toBeLessThan(ATLAS_KEYBOARD_HEIGHT)
 
     const geometry = await measure(content)
-    // The bound itself: the popover's whole border box, borders included, fits
-    // the room Radix reported.
+    // The bound itself, checked against two sources so a wrong reading of
+    // either shows up: the popover's whole border box, borders included, fits
+    // the room Radix reported, and its bottom edge clears the line the harness
+    // put the keyboard on. Nothing is forgiven on either line.
     expect(geometry.contentHeight).toBeLessThanOrEqual(geometry.available)
-    // So nothing at all paints below the keyboard, with nothing forgiven.
     expect(geometry.contentBottom).toBeLessThanOrEqual(ATLAS_KEYBOARD_HEIGHT)
     // The rows scroll inside that bound instead of running past it.
     expect(geometry.listScrolls).toBe(true)
@@ -135,9 +151,7 @@ test.describe('Atlas search popover under a software keyboard', () => {
     // in both directions rather than latching at its smallest reading.
     await raiseKeyboard(page, ATLAS_VIEWPORT.height)
     await expect
-      .poll(async () => (await measure(content)).listScrolls, {
-        timeout: 10_000,
-      })
+      .poll(() => listScrolls(content), { timeout: 10_000 })
       .toBe(false)
     const restored = await measure(content)
     // The ceiling is back to the full room, and the column has grown past the

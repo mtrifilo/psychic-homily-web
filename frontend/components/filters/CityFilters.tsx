@@ -2,8 +2,8 @@
 
 import { useState, useMemo, useCallback, useRef } from 'react'
 import { Search, Check, ChevronsUpDown } from 'lucide-react'
-import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandPopoverContent } from '@/components/ui/command'
+import { Popover, PopoverTrigger } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
 import { cityKey, cityLabel } from './cityParams'
 import { CityFilterSheet, type ResultNoun } from './CityFilterSheet'
@@ -188,7 +188,11 @@ export function CityFilters({
               <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-[240px] p-0" align="start" side="bottom">
+          <CommandPopoverContent
+            className="w-[240px] p-0"
+            align="start"
+            side="bottom"
+          >
             <Command>
               <CommandInput placeholder="Search cities..." />
               <CommandList>
@@ -222,7 +226,7 @@ export function CityFilters({
                 </CommandGroup>
               </CommandList>
             </Command>
-          </PopoverContent>
+          </CommandPopoverContent>
         </Popover>
 
         {softKeyboardViewport && (
