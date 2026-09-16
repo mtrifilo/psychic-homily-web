@@ -1324,6 +1324,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	now := time.Now().UTC()
 
+	applyPredicates := s.venueListPredicates(filters)
+
 	// The per-venue upcoming count, drawn once as a factory because BOTH
 	// statements below need it: the page projects and orders rows by it, and the
 	// totals sum it over the whole filtered set. Rendering it twice is how the
@@ -1334,11 +1336,19 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// PRIMARY KEY (show_id, venue_id), so a show appears once per venue, and
 	// shared.VenueTZJoin is a LIMIT 1 lateral, so joining it cannot fan a row
 	// out either.
+	//
+	// Narrowed to the venues the filters select, through the same applier both
+	// statements hang their own predicates on. Neither statement can keep a
+	// count for a venue outside that set, so this drops nothing either would
+	// have used; what it drops is the work of dating every other room's nights
+	// only to discard them at the join.
 	upcomingCounts := func() *gorm.DB {
 		return s.db.Table("show_venues").
 			Select("show_venues.venue_id, COUNT(*) as show_count").
 			Joins("JOIN shows ON show_venues.show_id = shows.id").
 			Joins(shared.VenueTZJoin).
+			Where("show_venues.venue_id IN (?)",
+				applyPredicates(s.db.Table("venues")).Select("venues.id")).
 			Where(shared.PublicShowPredicateSQL("shows")).
 			Where(venueListUncancelledSQL).
 			Where(shared.VenueLocalNightDateCondition).
@@ -1356,7 +1366,6 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		Joins(venueNextShowLateral).
 		Joins(venueLastShowLateral)
 
-	applyPredicates := s.venueListPredicates(filters)
 	query = applyPredicates(query)
 
 	// BOTH captions in ONE statement, over exactly the rows the list pages
