@@ -186,14 +186,19 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 	phoenix := suite.createTestVenue("Facet Show PHX Room", "Phoenix", "AZ", true)
 	tucson := suite.createTestVenue("Facet Show TUC Room", "Tucson", "AZ", true)
 
-	tagged := suite.createTaggedArtist("Facet Show Band", slug)
+	// One artist per night: show_artists carries a one-bill-per-artist-per-night
+	// guard, so a fixture reusing one act across two shows on one date is
+	// rejected by the schema rather than by anything under test.
+	first := suite.createTaggedArtist("Facet Show Band A", slug)
+	second := suite.createTaggedArtist("Facet Show Band B", slug)
+	third := suite.createTaggedArtist("Facet Show Band C", slug)
 	untagged := suite.createTaggedArtist("Facet Show Other Band", "")
 
 	at := time.Now().UTC().AddDate(0, 0, 7)
-	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, tagged.ID)
-	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, tagged.ID)
-	suite.billArtist(suite.createApprovedShowAt(tucson.ID, user.ID, "Tucson", "AZ", at).ID, tagged.ID)
-	// A show on the same nights whose bill does not carry the tag.
+	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, first.ID)
+	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, second.ID)
+	suite.billArtist(suite.createApprovedShowAt(tucson.ID, user.ID, "Tucson", "AZ", at).ID, third.ID)
+	// A show on the same night whose bill does not carry the tag.
 	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, untagged.ID)
 
 	filters := &contracts.UpcomingShowsFilter{TagSlugs: []string{slug}}
@@ -227,7 +232,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 
 	const zone = "America/Phoenix"
 	venue := newVenueInZone(suite.T(), suite.db, "Facet Window Room", "AZ", zone, true)
-	tagged := suite.createTaggedArtist("Facet Window Band", slug)
+	first := suite.createTaggedArtist("Facet Window Band A", slug)
+	second := suite.createTaggedArtist("Facet Window Band B", slug)
+	later := suite.createTaggedArtist("Facet Window Band C", slug)
 
 	inWindow := venueLocalInstant(suite.T(), zone, 7, 20)
 	outOfWindow := venueLocalInstant(suite.T(), zone, 30, 20)
@@ -235,9 +242,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 	suite.Require().NoError(err)
 	local := inWindow.In(loc)
 
-	suite.billArtist(suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", inWindow).ID, tagged.ID)
-	suite.billArtist(suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", inWindow).ID, tagged.ID)
-	suite.billArtist(suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", outOfWindow).ID, tagged.ID)
+	suite.billArtist(suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", inWindow).ID, first.ID)
+	suite.billArtist(suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", inWindow).ID, second.ID)
+	suite.billArtist(suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", outOfWindow).ID, later.ID)
 
 	filters := &contracts.UpcomingShowsFilter{TagSlugs: []string{slug}}
 	window := contracts.ShowCalendarWindow{
