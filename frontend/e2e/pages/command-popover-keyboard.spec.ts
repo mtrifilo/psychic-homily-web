@@ -42,16 +42,14 @@ function availableHeightPx(content: Locator): Promise<number> {
 
 type Geometry = {
   available: number
-  /**
-   * Radix measures the available height from the popover's outer top edge,
-   * while the bound applies to the command column inside the popover's border.
-   * The bottom border is what can paint past the line the column was sized
-   * from, and it is read off the element rather than assumed.
-   */
-  bottomBorder: number
   columnHeight: number
-  columnMaxHeight: number
+  /**
+   * The popover's border box: the element Radix positions, the element the
+   * available height is measured from, and so the element the bound is on.
+   */
   contentBottom: number
+  contentHeight: number
+  contentMaxHeight: number
   listScrolls: boolean
   optionCount: number
 }
@@ -60,20 +58,29 @@ type Geometry = {
  * One round-trip for every measurement, so the whole reading is taken from a
  * single layout rather than from several that a reposition tick can fall
  * between.
+ *
+ * The enter animation scales and slides the popover, so a rect read while it
+ * runs describes a smaller box than the one that settles on screen. Waiting it
+ * out is what makes these numbers the geometry the reader gets: a reading taken
+ * mid-animation understates the bottom edge by a couple of px, which is enough
+ * to hide exactly the overshoot this spec exists to catch.
  */
 function measure(content: Locator): Promise<Geometry> {
-  return content.evaluate(el => {
+  return content.evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished))
+    await new Promise(resolve => requestAnimationFrame(resolve))
     const style = getComputedStyle(el)
+    const rect = el.getBoundingClientRect()
     const column = el.querySelector('[cmdk-root]') as HTMLElement
     const list = el.querySelector('[cmdk-list]') as HTMLElement
     return {
       available: Number.parseFloat(
         style.getPropertyValue('--radix-popover-content-available-height')
       ),
-      bottomBorder: Number.parseFloat(style.borderBottomWidth),
       columnHeight: column.getBoundingClientRect().height,
-      columnMaxHeight: Number.parseFloat(getComputedStyle(column).maxHeight),
-      contentBottom: el.getBoundingClientRect().bottom,
+      contentBottom: rect.bottom,
+      contentHeight: rect.height,
+      contentMaxHeight: Number.parseFloat(style.maxHeight),
       listScrolls: list.scrollHeight > list.clientHeight,
       optionCount: el.querySelectorAll('[cmdk-item]').length,
     }
@@ -111,12 +118,11 @@ test.describe('Atlas search popover under a software keyboard', () => {
       .toBeLessThan(ATLAS_KEYBOARD_HEIGHT)
 
     const geometry = await measure(content)
-    // The bound itself: the column never exceeds the room Radix reported.
-    expect(geometry.columnHeight).toBeLessThanOrEqual(geometry.available)
-    // Nothing but the popover's own bottom border paints below the keyboard.
-    expect(geometry.contentBottom).toBeLessThanOrEqual(
-      ATLAS_KEYBOARD_HEIGHT + geometry.bottomBorder
-    )
+    // The bound itself: the popover's whole border box, borders included, fits
+    // the room Radix reported.
+    expect(geometry.contentHeight).toBeLessThanOrEqual(geometry.available)
+    // So nothing at all paints below the keyboard, with nothing forgiven.
+    expect(geometry.contentBottom).toBeLessThanOrEqual(ATLAS_KEYBOARD_HEIGHT)
     // The rows scroll inside that bound instead of running past it.
     expect(geometry.listScrolls).toBe(true)
     // The field being typed into is never squeezed out by the bound.
@@ -137,7 +143,7 @@ test.describe('Atlas search popover under a software keyboard', () => {
     // The ceiling is back to the full room, and the column has grown past the
     // squeezed height rather than latching at it. Its exact height is not
     // asserted: a relayout after scrolling moves it a few px either way.
-    expect(restored.columnMaxHeight).toBeGreaterThan(geometry.available)
+    expect(restored.contentMaxHeight).toBeGreaterThan(geometry.available)
     expect(restored.columnHeight).toBeGreaterThan(geometry.columnHeight)
   })
 })
@@ -170,14 +176,12 @@ test.describe('City filter popover on a shrinking visual viewport', () => {
       .poll(() => availableHeightPx(content), { timeout: 10_000 })
       .toBeLessThan(before)
 
-    // The bound is live on this surface too: the column's ceiling tracks the
+    // The bound is live on this surface too: the popover's ceiling tracks the
     // room Radix reports. The seeded city list is short enough to fit inside
     // it, so the scrolling case is asserted on /atlas.
     const geometry = await measure(content)
-    expect(geometry.columnMaxHeight).toBeCloseTo(geometry.available, 1)
-    expect(geometry.contentBottom).toBeLessThanOrEqual(
-      CITY_KEYBOARD_HEIGHT + geometry.bottomBorder
-    )
+    expect(geometry.contentMaxHeight).toBeCloseTo(geometry.available, 1)
+    expect(geometry.contentBottom).toBeLessThanOrEqual(CITY_KEYBOARD_HEIGHT)
     // A bound that collapsed the surface would satisfy the line above too.
     expect(geometry.columnHeight).toBeGreaterThan(0)
     expect(page.getByPlaceholder('Search cities...')).toBeTruthy()
