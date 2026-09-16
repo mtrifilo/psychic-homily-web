@@ -2485,9 +2485,11 @@ type SceneArtistResponse struct {
 	// all time and anywhere, and from IsActive, which a band keeps for months
 	// after its last gig.
 	//
-	// The boundary is the venue's own calendar (shared.VenueLocalDateCondition):
-	// a show leaves this count at venue-local midnight, not at its start instant,
-	// so a band playing tonight still counts one all evening.
+	// The boundary is the venue's own NIGHT (shared.VenueLocalNightDateCondition),
+	// the bound the scene card and the tonight bucket beside this number are drawn
+	// on: a show leaves this count when its night ends rather than at its start
+	// instant, so a band playing tonight still counts one all evening and until
+	// that night is over.
 	// Cancelled shows are excluded here and from NextShow, matching
 	// SceneNewArtistShow: neither row carries a status badge, so a cancelled
 	// show would read as a date a reader can turn up to.

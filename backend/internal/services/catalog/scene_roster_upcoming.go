@@ -38,9 +38,15 @@ const rosterUpcomingVenueCols = `COALESCE(iv.name, '') AS venue_name, COALESCE(i
 // unverified room carries no number here, exactly as that booking reaches no
 // other figure on the page.
 //
-// The upcoming boundary is shared.VenueLocalDateCondition: a show leaves the
-// count at midnight in its OWN venue's zone, so a date-only listing for tonight
-// counts all evening. The scene graph's per-artist figures on the same page
+// The upcoming boundary is shared.VenueLocalNightDateCondition, the bound the
+// scene card, the tonight bucket and the rooms leaderboard printed beside this
+// number are drawn on: a show leaves the count when its NIGHT ends in its own
+// venue's zone, so a date-only listing for tonight counts all evening and on
+// through the small hours. Between midnight and shared.NightStartHour that makes
+// Next a row whose venue-local date is the previous one, which is the date every
+// other scene surface names that night by.
+//
+// The scene graph's per-artist figures on the same page
 // (batchArtistUpcomingShowCounts, batchArtistNextShows) are bounded on the start
 // INSTANT instead, so for a show already under way the two disagree: this count
 // still holds it and the graph node's dot does not.
@@ -124,7 +130,7 @@ func (s *SceneService) batchRosterUpcoming(scope sceneScope, artistIDs []uint) (
 	// the remaining tie, so the pick is stable across calls.
 	//
 	// Placeholder order: artist ids, status, then the scope's venue args. The
-	// upcoming condition binds nothing.
+	// night condition binds nothing.
 	args := append([]any{artistIDs, catalogm.ShowStatusApproved}, vargs...)
 	var rows []upcomingRow
 	if err := s.db.Raw(`
@@ -149,7 +155,7 @@ func (s *SceneService) batchRosterUpcoming(scope sceneScope, artistIDs []uint) (
 				JOIN venues sv_venue ON sv_venue.id = sv_scope.venue_id
 				WHERE sv_scope.show_id = shows.id AND `+vp+`
 			  )
-			  AND `+shared.VenueLocalDateCondition("upcoming")+`
+			  AND `+shared.VenueLocalNightDateCondition+`
 			ORDER BY show_artists.artist_id, shows.event_date ASC, shows.id ASC
 		) u
 		LEFT JOIN LATERAL `+shared.PrimaryVenueLateralSQL(rosterUpcomingVenueCols, "u.show_id")+` pv ON true
