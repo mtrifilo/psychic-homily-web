@@ -1050,15 +1050,18 @@ type VenueWithShowCountResponse struct {
 	// Provenance on the embedded venue.
 	NextShow *VenueListShowRef `json:"next_show,omitempty" doc:"The soonest upcoming approved show at this venue. Absent when the venue has none, which is exactly when upcoming_show_count is zero."`
 	LastShow *VenueListShowRef `json:"last_show,omitempty" doc:"The most recent past approved show at this venue. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
-	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount, driving the
-	// rail's "Next 7 days" filter chip and its header stat.
+	// ShowsThisWeek counts the venue's approved shows in the next seven days,
+	// driving the rail's "Next 7 days" filter chip and its header stat.
 	//
-	// ROLLING from now. It shares its LENGTH with
-	// SceneListResponse.ShowsThisWeek and not that field's anchor, which is the
-	// venue-local night in progress, so the two count different sets near both
-	// edges. Both are worded "next 7 days" and neither says "this week"
-	// (PSY-1732). The field NAME is the stale half of that mismatch; the labels
-	// are the correct half.
+	// ROLLING FROM THE REQUEST INSTANT, so it is NOT a subset of
+	// UpcomingShowCount beside it, which is bounded at the venue-local night: a
+	// set that started an hour ago counts in the total and not here, and a row
+	// can therefore read one upcoming show and zero this week.
+	//
+	// It shares its LENGTH with SceneListResponse.ShowsThisWeek and not that
+	// field's anchor either. Both are worded "next 7 days" and neither says
+	// "this week" (PSY-1732). The field NAME is the stale half of that mismatch;
+	// the labels are the correct half.
 	ShowsThisWeek int `json:"shows_this_week"`
 	// NextShowDate is the soonest upcoming approved show's date as an ISO
 	// YYYY-MM-DD string, rendered in the VENUE's timezone (not UTC, not the

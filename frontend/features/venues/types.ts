@@ -138,7 +138,9 @@ export interface VenueSearchResponse {
 export interface VenueWithShowCount extends Venue {
   upcoming_show_count: number
   /**
-   * The <=7-day slice of `upcoming_show_count`. Drives the "Next 7 days" chip
+   * Approved shows in the next seven days, rolling from the request instant.
+   * NOT a subset of `upcoming_show_count`, which is bounded at the venue-local
+   * night: a set already under way counts there and not here. Drives the chip
    * and the rail's header stat.
    *
    * ROLLING from now, not a Monday-to-Sunday week — which is why both of those

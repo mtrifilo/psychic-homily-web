@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -31,32 +33,138 @@ func TestVenueListOrderBy_RejectsUnknownSort(t *testing.T) {
 // Integration: GET /venues row fields
 // =============================================================================
 
+// venueLocalZone is the zone an AZ venue created by createTestVenue resolves
+// to: the row carries no timezone, so both the SQL rules and their Go twin fall
+// through to the state map. Phoenix keeps no DST, so wall-clock arithmetic over
+// it is exact, which is what lets the boundary tests below pin an edge.
+func venueLocalZone(t require.TestingT) *time.Location {
+	loc, err := time.LoadLocation("America/Phoenix")
+	require.NoError(t, err)
+	return loc
+}
+
 // TestGetVenuesWithShowCounts_CountHoldsAShowUnderWay is the ticket's headline
-// acceptance: a set that started an hour ago is still an upcoming listing, and
-// the /venues number equals the venue page's own upcoming total for it.
+// acceptance: a set that started an hour ago is still an upcoming listing here.
 //
-// The two are drawn on different bounds (night here, venue-local midnight
-// there) and agree everywhere except between midnight and NightStartHour, where
-// this one is the wider set. The row used here is on TODAY's venue-local date,
-// which both bounds keep whatever the hour, so the assertion does not depend on
-// when the suite runs.
+// It then states the relation to the venue PAGE's own upcoming total, which is
+// bounded at venue-local midnight rather than at the night in progress. The two
+// answers differ only while the local clock is inside the first hour of a new
+// local date, when an hour-old show is still on the PREVIOUS one, so the test
+// asserts both sides of that split rather than skipping the awkward hour.
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_CountHoldsAShowUnderWay() {
 	venue := suite.createTestVenue("Under Way Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
-	suite.createRailShow(venue.ID, user.ID, "Doors Open", time.Now().UTC().Add(-time.Hour))
+	started := time.Now().UTC().Add(-time.Hour)
+	suite.createRailShow(venue.ID, user.ID, "Doors Open", started)
 
 	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 	suite.Require().NoError(err)
 	row := suite.findVenueResponse(resp, "Under Way Room")
 	suite.Equal(1, row.UpcomingShowCount, "a set already under way is still an upcoming listing")
+	suite.Require().NotNil(row.NextShow, "the room has an upcoming show, so next_show must be set")
 
 	_, venuePageTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "", contracts.VenueShowsQuery{
 		TimeFilter: "upcoming",
 		Limit:      10,
 	})
 	suite.Require().NoError(err)
-	suite.Equal(venuePageTotal, int64(row.UpcomingShowCount),
-		"the directory count and the venue page's own upcoming total must agree")
+
+	loc := venueLocalZone(suite.T())
+	sameLocalDate := started.In(loc).Format("2006-01-02") == time.Now().In(loc).Format("2006-01-02")
+	if sameLocalDate {
+		suite.Equal(int64(1), venuePageTotal,
+			"the show is on today's venue-local date, which both boundaries keep")
+	} else {
+		suite.Equal(int64(0), venuePageTotal,
+			"the show is on the previous venue-local date, which only the night boundary keeps")
+	}
+}
+
+// TestGetVenuesWithShowCounts_NightBoundaryEdge pins the exact instant the two
+// picks change places, at whatever hour the suite runs.
+//
+// Local midnight on the night-start date is the earliest instant the night
+// condition keeps; one second earlier is the latest instant its complement
+// keeps. A rule that drifted by an hour, a day or a DST offset would move one
+// of these two shows to the wrong side.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NightBoundaryEdge() {
+	venue := suite.createTestVenue("Edge Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+
+	loc := venueLocalZone(suite.T())
+	nightStart := time.Now().In(loc).Add(-time.Duration(shared.NightStartHour) * time.Hour)
+	y, m, d := nightStart.Date()
+	edge := time.Date(y, m, d, 0, 0, 0, 0, loc)
+
+	first := suite.createRailShow(venue.ID, user.ID, "First Of The Night", edge)
+	last := suite.createRailShow(venue.ID, user.ID, "Night Before", edge.Add(-time.Second))
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Edge Room")
+
+	suite.Equal(1, row.UpcomingShowCount, "local midnight of the night-start date is inside the night")
+	suite.Require().NotNil(row.NextShow)
+	suite.Equal(*first.Slug, row.NextShow.Slug)
+	suite.Require().NotNil(row.LastShow)
+	suite.Equal(*last.Slug, row.LastShow.Slug, "one second earlier is the previous night")
+}
+
+// TestGetVenuesWithShowCounts_RailNextShowCanNameADifferentShow pins the one
+// deliberate disagreement on the row: the rail's next_show_date is bounded at
+// the request instant, so it drops a set already under way that next_show keeps.
+//
+// Written as an assertion rather than left to the contract comments, because a
+// client rendering both fields would otherwise learn about it from a bug report.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailNextShowCanNameADifferentShow() {
+	venue := suite.createTestVenue("Rail Split Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	underWay := suite.createRailShow(venue.ID, user.ID, "Under Way", time.Now().UTC().Add(-time.Hour))
+	suite.createRailShow(venue.ID, user.ID, "Next Week", time.Now().UTC().AddDate(0, 0, 7))
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{IncludeRailFields: true}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Rail Split Room")
+
+	suite.Require().NotNil(row.NextShow)
+	suite.Equal(*underWay.Slug, row.NextShow.Slug, "the night boundary keeps the set under way")
+	suite.Equal("Next Week", row.NextShowTitle, "the rail's instant boundary has already moved on")
+}
+
+// TestGetVenuesWithShowCounts_ShowWithoutASlugIsUnlinkable pins the contract
+// VenueListShowRef states to clients: a show with no slug still appears, with an
+// empty slug, and it is the caller's job to render it unlinked.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ShowWithoutASlugIsUnlinkable() {
+	venue := suite.createTestVenue("Slugless Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	// createApprovedShow leaves Slug nil, which is the column's real state for
+	// a name GenerateSlug cannot render.
+	suite.createApprovedShow(venue.ID, user.ID)
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Slugless Room")
+
+	suite.Equal(1, row.UpcomingShowCount)
+	suite.Require().NotNil(row.NextShow, "a slugless show is still the room's next show")
+	suite.Empty(row.NextShow.Slug, "a NULL slug reaches the client as an empty string, not a null object")
+}
+
+// TestGetVenuesWithShowCounts_ProjectsTheStreetAddress pins the address line the
+// directory prints under the room name. It is the column the venue already
+// stores, served through the same privacy gate as everywhere else: the browse
+// set is verified venues, and Venue.PublicAddress withholds it below that.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ProjectsTheStreetAddress() {
+	venue := suite.createTestVenue("Addressed Room", "Phoenix", "AZ", true)
+	street := "1 Street Address Way"
+	suite.Require().NoError(suite.db.Model(venue).Update("address", street).Error)
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Addressed Room")
+	suite.Require().NotNil(row.Address)
+	suite.Equal(street, *row.Address)
 }
 
 // TestGetVenuesWithShowCounts_NextAndLastPartitionTheRoom pins the invariant the
@@ -193,9 +301,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Pages
 	}
 }
 
-// TestVenueLocalNightConditions_PartitionEveryShow pins the complement claim
-// the next/last pair rests on, in Postgres rather than by reading the strings:
-// every approved show satisfies exactly one of the two conditions.
+// TestVenueLocalNightConditions_PartitionEveryShow pins the complement claim the
+// next/last pair rests on, in Postgres rather than by reading the strings: the
+// two counts sum to the number of shows, so no row satisfies both conditions and
+// none satisfies neither.
+//
+// It says nothing about WHERE the boundary falls; that is
+// TestGetVenuesWithShowCounts_NightBoundaryEdge, which anchors two shows either
+// side of the exact instant.
 func (suite *VenueServiceIntegrationTestSuite) TestVenueLocalNightConditions_PartitionEveryShow() {
 	venue := suite.createTestVenue("Partition Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()

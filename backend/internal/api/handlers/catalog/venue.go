@@ -128,8 +128,8 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 	// the wire, and this turns the service's own refusal into a 422 rather than
 	// the 500 an unmapped error would become.
 	if !contracts.IsVenueListSort(req.Sort) {
-		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
-			"Invalid sort %q: expected one of %s", req.Sort, strings.Join(contracts.VenueListSortValues, ", ")))
+		return nil, huma.Error422UnprocessableEntity(
+			"Invalid sort: expected one of " + strings.Join(contracts.VenueListSortValues, ", "))
 	}
 	filters.Sort = req.Sort
 

@@ -944,11 +944,17 @@ const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 // `dateCondition`.
 //
 // `alias` names the lateral, so the outer query reads its columns as
-// <alias>.event_date / .slug / .title. `svAlias` must differ per call: two of
-// these sit in one query, and shared.VenueTZJoin's innermost scope already uses
-// `sv`. The show is joined UNALIASED because that join correlates on `shows.id`.
+// <alias>.event_date / .slug / .title, and it must be unique across the outer
+// query. `svAlias` need only be unique inside this subquery: shared.VenueTZJoin
+// nests its own `sv` one scope deeper, where a repeat would shadow rather than
+// collide. Distinct names per call keep an EXPLAIN attributable to the pick it
+// came from. The show is joined UNALIASED because VenueTZJoin correlates on
+// `shows.id`.
 //
-// It carries exactly one bind parameter, the approved status.
+// Which shows a stranger may see is shared.PublicShowPredicateSQL, not a
+// hand-written status comparison, so a future status value cannot reach this
+// projection without passing that gate. It renders no placeholder, so the
+// fragment carries no bind parameters at all.
 func venueListShowPickLateral(alias, svAlias, dateCondition, order string) string {
 	return `LEFT JOIN LATERAL (
 			SELECT shows.event_date AS event_date,
@@ -958,7 +964,7 @@ func venueListShowPickLateral(alias, svAlias, dateCondition, order string) strin
 			JOIN shows ON shows.id = ` + svAlias + `.show_id
 			` + shared.VenueTZJoin + `
 			WHERE ` + svAlias + `.venue_id = venues.id
-			  AND shows.status = ?
+			  AND ` + shared.PublicShowPredicateSQL("shows") + `
 			  AND ` + dateCondition + `
 			ORDER BY ` + order + `
 			LIMIT 1
@@ -1222,21 +1228,20 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		Select("show_venues.venue_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
 		Joins(shared.VenueTZJoin).
-		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(shared.PublicShowPredicateSQL("shows")).
 		Where(shared.VenueLocalNightDateCondition).
 		Group("show_venues.venue_id")
 
-	// Start with verified venues only for public display.
-	//
-	// Args bind in SQL TEXT order, which is the order the joins are added: the
-	// count subquery's, then each lateral's status.
+	// Start with verified venues only for public display. Neither lateral
+	// carries a bind parameter, so the only args in this statement are the
+	// filters' own.
 	query := s.db.Table("venues").
 		Select("venues.*, "+venueListCountSQL+" as upcoming_show_count, "+
 			"next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, "+
 			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
-		Joins(venueNextShowLateral, catalogm.ShowStatusApproved).
-		Joins(venueLastShowLateral, catalogm.ShowStatusApproved).
+		Joins(venueNextShowLateral).
+		Joins(venueLastShowLateral).
 		Where(venueBrowseGate, true)
 
 	// Apply optional filters
