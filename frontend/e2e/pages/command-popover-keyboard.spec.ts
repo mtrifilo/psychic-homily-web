@@ -29,6 +29,21 @@ function popoverContent(page: Page): Locator {
   return page.locator('[data-radix-popper-content-wrapper] > *').first()
 }
 
+/**
+ * How far past `line` an edge paints, in whole pixels.
+ *
+ * Radix rounds the popover's translate to device pixels (`roundByDPR` in
+ * `@floating-ui/react-dom`) while publishing the available height from the
+ * UNROUNDED offset, so an anchor that lands on a fractional pixel leaves the
+ * bottom edge up to half a device pixel past the line no matter how the bound
+ * is written. That half pixel is Radix's own rounding, not slack in the bound:
+ * whole pixels are what a reader sees, and the regression this spec guards
+ * against was two of them.
+ */
+function wholePixelsBelow(edge: number, line: number): number {
+  return Math.max(0, Math.floor(edge - line))
+}
+
 /** The px value Radix reports as the room the popover has on screen. */
 function availableHeightPx(content: Locator): Promise<number> {
   return content.evaluate(el =>
@@ -133,12 +148,18 @@ test.describe('Atlas search popover under a software keyboard', () => {
       .toBeLessThan(ATLAS_KEYBOARD_HEIGHT)
 
     const geometry = await measure(content)
-    // The bound itself, checked against two sources so a wrong reading of
-    // either shows up: the popover's whole border box, borders included, fits
-    // the room Radix reported, and its bottom edge clears the line the harness
-    // put the keyboard on. Nothing is forgiven on either line.
+    // The popover's whole border box, borders included, fits the room Radix
+    // reported. On its own this is close to tautological, since that room IS
+    // the frame's `max-height`.
     expect(geometry.contentHeight).toBeLessThanOrEqual(geometry.available)
-    expect(geometry.contentBottom).toBeLessThanOrEqual(ATLAS_KEYBOARD_HEIGHT)
+    // The load-bearing half: the column stays inside the frame. A frame that
+    // stopped being a column flex container would still satisfy the line above
+    // while the column rendered at full height straight through it.
+    expect(geometry.columnHeight).toBeLessThanOrEqual(geometry.contentHeight)
+    // And so nothing paints below the keyboard.
+    expect(wholePixelsBelow(geometry.contentBottom, ATLAS_KEYBOARD_HEIGHT)).toBe(
+      0
+    )
     // The rows scroll inside that bound instead of running past it.
     expect(geometry.listScrolls).toBe(true)
     // The field being typed into is never squeezed out by the bound.
@@ -195,7 +216,10 @@ test.describe('City filter popover on a shrinking visual viewport', () => {
     // it, so the scrolling case is asserted on /atlas.
     const geometry = await measure(content)
     expect(geometry.contentMaxHeight).toBeCloseTo(geometry.available, 1)
-    expect(geometry.contentBottom).toBeLessThanOrEqual(CITY_KEYBOARD_HEIGHT)
+    expect(geometry.columnHeight).toBeLessThanOrEqual(geometry.contentHeight)
+    expect(wholePixelsBelow(geometry.contentBottom, CITY_KEYBOARD_HEIGHT)).toBe(
+      0
+    )
     // A bound that collapsed the surface would satisfy the line above too.
     expect(geometry.columnHeight).toBeGreaterThan(0)
     expect(page.getByPlaceholder('Search cities...')).toBeTruthy()

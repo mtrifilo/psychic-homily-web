@@ -19,9 +19,14 @@ import { PopoverContent } from '@/components/ui/popover'
  * `overflow-hidden` would clip the field being typed into, which is reachable
  * at 200% text on a landscape phone with the keyboard up. The list reaching
  * zero there is the correct outcome: a row shown at that size would be under
- * the keyboard. That same `overflow-hidden` is what zeroes this column's
- * automatic minimum size, so it shrinks into its frame's cap rather than
- * forcing the frame open.
+ * the keyboard.
+ *
+ * `overflow-hidden` also zeroes this column's automatic minimum size, which is
+ * what lets it shrink into its frame's cap instead of forcing the frame open.
+ * The floor outranks that, and outranks the cap: where the room on screen falls
+ * below one input row, the column holds at `min-h-11` and paints past the
+ * frame's bottom edge, which nothing clips. Showing the field being typed into
+ * is worth more than the frame staying whole at a size that fits neither.
  */
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
