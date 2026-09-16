@@ -266,6 +266,12 @@ export const venueHandlers = [
     return HttpResponse.json({
       venues: scoped.slice(offset, offset + limit),
       total: scoped.length,
+      // Summed over the SCOPED set rather than the returned slice, which is
+      // what the field means: the same number on every page of a paged city.
+      upcoming_show_total: scoped.reduce(
+        (sum, v) => sum + (v?.upcoming_show_count ?? 0),
+        0
+      ),
       limit,
       offset,
     })

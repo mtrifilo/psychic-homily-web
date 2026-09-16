@@ -216,6 +216,16 @@ export interface VenueWithShowCount extends Venue {
 export interface VenuesListResponse {
   venues: VenueWithShowCount[]
   total: number
+  /**
+   * Upcoming shows across every matching venue, not only this page: the sum of
+   * `upcoming_show_count` over the whole filtered set, on the same venue-local
+   * night boundary and with cancelled nights excluded.
+   *
+   * Optional only because a frontend deploy can reach readers before the
+   * backend that serves the field. A caller that finds it missing has one page
+   * of rows and no city-wide number, and must not present a page sum as one.
+   */
+  upcoming_show_total?: number
   limit: number
   offset: number
 }

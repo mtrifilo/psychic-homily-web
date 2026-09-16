@@ -13921,6 +13921,11 @@ export interface components {
              * @description Total number of venues
              */
             total: number;
+            /**
+             * Format: int64
+             * @description Upcoming shows across every matching venue, not only this page: the sum of upcoming_show_count over the whole filtered set, on the same venue-local night boundary, cancelled nights excluded.
+             */
+            upcoming_show_total: number;
             /** @description List of venues with show counts */
             venues: components["schemas"]["VenueWithShowCountResponse"][] | null;
         };

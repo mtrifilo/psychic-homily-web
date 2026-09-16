@@ -238,9 +238,26 @@ describe('VenueList', () => {
     setVenues([makeVenue()])
   })
 
-  function setVenues(venues: VenueWithShowCount[], total = venues.length) {
+  function setVenues(
+    venues: VenueWithShowCount[],
+    total = venues.length,
+    // The city-wide sum the API serves. `null` omits the key, which is the
+    // response of a backend older than the field.
+    upcomingShowTotal: number | null = venues.reduce(
+      (sum, v) => sum + v.upcoming_show_count,
+      0
+    )
+  ) {
     mockUseVenues.mockReturnValue({
-      data: { venues, total, limit: 50, offset: 0 },
+      data: {
+        venues,
+        total,
+        ...(upcomingShowTotal === null
+          ? {}
+          : { upcoming_show_total: upcomingShowTotal }),
+        limit: 50,
+        offset: 0,
+      },
       isLoading: false,
       isFetching: false,
       isPlaceholderData: false,
@@ -778,7 +795,7 @@ describe('VenueList', () => {
   })
 
   describe('counts', () => {
-    it('states the upcoming total only while the whole set is on screen', () => {
+    it('states the upcoming total while the whole set is on screen', () => {
       anonWithGeo()
       setVenues(
         [
@@ -795,14 +812,42 @@ describe('VenueList', () => {
       )
     })
 
-    it('labels the upcoming total as this page when the city is paged', () => {
+    // The heading is the point of the field: a reader on page 2 of a paged city
+    // is told what the CITY has booked, not what this page of it has.
+    it('states the whole city total on a page that holds one row of it', () => {
       anonWithGeo()
-      setVenues([makeVenue({ upcoming_show_count: 74 })], 120)
+      mockSearchParams.mockReturnValue(new URLSearchParams({ page: '2' }))
+      setVenues([makeVenue({ upcoming_show_count: 74 })], 120, 900)
+
+      render(<VenueList />)
+
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).toHaveTextContent(
+        '120 rooms · 900 upcoming shows'
+      )
+      expect(screen.getByTestId('venues-count-rule')).toHaveTextContent(
+        "120 rooms · 900 upcoming shows at verified rooms, on each venue's local calendar"
+      )
+      expect(screen.getByTestId('venues-count-rule')).not.toHaveTextContent(
+        'on this page'
+      )
+    })
+
+    // Deploy skew: a frontend serving readers before the backend that serves
+    // the field. The page sum is the only number left, and it says so.
+    it('falls back to the page sum when the response carries no city total', () => {
+      anonWithGeo()
+      setVenues([makeVenue({ upcoming_show_count: 74 })], 120, null)
 
       render(<VenueList />)
 
       expect(screen.getByTestId('venues-count-rule')).toHaveTextContent(
         '74 upcoming shows on this page'
+      )
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).toHaveTextContent(
+        '120 rooms'
+      )
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).not.toHaveTextContent(
+        'upcoming shows'
       )
     })
   })
