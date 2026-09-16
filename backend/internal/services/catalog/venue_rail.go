@@ -7,6 +7,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // Atlas city-view rail enrichment for GET /venues.
@@ -14,9 +15,9 @@ import (
 // The rail renders one dense row per venue — name, upcoming count, and a meta
 // line "NEXT <date> · <bill> · <genre family>" — plus the header's filter
 // chips. Everything here exists to fill that row for a PAGE of venues in a
-// fixed number of queries: three batched scans keyed by the page's venue IDs
+// fixed number of queries: three batched scans keyed by the page's venue IDs,
 // plus one keyed by the shows the list query already picked, never one query
-// per venue.
+// per venue. The next show itself is not looked up here at all.
 //
 // Every aggregation is BEST EFFORT. The rail's reason to exist is the venue
 // list; a missing meta line degrades a row, a failed list degrades the page.
@@ -197,6 +198,10 @@ func (s *VenueService) venueHostsAllAges(venueIDs []uint) (map[uint]bool, error)
 // at the venue would call it. A show at 9pm Friday in Austin is stored as a
 // Saturday-morning UTC timestamp; rendering it in UTC would put "NEXT Sat" on a
 // Friday show. Unknown or unloadable zones fall back to UTC.
+//
+// For a caller that also has the venue's STATE, venueRowLocalDate is the one to
+// take: it continues through the US state map instead of stopping at UTC, which
+// is what the SQL boundaries resolve.
 func venueLocalDate(t time.Time, tz *string) string {
 	if tz != nil && *tz != "" {
 		if loc, err := time.LoadLocation(*tz); err == nil {
@@ -204,6 +209,18 @@ func venueLocalDate(t time.Time, tz *string) string {
 		}
 	}
 	return t.UTC().Format("2006-01-02")
+}
+
+// venueRowLocalDate renders an instant as a venue row's own calendar date,
+// resolving the zone through utils.EventLocation: the stored zone, then the
+// venue's US state, then UTC.
+//
+// That is the chain shared.VenueTZJoin follows in SQL, so a date printed here
+// names the same day as the boundary that selected the show it describes. A
+// renderer that stopped at UTC would, for a room with no geocoded zone, print a
+// date past the boundary that chose the row's next show.
+func venueRowLocalDate(t time.Time, tz *string, state string) string {
+	return t.In(utils.EventLocation(tz, state)).Format("2006-01-02")
 }
 
 // enrichVenueRailFields fills the rail payload on an already-built page of venue
@@ -268,9 +285,11 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 		// One pick per row: the rail's meta line renders the show the row
 		// already carries, so the date beside the count can never contradict it.
 		if r.NextShow != nil {
-			r.NextShowDate = venueLocalDate(r.NextShow.EventDate, r.Timezone)
+			r.NextShowDate = venueRowLocalDate(r.NextShow.EventDate, r.Timezone, r.State)
 			r.NextShowTitle = r.NextShow.Title
-			r.NextShowArtists = bills[nextShowIDs[r.ID]]
+			if showID, ok := nextShowIDs[r.ID]; ok {
+				r.NextShowArtists = bills[showID]
+			}
 		}
 	}
 }

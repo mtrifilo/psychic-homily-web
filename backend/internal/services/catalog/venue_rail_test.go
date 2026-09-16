@@ -38,6 +38,29 @@ func TestVenueLocalDate(t *testing.T) {
 	}
 }
 
+// TestVenueRowLocalDate pins the difference that matters between the two
+// renderers: with no stored zone, this one continues through the US state map
+// the SQL boundary uses, where venueLocalDate stops at UTC.
+func TestVenueRowLocalDate(t *testing.T) {
+	// 2026-08-01 02:00 UTC is 2026-07-31 21:00 in Austin.
+	fridayNight := time.Date(2026, 8, 1, 2, 0, 0, 0, time.UTC)
+
+	if got := venueRowLocalDate(fridayNight, nil, "TX"); got != "2026-07-31" {
+		t.Errorf("zoneless TX date = %q, want 2026-07-31 (the state map's zone)", got)
+	}
+	if got := venueLocalDate(fridayNight, nil); got != "2026-08-01" {
+		t.Errorf("venueLocalDate = %q, want the UTC fallback 2026-08-01", got)
+	}
+	stored := "America/New_York"
+	if got := venueRowLocalDate(fridayNight, &stored, "TX"); got != "2026-07-31" {
+		t.Errorf("stored zone date = %q, want 2026-07-31; the stored zone outranks the state", got)
+	}
+	junk := "Not/AZone"
+	if got := venueRowLocalDate(fridayNight, &junk, "TX"); got != "2026-07-31" {
+		t.Errorf("unloadable zone date = %q, want the state map's 2026-07-31", got)
+	}
+}
+
 // =============================================================================
 // Integration: GET /venues rail payload
 // =============================================================================
@@ -84,6 +107,10 @@ func (suite *VenueServiceIntegrationTestSuite) findVenueResponse(
 // TestGetVenuesWithShowCounts_NextShowFields covers the rail's meta line: the
 // SOONEST upcoming show wins (not the first created), its bill comes back in
 // position order, and a titled show keeps its title.
+//
+// The date is the AUSTIN one. This room has no stored zone, so it resolves
+// through the US state map to America/Chicago, which is six hours behind UTC in
+// summer: an instant just after UTC midnight is still the previous day there.
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NextShowFields() {
 	user := suite.createTestUser()
 	venue := suite.createTestVenue("Rail Next Show", "Austin", "TX", true)
@@ -99,9 +126,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NextS
 		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
+	austin, err := time.LoadLocation("America/Chicago")
+	suite.Require().NoError(err)
 	got := suite.findVenueResponse(venues, "Rail Next Show")
-	suite.Equal(now.AddDate(0, 0, 3).Format("2006-01-02"), got.NextShowDate,
-		"next show must be the soonest UPCOMING one")
+	suite.Equal(now.AddDate(0, 0, 3).In(austin).Format("2006-01-02"), got.NextShowDate,
+		"next show must be the soonest UPCOMING one, dated where it happens")
 	suite.Equal("", got.NextShowTitle, "titleless show must not invent a title")
 	suite.Equal([]string{"Gouge Away", "Militarie Gun"}, got.NextShowArtists,
 		"bill must come back in position order so the client can compose a display name")

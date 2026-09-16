@@ -33,9 +33,10 @@ func TestVenueListOrderBy_RejectsUnknownSort(t *testing.T) {
 // =============================================================================
 
 // venueLocalZone is the zone an AZ venue created by createTestVenue resolves
-// to: the row carries no timezone, so both the SQL rules and their Go twin fall
-// through to the state map. Phoenix keeps no DST, so wall-clock arithmetic over
-// it is exact, which is what lets the boundary tests below pin an edge.
+// to: the row carries no timezone, so the SQL boundary and utils.EventLocation
+// both fall through to the state map. Phoenix keeps no DST, so wall-clock
+// arithmetic over it is exact, which is what lets the boundary tests below pin
+// an edge.
 func venueLocalZone(t require.TestingT) *time.Location {
 	loc, err := time.LoadLocation("America/Phoenix")
 	require.NoError(t, err)
@@ -128,10 +129,6 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Night
 // renders as "nothing on the calendar".
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailAgreesWithTheRow() {
 	venue := suite.createTestVenue("Rail Row", "Phoenix", "AZ", true)
-	// The rail renders its date with venueLocalDate, whose fallback for a room
-	// with no stored zone is UTC rather than the state map the SQL boundary
-	// falls through to. Geocoded rooms are the case that matters, so this one
-	// carries the zone its city has.
 	loc := venueLocalZone(suite.T())
 	suite.Require().NoError(suite.db.Model(venue).Update("timezone", loc.String()).Error)
 	user := suite.createTestUser()
@@ -151,6 +148,35 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailA
 	suite.Equal("Under Way", row.NextShowTitle)
 	suite.Equal([]string{"Opening Band", "Headliner"}, row.NextShowArtists,
 		"the bill is the bill of the show the row picked, in position order")
+}
+
+// TestGetVenuesWithShowCounts_RailDatesAZonelessRoomLikeItsBoundary covers the
+// rooms production actually has trouble with: the ones with no geocoded zone.
+//
+// The boundary that picks the show resolves those through the US state map, so
+// the date printed beside the pick has to resolve them the same way. Rendering
+// them in UTC would put an evening show on the following day for every western
+// room whose zone was never filled in.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailDatesAZonelessRoomLikeItsBoundary() {
+	// createTestVenue leaves timezone NULL, which is the state eight of
+	// production's rooms are in.
+	venue := suite.createTestVenue("Zoneless Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	loc := venueLocalZone(suite.T())
+	// 21:00 tonight in Phoenix is tomorrow's date in UTC.
+	y, m, d := time.Now().In(loc).Date()
+	tonight := time.Date(y, m, d, 21, 0, 0, 0, loc)
+	suite.createRailShow(venue.ID, user.ID, "Tonight", tonight)
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{IncludeRailFields: true}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Zoneless Room")
+
+	suite.Require().Nil(row.Timezone, "the fixture is a room with no stored zone")
+	suite.Equal(1, row.UpcomingShowCount)
+	suite.Equal(tonight.Format("2006-01-02"), row.NextShowDate,
+		"the printed date names the venue-local day, not the UTC one")
 }
 
 // TestGetVenuesWithShowCounts_RailIsSilentWithoutAnUpcomingShow is the other
