@@ -11,7 +11,6 @@ import {
   CommandItem,
   CommandSeparator,
   CommandShortcut,
-  POPOVER_AVAILABLE_HEIGHT_BOUND,
 } from './command'
 
 /** The variable Radix publishes on popover content, and only there. */
@@ -80,64 +79,41 @@ describe('Command', () => {
 /**
  * jsdom has no layout, so the geometry these classes produce is asserted in
  * `e2e/pages/command-popover-keyboard.spec.ts`. What is checkable here is the
- * contract the geometry rests on: which element carries the bound, that the
- * variable reaches the list by inheritance when an ancestor sets it, and that
- * nothing sets it on the dialog path.
+ * placement contract that geometry rests on: which element carries the bound,
+ * which element is free to give way, and that the dialog path carries no bound
+ * at all.
  */
 describe('Command bounded by the popover available height', () => {
-  function renderInPopoverLike(availableHeight: string | null) {
-    return render(
-      <div
-        data-testid="content"
-        style={
-          availableHeight === null
-            ? undefined
-            : ({ [AVAILABLE_HEIGHT_VAR]: availableHeight } as React.CSSProperties)
-        }
-      >
-        <Command data-testid="command">
-          <CommandInput placeholder="Search..." />
-          <CommandList data-testid="list">
-            <CommandGroup>
-              <CommandItem>Item one</CommandItem>
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </div>
+  it('bounds the command column and leaves the list free to shrink', () => {
+    render(
+      <Command data-testid="command">
+        <CommandInput placeholder="Search..." />
+        <CommandList data-testid="list">
+          <CommandGroup>
+            <CommandItem>Item one</CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </Command>
     )
-  }
+    const column = screen.getByTestId('command')
+    const list = screen.getByTestId('list')
 
-  it('bounds the command column, not the list, by the available height', () => {
-    renderInPopoverLike('120px')
-    expect(screen.getByTestId('command')).toHaveClass(
-      POPOVER_AVAILABLE_HEIGHT_BOUND
-    )
-    // The list keeps its own cap, so a roomy popover is unchanged.
-    expect(screen.getByTestId('list')).toHaveClass('max-h-[300px]')
-    expect(screen.getByTestId('list')).not.toHaveClass(
-      POPOVER_AVAILABLE_HEIGHT_BOUND
-    )
-  })
-
-  it('lets the list shrink and the input row hold its height', () => {
-    renderInPopoverLike('120px')
-    expect(screen.getByTestId('list')).toHaveClass('min-h-0')
-    expect(screen.getByTestId('list')).toHaveClass('overflow-y-auto')
+    // Spelled out rather than imported from the component, so a typo in the
+    // variable name fails here instead of matching itself.
+    expect(column).toHaveClass(`max-h-(${AVAILABLE_HEIGHT_VAR})`)
+    expect(list).not.toHaveClass(`max-h-(${AVAILABLE_HEIGHT_VAR})`)
+    // The list keeps its own cap, so a roomy popover is unchanged, and can
+    // shrink below its content and scroll when the column is bounded.
+    expect(list).toHaveClass('max-h-[300px]')
+    expect(list).toHaveClass('min-h-0')
+    expect(list).toHaveClass('overflow-y-auto')
+    // The input row is pinned, so the list is what gives way.
     expect(
       screen.getByPlaceholderText('Search...').closest('[cmdk-input-wrapper]')
     ).toHaveClass('shrink-0')
   })
 
-  it('reads the variable from the content element when a popover sets it', () => {
-    renderInPopoverLike('120px')
-    expect(
-      screen
-        .getByTestId('content')
-        .style.getPropertyValue(AVAILABLE_HEIGHT_VAR)
-    ).toBe('120px')
-  })
-
-  it('leaves the variable unset on the dialog path, so the 300px cap applies', () => {
+  it('leaves the dialog path unbounded, so the 300px cap applies there', () => {
     render(
       <CommandDialog open onOpenChange={() => {}}>
         <CommandInput placeholder="Search..." />
@@ -148,14 +124,8 @@ describe('Command bounded by the popover available height', () => {
         </CommandList>
       </CommandDialog>
     )
-    const list = screen.getByTestId('list')
-    expect(list).toHaveClass('max-h-[300px]')
-    for (
-      let node: HTMLElement | null = list;
-      node !== null;
-      node = node.parentElement
-    ) {
-      expect(node.style.getPropertyValue(AVAILABLE_HEIGHT_VAR)).toBe('')
-    }
+    // The bound is inert without the variable, which only a popover sets, so
+    // the list's own cap is the only ceiling on this path.
+    expect(screen.getByTestId('list')).toHaveClass('max-h-[300px]')
   })
 })

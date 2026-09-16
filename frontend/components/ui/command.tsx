@@ -9,25 +9,25 @@ import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 
 /**
- * Bounds a command surface by the space its popover has on screen.
- *
- * Radix publishes `--radix-popover-content-available-height` on the popover
- * content and measures it against the VISUAL viewport, so it already shrinks
- * when a software keyboard rises. The variable is only set inside a popover;
- * anywhere else, including the dialog `CommandDialog` renders, it is absent and
- * the fallback leaves the surface unbounded, so `CommandList`'s own 300px cap
- * is what applies there.
+ * `max-h-(--radix-popover-content-available-height)` bounds a command surface
+ * by the room its popover has on screen. Radix measures that against the VISUAL
+ * viewport, so the value already accounts for a software keyboard. Outside a
+ * popover the variable is unset, which makes the declaration invalid at
+ * computed-value time and leaves `max-height` at its initial `none` - so the
+ * dialog `CommandDialog` renders keeps `CommandList`'s own 300px cap.
  *
  * The bound sits on this flex column rather than on `CommandList` because the
  * column also holds the pinned `CommandInput`: a list capped at the full
- * available height puts the surface's bottom edge one input row below the
- * space that was available. Capping the column subtracts the input by
- * construction, and the list, being the flex child that scrolls, absorbs the
- * difference.
+ * available height puts the surface's bottom edge one input row below the space
+ * that was available. Capping the column subtracts the input by construction,
+ * and the list, being the flex child that scrolls, absorbs the difference.
+ *
+ * It sits here rather than on `PopoverContent`, where `Select` and
+ * `DropdownMenu` carry their equivalents, because `PopoverContent` is a generic
+ * slot with no scroll region of its own: the popovers that are not command
+ * surfaces each cap their own scroller, and a bound there would need flex
+ * plumbing added to every one of them.
  */
-export const POPOVER_AVAILABLE_HEIGHT_BOUND =
-  'max-h-[var(--radix-popover-content-available-height,none)]'
-
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
@@ -36,7 +36,7 @@ const Command = React.forwardRef<
     ref={ref}
     className={cn(
       'flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
-      POPOVER_AVAILABLE_HEIGHT_BOUND,
+      'max-h-(--radix-popover-content-available-height)',
       className
     )}
     {...props}

@@ -1,4 +1,8 @@
 import { test } from '../fixtures/error-detection'
+import {
+  installVisualViewportShim,
+  raiseKeyboard,
+} from '../helpers/visual-viewport'
 import { expect, type Locator } from '@playwright/test'
 
 const PHONE_VIEWPORT = { width: 390, height: 844 }
@@ -9,51 +13,6 @@ const PHONE_VIEWPORT = { width: 390, height: 844 }
  * its first rows under the keyboard.
  */
 const KEYBOARD_VIEWPORT_HEIGHT = 302
-
-type ViewportShim = { __shrinkVisualViewport: (height: number) => void }
-
-/**
- * Stands in for an iOS software keyboard: the layout viewport keeps its height
- * and only the visual viewport shrinks, on demand, with a `resize` on the
- * object the sheet listens to. Playwright cannot raise a real keyboard, and
- * `setViewportSize` would shrink both viewports, which is not the geometry
- * being tested - `interactive-widget=resizes-content` is the case where both
- * shrink, and the sheet's own fallback is what this drives.
- */
-function installVisualViewportShim() {
-  const real = window.visualViewport
-  let height = real ? real.height : window.innerHeight
-  const shim = {
-    get width() {
-      return real ? real.width : window.innerWidth
-    },
-    get height() {
-      return height
-    },
-    offsetLeft: 0,
-    offsetTop: 0,
-    pageLeft: 0,
-    pageTop: 0,
-    scale: 1,
-    onresize: null,
-    onscroll: null,
-    addEventListener: (type: string, listener: EventListener) =>
-      real?.addEventListener(type, listener),
-    removeEventListener: (type: string, listener: EventListener) =>
-      real?.removeEventListener(type, listener),
-    dispatchEvent: () => true,
-  }
-  Object.defineProperty(window, 'visualViewport', {
-    configurable: true,
-    get: () => shim,
-  })
-  // Listeners registered through the shim land on the real object, so the
-  // resize has to be dispatched there for the sheet to hear it.
-  ;(window as unknown as ViewportShim).__shrinkVisualViewport = (next: number) => {
-    height = next
-    real?.dispatchEvent(new Event('resize'))
-  }
-}
 
 /**
  * The sheet slides in over 500ms, and neither `toBeVisible` nor `boundingBox`
@@ -152,11 +111,7 @@ for (const path of ['/venues', '/shows'] as const) {
 
       // Open first, then raise the keyboard: the re-measure that the shrinking
       // visual viewport triggers is what lifts the sheet.
-      await page.evaluate(
-        (height) =>
-          (window as unknown as ViewportShim).__shrinkVisualViewport(height),
-        KEYBOARD_VIEWPORT_HEIGHT
-      )
+      await raiseKeyboard(page, KEYBOARD_VIEWPORT_HEIGHT)
       await settleOnScreen(
         page.getByTestId('city-filter-sheet-apply'),
         KEYBOARD_VIEWPORT_HEIGHT
