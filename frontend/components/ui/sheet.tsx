@@ -48,9 +48,17 @@ function SheetContent({
   className,
   children,
   side = "right",
+  showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
+  /**
+   * The corner X below. A sheet that carries its own dismiss controls turns it
+   * off here rather than hiding it with a selector on this component's child
+   * order, which stops matching the moment anything is appended after
+   * `children`.
+   */
+  showCloseButton?: boolean
 }) {
   return (
     <SheetPortal>
@@ -89,15 +97,17 @@ function SheetContent({
             inset here or its only visible dismiss control lands under the
             landscape notch (PSY-1820). `left` sheets stop mid-screen, so the
             inset would just push their X inward for no reason. */}
-        <SheetPrimitive.Close
-          className={cn(
-            "ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none",
-            side !== "left" && "right-[calc(1rem+env(safe-area-inset-right))]"
-          )}
-        >
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
+        {showCloseButton && (
+          <SheetPrimitive.Close
+            className={cn(
+              "ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none",
+              side !== "left" && "right-[calc(1rem+env(safe-area-inset-right))]"
+            )}
+          >
+            <XIcon className="size-4" />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
       </SheetPrimitive.Content>
     </SheetPortal>
   )

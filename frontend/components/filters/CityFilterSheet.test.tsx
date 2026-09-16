@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 
 import { renderWithProviders, screen, waitFor } from '@/test/utils'
-import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/softKeyboardViewport'
+import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/hooks/common/useSoftKeyboardViewport'
 import { CityFilters, type CityWithCount } from './CityFilters'
 
 const cities: CityWithCount[] = [
@@ -197,6 +197,32 @@ describe('CityFilterSheet', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
     expect(screen.getByTestId('city-filter-combobox')).toHaveFocus()
+  })
+
+  it('returns focus to the trigger when the header Close closes it', async () => {
+    const user = userEvent.setup()
+    renderFilters()
+
+    await openSheet(user)
+    await user.click(screen.getByTestId('city-filter-sheet-close'))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('city-filter-combobox')).toHaveFocus()
+  })
+
+  // The sheet carries its own handle and Close, so the shared corner X would be
+  // a third dismiss control landing on top of the grab handle.
+  it('suppresses the shared sheet close button', async () => {
+    const user = userEvent.setup()
+    renderFilters()
+
+    const sheet = await openSheet(user)
+
+    expect(sheet.querySelector('.lucide-x')).toBeNull()
+    expect(screen.getByTestId('city-filter-sheet-handle')).toBeInTheDocument()
+    expect(screen.getByTestId('city-filter-sheet-close')).toBeInTheDocument()
   })
 
   it('returns focus to the trigger after Escape', async () => {

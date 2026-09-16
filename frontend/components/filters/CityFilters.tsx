@@ -5,9 +5,11 @@ import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
+import { cityKey, cityLabel } from './cityParams'
 import { CityFilterSheet, type ResultNoun } from './CityFilterSheet'
 import { useSoftKeyboardViewport } from '@/lib/hooks/common/useSoftKeyboardViewport'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { formatCount } from '@/components/shared/paginationChrome'
 import { cn } from '@/lib/utils'
 
 /**
@@ -46,14 +48,6 @@ interface CityFiltersProps {
   resultNoun: ResultNoun
   allLabel?: string
   children?: React.ReactNode
-}
-
-function cityKey(c: CityState): string {
-  return `${c.city}|${c.state}`
-}
-
-function cityLabel(c: CityState): string {
-  return `${c.city}, ${c.state}`
 }
 
 /** Minimum number of cities with 2+ items to show the popular row */
@@ -144,15 +138,19 @@ export function CityFilters({
     <div className="flex flex-col gap-2">
       {/* Filter bar: trigger + active chips + children */}
       <div className="flex flex-wrap items-center gap-2">
+        {/* The Popover root stays mounted on a touch viewport even though it
+            can never open there: its trigger is what owns the open/close
+            toggle for BOTH overlays, and the trigger has to stay one node so
+            the pre-hydration click replay lands on it. */}
         <Popover open={open && !softKeyboardViewport} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button
-              // In server HTML since PSY-1624, so it is painted and clickable
-              // for the whole window before React attaches the overlay's
-              // handler - and a click in that window is silently dropped, which
-              // is exactly what this primitive exists for. The replay root goes
-              // on the trigger rather than the surrounding bar because the
-              // trigger is the element that owns the interaction.
+              // In server HTML, so it is painted and clickable for the whole
+              // window before React attaches the overlay's handler - and a
+              // click in that window is silently dropped, which is exactly what
+              // this primitive exists for. The replay root goes on the trigger
+              // rather than the surrounding bar because the trigger is the
+              // element that owns the interaction.
               {...replayOnHydrate}
               ref={setTriggerRef}
               type="button"
@@ -199,7 +197,7 @@ export function CityFilters({
                           {cityLabel(city)}
                         </span>
                         <span className="ml-2 text-xs text-muted-foreground">
-                          ({city.count})
+                          ({formatCount(city.count)})
                         </span>
                       </CommandItem>
                     )
@@ -212,7 +210,7 @@ export function CityFilters({
 
         {softKeyboardViewport && (
           <CityFilterSheet
-            cities={cities}
+            cities={sortedCities}
             selectedCities={selectedCities}
             onApply={onFilterChange}
             open={open}
@@ -260,7 +258,7 @@ export function CityFilters({
                 className="hover:text-foreground transition-colors whitespace-nowrap"
                 data-testid={`popular-city-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
               >
-                {cityLabel(city)} ({city.count})
+                {cityLabel(city)} ({formatCount(city.count)})
               </button>
             </span>
           ))}

@@ -23,15 +23,11 @@ export const appViewport: Viewport = {
   // surfaces must inset their own content horizontally — see the AppShell
   // comment for who absorbs what, and PSY-1824 for what is still deferred.
   viewportFit: 'cover',
-  // Shrinks the LAYOUT viewport when a software keyboard rises, so a
-  // bottom-anchored fixed surface (the city filter sheet) lands above the
-  // keyboard instead of behind it, and `dvh` units measure what is still on
-  // screen. Browsers that ignore it, iOS Safari included, keep the default
-  // `resizes-visual` behaviour, which `useKeyboardSafeBounds` measures and
-  // corrects for.
-  //
-  // It applies to every page, not just the filter: with it honoured, any
-  // `position: fixed` bottom chrome (the mobile tab bar) rides above the
-  // keyboard rather than sitting under it.
+  // Shrinks the LAYOUT viewport when a software keyboard rises, so every
+  // `position: fixed` bottom surface - the tab bar, the cookie banner, the
+  // city filter's bottom sheet - lands above the keyboard instead of behind
+  // it, and `dvh` measures what is still on screen. Browsers that ignore it,
+  // iOS Safari included, keep the default `resizes-visual`, which
+  // `usePinAboveSoftKeyboard` measures and corrects for.
   interactiveWidget: 'resizes-content',
 }

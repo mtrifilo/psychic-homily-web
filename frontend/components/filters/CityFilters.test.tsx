@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CityFilters,
   type CityWithCount,
-  type CityState,
 } from './CityFilters'
-import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/softKeyboardViewport'
+import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/hooks/common/useSoftKeyboardViewport'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 // jsdom does not implement scrollIntoView (required by cmdk)
@@ -394,6 +393,9 @@ describe('CityFilters', () => {
       const trigger = screen.getByTestId('city-filter-combobox')
       expect(trigger).toHaveAttribute('aria-haspopup', 'dialog')
       expect(trigger).not.toHaveAttribute('role', 'combobox')
+      // The popover content is never mounted here, so the trigger must not
+      // still be advertising the id Radix's PopoverTrigger hands it.
+      expect(trigger).not.toHaveAttribute('aria-controls')
 
       await user.click(trigger)
 

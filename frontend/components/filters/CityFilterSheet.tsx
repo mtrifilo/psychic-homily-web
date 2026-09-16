@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type RefObject } from 'react'
+import { useMemo, useRef, useState, type RefObject } from 'react'
 import { Check, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -12,8 +12,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { formatCount } from '@/components/shared/paginationChrome'
-import { useKeyboardSafeBounds } from '@/lib/hooks/common/useKeyboardSafeBounds'
+import {
+  KEYBOARD_INSET_VAR,
+  KEYBOARD_VISIBLE_HEIGHT_VAR,
+  usePinAboveSoftKeyboard,
+} from '@/lib/hooks/common/usePinAboveSoftKeyboard'
 import { cn } from '@/lib/utils'
+import { cityKey, cityLabel } from './cityParams'
 import type { CityState, CityWithCount } from './CityFilters'
 
 /** Singular and plural of whatever the page below the filter lists. */
@@ -23,6 +28,7 @@ export interface ResultNoun {
 }
 
 export interface CityFilterSheetProps {
+  /** Ordered as the rows should read; the sheet does not re-order them. */
   cities: CityWithCount[]
   /** The applied selection; the sheet opens with it and edits a copy. */
   selectedCities: CityState[]
@@ -35,53 +41,30 @@ export interface CityFilterSheetProps {
   triggerRef: RefObject<HTMLElement | null>
 }
 
-function cityKey(c: CityState): string {
-  return `${c.city}|${c.state}`
-}
-
-function cityLabel(c: CityState): string {
-  return `${c.city}, ${c.state}`
-}
-
-/**
- * The sheet is content-sized and capped at the proportion of the screen the
- * approved frame occupies; `useKeyboardSafeBounds` narrows that cap further
- * whenever a keyboard is up.
- */
+/** Share of the screen a content-sized sheet may occupy. */
 const SHEET_MAX_HEIGHT = '66dvh'
 
 function CityFilterSheetBody({
   cities,
   selectedCities,
   onApply,
-  onOpenChange,
   resultNoun,
 }: Pick<
   CityFilterSheetProps,
-  'cities' | 'selectedCities' | 'onApply' | 'onOpenChange' | 'resultNoun'
+  'cities' | 'selectedCities' | 'onApply' | 'resultNoun'
 >) {
   // Mounted only while the sheet is open, so opening always starts from the
   // applied selection and dismissing without applying discards the edit.
   const [pending, setPending] = useState<CityState[]>(selectedCities)
   const [query, setQuery] = useState('')
 
-  const pendingKeys = useMemo(
-    () => new Set(pending.map(cityKey)),
-    [pending]
-  )
-
-  const sortedCities = useMemo(
-    () => [...cities].sort((a, b) => b.count - a.count),
-    [cities]
-  )
+  const pendingKeys = useMemo(() => new Set(pending.map(cityKey)), [pending])
 
   const visibleCities = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return sortedCities
-    return sortedCities.filter(c =>
-      cityLabel(c).toLowerCase().includes(needle)
-    )
-  }, [sortedCities, query])
+    if (!needle) return cities
+    return cities.filter(c => cityLabel(c).toLowerCase().includes(needle))
+  }, [cities, query])
 
   // Every number in the sheet comes from the same per-city counts, so the
   // button's total is the sum of the rows the reader has ticked, and the sum of
@@ -89,10 +72,10 @@ function CityFilterSheetBody({
   const pendingTotal = useMemo(() => {
     const counted =
       pendingKeys.size === 0
-        ? sortedCities
-        : sortedCities.filter(c => pendingKeys.has(cityKey(c)))
+        ? cities
+        : cities.filter(c => pendingKeys.has(cityKey(c)))
     return counted.reduce((sum, c) => sum + c.count, 0)
-  }, [sortedCities, pendingKeys])
+  }, [cities, pendingKeys])
 
   const toggleCity = (city: CityWithCount) => {
     const key = cityKey(city)
@@ -110,7 +93,9 @@ function CityFilterSheetBody({
   return (
     <>
       <SheetClose
-        className="flex shrink-0 justify-center pt-2 pb-1 focus-visible:outline-none"
+        // Radix focuses the first tabbable child on open, which is this, so it
+        // owes a visible ring as much as any other control.
+        className="flex shrink-0 justify-center rounded-md pt-2 pb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="city-filter-sheet-handle"
       >
         <span className="h-[3px] w-9 rounded-full bg-border" aria-hidden />
@@ -171,6 +156,8 @@ function CityFilterSheetBody({
                   className="sr-only"
                   checked={isPending}
                   onChange={() => toggleCity(city)}
+                  // The visible count beside the name is decorative; the
+                  // control's own name carries it with its unit.
                   aria-label={`${cityLabel(city)}, ${formatCount(city.count)} ${
                     city.count === 1 ? resultNoun.singular : resultNoun.plural
                   }`}
@@ -201,16 +188,15 @@ function CityFilterSheetBody({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-border/50 px-4 pt-3 pb-4">
+      {/* The sheet's own bottom padding is dropped by the `p-0` below, so the
+          only control in reach of the home indicator adds the inset back. */}
+      <div className="shrink-0 border-t border-border/50 px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <Button
           type="button"
           size="lg"
           className="w-full"
           data-testid="city-filter-sheet-apply"
-          onClick={() => {
-            onApply(pending)
-            onOpenChange(false)
-          }}
+          onClick={() => onApply(pending)}
         >
           {applyLabel}
         </Button>
@@ -223,27 +209,34 @@ function CityFilterSheetBody({
  * The touch-viewport form of the city filter: a bottom sheet whose search field
  * stays pinned while the city list scrolls under it, and whose one apply button
  * carries the total its current ticks would show.
+ *
+ * The rows are native checkboxes rather than the `Command` items the popover
+ * uses: cmdk drives `aria-selected` from its own highlight, which a
+ * multi-select list needs for its ticks. The cost is that this list filters by
+ * substring where the popover filters by cmdk's score.
  */
 export function CityFilterSheet({
   open,
   onOpenChange,
   triggerRef,
+  onApply,
   ...bodyProps
 }: CityFilterSheetProps) {
-  const bounds = useKeyboardSafeBounds(open)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  usePinAboveSoftKeyboard(open, contentRef)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
+        ref={contentRef}
         side="bottom"
-        // The sheet's own handle and Close carry the dismissal, so the shared
-        // corner X would be a third control over the grab handle.
-        className="gap-0 overflow-hidden rounded-t-lg p-0 [&>button:last-child]:hidden"
+        // The handle and the header's Close carry dismissal, so the shared
+        // corner X would be a third control sitting over the grab handle.
+        showCloseButton={false}
+        className="gap-0 overflow-hidden rounded-t-lg p-0"
         style={{
-          bottom: bounds ? bounds.bottom : undefined,
-          maxHeight: bounds
-            ? `min(${SHEET_MAX_HEIGHT}, ${bounds.maxHeight}px)`
-            : SHEET_MAX_HEIGHT,
+          bottom: `var(${KEYBOARD_INSET_VAR}, 0px)`,
+          maxHeight: `min(${SHEET_MAX_HEIGHT}, var(${KEYBOARD_VISIBLE_HEIGHT_VAR}, 100dvh))`,
         }}
         data-testid="city-filter-sheet"
         onCloseAutoFocus={event => {
@@ -253,7 +246,13 @@ export function CityFilterSheet({
           triggerRef.current?.focus()
         }}
       >
-        <CityFilterSheetBody {...bodyProps} onOpenChange={onOpenChange} />
+        <CityFilterSheetBody
+          {...bodyProps}
+          onApply={cities => {
+            onApply(cities)
+            onOpenChange(false)
+          }}
+        />
       </SheetContent>
     </Sheet>
   )
