@@ -244,8 +244,11 @@ export function VenueList() {
     sort: 'usage',
     limit: 1,
   })
+  // Not in the choose-a-city state: there are no rows there for a tag to
+  // narrow, so the facet would be a control with nothing under it.
   const showTagFacet =
-    selectedTags.length > 0 || (topTagData?.tags?.[0]?.usage_count ?? 0) > 0
+    !showCityChooser &&
+    (selectedTags.length > 0 || (topTagData?.tags?.[0]?.usage_count ?? 0) > 0)
 
   const { targetProps, focusTarget } =
     usePaginationFocusTarget<HTMLParagraphElement>()

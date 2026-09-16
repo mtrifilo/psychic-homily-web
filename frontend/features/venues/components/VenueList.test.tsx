@@ -336,6 +336,15 @@ describe('VenueList', () => {
         'false'
       )
     })
+
+    it('renders no tag facet, which would have no rows to narrow', () => {
+      mockUseTags.mockReturnValue({
+        data: { tags: [{ slug: 'punk', usage_count: 12 }] },
+      })
+      render(<VenueList />)
+      expect(screen.queryByTestId('tag-facet-panel')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('tag-facet-sheet')).not.toBeInTheDocument()
+    })
   })
 
   describe('sort', () => {
