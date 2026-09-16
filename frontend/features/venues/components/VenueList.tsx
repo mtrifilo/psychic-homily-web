@@ -351,7 +351,7 @@ export function VenueList() {
   const pageUpcoming = venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
   const wholeSetOnScreen = rowsAnswerCurrentRequest && totalPages === 1
   const roomsLabel = countLabel(total, 'room')
-  const upcomingLabel = `${countLabel(pageUpcoming, 'upcoming show')}`
+  const upcomingLabel = countLabel(pageUpcoming, 'upcoming show')
 
   const chooserScope = useMemo(() => {
     const rooms = cities.reduce((sum, c) => sum + c.count, 0)
@@ -385,7 +385,9 @@ export function VenueList() {
         </p>
       </div>
 
-      {derivedFrom && scopeCity && (
+      {/* Gated on the picker being on screen: "change" opens it, and with no
+          cities at all there is nothing to change to. */}
+      {derivedFrom && scopeCity && cities.length > 0 && (
         <p
           className="mb-3 text-sm text-muted-foreground"
           data-testid="venues-derived-city"
@@ -413,8 +415,7 @@ export function VenueList() {
             onFilterChange={handleFilterChange}
             resultNoun={{ singular: 'venue', plural: 'venues' }}
             allLabel="All cities"
-            // The chooser state below offers the busiest cities itself, and the
-            // row is what overflowed the directory at 390.
+            // The choose-a-city state offers the busiest cities itself.
             showPopularCities={false}
             controlRef={cityFilterControl}
           />
