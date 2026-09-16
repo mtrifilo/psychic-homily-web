@@ -901,9 +901,10 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 type VenueWithCount struct {
 	catalogm.Venue
 	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
-	// The two lateral picks, flattened. A NULL date is the only signal that the
-	// lateral matched nothing: slug and title are COALESCEd to '' in SQL, so an
-	// empty string in either is a real empty column rather than a missing row.
+	// The two lateral picks, flattened. Every column is NULL when the lateral
+	// matched nothing, and the DATE is the field that decides: slug and title
+	// are COALESCEd to '' inside the lateral, so an empty string in either
+	// belongs to a row that exists and has no slug or no title.
 	NextShowEventDate *time.Time `gorm:"column:next_show_event_date"`
 	NextShowSlug      *string    `gorm:"column:next_show_slug"`
 	NextShowTitle     *string    `gorm:"column:next_show_title"`
@@ -984,14 +985,16 @@ var (
 // buildVenueListOrderBys renders the row order for each accepted sort key.
 //
 // TWO BLOCKS UNDER EVERY SORT: rooms with something booked, then quiet rooms.
-// The leading key is what makes that true, and it is not a tie-breaker on any of
-// the three sorts: a quiet room is ranked by none of them, so it sinks and is
-// ordered by how recently it last had a show instead.
+// The leading key is what makes that true, and it leads rather than breaking a
+// tie, so no sort can lift a quiet room into the active block.
 //
-// Every active-block term yields NULL for a quiet row and the quiet term yields
-// NULL for an active one, because a shared tail term would otherwise order the
-// wrong block: `venues.name ASC` under sort=name would outrank the quiet block's
-// last-show order, and last-show would outrank name in the active one.
+// The sort-specific term and the quiet block's last-show term are each CASE-
+// guarded to yield NULL for the other block, because an unguarded term would
+// order the wrong one: last-show would outrank the requested sort among active
+// rooms, and under sort=name the shared `venues.name ASC` would outrank the
+// quiet block's last-show order. Name is still what separates two quiet rooms
+// whose last show is the same day, or that have none: it is the tail, reached
+// after the quiet term rather than before it.
 //
 // Name alone does not break a tie: venue names are unique only per city
 // (idx_venues_name_city_unique) and a city filter is optional here, so id ends
@@ -1196,15 +1199,16 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // ONE BOUNDARY DECIDES ALL THREE. The count and the next-show pick are drawn on
 // shared.VenueLocalNightDateCondition and the last-show pick on that condition's
 // exact complement, so the count is above zero exactly when next_show is
-// non-null and no show is ever both picks. It is the boundary the scene page's
-// rooms leaderboard counts on (catalog/scene_venues.go), and NOT the venue
-// page's own midnight bound; VenueWithShowCountResponse.UpcomingShowCount
-// carries the contract.
+// non-null and no show is ever both picks.
+// VenueWithShowCountResponse.UpcomingShowCount carries what that boundary means
+// to a reader and which other surfaces share it.
 //
 // The zone that dates a show is its PRIMARY venue's, not necessarily the venue
 // whose row is being counted, because the boundary is the repo's shared one.
-// For a bill split across two rooms the second room's tally is drawn on the
-// first room's clock, which matters only where a page spans a timezone line.
+// Primary is the LOWEST-ID room on the bill (shared.PrimaryVenueLateralSQL),
+// not the headline room, so for a bill split across two rooms the other room's
+// tally is drawn on that one's clock. It matters only where a page spans a
+// timezone line.
 func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -1222,8 +1226,10 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Build the base query with show count subquery
 	// This allows us to sort by show count while also paginating correctly
-	// COUNT(*) counts distinct shows: show_venues is keyed PRIMARY KEY
-	// (show_id, venue_id), so a show cannot appear twice in one venue's group.
+	// COUNT(*) counts distinct shows. Two things hold that: show_venues is keyed
+	// PRIMARY KEY (show_id, venue_id), so a show appears once per venue, and
+	// shared.VenueTZJoin is a LIMIT 1 lateral, so joining it cannot fan a row
+	// out either.
 	subquery := s.db.Table("show_venues").
 		Select("show_venues.venue_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").

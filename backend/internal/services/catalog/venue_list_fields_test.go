@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -54,7 +53,12 @@ func venueLocalZone(t require.TestingT) *time.Location {
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_CountHoldsAShowUnderWay() {
 	venue := suite.createTestVenue("Under Way Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
-	started := time.Now().UTC().Add(-time.Hour)
+	// ONE clock read for both the fixture and the branch it selects below. Two
+	// reads either side of the queries would disagree across local midnight and
+	// assert the wrong half of the split.
+	loc := venueLocalZone(suite.T())
+	now := time.Now().In(loc)
+	started := now.Add(-time.Hour)
 	suite.createRailShow(venue.ID, user.ID, "Doors Open", started)
 
 	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
@@ -69,8 +73,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Count
 	})
 	suite.Require().NoError(err)
 
-	loc := venueLocalZone(suite.T())
-	sameLocalDate := started.In(loc).Format("2006-01-02") == time.Now().In(loc).Format("2006-01-02")
+	sameLocalDate := started.Format("2006-01-02") == now.Format("2006-01-02")
 	if sameLocalDate {
 		suite.Equal(int64(1), venuePageTotal,
 			"the show is on today's venue-local date, which both boundaries keep")
@@ -91,10 +94,16 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Night
 	venue := suite.createTestVenue("Edge Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
 
+	// The night-start date comes from Postgres, which is the clock the
+	// conditions are evaluated against, rather than from a second reading of
+	// this process's clock.
 	loc := venueLocalZone(suite.T())
-	nightStart := time.Now().In(loc).Add(-time.Duration(shared.NightStartHour) * time.Hour)
-	y, m, d := nightStart.Date()
-	edge := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	var nightStartDate string
+	suite.Require().NoError(suite.db.Raw(
+		"SELECT (((now() AT TIME ZONE ?) - make_interval(hours => ?))::date)::text",
+		loc.String(), shared.NightStartHour).Scan(&nightStartDate).Error)
+	edge, err := time.ParseInLocation("2006-01-02", nightStartDate, loc)
+	suite.Require().NoError(err)
 
 	first := suite.createRailShow(venue.ID, user.ID, "First Of The Night", edge)
 	last := suite.createRailShow(venue.ID, user.ID, "Night Before", edge.Add(-time.Second))
@@ -106,7 +115,6 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Night
 	suite.Equal(1, row.UpcomingShowCount, "local midnight of the night-start date is inside the night")
 	suite.Require().NotNil(row.NextShow)
 	suite.Equal(*first.Slug, row.NextShow.Slug)
-	suite.Require().NotNil(row.LastShow)
 	suite.Equal(*last.Slug, row.LastShow.Slug, "one second earlier is the previous night")
 }
 
@@ -152,9 +160,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ShowW
 }
 
 // TestGetVenuesWithShowCounts_ProjectsTheStreetAddress pins the address line the
-// directory prints under the room name. It is the column the venue already
-// stores, served through the same privacy gate as everywhere else: the browse
-// set is verified venues, and Venue.PublicAddress withholds it below that.
+// directory prints under the room name: the column the venue already stores,
+// reaching the row rather than needing a field of its own.
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ProjectsTheStreetAddress() {
 	venue := suite.createTestVenue("Addressed Room", "Phoenix", "AZ", true)
 	street := "1 Street Address Way"
@@ -318,20 +325,29 @@ func (suite *VenueServiceIntegrationTestSuite) TestVenueLocalNightConditions_Par
 		suite.createRailShow(venue.ID, user.ID, "P", time.Now().UTC().Add(offset))
 	}
 
-	count := func(condition string) int64 {
+	// The production gate, not a hand-written status comparison, so a divergence
+	// between the two would show up here.
+	count := func(conditions ...string) int64 {
 		var n int64
-		suite.Require().NoError(suite.db.Table("show_venues").
+		q := suite.db.Table("show_venues").
 			Joins("JOIN shows ON shows.id = show_venues.show_id").
 			Joins(shared.VenueTZJoin).
-			Where("show_venues.venue_id = ? AND shows.status = ?", venue.ID, catalogm.ShowStatusApproved).
-			Where(condition).
-			Count(&n).Error)
+			Where("show_venues.venue_id = ?", venue.ID).
+			Where(shared.PublicShowPredicateSQL("shows"))
+		for _, c := range conditions {
+			q = q.Where(c)
+		}
+		suite.Require().NoError(q.Count(&n).Error)
 		return n
 	}
 
-	upcoming := count(shared.VenueLocalNightDateCondition)
-	past := count(shared.VenueLocalNightPastDateCondition)
-	suite.Equal(int64(6), upcoming+past, "the night condition and its complement must cover every show exactly once")
-	suite.Positive(upcoming)
-	suite.Positive(past)
+	night := shared.VenueLocalNightDateCondition
+	past := shared.VenueLocalNightPastDateCondition
+	// Three assertions, because a sum alone is satisfied by one row counted
+	// twice beside one row counted by neither.
+	suite.Equal(int64(0), count("("+night+") AND ("+past+")"), "no show may satisfy both conditions")
+	suite.Equal(int64(0), count("NOT ("+night+") AND NOT ("+past+")"), "no show may satisfy neither")
+	suite.Equal(int64(6), count(night)+count(past), "together they cover every show")
+	suite.Positive(count(night))
+	suite.Positive(count(past))
 }

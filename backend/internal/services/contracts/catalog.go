@@ -995,10 +995,12 @@ type VenueConfirmationResponse struct {
 // VenueListShowRef is one show reduced to what a directory row links to and
 // prints: when it is, where it points, and what to call it.
 //
-// EventDate is the stored instant. A row renders it on the venue's own clock
-// using the timezone field beside it on the same response, which is why no
-// pre-rendered date string is carried here: a date string would fix a zone at
-// serialization time and the /venues table already has the zone.
+// EventDate is the stored instant, and the row is what dates it. The venue's
+// Timezone beside it is NULLABLE, so a client resolves the zone the way every
+// other surface does, falling back through the venue's state
+// (frontend/lib/utils/formatters.ts resolveShowTimezone); it does not get the
+// server's answer for free. NextShowDate below carries a pre-rendered date for
+// the one caller that wanted one, on its own boundary.
 //
 // Slug is empty when the show has no slug, and an empty slug cannot form a URL
 // (GenerateSlug returns "" for a name with no Latin characters, and the column
@@ -1030,9 +1032,10 @@ type VenueWithShowCountResponse struct {
 	// already under way still counts.
 	//
 	// The same boundary and the same rooms as a scene page's leaderboard entry
-	// for this room, so the two print one number. NOT the same number as the
-	// venue page's own upcoming list, which is bounded at venue-local MIDNIGHT
-	// and is the narrower set between midnight and shared.NightStartHour.
+	// for this room (catalog/scene_venues.go), so the two print one number. NOT
+	// the same number as the venue page's own upcoming list, which is bounded at
+	// venue-local MIDNIGHT and is the narrower set between midnight and
+	// shared.NightStartHour.
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	// NextShow is the soonest show inside UpcomingShowCount's set, and LastShow
 	// the most recent one outside it.
@@ -1041,13 +1044,10 @@ type VenueWithShowCountResponse struct {
 	// shows: NextShow is present exactly when UpcomingShowCount is above zero,
 	// and no show is ever both.
 	//
-	// ABSENT rather than null when the room has none, and the omitempty is what
-	// makes the generated client types honest: huma cannot express a nullable
-	// object reference at all (it panics on `nullable:"true"` over an object
-	// $ref), so a key that is always present would be generated as a
-	// non-nullable object the wire can still send null for. Omitting it is the
-	// shape the rest of this file already uses for an optional object, such as
-	// Provenance on the embedded venue.
+	// ABSENT rather than null when the room has none. That is the shape this
+	// file already uses for an optional object, such as Provenance on the
+	// embedded venue, and it is the shape the generated client types can state
+	// truthfully.
 	NextShow *VenueListShowRef `json:"next_show,omitempty" doc:"The soonest upcoming approved show at this venue. Absent when the venue has none, which is exactly when upcoming_show_count is zero."`
 	LastShow *VenueListShowRef `json:"last_show,omitempty" doc:"The most recent past approved show at this venue. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
 	// ShowsThisWeek counts the venue's approved shows in the next seven days,

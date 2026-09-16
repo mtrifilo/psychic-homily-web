@@ -160,11 +160,10 @@ func (s *TagService) intersectGroup(entityType string, filter TagFilter, preview
 		return group, nil
 	}
 
-	// Preview IDs: page 1 in the same default sort the per-type browse uses.
-	// artist/venue order by upcoming-show count DESC — matching their public
-	// browse lists (GetAllArtists orders upcoming_show_count DESC; the design
-	// surfaces the busiest entities first) — which needs a joined count column,
-	// so those types get the join here rather than a plain ORDER string.
+	// Preview IDs: page 1 in roughly the default sort the per-type browse uses.
+	// artist/venue order by upcoming-show count DESC — the busiest entities
+	// first — which needs a joined count column, so those types get the join
+	// here rather than a plain ORDER string.
 	var ids []uint
 	previewQuery := s.applyPreviewOrder(filtered().Select(idColumn), entityType)
 	if err := previewQuery.
@@ -290,6 +289,12 @@ func (s *TagService) applyIntersectionTagFilter(query *gorm.DB, entityType, idCo
 // PSY-993 design's "12 shows / 8 shows / 5 shows" rows. That count isn't a base
 // column, so those two types LEFT JOIN venueLocalUpcomingCountSQL and order by
 // it (name ASC as the stable tiebreaker).
+//
+// The VENUE preview is the busiest-first order, not a copy of /venues page 1.
+// That list sinks rooms with nothing booked into a block of their own ordered by
+// their last show (catalog/venue.go buildVenueListOrderBys), and it takes a sort
+// parameter; the two agree on the rooms that have something booked and part
+// company below them.
 //
 // It has to be the SAME renderer the enrich* helpers print from, not merely a
 // similar one: this is the sort key for the very numbers those helpers put on
