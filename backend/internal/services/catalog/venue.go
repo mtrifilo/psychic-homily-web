@@ -1783,6 +1783,14 @@ func venueCitiesScope(filters contracts.VenueListFilters) contracts.VenueListFil
 // Drawn through venueListPredicates, so each city's number is the total
 // GET /venues reports for that city under the same filters, and the sum over
 // every city is the total for no city at all.
+//
+// The sum holds with NO exemption here, unlike the show and artist facets, and
+// the absence of a `city != ''` guard is what makes that true rather than an
+// oversight: `venues.city` is NOT NULL (migration 000004), so a room can only be
+// unplaced by carrying an empty string, and such a room groups under an empty
+// city in this result AND counts in the list's total. Adding the guard would
+// make the two disagree. What an empty group costs is a blank row in the picker,
+// which is a data problem in `venues` rather than a counting one.
 func (s *VenueService) GetVenueCities(filters contracts.VenueListFilters) ([]*contracts.VenueCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

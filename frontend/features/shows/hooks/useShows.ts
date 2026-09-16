@@ -373,9 +373,10 @@ interface UseShowCitiesOptions extends CityCountScope {
  * answer for the same scope (PSY-1678).
  *
  * Unscoped it requests the seeded URL directly, which is the bare endpoint, and
- * keys exactly as the seed does — that is what keeps the first-screen payload a
- * hit. A filtered deep link is not covered by the seed, which is the same call
- * the list's own first-screen seeds already make.
+ * keys as the seed does, which is what makes the first-screen payload a hit. A
+ * TAG-filtered deep link is not covered by the seed, the same call the list's own
+ * first-screen seeds make; a WINDOW is, because it comes from the path rather
+ * than from searchParams and the route already knows it.
  */
 export const useShowCities = (options: UseShowCitiesOptions = {}) => {
   const { tags, tagMatch, window: calendarWindow } = options

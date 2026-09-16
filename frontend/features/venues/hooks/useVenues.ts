@@ -367,10 +367,9 @@ export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
  * Hook to fetch distinct cities with venue counts for filtering, optionally
  * scoped to the filters the list below the picker is reading.
  *
- * The scope is optional, and an omitted one requests and keys exactly what this
- * hook did before it took one: the unscoped totals, on the bare endpoint. That
- * is what the surfaces which are NOT filtered by tags want, and what keeps a
- * server-seeded entry matching.
+ * An omitted scope requests the bare endpoint and keys on the base alone: the
+ * unscoped totals, which is what the surfaces that carry no tag filter want and
+ * what keeps a server-seeded entry matching.
  *
  * Scoped, each city's number is the total `GET /venues` reports for that city
  * under the same filters, which is the premise the bottom sheet's apply button

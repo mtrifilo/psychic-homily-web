@@ -154,6 +154,42 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_ScopedSumEqual
 	suite.Equal(int64(byCity["Phoenix"]), phoenixTotal)
 }
 
+// The venue facet's exemption-free sum, exercised on the row that would create
+// an exemption if one existed. `venues.city` is NOT NULL, so an unplaced room
+// carries an empty string; it groups under an empty city here and counts in the
+// list's total, and the sum still holds. A `city != ''` guard, which the show
+// and artist facets do carry, would break it.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_CountsAPlacelessRoomOnBothSides() {
+	user := suite.createTestUser()
+	slug := tagSlugFor("venues-placeless")
+	tagID := suite.createGenreTag(slug, slug)
+
+	placed := suite.createTestVenue("Facet Placeless Placed", "Yuma", "AZ", true)
+	placeless := suite.createTestVenue("Facet Placeless Room", "", "", true)
+	suite.tagVenue(placed.ID, tagID, user.ID)
+	suite.tagVenue(placeless.ID, tagID, user.ID)
+
+	filters := contracts.VenueListFilters{Sort: "upcoming", TagSlugs: []string{slug}}
+
+	cities, err := suite.venueService.GetVenueCities(filters)
+	suite.Require().NoError(err)
+
+	_, total, err := suite.venueService.GetVenuesWithShowCounts(filters, 50, 0)
+	suite.Require().NoError(err)
+
+	suite.Equal(int64(2), total)
+	suite.Equal(total, sumVenueCityCounts(cities),
+		"an unplaced room is counted by the facet and by the list alike")
+
+	var empties int
+	for _, c := range cities {
+		if c.City == "" {
+			empties++
+		}
+	}
+	suite.Equal(1, empties, "the unplaced room groups under an empty city rather than vanishing")
+}
+
 // The unfiltered read is the one every other surface already depends on, so it
 // has to answer exactly as it did before the endpoint took filters at all.
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_UnfilteredIgnoresTheTagFixtures() {
@@ -192,12 +228,21 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 	first := suite.createTaggedArtist("Facet Show Band A", slug)
 	second := suite.createTaggedArtist("Facet Show Band B", slug)
 	third := suite.createTaggedArtist("Facet Show Band C", slug)
+	fourth := suite.createTaggedArtist("Facet Show Band D", slug)
 	untagged := suite.createTaggedArtist("Facet Show Other Band", "")
 
 	at := time.Now().UTC().AddDate(0, 0, 7)
-	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, first.ID)
-	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, second.ID)
-	suite.billArtist(suite.createApprovedShowAt(tucson.ID, user.ID, "Tucson", "AZ", at).ID, third.ID)
+	// The first Phoenix bill carries the tag TWICE, on two different acts. It is
+	// the row that makes this a real count rather than a row check: the tag
+	// filter constrains with IN (subquery) rather than joining the matches in, so
+	// a show matching twice is still one show. Rewritten as a join it would be
+	// two, and both the facet and the list total would double together — which
+	// the sum assertion alone cannot see.
+	doubleTagged := suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at)
+	suite.billArtist(doubleTagged.ID, first.ID)
+	suite.billArtist(doubleTagged.ID, second.ID)
+	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, third.ID)
+	suite.billArtist(suite.createApprovedShowAt(tucson.ID, user.ID, "Tucson", "AZ", at).ID, fourth.ID)
 	// A show on the same night whose bill does not carry the tag.
 	suite.billArtist(suite.createApprovedShowAt(phoenix.ID, user.ID, "Phoenix", "AZ", at).ID, untagged.ID)
 
@@ -211,7 +256,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 	)
 	suite.Require().NoError(err)
 
-	suite.Equal(int64(3), total, "the tag should select exactly the three tagged bills")
+	suite.Equal(int64(3), total,
+		"the tag selects exactly the three tagged bills, and the one matching twice counts once")
 	suite.Equal(total, sumShowCityCounts(cities),
 		"the sum of the scoped city counts is the list total under the same filters")
 
@@ -219,6 +265,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 	for _, c := range cities {
 		byCity[c.City] = c.ShowCount
 	}
+	// 2, not 3: the double-tagged bill is one show in the facet as well.
 	suite.Equal(2, byCity["Phoenix"])
 	suite.Equal(1, byCity["Tucson"])
 }
@@ -268,9 +315,14 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_ScopedSumEqualsT
 
 // A half-stated window narrows to nothing in SQL, so the facet refuses it rather
 // than answering for the whole upcoming catalog.
+//
+// Asserted on the message, not merely on non-nil: every other failure this
+// method can return (a nil db, a query error) is also an error, and a guard that
+// stopped running would otherwise leave this green.
 func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_RefusesAHalfStatedWindow() {
 	_, err := suite.showService.GetShowCities("UTC", nil, contracts.ShowCalendarWindow{Month: 6})
 	suite.Require().Error(err)
+	suite.Contains(err.Error(), "invalid show calendar window")
 }
 
 // =============================================================================

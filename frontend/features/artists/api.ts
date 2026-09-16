@@ -262,10 +262,13 @@ export const ARTIST_LIST_PAGE_LIMIT = 50
  * built from that one hook, so this pair records what it actually does rather
  * than what would be tidier.
  *
- * A filtered `/artists?cities=…` or a deep page `?page=2` is deliberately NOT
- * covered: the hook keys on the filter and the offset, misses this entry, and
- * both render passes agree on the spinner. No SSR benefit there, and no
- * hydration mismatch either.
+ * A filtered `/artists?cities=…`, a `?tags=…` deep link, or a deep page
+ * `?page=2` is deliberately NOT covered, and that now includes the CITY FACET,
+ * whose counts are scoped to the tag filter: the hooks key on the filter and the
+ * offset, miss these entries, and both render passes agree on the spinner. No
+ * SSR benefit there, and no hydration mismatch either. Seeding a filtered entry
+ * would mean reading `searchParams` in the page body, which costs the route its
+ * prerendered shell.
  */
 export const ARTIST_LIST_FIRST_SCREEN_URL = `${artistEndpoints.LIST}?limit=${ARTIST_LIST_PAGE_LIMIT}`
 

@@ -292,11 +292,15 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 
 // GetArtistCitiesRequest represents the request for getting artist cities.
 //
-// The tag half of ListArtistsRequest, spelled identically: the counts are drawn
-// on the set GET /artists would list under the same parameters. The PLACE half
-// is deliberately absent — the response is the per-place breakdown.
+// The tag half of ListArtistsRequest, spelled identically down to the length
+// bound: the counts are drawn on the set GET /artists would list under the same
+// parameters, and a parameter the two spell differently is a request one of them
+// refuses and the other answers. TestArtistTagParamsMatch holds them together.
+//
+// The PLACE half is deliberately absent — the response is the per-place
+// breakdown.
 type GetArtistCitiesRequest struct {
-	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 

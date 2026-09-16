@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { cityCountQueryKey } from '@/components/filters/cityCountScope'
 import { SHOWS_PAGE_SIZE } from './showsListNavigation'
 import {
   appendShowsCalendarWindow,
@@ -250,9 +251,11 @@ export function showCitiesWindowFirstScreenUrl(
 export function showCitiesWindowFirstScreenKey(
   window: ShowsCalendarWindow | undefined
 ): readonly unknown[] {
-  return window
-    ? [...showQueryKeys.cities(), showsCalendarWindowKey(window)]
-    : SHOW_CITIES_FIRST_SCREEN_KEY
+  // Through the same builder `useShowCities` keys on, rather than composing the
+  // fragment here: the "every member undefined means the base key" collapse is
+  // what makes an unwindowed seed land on the entry the unscoped hook reads, and
+  // two spellings of that rule is one of them being wrong later.
+  return cityCountQueryKey(showQueryKeys.cities(), undefined, showsCalendarWindowKey(window))
 }
 
 /**

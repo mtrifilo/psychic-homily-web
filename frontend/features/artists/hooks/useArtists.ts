@@ -110,8 +110,8 @@ export function useArtists(options: UseArtistsOptions = {}) {
  * Hook to fetch distinct cities with artist counts for filtering, optionally
  * scoped to the filters the list below the picker is reading.
  *
- * Optional, and an omitted scope requests and keys exactly what this hook did
- * before it took one. See `useVenueCities` for why both halves exist.
+ * An omitted scope requests the bare endpoint and keys on the base alone. See
+ * `useVenueCities` for why both halves exist.
  *
  * Scoped, the counts cover the EVERGREEN set: a tag filter drops the /artists
  * activity gate, and the facet follows it, so a city can carry a count made

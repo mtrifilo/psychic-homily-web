@@ -67,7 +67,7 @@ type ListVenuesRequest struct {
 	Cities   string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Tucson,AZ" example:"Phoenix,AZ|Tucson,AZ"`
 	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Maximum number of venues to return"`
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
-	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 	// Opt-in because filling these fields costs four extra batched
 	// aggregations per page. Only the Atlas city-view rail renders them.
@@ -95,8 +95,11 @@ type ListVenuesResponse struct {
 //
 // One reader for the list and the city facet, because the facet's counts are
 // only the list's totals while both narrow by the same rule. That includes what
-// is ABSENT: neither bounds the slug list, so the list and its facet select the
-// same set for a request carrying many tags.
+// is ABSENT: neither truncates the slug list at maxBrowseTagSlugs, the way the
+// artist list does, so a request carrying more tags than that selects the same
+// set on both. Both DO carry the `maxLength` bound on the parameter itself,
+// which rejects an enormous string before it is parsed; extending the slug cap
+// to this list is PSY-1799's, and it has to be applied to both at once.
 func applyVenueTagFilter(filters *contracts.VenueListFilters, tags, tagMatch string) {
 	tf := parseTagFilter(tags, tagMatch)
 	if !tf.HasTags() {
@@ -616,12 +619,16 @@ func (h *VenueHandler) resolveVenueID(idOrSlug string) (uint, error) {
 
 // GetVenueCitiesRequest represents the request for getting venue cities.
 //
-// The tag half of ListVenuesRequest, spelled identically: the counts are drawn
-// on the set GET /venues would list under the same parameters, so a parameter
-// this facet cannot read is a count the list would contradict. The PLACE half is
-// deliberately absent — the response is the per-place breakdown.
+// The tag half of ListVenuesRequest, spelled identically down to the length
+// bound: the counts are drawn on the set GET /venues would list under the same
+// parameters, so a parameter this facet cannot read is a count the list would
+// contradict, and a bound one of them carries alone is a request one refuses and
+// the other answers. TestVenueTagParamsMatch holds them together.
+//
+// The PLACE half is deliberately absent — the response is the per-place
+// breakdown.
 type GetVenueCitiesRequest struct {
-	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 

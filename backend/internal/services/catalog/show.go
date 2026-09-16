@@ -1545,8 +1545,8 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 // showCitiesScope keeps the half of an upcoming-list filter set that a per-city
 // breakdown may be narrowed by, and drops the place half.
 //
-// nil in, nil out, so an unfiltered call reaches the applier as the unfiltered
-// read it was before this endpoint took filters at all.
+// nil in, nil out, so an unfiltered call reaches the applier as an unfiltered
+// read rather than as an empty filter set.
 func showCitiesScope(filters *contracts.UpcomingShowsFilter) *contracts.UpcomingShowsFilter {
 	if filters == nil || len(filters.TagSlugs) == 0 {
 		return nil

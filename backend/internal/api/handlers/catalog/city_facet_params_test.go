@@ -99,33 +99,62 @@ func TestGetArtistCitiesHandler_UnfilteredKeepsTheActivityGate(t *testing.T) {
 	}
 }
 
-// The window parameters are declared twice, once per request struct, because
-// huma builds an operation's parameters from its request type's OWN fields and
-// does not promote an embedded struct's: sharing them through embedding drops
-// the window from the published document while both handlers keep working, so
-// the generated client stops being able to address a window at all.
+// A facet's shared parameters are declared twice, once per request struct,
+// because huma builds an operation's parameters from its request type's OWN
+// fields and does not promote an embedded struct's: sharing them through
+// embedding drops those parameters from the published document while both
+// handlers keep working, so the generated client stops being able to send them
+// at all.
 //
 // Two copies therefore have to be held together by a test rather than by the
-// type system. Tag-for-tag, because the bounds and the docs are the contract the
-// OpenAPI document publishes, and a facet that accepted a window the list
-// refuses is the disagreement this endpoint pair exists to prevent.
-func TestShowCalendarWindowParamsMatch(t *testing.T) {
-	list := reflect.TypeOf(GetShowsCalendarRequest{})
-	facet := reflect.TypeOf(GetShowCitiesRequest{})
-
-	for _, name := range []string{"Year", "Month", "Day", "Days"} {
+// type system. Tag-for-tag, because the bounds, the enums and the docs are all
+// the contract the OpenAPI document publishes, and a facet that accepts what its
+// list refuses (or refuses what its list accepts) is the disagreement this
+// endpoint family exists to prevent.
+func assertParamsMatch(t *testing.T, list, facet reflect.Type, names ...string) {
+	t.Helper()
+	for _, name := range names {
 		listField, ok := list.FieldByName(name)
 		if !ok {
-			t.Fatalf("GetShowsCalendarRequest lost its %s field", name)
+			t.Fatalf("%s lost its %s field", list.Name(), name)
 		}
 		facetField, ok := facet.FieldByName(name)
 		if !ok {
-			t.Fatalf("GetShowCitiesRequest lost its %s field", name)
+			t.Fatalf("%s lost its %s field", facet.Name(), name)
 		}
 		if listField.Tag != facetField.Tag {
-			t.Errorf("%s tags drifted:\n  list:  %s\n  facet: %s", name, listField.Tag, facetField.Tag)
+			t.Errorf("%s.%s tags drifted:\n  list:  %s\n  facet: %s",
+				facet.Name(), name, listField.Tag, facetField.Tag)
 		}
 	}
+}
+
+func TestShowCalendarWindowParamsMatch(t *testing.T) {
+	assertParamsMatch(t,
+		reflect.TypeOf(GetShowsCalendarRequest{}),
+		reflect.TypeOf(GetShowCitiesRequest{}),
+		"Year", "Month", "Day", "Days")
+}
+
+func TestShowTagParamsMatch(t *testing.T) {
+	assertParamsMatch(t,
+		reflect.TypeOf(GetShowsCalendarRequest{}),
+		reflect.TypeOf(GetShowCitiesRequest{}),
+		"Tags", "TagMatch")
+}
+
+func TestVenueTagParamsMatch(t *testing.T) {
+	assertParamsMatch(t,
+		reflect.TypeOf(ListVenuesRequest{}),
+		reflect.TypeOf(GetVenueCitiesRequest{}),
+		"Tags", "TagMatch")
+}
+
+func TestArtistTagParamsMatch(t *testing.T) {
+	assertParamsMatch(t,
+		reflect.TypeOf(ListArtistsRequest{}),
+		reflect.TypeOf(GetArtistCitiesRequest{}),
+		"Tags", "TagMatch")
 }
 
 func TestGetShowCitiesHandler_ThreadsTheTagFilterAndWindow(t *testing.T) {

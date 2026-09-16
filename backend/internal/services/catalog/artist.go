@@ -1012,9 +1012,14 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 // second half: the two are set together at the boundary, and a facet that kept
 // one without the other counts a different set than the list.
 //
-// The missing-listen-link filter is dropped with the places it is scoped by: it
-// takes exactly one complete place, so a per-place breakdown under it has one
-// row, which is the picker offering only the place already picked.
+// The missing-listen-link filter is NOT read, and GET /artists/cities does not
+// accept it. That is a KNOWN gap rather than a neutral omission: the filter also
+// drops the activity gate (browseSkipsActiveGate), so under `?missing=` the list
+// is evergreen while this facet stays gated, and every count it reports is
+// smaller than the rows the list renders. Scoping it through is not a matter of
+// passing the key: with a place named the list narrows by the SCENE ROSTER, and
+// a per-place breakdown of a roster-scoped set is a different question from a
+// per-place breakdown of a literal-city one.
 func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 	scope := map[string]interface{}{}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {

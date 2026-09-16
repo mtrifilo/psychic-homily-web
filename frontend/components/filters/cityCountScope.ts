@@ -24,9 +24,8 @@ export interface CityCountScope {
  * The request half: appends the scope's params, and nothing at all when the
  * scope is empty.
  *
- * An unscoped call therefore sends the bare endpoint, byte for byte the request
- * this facet made before it took filters, which is what keeps the server-seeded
- * first-screen payload usable.
+ * An unscoped call therefore sends the bare endpoint, which is the URL the
+ * server-seeded first-screen payload is fetched with.
  */
 export function appendCityCountScope(
   params: URLSearchParams,
@@ -38,9 +37,8 @@ export function appendCityCountScope(
 }
 
 /**
- * The cache-key half of the same contract: `undefined` for an empty scope, so
- * the unscoped facet keeps the exact key it had before, and the seeded entry
- * still matches.
+ * The cache-key half of the same contract: `undefined` for an empty scope, so an
+ * unscoped facet keys on its base alone and the seeded entry matches.
  *
  * An empty tag list and the default tag match both normalize away, so one filter
  * state lands on one entry however a caller spelled it.

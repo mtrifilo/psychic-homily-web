@@ -261,9 +261,12 @@ export const VENUE_LIST_PAGE_LIMIT = 50
  * sibling `useVenues.test.tsx` cannot: it `vi.mock`s this module, so it never
  * sees the real constants.
  *
- * A filtered `/venues?cities=…` deep link is deliberately NOT covered: the
- * hook keys on the filter, misses this entry, and both render passes agree on
- * the spinner. No SSR benefit there, and no hydration mismatch either.
+ * A filtered `/venues?cities=…` or `?tags=…` deep link is deliberately NOT
+ * covered, and that now includes the CITY FACET, whose counts are scoped to the
+ * tag filter: the hooks key on the filter, miss these entries, and both render
+ * passes agree on the spinner. No SSR benefit there, and no hydration mismatch
+ * either. Seeding a filtered entry would mean reading `searchParams` in the
+ * page body, which costs the route its prerendered shell.
  */
 export const VENUE_LIST_FIRST_SCREEN_URL = `${venueEndpoints.LIST}?limit=${VENUE_LIST_PAGE_LIMIT}`
 
