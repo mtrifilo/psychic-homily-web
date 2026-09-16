@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { VenueWithShowCount } from '@/features/venues/types'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
+import { altitudeForZoom } from './components/globeScale'
 import {
   CITY_VIEW_MIN_ZOOM,
   VENUE_PIN_CAP_COUNT,
@@ -19,6 +20,7 @@ import {
   formatNextShowDate,
   formatPanelShowDate,
   nextShowBill,
+  resolveAtlasCityPov,
   resolveCityScene,
   venuePanelIdentityLine,
   venuePanelShowCount,
@@ -110,6 +112,46 @@ describe('resolveCityScene', () => {
     expect(
       resolveCityScene([], { lat: 30.27, lng: -97.74, zoom: 13 }),
     ).toBeNull()
+  })
+})
+
+describe('resolveAtlasCityPov (?city= entry)', () => {
+  const SCENES = [
+    scene(),
+    scene({ city: 'Phoenix', state: 'AZ', slug: 'phoenix-az', latitude: 33.4484, longitude: -112.074 }),
+  ]
+
+  it('opens on a city the scenes payload knows, close enough for city view', () => {
+    const pov = resolveAtlasCityPov(SCENES, 'Phoenix,AZ')
+
+    expect(pov).not.toBeNull()
+    expect(pov?.lat).toBeCloseTo(33.4484)
+    expect(pov?.lng).toBeCloseTo(-112.074)
+    // The rail engages at CITY_VIEW_MIN_ZOOM and altitude falls as zoom rises,
+    // so the entry altitude must be BELOW the one that threshold maps to.
+    expect(pov!.altitude).toBeLessThan(
+      altitudeForZoom(CITY_VIEW_MIN_ZOOM),
+    )
+  })
+
+  it('matches case-insensitively on both halves', () => {
+    expect(resolveAtlasCityPov(SCENES, 'phoenix,az')?.lat).toBeCloseTo(33.4484)
+  })
+
+  it('leaves today\u2019s behaviour alone for a city no scene knows', () => {
+    expect(resolveAtlasCityPov(SCENES, 'Atlantis,ZZ')).toBeNull()
+  })
+
+  it('leaves today\u2019s behaviour alone with no param at all', () => {
+    expect(resolveAtlasCityPov(SCENES, null)).toBeNull()
+    expect(resolveAtlasCityPov(SCENES, '')).toBeNull()
+  })
+
+  it('refuses a malformed value rather than guessing at one', () => {
+    expect(resolveAtlasCityPov(SCENES, 'Phoenix')).toBeNull()
+    expect(resolveAtlasCityPov(SCENES, 'Phoenix,AZ,US')).toBeNull()
+    // Several cities is not one place to open on.
+    expect(resolveAtlasCityPov(SCENES, 'Phoenix,AZ|Austin,TX')).toBeNull()
   })
 })
 
