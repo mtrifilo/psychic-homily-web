@@ -18417,6 +18417,8 @@ export interface components {
              * @description The show's instant. Render it in the venue's timezone, carried on the same row.
              */
             event_date: string;
+            /** @description Whether the show is cancelled. False on every ref this endpoint returns: next_show and last_show are picked from uncancelled shows only. */
+            is_cancelled: boolean;
             /** @description URL slug for the show. Empty when the show has no slug, in which case it cannot be linked. */
             slug: string;
             /** @description The show's own title. Empty for most shows. */
@@ -18536,14 +18538,14 @@ export interface components {
             /** Format: int64 */
             id: number;
             image_url: string | null;
-            /** @description The most recent past approved show at this venue. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both. */
+            /** @description The most recent past approved show at this venue that is not cancelled. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both. */
             last_show?: components["schemas"]["VenueListShowRef"];
             /** Format: double */
             latitude?: number;
             /** Format: double */
             longitude?: number;
             name: string;
-            /** @description The soonest upcoming approved show at this venue. Absent when the venue has none, which is exactly when upcoming_show_count is zero. */
+            /** @description The soonest upcoming approved show at this venue that is not cancelled. Absent when the venue has none, which is exactly when upcoming_show_count is zero. */
             next_show?: components["schemas"]["VenueListShowRef"];
             next_show_artists?: string[] | null;
             next_show_date?: string;

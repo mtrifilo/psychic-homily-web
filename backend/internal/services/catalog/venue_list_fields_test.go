@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -409,4 +410,101 @@ func (suite *VenueServiceIntegrationTestSuite) TestVenueLocalNightConditions_Par
 	suite.Equal(int64(6), count(night)+count(past), "together they cover every show")
 	suite.Positive(count(night))
 	suite.Positive(count(past))
+}
+
+// =============================================================================
+// Integration: cancelled nights
+// =============================================================================
+
+// cancelShow marks a created show cancelled, the state a promoter's
+// cancellation leaves the row in.
+func (suite *VenueServiceIntegrationTestSuite) cancelShow(show *catalogm.Show) *catalogm.Show {
+	suite.Require().NoError(suite.db.Model(show).Update("is_cancelled", true).Error)
+	return show
+}
+
+// TestGetVenuesWithShowCounts_NextShowSkipsACancelledNight is the ticket's
+// headline acceptance: the column answers when the room's next show will
+// happen, so a cancelled night is passed over for the one behind it.
+//
+// It also pins the count beside it, which is drawn on the same filtered set: a
+// row that skipped a night must not still be counting it.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NextShowSkipsACancelledNight() {
+	venue := suite.createTestVenue("Cancelled Next Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.cancelShow(suite.createRailShow(venue.ID, user.ID, "Called Off", time.Now().UTC().AddDate(0, 0, 3)))
+	standing := suite.createRailShow(venue.ID, user.ID, "Still On", time.Now().UTC().AddDate(0, 0, 10))
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Cancelled Next Room")
+
+	suite.Require().NotNil(row.NextShow)
+	suite.Equal(*standing.Slug, row.NextShow.Slug, "the soonest show that will happen is the next show")
+	suite.False(row.NextShow.IsCancelled, "the pick selects from uncancelled shows only")
+	suite.Equal(1, row.UpcomingShowCount, "the cancelled night is outside the count as well as the pick")
+}
+
+// TestGetVenuesWithShowCounts_RoomWithOnlyACancelledNightIsQuiet is the other
+// half of the count rule: with nothing left that will happen, the room falls
+// into the quiet block rather than reading one upcoming show with nothing to
+// name.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RoomWithOnlyACancelledNightIsQuiet() {
+	venue := suite.createTestVenue("Only Cancelled Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.cancelShow(suite.createRailShow(venue.ID, user.ID, "Called Off", time.Now().UTC().AddDate(0, 0, 5)))
+	played := suite.createRailShow(venue.ID, user.ID, "Played", time.Now().UTC().AddDate(0, 0, -20))
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Only Cancelled Room")
+
+	suite.Equal(0, row.UpcomingShowCount)
+	suite.Nil(row.NextShow, "next_show is absent exactly when the count is zero")
+	suite.Require().NotNil(row.LastShow)
+	suite.Equal(*played.Slug, row.LastShow.Slug, "a quiet room still names the night it last had one")
+}
+
+// TestGetVenuesWithShowCounts_LastShowSkipsACancelledNight covers the quiet
+// block's column: LAST SHOW names the night the room last had a show, and a
+// cancelled night was never one.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_LastShowSkipsACancelledNight() {
+	venue := suite.createTestVenue("Cancelled Last Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.cancelShow(suite.createRailShow(venue.ID, user.ID, "Called Off", time.Now().UTC().AddDate(0, 0, -5)))
+	played := suite.createRailShow(venue.ID, user.ID, "Played", time.Now().UTC().AddDate(0, 0, -30))
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Cancelled Last Room")
+
+	suite.Require().NotNil(row.LastShow)
+	suite.Equal(*played.Slug, row.LastShow.Slug, "the most recent night that happened is the last show")
+	suite.False(row.LastShow.IsCancelled, "the pick selects from uncancelled shows only")
+}
+
+// TestGetVenuesWithShowCounts_RailFollowsTheUncancelledPick pins the rail meta
+// line against the same rule: the date and bill printed beside the row belong
+// to the show the row picked, so they move with it when a night is called off.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailFollowsTheUncancelledPick() {
+	venue := suite.createTestVenue("Cancelled Rail Room", "Phoenix", "AZ", true)
+	loc := venueLocalZone(suite.T())
+	suite.Require().NoError(suite.db.Model(venue).Update("timezone", loc.String()).Error)
+	user := suite.createTestUser()
+	suite.cancelShow(suite.createRailShow(venue.ID, user.ID, "Called Off",
+		time.Now().In(loc).AddDate(0, 0, 2), "Cancelled Band"))
+	standingAt := time.Now().In(loc).AddDate(0, 0, 9)
+	standing := suite.createRailShow(venue.ID, user.ID, "Still On", standingAt, "Standing Band")
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{IncludeRailFields: true}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Cancelled Rail Room")
+
+	suite.Require().NotNil(row.NextShow)
+	suite.Equal(*standing.Slug, row.NextShow.Slug)
+	suite.Equal(standingAt.Format("2006-01-02"), row.NextShowDate)
+	suite.Equal("Still On", row.NextShowTitle)
+	suite.Equal([]string{"Standing Band"}, row.NextShowArtists,
+		"the bill is the bill of the show the row picked")
 }

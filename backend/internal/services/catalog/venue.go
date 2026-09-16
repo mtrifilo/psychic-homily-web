@@ -908,20 +908,25 @@ type VenueWithCount struct {
 	// NextShowID is not on the wire. It is what lets the rail enrichment fetch
 	// the bill of the show this row already picked, instead of picking one again
 	// on a boundary of its own.
-	NextShowID        *uint      `gorm:"column:next_show_id"`
-	NextShowEventDate *time.Time `gorm:"column:next_show_event_date"`
-	NextShowSlug      *string    `gorm:"column:next_show_slug"`
-	NextShowTitle     *string    `gorm:"column:next_show_title"`
-	LastShowEventDate *time.Time `gorm:"column:last_show_event_date"`
-	LastShowSlug      *string    `gorm:"column:last_show_slug"`
-	LastShowTitle     *string    `gorm:"column:last_show_title"`
+	NextShowID          *uint      `gorm:"column:next_show_id"`
+	NextShowEventDate   *time.Time `gorm:"column:next_show_event_date"`
+	NextShowSlug        *string    `gorm:"column:next_show_slug"`
+	NextShowTitle       *string    `gorm:"column:next_show_title"`
+	NextShowIsCancelled *bool      `gorm:"column:next_show_is_cancelled"`
+	LastShowEventDate   *time.Time `gorm:"column:last_show_event_date"`
+	LastShowSlug        *string    `gorm:"column:last_show_slug"`
+	LastShowTitle       *string    `gorm:"column:last_show_title"`
+	LastShowIsCancelled *bool      `gorm:"column:last_show_is_cancelled"`
 }
 
 // venueListShowRef assembles one lateral pick into the wire shape, or nil when
 // the lateral matched no row. The date decides: slug and title are COALESCEd in
 // SQL, so they are non-NULL on any row that matched, and the nil checks are
 // scan-safety rather than a second signal.
-func venueListShowRef(date *time.Time, slug, title *string) *contracts.VenueListShowRef {
+//
+// IsCancelled is read from the picked row rather than asserted here, so the wire
+// value states what the show is and not what the pick's filter implies.
+func venueListShowRef(date *time.Time, slug, title *string, cancelled *bool) *contracts.VenueListShowRef {
 	if date == nil {
 		return nil
 	}
@@ -931,6 +936,9 @@ func venueListShowRef(date *time.Time, slug, title *string) *contracts.VenueList
 	}
 	if title != nil {
 		ref.Title = *title
+	}
+	if cancelled != nil {
+		ref.IsCancelled = *cancelled
 	}
 	return ref
 }
@@ -944,12 +952,28 @@ func venueListShowRef(date *time.Time, slug, title *string) *contracts.VenueList
 // projection counting the same thing.
 const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 
+// venueListLiveShowSQL keeps cancelled shows out of every set this directory
+// row is built from: the upcoming count, the next-show pick and the last-show
+// pick. A directory row answers when a room's next show WILL happen and when it
+// last DID, so a cancelled night is neither.
+//
+// It applies to all three together, which is what keeps the count and the picks
+// on one set: the count stays above zero exactly when next_show is present.
+//
+// The venue page's own show list is the other half of this contract and takes
+// the opposite side. It lists a cancelled show with a badge, because a reader
+// looking up a specific night needs to be told it is off.
+//
+// `shows` is the unaliased table in both the count subquery and the picks, so
+// one fragment serves both. It carries no bind parameter.
+const venueListLiveShowSQL = "shows.is_cancelled = false"
+
 // venueListShowPickLateral renders the lateral that picks ONE show per venue
-// row: the first under `order`, among the venue's approved shows satisfying
-// `dateCondition`.
+// row: the first under `order`, among the venue's approved, uncancelled shows
+// satisfying `dateCondition`.
 //
 // `alias` names the lateral, so the outer query reads its columns as
-// <alias>.show_id / .event_date / .slug / .title, and it must be unique across the outer
+// <alias>.show_id / .event_date / .slug / .title / .is_cancelled, and it must be unique across the outer
 // query. `svAlias` need only be unique inside this subquery: shared.VenueTZJoin
 // nests its own `sv` one scope deeper, where a repeat would shadow rather than
 // collide. Distinct names per call keep an EXPLAIN attributable to the pick it
@@ -965,12 +989,14 @@ func venueListShowPickLateral(alias, svAlias, dateCondition, order string) strin
 			SELECT shows.id AS show_id,
 			       shows.event_date AS event_date,
 			       COALESCE(shows.slug, '') AS slug,
-			       COALESCE(shows.title, '') AS title
+			       COALESCE(shows.title, '') AS title,
+			       shows.is_cancelled AS is_cancelled
 			FROM show_venues ` + svAlias + `
 			JOIN shows ON shows.id = ` + svAlias + `.show_id
 			` + shared.VenueTZJoin + `
 			WHERE ` + svAlias + `.venue_id = venues.id
 			  AND ` + shared.PublicShowPredicateSQL("shows") + `
+			  AND ` + venueListLiveShowSQL + `
 			  AND ` + dateCondition + `
 			ORDER BY ` + order + `
 			LIMIT 1
@@ -1211,6 +1237,11 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // VenueWithShowCountResponse.UpcomingShowCount carries what that boundary means
 // to a reader and which other surfaces share it.
 //
+// ONE FILTER NARROWS ALL THREE ALIKE: venueListLiveShowSQL, so a cancelled show
+// is in neither the count nor either pick. It is applied to the three together
+// for the same reason the boundary is: a count drawn on a wider set than the
+// pick beside it would leave a row reading "1 upcoming" with nothing to name.
+//
 // The zone that dates a show is its PRIMARY venue's, not necessarily the venue
 // whose row is being counted, because the boundary is the repo's shared one.
 // Primary is the LOWEST-ID room on the bill (shared.PrimaryVenueLateralSQL),
@@ -1243,6 +1274,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
 		Joins(shared.VenueTZJoin).
 		Where(shared.PublicShowPredicateSQL("shows")).
+		Where(venueListLiveShowSQL).
 		Where(shared.VenueLocalNightDateCondition).
 		Group("show_venues.venue_id")
 
@@ -1251,8 +1283,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// filters' own.
 	query := s.db.Table("venues").
 		Select("venues.*, "+venueListCountSQL+" as upcoming_show_count, "+
-			"next_show.show_id AS next_show_id, next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, "+
-			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title").
+			"next_show.show_id AS next_show_id, next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, next_show.is_cancelled AS next_show_is_cancelled, "+
+			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title, last_show.is_cancelled AS last_show_is_cancelled").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
 		Joins(venueNextShowLateral).
 		Joins(venueLastShowLateral).
@@ -1333,8 +1365,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		responses[i] = &contracts.VenueWithShowCountResponse{
 			VenueDetailResponse: *s.buildVenueResponse(&vc.Venue),
 			UpcomingShowCount:   int(vc.UpcomingShowCount),
-			NextShow:            venueListShowRef(vc.NextShowEventDate, vc.NextShowSlug, vc.NextShowTitle),
-			LastShow:            venueListShowRef(vc.LastShowEventDate, vc.LastShowSlug, vc.LastShowTitle),
+			NextShow:            venueListShowRef(vc.NextShowEventDate, vc.NextShowSlug, vc.NextShowTitle, vc.NextShowIsCancelled),
+			LastShow:            venueListShowRef(vc.LastShowEventDate, vc.LastShowSlug, vc.LastShowTitle, vc.LastShowIsCancelled),
 		}
 		// data_source is not part of the serialized venue response (it is an
 		// internal provenance column), so carry it alongside for the stamp.
