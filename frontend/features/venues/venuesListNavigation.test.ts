@@ -110,6 +110,9 @@ describe('nearbyCitiesWithRooms', () => {
     { city: 'Austin', state: 'TX', count: 9 },
     { city: 'Denver', state: 'CO', count: 7 },
     { city: 'Portland', state: 'OR', count: 6 },
+    // The facet keeps a placeless room so its counts sum to the list's total.
+    { city: '', state: 'AZ', count: 4 },
+    { city: 'Stateless', state: '', count: 4 },
   ]
 
   // "Nearest" is same state first, then busiest: `/venues/cities` serves no
@@ -137,6 +140,17 @@ describe('nearbyCitiesWithRooms', () => {
         c => c.city
       )
     ).not.toContain('Flagstaff')
+  })
+
+  // A row missing either half builds "?cities=,AZ", which names no city and
+  // lands the reader on the unfiltered directory.
+  it('leaves out a row missing either half of its name', () => {
+    const offered = nearbyCitiesWithRooms(
+      CITIES,
+      { city: 'Nowhere', state: 'ZZ' },
+      10
+    )
+    expect(offered.every(c => c.city !== '' && c.state !== '')).toBe(true)
   })
 
   it('offers at most five', () => {

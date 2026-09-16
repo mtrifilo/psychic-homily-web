@@ -28,17 +28,16 @@ async function fetchCityFacet(): Promise<VenueCitiesResponse | null> {
 /**
  * The directory's title, description, canonical and robots, per city.
  *
- * READS `searchParams`, which is what makes this route's metadata dynamic:
- * under `cacheComponents` the `<title>` and `<link rel="canonical">` are then
- * streamed into the BODY rather than the `<head>`. That is a placement change,
- * not a correctness one, and it is the same posture the charts family has
- * carried since PSY-1767; the page's own shell is unaffected because nothing
- * below reads `searchParams`.
+ * READS `searchParams`, which makes this route's metadata dynamic: under
+ * `cacheComponents` the `<title>`, the canonical and the robots directive are
+ * streamed into the BODY of the document rather than the `<head>`, and React
+ * hoists them into the head as it renders. The e2e spec asserts them with
+ * `head >` selectors for exactly that reason. The page's own shell keeps its
+ * prerender because nothing below reads `searchParams`.
  *
- * The facet is fetched ONLY when the URL names exactly one city, so the bare
- * directory pays nothing for this. When it is fetched it is the SAME url,
- * method and headers the body's seed fetch uses, and Next's Data Cache is keyed
- * on those three, so the two share one entry rather than making two requests.
+ * The facet is fetched ONLY when the URL names exactly one city. When it is
+ * fetched it is the same url, method and headers the body's seed fetch uses,
+ * which is the whole Data Cache key, so the two read one entry.
  */
 export async function generateMetadata({
   searchParams,
@@ -47,8 +46,6 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const params = await searchParams
   const selected = venuesUrlCities(params)
-  // Only a URL naming exactly one city has a spelling to look up, so the bare
-  // directory pays nothing for this.
   const facet = selected.length === 1 ? await fetchCityFacet() : null
 
   return buildVenuesMetadata(

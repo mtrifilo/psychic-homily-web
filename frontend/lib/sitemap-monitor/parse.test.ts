@@ -202,6 +202,13 @@ describe('classifyLoc, query families', () => {
     ).toBe('venue_cities')
   })
 
+  // A trailing slash is the same address.
+  it('reads the prefix with a trailing slash', () => {
+    expect(
+      classifyLoc('https://psychichomily.com/venues/?cities=Phoenix%2CAZ')
+    ).toBe('venue_cities')
+  })
+
   // The bare listing page shares the prefix and belongs to the pages shard.
   // Misreading it as an empty city family would move one URL between buckets
   // every time the monitor runs.

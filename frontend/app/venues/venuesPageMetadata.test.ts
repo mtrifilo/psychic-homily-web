@@ -204,6 +204,22 @@ describe('the directory metadata', () => {
     )
   })
 
+  // With no canonical to name there is no address to assert on the card either.
+  it('names no Open Graph url where it names no canonical', () => {
+    for (const params of [
+      { cities: 'Flagstaff,AZ' },
+      { cities: 'Phoenix,AZ' },
+    ]) {
+      const facet = params.cities === 'Phoenix,AZ' ? null : FACET
+      const metadata = buildVenuesMetadata(
+        scopeOf(params, facet),
+        resolveVenuesPage(params)
+      )
+      expect(metadata.alternates?.canonical).toBeUndefined()
+      expect(metadata.openGraph?.url).toBeUndefined()
+    }
+  })
+
   it.each([
     ['bare', {}],
     ['all', { cities: 'all' }],

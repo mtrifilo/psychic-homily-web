@@ -933,6 +933,32 @@ describe('VenueList', () => {
       )
     })
 
+    // An empty facet cannot tell a city it does not carry from a city it has
+    // not loaded, so it must not flip a named city into the chooser. This is
+    // the client twin of the server's `unavailable` scope.
+    it('waits for the facet rather than calling a city unknown', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
+      mockUseVenueCities.mockReturnValue({
+        data: { cities: [] },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      expect(
+        screen.queryByTestId('venues-city-chooser')
+      ).not.toBeInTheDocument()
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true })
+      )
+    })
+
     // Under a tag filter the facet is SCOPED to it, so an absent city means "no
     // rooms with this tag", a state the reader can undo, and one the server's
     // unscoped facet would disagree with.

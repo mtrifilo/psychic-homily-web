@@ -1231,9 +1231,8 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 // The two share one predicate applier, so what this guards is a future
 // RESTATEMENT of that rule here, which is how the two would come apart.
 //
-// It also pins the exclusions that fall out of the same query: an unverified
-// room is not public, and a room with an empty city or state would build
-// "?cities=,AZ", which names no city.
+// It also pins the two narrowings: an unverified room is not public, and a name
+// that cannot form an addressable filter value is not announced.
 func TestSitemapEntriesVenueCitiesMatchTheCityFacet(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -1325,8 +1324,8 @@ func TestSitemapEntriesVenueCitiesMatchTheCityFacet(t *testing.T) {
 	// addressableCityFilter, so the rule is pinned against a hand-written truth
 	// rather than against itself.
 	unaddressable := map[string]bool{
-		"":                  true, // no city
-		"Flagstaff":         true, // no state
+		"":                  true, // an empty half names no city
+		"Flagstaff":         true, // its STATE is the empty half
 		"Winston-Salem, NC": true, // the comma is the field separator
 		"Pipe|Town":         true, // the pipe separates pairs
 		" Padded":           true, // the parser trims, so this never matches back

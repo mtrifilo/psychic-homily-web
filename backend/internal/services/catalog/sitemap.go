@@ -705,11 +705,13 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 // applier reaches these three and not that one.
 //
 // EVERY SLUG MUST SURVIVE THE PAGE'S OWN PARSER, which is the one way this
-// narrows the facet. The filter value is "City,ST": a half that is empty, that
-// is not its own trimmed self, or that contains a comma or a pipe produces a
-// value parseCitiesParam either drops or splits differently, and the announced
-// URL then serves the unfiltered directory or a page that asks not to be
-// indexed. GetVenueCities keeps such rows, because its numbers have to sum to
+// narrows the facet, and addressableCityFilter is its single owner: an empty
+// half, a half that is not its own trimmed self, and a half carrying a comma or
+// a pipe all produce a value parseCitiesParam either drops or splits
+// differently, and the announced URL then serves the unfiltered directory or a
+// page that asks not to be indexed. The empty case is deliberately NOT also
+// excluded in SQL, so every reason has one place to be read and one place to be
+// tested. GetVenueCities keeps such rows, because its numbers have to sum to
 // the list's total; a sitemap cannot, because a <loc> is a promise.
 //
 // UpdatedAt is MAX(venue.updated_at) within the city: the room rows ARE this
@@ -730,7 +732,6 @@ func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.Site
 
 	var rows []row
 	err := browsable(s.db.WithContext(ctx).Table("venues")).
-		Where("venues.city <> '' AND venues.state <> ''").
 		Select("venues.city AS city, venues.state AS state, MAX(venues.updated_at) AS updated_at").
 		Group("venues.city, venues.state").
 		Scan(&rows).Error

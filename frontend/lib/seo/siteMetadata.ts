@@ -50,12 +50,15 @@ export const SITE_URL = 'https://psychichomily.com'
  * unbounded page set whose contents shift every time a row is added, which for
  * these lists is daily.
  *
- * The rule holds STRUCTURALLY rather than by discipline. Every caller is a
- * static `metadata` object or a `generateMetadata` that reads `params` only,
- * and neither can see the query string, so a per-page canonical would have to
- * be plumbed in on purpose.
+ * The rule USED to hold structurally: every caller was a static `metadata`
+ * object or a `generateMetadata` reading `params` only, and neither can see the
+ * query string. The venue directory broke that, deliberately and alone: it
+ * reads `searchParams` so it can name a city, which means it CAN see the query
+ * string and a per-page canonical is one line away. For that surface the rule
+ * is held by `venuesCityCanonical` being the only thing that writes one. For
+ * every other caller the structural argument still applies.
  *
- * THE ONE EXCEPTION, owner-locked for the venue directory (PSY-2080). A
+ * THE ONE EXCEPTION, owner-locked for the venue directory. A
  * `/venues?cities=City,ST` page is NOT a slice of one ordered list: each city
  * is a different set of rooms, with its own heading, its own description and
  * its own count, and a reader searching a city name wants that city's page
@@ -73,6 +76,8 @@ export const SITE_URL = 'https://psychichomily.com'
  *     was the one real outlier: it declared no canonical at all until
  *     PSY-1767, so every slice was offered as its own document.
  *   - `/charts/{year}` and `/charts/{year}/{quarter}` calendar archives.
+ *   - `/venues` whenever it is NOT about one city: bare, `?cities=all`, and a
+ *     multi-city selection. One city goes to `venuesCityCanonical` below.
  *
  * TWO SURFACES FOLLOW THE POLICY WITHOUT CALLING THIS, and both are fine:
  *   - `/venues/{slug}/shows/{year}` reached this posture first under PSY-1756.

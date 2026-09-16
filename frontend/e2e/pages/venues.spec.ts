@@ -208,8 +208,8 @@ test.describe('Venues directory', () => {
     })
 
     /**
-     * The other half of the owner-locked pagination exception (PSY-1767): a
-     * page of a city is its own document, but only a page the city HAS. The
+     * The other half of the owner-locked pagination exception: a page of a
+     * city is its own document, but only a page the city HAS. The
      * seed holds well under one page of Phoenix rooms, so `?page=2` is past the
      * end here and canonicalizes to the city itself, which is also what the
      * body of such a page tells the reader to go back to.
