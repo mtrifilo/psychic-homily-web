@@ -72,11 +72,19 @@ async function settleOnScreen(locator: Locator, limit: number) {
     .toBeLessThanOrEqual(limit)
 }
 
-for (const path of ['/venues', '/shows'] as const) {
-  test.describe(`City filter on a phone viewport (${path})`, () => {
-    test.use({ viewport: PHONE_VIEWPORT })
+/**
+ * The routes that render a city filter against the e2e seed. `/artists` also
+ * mounts the filter, but the seeded artists carry no city, so the filter bar
+ * renders nothing there; the fifth consumer, `UpcomingShowsList`, has no route
+ * pointing at it. Both are covered at the unit level instead.
+ */
+const MOUNT_SITES = ['/venues', '/shows', '/'] as const
 
-    test('opens a bottom sheet whose search field is on screen at scroll 0', async ({
+test.describe('City filter opens as a bottom sheet on a phone viewport', () => {
+  test.use({ viewport: PHONE_VIEWPORT })
+
+  for (const path of MOUNT_SITES) {
+    test(`opens with the search field on screen, page unmoved (${path})`, async ({
       page,
     }) => {
       await page.goto(path)
@@ -85,12 +93,17 @@ for (const path of ['/venues', '/shows'] as const) {
       await expect(trigger).toBeVisible({ timeout: 10_000 })
       await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog')
 
+      // Settle the scroll position the click would otherwise change, so the
+      // reading after it is about the sheet and not about Playwright.
+      await trigger.scrollIntoViewIfNeeded()
+      const scrollBefore = await page.evaluate(() => window.scrollY)
+
       await trigger.click()
 
       const sheet = page.getByTestId('city-filter-sheet')
       await expect(sheet).toBeVisible()
       // The page never scrolls to make room: the sheet is its own layer.
-      expect(await page.evaluate(() => window.scrollY)).toBe(0)
+      expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore)
 
       const search = page.getByTestId('city-filter-sheet-search')
       const list = page.getByTestId('city-filter-sheet-list')
@@ -117,6 +130,12 @@ for (const path of ['/venues', '/shows'] as const) {
         await list.evaluate(el => el.scrollHeight >= el.clientHeight)
       ).toBe(true)
     })
+  }
+})
+
+for (const path of ['/venues', '/shows'] as const) {
+  test.describe(`City filter on a phone viewport (${path})`, () => {
+    test.use({ viewport: PHONE_VIEWPORT })
 
     test('keeps the search field and the list above a raised keyboard', async ({
       page,
@@ -175,7 +194,9 @@ for (const path of ['/venues', '/shows'] as const) {
         PHONE_VIEWPORT.height
       )
 
-      const firstOption = sheet.locator('label').first()
+      const firstOption = sheet
+        .locator('label:has([data-testid^="city-sheet-option-"])')
+        .first()
       const urlBeforeTick = page.url()
 
       await firstOption.click()
@@ -191,7 +212,8 @@ for (const path of ['/venues', '/shows'] as const) {
       await expect(trigger).toBeFocused()
       // The applied city reaches the page as the existing `cities` param; the
       // sheet writes through the same handler the combobox always used.
-      await expect(page).toHaveURL(/[?&]cities=/)
+      // Not the `cities=all` sentinel: a real city reached the URL.
+      await expect(page).toHaveURL(/[?&]cities=(?!all(?:&|$))/)
     })
   })
 }

@@ -1,7 +1,6 @@
 export { FilterChip } from './FilterChip'
 export { RemovableFilterChip } from './RemovableFilterChip'
 export { CityFilters } from './CityFilters'
-export { CityFilterSheet } from './CityFilterSheet'
 export type { ResultNoun } from './CityFilterSheet'
 export { SaveDefaultsButton } from './SaveDefaultsButton'
 export type { CityWithCount, CityState } from './CityFilters'

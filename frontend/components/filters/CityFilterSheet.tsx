@@ -37,12 +37,35 @@ export interface CityFilterSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   resultNoun: ResultNoun
+  /**
+   * Increments on every open. Keys the body, so reopening inside the exit
+   * animation, which keeps the subtree mounted, still starts from the applied
+   * selection rather than resurrecting the abandoned edit.
+   */
+  openSeq: number
   /** Focus returns here on close, whatever dismissed the sheet. */
   triggerRef: RefObject<HTMLElement | null>
 }
 
 /** Share of the screen a content-sized sheet may occupy. */
 const SHEET_MAX_HEIGHT = '66dvh'
+
+/**
+ * The rows: every city the page knows about, plus any selected city the page
+ * has since stopped listing. Without the second half a selection that has
+ * dropped out of the count list has no row, so it cannot be unticked from here
+ * and the sheet shows a selection the reader cannot see.
+ */
+function rowsFor(
+  cities: CityWithCount[],
+  selectedCities: CityState[]
+): CityWithCount[] {
+  const listed = new Set(cities.map(cityKey))
+  const orphans = selectedCities
+    .filter(c => !listed.has(cityKey(c)))
+    .map(c => ({ city: c.city, state: c.state, count: 0 }))
+  return orphans.length === 0 ? cities : [...cities, ...orphans]
+}
 
 function CityFilterSheetBody({
   cities,
@@ -53,29 +76,30 @@ function CityFilterSheetBody({
   CityFilterSheetProps,
   'cities' | 'selectedCities' | 'onApply' | 'resultNoun'
 >) {
-  // Mounted only while the sheet is open, so opening always starts from the
-  // applied selection and dismissing without applying discards the edit.
   const [pending, setPending] = useState<CityState[]>(selectedCities)
   const [query, setQuery] = useState('')
 
   const pendingKeys = useMemo(() => new Set(pending.map(cityKey)), [pending])
 
-  const visibleCities = useMemo(() => {
+  const rows = useMemo(
+    () => rowsFor(cities, selectedCities),
+    [cities, selectedCities]
+  )
+
+  const visibleRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return cities
-    return cities.filter(c => cityLabel(c).toLowerCase().includes(needle))
-  }, [cities, query])
+    if (!needle) return rows
+    return rows.filter(c => cityLabel(c).toLowerCase().includes(needle))
+  }, [rows, query])
 
   // Every number in the sheet comes from the same per-city counts, so the
   // button's total is the sum of the rows the reader has ticked, and the sum of
   // every row when nothing is ticked.
   const pendingTotal = useMemo(() => {
     const counted =
-      pendingKeys.size === 0
-        ? cities
-        : cities.filter(c => pendingKeys.has(cityKey(c)))
+      pendingKeys.size === 0 ? rows : rows.filter(c => pendingKeys.has(cityKey(c)))
     return counted.reduce((sum, c) => sum + c.count, 0)
-  }, [cities, pendingKeys])
+  }, [rows, pendingKeys])
 
   const toggleCity = (city: CityWithCount) => {
     const key = cityKey(city)
@@ -93,12 +117,15 @@ function CityFilterSheetBody({
   return (
     <>
       <SheetClose
-        // Radix focuses the first tabbable child on open, which is this, so it
-        // owes a visible ring as much as any other control.
-        className="flex shrink-0 justify-center rounded-md pt-2 pb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        // Narrow enough that the strip above the title is not a dismiss target,
+        // and tall enough to be one where it is drawn.
+        className="mx-auto flex w-16 shrink-0 items-center justify-center rounded-md py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="city-filter-sheet-handle"
       >
-        <span className="h-[3px] w-9 rounded-full bg-border" aria-hidden />
+        <span
+          className="h-[3px] w-9 rounded-full bg-muted-foreground/70"
+          aria-hidden
+        />
         <span className="sr-only">Close filter by city</span>
       </SheetClose>
 
@@ -108,7 +135,7 @@ function CityFilterSheetBody({
           Pick one or more cities, then apply them to the list.
         </SheetDescription>
         <SheetClose
-          className="rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="-my-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-testid="city-filter-sheet-close"
         >
           Close
@@ -116,7 +143,7 @@ function CityFilterSheetBody({
       </div>
 
       <div className="shrink-0 px-4 pb-2">
-        <div className="flex h-10 items-center gap-2 rounded-md border border-border/50 bg-muted/40 px-3 focus-within:border-border">
+        <div className="flex h-10 items-center gap-2 rounded-md border border-border/50 bg-muted/40 px-3 focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-4 shrink-0 opacity-50" aria-hidden />
           <input
             type="search"
@@ -130,16 +157,34 @@ function CityFilterSheetBody({
         </div>
       </div>
 
+      {/* Typing narrows the list and can empty it without moving focus, so the
+          result of the search is announced rather than only drawn. */}
+      <p
+        role="status"
+        className="sr-only"
+        data-testid="city-filter-sheet-status"
+      >
+        {visibleRows.length === 0
+          ? 'No cities found.'
+          : `${formatCount(visibleRows.length)} cities. ${applyLabel}.`}
+      </p>
+
       <div
+        role="group"
+        aria-label="Cities"
         className="min-h-0 flex-1 overflow-y-auto px-4"
         data-testid="city-filter-sheet-list"
       >
-        {visibleCities.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+        {visibleRows.length === 0 ? (
+          <p
+            aria-hidden
+            className="py-6 text-center text-sm text-muted-foreground"
+            data-testid="city-filter-sheet-empty"
+          >
             No cities found.
           </p>
         ) : (
-          visibleCities.map(city => {
+          visibleRows.map(city => {
             const key = cityKey(city)
             const isPending = pendingKeys.has(key)
             return (
@@ -148,7 +193,7 @@ function CityFilterSheetBody({
                 className={cn(
                   'flex h-[38px] cursor-pointer items-center gap-2 rounded-md px-2 text-sm',
                   'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
-                  isPending && 'bg-secondary text-primary'
+                  isPending && 'bg-secondary font-medium'
                 )}
               >
                 <input
@@ -156,8 +201,8 @@ function CityFilterSheetBody({
                   className="sr-only"
                   checked={isPending}
                   onChange={() => toggleCity(city)}
-                  // The visible count beside the name is decorative; the
-                  // control's own name carries it with its unit.
+                  // The visible name and count beside it are decorative; the
+                  // control's own name carries both, with the count's unit.
                   aria-label={`${cityLabel(city)}, ${formatCount(city.count)} ${
                     city.count === 1 ? resultNoun.singular : resultNoun.plural
                   }`}
@@ -167,17 +212,16 @@ function CityFilterSheetBody({
                 />
                 <Check
                   className={cn(
-                    'size-4 shrink-0',
+                    'size-4 shrink-0 text-primary',
                     isPending ? 'opacity-100' : 'opacity-0'
                   )}
                   aria-hidden
                 />
-                <span className="flex-1 truncate">{cityLabel(city)}</span>
+                <span className="flex-1 truncate" aria-hidden>
+                  {cityLabel(city)}
+                </span>
                 <span
-                  className={cn(
-                    'shrink-0 tabular-nums',
-                    isPending ? 'text-primary' : 'text-muted-foreground'
-                  )}
+                  className="shrink-0 tabular-nums text-muted-foreground"
                   aria-hidden
                 >
                   {formatCount(city.count)}
@@ -211,15 +255,16 @@ function CityFilterSheetBody({
  * carries the total its current ticks would show.
  *
  * The rows are native checkboxes rather than the `Command` items the popover
- * uses: cmdk drives `aria-selected` from its own highlight, which a
- * multi-select list needs for its ticks. The cost is that this list filters by
- * substring where the popover filters by cmdk's score.
+ * uses, because `aria-selected` on a cmdk item tracks its highlight and this
+ * list needs it for its ticks. The cost is that this list filters by substring
+ * where the popover filters by cmdk's score.
  */
 export function CityFilterSheet({
   open,
   onOpenChange,
   triggerRef,
   onApply,
+  openSeq,
   ...bodyProps
 }: CityFilterSheetProps) {
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -233,12 +278,19 @@ export function CityFilterSheet({
         // The handle and the header's Close carry dismissal, so the shared
         // corner X would be a third control sitting over the grab handle.
         showCloseButton={false}
-        className="gap-0 overflow-hidden rounded-t-lg p-0"
+        tabIndex={-1}
+        className="gap-0 overflow-hidden rounded-t-lg p-0 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
         style={{
           bottom: `var(${KEYBOARD_INSET_VAR}, 0px)`,
           maxHeight: `min(${SHEET_MAX_HEIGHT}, var(${KEYBOARD_VISIBLE_HEIGHT_VAR}, 100dvh))`,
         }}
         data-testid="city-filter-sheet"
+        onOpenAutoFocus={event => {
+          // The first tabbable child is a dismiss control, and landing on it
+          // puts Enter one keystroke from discarding the edit.
+          event.preventDefault()
+          contentRef.current?.focus()
+        }}
         onCloseAutoFocus={event => {
           // Radix restores focus to whatever was focused at open, which a touch
           // press may never have focused at all.
@@ -247,6 +299,7 @@ export function CityFilterSheet({
         }}
       >
         <CityFilterSheetBody
+          key={openSeq}
           {...bodyProps}
           onApply={cities => {
             onApply(cities)

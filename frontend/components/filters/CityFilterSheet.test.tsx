@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 
-import { renderWithProviders, screen, waitFor } from '@/test/utils'
+import { renderWithProviders, screen, waitFor, within } from '@/test/utils'
 import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/hooks/common/useSoftKeyboardViewport'
 import { CityFilters, type CityWithCount } from './CityFilters'
 
@@ -145,6 +145,75 @@ describe('CityFilterSheet', () => {
     )
   })
 
+  // The empty selection is what each surface turns into its own "no city
+  // filter" state, so unticking the last city has to reach the consumer.
+  it('applies an empty selection when the last city is unticked', async () => {
+    const user = userEvent.setup()
+    const onFilterChange = vi.fn()
+    renderFilters({
+      onFilterChange,
+      selectedCities: [{ city: 'Phoenix', state: 'AZ' }],
+    })
+
+    await openSheet(user)
+    await user.click(screen.getByTestId('city-sheet-option-phoenix-az'))
+    // With nothing ticked the button offers the whole list again.
+    expect(screen.getByTestId('city-filter-sheet-apply')).toHaveTextContent(
+      'Show 51 venues'
+    )
+
+    await user.click(screen.getByTestId('city-filter-sheet-apply'))
+
+    expect(onFilterChange).toHaveBeenCalledTimes(1)
+    expect(onFilterChange).toHaveBeenCalledWith([])
+  })
+
+  // A selection can outlive the count list it came from: a favourite city, a
+  // legacy deep link, or a calendar window the city has nothing in.
+  it('gives a selected city the page no longer lists a row of its own', async () => {
+    const user = userEvent.setup()
+    const onFilterChange = vi.fn()
+    renderFilters({
+      onFilterChange,
+      selectedCities: [{ city: 'Tucson', state: 'AZ' }],
+    })
+
+    await openSheet(user)
+
+    const orphan = screen.getByTestId('city-sheet-option-tucson-az')
+    expect(orphan).toBeChecked()
+    expect(orphan).toHaveAttribute('aria-label', 'Tucson, AZ, 0 venues')
+
+    await user.click(orphan)
+    await user.click(screen.getByTestId('city-filter-sheet-apply'))
+
+    expect(onFilterChange).toHaveBeenCalledWith([])
+  })
+
+  it('hands the sheet the keyboard-safe geometry it reads through CSS', async () => {
+    const user = userEvent.setup()
+    renderFilters()
+
+    const sheet = await openSheet(user)
+
+    expect(sheet.style.bottom).toBe('var(--keyboard-inset-bottom, 0px)')
+    expect(sheet.style.maxHeight).toBe(
+      'min(66dvh, var(--keyboard-visible-height, 100dvh))'
+    )
+  })
+
+  it('announces what the search left in the list', async () => {
+    const user = userEvent.setup()
+    renderFilters()
+
+    await openSheet(user)
+    const status = screen.getByTestId('city-filter-sheet-status')
+    expect(status).toHaveTextContent('3 cities. Show 51 venues.')
+
+    await user.type(screen.getByTestId('city-filter-sheet-search'), 'zzz')
+    expect(status).toHaveTextContent('No cities found.')
+  })
+
   it('filters the list by the search field', async () => {
     const user = userEvent.setup()
     renderFilters()
@@ -157,7 +226,7 @@ describe('CityFilterSheet', () => {
 
     await user.clear(screen.getByTestId('city-filter-sheet-search'))
     await user.type(screen.getByTestId('city-filter-sheet-search'), 'zzz')
-    expect(screen.getByText('No cities found.')).toBeInTheDocument()
+    expect(screen.getByTestId('city-filter-sheet-empty')).toBeInTheDocument()
   })
 
   it('marks each city with its own checked state and count', async () => {
@@ -220,9 +289,13 @@ describe('CityFilterSheet', () => {
 
     const sheet = await openSheet(user)
 
-    expect(sheet.querySelector('.lucide-x')).toBeNull()
-    expect(screen.getByTestId('city-filter-sheet-handle')).toBeInTheDocument()
-    expect(screen.getByTestId('city-filter-sheet-close')).toBeInTheDocument()
+    // The shared X and the header control would both be named exactly "Close".
+    expect(within(sheet).getAllByRole('button', { name: 'Close' })).toHaveLength(
+      1
+    )
+    expect(
+      within(sheet).getByRole('button', { name: 'Close filter by city' })
+    ).toBe(screen.getByTestId('city-filter-sheet-handle'))
   })
 
   it('returns focus to the trigger after Escape', async () => {

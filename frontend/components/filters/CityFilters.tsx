@@ -66,11 +66,28 @@ export function CityFilters({
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
+  // Bumped on every open, so the sheet body remounts even when a reopen lands
+  // inside the exit animation that still has the old one mounted.
+  const [openSeq, setOpenSeq] = useState(0)
   // Decides which overlay the trigger opens, and with it the trigger's own ARIA
   // contract, so it is subscribed rather than read at open: a reader has to be
   // able to trust `aria-haspopup` before pressing.
   const softKeyboardViewport = useSoftKeyboardViewport()
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+
+  // Crossing the breakpoint swaps which overlay exists. Closing on the flip is
+  // what stops an open sheet from being replaced, mid-edit, by a popover
+  // carrying the applied selection instead of the edited one.
+  const [overlayViewport, setOverlayViewport] = useState(softKeyboardViewport)
+  if (overlayViewport !== softKeyboardViewport) {
+    setOverlayViewport(softKeyboardViewport)
+    setOpen(false)
+  }
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (next) setOpenSeq(seq => seq + 1)
+    setOpen(next)
+  }, [])
 
   // Composes the two halves of `replayOnHydrate` with a ref of our own: the
   // spread below sets the marker attribute, and dropping the replay ref while
@@ -142,7 +159,7 @@ export function CityFilters({
             can never open there: its trigger is what owns the open/close
             toggle for BOTH overlays, and the trigger has to stay one node so
             the pre-hydration click replay lands on it. */}
-        <Popover open={open && !softKeyboardViewport} onOpenChange={setOpen}>
+        <Popover open={open && !softKeyboardViewport} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <button
               // In server HTML, so it is painted and clickable for the whole
@@ -214,7 +231,8 @@ export function CityFilters({
             selectedCities={selectedCities}
             onApply={onFilterChange}
             open={open}
-            onOpenChange={setOpen}
+            onOpenChange={handleOpenChange}
+            openSeq={openSeq}
             resultNoun={resultNoun}
             triggerRef={triggerRef}
           />

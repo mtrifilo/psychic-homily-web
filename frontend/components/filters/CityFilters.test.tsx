@@ -400,6 +400,9 @@ describe('CityFilters', () => {
       await user.click(trigger)
 
       expect(screen.getByTestId('city-filter-sheet')).toBeInTheDocument()
+      // The popover root is permanently closed here, so the trigger has to
+      // report the sheet's state rather than the popover's.
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
       // The only search field on the page is the sheet's own, so the combobox
       // popover is not mounted alongside it.
       expect(screen.getByPlaceholderText('Search cities...')).toBe(

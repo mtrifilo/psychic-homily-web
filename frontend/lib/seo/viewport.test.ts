@@ -12,13 +12,6 @@ describe('appViewport', () => {
     expect(appViewport.viewportFit).toBe('cover')
   })
 
-  // The bottom-anchored city filter sheet is laid out against the layout
-  // viewport, so without this the keyboard covers it wherever the browser
-  // honours the hint.
-  it('asks the layout viewport to resize around a software keyboard', () => {
-    expect(appViewport.interactiveWidget).toBe('resizes-content')
-  })
-
   // Kept alongside so a rewrite of this object cannot quietly drop the
   // light/dark theme colors while satisfying the assertion above.
   it('keeps the light and dark theme colors', () => {
