@@ -83,10 +83,10 @@ describe('Command', () => {
 /**
  * jsdom has no layout, so the geometry these classes produce is asserted in
  * `e2e/pages/command-popover-keyboard.spec.ts`. What is checkable here is the
- * placement contract that geometry rests on: which element carries the bound
- * and its floor, and that a consumer can replace both.
+ * placement contract that geometry rests on: the column carries its floor and
+ * no ceiling, and a consumer can replace the floor.
  */
-describe('Command bounded by the popover available height', () => {
+describe('Command column inside a bounded popover', () => {
   function renderCommand(className?: string) {
     render(
       <Command data-testid="command" className={className}>
@@ -100,32 +100,37 @@ describe('Command bounded by the popover available height', () => {
     )
   }
 
-  it('bounds the command column, floored at the input row, not the list', () => {
+  it('floors the column at the input row and carries no ceiling', () => {
     renderCommand()
     const column = screen.getByTestId('command')
     const list = screen.getByTestId('list')
 
+    // The ceiling is on the popover's border box instead (`popover.tsx`): the
+    // room Radix publishes is measured from that box's outer top edge, so a
+    // ceiling set anywhere inside leaves its borders to paint past that edge.
     // Spelled out rather than imported from the component, so a typo in the
     // variable name fails here instead of matching itself.
-    expect(column).toHaveClass(BOUND_CLASS)
+    expect(column).not.toHaveClass(BOUND_CLASS)
     expect(list).not.toHaveClass(BOUND_CLASS)
     // The floor is the input row's own height token, so the two scale together
     // and the column can never clip the field being typed into.
     expect(column).toHaveClass('min-h-11')
     expect(screen.getByPlaceholderText('Search...')).toHaveClass('h-11')
+    // `overflow-hidden` is what zeroes this column's automatic minimum size, so
+    // it shrinks into the popover's cap instead of forcing the popover open.
+    expect(column).toHaveClass('overflow-hidden')
     // The list keeps its own cap, so a roomy popover is unchanged, and scrolls
-    // rather than overflowing once the column is bounded.
+    // rather than overflowing once the popover is bounded.
     expect(list).toHaveClass('max-h-[300px]')
     expect(list).toHaveClass('overflow-y-auto')
   })
 
-  it('lets a consumer replace the bound with its own max-height', () => {
-    renderCommand('max-h-[400px]')
-    // tailwind-merge keeps the last max-height, so opting out is silent. The
-    // Cmd+K palette relies on the same precedence for its own list.
+  it('lets a consumer replace the floor with its own min-height', () => {
+    renderCommand('min-h-0')
+    // tailwind-merge keeps the last min-height, so opting out is silent.
     const column = screen.getByTestId('command')
-    expect(column).toHaveClass('max-h-[400px]')
-    expect(column).not.toHaveClass(BOUND_CLASS)
+    expect(column).toHaveClass('min-h-0')
+    expect(column).not.toHaveClass('min-h-11')
   })
 
   it('gives the dialog path the same column, with no bound of its own', () => {
@@ -139,12 +144,12 @@ describe('Command bounded by the popover available height', () => {
         </CommandList>
       </CommandDialog>
     )
-    // One code path, not two: the dialog carries the same class, and whether
-    // the variable is set is what decides. Radix sets it on popover content
-    // only, so here `max-height` resolves to `none`. That resolution is a
-    // browser fact; jsdom evaluates no custom properties.
-    expect(screen.getByTestId('list').closest('[cmdk-root]')).toHaveClass(
-      BOUND_CLASS
-    )
+    // One code path, not two: the dialog renders the same unbounded column, and
+    // the dialog frame it sits in publishes no available height to bound it by.
+    // `CommandList`'s own 300px cap is what sizes this surface.
+    const column = screen.getByTestId('list').closest('[cmdk-root]')
+    expect(column).not.toHaveClass(BOUND_CLASS)
+    expect(column).toHaveClass('min-h-11')
+    expect(screen.getByTestId('list')).toHaveClass('max-h-[300px]')
   })
 })
