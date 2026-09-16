@@ -29,6 +29,31 @@ func TestVenueListOrderBy_RejectsUnknownSort(t *testing.T) {
 	}
 }
 
+// TestVenueListShowRef_CarriesTheScannedCancelledFlag pins the projection path
+// that the integration cases below cannot reach: they assert false, which is
+// also the field's zero value, so they would still pass if the pick stopped
+// selecting the column. This one fails if the scanned flag stops reaching the
+// wire shape.
+func TestVenueListShowRef_CarriesTheScannedCancelledFlag(t *testing.T) {
+	date := time.Now().UTC()
+	slug, title := "a-show", "A Show"
+	cancelled := true
+
+	ref := venueListShowRef(&date, &slug, &title, &cancelled)
+	if ref == nil {
+		t.Fatal("venueListShowRef returned nil for a row that matched")
+	}
+	if !ref.IsCancelled {
+		t.Error("venueListShowRef dropped the scanned is_cancelled flag")
+	}
+
+	// A NULL column is the scan-safety case, and false is the answer a client
+	// can act on: absent means the pick said nothing, never "cancelled".
+	if ref := venueListShowRef(&date, &slug, &title, nil); ref.IsCancelled {
+		t.Error("a NULL is_cancelled column must reach the wire as false")
+	}
+}
+
 // =============================================================================
 // Integration: GET /venues row fields
 // =============================================================================
@@ -480,6 +505,44 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_LastS
 	suite.Require().NotNil(row.LastShow)
 	suite.Equal(*played.Slug, row.LastShow.Slug, "the most recent night that happened is the last show")
 	suite.False(row.LastShow.IsCancelled, "the pick selects from uncancelled shows only")
+}
+
+// TestGetVenuesWithShowCounts_CancelledNightLosesToItsOwnDate covers the
+// tie-break path: two shows on the SAME instant, one of them called off. The
+// order alone cannot separate them, so only the filter can.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_CancelledNightLosesToItsOwnDate() {
+	venue := suite.createTestVenue("Same Night Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	when := time.Now().UTC().AddDate(0, 0, 6)
+	// Created FIRST, so it also holds the lower id that the tie-break reads.
+	suite.cancelShow(suite.createRailShow(venue.ID, user.ID, "Called Off", when))
+	standing := suite.createRailShow(venue.ID, user.ID, "Still On", when)
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Same Night Room")
+
+	suite.Require().NotNil(row.NextShow)
+	suite.Equal(*standing.Slug, row.NextShow.Slug,
+		"a cancelled show must lose to a standing one on its own date, whatever the id order says")
+	suite.Equal(1, row.UpcomingShowCount)
+}
+
+// TestGetVenuesWithShowCounts_RoomWhoseOnlyPastNightWasCancelledHasNoLastShow
+// is the absent state on the quiet side: with nothing behind it that happened,
+// the room names no last show rather than naming the night that did not.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RoomWhoseOnlyPastNightWasCancelledHasNoLastShow() {
+	venue := suite.createTestVenue("No Past Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.cancelShow(suite.createRailShow(venue.ID, user.ID, "Called Off", time.Now().UTC().AddDate(0, 0, -12)))
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "No Past Room")
+
+	suite.Equal(0, row.UpcomingShowCount)
+	suite.Nil(row.NextShow)
+	suite.Nil(row.LastShow, "a cancelled night is not a night the room had a show")
 }
 
 // TestGetVenuesWithShowCounts_RailFollowsTheUncancelledPick pins the rail meta

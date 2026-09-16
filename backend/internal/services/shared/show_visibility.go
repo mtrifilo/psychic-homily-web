@@ -408,8 +408,13 @@ func PublicShowPredicateSQL(alias string) string {
 // NOT a visibility gate, unlike the predicates above it: a cancelled show keeps
 // its row and stays readable on its own page, badged. This answers a different
 // question, the one a surface asks when it counts what a room has coming or
-// names the next show that will happen, so each surface opts in. Several do
-// not, deliberately: the charts rank on shows that were booked.
+// names the next show that will happen, so each surface opts in.
+//
+// Two conventions live side by side and this is the opt-in half. The scene
+// page's totals and its day and week payloads deliberately COUNT cancelled
+// shows, because they ship is_cancelled per show and the reader sees the
+// strike-through (contracts.SceneVenueSummary.UpcomingShowCount). The charts
+// exclude them when ranking, and so does the /venues directory row.
 //
 // `alias` is the shows table as the caller spells it, for the same reason the
 // predicates above take one. It renders no placeholder, so the fragment carries

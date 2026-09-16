@@ -1011,16 +1011,15 @@ type VenueConfirmationResponse struct {
 // everywhere else. A client that needs a label for a titleless show reads the
 // bill from the show endpoint; this projection deliberately carries no artist
 // list, because a directory row prints one line per venue, not per bill.
-// IsCancelled is false on every ref the venue list emits, because both picks
-// select from uncancelled shows only (catalog.venueListLiveShowSQL). It is on
-// the wire so a client reads the show's state from the row instead of inferring
-// it from the pick's filter, and so a surface that later wants to name a
-// cancelled show can badge it without a shape change.
+// IsCancelled carries the picked show's own state. Which shows a producer picks
+// is the producer's contract, stated on the field that holds the ref, not here:
+// this type is shared, so a claim about one endpoint's filter would be wrong on
+// the next surface that fills it.
 type VenueListShowRef struct {
 	EventDate   time.Time `json:"event_date" doc:"The show's instant. Render it in the venue's timezone, carried on the same row."`
 	Slug        string    `json:"slug" doc:"URL slug for the show. Empty when the show has no slug, in which case it cannot be linked."`
 	Title       string    `json:"title" doc:"The show's own title. Empty for most shows."`
-	IsCancelled bool      `json:"is_cancelled" doc:"Whether the show is cancelled. False on every ref this endpoint returns: next_show and last_show are picked from uncancelled shows only."`
+	IsCancelled bool      `json:"is_cancelled" doc:"Whether the show is cancelled. Whether a cancelled show can be picked at all is stated on the field carrying this ref."`
 }
 
 // VenueWithShowCountResponse includes upcoming show count for a venue.
@@ -1055,8 +1054,8 @@ type VenueWithShowCountResponse struct {
 	// file already uses for an optional object, such as Provenance on the
 	// embedded venue, and it is the shape the generated client types can state
 	// truthfully.
-	NextShow *VenueListShowRef `json:"next_show,omitempty" doc:"The soonest upcoming approved show at this venue that is not cancelled. Absent when the venue has none, which is exactly when upcoming_show_count is zero."`
-	LastShow *VenueListShowRef `json:"last_show,omitempty" doc:"The most recent past approved show at this venue that is not cancelled. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
+	NextShow *VenueListShowRef `json:"next_show,omitempty" doc:"The soonest upcoming approved show at this venue that is not cancelled. Cancelled shows are never picked, so its is_cancelled is always false. Absent when the venue has none, which is exactly when upcoming_show_count is zero."`
+	LastShow *VenueListShowRef `json:"last_show,omitempty" doc:"The most recent past approved show at this venue that is not cancelled. Cancelled shows are never picked, so its is_cancelled is always false. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
 	// ShowsThisWeek counts the venue's approved, uncancelled shows in the next
 	// seven days, driving the rail's "Next 7 days" filter chip and its header
 	// stat. Cancelled shows are outside it, as they are outside

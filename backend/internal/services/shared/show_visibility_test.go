@@ -239,6 +239,56 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 	}
 }
 
+// TestUncancelledShowPredicateSQL pins the fragment against Postgres rather
+// than against its own string: a cancelled show is outside it whatever its
+// status, and an uncancelled one is inside it.
+//
+// It is NOT a visibility gate, so it is tested on its own rather than folded
+// into the matrix above: a surface composes it WITH a visibility predicate, and
+// a row this keeps can still be one no stranger may see.
+func TestUncancelledShowPredicateSQL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	submitter := testhelpers.CreateTestUser(td.DB).ID
+
+	for _, tc := range []struct {
+		name      string
+		cancelled bool
+		want      int64
+	}{
+		{"a show that is still going ahead", false, 1},
+		{"a cancelled show", true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			show := &catalogm.Show{
+				Title:       "Cancellation Fixture",
+				EventDate:   time.Now().UTC().AddDate(0, 0, 7),
+				Status:      catalogm.ShowStatusApproved,
+				SubmittedBy: &submitter,
+				IsCancelled: tc.cancelled,
+			}
+			if err := td.DB.Create(show).Error; err != nil {
+				t.Fatalf("create show: %v", err)
+			}
+			// Written explicitly after the insert: a false bool is GORM's zero
+			// value on Create, so the uncancelled half would otherwise be the
+			// column default rather than a value this test set.
+			if err := td.DB.Model(&catalogm.Show{}).Where("id = ?", show.ID).
+				Update("is_cancelled", tc.cancelled).Error; err != nil {
+				t.Fatalf("set is_cancelled: %v", err)
+			}
+			if got := countShowsMatching(t, td.DB, show.ID,
+				shared.UncancelledShowPredicateSQL("shows"), nil); got != tc.want {
+				t.Errorf("UncancelledShowPredicateSQL matched %d rows, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // A show id nobody has used must be invisible to every non-admin, because
 // "hidden" and "absent" have to answer the same on every route that uses this.
 func TestShowVisibilityFailsClosedOnAMissingShow(t *testing.T) {

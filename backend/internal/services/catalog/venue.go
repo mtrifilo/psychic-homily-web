@@ -956,10 +956,14 @@ func venueListShowRef(date *time.Time, slug, title *string, cancelled *bool) *co
 const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 
 // venueListUncancelledSQL is this directory's opt-in to
-// shared.UncancelledShowPredicateSQL, rendered once for the three sets a row is
-// built from: the upcoming count, the next-show pick and the last-show pick. A
-// row answers when a room's next show WILL happen and when it last DID, so a
-// cancelled night is neither.
+// shared.UncancelledShowPredicateSQL for the three sets THIS statement draws:
+// the upcoming count, the next-show pick and the last-show pick. A row answers
+// when a room's next show WILL happen and when it last DID, so a cancelled
+// night is neither.
+//
+// The row's fourth number, shows_this_week, opts in separately in
+// venue_rail.go, where the shows table is aliased `s` and this rendering does
+// not fit.
 //
 // The venue page's own show list takes the opposite side of the same rule, and
 // lists a cancelled show with a badge: a reader looking up one night has to be
