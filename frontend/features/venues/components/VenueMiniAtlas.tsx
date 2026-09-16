@@ -17,6 +17,7 @@ import {
   venuePinPaint,
 } from '@/features/scenes/components/venuePinLayer'
 import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
+import { MiniAtlasUnavailable } from './MiniAtlasUnavailable'
 import {
   MINI_ATLAS_FIT_PADDING_PX,
   MINI_ATLAS_MAX_FIT_ZOOM,
@@ -112,9 +113,12 @@ export interface VenueMiniAtlasProps {
  * reads — the basemap, the pin radius scale, and the pin paint — so the same
  * mark means the same thing on both surfaces.
  *
- * The canvas is hidden from assistive tech and cannot be tabbed into. Every
- * room on it is a row in the table beside it, which is where a keyboard reaches
- * them; the map is a second view of that list, never the only way to something.
+ * The canvas is hidden from assistive tech and cannot be tabbed into, and
+ * every room on it is a row in the table beside it, which is where a keyboard
+ * reaches them: the map is a second view of that list, never the only way to
+ * something. MapLibre's own zoom controls remain focusable and carry their own
+ * labels, so the pane's keyboard surface is those two buttons and nothing
+ * else.
  */
 export function VenueMiniAtlas({
   pins,
@@ -124,6 +128,10 @@ export function VenueMiniAtlas({
 }: VenueMiniAtlasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [map, setMap] = useState<maplibregl.Map | null>(null)
+  // A style that never loads is the failure the skeleton would otherwise hide
+  // forever: `load` does not fire, so without this the pane pulses for the rest
+  // of the session over a map that is never coming.
+  const [failed, setFailed] = useState(false)
 
   // The handlers the map binds are bound ONCE, with the map. Reading them
   // through refs keeps a new callback identity from tearing the map down.
@@ -153,8 +161,13 @@ export function VenueMiniAtlas({
     })
 
     // Registered first, so the style's own TileJSON fetch — the earliest thing
-    // that can fail — is already covered.
-    instance.on('error', handleBasemapError)
+    // that can fail — is already covered. A failure BEFORE the style loads is
+    // fatal to the pane (no basemap, no pins); one after it is a missing tile
+    // on a map that already works, which the reader can see for themselves.
+    instance.on('error', (event) => {
+      handleBasemapError(event)
+      if (!instance.isStyleLoaded()) setFailed(true)
+    })
 
     // Bottom-LEFT and never covered: the OpenStreetMap credit is an ODbL
     // licensing requirement, not chrome.
@@ -209,9 +222,17 @@ export function VenueMiniAtlas({
     instance.on('mousemove', LAYER_ID, handleMove)
     instance.on('mouseleave', LAYER_ID, handleLeave)
     instance.on('click', LAYER_ID, handleClick)
-    instance.on('load', () => setMap(instance))
+    instance.on('load', () => {
+      setFailed(false)
+      setMap(instance)
+    })
 
     return () => {
+      setFailed(false)
+      // The applied hover belongs to THIS map instance; a new one starts with
+      // no feature-state, so a carried id would describe a map that never had
+      // it set.
+      appliedHoverRef.current = null
       setMap((prev) => (prev === instance ? null : prev))
       instance.remove()
     }
@@ -270,7 +291,8 @@ export function VenueMiniAtlas({
       {/* Held over the canvas until the style has painted, so the pane is never
           a flash of empty box. `map` IS the ready signal: it is set in the
           `load` handler, so nothing second-guesses when the skeleton lifts. */}
-      {!map && <MiniAtlasSkeleton />}
+      {!map && !failed && <MiniAtlasSkeleton />}
+      {!map && failed && <MiniAtlasUnavailable />}
       {/* Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
           `.maplibregl-map { position: relative }` on this node at map init,
           which ties with the `absolute` utility class and, since that

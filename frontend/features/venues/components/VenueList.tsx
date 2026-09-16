@@ -599,14 +599,6 @@ export function VenueList() {
   const hasNarrowingFilter =
     selectedTags.length > 0 || selectedCities.length > 0
 
-  // A row that leaves the page takes the hover with it: the pointer never
-  // leaves a row that was removed from under it, so no mouseleave fires and the
-  // id would keep lighting a pin for a room this page no longer lists. Adjusted
-  // during render rather than in an effect, which would paint that frame first.
-  if (hoveredVenueId !== null && !venues.some(v => v.id === hoveredVenueId)) {
-    setHoveredVenueId(null)
-  }
-
   // The pane is for ONE city's rooms: it fits them in a 368px frame, and its
   // link opens the Atlas on that city. A whole-catalogue or multi-city page has
   // no single place to be about, so it gets the table alone.
@@ -615,6 +607,20 @@ export function VenueList() {
   // are one expression and cannot disagree.
   const miniAtlasCity =
     miniAtlasViewport && venues.length > 0 ? scopeCity : null
+
+  // Nothing can be hovered that the reader cannot point at. Two ways the id
+  // outlives its pointer, neither of which fires a mouseleave: the row is
+  // removed from under the cursor by a page or filter change, and the window
+  // narrows past 1280, which takes the pane away and unbinds the rows' own
+  // handlers. Without this, widening again relights a room the pointer is
+  // nowhere near. Adjusted during render rather than in an effect, which would
+  // paint that frame first.
+  if (
+    hoveredVenueId !== null &&
+    (miniAtlasCity === null || !venues.some(v => v.id === hoveredVenueId))
+  ) {
+    setHoveredVenueId(null)
+  }
 
   const renderPager = (position: 'top' | 'bottom') => (
     <Pagination

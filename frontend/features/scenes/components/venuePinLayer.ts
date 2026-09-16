@@ -2,10 +2,11 @@
  * How a room reads as a mark on a map: its size, its colors, and the feature
  * properties the paint reads.
  *
- * One definition so the Atlas city view and the `/venues` mini Atlas cannot
- * drift into two affordance ramps for the same room, and so the paint and the
- * properties it depends on stay in one file. The layer's placement, `minzoom`
- * and source id belong to the caller.
+ * One BASE definition, so the Atlas city view and the `/venues` mini Atlas
+ * start from the same affordance ramp for the same room, and so the paint and
+ * the properties it reads stay in one file. A caller may layer its own
+ * per-surface treatment over the paint (the mini Atlas mutes quiet rooms that
+ * way); the layer's placement, `minzoom` and source id are the caller's too.
  */
 
 import type { CircleLayerSpecification } from 'maplibre-gl'
@@ -50,11 +51,13 @@ export interface VenuePinPlacement {
 }
 
 /**
- * The source data the paint below reads.
+ * Every property a pin surface may read, written once for all of them.
  *
- * Built here rather than at each call site, so the properties and the
- * expressions that consume them cannot drift: adding a property means adding
- * it once, for every surface that draws a room.
+ * Built here rather than at each call site so a property and the expressions
+ * that consume it cannot drift. Not all of them are read everywhere: the base
+ * paint below reads `radiusPx`, `color` and `isSelected`, while `isQuiet` is
+ * read only by a caller that mutes quiet rooms. A surface that ignores one
+ * pays a property it does not draw, which is cheaper than two builders.
  */
 export function venuePinFeatures(
   pins: readonly VenuePinPlacement[],

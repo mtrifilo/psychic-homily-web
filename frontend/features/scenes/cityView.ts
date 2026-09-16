@@ -146,6 +146,12 @@ export function resolveCityScene(
 
 // ── Opening on a named city (PSY-2079) ────────────────────────────────────
 
+// How far past CITY_VIEW_MIN_ZOOM a named-city entry opens. A WHOLE zoom level,
+// not an epsilon: the arrival wants headroom inside city view, so that a
+// visitor who zooms out one step to see the metro is still in it rather than
+// being handed back to the globe by the first gesture they make.
+const CITY_VIEW_ENTRY_ZOOM_MARGIN = 1
+
 /**
  * The camera focus `?city=` names, or null to leave today's behaviour alone.
  *
@@ -155,9 +161,10 @@ export function resolveCityScene(
  * caller falls back to the visitor's geo focus in every null case, so an
  * unknown city degrades to a plain `/atlas` rather than to an error.
  *
- * The focus lands a hair past CITY_VIEW_MIN_ZOOM rather than exactly on it: the
- * city view is camera-derived and engages at or above that zoom, so landing on
- * the boundary would leave the arrival depending on a float comparison.
+ * The focus lands CITY_VIEW_ENTRY_ZOOM_MARGIN past CITY_VIEW_MIN_ZOOM rather
+ * than exactly on it: the city view is camera-derived and engages at or above
+ * that zoom, so landing on the boundary would leave the arrival depending on a
+ * float comparison.
  *
  * Matching is case-insensitive on both halves, so `?city=phoenix,az` resolves.
  */
@@ -176,7 +183,7 @@ export function resolveAtlasCityPov(
   return {
     lat: scene.latitude,
     lng: scene.longitude,
-    altitude: altitudeForZoom(CITY_VIEW_MIN_ZOOM + 1),
+    altitude: altitudeForZoom(CITY_VIEW_MIN_ZOOM + CITY_VIEW_ENTRY_ZOOM_MARGIN),
   }
 }
 

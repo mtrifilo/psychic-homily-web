@@ -416,6 +416,11 @@ export function AtlasGlobe() {
   )
   // Whether `?city=` can still change the answer.
   const entryCityPending = entryCityParam !== null && isLoading
+  // The entry this globe has already been aimed at. An entry is applied ONCE
+  // per param value, and a NEW value applies again: without this, the geo
+  // path's first-resolution-wins rule would swallow the second link a visitor
+  // follows in the same session, leaving them on the previous city.
+  const appliedEntryParamRef = useRef<string | null | undefined>(undefined)
 
   // Resolve the initial focus once: the visitor's IP-geo region (PSY-946
   // plumbing, shared GeoLocation contract) if it carries coords, else North
@@ -441,11 +446,30 @@ export function AtlasGlobe() {
     // `?city=` outranks both the geo focus and the camera the session left
     // behind: a link that names a city has to move the map, or it does nothing
     // at all for a visitor who already used the Atlas this session.
+    //
+    // It does NOT go through `resolve`, whose first-wins rule is for the geo
+    // race: a second link to a DIFFERENT city has to move a camera that is
+    // already resolved. Applied once per param value, so a re-run on the same
+    // URL (a scenes refetch, a Cache Components show) neither re-aims the
+    // camera nor discards the one the visitor has moved to since.
     if (entryCityPov) {
-      clearAtlasCamera()
-      resolve(entryCityPov)
-      return
+      if (appliedEntryParamRef.current === entryCityParam) return
+      // The ref is claimed SYNCHRONOUSLY so a re-run cannot apply the same
+      // entry twice; the camera write is deferred to a microtask so it lands
+      // after the effect returns (react-hooks/set-state-in-effect), the same
+      // pattern the error-recovery effect below uses.
+      appliedEntryParamRef.current = entryCityParam
+      let cancelled = false
+      void Promise.resolve().then(() => {
+        if (cancelled) return
+        clearAtlasCamera()
+        setPov(entryCityPov)
+      })
+      return () => {
+        cancelled = true
+      }
     }
+    appliedEntryParamRef.current = entryCityParam
     const timer = setTimeout(() => resolve(DEFAULT_POV), GEO_TIMEOUT_MS)
     fetch('/api/geo')
       .then((res) =>

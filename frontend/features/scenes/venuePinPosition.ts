@@ -3,8 +3,7 @@
  *
  * A leaf module with no runtime dependencies, so every map surface can bind
  * the rule without pulling the Atlas city-view logic (and its formatters and
- * genre tables) in with it. `cityView.ts` re-exports both names, so the Atlas
- * keeps its existing import path.
+ * genre tables) in with it. Callers import it from here; it is the only path.
  */
 
 import type { VenueWithShowCount } from '@/features/venues/types'

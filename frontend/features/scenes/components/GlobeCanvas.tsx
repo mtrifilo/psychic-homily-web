@@ -29,7 +29,6 @@ import {
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { CITY_VIEW_MIN_ZOOM, labelledVenuePinIds } from '../cityView'
 import {
-  DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
   DOT_HOVER_RADIUS_SCALE,

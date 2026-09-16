@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MutableRefObject, ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
@@ -292,11 +292,32 @@ describe('AtlasGlobe', () => {
     // starts and ends from a known camera.
     afterEach(() => clearAtlasCamera())
 
+    // The shared sample places only Chicago; these cases need a second city to
+    // move BETWEEN.
+    const twoCities: SceneListResponse = {
+      scenes: [
+        ...sampleData.scenes,
+        {
+          city: 'Phoenix',
+          state: 'AZ',
+          slug: 'phoenix-az',
+          venue_count: 8,
+          upcoming_show_count: 40,
+          total_show_count: 90,
+          shows_this_week: 2,
+          shows_calendar_week: 2,
+          latitude: 33.4484,
+          longitude: -112.074,
+        },
+      ],
+      count: 3,
+    }
+
     beforeEach(() => {
       clearAtlasCamera()
       setMockContainerWidth(800) // above the 640px mobile gate
       mockUseScenes.mockReturnValue({
-        data: sampleData,
+        data: twoCities,
         isLoading: false,
         isError: false,
       })
@@ -323,6 +344,37 @@ describe('AtlasGlobe', () => {
 
       await screen.findByTestId('globe-canvas')
       expect(readAtlasCamera()).toBeNull()
+    })
+
+    it('moves to a SECOND city named in the same session', async () => {
+      searchParams = new URLSearchParams('city=Chicago,IL')
+      const { rerender } = renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.pov?.lat).toBeCloseTo(41.88)
+
+      // A second entry link, followed without a remount: the geo path's
+      // first-resolution-wins rule must not swallow it.
+      searchParams = new URLSearchParams('city=Phoenix,AZ')
+      rerender(<AtlasGlobe />)
+
+      await waitFor(() =>
+        expect(lastCanvasProps.pov?.lat).toBeCloseTo(33.4484),
+      )
+      expect(lastCanvasProps.pov?.lng).toBeCloseTo(-112.074)
+    })
+
+    it('does not re-aim or drop the camera when the same URL re-renders', async () => {
+      searchParams = new URLSearchParams('city=Chicago,IL')
+      const { rerender } = renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const aimed = lastCanvasProps.pov
+
+      // Where the visitor has moved to since arriving.
+      saveAtlasCamera({ center: [2, 3], zoom: 14 })
+      rerender(<AtlasGlobe />)
+
+      expect(lastCanvasProps.pov).toBe(aimed)
+      expect(readAtlasCamera()).not.toBeNull()
     })
 
     it('falls back to the geo focus for a city no scene knows', async () => {

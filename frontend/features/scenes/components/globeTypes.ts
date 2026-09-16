@@ -42,7 +42,7 @@ export interface GlobePov {
  *
  * GlobeCanvas deliberately takes this rather than a venue API row: the canvas
  * must not know how a pin position is chosen (that is the PSY-1536 privacy
- * gate, decided in cityView.venuePinPosition) nor how a date is worded. It
+ * gate, decided in venuePinPosition.ts) nor how a date is worded. It
  * only draws what it is handed.
  */
 export interface VenuePin {
@@ -55,7 +55,7 @@ export interface VenuePin {
   nextShowLabel: string
 }
 // Deliberately no `precision` field. Which coordinate source a pin came from
-// is decided (and unit-tested) in cityView.venuePinPosition; carrying it down
+// is decided (and unit-tested) in venuePinPosition.ts; carrying it down
 // here would be a value nothing reads, and DRAWING street and centroid pins
 // differently is a design decision the approved mock does not make.
 

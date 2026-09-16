@@ -11,6 +11,8 @@ import type { VenueWithShowCount } from '../types'
  * what proves the canvas actually paints.
  */
 interface StubMap {
+  styleLoaded: boolean
+  isStyleLoaded: () => boolean
   on: ReturnType<typeof vi.fn>
   handlers: Map<string, (event: unknown) => void>
   setData: ReturnType<typeof vi.fn>
@@ -64,6 +66,10 @@ vi.mock('maplibre-gl', () => {
       maps.push(this as unknown as StubMap)
     }
 
+    styleLoaded = false
+    isStyleLoaded() {
+      return this.styleLoaded
+    }
     getSource() {
       return { setData: this.setData }
     }
@@ -121,8 +127,19 @@ function theMap(): StubMap {
 /** The style-load event the component waits for before touching the map. */
 function loadMap(map: StubMap) {
   act(() => {
+    map.styleLoaded = true
     map.handlers.get('load')?.(undefined)
   })
+}
+
+/** The circle layer the constructed style hands MapLibre. */
+function pinLayer(map: StubMap) {
+  const style = map.options.style as {
+    layers: { id: string; paint: Record<string, unknown> }[]
+  }
+  const layer = style.layers.find(l => l.id === 'room-pins')
+  expect(layer, 'the style carries a room-pin layer').toBeDefined()
+  return layer!
 }
 
 function renderAtlas(
@@ -168,7 +185,7 @@ describe('VenueMiniAtlas', () => {
     expect(busy).toBeGreaterThan(quiet)
   })
 
-  it('mutes a room with nothing booked', () => {
+  it('marks a room with nothing booked as quiet', () => {
     renderAtlas()
     const map = theMap()
     loadMap(map)
@@ -176,6 +193,26 @@ describe('VenueMiniAtlas', () => {
     const features = lastFeatures(map)
     expect(features[0].properties?.isQuiet).toBe(false)
     expect(features[1].properties?.isQuiet).toBe(true)
+  })
+
+  it('draws a quiet room faded, mark and rim together', () => {
+    renderAtlas()
+    const paint = pinLayer(theMap()).paint
+
+    // The paint, not just the flag: this is what actually mutes the pin.
+    for (const key of ['circle-opacity', 'circle-stroke-opacity']) {
+      const expression = paint[key] as unknown[]
+      expect(expression[0], `${key} is a case expression`).toBe('case')
+      expect(expression[1]).toEqual(['get', 'isQuiet'])
+      // quiet value, then the value for everything else
+      expect(expression[2]).toBeLessThan(1)
+      expect(expression[3]).toBe(1)
+    }
+  })
+
+  it('keeps the camera above the zoom where the basemap draws nothing', () => {
+    renderAtlas()
+    expect(theMap().options.minZoom).toBeGreaterThanOrEqual(5)
   })
 
   it('reports the room under a pin, and reports leaving it', () => {
@@ -254,8 +291,90 @@ describe('VenueMiniAtlas', () => {
         [-112.0, 33.4],
         [-111.8, 33.6],
       ],
-      expect.objectContaining({ animate: false })
+      expect.objectContaining({
+        animate: false,
+        padding: expect.any(Number),
+        maxZoom: expect.any(Number),
+      })
     )
+    const [, options] = map.fitBounds.mock.calls[0] as [
+      unknown,
+      { padding: number; maxZoom: number },
+    ]
+    // Padding keeps an edge room's pin off the pane's border, and the cap stops
+    // a city whose rooms share a block from landing at building zoom.
+    expect(options.padding).toBeGreaterThan(0)
+    expect(options.maxZoom).toBeLessThan(17)
+  })
+
+  it('refits when the page hands it a different set of rooms', () => {
+    const { rerender } = renderAtlas()
+    const map = theMap()
+    loadMap(map)
+    expect(map.fitBounds).toHaveBeenCalledTimes(1)
+
+    const nextPage = miniAtlasPins([
+      makeVenue({ id: 7, latitude: 40.0, longitude: -105.0 }),
+    ])
+    rerender(
+      <VenueMiniAtlas
+        pins={nextPage}
+        hoveredVenueId={null}
+        onHoverVenue={vi.fn()}
+        onSelectVenue={vi.fn()}
+      />
+    )
+
+    expect(map.fitBounds).toHaveBeenCalledTimes(2)
+    expect(map.fitBounds.mock.calls[1][0]).toEqual([
+      [-105.0, 40.0],
+      [-105.0, 40.0],
+    ])
+  })
+
+  it('does not refit when the same rooms come back in a new array', () => {
+    const { rerender } = renderAtlas()
+    const map = theMap()
+    loadMap(map)
+    expect(map.fitBounds).toHaveBeenCalledTimes(1)
+
+    // A re-render of the page rebuilds the pins array; the camera is the
+    // reader's once it has been aimed.
+    rerender(
+      <VenueMiniAtlas
+        pins={miniAtlasPins(ROOMS)}
+        hoveredVenueId={null}
+        onHoverVenue={vi.fn()}
+        onSelectVenue={vi.fn()}
+      />
+    )
+    expect(map.fitBounds).toHaveBeenCalledTimes(1)
+  })
+
+  it('says the map is unavailable when the style fails, instead of pulsing forever', () => {
+    const { getByTestId, queryByTestId } = renderAtlas()
+    const map = theMap()
+
+    // `load` never fires when the style cannot be fetched, so the error event
+    // is the only signal the pane will ever get.
+    act(() => {
+      map.handlers.get('error')?.({ error: new Error('tiles are down') })
+    })
+
+    expect(getByTestId('venue-mini-atlas-unavailable')).toBeInTheDocument()
+    expect(queryByTestId('venue-mini-atlas-skeleton')).not.toBeInTheDocument()
+  })
+
+  it('keeps a map that already works when a later tile fails', () => {
+    const { queryByTestId } = renderAtlas()
+    const map = theMap()
+    loadMap(map)
+
+    act(() => {
+      map.handlers.get('error')?.({ error: new Error('one tile 500ed') })
+    })
+
+    expect(queryByTestId('venue-mini-atlas-unavailable')).not.toBeInTheDocument()
   })
 
   it('keeps a plain wheel scrolling the page rather than zooming the map', () => {

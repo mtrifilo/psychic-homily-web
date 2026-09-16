@@ -140,6 +140,37 @@ test.describe('Venues mini Atlas', () => {
     await expect(page.locator('tbody tr[data-venue-row]')).toHaveCount(0)
   })
 
+  test('the zoom controls a keyboard can reach carry their own names', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await stubRooms(page)
+    await page.goto(PHOENIX)
+    await tableIsUp(page)
+
+    const pane = page.getByTestId('venue-mini-atlas')
+    await expect(pane.locator('canvas.maplibregl-canvas')).toBeVisible({
+      timeout: 30_000,
+    })
+
+    // The canvas is hidden from assistive tech and cannot be tabbed into, so
+    // MapLibre's zoom buttons are the pane's whole keyboard surface. They have
+    // to say what they do.
+    await expect(pane.locator('canvas.maplibregl-canvas')).toHaveAttribute(
+      'aria-hidden',
+      'true'
+    )
+    await expect(pane.locator('canvas.maplibregl-canvas')).toHaveAttribute(
+      'tabindex',
+      '-1'
+    )
+    const zoomButtons = pane.locator('button.maplibregl-ctrl-zoom-in, button.maplibregl-ctrl-zoom-out')
+    await expect(zoomButtons).toHaveCount(2)
+    for (const name of [/zoom in/i, /zoom out/i]) {
+      await expect(pane.getByRole('button', { name })).toBeVisible()
+    }
+  })
+
   test('a row hover marks that room and no other', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await stubRooms(page)

@@ -1226,6 +1226,62 @@ describe('VenueList', () => {
       ).toBeInTheDocument()
     })
 
+    it('drops the hover when the hovered room leaves the page', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+      const { rerender } = render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      act(() => lastAtlasProps!.onHoverVenue(2))
+      await waitFor(() =>
+        expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+          'data-hovered',
+          '2'
+        )
+      )
+
+      // A page change removes the row from under the pointer, so no mouseleave
+      // ever fires for it.
+      setVenues([MAPPED[0]])
+      rerender(<VenueList />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+          'data-hovered',
+          ''
+        )
+      )
+    })
+
+    it('drops the hover when the viewport narrows past the pane', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+      const { rerender } = render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      act(() => lastAtlasProps!.onHoverVenue(2))
+      await waitFor(() =>
+        expect(
+          screen.getByText('Quiet Room').closest('tr')?.className
+        ).toContain('outline-primary')
+      )
+
+      // Narrowing takes the pane away and unbinds the rows' own handlers, so
+      // nothing else can clear it; widening again would otherwise relight a
+      // room the pointer is nowhere near.
+      setViewportWidth(false)
+      rerender(<VenueList />)
+      expect(screen.queryByTestId('venue-mini-atlas')).not.toBeInTheDocument()
+
+      setViewportWidth(true)
+      rerender(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+      expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+        'data-hovered',
+        ''
+      )
+    })
+
     it('stays away when no row on the page has coordinates', () => {
       anonWithGeo()
       setVenues([makeVenue({ id: 9, name: 'Unplaced Room' })])

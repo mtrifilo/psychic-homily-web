@@ -101,7 +101,10 @@ test.describe('Atlas city entry', () => {
       .not.toBeNull()
 
     const view = (await camera(page))!
-    // The continental default, not a guessed city: far above city view.
+    // The continental default, not a guessed city: the harness serves no geo,
+    // so this is North America, far above city view.
     expect(view.zoom).toBeLessThan(11)
+    expect(view.lat).toBeCloseTo(39.5, 0)
+    expect(view.lng).toBeCloseTo(-98.35, 0)
   })
 })
