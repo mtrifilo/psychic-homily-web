@@ -2,11 +2,41 @@ package catalog
 
 import (
 	"fmt"
+	"testing"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// artistCitiesScope subtracts the place keys and carries everything else, so the
+// closed set it enumerates is the one artistBrowseScope owns. A narrowing added
+// to the list travels by construction; a place key that stopped being subtracted
+// would narrow the breakdown to the place already picked.
+func TestArtistCitiesScope_SubtractsPlaceKeysAndCarriesTheRest(t *testing.T) {
+	scope := artistCitiesScope(map[string]interface{}{
+		"cities":                []map[string]string{{"city": "Phoenix", "state": "AZ"}},
+		"city":                  "Phoenix",
+		"state":                 "AZ",
+		"tag_filter":            TagFilter{TagSlugs: []string{"shoegaze"}},
+		"skip_active_filter":    true,
+		FilterMissingListenLink: true,
+		"a_filter_added_later":  true,
+	})
+
+	for _, key := range browsePlaceKeys {
+		if _, ok := scope[key]; ok {
+			t.Errorf("%q names a place and must not reach the breakdown", key)
+		}
+	}
+	for _, key := range []string{
+		"tag_filter", "skip_active_filter", FilterMissingListenLink, "a_filter_added_later",
+	} {
+		if _, ok := scope[key]; !ok {
+			t.Errorf("%q narrows the list and must reach the breakdown", key)
+		}
+	}
+}
 
 // The city facet's ordinal premise, one test per endpoint: under a given filter
 // set, each city's count is the total its list reports for that city, so the SUM
@@ -403,8 +433,8 @@ func (suite *ArtistServiceIntegrationTestSuite) createArtistWithListenLink(
 	name, city, state string,
 ) *catalogm.Artist {
 	artist := suite.createArtistInCity(name, city, state)
-	link := "https://open.spotify.com/artist/" + name
-	suite.Require().NoError(suite.db.Model(artist).Update("spotify", link).Error)
+	suite.Require().NoError(
+		setArtistLink(suite.db, artist, "spotify", "https://open.spotify.com/artist/"+name))
 	return artist
 }
 

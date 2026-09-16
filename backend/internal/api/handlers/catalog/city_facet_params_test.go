@@ -201,40 +201,18 @@ func TestArtistTagParamsMatch(t *testing.T) {
 		"Tags", "TagMatch")
 }
 
-// assertParamVocabularyMatches holds the named tag keys equal on a parameter the
-// two structs document differently. It is the weaker sibling of
-// assertParamsMatch, for a parameter whose doc legitimately diverges while the
-// values it accepts must not: what one endpoint refuses, the other must refuse.
-func assertParamVocabularyMatches(t *testing.T, list, facet reflect.Type, name string, keys ...string) {
-	t.Helper()
-	listField, ok := list.FieldByName(name)
-	if !ok {
-		t.Fatalf("%s lost its %s field", list.Name(), name)
-	}
-	facetField, ok := facet.FieldByName(name)
-	if !ok {
-		t.Fatalf("%s lost its %s field", facet.Name(), name)
-	}
-	for _, key := range keys {
-		want, got := listField.Tag.Get(key), facetField.Tag.Get(key)
-		if want != got {
-			t.Errorf("%s.%s %s drifted: list %q, facet %q", facet.Name(), name, key, want, got)
-		}
-	}
-}
-
 // The gap filter is the second one that drops the /artists activity gate, so the
 // facet has to accept it or its counts describe the gated catalogue under a
 // filter that lists only the bands with the gap.
 //
-// The doc is excluded deliberately: the list's explains how a named place is
-// read as a scene, and the facet has no place parameter for that to qualify.
-func TestArtistMissingParamVocabularyMatches(t *testing.T) {
-	assertParamVocabularyMatches(t,
+// Tag-for-tag like its neighbours, doc included: one doc covers both because the
+// clause about reading a named place as a scene is the half a caller needs to
+// know does NOT apply to the breakdown.
+func TestArtistMissingParamsMatch(t *testing.T) {
+	assertParamsMatch(t,
 		reflect.TypeOf(ListArtistsRequest{}),
 		reflect.TypeOf(GetArtistCitiesRequest{}),
-		"Missing",
-		"query", "required", "maxLength", "enum", "example")
+		"Missing")
 }
 
 func TestGetShowCitiesHandler_ThreadsTheTagFilterAndWindow(t *testing.T) {

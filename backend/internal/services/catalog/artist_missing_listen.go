@@ -79,6 +79,11 @@ func browseSkipsActiveGate(filters map[string]interface{}) bool {
 	return missingListenLinkEngaged(filters)
 }
 
+// browsePlaceKeys is every filters-map key that names a place. browseCityPairs
+// below is the reader of all three, and artistCitiesScope subtracts exactly this
+// set to turn a browse filter set into the scope of a per-place breakdown.
+var browsePlaceKeys = []string{"cities", "city", "state"}
+
 // browseCityPairs returns the (city, state) places a browse request names, from
 // either the multi-city filter or the single city/state pair. A `state` with no
 // `city` names no place: a state is not a scene.

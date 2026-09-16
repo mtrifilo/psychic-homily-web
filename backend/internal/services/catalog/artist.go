@@ -1005,34 +1005,29 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 	return entries, nil
 }
 
-// artistCitiesScope keeps the keys of a browse filter set that a per-city
-// breakdown may be narrowed by, and drops every key that names a place.
+// artistCitiesScope is a browse filter set with the place keys removed, which is
+// every narrowing a per-city breakdown may carry.
 //
-// skip_active_filter rides with the tag filter because it IS the tag filter's
-// second half: the two are set together at the boundary, and a facet that kept
-// one without the other counts a different set than the list.
+// Subtraction rather than an allowlist, because the two sets are not symmetric.
+// The place keys are the closed set: artistBrowseScope owns them, they are named
+// by browseCityPairs, and dropping them is what makes this response a breakdown
+// rather than a list of the one place already picked. The narrowings are open:
+// each is a rule the list applies, so a facet that did not carry one would count
+// a different population than the rows it filters, and a filter added to the
+// list would have to be remembered here to avoid it.
 //
-// The missing-listen-link filter travels for the same reason and carries its own
-// gate switch with it: browseSkipsActiveGate drops the activity gate for it as
-// well, so a facet that dropped the key would count the gated whole catalogue
-// under a filter that lists only the bands with the gap.
-//
-// What the key cannot carry here is the SCENE reading. A place named on the list
-// selects that scene's metro-aware roster; the place keys are dropped above,
-// because this response IS the per-place breakdown, so the counts are keyed on
-// the stored city string. Each city's count is therefore the list total for that
+// What no key can carry is the SCENE reading. A place named on the list selects
+// that scene's metro-aware roster; with the place keys gone the counts are keyed
+// on the stored city string, so each city's count is the list total for that
 // city as `?cities=` alone would match it, and the sum over every city is the
 // list total for no place at all.
 func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
-	scope := map[string]interface{}{}
-	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		scope["tag_filter"] = tf
+	scope := make(map[string]interface{}, len(filters))
+	for key, value := range filters {
+		scope[key] = value
 	}
-	if skip, ok := filters["skip_active_filter"].(bool); ok && skip {
-		scope["skip_active_filter"] = true
-	}
-	if missingListenLinkEngaged(filters) {
-		scope[FilterMissingListenLink] = true
+	for _, key := range browsePlaceKeys {
+		delete(scope, key)
 	}
 	return scope
 }
