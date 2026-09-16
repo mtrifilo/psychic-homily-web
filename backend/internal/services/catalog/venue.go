@@ -1287,6 +1287,11 @@ func (s *VenueService) venueListPredicates(filters contracts.VenueListFilters) f
 // GetVenuesWithShowCounts retrieves verified venues with their upcoming show
 // count, their next show and their last one, under filters.Sort.
 //
+// The second return is contracts.VenueListTotals: the room count and the sum of
+// those upcoming counts, both over the whole filtered set rather than the
+// returned page. A caption drawn from them therefore holds on every page of a
+// paged city, which a sum of the rows on screen cannot do.
+//
 // ONE BOUNDARY DECIDES ALL THREE. The count and the next-show pick are drawn on
 // shared.VenueLocalNightDateCondition and the last-show pick on that condition's
 // exact complement, so the count is above zero exactly when next_show is
@@ -1304,9 +1309,9 @@ func (s *VenueService) venueListPredicates(filters contracts.VenueListFilters) f
 // not the headline room, so for a bill split across two rooms the other room's
 // tally is drawn on that one's clock. It matters only where a page spans a
 // timezone line.
-func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
+func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, contracts.VenueListTotals, error) {
 	if s.db == nil {
-		return nil, 0, fmt.Errorf("database not initialized")
+		return nil, contracts.VenueListTotals{}, fmt.Errorf("database not initialized")
 	}
 
 	// Rejected rather than defaulted: the handler 422s an unknown sort before
@@ -1314,25 +1319,31 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// a differently ordered page that looks like the one it asked for.
 	orderBy, err := venueListOrderBy(filters.Sort)
 	if err != nil {
-		return nil, 0, err
+		return nil, contracts.VenueListTotals{}, err
 	}
 
 	now := time.Now().UTC()
 
-	// Build the base query with show count subquery
-	// This allows us to sort by show count while also paginating correctly
+	// The per-venue upcoming count, drawn once as a factory because BOTH
+	// statements below need it: the page projects and orders rows by it, and the
+	// totals sum it over the whole filtered set. Rendering it twice is how the
+	// caption above a page and the rows under it would come to count different
+	// sets.
+	//
 	// COUNT(*) counts distinct shows. Two things hold that: show_venues is keyed
 	// PRIMARY KEY (show_id, venue_id), so a show appears once per venue, and
 	// shared.VenueTZJoin is a LIMIT 1 lateral, so joining it cannot fan a row
 	// out either.
-	subquery := s.db.Table("show_venues").
-		Select("show_venues.venue_id, COUNT(*) as show_count").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Joins(shared.VenueTZJoin).
-		Where(shared.PublicShowPredicateSQL("shows")).
-		Where(venueListUncancelledSQL).
-		Where(shared.VenueLocalNightDateCondition).
-		Group("show_venues.venue_id")
+	upcomingCounts := func() *gorm.DB {
+		return s.db.Table("show_venues").
+			Select("show_venues.venue_id, COUNT(*) as show_count").
+			Joins("JOIN shows ON show_venues.show_id = shows.id").
+			Joins(shared.VenueTZJoin).
+			Where(shared.PublicShowPredicateSQL("shows")).
+			Where(venueListUncancelledSQL).
+			Where(shared.VenueLocalNightDateCondition).
+			Group("show_venues.venue_id")
+	}
 
 	// Start with verified venues only for public display. Neither lateral
 	// carries a bind parameter, so the only args in this statement are the
@@ -1341,25 +1352,41 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		Select("venues.*, "+venueListCountSQL+" as upcoming_show_count, "+
 			"next_show.show_id AS next_show_id, next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, next_show.is_cancelled AS next_show_is_cancelled, "+
 			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title, last_show.is_cancelled AS last_show_is_cancelled").
-		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
+		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", upcomingCounts()).
 		Joins(venueNextShowLateral).
 		Joins(venueLastShowLateral)
 
 	applyPredicates := s.venueListPredicates(filters)
 	query = applyPredicates(query)
 
-	// Counted over exactly the rows the list pages through: same applier, so the
-	// total under the list cannot describe a different set than the list.
-	var total int64
-	if err := applyPredicates(s.db.Table("venues")).Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
+	// BOTH captions in ONE statement, over exactly the rows the list pages
+	// through: same applier, so neither number can describe a different set than
+	// the list, and the two cannot describe different sets from each other.
+	//
+	// COUNT(*) still counts ROOMS beside the sum because the joined subquery is
+	// grouped by venue_id, so it contributes at most one row per venue. A room
+	// with nothing booked has no row there at all, and COALESCE makes it
+	// contribute zero rather than null.
+	var totalsRow struct {
+		RoomCount     int64
+		UpcomingShows int64
+	}
+	if err := applyPredicates(s.db.Table("venues")).
+		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", upcomingCounts()).
+		Select("COUNT(*) AS room_count, COALESCE(SUM("+venueListCountSQL+"), 0) AS upcoming_shows").
+		Scan(&totalsRow).Error; err != nil {
+		return nil, contracts.VenueListTotals{}, fmt.Errorf("failed to count venues: %w", err)
+	}
+	totals := contracts.VenueListTotals{
+		Venues:        totalsRow.RoomCount,
+		UpcomingShows: totalsRow.UpcomingShows,
 	}
 
 	// Get the page under the requested sort. venueListOrderBy owns the whole
 	// key, including the quiet-room block every sort ends with.
 	var venuesWithCount []VenueWithCount
 	if err := query.Order(orderBy).Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to get venues: %w", err)
+		return nil, contracts.VenueListTotals{}, fmt.Errorf("failed to get venues: %w", err)
 	}
 
 	// Build responses
@@ -1395,7 +1422,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		s.enrichVenueProvenance(responses, dataSources)
 	}
 
-	return responses, total, nil
+	return responses, totals, nil
 }
 
 // GetShowsForVenue retrieves a page of shows at a specific venue.

@@ -62,7 +62,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_ListsMemberCityVe
 
 	svc := suite.geoVenueService()
 	filters := contracts.VenueListFilters{City: "Phoenix", State: "AZ", MetroRollup: true}
-	resp, total, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
+	resp, totals, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
 
 	suite.Require().NoError(err)
 	suite.ElementsMatch(
@@ -71,7 +71,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_ListsMemberCityVe
 	)
 	// The total must be counted over the SAME rows the list pages through —
 	// a count query left on the old predicate would report 1 under 3 rows.
-	suite.Equal(int64(3), total)
+	suite.Equal(int64(3), totals.Venues)
 }
 
 // Without the opt-in, the endpoint keeps meaning the literal city: the venue
@@ -83,10 +83,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_OffKeepsPrincipal
 
 	svc := suite.geoVenueService()
 	filters := contracts.VenueListFilters{City: "Phoenix", State: "AZ"}
-	resp, total, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
+	resp, totals, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
 
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
+	suite.Equal(int64(1), totals.Venues)
 	suite.Require().Len(resp, 1)
 	suite.Equal("Crescent Ballroom", resp[0].Name)
 }
@@ -101,10 +101,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_NonMetroCityFalls
 
 	svc := suite.geoVenueService()
 	filters := contracts.VenueListFilters{City: "Montreal", State: "QC", MetroRollup: true}
-	resp, total, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
+	resp, totals, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
 
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
+	suite.Equal(int64(1), totals.Venues)
 	suite.Require().Len(resp, 1)
 	suite.Equal("Bar Le Ritz", resp[0].Name)
 }
@@ -123,11 +123,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_KeepsNullMetroPri
 
 	svc := suite.geoVenueService()
 	filters := contracts.VenueListFilters{City: "Phoenix", State: "AZ", MetroRollup: true}
-	resp, total, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
+	resp, totals, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
 
 	suite.Require().NoError(err)
 	suite.ElementsMatch([]string{"Backfill Gap Room", "Yucca Tap Room"}, venueNames(resp))
-	suite.Equal(int64(2), total)
+	suite.Equal(int64(2), totals.Venues)
 }
 
 // A bare city with no state can't be resolved to a metro without risking the
@@ -139,10 +139,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_IgnoredWithoutSta
 
 	svc := suite.geoVenueService()
 	filters := contracts.VenueListFilters{City: "Phoenix", MetroRollup: true}
-	resp, total, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
+	resp, totals, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
 
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
+	suite.Equal(int64(1), totals.Venues)
 	suite.Require().Len(resp, 1)
 	suite.Equal("Crescent Ballroom", resp[0].Name)
 }
@@ -187,10 +187,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestMetroRollup_PrivacyGateHoldsF
 
 	svc := suite.geoVenueService()
 	filters := contracts.VenueListFilters{City: "Phoenix", State: "AZ", MetroRollup: true}
-	resp, total, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
+	resp, totals, err := svc.GetVenuesWithShowCounts(filters, 50, 0)
 
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total, "the unverified member-city venue must not be listed")
+	suite.Equal(int64(1), totals.Venues, "the unverified member-city venue must not be listed")
 	suite.Require().Len(resp, 1)
 	suite.Equal("Yucca Tap Room", resp[0].Name)
 	suite.Nil(resp[0].StreetLatitude, "stale street geocode must not be served for a metro member")

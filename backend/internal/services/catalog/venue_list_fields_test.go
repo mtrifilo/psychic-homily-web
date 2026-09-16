@@ -328,10 +328,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Sorts
 		{contracts.VenueListSortNext, []string{"Soonest", "Busiest", "Aaa First", "Quiet Recent", "Quiet Old"}},
 	}
 	for _, tc := range cases {
-		resp, total, err := suite.venueService.GetVenuesWithShowCounts(
+		resp, totals, err := suite.venueService.GetVenuesWithShowCounts(
 			contracts.VenueListFilters{Sort: tc.sort}, 10, 0)
 		suite.Require().NoErrorf(err, "sort=%s", tc.sort)
-		suite.Equalf(int64(5), total, "sort=%s", tc.sort)
+		suite.Equalf(int64(5), totals.Venues, "sort=%s", tc.sort)
 		got := make([]string, 0, len(resp))
 		for _, r := range resp {
 			got = append(got, r.Name)
@@ -571,4 +571,105 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailF
 		"the bill is the bill of the show the row picked")
 	suite.Equal(0, row.ShowsThisWeek,
 		"the only night inside the window is cancelled, so the chip must not keep this room")
+}
+
+// =============================================================================
+// Integration: the list TOTALS
+// =============================================================================
+
+// TestGetVenuesWithShowCounts_UpcomingTotalSpansEveryPage is the ticket's
+// headline acceptance: the upcoming total describes the whole filtered set, so
+// a caption drawn from it says the same thing on every page.
+//
+// The rooms carry different counts and one is quiet, so a page's own rows sum
+// to a different number on each page: that is what makes the assertion mean
+// "not the page" rather than only "some number".
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_UpcomingTotalSpansEveryPage() {
+	user := suite.createTestUser()
+	busy := suite.createTestVenue("Totals Busy Room", "Phoenix", "AZ", true)
+	middling := suite.createTestVenue("Totals Middling Room", "Phoenix", "AZ", true)
+	suite.createTestVenue("Totals Quiet Room", "Phoenix", "AZ", true)
+	for i := 0; i < 3; i++ {
+		suite.createRailShow(busy.ID, user.ID, "Busy", time.Now().UTC().AddDate(0, 0, 3+i))
+	}
+	suite.createRailShow(middling.ID, user.ID, "Middling", time.Now().UTC().AddDate(0, 0, 5))
+
+	var pageSums []int64
+	for offset := 0; offset < 3; offset++ {
+		page, totals, err := suite.venueService.GetVenuesWithShowCounts(
+			contracts.VenueListFilters{}, 1, offset)
+		suite.Require().NoErrorf(err, "offset=%d", offset)
+		suite.Require().Lenf(page, 1, "offset=%d", offset)
+		suite.Equalf(int64(3), totals.Venues, "offset=%d", offset)
+		suite.Equalf(int64(4), totals.UpcomingShows,
+			"offset=%d: the upcoming total spans every page, quiet rooms contributing zero", offset)
+		pageSums = append(pageSums, int64(page[0].UpcomingShowCount))
+	}
+	suite.Equal([]int64{3, 1, 0}, pageSums,
+		"each page sums to something different, so the total above cannot be the page's own")
+}
+
+// TestGetVenuesWithShowCounts_UpcomingTotalNarrowsWithTheFilters pins the
+// total to the same set the rows are drawn from: the caption above a filtered
+// list counts what that list holds, never the catalogue behind it.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_UpcomingTotalNarrowsWithTheFilters() {
+	user := suite.createTestUser()
+	slug := tagSlugFor("venues-upcoming-total")
+	tagID := suite.createGenreTag(slug, slug)
+
+	phoenix := suite.createTestVenue("Totals PHX Room", "Phoenix", "AZ", true)
+	tucson := suite.createTestVenue("Totals TUC Room", "Tucson", "AZ", true)
+	unverified := suite.createTestVenue("Totals Unverified Room", "Phoenix", "AZ", false)
+	suite.tagVenue(phoenix.ID, tagID, user.ID)
+	suite.tagVenue(unverified.ID, tagID, user.ID)
+
+	for i := 0; i < 2; i++ {
+		suite.createRailShow(phoenix.ID, user.ID, "PHX", time.Now().UTC().AddDate(0, 0, 3+i))
+	}
+	suite.createRailShow(tucson.ID, user.ID, "TUC", time.Now().UTC().AddDate(0, 0, 4))
+	suite.createRailShow(unverified.ID, user.ID, "Hidden", time.Now().UTC().AddDate(0, 0, 5))
+
+	_, unfiltered, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), unfiltered.Venues, "the browse gate holds: an unverified room is outside the set")
+	suite.Equal(int64(3), unfiltered.UpcomingShows,
+		"the unverified room's night is outside the total as well as the list")
+
+	_, cityScoped, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Phoenix"}, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), cityScoped.Venues)
+	suite.Equal(int64(2), cityScoped.UpcomingShows, "a city scope counts that city's nights only")
+
+	_, tagScoped, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{TagSlugs: []string{slug}}, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), tagScoped.Venues)
+	suite.Equal(int64(2), tagScoped.UpcomingShows, "a tag scope counts the tagged rooms' nights only")
+}
+
+// TestGetVenuesWithShowCounts_UpcomingTotalCountsWhatTheRowsCount is the
+// agreement property: the total is the same number a reader would reach by
+// adding up every row, on the same boundary and with the same exclusions. A
+// cancelled night and a past one are both outside it.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_UpcomingTotalCountsWhatTheRowsCount() {
+	user := suite.createTestUser()
+	room := suite.createTestVenue("Totals Mixed Room", "Phoenix", "AZ", true)
+	other := suite.createTestVenue("Totals Other Room", "Phoenix", "AZ", true)
+
+	suite.createRailShow(room.ID, user.ID, "Standing", time.Now().UTC().AddDate(0, 0, 6))
+	suite.cancelShow(suite.createRailShow(room.ID, user.ID, "Called Off", time.Now().UTC().AddDate(0, 0, 7)))
+	suite.createRailShow(room.ID, user.ID, "Gone By", time.Now().UTC().AddDate(0, 0, -7))
+	suite.createRailShow(other.ID, user.ID, "Standing Too", time.Now().UTC().AddDate(0, 0, 8))
+
+	rows, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 50, 0)
+	suite.Require().NoError(err)
+
+	var summed int64
+	for _, r := range rows {
+		summed += int64(r.UpcomingShowCount)
+	}
+	suite.Equal(int64(2), summed, "a cancelled night and a past one are outside the rows' own counts")
+	suite.Equal(summed, totals.UpcomingShows,
+		"the total is what the rows add up to when one page holds them all")
 }

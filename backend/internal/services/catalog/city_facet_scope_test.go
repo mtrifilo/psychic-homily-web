@@ -130,11 +130,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_ScopedSumEqual
 	cities, err := suite.venueService.GetVenueCities(filters)
 	suite.Require().NoError(err)
 
-	_, total, err := suite.venueService.GetVenuesWithShowCounts(filters, 50, 0)
+	_, totals, err := suite.venueService.GetVenuesWithShowCounts(filters, 50, 0)
 	suite.Require().NoError(err)
 
-	suite.Equal(int64(3), total, "the tag should select exactly the three verified fixtures")
-	suite.Equal(total, sumVenueCityCounts(cities),
+	suite.Equal(int64(3), totals.Venues, "the tag should select exactly the three verified fixtures")
+	suite.Equal(totals.Venues, sumVenueCityCounts(cities),
 		"the sum of the scoped city counts is the list total under the same filters")
 
 	// The per-city halves, because a sum can agree while the split is wrong.
@@ -149,9 +149,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_ScopedSumEqual
 	// Each row is also the total the list reports for that city alone.
 	phoenixOnly := filters
 	phoenixOnly.Cities = []contracts.CityStateFilter{{City: "Phoenix", State: "AZ"}}
-	_, phoenixTotal, err := suite.venueService.GetVenuesWithShowCounts(phoenixOnly, 50, 0)
+	_, phoenixTotals, err := suite.venueService.GetVenuesWithShowCounts(phoenixOnly, 50, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(byCity["Phoenix"]), phoenixTotal)
+	suite.Equal(int64(byCity["Phoenix"]), phoenixTotals.Venues)
 }
 
 // The venue facet's exemption-free sum, exercised on the row that would create
@@ -174,11 +174,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_CountsAPlacele
 	cities, err := suite.venueService.GetVenueCities(filters)
 	suite.Require().NoError(err)
 
-	_, total, err := suite.venueService.GetVenuesWithShowCounts(filters, 50, 0)
+	_, totals, err := suite.venueService.GetVenuesWithShowCounts(filters, 50, 0)
 	suite.Require().NoError(err)
 
-	suite.Equal(int64(2), total)
-	suite.Equal(total, sumVenueCityCounts(cities),
+	suite.Equal(int64(2), totals.Venues)
+	suite.Equal(totals.Venues, sumVenueCityCounts(cities),
 		"an unplaced room is counted by the facet and by the list alike")
 
 	var empties int

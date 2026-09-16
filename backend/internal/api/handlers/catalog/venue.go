@@ -86,8 +86,12 @@ type ListVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.VenueWithShowCountResponse `json:"venues" doc:"List of venues with show counts"`
 		Total  int64                                   `json:"total" doc:"Total number of venues"`
-		Limit  int                                     `json:"limit" doc:"Limit used in query"`
-		Offset int                                     `json:"offset" doc:"Offset used in query"`
+		// Both totals span the whole filtered set, so a caption built from the
+		// pair says the same thing on every page. Summing the page's rows
+		// instead answers a different question on each page of a paged city.
+		UpcomingShowTotal int64 `json:"upcoming_show_total" doc:"Upcoming shows across every matching venue, not only this page: the sum of upcoming_show_count over the whole filtered set, on the same venue-local night boundary, cancelled nights excluded."`
+		Limit             int   `json:"limit" doc:"Limit used in query"`
+		Offset            int   `json:"offset" doc:"Offset used in query"`
 	}
 }
 
@@ -153,14 +157,15 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 		limit = 50
 	}
 
-	venues, total, err := h.venueService.GetVenuesWithShowCounts(filters, limit, req.Offset)
+	venues, totals, err := h.venueService.GetVenuesWithShowCounts(filters, limit, req.Offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch venues", err)
 	}
 
 	resp := &ListVenuesResponse{}
 	resp.Body.Venues = venues
-	resp.Body.Total = total
+	resp.Body.Total = totals.Venues
+	resp.Body.UpcomingShowTotal = totals.UpcomingShows
 	resp.Body.Limit = limit
 	resp.Body.Offset = req.Offset
 
