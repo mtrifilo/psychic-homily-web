@@ -32,13 +32,14 @@ import (
 //
 // COUNT surfaces also build through here, and are named separately so the scope
 // paragraph below stays true of the list surfaces it is about:
-//   - the scene roster's per-band upcoming count and next-show pick
-//     (catalog/scene_roster_upcoming.go), on the MIDNIGHT bound
-//     (VenueLocalDateCondition).
 //   - the scene page's headline upcoming_show_count (catalog/scene.go
-//     GetSceneDetail) and its rooms leaderboard (catalog/scene_venues.go), on
-//     the NIGHT bound (VenueLocalNightDateCondition), which is the rule the
-//     tonight bucket those two sit beside is drawn on.
+//     GetSceneDetail), its rooms leaderboard (catalog/scene_venues.go) and the
+//     roster's per-band upcoming count and next-show pick
+//     (catalog/scene_roster_upcoming.go), on the NIGHT bound
+//     (VenueLocalNightDateCondition), which is the rule the tonight bucket those
+//     three sit beside is drawn on. One BOUNDARY, not one number: the roster's
+//     figure is per band and the other two are scene-wide, and the roster alone
+//     excludes cancelled shows.
 //   - the scenes DIRECTORY's upcoming_count (catalog/scene.go ListScenes), on
 //     that same NIGHT bound, because a card links to the page printing the
 //     headline above. The two draw one boundary over different room sets: the
@@ -436,10 +437,11 @@ func VenueLocalDateCondition(timeFilter string) string {
 //
 // Before it, the night in progress is still the PREVIOUS calendar date: a night
 // is named by the date it BEGAN on, so at 01:00 on Saturday the night people are
-// out on is Friday's. The scene page's headline count and its rooms leaderboard
-// are bounded here rather than at midnight, so they and the tonight listing they
-// sit beside name the same night. Its per-band roster count is NOT: the
-// inventory at the top of this file says which surface takes which bound.
+// out on is Friday's. Three scene figures are bounded here rather than at
+// midnight, so they and the tonight listing they sit beside name the same night:
+// the headline figure, the rooms leaderboard and the per-band roster count. Not
+// every number the scene serves is one of them, and the inventory at the top of
+// this file is what says which surface takes which bound.
 // catalog/scene_day.go's tonightDate is the Go statement of the same rule and
 // reads this constant rather than restating it.
 //

@@ -6,6 +6,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // The scene roster's per-band upcoming figures (PSY-1813) — run as part of the
@@ -74,36 +75,43 @@ func (suite *SceneServiceIntegrationTestSuite) createCancelledShow(
 	return show
 }
 
-// THE BOUNDARY PIN.
+// THE INSTANT PIN.
 //
-// A date-only listing for tonight sits at the start of its own venue-local day,
-// so by the time anyone reads the page it is an instant in the PAST. Under an
-// `event_date > now()` filter the band's count drops it and the band reads as
-// having nothing booked on the evening it plays. Bounding at venue-local
-// midnight is what keeps it countable all day.
+// A listing sits behind the reader's clock from the first moment of its own
+// venue-local date. Under an `event_date > now()` filter the band's count drops
+// it and the band reads as having nothing booked on the evening it plays. A
+// boundary drawn on the venue's CALENDAR is what keeps it countable.
 //
-// The past fixture is one hour before that boundary, on the venue's PREVIOUS
-// calendar day. A filter that rounded to a UTC day, or that used a fixed
-// offset, would put the two fixtures on the same side of the line.
-func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_UpcomingBoundedAtVenueLocalStartOfDay() {
+// It does NOT discriminate WHICH calendar boundary. Between nightStartHour and
+// midnight the night bound and venue-local midnight select the same rows from
+// these fixtures, so a revert of the bound alone leaves this green for most of
+// the day. The bound is owned by the night pin below.
+//
+// The counted fixture is the first instant of the night-start date and the
+// excluded one is 20:00 on the date before it. The two are four hours apart on
+// the venue's clock and land on the SAME UTC date, so a filter that rounded to a
+// UTC day, or that used a fixed offset, would put them on one side of the line.
+func (suite *SceneServiceIntegrationTestSuite) TestGetActiveArtists_UpcomingHoldsAListingBehindTheClock() {
 	venue, _, userID := suite.createRosterScene()
 	suite.createArtist("Saguaro Teeth")
 
-	todayStart := suite.venueLocalMidnight(0)
-	suite.Require().True(todayStart.Before(time.Now()),
-		"fixture is only meaningful while venue-local midnight today is already past")
+	loc, tonight := sceneNightFixture()
+	nightDateStart := showInstantOn(tonight, 0, loc)
+	suite.Require().True(nightDateStart.Before(time.Now()),
+		"fixture is only meaningful once the date it sits on has begun")
 	band := suite.rosterArtistByName(suite.rosterUpcomingFor("Phoenix", "AZ"), "Saguaro Teeth")
 	suite.Require().Equal(0, band.UpcomingShowCount, "fixture starts from nothing booked")
 
 	artistID := band.ID
-	suite.createApprovedShow("date-only tonight", venue.ID, artistID, userID, todayStart)
-	suite.createApprovedShow("last night", venue.ID, artistID, userID, todayStart.Add(-time.Hour))
+	suite.createApprovedShow("the night-start date", venue.ID, artistID, userID, nightDateStart)
+	suite.createApprovedShow("the night before", venue.ID, artistID, userID,
+		dateOnlyShowInstant(tonight.addDays(-1), loc))
 
 	got := suite.rosterArtistByName(suite.rosterUpcomingFor("Phoenix", "AZ"), "Saguaro Teeth")
 	suite.Equal(1, got.UpcomingShowCount,
-		"tonight's date-only show counts all day; last night's does not count at all")
+		"the night-start date counts all through it; the date before does not count at all")
 	suite.Require().NotNil(got.NextShow)
-	suite.Equal(todayStart.Format("2006-01-02"), got.NextShow.EventDate,
+	suite.Equal(tonight.String(), got.NextShow.EventDate,
 		"the date printed is the venue-local calendar day the filter selected on")
 }
 
@@ -263,4 +271,93 @@ func (suite *SceneServiceIntegrationTestSuite) TestEnrichRosterUpcoming_EmptyPag
 	suite.createRosterScene()
 	suite.NoError(suite.sceneService.EnrichRosterUpcoming("Phoenix", "AZ", nil))
 	suite.NoError(suite.sceneService.EnrichRosterUpcoming("Phoenix", "AZ", []*contracts.SceneArtistResponse{}))
+}
+
+// THE NIGHT PIN: the roster draws the scene's boundary, not the site's.
+//
+// The figure this fills is served with the scene's headline count, its rooms
+// leaderboard and the directory card that opens the page, and all four draw ONE
+// boundary. Bounded at venue-local MIDNIGHT this one alone lets go of the
+// night-start date, so between midnight and nightStartHour the band states one
+// show fewer than the headline.
+//
+// What the fixture separates is `venue-local date >= night-start date` from
+// `>= venue-local today`, which differ only while a room's own clock is inside
+// those hours. BOTH rooms are placed in a zone that is inside them right now,
+// because both date a fixture, so the case discriminates at every wall clock
+// rather than for the few hours a day the scene's own zone is.
+//
+// The scene stays Phoenix: the boundary is judged on the ROOM's stored zone
+// while the scene grouping is city and state, so the two are independent here.
+// It says nothing about the day payload, which resolves the SCENE's zone, and
+// nothing about odd offsets or a DST transition inside the window, which the
+// shared condition's own tests own.
+//
+// The cross-surface equalities hold over THIS fixture, which has one band and
+// two verified rooms. They are a drift guard on the boundary, not a claim that
+// a per-band figure and a scene-wide total answer the same question.
+func (suite *SceneServiceIntegrationTestSuite) TestEnrichRosterUpcoming_DrawsTheSceneBoundaryAtTheNightEdge() {
+	zone, nightDate, onNightDate, dateBefore := suite.sceneNightWindowFixture()
+	primary, secondary, userID := suite.createRosterScene()
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id IN ?", []uint{primary.ID, secondary.ID}).
+		Update("timezone", zone).Error)
+	band := suite.createArtist("Night Band")
+
+	// A date-only listing for the night-start date, and one for the date before
+	// it, which no bound on this page holds.
+	onNight := suite.createApprovedShow("On The Night Date", primary.ID, band.ID, userID, onNightDate)
+	suite.createApprovedShow("The Date Before", secondary.ID, band.ID, userID, dateBefore)
+	suite.createApprovedShow("Three Nights Out", secondary.ID, band.ID, userID,
+		onNightDate.AddDate(0, 0, 3))
+
+	// The premise, asserted rather than assumed: the seeded row is one the
+	// MIDNIGHT bound has already dropped and the NIGHT bound still holds.
+	// RowsAffected is checked because a probe that matched nothing would leave
+	// both booleans false and satisfy the midnight assertion vacuously, which is
+	// the shape of the failure this block exists to retire.
+	var bounds struct {
+		MidnightHolds bool `gorm:"column:midnight_holds"`
+		NightHolds    bool `gorm:"column:night_holds"`
+	}
+	probe := suite.db.Raw(`
+		SELECT `+shared.VenueLocalDateCondition("upcoming")+` AS midnight_holds,
+		       `+shared.VenueLocalNightDateCondition+` AS night_holds
+		FROM shows `+shared.VenueTZJoin+`
+		WHERE shows.id = ?
+	`, onNight.ID).Scan(&bounds)
+	suite.Require().NoError(probe.Error)
+	suite.Require().Equal(int64(1), probe.RowsAffected, "the probe must read the seeded row")
+	suite.Require().False(bounds.MidnightHolds, "the midnight bound has let the fixture go")
+	suite.Require().True(bounds.NightHolds, "the night bound still holds it")
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	got := suite.rosterArtistByName(suite.rosterUpcomingFor("Phoenix", "AZ"), "Night Band")
+	suite.Equal(2, got.UpcomingShowCount, "the row on the night-start date and the one three nights out")
+	suite.Equal(detail.Stats.UpcomingShowCount, got.UpcomingShowCount,
+		"the band's figure and the scene headline draw one boundary")
+	suite.Equal(scenes[0].UpcomingShowCount, got.UpcomingShowCount,
+		"and so does the card that opens that page")
+
+	// The rooms leaderboard is the third surface the shared inventory groups
+	// with these, so it belongs in the same chain: one room holds the row on the
+	// night-start date, the other the one three nights out, and the row a date
+	// earlier reaches neither.
+	suite.Require().Len(detail.Venues, 2, "the scene tracks exactly the two seeded rooms")
+	byRoom := map[string]int{}
+	for _, room := range detail.Venues {
+		byRoom[room.Name] = room.UpcomingShowCount
+	}
+	suite.Equal(1, byRoom["Valley Bar"], "the row on the night-start date, which only the night bound holds")
+	suite.Equal(1, byRoom["The Rebel Lounge"], "the row three nights out, and not the one a date earlier")
+
+	suite.Require().NotNil(got.NextShow)
+	suite.Equal(onNight.ID, got.NextShow.ID, "the soonest of that set is the row on the night-start date")
+	suite.Equal(nightDate, got.NextShow.EventDate,
+		"the date printed is the venue-local date the filter selected on")
 }
