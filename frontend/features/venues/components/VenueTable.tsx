@@ -148,7 +148,20 @@ const VenueRow = memo(function VenueRow({
         isHovered && 'outline outline-1 outline-offset-[-1px] outline-primary'
       )}
     >
-      <td role="cell" className={cn(leadCellClass, 'col-start-1 row-start-1')}>
+      {/* The room name never wraps at table widths. `DenseTable` is
+          `table-layout: auto`, where a cell's `max-width` is a hint the
+          algorithm may ignore, so every column that can hold its content on one
+          line takes its preferred width and the only column that CAN wrap
+          absorbs the deficit. That column is this one, and a wrapped room name
+          is the first thing a reader scans. Below `sm` the mobile grid gives
+          the name its own line, so the rule starts at `sm`. */}
+      <td
+        role="cell"
+        className={cn(
+          leadCellClass,
+          'col-start-1 row-start-1 sm:whitespace-nowrap'
+        )}
+      >
         {venue.slug ? (
           <Link
             href={`/venues/${venue.slug}`}
@@ -175,12 +188,23 @@ const VenueRow = memo(function VenueRow({
         role="cell"
         className={cn(
           trailCellClass,
-          'col-start-1 row-start-2 text-muted-foreground sm:max-w-[14rem]'
+          'col-start-1 row-start-2 text-muted-foreground'
         )}
       >
-        {/* The clip lives on a block child: `text-overflow` does nothing on an
-            auto-layout table cell, which sizes to its content instead. */}
-        <span className="block truncate">{place}</span>
+        {/* Both the clip AND its bound live on a block child: `text-overflow`
+            does nothing on an auto-layout table cell, and a `max-width` there
+            is a hint that cell sizing may ignore. On this span the browser
+            honours it, which is what stops the longest street address from
+            taking width the room name needs.
+
+            The full address stays in the DOM, so assistive tech reads it
+            whole and the `title` carries it for a pointer. */}
+        <span
+          className="block truncate sm:max-w-[7.5rem]"
+          title={place || undefined}
+        >
+          {place}
+        </span>
       </td>
 
       <td

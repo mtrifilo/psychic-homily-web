@@ -20,9 +20,22 @@ test.use({
 
 const PHOENIX = '/venues?cities=Phoenix%2CAZ'
 
-const ROOMS = [
+// The long name and the long address are the pair the column widths have to
+// hold: the frame's widest sample room ("Arizona Financial Theatre") beside a
+// street address long enough to take the width the name needs.
+const LONG_NAME = 'Arizona Financial Theatre'
+const LONG_ADDRESS = '2303 East Indian School Road, Suite 400'
+
+const ROOMS: {
+  id: number
+  name: string
+  lat: number
+  lng: number
+  upcoming: number
+  address?: string
+}[] = [
   { id: 9001, name: 'Mapped Room One', lat: 33.4484, lng: -112.074, upcoming: 12 },
-  { id: 9002, name: 'Mapped Room Two', lat: 33.4942, lng: -112.0299, upcoming: 3 },
+  { id: 9002, name: LONG_NAME, lat: 33.4942, lng: -112.0299, upcoming: 3, address: LONG_ADDRESS },
   { id: 9003, name: 'Mapped Quiet Room', lat: 33.4152, lng: -111.9315, upcoming: 0 },
 ]
 
@@ -48,7 +61,7 @@ async function stubRooms(page: Page) {
             id: room.id,
             slug: `mapped-room-${room.id}`,
             name: room.name,
-            address: '1 Test St',
+            address: room.address ?? '1 Test St',
             city: 'Phoenix',
             state: 'AZ',
             timezone: 'America/Phoenix',
@@ -169,6 +182,35 @@ test.describe('Venues mini Atlas', () => {
     for (const name of [/zoom in/i, /zoom out/i]) {
       await expect(pane.getByRole('button', { name })).toBeVisible()
     }
+  })
+
+  test('the table still fits its rooms on one line each at 1280', async ({
+    page,
+  }) => {
+    // 1280 is the narrowest width the pane appears at, so it is where the table
+    // has the least room: 688px beside the 368px pane and its gap. The room
+    // name is the column that wraps when another takes more than its share.
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await stubRooms(page)
+    await page.goto(PHOENIX)
+    await tableIsUp(page)
+    await expect(page.getByTestId('venue-mini-atlas')).toBeVisible()
+
+    const longRow = page.locator('tbody tr[data-venue-row="9002"]')
+    const shortRow = page.locator('tbody tr[data-venue-row="9001"]')
+    const longBox = await longRow.boundingBox()
+    const shortBox = await shortRow.boundingBox()
+    expect(longBox).not.toBeNull()
+    expect(shortBox).not.toBeNull()
+
+    // Same height as a short-name row means one line, not two.
+    expect(longBox!.height).toBeCloseTo(shortBox!.height, 0)
+    await expect(longRow.getByRole('link', { name: LONG_NAME })).toBeVisible()
+
+    // The address that would have taken that width is clipped, and carries the
+    // whole of itself for a pointer and for assistive tech.
+    const address = longRow.locator(`[title="${LONG_ADDRESS}"]`)
+    await expect(address).toHaveText(LONG_ADDRESS)
   })
 
   test('a row hover marks that room and no other', async ({ page }) => {
