@@ -23,6 +23,7 @@ import {
   type Family,
 } from '@/app/sitemap-shards'
 
+
 /**
  * Which document shape was served.
  *
@@ -164,12 +165,13 @@ export const SHARED_CLAIMANTS: Record<string, Family[]> = Object.fromEntries(
  * BEFORE the path rules because their path IS the bare prefix, which the
  * single-segment rule would otherwise count as a listing page.
  */
-const QUERY_FAMILIES: { prefix: string; param: string; family: Family }[] =
-  SITEMAP_FAMILIES.flatMap(family => {
-    const param = FAMILY_QUERY_PARAMS[family]
-    if (!param) return []
-    return [{ prefix: FAMILY_URL_PREFIXES[family], param, family }]
+const QUERY_FAMILIES = Object.entries(FAMILY_QUERY_PARAMS).map(
+  ([family, param]) => ({
+    prefix: FAMILY_URL_PREFIXES[family as Family],
+    param: param as string,
+    family: family as Family,
   })
+)
 
 /** The `/scenes` prefix without its slash, as `classifyLoc` compares segments. */
 const bareScenesPrefix = FAMILY_URL_PREFIXES.scenes.replace(/^\//, '')
@@ -211,7 +213,7 @@ export function classifyLoc(loc: string): LocBucket {
   // `/venues` bare is the listing page in the `pages` shard, and `/venues?cities=`
   // with an empty value addresses no city.
   for (const { prefix, param, family } of QUERY_FAMILIES) {
-    if (path.replace(/\/$/, '') !== prefix) continue
+    if (path !== prefix && path !== `${prefix}/`) continue
     if (url.searchParams.get(param)) return family
   }
 

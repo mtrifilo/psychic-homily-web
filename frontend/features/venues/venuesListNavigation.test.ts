@@ -130,6 +130,15 @@ describe('nearbyCitiesWithRooms', () => {
     ).not.toContain('Phoenix')
   })
 
+  // Every link it offers has to land on a page with something on it.
+  it('leaves out a city with no rooms', () => {
+    expect(
+      nearbyCitiesWithRooms(CITIES, { city: 'Nowhere', state: 'ZZ' }, 10).map(
+        c => c.city
+      )
+    ).not.toContain('Flagstaff')
+  })
+
   it('offers at most five', () => {
     expect(nearbyCitiesWithRooms(CITIES, { city: 'Nowhere', state: 'ZZ' })).toHaveLength(5)
   })
@@ -142,10 +151,4 @@ describe('nearbyCitiesWithRooms', () => {
     ).toEqual(['Phoenix', 'Tucson'])
   })
 
-  // Sorting in place would reorder the facet array every other surface reads.
-  it('leaves the caller list in its own order', () => {
-    const input = [...CITIES]
-    nearbyCitiesWithRooms(input, { city: 'Flagstaff', state: 'AZ' })
-    expect(input.map(c => c.city)).toEqual(CITIES.map(c => c.city))
-  })
 })

@@ -79,11 +79,9 @@ import "time"
 //
 // One family addresses a surface by QUERY rather than by path: the venue
 // directory scoped to one city lives at /venues?cities=City,ST. Its
-// SitemapEntry.Slug is the raw, UNENCODED filter value ("Phoenix,AZ"), and the
-// generator is what percent-encodes it once and joins it to the prefix as a
-// query string. Encoding here instead would be encoded a second time on the way
-// into the document, and the backend has no business knowing which of a
-// family's URLs are paths and which are queries.
+// SitemapEntry.Slug is the raw, UNENCODED filter value ("Phoenix,AZ"); the
+// generator encodes it exactly once. See familyLoc in the frontend, which owns
+// that step.
 type SitemapEntry struct {
 	Slug      string    `json:"slug"`
 	UpdatedAt time.Time `json:"updated_at"`

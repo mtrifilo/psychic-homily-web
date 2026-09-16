@@ -695,23 +695,25 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 // generator percent-encodes it once on its way into the document; see the
 // query-slug note on contracts.SitemapEntry for why the encoding lives there.
 //
-// The set is exactly the unfiltered GetVenueCities facet, because both are
-// drawn through venueBrowseGate: a city the directory offers is a city this
-// family announces, and a city that loses its last verified room leaves both
-// together. That shared gate is what keeps the two from disagreeing, so a
-// future browse condition belongs on it rather than on either query.
+// THE SET IS THE DIRECTORY'S OWN CITY FACET, and it is drawn through the same
+// applier rather than through a restated predicate: venueListPredicates over
+// venueCitiesScope is what GetVenueCities reads, and venue.go records that the
+// applier is what stops the page, its total and its facet from describing three
+// different sets. Announcing a city the picker does not offer would publish a
+// URL the page answers with noindex, so this is the fourth reader of that same
+// set rather than a fourth definition of it.
 //
-// Rows with an empty city or state are dropped. GetVenueCities deliberately
-// keeps them, because its numbers have to sum to the list's total, but an empty
-// half builds "?cities=,AZ", which names no city and filters nothing.
+// Rows with an empty city or state are dropped, which is the ONE way this
+// narrows the facet. GetVenueCities keeps them, because its numbers have to sum
+// to the list's total, but an empty half builds "?cities=,AZ", which names no
+// city and filters nothing.
 //
 // UpdatedAt is MAX(venue.updated_at) within the city, the closest durable "this
 // page's content changed" signal, matching venueYearEntries and
 // showsMonthEntries. It moves on a room's own edit rather than on a show's: the
 // rows this page carries ARE venues.
 //
-// Unlike the entity families this is NOT one row per table row, so entriesFor
-// cannot serve it: the grain is (city, state) and the slug is composite.
+// The grain is (city, state), so entriesFor cannot serve it.
 func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
 	type row struct {
 		City      string    `gorm:"column:city"`
@@ -719,10 +721,12 @@ func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.Site
 		UpdatedAt time.Time `gorm:"column:updated_at"`
 	}
 
+	browsable := NewVenueService(s.db).venueListPredicates(
+		venueCitiesScope(contracts.VenueListFilters{}),
+	)
+
 	var rows []row
-	err := s.db.WithContext(ctx).
-		Table("venues").
-		Where(venueBrowseGate, true).
+	err := browsable(s.db.WithContext(ctx).Table("venues")).
 		Where("venues.city <> '' AND venues.state <> ''").
 		Select("venues.city AS city, venues.state AS state, MAX(venues.updated_at) AS updated_at").
 		Group("venues.city, venues.state").
@@ -738,11 +742,9 @@ func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.Site
 			UpdatedAt: r.UpdatedAt,
 		})
 	}
-	// Deterministic order, so two fetches of an unchanged catalogue diff
-	// cleanly - the same reason entriesFor sorts. Sorted on the assembled slug
-	// rather than in SQL because the slug is assembled here, and the two orders
-	// differ wherever one city name is a prefix of another (',' sorts below
-	// every letter, so "Mesa,AZ" precedes "Mesa Verde,CO").
+	// Sorted on the ASSEMBLED slug rather than in SQL, because the two orders
+	// differ wherever one city name is a prefix of another: ',' sorts below
+	// every letter, so "Mesa,AZ" precedes "Mesa Verde,CO".
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
 }

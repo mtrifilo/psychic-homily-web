@@ -1,13 +1,13 @@
 import type { Metadata } from 'next'
 import {
   buildCitiesParam,
-  cityKey,
   cityLabel,
   parseCitiesParam,
 } from '@/components/filters/cityParamsFormat'
 import type { CityState } from '@/components/filters'
-import { clampPage, MAX_ARCHIVE_PAGE } from '@/features/shows/showArchive'
-import { VENUES_ROOT } from '@/features/venues/venuesListNavigation'
+import { MAX_ARCHIVE_PAGE } from '@/features/shows/showArchive'
+import { archivePageNumber } from '@/features/shows/showArchive.server'
+import { facetCityFor, VENUES_ROOT } from '@/features/venues/venuesListNavigation'
 import { listRootCanonical, venuesCityCanonical } from '@/lib/seo/siteMetadata'
 
 /** The directory's title when it is not about one city. */
@@ -48,41 +48,40 @@ export interface VenuesScope {
 }
 
 /**
- * Resolve `?cities=` against the facet.
+ * Resolve a selection against the facet.
  *
- * The facet's spelling wins over the URL's, matched case-insensitively, for the
- * same reason `VenueList` resolves its heading that way: `?cities=` is free text
- * off the URL, and it reaches the `<title>`, the description and the canonical.
- * Taking the matched row's spelling means a hand-crafted link cannot put
- * arbitrary text into any of the three.
+ * `facetCityFor` is the shared rule, so this page's `<title>` and its `<h1>`
+ * cannot disagree about which city the URL names. What is decided HERE is only
+ * what a miss MEANS to a crawler, which is a question the heading does not ask.
  *
  * A null `facet` means the facet could not be read; see VenuesScopeKind.
  */
 export function resolveVenuesScope(
-  citiesParam: string | undefined,
+  selected: CityState[],
   facet: FacetCity[] | null
 ): VenuesScope {
-  const selected = parseCitiesParam(citiesParam)
-  if (selected.length !== 1) return { kind: 'generic', city: null }
-  if (!facet) return { kind: 'generic', city: null }
+  if (selected.length !== 1 || !facet) return { kind: 'generic', city: null }
+  const city = facetCityFor(selected, facet)
+  return city ? { kind: 'city', city } : { kind: 'unknown', city: null }
+}
 
-  const wanted = cityKey(selected[0]).toLowerCase()
-  const match = facet.find(c => cityKey(c).toLowerCase() === wanted)
-  if (!match) return { kind: 'unknown', city: null }
-  return { kind: 'city', city: { city: match.city, state: match.state } }
+/** The cities `?cities=` names, in the wire format every surface shares. */
+export function parseVenuesCities(citiesParam: string | undefined): CityState[] {
+  return parseCitiesParam(citiesParam)
 }
 
 /**
- * The page in view, from `?page=`.
+ * The page in view, bounded the way the list bounds it, so the canonical names
+ * the page the reader is actually on rather than the number they typed.
  *
- * Clamped the way `VenueList` clamps it, so the canonical names the page the
- * reader is actually on rather than the number they typed. A value that is not
- * a number at all is page one.
+ * Through the shared server-side derivation rather than a `parseInt` of its
+ * own: the browser reads `?page=` with nuqs, and the two spell some values
+ * differently (`archivePageNumber` records which).
  */
-export function resolveVenuesPage(pageParam: string | undefined): number {
-  const parsed = Number.parseInt(pageParam ?? '', 10)
-  if (!Number.isFinite(parsed)) return 1
-  return clampPage(parsed, MAX_ARCHIVE_PAGE)
+export function resolveVenuesPage(
+  searchParams: Record<string, string | string[] | undefined>
+): number {
+  return archivePageNumber(searchParams, MAX_ARCHIVE_PAGE)
 }
 
 /**
@@ -99,49 +98,45 @@ export function buildVenuesMetadata(
   scope: VenuesScope,
   page: number
 ): Metadata {
-  if (scope.kind === 'city' && scope.city) {
-    const label = cityLabel(scope.city)
-    const title = `Venues in ${label}`
-    const description = `Live-music rooms in ${label}: upcoming shows, quiet rooms, links.`
-    const canonical = venuesCityCanonical(
-      VENUES_ROOT,
-      buildCitiesParam([scope.city]),
-      page
-    )
-    return {
-      title,
-      description,
-      alternates: { canonical },
-      openGraph: {
-        title: `${title} | Psychic Homily`,
-        description,
-        url: canonical,
-        type: 'website',
-      },
-    }
-  }
+  const named = scope.kind === 'city' && scope.city ? cityLabel(scope.city) : null
 
-  const canonical = listRootCanonical(VENUES_ROOT)
+  const title = named ? `Venues in ${named}` : VENUES_GENERIC_TITLE
+  const description = named
+    ? `Live-music rooms in ${named}: upcoming shows, quiet rooms, links.`
+    : VENUES_GENERIC_DESCRIPTION
+  const canonical =
+    scope.kind === 'city' && scope.city
+      ? venuesCityCanonical(VENUES_ROOT, buildCitiesParam([scope.city]), page)
+      : listRootCanonical(VENUES_ROOT)
+
   return {
-    title: VENUES_GENERIC_TITLE,
-    description: VENUES_GENERIC_DESCRIPTION,
+    title,
+    description,
     alternates: { canonical },
     // A city with no verified rooms is a real page with nothing on it: it stays
     // reachable and its links stay followable, and it asks not to be indexed.
-    // Every other generic state is the directory itself, which is indexable.
+    // Every other state is the directory itself, which is indexable.
     ...(scope.kind === 'unknown'
       ? { robots: { index: false, follow: true } }
       : {}),
+    // The same URL as the canonical: a shared link and the indexed page are one
+    // address.
     openGraph: {
-      title: `${VENUES_GENERIC_TITLE} | Psychic Homily`,
-      description: VENUES_GENERIC_DESCRIPTION,
-      url: VENUES_ROOT,
+      title: `${title} | Psychic Homily`,
+      description,
+      url: canonical,
       type: 'website',
     },
   }
 }
 
-/** The first value of a Next search param, which may arrive as a list. */
+/**
+ * The first value of a Next search param, which may arrive as a list.
+ *
+ * FIRST rather than "a repeat is invalid", because that is what the browser
+ * does: `useSearchParams().get('cities')` returns the first value, so a
+ * repeated parameter has to name the same page on both sides.
+ */
 export function firstParam(
   value: string | string[] | undefined
 ): string | undefined {

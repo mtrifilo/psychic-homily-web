@@ -79,6 +79,36 @@ export function venuesCityHref(
   return `${VENUES_ROOT}?${next.toString()}`
 }
 
+/**
+ * The city a selection is ABOUT, as the FACET spells it, or null.
+ *
+ * ONE definition, read by both sides of the page: `VenueList` names the `<h1>`
+ * and the breadcrumb with it, and `generateMetadata` decides the `<title>`, the
+ * canonical and the `robots` off the same answer. Two implementations would let
+ * the heading and the title disagree about which city the page is, with only
+ * one of them guarded.
+ *
+ * Canonical rather than as-typed, and that is the guard: `?cities=`, `?city=`
+ * and `?state=` are free text off the URL and they reach all of the above.
+ * Taking the matched row's spelling means a hand-crafted link cannot put
+ * arbitrary text into any of them; an unmatched value still filters the list,
+ * because the wire contract is shared with every other surface, but the page
+ * falls back to naming no city.
+ *
+ * Matched case-insensitively, so `?cities=phoenix,az` resolves to the facet's
+ * spelling rather than falling back. More than one selected city has no single
+ * answer, so it is null as well.
+ */
+export function facetCityFor(
+  selected: readonly CityState[],
+  facet: readonly { city: string; state: string }[]
+): CityState | null {
+  if (selected.length !== 1) return null
+  const wanted = cityKey(selected[0]).toLowerCase()
+  const match = facet.find(c => cityKey(c).toLowerCase() === wanted)
+  return match ? { city: match.city, state: match.state } : null
+}
+
 /** How many other cities a city with no rooms offers as somewhere to go. */
 export const NEARBY_CITY_COUNT = 5
 
@@ -91,8 +121,18 @@ export const NEARBY_CITY_COUNT = 5
  * computed here. Sharing a state is the only proximity signal the payload
  * carries. Ties break on the city name so the list is stable between renders.
  *
+ * NOT `suggestAlternativeCities` (features/shows/suggestCities), which answers
+ * the same question for `/shows`. That one ranks by haversine when the payload
+ * carries centroids and falls back to busiest-only when it does not, and its
+ * fallback order is pinned by a test. The venue facet has no centroids, so the
+ * distance branch could never run here, and the same-state tier is not a
+ * behaviour `/shows` has. Once the venue facet serves centroids the two want to
+ * become one function, which is a change to both surfaces rather than to this
+ * one.
+ *
  * The subject city is excluded: it is the one the reader has already been told
- * is empty.
+ * is empty. A city with no rooms is excluded too, so every link offered lands
+ * somewhere with something on it.
  */
 export function nearbyCitiesWithRooms(
   cities: CityWithCount[],
@@ -101,7 +141,7 @@ export function nearbyCitiesWithRooms(
 ): CityWithCount[] {
   const excluded = cityKey(subject).toLowerCase()
   return cities
-    .filter(c => cityKey(c).toLowerCase() !== excluded)
+    .filter(c => c.count > 0 && cityKey(c).toLowerCase() !== excluded)
     .sort((a, b) => {
       const aHome = a.state === subject.state ? 0 : 1
       const bHome = b.state === subject.state ? 0 : 1

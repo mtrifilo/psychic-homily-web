@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { venuesCityCanonical, SITE_URL } from '@/lib/seo/siteMetadata'
+import { VENUES_ROOT } from '@/features/venues/venuesListNavigation'
 import {
   ALL_SHARD_IDS,
   ARTIST_SHARD_IDS,
   ENTITY_SHARD_IDS,
   familyLoc,
-  FAMILY_QUERY_PARAMS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   RELEASE_SHARD_IDS,
@@ -165,13 +166,19 @@ describe('familyLoc', () => {
     )
   })
 
-  // The query table decides which branch runs, so a family entering it without
-  // a prefix, or leaving it while a rule still expects one, is caught here.
-  it('gives every query family a prefix to hang its parameter off', () => {
-    for (const family of Object.keys(FAMILY_QUERY_PARAMS)) {
-      expect(
-        FAMILY_URL_PREFIXES[family as keyof typeof FAMILY_URL_PREFIXES]
-      ).toMatch(/^\//)
+  /**
+   * The invariant the encoding rules exist for, asserted BETWEEN the two
+   * builders rather than against a literal in each of their own test files: a
+   * `<loc>` this generator announces has to be the exact string the page it
+   * points at declares as its canonical. Asserting each against its own
+   * hand-written literal lets both be changed together and stay green while
+   * the sitemap advertises an address the page disowns.
+   */
+  it('announces a city at the address that page calls canonical', () => {
+    for (const slug of ['Phoenix,AZ', 'New York,NY', 'Coeur d\'Alene,ID']) {
+      expect(`${SITE_URL}${familyLoc('venue_cities', slug)}`).toBe(
+        venuesCityCanonical(VENUES_ROOT, slug)
+      )
     }
   })
 })

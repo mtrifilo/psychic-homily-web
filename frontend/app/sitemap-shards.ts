@@ -170,7 +170,7 @@ void _assertEveryWireValueServed
  * Families served by more than one document, and the ids those documents use.
  *
  * A family absent from this table is served by a single shard whose id IS the
- * family name, which is the case for seven of the ten.
+ * family name, which is the case for nine of the twelve.
  *
  * Typed `readonly WireFamily[]`, not `readonly string[]`: an id written here
  * that the backend does not accept would be fetched, 422'd, and degraded to an
@@ -329,10 +329,16 @@ export const FAMILY_QUERY_PARAMS: Partial<Record<Family, string>> = {
 /**
  * The site-relative URL one entry of `family` is announced at.
  *
- * The single owner of the path-vs-query shape: the generator builds `<loc>`
- * values with it, and lib/sitemap-monitor classifies served URLs back with
- * FAMILY_QUERY_PARAMS above, so neither can be changed without the other
- * failing to compile or failing its guard test.
+ * The single owner of the SITEMAP's path-vs-query shape: the generator builds
+ * `<loc>` values with it, and lib/sitemap-monitor classifies served URLs back
+ * with FAMILY_QUERY_PARAMS above, so neither can be changed without the other
+ * failing its guard test.
+ *
+ * The PAGE's own address is built elsewhere — `venuesCityHref` for a link,
+ * `venuesCityCanonical` for the canonical — and the three have to agree byte
+ * for byte. `sitemap-shards.test.ts` asserts this one against the canonical
+ * builder directly rather than against a literal, so a change to either side
+ * fails rather than silently advertising an address the page disowns.
  */
 export function familyLoc(family: Family, slug: string): string {
   const prefix = FAMILY_URL_PREFIXES[family]

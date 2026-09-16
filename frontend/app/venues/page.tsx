@@ -4,7 +4,6 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueList } from '@/features/venues'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type { VenueCitiesResponse } from '@/features/venues/types'
-import { parseCitiesParam } from '@/components/filters/cityParamsFormat'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
@@ -13,6 +12,7 @@ import { getVenuesForMetadata } from './venuesMetadata'
 import {
   buildVenuesMetadata,
   firstParam,
+  parseVenuesCities,
   resolveVenuesPage,
   resolveVenuesScope,
 } from './venuesPageMetadata'
@@ -47,13 +47,14 @@ export async function generateMetadata({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }): Promise<Metadata> {
   const params = await searchParams
-  const citiesParam = firstParam(params.cities)
-  const namesOneCity = parseCitiesParam(citiesParam).length === 1
-  const facet = namesOneCity ? await fetchCityFacet() : null
+  const selected = parseVenuesCities(firstParam(params.cities))
+  // Only a URL naming exactly one city has a spelling to look up, so the bare
+  // directory pays nothing for this.
+  const facet = selected.length === 1 ? await fetchCityFacet() : null
 
   return buildVenuesMetadata(
-    resolveVenuesScope(citiesParam, facet?.cities ?? null),
-    resolveVenuesPage(firstParam(params.page))
+    resolveVenuesScope(selected, facet?.cities ?? null),
+    resolveVenuesPage(params)
   )
 }
 

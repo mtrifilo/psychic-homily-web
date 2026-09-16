@@ -20,6 +20,7 @@
 
 import { parseAsInteger } from 'nuqs/server'
 import { toPageNumber } from '@/components/shared/paginationChrome'
+import { clampPage } from './showArchive'
 
 /**
  * The parser the archives read `?page=` with, on the SERVER.
@@ -66,4 +67,24 @@ export function archiveIsFirstPage(
 ): boolean {
   const parsed = archivePageParser.parseServerSide(searchParams.page)
   return toPageNumber(parsed, 1) === 1
+}
+
+/**
+ * WHICH page a URL is asking for, bounded by the surface's own maximum.
+ *
+ * The same two steps as {@link archiveIsFirstPage} — the nuqs parse, then
+ * {@link toPageNumber} inside {@link clampPage} — carried through to the number
+ * rather than collapsed to a boolean. A surface that RENDERS the page ordinal
+ * (a canonical naming `?page=N`, a heading, a caption) needs it, and reaching
+ * for `Number.parseInt` instead is the third-copy trap the module header warns
+ * about: `parseInt('0x10', 10)` is 0 where nuqs's own `parseInt('0x10')` is 16,
+ * so the server would name a different page than the browser renders.
+ *
+ * `maxPage` is the caller's, because the bound is per surface.
+ */
+export function archivePageNumber(
+  searchParams: Record<string, string | string[] | undefined>,
+  maxPage: number
+): number {
+  return clampPage(archivePageParser.parseServerSide(searchParams.page), maxPage)
 }
