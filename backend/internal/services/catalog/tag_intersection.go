@@ -161,8 +161,8 @@ func (s *TagService) intersectGroup(entityType string, filter TagFilter, preview
 	}
 
 	// Preview IDs: page 1 in roughly the default sort the per-type browse uses.
-	// artist/venue order by upcoming-show count DESC — the busiest entities
-	// first — which needs a joined count column, so those types get the join
+	// artist/venue order by upcoming-show count DESC, the busiest entities
+	// first, which needs a joined count column, so those types get the join
 	// here rather than a plain ORDER string.
 	var ids []uint
 	previewQuery := s.applyPreviewOrder(filtered().Select(idColumn), entityType)

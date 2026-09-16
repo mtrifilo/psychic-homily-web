@@ -255,7 +255,7 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 	bills, err := s.venueNextShowBills(showIDs)
 	if err != nil {
 		// The bill is the nicer half of the line, but the date still reads on
-		// its own — degrade to a billless date rather than dropping the show.
+		// its own, so degrade to a billless date rather than dropping the show.
 		slog.Default().Error("venue next-show bill lookup failed; rendering dates without bills", "error", err)
 		bills = nil
 	}

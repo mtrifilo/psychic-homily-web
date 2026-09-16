@@ -1345,7 +1345,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	}
 
 	// Atlas venue-rail payload (the next show's bill, next-7-days slice,
-	// dominant genre, all-ages tag) for the venues on THIS page — four batched
+	// dominant genre, all-ages tag) for the venues on THIS page: four batched
 	// scans, no N+1, all best effort. The next show itself is the pick this
 	// statement already made, handed over as nextShowIDs.
 	// Opt-in: the venue browse page is this endpoint's other caller and renders
