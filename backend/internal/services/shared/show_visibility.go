@@ -402,6 +402,22 @@ func PublicShowPredicateSQL(alias string) string {
 	return "(" + alias + ".status = " + publicShowStatusLiteral + ")"
 }
 
+// UncancelledShowPredicateSQL restricts a show set to the nights that are still
+// going ahead.
+//
+// NOT a visibility gate, unlike the predicates above it: a cancelled show keeps
+// its row and stays readable on its own page, badged. This answers a different
+// question, the one a surface asks when it counts what a room has coming or
+// names the next show that will happen, so each surface opts in. Several do
+// not, deliberately: the charts rank on shows that were booked.
+//
+// `alias` is the shows table as the caller spells it, for the same reason the
+// predicates above take one. It renders no placeholder, so the fragment carries
+// no bind parameters.
+func UncancelledShowPredicateSQL(alias string) string {
+	return "(" + alias + ".is_cancelled = false)"
+}
+
 // PublicShowRevisionsSQL is VisibleShowRevisionsSQL's public tier, inlined.
 //
 // Shares the revision skeleton and the EXISTS shape with the bound form, so the

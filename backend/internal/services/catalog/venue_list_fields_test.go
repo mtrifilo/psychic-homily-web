@@ -418,9 +418,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestVenueLocalNightConditions_Par
 
 // cancelShow marks a created show cancelled, the state a promoter's
 // cancellation leaves the row in.
-func (suite *VenueServiceIntegrationTestSuite) cancelShow(show *catalogm.Show) *catalogm.Show {
+func (suite *VenueServiceIntegrationTestSuite) cancelShow(show *catalogm.Show) {
 	suite.Require().NoError(suite.db.Model(show).Update("is_cancelled", true).Error)
-	return show
 }
 
 // TestGetVenuesWithShowCounts_NextShowSkipsACancelledNight is the ticket's
@@ -507,4 +506,6 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailF
 	suite.Equal("Still On", row.NextShowTitle)
 	suite.Equal([]string{"Standing Band"}, row.NextShowArtists,
 		"the bill is the bill of the show the row picked")
+	suite.Equal(0, row.ShowsThisWeek,
+		"the only night inside the window is cancelled, so the chip must not keep this room")
 }

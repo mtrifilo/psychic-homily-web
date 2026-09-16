@@ -924,8 +924,11 @@ type VenueWithCount struct {
 // SQL, so they are non-NULL on any row that matched, and the nil checks are
 // scan-safety rather than a second signal.
 //
-// IsCancelled is read from the picked row rather than asserted here, so the wire
-// value states what the show is and not what the pick's filter implies.
+// IsCancelled is projected by the pick and scanned, rather than left at its zero
+// value, so the field cannot contradict the filter that selected the row. The
+// picks exclude cancelled shows, so it is false on every ref built here today;
+// the cost of carrying it is what keeps a later change to either pick from
+// having to remember this field.
 func venueListShowRef(date *time.Time, slug, title *string, cancelled *bool) *contracts.VenueListShowRef {
 	if date == nil {
 		return nil
@@ -952,28 +955,27 @@ func venueListShowRef(date *time.Time, slug, title *string, cancelled *bool) *co
 // projection counting the same thing.
 const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 
-// venueListLiveShowSQL keeps cancelled shows out of every set this directory
-// row is built from: the upcoming count, the next-show pick and the last-show
-// pick. A directory row answers when a room's next show WILL happen and when it
-// last DID, so a cancelled night is neither.
+// venueListUncancelledSQL is this directory's opt-in to
+// shared.UncancelledShowPredicateSQL, rendered once for the three sets a row is
+// built from: the upcoming count, the next-show pick and the last-show pick. A
+// row answers when a room's next show WILL happen and when it last DID, so a
+// cancelled night is neither.
 //
-// It applies to all three together, which is what keeps the count and the picks
-// on one set: the count stays above zero exactly when next_show is present.
+// The venue page's own show list takes the opposite side of the same rule, and
+// lists a cancelled show with a badge: a reader looking up one night has to be
+// told it is off.
 //
-// The venue page's own show list is the other half of this contract and takes
-// the opposite side. It lists a cancelled show with a badge, because a reader
-// looking up a specific night needs to be told it is off.
-//
-// `shows` is the unaliased table in both the count subquery and the picks, so
-// one fragment serves both. It carries no bind parameter.
-const venueListLiveShowSQL = "shows.is_cancelled = false"
+// `shows` is the unaliased table in the count subquery and in both picks, so
+// one rendering serves all three.
+var venueListUncancelledSQL = shared.UncancelledShowPredicateSQL("shows")
 
 // venueListShowPickLateral renders the lateral that picks ONE show per venue
 // row: the first under `order`, among the venue's approved, uncancelled shows
 // satisfying `dateCondition`.
 //
 // `alias` names the lateral, so the outer query reads its columns as
-// <alias>.show_id / .event_date / .slug / .title / .is_cancelled, and it must be unique across the outer
+// <alias>.show_id / .event_date / .slug / .title / .is_cancelled, and it must be
+// unique across the outer
 // query. `svAlias` need only be unique inside this subquery: shared.VenueTZJoin
 // nests its own `sv` one scope deeper, where a repeat would shadow rather than
 // collide. Distinct names per call keep an EXPLAIN attributable to the pick it
@@ -996,7 +998,7 @@ func venueListShowPickLateral(alias, svAlias, dateCondition, order string) strin
 			` + shared.VenueTZJoin + `
 			WHERE ` + svAlias + `.venue_id = venues.id
 			  AND ` + shared.PublicShowPredicateSQL("shows") + `
-			  AND ` + venueListLiveShowSQL + `
+			  AND ` + venueListUncancelledSQL + `
 			  AND ` + dateCondition + `
 			ORDER BY ` + order + `
 			LIMIT 1
@@ -1237,10 +1239,9 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // VenueWithShowCountResponse.UpcomingShowCount carries what that boundary means
 // to a reader and which other surfaces share it.
 //
-// ONE FILTER NARROWS ALL THREE ALIKE: venueListLiveShowSQL, so a cancelled show
-// is in neither the count nor either pick. It is applied to the three together
-// for the same reason the boundary is: a count drawn on a wider set than the
-// pick beside it would leave a row reading "1 upcoming" with nothing to name.
+// venueListUncancelledSQL narrows all three alike, for the same reason the
+// boundary decides all three: a count drawn on a wider set than the pick beside
+// it would leave a row reading "1 upcoming" with nothing to name.
 //
 // The zone that dates a show is its PRIMARY venue's, not necessarily the venue
 // whose row is being counted, because the boundary is the repo's shared one.
@@ -1274,7 +1275,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
 		Joins(shared.VenueTZJoin).
 		Where(shared.PublicShowPredicateSQL("shows")).
-		Where(venueListLiveShowSQL).
+		Where(venueListUncancelledSQL).
 		Where(shared.VenueLocalNightDateCondition).
 		Group("show_venues.venue_id")
 

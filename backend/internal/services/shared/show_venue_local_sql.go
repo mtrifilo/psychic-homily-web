@@ -48,8 +48,11 @@ import (
 //   - the /venues directory's per-room upcoming_show_count and its next_show
 //     pick (catalog/venue.go GetVenuesWithShowCounts), on the NIGHT bound, and
 //     its last_show pick on that bound's exact complement
-//     (VenueLocalNightPastDateCondition). One room's count there and its count
-//     on the scene page's rooms leaderboard are the same number.
+//     (VenueLocalNightPastDateCondition). It draws the SAME boundary as the
+//     scene page's rooms leaderboard over a narrower set of shows: that
+//     directory also excludes cancelled nights (UncancelledShowPredicateSQL)
+//     and the leaderboard does not, so one room's two counts differ by the
+//     cancelled shows in the window.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and

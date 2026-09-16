@@ -1057,8 +1057,10 @@ type VenueWithShowCountResponse struct {
 	// truthfully.
 	NextShow *VenueListShowRef `json:"next_show,omitempty" doc:"The soonest upcoming approved show at this venue that is not cancelled. Absent when the venue has none, which is exactly when upcoming_show_count is zero."`
 	LastShow *VenueListShowRef `json:"last_show,omitempty" doc:"The most recent past approved show at this venue that is not cancelled. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
-	// ShowsThisWeek counts the venue's approved shows in the next seven days,
-	// driving the rail's "Next 7 days" filter chip and its header stat.
+	// ShowsThisWeek counts the venue's approved, uncancelled shows in the next
+	// seven days, driving the rail's "Next 7 days" filter chip and its header
+	// stat. Cancelled shows are outside it, as they are outside
+	// UpcomingShowCount and both picks.
 	//
 	// ROLLING FROM THE REQUEST INSTANT, so it is NOT a subset of
 	// UpcomingShowCount beside it, which is bounded at the venue-local night: a
