@@ -29,4 +29,21 @@ describe('useVenueCities cache key', () => {
       hashKey(venueQueryKeys.cities)
     )
   })
+
+  it('lands on that same key for an EMPTY scope, which is what the page passes', async () => {
+    // `VenueList` always passes a scope object; on a page with no tag filter it
+    // is `{ tags: [], tagMatch: 'all' }`. That has to hash to the base key or
+    // the seed above is never hit on the one URL it exists for.
+    const queryClient = createTestQueryClient()
+    const { result } = renderHook(
+      () => useVenueCities({ tags: [], tagMatch: 'all' }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const registered = queryClient.getQueryCache().getAll()
+    expect(registered).toHaveLength(1)
+    expect(registered[0].queryHash).toBe(hashKey(venueQueryKeys.cities))
+  })
 })

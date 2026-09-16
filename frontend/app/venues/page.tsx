@@ -44,6 +44,12 @@ function VenueListLoading() {
  * the IP-geo read) on a route that stays ISR, so the server has no scoped list
  * to fetch. An unscoped first page would answer only an explicit `?cities=all`.
  *
+ * The facet entry seeded here is the UNSCOPED one. The counts are scoped to the
+ * list's tag filter, so a `?tags=` deep link asks for a different entry, misses
+ * this one, and renders its loading state on both passes. Seeding the filtered
+ * entry would mean reading `searchParams` in this body, which costs the route
+ * its prerendered shell.
+ *
  * A failed fetch renders `<VenueList />` unseeded rather than throwing; the
  * component fetches for itself and owns the error state (see
  * `fetchListPayload`).
