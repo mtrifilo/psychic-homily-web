@@ -83,9 +83,10 @@ function VenueRow({
     ? `${isQuiet ? 'last: ' : ''}${date}${!isQuiet && time ? ` ${time}` : ''}`
     : null
 
-  // The place line: the street when the scope already names the city, and the
-  // city AHEAD of the street when it does not. Leading with it is what keeps it
-  // out of the clip: it is the only thing telling two rows apart there.
+  // The ADDRESS cell: the street when the scope already names the city, and the
+  // city AHEAD of the street when it does not. Leading with the city is what
+  // keeps it out of the clip: it is the only thing telling two rows apart
+  // there.
   const cityLine = venue.city && venue.state ? `${venue.city}, ${venue.state}` : ''
   const place = showCity
     ? [cityLine, venue.address].filter(Boolean).join(' · ')
@@ -294,7 +295,7 @@ export function VenueTable({
             onSortChange={onSortChange}
           />
           <th role="columnheader" scope="col">
-            Neighbourhood
+            Address
           </th>
           <SortableHeader
             sortKey="next"

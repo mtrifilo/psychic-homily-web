@@ -40,6 +40,10 @@ test.describe('Venues directory', () => {
     await expect(
       page.getByRole('columnheader', { name: /upcoming shows/i })
     ).toBeVisible()
+    // The place column names the field it carries.
+    await expect(
+      page.getByRole('columnheader', { name: /^address$/i })
+    ).toBeVisible()
     await expect(
       page.getByRole('link', { name: 'Crescent Ballroom' })
     ).toHaveAttribute('href', '/venues/crescent-ballroom-phoenix-az')

@@ -55,7 +55,7 @@ const mockUseVenues = vi.fn()
 const mockUseVenueCities = vi.fn()
 vi.mock('../hooks/useVenues', () => ({
   useVenues: (opts: unknown) => mockUseVenues(opts),
-  useVenueCities: () => mockUseVenueCities(),
+  useVenueCities: (scope: unknown) => mockUseVenueCities(scope),
 }))
 
 // The derived-city source. Mocked so a test can put the hook in each of its
@@ -737,6 +737,30 @@ describe('VenueList', () => {
       render(<VenueList />)
       expect(screen.queryByTestId('tag-facet-panel')).not.toBeInTheDocument()
       expect(screen.queryByTestId('tag-facet-sheet')).not.toBeInTheDocument()
+    })
+
+    it('counts the cities under the same tag filter the rows are read with', () => {
+      anonWithGeo()
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ tags: 'diy,punk', tag_match: 'any' })
+      )
+      mockUseTags.mockReturnValue({
+        data: { tags: [{ slug: 'punk', usage_count: 12 }] },
+      })
+
+      render(<VenueList />)
+
+      // The picker's numbers and the sheet's apply button describe the rows
+      // this page is about to render, not the whole catalogue. The city
+      // selection is deliberately NOT in the scope: the response IS the
+      // per-city breakdown.
+      expect(mockUseVenueCities).toHaveBeenCalledWith({
+        tags: ['diy', 'punk'],
+        tagMatch: 'any',
+      })
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ tags: ['diy', 'punk'], tagMatch: 'any' })
+      )
     })
 
     it('is shown once a venue tag has been applied to something', () => {
