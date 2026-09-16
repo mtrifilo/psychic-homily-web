@@ -37,10 +37,9 @@ import (
 //     roster's per-band upcoming count and next-show pick
 //     (catalog/scene_roster_upcoming.go), on the NIGHT bound
 //     (VenueLocalNightDateCondition), which is the rule the tonight bucket those
-//     three sit beside is drawn on. They draw ONE boundary over different row
-//     sets: the roster excludes cancelled shows and the other two do not, so a
-//     band's figure and the headline differ by the cancelled shows in the
-//     window.
+//     three sit beside is drawn on. One BOUNDARY, not one number: the roster's
+//     figure is per band and the other two are scene-wide, and the roster alone
+//     excludes cancelled shows.
 //   - the scenes DIRECTORY's upcoming_count (catalog/scene.go ListScenes), on
 //     that same NIGHT bound, because a card links to the page printing the
 //     headline above. The two draw one boundary over different room sets: the

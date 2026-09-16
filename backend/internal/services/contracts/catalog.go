@@ -2487,8 +2487,8 @@ type SceneArtistResponse struct {
 	//
 	// The boundary is the venue's own NIGHT (shared.VenueLocalNightDateCondition),
 	// the bound SceneStats.UpcomingShowCount and SceneVenueSummary.UpcomingShowCount
-	// are drawn on; see the first of those for what that set holds. A show leaves
-	// this count on those terms rather than at its start instant, so between
+	// are drawn on; see the first of those for which nights it holds. A show
+	// leaves this count on those terms rather than at its start instant, so between
 	// midnight and shared.NightStartHour it still holds the whole of the previous
 	// local date and NextShow can therefore carry that PREVIOUS date. Other
 	// upcoming figures the scene serves take the midnight bound instead,

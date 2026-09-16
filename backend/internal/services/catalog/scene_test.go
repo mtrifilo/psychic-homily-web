@@ -1972,47 +1972,69 @@ func sceneNightFixture() (*time.Location, calendarDate) {
 // process's could disagree with it across a local midnight. The candidates are
 // timezone_names_snapshot, the same set shared.VenueTZJoin's read guard trusts,
 // so a zone returned here is one the boundary honours rather than one it sends
-// to the state map, and the excluded prefixes are the ones carrying a fixed
-// offset rather than a DST rule.
+// to the state map. Of the excluded names, `Etc/` and `SystemV/` carry fixed
+// offsets, `right/` counts leap seconds and would shift every instant, `posix/`
+// duplicates the whole catalog, and the required `/` drops the bare legacy
+// spellings such as `UTC` and `EST5EDT`.
 //
-// The instants are 20:00 local, utils.DateOnlyEventHour, and NOT local midnight.
-// Midnight is not a moment in every zone: several transition at 00:00, where it
-// is either skipped or ambiguous, and one second before an ambiguous midnight
-// can resolve back onto the date it was meant to precede. No zone transitions at
-// 20:00, so both instants name the date they were built from.
+// The instants are 20:00 local, utils.DateOnlyEventHour, and NOT local midnight,
+// which is not a moment in every zone: several transition at 00:00, where it is
+// skipped or ambiguous, and one second before an ambiguous midnight can resolve
+// back onto the date it was meant to precede. Rather than assert a tzdata fact
+// about 20:00 in prose, the helper checks the property it needs: that each
+// instant reads back on the date it was built from.
+//
+// Dates are rendered by to_char rather than cast to text, for the reason
+// batchRosterUpcoming states at its own projection: `::text` renders a date
+// through DateStyle, and these strings are compared against that pinned one.
 func (suite *SceneServiceIntegrationTestSuite) sceneNightWindowFixture() (zone, nightDate string, onNightDate, dateBefore time.Time) {
 	suite.Require().Greater(nightStartHour, 2,
 		"the window below is empty unless nightStartHour leaves an hour of margin at each edge")
 	var picked struct {
-		Zone        string    `gorm:"column:zone"`
-		NightDate   string    `gorm:"column:night_date"`
-		OnNightDate time.Time `gorm:"column:on_night_date"`
-		DateBefore  time.Time `gorm:"column:date_before"`
+		Zone            string    `gorm:"column:zone"`
+		NightDate       string    `gorm:"column:night_date"`
+		DateBeforeDate  string    `gorm:"column:date_before_date"`
+		OnNightDate     time.Time `gorm:"column:on_night_date"`
+		DateBefore      time.Time `gorm:"column:date_before"`
+		OnNightReadBack string    `gorm:"column:on_night_read_back"`
+		BeforeReadBack  string    `gorm:"column:before_read_back"`
 	}
 	// The upper edge stops an hour short of nightStartHour so the zone cannot
 	// leave the window between this read and the assertions.
 	read := suite.db.Raw(`
 		SELECT name AS zone,
-		       night_date::text AS night_date,
-		       ((night_date::timestamp + make_interval(hours => ?)) AT TIME ZONE name) AS on_night_date,
-		       (((night_date - 1)::timestamp + make_interval(hours => ?)) AT TIME ZONE name) AS date_before
+		       to_char(night_date, 'YYYY-MM-DD') AS night_date,
+		       to_char(night_date - 1, 'YYYY-MM-DD') AS date_before_date,
+		       on_night AS on_night_date,
+		       before_night AS date_before,
+		       to_char((on_night AT TIME ZONE name)::date, 'YYYY-MM-DD') AS on_night_read_back,
+		       to_char((before_night AT TIME ZONE name)::date, 'YYYY-MM-DD') AS before_read_back
 		FROM (
-			SELECT name,
-			       (((now() AT TIME ZONE name) - make_interval(hours => ?))::date) AS night_date
-			FROM timezone_names_snapshot
-			WHERE name LIKE '%/%'
-			  AND name NOT LIKE 'Etc/%'
-			  AND name NOT LIKE 'SystemV/%'
-			  AND name NOT LIKE 'posix/%'
-			  AND name NOT LIKE 'right/%'
-			  AND extract(hour FROM (now() AT TIME ZONE name)) BETWEEN 1 AND ?
-			ORDER BY name
-			LIMIT 1
-		) zone_in_window
+			SELECT name, night_date,
+			       ((night_date::timestamp + make_interval(hours => ?)) AT TIME ZONE name) AS on_night,
+			       (((night_date - 1)::timestamp + make_interval(hours => ?)) AT TIME ZONE name) AS before_night
+			FROM (
+				SELECT name,
+				       (((now() AT TIME ZONE name) - make_interval(hours => ?))::date) AS night_date
+				FROM timezone_names_snapshot
+				WHERE name LIKE '%/%'
+				  AND name NOT LIKE 'Etc/%'
+				  AND name NOT LIKE 'SystemV/%'
+				  AND name NOT LIKE 'posix/%'
+				  AND name NOT LIKE 'right/%'
+				  AND extract(hour FROM (now() AT TIME ZONE name)) BETWEEN 1 AND ?
+				ORDER BY name
+				LIMIT 1
+			) zone_in_window
+		) instants
 	`, utils.DateOnlyEventHour, utils.DateOnlyEventHour, nightStartHour, nightStartHour-2).Scan(&picked)
 	suite.Require().NoError(read.Error)
 	suite.Require().Equal(int64(1), read.RowsAffected,
 		"no zone in the snapshot reads inside the night window")
+	suite.Require().Equal(picked.NightDate, picked.OnNightReadBack,
+		"the instant must read back on the night-start date it was built from")
+	suite.Require().Equal(picked.DateBeforeDate, picked.BeforeReadBack,
+		"the instant must read back on the date before it")
 	return picked.Zone, picked.NightDate, picked.OnNightDate, picked.DateBefore
 }
 
