@@ -351,6 +351,7 @@ export function ArtistList() {
             cities={cities}
             selectedCities={selectedCities}
             onFilterChange={handleFilterChange}
+            resultNoun={{ singular: 'artist', plural: 'artists' }}
           />
         )}
         {/* The reader arrives here from a sentence on the scene page, so the

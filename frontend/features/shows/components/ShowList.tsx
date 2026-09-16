@@ -633,6 +633,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
             cities={cities}
             selectedCities={selectedCities}
             onFilterChange={handleFilterChange}
+            resultNoun={{ singular: 'show', plural: 'shows' }}
           >
             {isAuthenticated && selectionDiffersFromFavorites && (
               <SaveDefaultsButton

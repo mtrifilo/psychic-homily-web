@@ -3,7 +3,6 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CityFilters,
-  SOFT_KEYBOARD_CONTENT_CLASS,
   type CityWithCount,
   type CityState,
 } from './CityFilters'
@@ -34,7 +33,7 @@ const manyCities: CityWithCount[] = [
 describe('CityFilters', () => {
   it('renders the combobox trigger', () => {
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
     )
 
     expect(screen.getByTestId('city-filter-combobox')).toBeInTheDocument()
@@ -49,7 +48,7 @@ describe('CityFilters', () => {
   // separately - either one lost alone leaves a control that looks adopted.
   it('marks the combobox trigger as a click-replay root', () => {
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
     )
 
     expect(screen.getByTestId('city-filter-combobox')).toHaveAttribute(
@@ -64,7 +63,7 @@ describe('CityFilters', () => {
     )
 
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
     )
 
     expect(replayRef).toHaveBeenCalledWith(
@@ -76,7 +75,7 @@ describe('CityFilters', () => {
   it('opens the dropdown when combobox is clicked', async () => {
     const user = userEvent.setup()
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
     )
 
     await user.click(screen.getByTestId('city-filter-combobox'))
@@ -90,7 +89,7 @@ describe('CityFilters', () => {
   it('shows cities sorted by count descending in dropdown', async () => {
     const user = userEvent.setup()
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
     )
 
     await user.click(screen.getByTestId('city-filter-combobox'))
@@ -108,7 +107,7 @@ describe('CityFilters', () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={onChange} />
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={onChange} resultNoun={{ singular: 'venue', plural: 'venues' }} />
     )
 
     await user.click(screen.getByTestId('city-filter-combobox'))
@@ -125,6 +124,7 @@ describe('CityFilters', () => {
         cities={cities}
         selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
         onFilterChange={onChange}
+        resultNoun={{ singular: 'venue', plural: 'venues' }}
       />
     )
 
@@ -143,6 +143,7 @@ describe('CityFilters', () => {
         cities={cities}
         selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
         onFilterChange={onChange}
+        resultNoun={{ singular: 'venue', plural: 'venues' }}
       />
     )
 
@@ -165,6 +166,7 @@ describe('CityFilters', () => {
             { city: 'Mesa', state: 'AZ' },
           ]}
           onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
         />
       )
 
@@ -183,6 +185,7 @@ describe('CityFilters', () => {
             { city: 'Mesa', state: 'AZ' },
           ]}
           onFilterChange={onChange}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
         />
       )
 
@@ -199,6 +202,7 @@ describe('CityFilters', () => {
           cities={cities}
           selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
           onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
         />
       )
 
@@ -214,6 +218,7 @@ describe('CityFilters', () => {
             { city: 'Mesa', state: 'AZ' },
           ]}
           onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
         />
       )
 
@@ -231,6 +236,7 @@ describe('CityFilters', () => {
             { city: 'Mesa', state: 'AZ' },
           ]}
           onFilterChange={onChange}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
         />
       )
 
@@ -240,7 +246,7 @@ describe('CityFilters', () => {
 
     it('does not show clear button when no cities are selected', () => {
       render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
       )
 
       expect(screen.queryByTestId('city-filter-all')).not.toBeInTheDocument()
@@ -250,7 +256,7 @@ describe('CityFilters', () => {
   describe('popular cities row', () => {
     it('shows popular cities when none are selected', () => {
       render(
-        <CityFilters cities={manyCities} selectedCities={[]} onFilterChange={vi.fn()} />
+        <CityFilters cities={manyCities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
       )
 
       expect(screen.getByTestId('popular-cities')).toBeInTheDocument()
@@ -269,6 +275,7 @@ describe('CityFilters', () => {
           cities={manyCities}
           selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
           onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
         />
       )
 
@@ -279,7 +286,7 @@ describe('CityFilters', () => {
       const user = userEvent.setup()
       const onChange = vi.fn()
       render(
-        <CityFilters cities={manyCities} selectedCities={[]} onFilterChange={onChange} />
+        <CityFilters cities={manyCities} selectedCities={[]} onFilterChange={onChange} resultNoun={{ singular: 'venue', plural: 'venues' }} />
       )
 
       await user.click(screen.getByTestId('popular-city-denver-co'))
@@ -294,7 +301,7 @@ describe('CityFilters', () => {
       ]
 
       render(
-        <CityFilters cities={fewCities} selectedCities={[]} onFilterChange={vi.fn()} />
+        <CityFilters cities={fewCities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }} />
       )
 
       expect(screen.queryByTestId('popular-cities')).not.toBeInTheDocument()
@@ -308,6 +315,7 @@ describe('CityFilters', () => {
         cities={cities}
         selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
         onFilterChange={vi.fn()}
+        resultNoun={{ singular: 'venue', plural: 'venues' }}
       />
     )
 
@@ -326,7 +334,7 @@ describe('CityFilters', () => {
 
   it('renders children', () => {
     render(
-      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()}>
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} resultNoun={{ singular: 'venue', plural: 'venues' }}>
         <span data-testid="child">Extra</span>
       </CityFilters>
     )
@@ -340,6 +348,7 @@ describe('CityFilters', () => {
         cities={cities}
         selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
         onFilterChange={vi.fn()}
+        resultNoun={{ singular: 'venue', plural: 'venues' }}
         allLabel="All Venues"
       />
     )
@@ -347,11 +356,11 @@ describe('CityFilters', () => {
     expect(screen.getByTestId('city-filter-all')).toHaveTextContent('All Venues')
   })
 
-  describe('soft-keyboard viewports', () => {
-    // jsdom has no layout: it can show that the treatment is selected for the
-    // right viewport, and nothing about the geometry that results. The props
-    // handed to the popover are pinned in CityFilters.popoverProps.test.tsx
-    // and the geometry in e2e/pages/city-filter-mobile.spec.ts.
+  describe('overlay choice', () => {
+    // jsdom has no layout: it can show WHICH overlay a viewport gets and what
+    // contract the trigger advertises, and nothing about the geometry that
+    // results. The sheet's own behaviour is CityFilterSheet.test.tsx and its
+    // geometry is e2e/pages/city-filter-mobile.spec.ts.
     const originalMatchMedia = window.matchMedia
 
     function mockSoftKeyboardViewport(matches: boolean) {
@@ -360,7 +369,9 @@ describe('CityFilters', () => {
           ({
             matches: matches && query === SOFT_KEYBOARD_VIEWPORT_QUERY,
             media: query,
-          }) as MediaQueryList
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+          }) as unknown as MediaQueryList
       )
     }
 
@@ -368,92 +379,50 @@ describe('CityFilters', () => {
       window.matchMedia = originalMatchMedia
     })
 
-    it('bounds the popover height on a soft-keyboard viewport', async () => {
+    it('opens the bottom sheet on a soft-keyboard viewport', async () => {
       mockSoftKeyboardViewport(true)
       const user = userEvent.setup()
       render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+        <CityFilters
+          cities={cities}
+          selectedCities={[]}
+          onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
+        />
       )
 
-      await user.click(screen.getByTestId('city-filter-combobox'))
+      const trigger = screen.getByTestId('city-filter-combobox')
+      expect(trigger).toHaveAttribute('aria-haspopup', 'dialog')
+      expect(trigger).not.toHaveAttribute('role', 'combobox')
 
-      expect(screen.getByRole('dialog').className).toContain(
-        SOFT_KEYBOARD_CONTENT_CLASS
+      await user.click(trigger)
+
+      expect(screen.getByTestId('city-filter-sheet')).toBeInTheDocument()
+      // The only search field on the page is the sheet's own, so the combobox
+      // popover is not mounted alongside it.
+      expect(screen.getByPlaceholderText('Search cities...')).toBe(
+        screen.getByTestId('city-filter-sheet-search')
       )
     })
 
-    it('leaves the popover unbounded on a pointer viewport', async () => {
+    it('opens the combobox popover on a pointer viewport', async () => {
       mockSoftKeyboardViewport(false)
       const user = userEvent.setup()
       render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
-      )
-
-      await user.click(screen.getByTestId('city-filter-combobox'))
-
-      expect(screen.getByRole('dialog').className).not.toContain(
-        SOFT_KEYBOARD_CONTENT_CLASS
-      )
-    })
-
-    it('scrolls the trigger to the top of the page on open', async () => {
-      mockSoftKeyboardViewport(true)
-      const user = userEvent.setup()
-      render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+        <CityFilters
+          cities={cities}
+          selectedCities={[]}
+          onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
+        />
       )
 
       const trigger = screen.getByTestId('city-filter-combobox')
-      trigger.scrollIntoView = vi.fn()
+      expect(trigger).toHaveAttribute('role', 'combobox')
 
       await user.click(trigger)
 
-      expect(trigger.scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
-    })
-
-    it('does not scroll the page again when the popover closes', async () => {
-      mockSoftKeyboardViewport(true)
-      const user = userEvent.setup()
-      render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
-      )
-
-      const trigger = screen.getByTestId('city-filter-combobox')
-      trigger.scrollIntoView = vi.fn()
-
-      await user.click(trigger)
-      await user.keyboard('{Escape}')
-
-      expect(trigger).toHaveAttribute('aria-expanded', 'false')
-      expect(trigger.scrollIntoView).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not scroll the page on a pointer viewport', async () => {
-      mockSoftKeyboardViewport(false)
-      const user = userEvent.setup()
-      render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
-      )
-
-      const trigger = screen.getByTestId('city-filter-combobox')
-      trigger.scrollIntoView = vi.fn()
-
-      await user.click(trigger)
-
-      expect(trigger.scrollIntoView).not.toHaveBeenCalled()
-    })
-
-    it('keeps the search field focused when the popover is pinned', async () => {
-      mockSoftKeyboardViewport(true)
-      const user = userEvent.setup()
-      render(
-        <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
-      )
-
-      const trigger = screen.getByTestId('city-filter-combobox')
-      await user.click(trigger)
-
-      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.queryByTestId('city-filter-sheet')).toBeNull()
       expect(screen.getByPlaceholderText('Search cities...')).toHaveFocus()
     })
   })
