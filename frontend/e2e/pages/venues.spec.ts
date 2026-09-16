@@ -78,37 +78,50 @@ test.describe('Venues directory', () => {
     const PAGE_SIZE = 50
     const TOTAL = 120
     const requested: string[] = []
-    await page.route('**/venues?*', async route => {
-      const url = new URL(route.request().url())
-      requested.push(url.search)
-      const offset = Number(url.searchParams.get('offset') ?? 0)
-      const venues = Array.from(
-        { length: Math.min(PAGE_SIZE, TOTAL - offset) },
-        (_, i) => ({
-          id: offset + i + 1,
-          slug: `seeded-room-${offset + i + 1}`,
-          name: `Seeded Room ${offset + i + 1}`,
-          address: '1 Test St',
-          city: 'Phoenix',
-          state: 'AZ',
-          timezone: 'America/Phoenix',
-          verified: true,
-          upcoming_show_count: TOTAL - offset - i,
-          shows_this_week: 0,
-          social: {},
-          next_show: {
-            event_date: '2026-12-01T03:00:00Z',
-            slug: `show-${offset + i + 1}`,
-            title: '',
-          },
-          created_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-01-01T00:00:00Z',
+    // A URL PREDICATE, not a glob: `?` is not a wildcard in Playwright's glob,
+    // and the list request is the one whose path ENDS at `/venues`, which is
+    // what keeps `/venues/cities` on the real backend.
+    //
+    // The PAGE is at that path too, so the document navigation has to fall
+    // through: fulfilling it hands the browser the JSON to render, which is a
+    // blank page and no table.
+    await page.route(
+      url => url.pathname.endsWith('/venues'),
+      async route => {
+        if (route.request().resourceType() === 'document') {
+          return route.fallback()
+        }
+        const url = new URL(route.request().url())
+        requested.push(url.search)
+        const offset = Number(url.searchParams.get('offset') ?? 0)
+        const venues = Array.from(
+          { length: Math.min(PAGE_SIZE, TOTAL - offset) },
+          (_, i) => ({
+            id: offset + i + 1,
+            slug: `seeded-room-${offset + i + 1}`,
+            name: `Seeded Room ${offset + i + 1}`,
+            address: '1 Test St',
+            city: 'Phoenix',
+            state: 'AZ',
+            timezone: 'America/Phoenix',
+            verified: true,
+            upcoming_show_count: TOTAL - offset - i,
+            shows_this_week: 0,
+            social: {},
+            next_show: {
+              event_date: '2026-12-01T03:00:00Z',
+              slug: `show-${offset + i + 1}`,
+              title: '',
+            },
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+          })
+        )
+        await route.fulfill({
+          json: { venues, total: TOTAL, limit: PAGE_SIZE, offset },
         })
-      )
-      await route.fulfill({
-        json: { venues, total: TOTAL, limit: PAGE_SIZE, offset },
-      })
-    })
+      }
+    )
 
     await page.goto(PHOENIX)
     await tableIsUp(page)

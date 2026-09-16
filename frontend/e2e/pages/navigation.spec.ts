@@ -21,6 +21,15 @@ type NavEntity = {
   detailSlug: string
   /** List-page heading matcher — used when returning to the list. */
   listHeadingMatcher: RegExp
+  /**
+   * A CSS selector for the first content the list draws.
+   *
+   * Per entity because the containers differ: shows and artists list cards,
+   * and the venue directory lists a city's rooms in a table, so a bare
+   * `/venues` for a visitor with no derivable city draws its choose-a-city
+   * state instead (PSY-2077).
+   */
+  listContentSelector: string
 }
 
 const ENTITIES: NavEntity[] = [
@@ -29,23 +38,32 @@ const ENTITIES: NavEntity[] = [
     breadcrumbLabel: 'Shows',
     detailSlug: 'e2e-attendance-test',
     listHeadingMatcher: /upcoming shows/i,
+    listContentSelector: 'article',
   },
   {
     entity: 'artists',
     breadcrumbLabel: 'Artists',
     detailSlug: 'e2e-follow-test',
     listHeadingMatcher: /artists/i,
+    listContentSelector: 'article',
   },
   {
     entity: 'venues',
     breadcrumbLabel: 'Venues',
     detailSlug: 'e2e-reserved-venue',
     listHeadingMatcher: /venues/i,
+    listContentSelector: '[data-testid="venues-city-chooser"]',
   },
 ]
 
 test.describe('Cross-entity back-to-list navigation', () => {
-  for (const { entity, breadcrumbLabel, detailSlug, listHeadingMatcher } of ENTITIES) {
+  for (const {
+    entity,
+    breadcrumbLabel,
+    detailSlug,
+    listHeadingMatcher,
+    listContentSelector,
+  } of ENTITIES) {
     test(`${entity}: list → detail → back link returns to list`, async ({
       page,
     }) => {
@@ -54,7 +72,7 @@ test.describe('Cross-entity back-to-list navigation', () => {
       await expect(
         page.getByRole('heading', { name: listHeadingMatcher }).first()
       ).toBeVisible({ timeout: 10_000 })
-      await expect(page.locator('article').first()).toBeVisible({
+      await expect(page.locator(listContentSelector).first()).toBeVisible({
         timeout: 10_000,
       })
 
