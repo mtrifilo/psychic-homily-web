@@ -48,6 +48,15 @@ export interface VenueTableProps {
    * or multi-city list is rows of names with no way to tell them apart.
    */
   showCity: boolean
+  /**
+   * The room under the pointer, from the table or from the mini Atlas beside
+   * it. `undefined` means nothing is linked to these rows, and then a row
+   * renders exactly as it does with no map on the page: no hover reporting, no
+   * focus target, no highlight.
+   */
+  hoveredVenueId?: number | null
+  /** Reports the row the pointer entered or left. The page owns the id. */
+  onHoverVenue?: (venueId: number | null) => void
 }
 
 /**
@@ -61,9 +70,13 @@ export interface VenueTableProps {
 function VenueRow({
   venue,
   showCity,
+  isHovered,
+  onHoverVenue,
 }: {
   venue: VenueWithShowCount
   showCity: boolean
+  isHovered: boolean
+  onHoverVenue?: (venueId: number | null) => void
 }) {
   const isQuiet = venue.upcoming_show_count === 0
   const show = isQuiet ? venue.last_show : venue.next_show
@@ -97,8 +110,28 @@ function VenueRow({
   // scheme-less one a relative href into /venues.
   const website = socialLinkHref('website', venue.social?.website)
 
+  // Linked to a map, this row is also a scroll-and-focus target for its pin.
+  // `tabIndex={-1}` makes it focusable programmatically without adding a stop
+  // to the tab order: the links inside it are still the keyboard's way in.
+  const linked = onHoverVenue !== undefined
+
   return (
-    <tr role="row" className={cn(rowGridClass, isQuiet && 'text-muted-foreground')}>
+    <tr
+      role="row"
+      data-venue-row={linked ? venue.id : undefined}
+      tabIndex={linked ? -1 : undefined}
+      onMouseEnter={linked ? () => onHoverVenue(venue.id) : undefined}
+      onMouseLeave={linked ? () => onHoverVenue(null) : undefined}
+      className={cn(
+        rowGridClass,
+        isQuiet && 'text-muted-foreground',
+        // An outline rather than a fill: the rows already alternate, and a
+        // background change would read as a different stripe instead of as the
+        // one room the pin is pointing at. Inset by a pixel so the mark is not
+        // clipped at the table's edges.
+        isHovered && 'outline outline-1 outline-offset-[-1px] outline-primary'
+      )}
+    >
       <td role="cell" className={cn(leadCellClass, 'col-start-1 row-start-1')}>
         {venue.slug ? (
           <Link
@@ -279,6 +312,8 @@ export function VenueTable({
   sort,
   onSortChange,
   showCity,
+  hoveredVenueId = null,
+  onHoverVenue,
 }: VenueTableProps) {
   const firstQuietIndex = venues.findIndex(v => v.upcoming_show_count === 0)
 
@@ -319,7 +354,12 @@ export function VenueTable({
         {venues.map((venue, index) => (
           <Fragment key={venue.id}>
             {index === firstQuietIndex && <QuietRoomsHeader />}
-            <VenueRow venue={venue} showCity={showCity} />
+            <VenueRow
+              venue={venue}
+              showCity={showCity}
+              isHovered={venue.id === hoveredVenueId}
+              onHoverVenue={onHoverVenue}
+            />
           </Fragment>
         ))}
       </tbody>
