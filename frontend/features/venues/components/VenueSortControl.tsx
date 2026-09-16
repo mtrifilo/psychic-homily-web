@@ -31,9 +31,10 @@ export interface VenueSortControlProps {
  * there is room for them, and a chip that opens a sheet where there is not.
  *
  * It states the same fact as the table's sortable column headers and writes the
- * same param. Two affordances rather than one because the headers are the
- * in-place control for a reader already scanning the columns, and they are not
- * drawn at all below `sm`, where the table has no header row.
+ * same param. Both exist because they answer at different widths and in
+ * different registers: the headers are the in-place control for a reader
+ * already scanning the columns, and they are not drawn at all below `sm`, where
+ * the table has no header row and this chip is the only sort affordance.
  */
 export function VenueSortControl({
   sort,

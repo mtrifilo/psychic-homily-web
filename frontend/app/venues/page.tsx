@@ -1,16 +1,8 @@
 import { Suspense } from 'react'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueList } from '@/features/venues'
-import {
-  VENUE_LIST_FIRST_SCREEN_KEY,
-  VENUE_LIST_FIRST_SCREEN_URL,
-  venueEndpoints,
-  venueQueryKeys,
-} from '@/features/venues/api'
-import type {
-  VenueCitiesResponse,
-  VenuesListResponse,
-} from '@/features/venues/types'
+import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
+import type { VenueCitiesResponse } from '@/features/venues/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
@@ -40,37 +32,30 @@ function VenueListLoading() {
 }
 
 /**
- * Seed the two cache entries `VenueList` blocks its first paint on — the first
- * page of venues and the city facet counts — so the venue rows reach the
- * server HTML (PSY-1624).
+ * Seed the cache entry `VenueList` blocks its first paint on: the city facet
+ * counts.
  *
- * BOTH are required. `VenueList` returns its spinner while either query is
- * still loading, so seeding the rows alone server-renders the spinner.
+ * The ROWS are not seeded, and cannot be. The directory lists ONE CITY's rooms,
+ * and which city that is resolves in the browser (the viewer's favourites, else
+ * the IP-geo read) on a route that stays ISR, so the server has no scoped list
+ * to fetch. An unscoped first page would answer only an explicit `?cities=all`.
  *
  * A failed fetch renders `<VenueList />` unseeded rather than throwing; the
  * component fetches for itself and owns the error state (see
  * `fetchListPayload`).
  */
 async function HydratedVenueList() {
-  const [venues, cities] = await Promise.all([
-    fetchListPayload<VenuesListResponse>({
-      url: VENUE_LIST_FIRST_SCREEN_URL,
-      collection: 'venues',
-      service: 'venues-first-screen',
-    }),
-    fetchListPayload<VenueCitiesResponse>({
-      url: venueEndpoints.CITIES,
-      collection: 'cities',
-      service: 'venue-cities-first-screen',
-    }),
-  ])
+  const cities = await fetchListPayload<VenueCitiesResponse>({
+    url: venueEndpoints.CITIES,
+    collection: 'cities',
+    service: 'venue-cities-first-screen',
+  })
 
-  if (!venues || !cities) {
+  if (!cities) {
     return <VenueList />
   }
 
   const dehydratedState = await seedFirstScreen([
-    { queryKey: VENUE_LIST_FIRST_SCREEN_KEY, data: venues },
     { queryKey: venueQueryKeys.cities, data: cities },
   ])
 
@@ -82,18 +67,17 @@ async function HydratedVenueList() {
 }
 
 /**
- * Data Cache exposure of the two fetches inside the Suspense boundary below,
- * measured against production on 2026-08-09. The cap is 2 MB per item, applied
- * to a base64 envelope; see `lib/data-cache-budget/budget.ts`.
+ * Data Cache exposure of the fetch inside the Suspense boundary below, measured
+ * against production on 2026-08-09. The cap is 2 MB per item, applied to a
+ * base64 envelope; see `lib/data-cache-budget/budget.ts`.
  *
- *   GET /venues?limit=50   35,226 raw   46,968 base64   2.2% of the cap
- *   GET /venues/cities      5,668 raw    7,560 base64   0.4%
+ *   GET /venues/cities      5,668 raw    7,560 base64   0.4% of the cap
  *
- * Neither is exposed and neither grows with the catalogue: the first is bounded
- * by its `limit`, and the second is a facet aggregate of one row per city. The
- * third fetch, the unbounded one that does grow, is measured beside itself in
- * `venuesMetadata.ts`. `fetchListPayload` weighs these two against the budget on
- * the way through, so a breach fails a build rather than going quiet.
+ * It is not exposed and does not grow with the catalogue: it is a facet
+ * aggregate of one row per city. The other fetch, the unbounded one that does
+ * grow, is measured beside itself in `venuesMetadata.ts`. `fetchListPayload`
+ * weighs this one against the budget on the way through, so a breach fails a
+ * build rather than going quiet.
  *
  * The ItemList itself is NOT measured here, and it is the part that grows with
  * the catalogue: see `contracts.VenueListingEntry`, which records what it weighs
@@ -121,8 +105,9 @@ export default async function VenuesPage() {
         { name: 'Venues', url: 'https://psychichomily.com/venues' },
       ])} />
       <div className="flex min-h-screen items-start justify-center">
+        {/* The `<h1>` belongs to `VenueList`: it names the city, and which city
+            that is resolves in the browser. */}
         <main className="w-full max-w-6xl px-4 py-8 md:px-8">
-          <h1 className="text-3xl font-bold text-center mb-8">Venues</h1>
           <Suspense fallback={<VenueListLoading />}>
             <HydratedVenueList />
           </Suspense>

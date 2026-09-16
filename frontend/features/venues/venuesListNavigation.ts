@@ -6,18 +6,21 @@
  * table.
  */
 
+import { buildCitiesParam } from '@/components/filters/cityParams'
+import { formatCount, listPageHref } from '@/components/shared/paginationChrome'
+import { VENUE_LIST_PAGE_LIMIT } from './api'
+
 /** The directory's root path. Every href here is built from it. */
 export const VENUES_ROOT = '/venues'
 
 /**
  * Rows per page on `/venues`.
  *
- * Stated rather than inherited. The backend's `default:"50"` is the same
- * number, but the pager's arithmetic (which row ordinal falls on which page)
- * has to agree with the limit the request actually carried, so the request
- * sends this explicitly.
+ * Re-exported rather than restated: the pager's arithmetic (which row ordinal
+ * falls on which page) has to agree with the limit the request carried, and the
+ * request's limit is part of the query key built in `./api`.
  */
-export const VENUES_PAGE_SIZE = 50
+export const VENUES_PAGE_SIZE = VENUE_LIST_PAGE_LIMIT
 
 /**
  * The accepted `?sort=` values, in the order the sort control offers them.
@@ -43,36 +46,37 @@ export const VENUE_SORT_LABELS: Record<VenueSort, string> = {
   next: 'Next show',
 }
 
-/**
- * The href for a 1-based page of the directory, built FROM the params already
- * on screen.
- *
- * Every key but `page` is carried through untouched: the list shares its query
- * string with the city filter, the tag filter, the sort order and whatever a
- * campaign link brought along, and a pager that minted a fresh
- * `URLSearchParams` would silently drop all of it on every page click.
- *
- * Page 1 writes NO `page`, so the first page of any filter state has exactly
- * one address and the root is reachable by paging back.
- */
+/** The href for a 1-based page of the directory, from the params on screen. */
 export function venuesPageHref(
-  params: URLSearchParams | { toString: () => string },
+  params: { toString: () => string },
   page: number
 ): string {
-  const next = new URLSearchParams(params.toString())
-  if (page > 1) next.set('page', String(page))
-  else next.delete('page')
-  const query = next.toString()
-  return query ? `${VENUES_ROOT}?${query}` : VENUES_ROOT
+  return listPageHref(params, page, VENUES_ROOT)
 }
 
 /**
  * The directory scoped to one city, as a shareable address.
  *
- * The wire format is the shared `?cities=` one (`City,ST`), so a chip here and
- * a pick in the city filter address the same page.
+ * Built through `buildCitiesParam`, the single source of truth for the
+ * `?cities=` wire format, so a chip here and a pick in the city filter address
+ * the same page.
  */
 export function venuesCityHref(city: string, state: string): string {
-  const params = new URLSearchParams({ cities: `${city},${state}` })
+  const params = new URLSearchParams({
+    cities: buildCitiesParam([{ city, state }]),
+  })
   return `${VENUES_ROOT}?${params.toString()}`
+}
+
+/**
+ * A count beside the noun it counts, grouped for reading, so no bare number is
+ * left for the reader to name. The plural is the singular plus "s" unless the
+ * caller says otherwise.
+ */
+export function countLabel(
+  count: number,
+  singular: string,
+  plural = `${singular}s`
+): string {
+  return `${formatCount(count)} ${count === 1 ? singular : plural}`
 }

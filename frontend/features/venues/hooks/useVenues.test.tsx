@@ -39,6 +39,9 @@ vi.mock('@/features/venues/api', () => ({
     ],
     cities: ['venues', 'cities'],
   },
+  // `venuesListNavigation` re-exports this as the directory's page size, so the
+  // mock has to carry it or that module fails to load under this file's mock.
+  VENUE_LIST_PAGE_LIMIT: 50,
 }))
 
 // Import hooks after mocks are set up

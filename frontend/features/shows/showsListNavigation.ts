@@ -5,6 +5,7 @@
  * link says can be tested without a rendered list.
  */
 
+import { listPageHref } from '@/components/shared/paginationChrome'
 import { SHOWS_ROOT } from './showsCalendarRoute'
 
 /**
@@ -36,13 +37,9 @@ export const SHOWS_PAGE_SIZE = 50
  * it pages through changes.
  */
 export function showsPageHref(
-  params: URLSearchParams | { toString: () => string },
+  params: { toString: () => string },
   page: number,
   basePath: string = SHOWS_ROOT
 ): string {
-  const next = new URLSearchParams(params.toString())
-  if (page > 1) next.set('page', String(page))
-  else next.delete('page')
-  const query = next.toString()
-  return query ? `${basePath}?${query}` : basePath
+  return listPageHref(params, page, basePath)
 }

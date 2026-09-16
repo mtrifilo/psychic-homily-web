@@ -26,9 +26,9 @@ import {
   Pagination,
   usePaginationFocusTarget,
 } from '@/components/shared/Pagination'
-import { formatCount } from '@/components/shared/paginationChrome'
 import { clampPage, MAX_ARCHIVE_PAGE } from '@/features/shows/showArchive'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import {
   TagFacetPanel,
@@ -42,6 +42,7 @@ import {
   VENUES_PAGE_SIZE,
   VENUES_ROOT,
   VENUE_SORTS,
+  countLabel,
   venuesPageHref,
   type VenueSort,
 } from '../venuesListNavigation'
@@ -56,7 +57,7 @@ function VenueTableSkeleton() {
       data-testid="venues-skeleton"
     >
       {Array.from({ length: 8 }, (_, i) => (
-        <div key={i} className="h-8 animate-pulse rounded bg-muted/50" />
+        <Skeleton key={i} className="h-8" />
       ))}
     </div>
   )
@@ -124,7 +125,7 @@ export function VenueList() {
   const offset = (page - 1) * VENUES_PAGE_SIZE
 
   // The row order. The default is never written: it would give one order two
-  // addresses, and the second would miss the server-seeded first screen.
+  // addresses.
   const [sortState, setSort] = useQueryState(
     'sort',
     parseAsStringLiteral(VENUE_SORTS).withOptions({
@@ -175,25 +176,30 @@ export function VenueList() {
       enableClientFetch: true,
     })
 
-  // The effective city filter, DERIVED during render and never seeded into the
-  // URL by an effect.
-  const selectedCities: CityState[] = useMemo(() => {
-    if (citiesState === ALL_CITIES) return []
-    if (citiesState) return citiesState
-    if (legacyCity && legacyState) return [{ city: legacyCity, state: legacyState }]
-    if (favoriteCities.length > 0) return favoriteCities
-    return appliedGeoDefault ? [appliedGeoDefault] : []
+  // The effective city filter and WHERE IT CAME FROM, resolved together in one
+  // walk so the line that names the source cannot describe a different branch
+  // than the one that chose the city. Derived during render and never seeded
+  // into the URL by an effect.
+  const { selectedCities, derivedFrom } = useMemo((): {
+    selectedCities: CityState[]
+    derivedFrom: 'favourites' | 'location' | null
+  } => {
+    if (citiesState === ALL_CITIES) return { selectedCities: [], derivedFrom: null }
+    if (citiesState) return { selectedCities: citiesState, derivedFrom: null }
+    if (legacyCity && legacyState) {
+      return {
+        selectedCities: [{ city: legacyCity, state: legacyState }],
+        derivedFrom: null,
+      }
+    }
+    if (favoriteCities.length > 0) {
+      return { selectedCities: favoriteCities, derivedFrom: 'favourites' }
+    }
+    if (appliedGeoDefault) {
+      return { selectedCities: [appliedGeoDefault], derivedFrom: 'location' }
+    }
+    return { selectedCities: [], derivedFrom: null }
   }, [citiesState, legacyCity, legacyState, favoriteCities, appliedGeoDefault])
-
-  // Where a derived city came from, for the line that says so. Null whenever the
-  // URL named the city, which is the case where nothing was derived at all.
-  const derivedFrom: 'favourites' | 'location' | null = hasExplicitSelection
-    ? null
-    : favoriteCities.length > 0
-      ? 'favourites'
-      : appliedGeoDefault
-        ? 'location'
-        : null
 
   // "Not known yet" as distinct from "no city". Both the city list and the
   // identity/geo read have to have answered before a null selection means the
@@ -201,9 +207,10 @@ export function VenueList() {
   const derivationPending =
     !hasExplicitSelection && (isResolving || (citiesLoading && !citiesData))
 
-  const hasExplicitAll = citiesState === ALL_CITIES
   const showCityChooser =
-    !derivationPending && !hasExplicitAll && selectedCities.length === 0
+    !derivationPending &&
+    citiesState !== ALL_CITIES &&
+    selectedCities.length === 0
 
   const {
     data,
@@ -224,11 +231,14 @@ export function VenueList() {
     enabled: !derivationPending && !showCityChooser,
   })
 
-  // Whether the tag facet has anything to offer. The busiest venue tag's count
-  // answers it in one small request: if the most-used tag is unused, every count
-  // is zero and the facet is a bar of dead chips (and, on mobile, an empty
-  // sheet). A tag already applied through the URL keeps the facet visible so it
-  // can be taken off again.
+  // Whether the tag facet has anything to offer, answered by the busiest venue
+  // tag's count: if the most-used tag is unused, every count is zero. A tag
+  // already applied through the URL keeps the facet visible so it can be taken
+  // off again.
+  //
+  // `TagFacetPanel` already hides ITSELF on that condition. This probe exists
+  // for `TagFacetSheet`, whose trigger button renders unconditionally and so
+  // opens an empty drawer on a catalogue with no venue tags.
   const { data: topTagData } = useTags({
     entity_type: 'venue',
     sort: 'usage',
@@ -308,13 +318,18 @@ export function VenueList() {
   )
 
   // "Clear filters" drops the tags and widens to every city in a SINGLE
-  // navigation, for the same nuqs/router race reason as above.
+  // navigation, for the same nuqs/router race reason as above. The order is
+  // carried through: it is how the reader reads the list, not one of the
+  // filters being cleared.
   const handleClearFilters = useCallback(() => {
     notifyUserInteracted()
+    const params = new URLSearchParams()
+    params.set('cities', ALL_CITIES)
+    if (sortState) params.set('sort', sortState)
     startTransition(() => {
-      router.push(`${VENUES_ROOT}?cities=all`, { scroll: false })
+      router.push(`${VENUES_ROOT}?${params.toString()}`, { scroll: false })
     })
-  }, [notifyUserInteracted, router])
+  }, [notifyUserInteracted, router, sortState])
 
   const venues: VenueWithShowCount[] = data?.venues ?? []
   const total = data?.total ?? 0
@@ -325,29 +340,24 @@ export function VenueList() {
   const rowsAnswerCurrentRequest = !isPlaceholderData
 
   const scopeCity = selectedCities.length === 1 ? selectedCities[0] : null
-  const heading = scopeCity
-    ? `Venues in ${cityLabel(scopeCity)}`
-    : 'Venues'
+  const heading = scopeCity ? `Venues in ${cityLabel(scopeCity)}` : 'Venues'
 
-  // The count line. The room total comes from the response; the upcoming total
-  // is a SUM OF THE ROWS ON SCREEN, so it is labelled as this page's whenever
-  // the page is not the whole set. The API serves no city-wide sum.
+  // The upcoming total is a SUM OF THE ROWS ON SCREEN, so it is labelled as
+  // this page's whenever the page is not the whole set. The API serves no
+  // city-wide sum.
   const pageUpcoming = venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
   const wholeSetOnScreen = rowsAnswerCurrentRequest && totalPages === 1
-  const roomsLabel = `${formatCount(total)} ${total === 1 ? 'room' : 'rooms'}`
-  const upcomingLabel = `${formatCount(pageUpcoming)} upcoming ${
-    pageUpcoming === 1 ? 'show' : 'shows'
-  }`
+  const roomsLabel = countLabel(total, 'room')
+  const upcomingLabel = `${countLabel(pageUpcoming, 'upcoming show')}`
 
   const chooserScope = useMemo(() => {
     const rooms = cities.reduce((sum, c) => sum + c.count, 0)
-    return `${formatCount(rooms)} ${rooms === 1 ? 'room' : 'rooms'} in ${formatCount(cities.length)} ${cities.length === 1 ? 'city' : 'cities'}`
+    return `${countLabel(rooms, 'room')} in ${countLabel(cities.length, 'city', 'cities')}`
   }, [cities])
 
   // Dim only while the rows on screen belong to a DIFFERENT query than the one
   // being awaited. `isPlaceholderData` says exactly that; raw `isFetching` does
-  // not, and using it would fade the server-seeded first screen the instant it
-  // hydrated (that entry is stale by construction).
+  // not, and using it would fade a background revalidation.
   const isUpdating =
     (isFetching && isPlaceholderData) ||
     (citiesFetching && citiesArePlaceholder) ||
@@ -462,15 +472,15 @@ export function VenueList() {
     return frame(<VenueCityChooser cities={cities} />)
   }
 
-  if (derivationPending || (isLoading && !data) || (citiesLoading && !citiesData)) {
+  if (derivationPending || isLoading) {
     return frame(<VenueTableSkeleton />)
   }
 
-  // Report an error only when nothing on screen answers the CURRENT query. The
-  // server-seeded first screen is stale by construction, so a plain `if (error)`
-  // would discard a rendered page over a failed background refetch;
-  // `isPlaceholderData` covers the opposite hazard, where `keepPreviousData`
-  // would present the previous city's rooms as the new filter's answer.
+  // Report an error only when nothing on screen answers the CURRENT query. A
+  // plain `if (error)` would discard a rendered page over a failed background
+  // refetch; `isPlaceholderData` covers the opposite hazard, where
+  // `keepPreviousData` would present the previous city's rooms as the new
+  // filter's answer.
   if (error && (!data || isPlaceholderData)) {
     return frame(
       <div className="py-12 text-center text-destructive">

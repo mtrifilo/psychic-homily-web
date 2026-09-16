@@ -273,10 +273,9 @@ export const venueHandlers = [
 
   http.get(`${TEST_API_BASE}/venues/cities`, () => {
     return HttpResponse.json({
-      cities: [
-        { city: 'Chicago', state: 'IL', venue_count: 42 },
-        { city: 'Phoenix', state: 'AZ', venue_count: 8 },
-      ],
+      // Only Phoenix: every fixture room above is there, so the facet and the
+      // row list agree about which cities have rooms.
+      cities: [{ city: 'Phoenix', state: 'AZ', venue_count: 3 }],
     })
   }),
 ]

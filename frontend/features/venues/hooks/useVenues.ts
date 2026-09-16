@@ -61,8 +61,7 @@ interface UseVenuesOptions {
    * Row order, one of `VENUE_SORTS`. Omitted from the request when it is
    * `DEFAULT_VENUE_SORT`: the API applies that order for an absent parameter,
    * so sending it would give one row order two request URLs and two cache
-   * entries, including one that would no longer match the server-seeded
-   * first screen.
+   * entries that can never disagree.
    */
   sort?: VenueSort
   /**
@@ -140,8 +139,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
       // mint a second entry for a byte-identical request.
       metroRollup: metroRollupApplies || undefined,
       // Same reasoning again, and the reason the default is `undefined` rather
-      // than its name: the default order's key must stay byte-identical to the
-      // one the server-seeded first screen was written under.
+      // than its name: a request that carries no `sort` must land on one key.
       sort: sort !== DEFAULT_VENUE_SORT ? sort : undefined,
     }),
     queryFn: async (): Promise<VenuesListResponse> => {

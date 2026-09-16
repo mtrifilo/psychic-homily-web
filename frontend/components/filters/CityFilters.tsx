@@ -71,10 +71,9 @@ interface CityFiltersProps {
    * Whether the "Popular:" quick-pick row may render under the filter bar.
    *
    * On by default, which is every surface that has ever had it. A surface with
-   * its own city-picking affordance turns it off rather than showing the same
-   * cities twice: on /venues the no-city state offers the busiest cities as its
-   * own chips, and the row is also the widest thing in the bar, which is what
-   * overflowed the directory at 390.
+   * its own city-picking affordance turns it off rather than offering the same
+   * cities twice: the /venues no-city state has the busiest cities as its own
+   * chips.
    */
   showPopularCities?: boolean
   /**
@@ -321,7 +320,7 @@ export function CityFilters({
 
       {/* Popular cities row */}
       {popularCities.length > 0 && selectedCities.length === 0 && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="popular-cities">
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" data-testid="popular-cities">
           <span className="shrink-0">Popular:</span>
           {popularCities.map((city, i) => (
             <span key={cityKey(city)} className="inline-flex items-center">

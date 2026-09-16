@@ -240,44 +240,20 @@ export const venuePastShowsPageParams = (
 })
 
 // ============================================================================
-// Server-rendered first screen (PSY-1624)
+// Directory page size
 // ============================================================================
 
-/** The page size `VenueList` requests, and pages through with `offset`. */
-export const VENUE_LIST_PAGE_LIMIT = 50
-
 /**
- * The exact request `VenueList` issues on its FIRST render of a bare
- * `/venues`, and the cache key that request lands on.
+ * The page size `VenueList` requests, and pages through with `offset`.
  *
- * `app/venues/page.tsx` fetches the URL server-side and seeds the key, so the
- * first page of venues is in the server HTML. The two halves are declared
- * together because they only work as a pair: seed a key the hook does not ask
- * for and the page silently reverts to its pre-SSR behaviour — the hook misses
- * the cache and renders its spinner on BOTH the server and the hydration pass,
- * so nothing looks broken and nothing is server-rendered either. That failure
- * is invisible by construction, which is why `useVenuesFirstScreen.test.tsx`
- * asserts the hook actually registers this key and requests this URL. The
- * sibling `useVenues.test.tsx` cannot: it `vi.mock`s this module, so it never
- * sees the real constants.
+ * Declared here rather than beside the pager's arithmetic because the query
+ * KEY is built in this module: the number that sizes a page and the number the
+ * key records have to be one value.
  *
- * A filtered `/venues?cities=…` or `?tags=…` deep link is deliberately NOT
- * covered, and that now includes the CITY FACET, whose counts are scoped to the
- * tag filter: the hooks key on the filter, miss these entries, and both render
- * passes agree on the spinner. No SSR benefit there, and no hydration mismatch
- * either. Seeding a filtered entry would mean reading `searchParams` in the
- * page body, which costs the route its prerendered shell.
+ * There is no server-seeded first screen for the rows. The directory lists one
+ * city's rooms and the city resolves in the browser, so the server has no
+ * scoped list to seed (see `app/venues/page.tsx`); only the city facet counts
+ * are, and only their UNSCOPED entry, which is the one a page carrying no tag
+ * filter asks for.
  */
-export const VENUE_LIST_FIRST_SCREEN_URL = `${venueEndpoints.LIST}?limit=${VENUE_LIST_PAGE_LIMIT}`
-
-export const VENUE_LIST_FIRST_SCREEN_KEY = venueQueryKeys.list({
-  state: undefined,
-  city: undefined,
-  cities: undefined,
-  limit: VENUE_LIST_PAGE_LIMIT,
-  offset: 0,
-  tags: undefined,
-  tagMatch: undefined,
-  includeRail: undefined,
-  metroRollup: undefined,
-})
+export const VENUE_LIST_PAGE_LIMIT = 50

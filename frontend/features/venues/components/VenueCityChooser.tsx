@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { formatCount } from '@/components/shared/paginationChrome'
 import type { CityWithCount } from '@/components/filters'
-import { venuesCityHref } from '../venuesListNavigation'
+import { countLabel, venuesCityHref } from '../venuesListNavigation'
 
 /** How many busiest cities the state offers as one-press shortcuts. */
 const BUSIEST_CITY_COUNT = 10
@@ -53,7 +53,7 @@ export function VenueCityChooser({ cities }: VenueCityChooserProps) {
                   // The unit is printed once, on the leading chip, and carried
                   // for every chip in the accessible name: a reader who meets
                   // the fourth chip first must still be told what 24 counts.
-                  aria-label={`${city.city}, ${city.state}, ${formatCount(city.count)} ${city.count === 1 ? 'room' : 'rooms'}`}
+                  aria-label={`${city.city}, ${city.state}, ${countLabel(city.count, 'room')}`}
                   data-testid={`venues-busiest-${city.city}-${city.state}`
                     .toLowerCase()
                     .replace(/\s+/g, '-')}
