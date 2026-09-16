@@ -168,6 +168,67 @@ describe('useVenues', () => {
       expect(mockApiRequest.mock.calls[0][0]).not.toContain('metro_rollup')
     })
 
+    // PSY-2077: the default order is the API's own, so sending it would give
+    // one row order two request URLs and two cache entries, one of which would
+    // no longer match the server-seeded first screen.
+    it('sends no sort param for the default order', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(() => useVenues({ sort: 'upcoming' }), {
+        wrapper: createWrapper(),
+      })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).not.toContain('sort')
+    })
+
+    it('sends a non-default order on the wire', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(() => useVenues({ sort: 'name' }), {
+        wrapper: createWrapper(),
+      })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).toContain('sort=name')
+    })
+
+    it('pages a directory page with the offset the page number implies', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useVenues({ limit: 50, offset: 50, sort: 'next' }),
+        { wrapper: createWrapper() },
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const calledUrl = mockApiRequest.mock.calls[0][0]
+      expect(calledUrl).toContain('limit=50')
+      expect(calledUrl).toContain('offset=50')
+      expect(calledUrl).toContain('sort=next')
+    })
+
+    it('keys the same rows under one entry per order, and shares the default', async () => {
+      mockApiRequest.mockResolvedValue({ venues: [], total: 0 })
+      const wrapper = createWrapper()
+
+      const bare = renderHook(() => useVenues({ limit: 50 }), { wrapper })
+      await waitFor(() => expect(bare.result.current.isSuccess).toBe(true))
+      const sameOrder = renderHook(
+        () => useVenues({ limit: 50, sort: 'upcoming' }),
+        { wrapper },
+      )
+      await waitFor(() => expect(sameOrder.result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+
+      const otherOrder = renderHook(
+        () => useVenues({ limit: 50, sort: 'name' }),
+        { wrapper },
+      )
+      await waitFor(() => expect(otherOrder.result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    })
+
     it('rolls the city filter up to the metro when asked', async () => {
       mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
 

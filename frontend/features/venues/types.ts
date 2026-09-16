@@ -129,6 +129,25 @@ export interface VenueSearchResponse {
 }
 
 /**
+ * One show on a directory row, reduced to what the row links to and prints.
+ *
+ * `event_date` is the stored instant; the row dates it in the VENUE's zone,
+ * resolved the way every other surface does (`resolveShowTimezone`, from the
+ * venue's nullable `timezone` then its state).
+ *
+ * `slug` is empty when the show has none, and an empty slug cannot form a URL
+ * (an empty-slug href resolves to the index, not a 404), so such a row renders
+ * as unlinked text. `title` is empty for most shows: this projection carries no
+ * bill, so a caller that needs a label for a titleless show reads the show
+ * endpoint.
+ */
+export interface VenueListShowRef {
+  event_date: string
+  slug: string
+  title: string
+}
+
+/**
  * Venue with upcoming show count for the venues list.
  *
  * The fields below `upcoming_show_count` are the Atlas city-view rail's row
@@ -137,6 +156,17 @@ export interface VenueSearchResponse {
  */
 export interface VenueWithShowCount extends Venue {
   upcoming_show_count: number
+  /**
+   * The soonest show inside `upcoming_show_count`'s set, and the most recent
+   * one outside it. Both are drawn on ONE boundary, so they partition the
+   * room's approved shows: `next_show` is present exactly when
+   * `upcoming_show_count` is above zero, and no show is ever both.
+   *
+   * Served on every list response, unlike the rail fields below, which need
+   * `include_rail`.
+   */
+  next_show?: VenueListShowRef
+  last_show?: VenueListShowRef
   /**
    * Approved shows in the next seven days, rolling from the request instant.
    * NOT a subset of `upcoming_show_count`, which is bounded at the venue-local

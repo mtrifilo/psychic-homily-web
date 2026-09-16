@@ -94,6 +94,20 @@ interface UseGeoDefaultCityResult {
    *  the old seed-effect race is gone structurally (nothing is written), but
    *  without this a slow fetch could still flash the derived default in. */
   notifyUserInteracted: () => void
+  /**
+   * True while `appliedGeoDefault`'s null is "not yet known" rather than "no
+   * default": auth has not settled, or an eligible visitor's `/api/geo` read
+   * is still in flight.
+   *
+   * It separates the two nulls for a surface whose CONTENT depends on the
+   * derived city rather than merely defaulting a filter. Such a surface must
+   * render a loading state while this is true; treating the pending null as
+   * "no city" would flash a no-city state at every visitor who has one. The
+   * filter surfaces (/shows, /explore, home) ignore it: an unfiltered list is
+   * a truthful thing to show for the window, and narrowing it afterwards is
+   * not a correction.
+   */
+  isResolving: boolean
 }
 
 /**
@@ -108,12 +122,16 @@ function useGeoSource(
   geoFromServer: GeoLocation | null | undefined,
   enableClientFetch: boolean,
   eligible: boolean,
-): GeoLocation | null {
+): { geo: GeoLocation | null; settled: boolean } {
   // Seed synchronously from sessionStorage so a cached value is available on
   // first render (no flash, no redundant fetch). Server render + first
   // hydration return null (sessionStorage is client-only) — the value arrives
   // post-mount, same beat as today's authed-favorites seeding.
   const [fetched, setFetched] = useState<GeoLocation | null>(null)
+  // Whether the read has ANSWERED, which is not the same as having produced a
+  // city: a cache hit, a successful fetch and a failed one all settle, and two
+  // of the three can settle on null.
+  const [settled, setSettled] = useState(false)
   const hasFetched = useRef(false)
 
   useEffect(() => {
@@ -139,7 +157,9 @@ function useGeoSource(
         const cachedCity = toGeoLocation(parsed?.geo)
         let cacheCancelled = false
         Promise.resolve().then(() => {
-          if (!cacheCancelled) setFetched(cachedCity)
+          if (cacheCancelled) return
+          setFetched(cachedCity)
+          setSettled(true)
         })
         return () => {
           cacheCancelled = true
@@ -156,6 +176,7 @@ function useGeoSource(
         if (cancelled) return
         const geo = toGeoLocation(body?.geo)
         setFetched(geo)
+        setSettled(true)
         try {
           window.sessionStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ geo }))
         } catch {
@@ -165,6 +186,9 @@ function useGeoSource(
       })
       .catch(error => {
         if (cancelled) return
+        // A failed read is an answer for the purposes of the caller's loading
+        // state: there is no city coming.
+        setSettled(true)
         // A geo-default failure is non-critical (the filter just defaults to
         // "All cities"), but capture it so a broken edge route is visible.
         Sentry.captureException(error, {
@@ -179,7 +203,9 @@ function useGeoSource(
   }, [enableClientFetch, geoFromServer, eligible])
 
   // Server-prop path wins when provided; otherwise the client-fetched value.
-  return geoFromServer !== undefined ? (geoFromServer ?? null) : fetched
+  return geoFromServer !== undefined
+    ? { geo: geoFromServer ?? null, settled: true }
+    : { geo: fetched, settled }
 }
 
 export function useGeoDefaultCity({
@@ -207,7 +233,11 @@ export function useGeoDefaultCity({
     !hasExistingSelection &&
     !userInteracted
 
-  const rawGeo = useGeoSource(geoFromServer, enableClientFetch, eligible)
+  const { geo: rawGeo, settled: geoSettled } = useGeoSource(
+    geoFromServer,
+    enableClientFetch,
+    eligible,
+  )
 
   // The geo suggestion reconciled against PH's has-shows data via the shared
   // two-tier `matchByGeo` (exact city/state, else nearest has-shows city by
@@ -236,7 +266,15 @@ export function useGeoDefaultCity({
 
   const notifyUserInteracted = useCallback(() => setUserInteracted(true), [])
 
-  return { appliedGeoDefault, notifyUserInteracted }
+  // Pending covers both ways the derivation can still be unknown: the viewer's
+  // identity is unresolved (favourites may yet win), or an eligible anonymous
+  // visitor's geo read has not answered. An ineligible settled visitor is not
+  // pending: their null is final.
+  const isResolving =
+    authStatus === 'pending' ||
+    (eligible && enableClientFetch && geoFromServer === undefined && !geoSettled)
+
+  return { appliedGeoDefault, notifyUserInteracted, isResolving }
 }
 
 /**

@@ -1,6 +1,13 @@
 'use client'
 
-import { useState, useMemo, useCallback, useRef } from 'react'
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  type RefObject,
+} from 'react'
 import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandPopoverContent } from '@/components/ui/command'
 import { Popover, PopoverTrigger } from '@/components/ui/popover'
@@ -37,6 +44,19 @@ export interface CityState {
   state: string
 }
 
+/**
+ * What a surface outside the filter bar can ask the filter to do.
+ *
+ * One verb, deliberately: a "change city" affordance rendered elsewhere on the
+ * page (the derived-city line on /venues) has to be able to OPEN the picker,
+ * and nothing more. Lifting the whole open state into every caller would make
+ * four surfaces own a boolean that only one of them reads.
+ */
+export interface CityFiltersControl {
+  /** Opens whichever overlay this viewport uses. */
+  open: () => void
+}
+
 interface CityFiltersProps {
   cities: CityWithCount[]
   selectedCities: CityState[]
@@ -47,6 +67,21 @@ interface CityFiltersProps {
    */
   resultNoun: ResultNoun
   allLabel?: string
+  /**
+   * Whether the "Popular:" quick-pick row may render under the filter bar.
+   *
+   * On by default, which is every surface that has ever had it. A surface with
+   * its own city-picking affordance turns it off rather than showing the same
+   * cities twice: on /venues the no-city state offers the busiest cities as its
+   * own chips, and the row is also the widest thing in the bar, which is what
+   * overflowed the directory at 390.
+   */
+  showPopularCities?: boolean
+  /**
+   * Receives the filter's imperative handle, so a control elsewhere on the page
+   * can open the picker. Optional; the filter is self-contained without it.
+   */
+  controlRef?: RefObject<CityFiltersControl | null>
   children?: React.ReactNode
 }
 
@@ -63,6 +98,8 @@ export function CityFilters({
   onFilterChange,
   resultNoun,
   allLabel = 'All Cities',
+  showPopularCities = true,
+  controlRef,
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
@@ -89,6 +126,19 @@ export function CityFilters({
     setOpen(next)
   }, [])
 
+  useImperativeHandle(
+    controlRef,
+    () => ({
+      open: () => {
+        handleOpenChange(true)
+        // The overlay it opens is anchored to the trigger, which may be off
+        // screen when the press came from somewhere else on the page.
+        triggerRef.current?.scrollIntoView({ block: 'nearest' })
+      },
+    }),
+    [handleOpenChange]
+  )
+
   // Composes the two halves of `replayOnHydrate` with a ref of our own: the
   // spread below sets the marker attribute, and dropping the replay ref while
   // keeping the attribute would leave a control that looks adopted and still
@@ -111,10 +161,11 @@ export function CityFilters({
 
   // Popular cities: top N with count >= threshold
   const popularCities = useMemo(() => {
+    if (!showPopularCities) return []
     const eligible = sortedCities.filter(c => c.count >= MIN_POPULAR_COUNT)
     if (eligible.length < MIN_POPULAR_CITIES) return []
     return eligible.slice(0, MAX_POPULAR_CITIES)
-  }, [sortedCities])
+  }, [sortedCities, showPopularCities])
 
   const handleToggleCity = (city: CityWithCount) => {
     const key = cityKey(city)
