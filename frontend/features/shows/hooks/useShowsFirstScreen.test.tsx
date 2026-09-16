@@ -20,6 +20,8 @@ import {
   SHOWS_CALENDAR_FIRST_SCREEN_URL,
   SHOWS_MONTHS_FIRST_SCREEN_KEY,
   SHOWS_MONTHS_FIRST_SCREEN_URL,
+  showCitiesWindowFirstScreenKey,
+  showCitiesWindowFirstScreenUrl,
   showsCalendarWindowFirstScreenKey,
   showsCalendarWindowFirstScreenUrl,
 } from '@/features/shows/api'
@@ -85,6 +87,53 @@ describe('shows first-screen prefetch contract', () => {
     const cached = queryClient.getQueryCache().getAll()
     expect(cached).toHaveLength(1)
     expect(cached[0].queryHash).toBe(hashKey(SHOW_CITIES_FIRST_SCREEN_KEY))
+  })
+
+  it('an empty scope is the same request and the same entry as no scope', async () => {
+    mockApiRequest.mockResolvedValueOnce({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    // What ShowList passes on a bare /shows: no tags, no window, default AND.
+    const { result } = renderHook(
+      () => useShowCities({ tags: undefined, tagMatch: 'all', window: undefined }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(SHOW_CITIES_FIRST_SCREEN_URL, {
+      method: 'GET',
+    })
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(hashKey(SHOW_CITIES_FIRST_SCREEN_KEY))
+  })
+
+  it('a tag filter and a window each move the facet off the unscoped entry', async () => {
+    mockApiRequest.mockResolvedValue({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () =>
+        useShowCities({
+          tags: ['post-punk'],
+          tagMatch: 'all',
+          window: { year: 2026, month: 9, day: 15, days: 3 },
+        }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    // The window params are spelled by the same builder the list's own request
+    // uses, so the facet and the list cannot address different windows.
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      `${SHOW_CITIES_FIRST_SCREEN_URL}?tags=post-punk&year=2026&month=9&day=15&days=3`,
+      { method: 'GET' }
+    )
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).not.toBe(hashKey(SHOW_CITIES_FIRST_SCREEN_KEY))
   })
 
   // The seeded entry has to be a HIT — the hook must PAINT the server's rows
@@ -274,6 +323,42 @@ describe('shows window first-screen prefetch contract', () => {
 
     expect(queryClient.getQueryCache().getAll()[0].queryHash).toBe(
       hashKey(SHOWS_CALENDAR_FIRST_SCREEN_KEY)
+    )
+  })
+
+  /**
+   * The city facet's half of the same contract. A windowed route seeds a facet
+   * scoped to its own window, so the seed pair has to address the entry
+   * `ShowList` reads there — otherwise the route pays for a payload nothing
+   * reads AND a client round trip for the one it does.
+   */
+  it('seeds the windowed facet on the entry the windowed list reads', async () => {
+    const window = { year: 2026, month: 12, day: 3 }
+    mockApiRequest.mockResolvedValueOnce({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(() => useShowCities({ window }), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      showCitiesWindowFirstScreenUrl(window),
+      { method: 'GET' }
+    )
+    expect(queryClient.getQueryCache().getAll()[0].queryHash).toBe(
+      hashKey(showCitiesWindowFirstScreenKey(window))
+    )
+  })
+
+  // An undefined window is the root's pair, so the root page's constants and
+  // the windowed builders cannot describe two different unwindowed entries.
+  it('collapses the windowed facet pair to the root pair with no window', () => {
+    expect(showCitiesWindowFirstScreenUrl(undefined)).toBe(
+      SHOW_CITIES_FIRST_SCREEN_URL
+    )
+    expect(hashKey(showCitiesWindowFirstScreenKey(undefined))).toBe(
+      hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
     )
   })
 })

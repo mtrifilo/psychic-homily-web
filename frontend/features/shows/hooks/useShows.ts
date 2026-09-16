@@ -29,6 +29,13 @@ import {
 } from '../showsCalendarRoute'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import {
+  appendCityCountScope,
+  cityCountQueryKey,
+  cityCountScopeKey,
+  cityCountUrl,
+  type CityCountScope,
+} from '@/components/filters/cityCountScope'
 
 /**
  * The filter contract every reader of the venue-local upcoming partition
@@ -65,10 +72,10 @@ function appendShowListFilters(
     if (state) params.set('state', state)
   }
 
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  // The tag half is the city facet's whole scope, so the two spell it once: a
+  // list and the facet beside it filtering by different tag semantics is the
+  // disagreement this contract exists to prevent.
+  appendCityCountScope(params, { tags, tagMatch })
 }
 
 /**
@@ -90,8 +97,12 @@ function showListFilterKey({
     city,
     state,
     cities,
-    tags: tags && tags.length > 0 ? tags : undefined,
-    tagMatch: tagMatch === 'any' ? 'any' : undefined,
+    // The tag half is normalized by the same function the city facet keys on,
+    // for the reason appendShowListFilters gives. Spread rather than nested, so
+    // the key shape is unchanged.
+    tags: undefined,
+    tagMatch: undefined,
+    ...cityCountScopeKey({ tags, tagMatch }),
   }
 }
 
@@ -344,20 +355,47 @@ export const useShowTimeline = (showId: number | undefined) => {
 }
 
 /**
- * Hook to fetch cities that have upcoming shows with counts.
- *
- * Takes no options and keys on nothing per-viewer: the counts cover the same
- * venue-local upcoming partition `useUpcomingShows` lists, so every viewer gets
- * the same answer (PSY-1678). It requests the seeded URL directly, which is the
- * bare endpoint — there is nothing per-viewer left to put in it.
+ * The half of the shows list's state a city facet may be scoped by: the tag
+ * filter and the calendar window, and no place, because the response IS the
+ * per-place breakdown.
  */
-export const useShowCities = () => {
+interface UseShowCitiesOptions extends CityCountScope {
+  /** The venue-local window the list is reading, or undefined for all of it. */
+  window?: ShowsCalendarWindow
+}
+
+/**
+ * Hook to fetch cities that have upcoming shows with counts, optionally scoped
+ * to the filters and window the list below the picker is reading.
+ *
+ * Nothing per-viewer is keyed either way: the counts cover the same venue-local
+ * upcoming partition `useUpcomingShows` lists, so every viewer gets the same
+ * answer for the same scope (PSY-1678).
+ *
+ * Unscoped it requests the seeded URL directly, which is the bare endpoint, and
+ * keys as the seed does, which is what makes the first-screen payload a hit. A
+ * TAG-filtered deep link is not covered by the seed, the same call the list's own
+ * first-screen seeds make; a WINDOW is, because it comes from the path rather
+ * than from searchParams and the route already knows it.
+ */
+export const useShowCities = (options: UseShowCitiesOptions = {}) => {
+  const { tags, tagMatch, window: calendarWindow } = options
+
+  const params = new URLSearchParams()
+  appendCityCountScope(params, { tags, tagMatch })
+  appendShowsCalendarWindow(params, calendarWindow)
+
   return useQuery({
-    queryKey: showQueryKeys.cities(),
+    queryKey: cityCountQueryKey(
+      showQueryKeys.cities(),
+      { tags, tagMatch },
+      showsCalendarWindowKey(calendarWindow)
+    ),
     queryFn: async (): Promise<ShowCitiesResponse> => {
-      return apiRequest<ShowCitiesResponse>(SHOW_CITIES_FIRST_SCREEN_URL, {
-        method: 'GET',
-      })
+      return apiRequest<ShowCitiesResponse>(
+        cityCountUrl(SHOW_CITIES_FIRST_SCREEN_URL, params),
+        { method: 'GET' }
+      )
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousData, // Keep old data visible while fetching

@@ -1005,15 +1005,50 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 	return entries, nil
 }
 
-// GetArtistCities returns distinct cities for artists that have upcoming approved shows.
+// artistCitiesScope keeps the keys of a browse filter set that a per-city
+// breakdown may be narrowed by, and drops every key that names a place.
+//
+// skip_active_filter rides with the tag filter because it IS the tag filter's
+// second half: the two are set together at the boundary, and a facet that kept
+// one without the other counts a different set than the list.
+//
+// The missing-listen-link filter is NOT read, and GET /artists/cities does not
+// accept it. That is a KNOWN gap rather than a neutral omission: the filter also
+// drops the activity gate (browseSkipsActiveGate), so under `?missing=` the list
+// is evergreen while this facet stays gated, and every count it reports is
+// smaller than the rows the list renders. Scoping it through is not a matter of
+// passing the key: with a place named the list narrows by the SCENE ROSTER, and
+// a per-place breakdown of a roster-scoped set is a different question from a
+// per-place breakdown of a literal-city one.
+func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
+	scope := map[string]interface{}{}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		scope["tag_filter"] = tf
+	}
+	if skip, ok := filters["skip_active_filter"].(bool); ok && skip {
+		scope["skip_active_filter"] = true
+	}
+	return scope
+}
+
+// GetArtistCities returns distinct cities for the artists the /artists browse
+// page lists, under the same tag filter, with artist counts.
 // Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
-func (s *ArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
+//
+// Drawn through artistBrowseScope, the applier the page and its total already
+// share, so each city's count is the total GET /artists reports for that city
+// under the same tags. That is load-bearing rather than tidy here: a tag filter
+// drops the activity gate (PSY-495), so a facet that kept the gate would count a
+// strictly narrower set than the list it filters.
+//
+// The sum over every city equals the unplaced total EXCEPT for artists carrying
+// no city or state: they belong to the list and to no facet row, because there
+// is no place to file them under.
+func (s *ArtistService) GetArtistCities(filters map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-
-	now := time.Now().UTC()
 
 	type CityResult struct {
 		City        string
@@ -1021,18 +1056,16 @@ func (s *ArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, erro
 		ArtistCount int64
 	}
 
-	// Subquery: artist IDs that have upcoming approved shows
-	artistsWithShows := s.db.Table("show_artists").
-		Select("DISTINCT show_artists.artist_id").
-		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved)
+	baseQuery, err := s.artistBrowseScope(artistCitiesScope(filters), time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("failed to scope artist cities: %w", err)
+	}
 
 	var results []CityResult
-	err := s.db.Table("artists").
-		Select("city, state, COUNT(*) as artist_count").
-		Where("city IS NOT NULL AND city != '' AND state IS NOT NULL AND state != ''").
-		Where("id IN (?)", artistsWithShows).
-		Group("city, state").
+	err = baseQuery().
+		Select("artists.city AS city, artists.state AS state, COUNT(*) as artist_count").
+		Where("artists.city IS NOT NULL AND artists.city != '' AND artists.state IS NOT NULL AND artists.state != ''").
+		Group("artists.city, artists.state").
 		Order("artist_count DESC, city ASC").
 		Find(&results).Error
 	if err != nil {

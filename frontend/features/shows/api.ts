@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { cityCountQueryKey } from '@/components/filters/cityCountScope'
 import { SHOWS_PAGE_SIZE } from './showsListNavigation'
 import {
   appendShowsCalendarWindow,
@@ -222,6 +223,40 @@ export function showsCalendarWindowFirstScreenKey(
 export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
 
 export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities()
+
+/**
+ * The city facet's seed pair for a windowed route.
+ *
+ * The facet is scoped to the window the list is reading, so a windowed route
+ * that seeded the root's entry would compute a payload the hook never reads and
+ * still pay a client round trip for the one it does. The window is the only
+ * difference: no filter reaches these, for the reason the calendar pair above
+ * gives.
+ *
+ * Built from the same two window functions `useShowCities` builds its request
+ * and its key from, so the seed cannot drift onto an entry the hook does not
+ * read. An undefined window collapses both to the root's URL and key.
+ */
+export function showCitiesWindowFirstScreenUrl(
+  window: ShowsCalendarWindow | undefined
+): string {
+  const params = new URLSearchParams()
+  appendShowsCalendarWindow(params, window)
+  const queryString = params.toString()
+  return queryString
+    ? `${SHOW_CITIES_FIRST_SCREEN_URL}?${queryString}`
+    : SHOW_CITIES_FIRST_SCREEN_URL
+}
+
+export function showCitiesWindowFirstScreenKey(
+  window: ShowsCalendarWindow | undefined
+): readonly unknown[] {
+  // Through the same builder `useShowCities` keys on, rather than composing the
+  // fragment here: the "every member undefined means the base key" collapse is
+  // what makes an unwindowed seed land on the entry the unscoped hook reads, and
+  // two spellings of that rule is one of them being wrong later.
+  return cityCountQueryKey(showQueryKeys.cities(), undefined, showsCalendarWindowKey(window))
+}
 
 /**
  * The month histogram behind the pager's page labels.

@@ -432,9 +432,25 @@ type GetUpcomingShowsRequest struct {
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
-// GetShowCitiesRequest represents the HTTP request for listing show cities
+// GetShowCitiesRequest represents the HTTP request for listing show cities.
+//
+// The window and tag halves of GetShowsCalendarRequest, spelled identically down
+// to their bounds: the counts are drawn on the set GET /shows/calendar would
+// list under the same parameters, so a parameter this facet cannot read is a
+// count the list would contradict, and a bound one of them carries alone is a
+// request one refuses and the other answers. TestShowCalendarWindowParamsMatch
+// and TestShowTagParamsMatch hold them together.
+//
+// The PLACE half is deliberately absent — the response is the per-place
+// breakdown.
 type GetShowCitiesRequest struct {
 	Timezone string `query:"timezone" default:"UTC" deprecated:"true" doc:"Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only."`
+	Year     int    `query:"year" minimum:"0" maximum:"9999" doc:"Venue-local calendar year of the window. Omit (or 0) with month and day for the whole upcoming list."`
+	Month    int    `query:"month" minimum:"0" maximum:"12" doc:"Venue-local calendar month, 1-12. Requires year."`
+	Day      int    `query:"day" minimum:"0" maximum:"31" doc:"Venue-local calendar day of month, 1-31. Requires year and month."`
+	Days     int    `query:"days" minimum:"0" maximum:"14" doc:"Length in venue-local days of a run beginning on the requested day, 1-14. Requires year, month and day; omit (or 0 or 1) for that day alone."`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs. AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
+	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // GetShowCitiesResponse represents the HTTP response for listing show cities
@@ -837,7 +853,13 @@ func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCiti
 
 	logger.FromContext(ctx).Debug("show_cities_attempt")
 
-	cities, err := h.showService.GetShowCities(req.Timezone)
+	window, err := parseShowCalendarWindow(req.Year, req.Month, req.Day, req.Days)
+	if err != nil {
+		return nil, err
+	}
+	filters := parseUpcomingShowsFilter("", "", "", req.Tags, req.TagMatch)
+
+	cities, err := h.showService.GetShowCities(req.Timezone, filters, window)
 	if err != nil {
 		logger.FromContext(ctx).Error("show_cities_failed",
 			"error", err.Error(),

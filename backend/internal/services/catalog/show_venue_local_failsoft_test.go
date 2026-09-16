@@ -85,7 +85,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_UnknownVenueZone
 	at := venueLocalInstant(suite.T(), zone, 0, 23)
 	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", at)
 
-	cities, err := suite.showService.GetShowCities("UTC")
+	cities, err := suite.showService.GetShowCities("UTC", nil, contracts.ShowCalendarWindow{})
 	suite.Require().NoError(err, "the city picker must not raise on an unresolvable venue zone")
 	suite.Require().Len(cities, 1)
 	suite.Equal("Phoenix", cities[0].City)

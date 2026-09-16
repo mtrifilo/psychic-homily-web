@@ -13,6 +13,12 @@ import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import type { VenueShowsTimeFilter } from '@/features/venues/api'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import {
+  appendCityCountScope,
+  cityCountQueryKey,
+  cityCountUrl,
+  type CityCountScope,
+} from '@/components/filters/cityCountScope'
 import type { CityState } from '@/components/filters/CityFilters'
 import type {
   Venue,
@@ -94,10 +100,9 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  // One spelling of the tag params for the list and the city facet beside it,
+  // which is scoped by exactly this half of the list's filter set.
+  appendCityCountScope(params, { tags, tagMatch })
   if (includeRail) params.set('include_rail', 'true')
   if (metroRollupApplies) params.set('metro_rollup', 'true')
 
@@ -359,15 +364,28 @@ export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
 }
 
 /**
- * Hook to fetch distinct cities with venue counts for filtering
+ * Hook to fetch distinct cities with venue counts for filtering, optionally
+ * scoped to the filters the list below the picker is reading.
+ *
+ * An omitted scope requests the bare endpoint and keys on the base alone: the
+ * unscoped totals, which is what the surfaces that carry no tag filter want and
+ * what keeps a server-seeded entry matching.
+ *
+ * Scoped, each city's number is the total `GET /venues` reports for that city
+ * under the same filters, which is the premise the bottom sheet's apply button
+ * sums.
  */
-export const useVenueCities = () => {
+export const useVenueCities = (scope?: CityCountScope) => {
+  const params = new URLSearchParams()
+  appendCityCountScope(params, scope)
+
   return useQuery({
-    queryKey: venueQueryKeys.cities,
+    queryKey: cityCountQueryKey(venueQueryKeys.cities, scope),
     queryFn: async (): Promise<VenueCitiesResponse> => {
-      return apiRequest<VenueCitiesResponse>(venueEndpoints.CITIES, {
-        method: 'GET',
-      })
+      return apiRequest<VenueCitiesResponse>(
+        cityCountUrl(venueEndpoints.CITIES, params),
+        { method: 'GET' }
+      )
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
     placeholderData: keepPreviousData, // Keep old data visible while fetching

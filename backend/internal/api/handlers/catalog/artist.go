@@ -290,8 +290,19 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 	return resp, nil
 }
 
-// GetArtistCitiesRequest represents the request for getting artist cities
-type GetArtistCitiesRequest struct{}
+// GetArtistCitiesRequest represents the request for getting artist cities.
+//
+// The tag half of ListArtistsRequest, spelled identically down to the length
+// bound: the counts are drawn on the set GET /artists would list under the same
+// parameters, and a parameter the two spell differently is a request one of them
+// refuses and the other answers. TestArtistTagParamsMatch holds them together.
+//
+// The PLACE half is deliberately absent — the response is the per-place
+// breakdown.
+type GetArtistCitiesRequest struct {
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
+	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+}
 
 // GetArtistCitiesResponse represents the response for the artist cities endpoint
 type GetArtistCitiesResponse struct {
@@ -301,8 +312,19 @@ type GetArtistCitiesResponse struct {
 }
 
 // GetArtistCitiesHandler handles GET /artists/cities
+//
+// The tag filter is capped and paired with skip_active_filter exactly as
+// ListArtistsHandler does it: a tag filter engaged there drops the activity
+// gate, so a facet that read the tags without the pairing would count the gated
+// set under a filter that lists the evergreen one.
 func (h *ArtistHandler) GetArtistCitiesHandler(ctx context.Context, req *GetArtistCitiesRequest) (*GetArtistCitiesResponse, error) {
-	cities, err := h.artistService.GetArtistCities()
+	filters := map[string]interface{}{}
+	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
+		filters["tag_filter"] = tf
+		filters["skip_active_filter"] = true
+	}
+
+	cities, err := h.artistService.GetArtistCities(filters)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch artist cities", err)
 	}

@@ -22738,7 +22738,18 @@ export interface operations {
     };
     "get-artists-cities": {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR.
+                 * @example post-punk,phoenix
+                 */
+                tags?: string;
+                /**
+                 * @description Tag matching mode: 'all' (default, AND) or 'any' (OR)
+                 * @example all
+                 */
+                tag_match?: "all" | "any";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -33759,6 +33770,24 @@ export interface operations {
             query?: {
                 /** @description Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only. */
                 timezone?: string;
+                /** @description Venue-local calendar year of the window. Omit (or 0) with month and day for the whole upcoming list. */
+                year?: number;
+                /** @description Venue-local calendar month, 1-12. Requires year. */
+                month?: number;
+                /** @description Venue-local calendar day of month, 1-31. Requires year and month. */
+                day?: number;
+                /** @description Length in venue-local days of a run beginning on the requested day, 1-14. Requires year, month and day; omit (or 0 or 1) for that day alone. */
+                days?: number;
+                /**
+                 * @description Comma-separated tag slugs. AND by default; set tag_match=any for OR.
+                 * @example post-punk,phoenix
+                 */
+                tags?: string;
+                /**
+                 * @description Tag matching mode: 'all' (default, AND) or 'any' (OR)
+                 * @example all
+                 */
+                tag_match?: "all" | "any";
             };
             header?: never;
             path?: never;
@@ -35822,7 +35851,18 @@ export interface operations {
     };
     "get-venues-cities": {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR.
+                 * @example diy,phoenix
+                 */
+                tags?: string;
+                /**
+                 * @description Tag matching mode: 'all' (default, AND) or 'any' (OR)
+                 * @example all
+                 */
+                tag_match?: "all" | "any";
+            };
             header?: never;
             path?: never;
             cookie?: never;

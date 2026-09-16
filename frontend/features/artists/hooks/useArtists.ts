@@ -18,6 +18,12 @@ import {
 } from '@/features/artists/api'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import {
+  appendCityCountScope,
+  cityCountQueryKey,
+  cityCountUrl,
+  type CityCountScope,
+} from '@/components/filters/cityCountScope'
 import type { CityState } from '@/components/filters'
 import type {
   Artist,
@@ -66,10 +72,9 @@ export function useArtists(options: UseArtistsOptions = {}) {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  if (tags && tags.length > 0) {
-    params.set('tags', tags.join(','))
-    if (tagMatch === 'any') params.set('tag_match', 'any')
-  }
+  // One spelling of the tag params for the list and the city facet beside it,
+  // which is scoped by exactly this half of the list's filter set.
+  appendCityCountScope(params, { tags, tagMatch })
   if (missing) params.set(ARTIST_MISSING_PARAM, missing)
 
   const queryString = params.toString()
@@ -102,15 +107,27 @@ export function useArtists(options: UseArtistsOptions = {}) {
 }
 
 /**
- * Hook to fetch distinct cities with artist counts for filtering
+ * Hook to fetch distinct cities with artist counts for filtering, optionally
+ * scoped to the filters the list below the picker is reading.
+ *
+ * An omitted scope requests the bare endpoint and keys on the base alone. See
+ * `useVenueCities` for why both halves exist.
+ *
+ * Scoped, the counts cover the EVERGREEN set: a tag filter drops the /artists
+ * activity gate, and the facet follows it, so a city can carry a count made
+ * entirely of artists with nothing booked.
  */
-export function useArtistCities() {
+export function useArtistCities(scope?: CityCountScope) {
+  const params = new URLSearchParams()
+  appendCityCountScope(params, scope)
+
   return useQuery({
-    queryKey: artistQueryKeys.cities,
+    queryKey: cityCountQueryKey(artistQueryKeys.cities, scope),
     queryFn: async (): Promise<ArtistCitiesResponse> => {
-      return apiRequest<ArtistCitiesResponse>(artistEndpoints.CITIES, {
-        method: 'GET',
-      })
+      return apiRequest<ArtistCitiesResponse>(
+        cityCountUrl(artistEndpoints.CITIES, params),
+        { method: 'GET' }
+      )
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
     placeholderData: keepPreviousData,

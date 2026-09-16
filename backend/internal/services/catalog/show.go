@@ -1542,30 +1542,63 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	return responses, nextCursor, total, nil
 }
 
-// GetShowCities retrieves cities that have upcoming approved shows, with counts.
+// showCitiesScope keeps the half of an upcoming-list filter set that a per-city
+// breakdown may be narrowed by, and drops the place half.
+//
+// nil in, nil out, so an unfiltered call reaches the applier as an unfiltered
+// read rather than as an empty filter set.
+func showCitiesScope(filters *contracts.UpcomingShowsFilter) *contracts.UpcomingShowsFilter {
+	if filters == nil || len(filters.TagSlugs) == 0 {
+		return nil
+	}
+	return &contracts.UpcomingShowsFilter{
+		TagSlugs:    filters.TagSlugs,
+		TagMatchAny: filters.TagMatchAny,
+	}
+}
+
+// GetShowCities retrieves cities that have upcoming approved shows, with counts,
+// under the same tag filter and calendar window the list is reading.
 // Returns cities sorted by show count (descending).
 //
-// "Upcoming" is the SAME venue-local partition GetUpcomingShows lists, which is
-// what stops the picker from offering a city whose count then dead-ends at an
-// empty list (or hiding one that has shows). The two must be changed together.
+// "Upcoming" is the SAME venue-local partition GetUpcomingShows lists, read
+// through the same applier, so each city's count is the total
+// GET /shows/calendar reports for that city under the same tags and window.
+//
+// The sum over every city equals that total for no city at all EXCEPT for shows
+// carrying no city or state: those belong to the list and to no facet row,
+// because there is no place to file them under.
+//
+// Approved only, with no viewer parameter: the route is anonymous, as its list
+// siblings are, so both resolve their viewer to the public catalog.
 //
 // Deprecated parameter: timezone is accepted and ignored — see GetUpcomingShows.
-func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
+func (s *ShowService) GetShowCities(
+	timezone string,
+	filters *contracts.UpcomingShowsFilter,
+	window contracts.ShowCalendarWindow,
+) ([]contracts.ShowCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+	// Fail closed for the reason GetUpcomingShowsPage states: a half-stated
+	// window narrows to nothing in SQL, so an unvalidated one would count the
+	// whole upcoming catalog for a caller who asked for one day of it.
+	if err := window.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid show calendar window: %w", err)
+	}
 
 	var results []contracts.ShowCityResponse
+
+	scope := showCitiesScope(filters)
+	applyPredicates := s.upcomingShowPredicates(false, scope, window)
 
 	// Table-qualified throughout, and the SELECT aliases back to the bare names
 	// `contracts.ShowCityResponse` scans into. The venue-local lateral aliases
 	// its own columns, so nothing here is ambiguous; the qualification says
 	// which relation each column came from now that the query spans two.
-	err := s.db.Model(&catalogm.Show{}).
+	err := applyPredicates(s.db.Model(&catalogm.Show{})).
 		Select("shows.city AS city, shows.state AS state, COUNT(*) AS show_count").
-		Joins(shared.VenueTZJoin).
-		Where("shows.status = ?", catalogm.ShowStatusApproved).
-		Where(shared.VenueLocalDateCondition("upcoming")).
 		Where("shows.city IS NOT NULL AND shows.city != ''").
 		Where("shows.state IS NOT NULL AND shows.state != ''").
 		Group("shows.city, shows.state").

@@ -2859,9 +2859,13 @@ type ShowServiceInterface interface {
 	// with the current month at both edges rather than an inverted span.
 	GetUpcomingShowsCalendarRange() (ShowCalendarRange, error)
 	// GetShowCities counts the SAME venue-local upcoming partition
-	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an
-	// empty list. Its timezone parameter is inert for the same reason.
-	GetShowCities(timezone string) ([]ShowCityResponse, error)
+	// GetUpcomingShows lists, under the same tag filter and calendar window, so
+	// a city count cannot dead-end at an empty list. Its timezone parameter is
+	// inert for the same reason.
+	//
+	// filters.Cities is ignored: the response IS the per-city breakdown. A
+	// half-stated window is an error, matching GetUpcomingShowsPage.
+	GetShowCities(timezone string, filters *UpcomingShowsFilter, window ShowCalendarWindow) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
 	// SearchShows returns up to 20 shows matching the query in show title or
 	// any bill artist name (case-insensitive), ordered by event_date DESC.
@@ -2958,7 +2962,11 @@ type VenueServiceInterface interface {
 	// aggregating the venue's whole history. Past-only, because a year archive
 	// is.
 	HasPastShowsInYear(venueID uint, year int) (bool, error)
-	GetVenueCities() ([]*VenueCityResponse, error)
+	// GetVenueCities counts the same browse set GetVenuesWithShowCounts lists,
+	// under the same non-place filters, so a city count cannot dead-end at an
+	// empty list. The place half of the filter set is ignored: the response IS
+	// the per-place breakdown.
+	GetVenueCities(filters VenueListFilters) ([]*VenueCityResponse, error)
 	GetVenueModel(venueID uint) (*catalogm.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
 	GetVenueGenreProfile(venueID uint) ([]GenreCount, error)
@@ -3105,7 +3113,12 @@ type ArtistServiceInterface interface {
 	// GetNextShowForArtist: the soonest upcoming show only (no count, no bill) —
 	// the graph-card's next-show glance (PSY-1352).
 	GetNextShowForArtist(artistID uint, timezone string) (*ArtistShowResponse, error)
-	GetArtistCities() ([]*ArtistCityResponse, error)
+	// GetArtistCities counts the same browse set GetArtistsWithShowCounts lists,
+	// under the same tag filter, so a city count cannot dead-end at an empty
+	// list. It takes the browse filter map for that reason, and reads only the
+	// keys a per-place breakdown may be narrowed by: `tag_filter` and the
+	// `skip_active_filter` that travels with it.
+	GetArtistCities(filters map[string]interface{}) ([]*ArtistCityResponse, error)
 	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
 	AddArtistAlias(artistID uint, alias string) (*ArtistAliasResponse, error)
 	RemoveArtistAlias(aliasID uint) error

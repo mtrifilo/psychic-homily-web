@@ -268,6 +268,7 @@ async function HydratedShowList() {
     cities,
     months,
     calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+    citiesKey: SHOW_CITIES_FIRST_SCREEN_KEY,
   })
 
   if (!seeds) {

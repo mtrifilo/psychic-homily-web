@@ -34,7 +34,7 @@ type GetShowsCalendarRequest struct {
 	City     string `query:"city" doc:"Filter by city name (exact match). Legacy, prefer 'cities' param."`
 	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy, prefer 'cities' param."`
 	Cities   string `query:"cities" doc:"Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities."`
-	Tags     string `query:"tags" doc:"Comma-separated tag slugs. AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs. AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
@@ -64,12 +64,9 @@ type GetShowsCalendarResponse struct {
 // 200s with total 0. Whether an addressable month that has no shows is a page or
 // a 404 is the frontend route's call, and it has the total it needs to make it.
 func (h *ShowHandler) GetShowsCalendarHandler(ctx context.Context, req *GetShowsCalendarRequest) (*GetShowsCalendarResponse, error) {
-	window := contracts.ShowCalendarWindow{Year: req.Year, Month: req.Month, Day: req.Day, Days: req.Days}
-	// A half-stated window is a client error, not a wider list. The rule and the
-	// message both live on the window type; the service refuses the same shapes
-	// for a caller that never passes through here.
-	if err := window.Validate(); err != nil {
-		return nil, huma.Error422UnprocessableEntity(err.Error())
+	window, err := parseShowCalendarWindow(req.Year, req.Month, req.Day, req.Days)
+	if err != nil {
+		return nil, err
 	}
 
 	// Both page bounds are resolved here so the envelope echoes the page that was

@@ -55,7 +55,17 @@ func (suite *ShowServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
-	_, _ = sqlDB.Exec("DELETE FROM users")
+	// entity_tags BEFORE users: its added_by_user_id carries a foreign key, so a
+	// leftover tag row makes the users delete fail rather than the tag delete.
+	// tags afterwards, because entity_tags points at it too.
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
+	// Loud, unlike its siblings above. A users delete that fails silently leaves
+	// rows carrying the fixed usernames the attribution fixtures stamp, and the
+	// next test to stamp one fails on a unique index several tests away from the
+	// row that actually leaked. The error belongs to the test that leaked it.
+	_, err = sqlDB.Exec("DELETE FROM users")
+	suite.Require().NoError(err, "teardown: DELETE FROM users")
 }
 
 func TestShowServiceIntegrationTestSuite(t *testing.T) {
@@ -3136,7 +3146,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_Success() {
 		suite.Require().NoError(err)
 	}
 
-	results, err := suite.showService.GetShowCities("UTC")
+	results, err := suite.showService.GetShowCities("UTC", nil, contracts.ShowCalendarWindow{})
 
 	suite.Require().NoError(err)
 	suite.GreaterOrEqual(len(results), 2)

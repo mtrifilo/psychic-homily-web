@@ -15,6 +15,7 @@ import {
   ARTIST_LIST_FIRST_SCREEN_KEY,
   ARTIST_LIST_FIRST_SCREEN_URL,
   ARTIST_LIST_PAGE_LIMIT,
+  artistEndpoints,
   artistQueryKeys,
 } from '@/features/artists/api'
 import { useArtistCities, useArtists } from './useArtists'
@@ -74,6 +75,45 @@ describe('artists first-screen prefetch contract', () => {
     const cached = queryClient.getQueryCache().getAll()
     expect(cached).toHaveLength(1)
     expect(cached[0].queryHash).toBe(hashKey(artistQueryKeys.cities))
+  })
+
+  it('an empty scope is the same request and the same entry as no scope', async () => {
+    mockApiRequest.mockResolvedValueOnce({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () => useArtistCities({ tags: undefined, tagMatch: 'all' }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(artistEndpoints.CITIES, {
+      method: 'GET',
+    })
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(hashKey(artistQueryKeys.cities))
+  })
+
+  it('a tag filter moves the facet off the unscoped entry', async () => {
+    mockApiRequest.mockResolvedValue({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () => useArtistCities({ tags: ['shoegaze'], tagMatch: 'any' }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      `${artistEndpoints.CITIES}?tags=shoegaze&tag_match=any`,
+      { method: 'GET' }
+    )
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).not.toBe(hashKey(artistQueryKeys.cities))
   })
 
   it('a city filter moves the request off the first-screen entry', async () => {

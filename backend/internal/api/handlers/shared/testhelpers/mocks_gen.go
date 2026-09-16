@@ -302,7 +302,7 @@ type MockArtistService struct {
 	GetArtistShowYearsFn       func(uint, string) ([]contracts.ArtistShowYearCount, error)
 	GetArtistShowMonthsFn      func(uint, string) ([]contracts.ArtistShowMonthCount, error)
 	GetNextShowForArtistFn     func(uint, string) (*contracts.ArtistShowResponse, error)
-	GetArtistCitiesFn          func() ([]*contracts.ArtistCityResponse, error)
+	GetArtistCitiesFn          func(map[string]interface{}) ([]*contracts.ArtistCityResponse, error)
 	GetLabelsForArtistFn       func(uint) ([]*contracts.ArtistLabelResponse, error)
 	AddArtistAliasFn           func(uint, string) (*contracts.ArtistAliasResponse, error)
 	RemoveArtistAliasFn        func(uint) error
@@ -406,9 +406,9 @@ func (m *MockArtistService) GetNextShowForArtist(artistID uint, timezone string)
 	}
 	return nil, nil
 }
-func (m *MockArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
+func (m *MockArtistService) GetArtistCities(filters map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 	if m.GetArtistCitiesFn != nil {
-		return m.GetArtistCitiesFn()
+		return m.GetArtistCitiesFn(filters)
 	}
 	return nil, nil
 }
@@ -3682,7 +3682,7 @@ type MockShowService struct {
 	GetUpcomingShowsPageFn          func(contracts.ShowCalendarQuery, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, int64, error)
 	GetUpcomingShowMonthsFn         func(bool, *contracts.UpcomingShowsFilter) ([]contracts.ShowMonthCount, error)
 	GetUpcomingShowsCalendarRangeFn func() (contracts.ShowCalendarRange, error)
-	GetShowCitiesFn                 func(string) ([]contracts.ShowCityResponse, error)
+	GetShowCitiesFn                 func(string, *contracts.UpcomingShowsFilter, contracts.ShowCalendarWindow) ([]contracts.ShowCityResponse, error)
 	DeleteShowFn                    func(uint) error
 	SearchShowsFn                   func(string) ([]*contracts.ShowSearchResult, error)
 }
@@ -3759,9 +3759,9 @@ func (m *MockShowService) GetUpcomingShowsCalendarRange() (contracts.ShowCalenda
 	}
 	return contracts.ShowCalendarRange{}, nil
 }
-func (m *MockShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
+func (m *MockShowService) GetShowCities(timezone string, filters *contracts.UpcomingShowsFilter, window contracts.ShowCalendarWindow) ([]contracts.ShowCityResponse, error) {
 	if m.GetShowCitiesFn != nil {
-		return m.GetShowCitiesFn(timezone)
+		return m.GetShowCitiesFn(timezone, filters, window)
 	}
 	return nil, nil
 }
@@ -4514,7 +4514,7 @@ type MockVenueService struct {
 	GetVenueShowYearsFn       func(uint, string) ([]contracts.VenueShowYearCount, error)
 	GetVenueShowMonthsFn      func(uint, string) ([]contracts.VenueShowMonthCount, error)
 	HasPastShowsInYearFn      func(uint, int) (bool, error)
-	GetVenueCitiesFn          func() ([]*contracts.VenueCityResponse, error)
+	GetVenueCitiesFn          func(contracts.VenueListFilters) ([]*contracts.VenueCityResponse, error)
 	GetVenueModelFn           func(uint) (*catalogm.Venue, error)
 	GetUnverifiedVenuesFn     func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
 	GetVenueGenreProfileFn    func(uint) ([]contracts.GenreCount, error)
@@ -4617,9 +4617,9 @@ func (m *MockVenueService) HasPastShowsInYear(venueID uint, year int) (bool, err
 	}
 	return false, nil
 }
-func (m *MockVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
+func (m *MockVenueService) GetVenueCities(filters contracts.VenueListFilters) ([]*contracts.VenueCityResponse, error) {
 	if m.GetVenueCitiesFn != nil {
-		return m.GetVenueCitiesFn()
+		return m.GetVenueCitiesFn(filters)
 	}
 	return nil, nil
 }
