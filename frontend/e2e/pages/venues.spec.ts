@@ -81,6 +81,7 @@ test.describe('Venues directory', () => {
     // is exercised against a synthesized page of the real response shape.
     const PAGE_SIZE = 50
     const TOTAL = 120
+    const UPCOMING_TOTAL = (TOTAL * (TOTAL + 1)) / 2
     const requested: string[] = []
     // A URL PREDICATE, not a glob: `?` is not a wildcard in Playwright's glob,
     // and the list request is the one whose path ENDS at `/venues`, which is
@@ -122,7 +123,15 @@ test.describe('Venues directory', () => {
           })
         )
         await route.fulfill({
-          json: { venues, total: TOTAL, limit: PAGE_SIZE, offset },
+          json: {
+            venues,
+            total: TOTAL,
+            // The same number on every page, because it describes the city
+            // rather than the slice: 120 + 119 + ... + 1 over the whole set.
+            upcoming_show_total: UPCOMING_TOTAL,
+            limit: PAGE_SIZE,
+            offset,
+          },
         })
       }
     )
@@ -143,6 +152,14 @@ test.describe('Venues directory', () => {
       .poll(() => requested.some(s => s.includes(`offset=${PAGE_SIZE}`)))
       .toBe(true)
     await expect(page.getByText(`Seeded Room ${PAGE_SIZE + 1}`)).toBeVisible()
+
+    // The caption on page 2 describes the CITY, not the fifty rooms on screen,
+    // whose own counts add up to a smaller number.
+    const countRule = page.getByTestId('venues-count-rule')
+    await expect(countRule).toContainText(
+      `${TOTAL} rooms · ${UPCOMING_TOTAL.toLocaleString('en-US')} upcoming shows`
+    )
+    await expect(countRule).not.toContainText('on this page')
   })
 
   test('with no derivable city it offers the busiest cities instead of a table', async ({
