@@ -1,26 +1,60 @@
 import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueList } from '@/features/venues'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type { VenueCitiesResponse } from '@/features/venues/types'
+import { parseCitiesParam } from '@/components/filters/cityParams'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { getVenuesForMetadata } from './venuesMetadata'
+import {
+  buildVenuesMetadata,
+  firstParam,
+  resolveVenuesPage,
+  resolveVenuesScope,
+} from './venuesPageMetadata'
 
-export const metadata = {
-  title: 'Venues',
-  description: 'Browse music venues and discover upcoming shows.',
-  alternates: {
-    canonical: 'https://psychichomily.com/venues',
-  },
-  openGraph: {
-    title: 'Venues | Psychic Homily',
-    description: 'Browse music venues and discover upcoming shows.',
-    url: '/venues',
-    type: 'website',
-  },
+/** The city facet, for naming a city. Null when it could not be read. */
+async function fetchCityFacet(): Promise<VenueCitiesResponse | null> {
+  return fetchListPayload<VenueCitiesResponse>({
+    url: venueEndpoints.CITIES,
+    collection: 'cities',
+    service: 'venue-cities-first-screen',
+  })
+}
+
+/**
+ * The directory's title, description, canonical and robots, per city.
+ *
+ * READS `searchParams`, which is what makes this route's metadata dynamic:
+ * under `cacheComponents` the `<title>` and `<link rel="canonical">` are then
+ * streamed into the BODY rather than the `<head>`. That is a placement change,
+ * not a correctness one, and it is the same posture the charts family has
+ * carried since PSY-1767; the page's own shell is unaffected because nothing
+ * below reads `searchParams`.
+ *
+ * The facet is fetched ONLY when the URL names exactly one city, so the bare
+ * directory pays nothing for this. When it is fetched it is the SAME url,
+ * method and headers the body's seed fetch uses, and Next's Data Cache is keyed
+ * on those three, so the two share one entry rather than making two requests.
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}): Promise<Metadata> {
+  const params = await searchParams
+  const citiesParam = firstParam(params.cities)
+  const namesOneCity = parseCitiesParam(citiesParam).length === 1
+  const facet = namesOneCity ? await fetchCityFacet() : null
+
+  return buildVenuesMetadata(
+    resolveVenuesScope(citiesParam, facet?.cities ?? null),
+    resolveVenuesPage(firstParam(params.page))
+  )
 }
 
 function VenueListLoading() {
@@ -55,11 +89,7 @@ function VenueListLoading() {
  * `fetchListPayload`).
  */
 async function HydratedVenueList() {
-  const cities = await fetchListPayload<VenueCitiesResponse>({
-    url: venueEndpoints.CITIES,
-    collection: 'cities',
-    service: 'venue-cities-first-screen',
-  })
+  const cities = await fetchCityFacet()
 
   if (!cities) {
     return <VenueList />

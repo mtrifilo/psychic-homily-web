@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SITEMAP_FAMILIES, FAMILY_URL_PREFIXES } from '@/app/sitemap-shards'
+import { familyLoc, SITEMAP_FAMILIES } from '@/app/sitemap-shards'
 import {
   classifyLoc,
   detectShape,
@@ -156,22 +156,25 @@ describe('classifyLoc', () => {
   })
 
   /**
-   * The guard that matters, and the reason the prefix table is shared rather
-   * than restated here: the sample URLs are BUILT from FAMILY_URL_PREFIXES, so
-   * renaming a prefix in sitemap-shards.ts moves the generator and this
+   * The guard that matters, and the reason the URL shape is shared rather than
+   * restated here: the sample URLs are BUILT by `familyLoc`, the same function
+   * the generator writes `<loc>` values with, so renaming a prefix or moving a
+   * family between the path and query shapes moves the generator and this
    * classifier together. A hand-written sample map would keep passing while
-   * `classifyLoc` silently bucketed the renamed family as `other`.
+   * `classifyLoc` silently bucketed the changed family as `other`.
    */
-  it('classifies every family from the shared prefix table', () => {
-    // The composite-slug families, whose slug is itself a path tail.
+  it('classifies every family from the shared URL builder', () => {
+    // The composite-slug families, whose slug is itself a path tail, and the
+    // query family, whose slug is a filter value.
     const compositeSlugs: Partial<Record<(typeof SITEMAP_FAMILIES)[number], string>> = {
       scene_weeks: 'austin-tx/2026-W28',
       venue_years: 'the-van-buren/shows/2025',
       shows_months: '2026/11',
+      venue_cities: 'Phoenix,AZ',
     }
     for (const family of SITEMAP_FAMILIES) {
       const slug = compositeSlugs[family] ?? 'a-slug'
-      const loc = `https://psychichomily.com${FAMILY_URL_PREFIXES[family]}/${slug}`
+      const loc = `https://psychichomily.com${familyLoc(family, slug)}`
       expect(classifyLoc(loc), `misclassified ${family} (${loc})`).toBe(family)
     }
   })
@@ -185,10 +188,43 @@ describe('classifyLoc', () => {
    */
   it('has a disambiguation rule for every family under a shared prefix', () => {
     expect(SHARED_CLAIMANTS).toEqual({
-      venues: ['venue_years', 'venues'],
+      venues: ['venue_cities', 'venue_years', 'venues'],
       scenes: ['scene_weeks', 'scenes'],
       shows: ['shows', 'shows_months'],
     })
+  })
+})
+
+describe('classifyLoc, query families', () => {
+  it('counts a city directory URL under venue_cities', () => {
+    expect(
+      classifyLoc('https://psychichomily.com/venues?cities=Phoenix%2CAZ')
+    ).toBe('venue_cities')
+  })
+
+  // The bare listing page shares the prefix and belongs to the pages shard.
+  // Misreading it as an empty city family would move one URL between buckets
+  // every time the monitor runs.
+  it('leaves the bare directory in the pages shard', () => {
+    expect(classifyLoc('https://psychichomily.com/venues')).toBe('pages')
+    expect(classifyLoc('https://psychichomily.com/venues?cities=')).toBe('pages')
+  })
+
+  // The other two claimants of /venues are still told apart by segment count.
+  it('does not take the prefix away from the path families', () => {
+    expect(classifyLoc('https://psychichomily.com/venues/the-van-buren')).toBe(
+      'venues'
+    )
+    expect(
+      classifyLoc('https://psychichomily.com/venues/the-van-buren/shows/2025')
+    ).toBe('venue_years')
+  })
+
+  // A parameter on a deeper path is not the family's shape.
+  it('ignores the parameter below the prefix', () => {
+    expect(
+      classifyLoc('https://psychichomily.com/venues/the-van-buren?cities=Phoenix%2CAZ')
+    ).toBe('venues')
   })
 })
 

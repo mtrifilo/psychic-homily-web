@@ -55,6 +55,16 @@ export const SITE_URL = 'https://psychichomily.com'
  * and neither can see the query string, so a per-page canonical would have to
  * be plumbed in on purpose.
  *
+ * THE ONE EXCEPTION, owner-locked for the venue directory (PSY-2080). A
+ * `/venues?cities=City,ST` page is NOT a slice of one ordered list: each city
+ * is a different set of rooms, with its own heading, its own description and
+ * its own count, and a reader searching a city name wants that city's page
+ * rather than the directory root. So the directory declares a SELF canonical
+ * per city, and per page within a city, and `venuesCityCanonical` below is
+ * where that is spelled. The reasoning above is unchanged for everything else,
+ * including the directory's own `?sort=` and `?tags=` states, which ARE slices
+ * of one city's list and are dropped from the canonical rather than indexed.
+ *
  * SURFACES ROUTED THROUGH THIS HELPER. Not an inventory of every paginated
  * list on the site, see the note below. Add to it when a list adopts the
  * helper:
@@ -96,4 +106,33 @@ export const SITE_URL = 'https://psychichomily.com'
  */
 export function listRootCanonical(rootPath: `/${string}`): string {
   return `${SITE_URL}${rootPath}`
+}
+
+/**
+ * The absolute canonical URL for the venue directory scoped to one city, and
+ * optionally to one page within it.
+ *
+ * A SIBLING of listRootCanonical, not a branch inside it: the policy above is
+ * that a filtered or paged list declares its root, and a helper that sometimes
+ * did the opposite would make the rule unreadable at every other call site.
+ * The exception is named here so a reader of either function meets it once.
+ *
+ * `page` is passed as the page ON SCREEN, so page one drops the parameter — the
+ * pager never writes `page=1`, and a canonical that did would name an address
+ * no link on the site points at.
+ *
+ * Built through URLSearchParams so the string is byte-identical to the anchors
+ * `venuesCityHref` and `listPageHref` emit, and in the same parameter order.
+ * Filter state (`sort`, `tags`, `tag_match`) is deliberately absent: those
+ * reorder or narrow ONE city's rooms rather than answering a different
+ * question, so they canonicalize onto the city page itself.
+ */
+export function venuesCityCanonical(
+  rootPath: `/${string}`,
+  citiesParam: string,
+  page = 1
+): string {
+  const query = new URLSearchParams({ cities: citiesParam })
+  if (page >= 2) query.set('page', String(page))
+  return `${SITE_URL}${rootPath}?${query.toString()}`
 }

@@ -4,6 +4,7 @@ import {
   VENUES_PAGE_SIZE,
   VENUE_SORTS,
   countLabel,
+  nearbyCitiesWithRooms,
   venuesCityHref,
   venuesPageHref,
 } from './venuesListNavigation'
@@ -97,5 +98,54 @@ describe('vocabulary', () => {
 
   it('offers the default order among the accepted ones', () => {
     expect(VENUE_SORTS).toContain(DEFAULT_VENUE_SORT)
+  })
+})
+
+describe('nearbyCitiesWithRooms', () => {
+  const CITIES = [
+    { city: 'Chicago', state: 'IL', count: 42 },
+    { city: 'Phoenix', state: 'AZ', count: 8 },
+    { city: 'Tucson', state: 'AZ', count: 5 },
+    { city: 'Flagstaff', state: 'AZ', count: 0 },
+    { city: 'Austin', state: 'TX', count: 9 },
+    { city: 'Denver', state: 'CO', count: 7 },
+    { city: 'Portland', state: 'OR', count: 6 },
+  ]
+
+  // "Nearest" is same state first, then busiest: `/venues/cities` serves no
+  // coordinates, so sharing a state is the only proximity signal available.
+  it('puts the subject state first, then the busiest', () => {
+    expect(
+      nearbyCitiesWithRooms(CITIES, { city: 'Flagstaff', state: 'AZ' }).map(
+        c => c.city
+      )
+    ).toEqual(['Phoenix', 'Tucson', 'Chicago', 'Austin', 'Denver'])
+  })
+
+  it('leaves out the city the reader was just told is empty', () => {
+    expect(
+      nearbyCitiesWithRooms(CITIES, { city: 'phoenix', state: 'az' }).map(
+        c => c.city
+      )
+    ).not.toContain('Phoenix')
+  })
+
+  it('offers at most five', () => {
+    expect(nearbyCitiesWithRooms(CITIES, { city: 'Nowhere', state: 'ZZ' })).toHaveLength(5)
+  })
+
+  it('takes a shorter list from the caller', () => {
+    expect(
+      nearbyCitiesWithRooms(CITIES, { city: 'Flagstaff', state: 'AZ' }, 2).map(
+        c => c.city
+      )
+    ).toEqual(['Phoenix', 'Tucson'])
+  })
+
+  // Sorting in place would reorder the facet array every other surface reads.
+  it('leaves the caller list in its own order', () => {
+    const input = [...CITIES]
+    nearbyCitiesWithRooms(input, { city: 'Flagstaff', state: 'AZ' })
+    expect(input.map(c => c.city)).toEqual(CITIES.map(c => c.city))
   })
 })

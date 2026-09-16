@@ -3,6 +3,8 @@ import {
   ALL_SHARD_IDS,
   ARTIST_SHARD_IDS,
   ENTITY_SHARD_IDS,
+  familyLoc,
+  FAMILY_QUERY_PARAMS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   RELEASE_SHARD_IDS,
@@ -133,5 +135,43 @@ describe.each(SUB_SHARDED)('the %s sub-shards', (family, ids) => {
 describe('shardIdsFor', () => {
   it('answers a single-document family with its own id', () => {
     expect([...shardIdsFor('venues')]).toEqual(['venues'])
+  })
+})
+
+/**
+ * `familyLoc` is the single owner of the path-vs-query shape, so what it emits
+ * is what both the generator writes and the monitor classifies back.
+ */
+describe('familyLoc', () => {
+  it('joins a path family to its prefix with a slash', () => {
+    expect(familyLoc('venues', 'the-van-buren')).toBe('/venues/the-van-buren')
+    expect(familyLoc('venue_years', 'the-van-buren/shows/2025')).toBe(
+      '/venues/the-van-buren/shows/2025'
+    )
+  })
+
+  it('addresses a query family with its parameter, encoded once', () => {
+    expect(familyLoc('venue_cities', 'Phoenix,AZ')).toBe(
+      '/venues?cities=Phoenix%2CAZ'
+    )
+  })
+
+  // URLSearchParams and encodeURIComponent disagree about a space, and the
+  // page's own anchors are built with the former. Two spellings of one address
+  // is what the self-canonical exists to collapse, so they have to agree.
+  it('spells a space the way the page links it', () => {
+    expect(familyLoc('venue_cities', 'New York,NY')).toBe(
+      '/venues?cities=New+York%2CNY'
+    )
+  })
+
+  // The query table decides which branch runs, so a family entering it without
+  // a prefix, or leaving it while a rule still expects one, is caught here.
+  it('gives every query family a prefix to hang its parameter off', () => {
+    for (const family of Object.keys(FAMILY_QUERY_PARAMS)) {
+      expect(
+        FAMILY_URL_PREFIXES[family as keyof typeof FAMILY_URL_PREFIXES]
+      ).toMatch(/^\//)
+    }
   })
 })

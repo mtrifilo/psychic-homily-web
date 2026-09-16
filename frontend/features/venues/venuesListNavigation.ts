@@ -6,7 +6,8 @@
  * table.
  */
 
-import { buildCitiesParam } from '@/components/filters/cityParams'
+import { buildCitiesParam, cityKey } from '@/components/filters/cityParams'
+import type { CityState, CityWithCount } from '@/components/filters'
 import { formatCount, listPageHref } from '@/components/shared/paginationChrome'
 import { VENUE_LIST_PAGE_LIMIT } from './api'
 
@@ -76,6 +77,39 @@ export function venuesCityHref(
   next.delete('state')
   next.set('cities', buildCitiesParam([{ city, state }]))
   return `${VENUES_ROOT}?${next.toString()}`
+}
+
+/** How many other cities a city with no rooms offers as somewhere to go. */
+export const NEARBY_CITY_COUNT = 5
+
+/**
+ * The cities a reader is sent to when the one they asked for has no rooms.
+ *
+ * "NEAREST" IS DEFINED AS SAME STATE FIRST, THEN BUSIEST, and that is a
+ * consequence of the data rather than a preference: `/venues/cities` serves a
+ * city name, a state and a count, and no coordinates, so no distance can be
+ * computed here. Sharing a state is the only proximity signal the payload
+ * carries. Ties break on the city name so the list is stable between renders.
+ *
+ * The subject city is excluded: it is the one the reader has already been told
+ * is empty.
+ */
+export function nearbyCitiesWithRooms(
+  cities: CityWithCount[],
+  subject: CityState,
+  limit = NEARBY_CITY_COUNT
+): CityWithCount[] {
+  const excluded = cityKey(subject).toLowerCase()
+  return cities
+    .filter(c => cityKey(c).toLowerCase() !== excluded)
+    .sort((a, b) => {
+      const aHome = a.state === subject.state ? 0 : 1
+      const bHome = b.state === subject.state ? 0 : 1
+      return (
+        aHome - bHome || b.count - a.count || a.city.localeCompare(b.city)
+      )
+    })
+    .slice(0, limit)
 }
 
 /**

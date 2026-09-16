@@ -1221,3 +1221,96 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 	}
 	assertSceneRootEntry("Entries(scenes)", entries.Scenes)
 }
+
+// TestSitemapEntriesVenueCitiesMatchTheCityFacet is the load-bearing guarantee
+// of the venue_cities family: every city it announces has to be a city the
+// directory's own picker offers, because /venues?cities=City,ST renders the
+// quiet empty state (and asks crawlers to skip it) for anything else.
+//
+// It asserts the two sets are equal rather than asserting a hand-written list,
+// so a browse condition added to one query and not the other fails here instead
+// of silently publishing URLs the page will not index.
+//
+// It also pins the exclusions that fall out of the same query: an unverified
+// room is not public, and a room with an empty city or state would build
+// "?cities=,AZ", which names no city.
+func TestSitemapEntriesVenueCitiesMatchTheCityFacet(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	seed := []struct {
+		name     string
+		city     string
+		state    string
+		verified bool
+	}{
+		// Two verified rooms in one city: the grain is (city, state), not room.
+		{"City Room A", "Phoenix", "AZ", true},
+		{"City Room B", "Phoenix", "AZ", true},
+		{"City Room C", "Tucson", "AZ", true},
+		// A city whose only room is unverified is not browsable, so not indexable.
+		{"City Room D", "Sedona", "AZ", false},
+		// Same city name in another state is a different page.
+		{"City Room E", "Phoenix", "NY", true},
+		// Placeless rooms: the facet counts them so its numbers sum to the
+		// list's total, and this family must still drop them.
+		{"City Room F", "", "AZ", true},
+		{"City Room G", "Flagstaff", "", true},
+	}
+	for _, s := range seed {
+		venue := &catalogm.Venue{
+			Name:     s.name,
+			Slug:     strPtr(strings.ToLower(strings.ReplaceAll(s.name, " ", "-"))),
+			City:     s.city,
+			State:    s.state,
+			Verified: s.verified,
+		}
+		if err := td.DB.Create(venue).Error; err != nil {
+			t.Fatalf("seed venue %q: %v", s.name, err)
+		}
+	}
+
+	entries, err := NewSitemapService(td.DB).Entries(context.Background(), "venue_cities")
+	if err != nil {
+		t.Fatalf("Entries(venue_cities): %v", err)
+	}
+
+	got := sitemapSlugsOf(entries.VenueCities)
+	want := []string{"Phoenix,AZ", "Phoenix,NY", "Tucson,AZ"}
+	if len(got) != len(want) {
+		t.Fatalf("venue_cities = %v, want exactly %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("venue_cities = %v, want exactly %v (sorted by slug)", got, want)
+		}
+	}
+	if entries.VenueCities[0].UpdatedAt.IsZero() {
+		t.Errorf("venue_cities entry carries no lastmod: %+v", entries.VenueCities[0])
+	}
+
+	// The equality this family exists to hold: the announced set is the picker's
+	// set, minus the rows that cannot form a filter value.
+	facet, err := NewVenueService(td.DB).GetVenueCities(contracts.VenueListFilters{})
+	if err != nil {
+		t.Fatalf("GetVenueCities: %v", err)
+	}
+	offered := map[string]bool{}
+	for _, city := range facet {
+		if city.City == "" || city.State == "" {
+			continue
+		}
+		offered[city.City+","+city.State] = true
+	}
+	if len(offered) != len(got) {
+		t.Fatalf("venue_cities = %v, the city facet offers %v", got, offered)
+	}
+	for _, slug := range got {
+		if !offered[slug] {
+			t.Errorf("venue_cities announces %q, which the city facet does not offer", slug)
+		}
+	}
+}

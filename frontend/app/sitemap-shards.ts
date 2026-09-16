@@ -45,6 +45,7 @@ export const SITEMAP_FAMILIES = [
   'venues',
   'venue_years',
   'shows_months',
+  'venue_cities',
   'scenes',
   'scene_weeks',
   'labels',
@@ -279,6 +280,10 @@ export function shardRoutePath(id: string): string {
  *     the prefix in the entity case and two in the window case, so segment count
  *     separates them here as it does the other two pairs.
  *
+ * `venue_cities` is a THIRD claimant of `/venues`, and the only family whose
+ * URLs are not distinguished by segment count: it addresses the prefix itself
+ * with a query (see FAMILY_QUERY_PARAMS below).
+ *
  * Anything mapping a URL back to a family has to disambiguate each pair by
  * segment count, not by prefix — see `classifyLoc` in lib/sitemap-monitor/parse,
  * whose SHARED_CLAIMANTS guard fails the day any family joins a shared prefix
@@ -290,6 +295,7 @@ export const FAMILY_URL_PREFIXES = {
   venues: '/venues',
   venue_years: '/venues',
   shows_months: '/shows',
+  venue_cities: '/venues',
   scenes: '/scenes',
   scene_weeks: '/scenes',
   labels: '/labels',
@@ -297,3 +303,45 @@ export const FAMILY_URL_PREFIXES = {
   festivals: '/festivals',
   tags: '/tags',
 } as const satisfies Record<Family, string>
+
+/**
+ * The families whose entries address their prefix with a QUERY rather than a
+ * path tail, and the parameter each one's slug is the value of.
+ *
+ * A family absent from this table has a path tail, which is every family but
+ * one: `venue_cities` announces `/venues?cities=Phoenix,AZ`, the directory
+ * scoped to a city, and the directory takes its city from the query string.
+ *
+ * WHERE THE ENCODING HAPPENS, which is the decision this table records. The
+ * backend emits the slug RAW (`Phoenix,AZ`), and `familyLoc` below is the one
+ * place that percent-encodes it. Encoding on the backend would be encoded a
+ * second time here, so `%2C` would reach the crawler as `%252C` and address a
+ * city whose name contains a literal percent sign.
+ *
+ * `cities` is the same parameter `buildCitiesParam` in
+ * components/filters/cityParams writes, so a `<loc>` in this family and a chip
+ * on the page address one URL.
+ */
+export const FAMILY_QUERY_PARAMS: Partial<Record<Family, string>> = {
+  venue_cities: 'cities',
+}
+
+/**
+ * The site-relative URL one entry of `family` is announced at.
+ *
+ * The single owner of the path-vs-query shape: the generator builds `<loc>`
+ * values with it, and lib/sitemap-monitor classifies served URLs back with
+ * FAMILY_QUERY_PARAMS above, so neither can be changed without the other
+ * failing to compile or failing its guard test.
+ */
+export function familyLoc(family: Family, slug: string): string {
+  const prefix = FAMILY_URL_PREFIXES[family]
+  const queryParam = FAMILY_QUERY_PARAMS[family]
+  if (!queryParam) return `${prefix}/${slug}`
+  // URLSearchParams rather than encodeURIComponent, because this has to be the
+  // BYTE-IDENTICAL string the page's own anchors carry: `listPageHref` and
+  // `venuesCityHref` both build through URLSearchParams, which spells a space
+  // `+` where encodeURIComponent spells it `%20`. Both decode to one address,
+  // and two spellings of one address is what a canonical exists to collapse.
+  return `${prefix}?${new URLSearchParams({ [queryParam]: slug }).toString()}`
+}

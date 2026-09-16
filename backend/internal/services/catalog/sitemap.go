@@ -33,8 +33,8 @@ const sceneWeekSitemapWindow = 8
 // frontend/app/sitemap-shards.ts SITEMAP_FAMILIES and with
 // contracts.SitemapEntries.
 var sitemapFamilies = []string{
-	"shows", "artists", "venues", "venue_years", "shows_months", "scenes",
-	"scene_weeks", "labels", "releases", "festivals", "tags",
+	"shows", "artists", "venues", "venue_years", "shows_months", "venue_cities",
+	"scenes", "scene_weeks", "labels", "releases", "festivals", "tags",
 }
 
 // sitemapShard is one bucket of an entity family, addressable on the wire as if
@@ -326,6 +326,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		Venues:      []contracts.SitemapEntry{},
 		VenueYears:  []contracts.SitemapEntry{},
 		ShowsMonths: []contracts.SitemapEntry{},
+		VenueCities: []contracts.SitemapEntry{},
 		Scenes:      []contracts.SitemapEntry{},
 		SceneWeeks:  []contracts.SitemapEntry{},
 		Labels:      []contracts.SitemapEntry{},
@@ -411,6 +412,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 			return nil, fmt.Errorf("failed to collect shows-month sitemap entries: %w", err)
 		}
 		out.ShowsMonths = showsMonths
+	}
+
+	if want("venue_cities") {
+		venueCities, err := s.venueCityEntries(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to collect venue-city sitemap entries: %w", err)
+		}
+		out.VenueCities = venueCities
 	}
 
 	// scenes and scene_weeks are two projections of ONE group set: the same
@@ -675,6 +684,65 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 	// year-then-month SQL order would also give; sorting the assembled slug is
 	// what makes that a property of the emitted document rather than of the query
 	// plan.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
+	return entries, nil
+}
+
+// venueCityEntries projects one SitemapEntry per city that holds at least one
+// verified room: the directory scoped to that city, at /venues?cities=City,ST.
+//
+// THE SLUG IS A QUERY VALUE, NOT A PATH TAIL, and it is emitted RAW. The
+// generator percent-encodes it once on its way into the document; see the
+// query-slug note on contracts.SitemapEntry for why the encoding lives there.
+//
+// The set is exactly the unfiltered GetVenueCities facet, because both are
+// drawn through venueBrowseGate: a city the directory offers is a city this
+// family announces, and a city that loses its last verified room leaves both
+// together. That shared gate is what keeps the two from disagreeing, so a
+// future browse condition belongs on it rather than on either query.
+//
+// Rows with an empty city or state are dropped. GetVenueCities deliberately
+// keeps them, because its numbers have to sum to the list's total, but an empty
+// half builds "?cities=,AZ", which names no city and filters nothing.
+//
+// UpdatedAt is MAX(venue.updated_at) within the city, the closest durable "this
+// page's content changed" signal, matching venueYearEntries and
+// showsMonthEntries. It moves on a room's own edit rather than on a show's: the
+// rows this page carries ARE venues.
+//
+// Unlike the entity families this is NOT one row per table row, so entriesFor
+// cannot serve it: the grain is (city, state) and the slug is composite.
+func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
+	type row struct {
+		City      string    `gorm:"column:city"`
+		State     string    `gorm:"column:state"`
+		UpdatedAt time.Time `gorm:"column:updated_at"`
+	}
+
+	var rows []row
+	err := s.db.WithContext(ctx).
+		Table("venues").
+		Where(venueBrowseGate, true).
+		Where("venues.city <> '' AND venues.state <> ''").
+		Select("venues.city AS city, venues.state AS state, MAX(venues.updated_at) AS updated_at").
+		Group("venues.city, venues.state").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]contracts.SitemapEntry, 0, len(rows))
+	for _, r := range rows {
+		entries = append(entries, contracts.SitemapEntry{
+			Slug:      r.City + "," + r.State,
+			UpdatedAt: r.UpdatedAt,
+		})
+	}
+	// Deterministic order, so two fetches of an unchanged catalogue diff
+	// cleanly - the same reason entriesFor sorts. Sorted on the assembled slug
+	// rather than in SQL because the slug is assembled here, and the two orders
+	// differ wherever one city name is a prefix of another (',' sorts below
+	// every letter, so "Mesa,AZ" precedes "Mesa Verde,CO").
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
 }

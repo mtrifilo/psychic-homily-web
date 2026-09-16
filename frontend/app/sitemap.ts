@@ -151,7 +151,7 @@ import { readJsonWithinDataCacheBudget } from '@/lib/data-cache-budget/assert'
 import type { components } from '@/types/api'
 import {
   ALL_SHARD_IDS,
-  FAMILY_URL_PREFIXES,
+  familyLoc,
   PAGES_SHARD_ID,
   shardFamily,
   type Family,
@@ -178,9 +178,9 @@ type SitemapEntry = components['schemas']['SitemapEntry']
  * schema makes tsc emit TS2741 on this declaration. Without it a new family
  * would be fetched, ignored, and silently absent from the XML.
  *
- * The URL prefix is deliberately NOT here: it lives in FAMILY_URL_PREFIXES in
- * sitemap-shards.ts because lib/sitemap-monitor has to map served URLs back
- * onto families with the same table. `changeFrequency` and `priority` stay
+ * The URL shape is deliberately NOT here: it lives in FAMILY_URL_PREFIXES and
+ * FAMILY_QUERY_PARAMS in sitemap-shards.ts because lib/sitemap-monitor has to
+ * map served URLs back onto families with the same tables. `changeFrequency` and `priority` stay
  * local because nothing outside this generator has any use for them.
  *
  * Public collections are deliberately absent — see contracts.SitemapEntries.
@@ -205,6 +205,12 @@ const FAMILY_ROUTES: Record<
   // below the list root, which is the entry point, and level with the scene
   // week pages, which are the same kind of dated window onto the same shows.
   shows_months: { changeFrequency: 'daily', priority: 0.6 },
+  // A city's directory page changes whenever a room in it is added, verified or
+  // edited, and whenever one of its rooms announces a show, which on the busiest
+  // cities is weekly rather than daily. Priority sits level with the venue pages
+  // it lists, because for a reader arriving on a city name it is the entry
+  // point and the venue page is the detail.
+  venue_cities: { changeFrequency: 'weekly', priority: 0.6 },
   scenes: { changeFrequency: 'weekly', priority: 0.7 },
   scene_weeks: { changeFrequency: 'weekly', priority: 0.6 },
   labels: { changeFrequency: 'monthly', priority: 0.5 },
@@ -383,14 +389,13 @@ function mapFamilyEntries(
   rows: SitemapEntry[]
 ): MetadataRoute.Sitemap {
   const { changeFrequency, priority } = FAMILY_ROUTES[family]
-  const prefix = FAMILY_URL_PREFIXES[family]
   // Rows are known well-formed: fetchShard rejected the response
   // otherwise. The remaining filter is the empty-slug case — a real row whose
   // name produced no slug — which is legitimately skipped, not an error.
   return rows
     .filter(entry => entry.slug)
     .map(entry => ({
-      url: `${BASE_URL}${prefix}/${entry.slug}`,
+      url: `${BASE_URL}${familyLoc(family, entry.slug)}`,
       lastModified: lastModified(entry.updated_at),
       changeFrequency,
       priority,
