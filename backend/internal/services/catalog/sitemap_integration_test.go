@@ -1221,3 +1221,139 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 	}
 	assertSceneRootEntry("Entries(scenes)", entries.Scenes)
 }
+
+// TestSitemapEntriesVenueCitiesMatchTheCityFacet is the load-bearing guarantee
+// of the venue_cities family: every city it announces has to be a city the
+// directory's own picker offers, because /venues?cities=City,ST renders the
+// quiet empty state (and asks crawlers to skip it) for anything else.
+//
+// It asserts the two sets are equal rather than asserting a hand-written list.
+// The two share one predicate applier, so what this guards is a future
+// RESTATEMENT of that rule here, which is how the two would come apart.
+//
+// It also pins the two narrowings: an unverified room is not public, and a name
+// that cannot form an addressable filter value is not announced.
+func TestSitemapEntriesVenueCitiesMatchTheCityFacet(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	seed := []struct {
+		name     string
+		city     string
+		state    string
+		verified bool
+	}{
+		// Two verified rooms in one city: the grain is (city, state), not room.
+		{"City Room A", "Phoenix", "AZ", true},
+		{"City Room B", "Phoenix", "AZ", true},
+		{"City Room C", "Tucson", "AZ", true},
+		// A city whose only room is unverified is not browsable, so not indexable.
+		{"City Room D", "Sedona", "AZ", false},
+		// Same city name in another state is a different page.
+		{"City Room E", "Phoenix", "NY", true},
+		// Placeless rooms: the facet counts them so its numbers sum to the
+		// list's total, and this family must still drop them.
+		{"City Room F", "", "AZ", true},
+		{"City Room G", "Flagstaff", "", true},
+		// Halves that cannot survive the frontend's parseCitiesParam: the
+		// comma is the field separator, the pipe separates pairs, and the
+		// parser trims, so a padded half never matches the facet row it names.
+		{"City Room H", "Winston-Salem, NC", "NC", true},
+		{"City Room I", "Pipe|Town", "AZ", true},
+		{"City Room J", " Padded", "AZ", true},
+		{"City Room K", "Comma", "A,Z", true},
+	}
+	for _, s := range seed {
+		venue := &catalogm.Venue{
+			Name:     s.name,
+			Slug:     strPtr(strings.ToLower(strings.ReplaceAll(s.name, " ", "-"))),
+			City:     s.city,
+			State:    s.state,
+			Verified: s.verified,
+		}
+		if err := td.DB.Create(venue).Error; err != nil {
+			t.Fatalf("seed venue %q: %v", s.name, err)
+		}
+	}
+
+	entries, err := NewSitemapService(td.DB).Entries(context.Background(), "venue_cities")
+	if err != nil {
+		t.Fatalf("Entries(venue_cities): %v", err)
+	}
+
+	got := sitemapSlugsOf(entries.VenueCities)
+	want := []string{"Phoenix,AZ", "Phoenix,NY", "Tucson,AZ"}
+	if len(got) != len(want) {
+		t.Fatalf("venue_cities = %v, want exactly %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("venue_cities = %v, want exactly %v (sorted by slug)", got, want)
+		}
+	}
+	if entries.VenueCities[0].UpdatedAt.IsZero() {
+		t.Errorf("venue_cities entry carries no lastmod: %+v", entries.VenueCities[0])
+	}
+
+	// A <loc> is a promise. Every slug has to survive the parser the page reads
+	// it back with, and none of them may address a page of a city: this family
+	// announces cities, and the pages under one are reached from its pager.
+	for _, slug := range got {
+		halves := strings.Split(slug, ",")
+		if len(halves) != 2 {
+			t.Errorf("venue_cities slug %q does not split into exactly two halves", slug)
+			continue
+		}
+		for _, half := range halves {
+			if half == "" || half != strings.TrimSpace(half) || strings.Contains(half, "|") {
+				t.Errorf("venue_cities slug %q carries a half the page cannot read back", slug)
+			}
+		}
+		if strings.Contains(slug, "page=") {
+			t.Errorf("venue_cities announces a page of a city: %q", slug)
+		}
+	}
+
+	// The equality this family exists to hold: the announced set is the picker's
+	// set, minus the rows whose name cannot form an addressable filter value.
+	//
+	// That exclusion is written out here rather than taken from
+	// addressableCityFilter, so the rule is pinned against a hand-written truth
+	// rather than against itself.
+	unaddressable := map[string]bool{
+		"":                  true, // an empty half names no city
+		"Flagstaff":         true, // its STATE is the empty half
+		"Winston-Salem, NC": true, // the comma is the field separator
+		"Pipe|Town":         true, // the pipe separates pairs
+		" Padded":           true, // the parser trims, so this never matches back
+		"Comma":             true, // its STATE carries the separator
+	}
+	facet, err := NewVenueService(td.DB).GetVenueCities(contracts.VenueListFilters{})
+	if err != nil {
+		t.Fatalf("GetVenueCities: %v", err)
+	}
+	offered := map[string]bool{}
+	for _, city := range facet {
+		if unaddressable[city.City] {
+			continue
+		}
+		offered[city.City+","+city.State] = true
+	}
+	// Not vacuous: the facet has to have SEEN the rows this drops, or the
+	// exclusion is being asserted against a query that never returned them.
+	if len(facet) != len(offered)+len(unaddressable) {
+		t.Fatalf("the city facet returned %d rows, expected %d offered plus %d unaddressable",
+			len(facet), len(offered), len(unaddressable))
+	}
+	if len(offered) != len(got) {
+		t.Fatalf("venue_cities = %v, the addressable city facet offers %v", got, offered)
+	}
+	for _, slug := range got {
+		if !offered[slug] {
+			t.Errorf("venue_cities announces %q, which the city facet does not offer", slug)
+		}
+	}
+}

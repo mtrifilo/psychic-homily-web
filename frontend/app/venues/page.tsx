@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueList } from '@/features/venues'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
@@ -8,19 +9,49 @@ import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/json
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { getVenuesForMetadata } from './venuesMetadata'
+import {
+  buildVenuesMetadata,
+  resolveVenuesPage,
+  resolveVenuesScope,
+  venuesUrlCities,
+} from './venuesPageMetadata'
 
-export const metadata = {
-  title: 'Venues',
-  description: 'Browse music venues and discover upcoming shows.',
-  alternates: {
-    canonical: 'https://psychichomily.com/venues',
-  },
-  openGraph: {
-    title: 'Venues | Psychic Homily',
-    description: 'Browse music venues and discover upcoming shows.',
-    url: '/venues',
-    type: 'website',
-  },
+/** The city facet, for naming a city. Null when it could not be read. */
+async function fetchCityFacet(): Promise<VenueCitiesResponse | null> {
+  return fetchListPayload<VenueCitiesResponse>({
+    url: venueEndpoints.CITIES,
+    collection: 'cities',
+    service: 'venue-cities-first-screen',
+  })
+}
+
+/**
+ * The directory's title, description, canonical and robots, per city.
+ *
+ * READS `searchParams`, which makes this route's metadata dynamic: under
+ * `cacheComponents` the `<title>`, the canonical and the robots directive are
+ * streamed into the BODY of the document rather than the `<head>`, and React
+ * hoists them into the head as it renders. The e2e spec asserts them with
+ * `head >` selectors for exactly that reason. The page's own shell keeps its
+ * prerender because nothing below reads `searchParams`.
+ *
+ * The facet is fetched ONLY when the URL names exactly one city. When it is
+ * fetched it is the same url, method and headers the body's seed fetch uses,
+ * which is the whole Data Cache key, so the two read one entry.
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}): Promise<Metadata> {
+  const params = await searchParams
+  const selected = venuesUrlCities(params)
+  const facet = selected.length === 1 ? await fetchCityFacet() : null
+
+  return buildVenuesMetadata(
+    resolveVenuesScope(selected, facet?.cities ?? null),
+    resolveVenuesPage(params)
+  )
 }
 
 function VenueListLoading() {
@@ -55,11 +86,7 @@ function VenueListLoading() {
  * `fetchListPayload`).
  */
 async function HydratedVenueList() {
-  const cities = await fetchListPayload<VenueCitiesResponse>({
-    url: venueEndpoints.CITIES,
-    collection: 'cities',
-    service: 'venue-cities-first-screen',
-  })
+  const cities = await fetchCityFacet()
 
   if (!cities) {
     return <VenueList />
