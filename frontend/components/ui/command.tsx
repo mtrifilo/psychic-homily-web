@@ -8,6 +8,26 @@ import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 
+/**
+ * Bounds a command surface by the space its popover has on screen.
+ *
+ * Radix publishes `--radix-popover-content-available-height` on the popover
+ * content and measures it against the VISUAL viewport, so it already shrinks
+ * when a software keyboard rises. The variable is only set inside a popover;
+ * anywhere else, including the dialog `CommandDialog` renders, it is absent and
+ * the fallback leaves the surface unbounded, so `CommandList`'s own 300px cap
+ * is what applies there.
+ *
+ * The bound sits on this flex column rather than on `CommandList` because the
+ * column also holds the pinned `CommandInput`: a list capped at the full
+ * available height puts the surface's bottom edge one input row below the
+ * space that was available. Capping the column subtracts the input by
+ * construction, and the list, being the flex child that scrolls, absorbs the
+ * difference.
+ */
+export const POPOVER_AVAILABLE_HEIGHT_BOUND =
+  'max-h-[var(--radix-popover-content-available-height,none)]'
+
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
@@ -16,6 +36,7 @@ const Command = React.forwardRef<
     ref={ref}
     className={cn(
       'flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
+      POPOVER_AVAILABLE_HEIGHT_BOUND,
       className
     )}
     {...props}
@@ -45,7 +66,9 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div className="flex items-center border-b border-border/50 px-3" cmdk-input-wrapper="">
+  // `shrink-0`: the row is pinned, so the list below it is what gives way when
+  // the surface is bounded by the popover's available height.
+  <div className="flex shrink-0 items-center border-b border-border/50 px-3" cmdk-input-wrapper="">
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
       ref={ref}
@@ -65,7 +88,12 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn('max-h-[300px] overflow-y-auto overflow-x-hidden', className)}
+    // `min-h-0`: the scrolling child of the bounded column, free to shrink
+    // below its content so the rows scroll instead of overflowing the surface.
+    className={cn(
+      'max-h-[300px] min-h-0 overflow-y-auto overflow-x-hidden',
+      className
+    )}
     {...props}
   />
 ))
