@@ -1012,14 +1012,17 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 // second half: the two are set together at the boundary, and a facet that kept
 // one without the other counts a different set than the list.
 //
-// The missing-listen-link filter is NOT read, and GET /artists/cities does not
-// accept it. That is a KNOWN gap rather than a neutral omission: the filter also
-// drops the activity gate (browseSkipsActiveGate), so under `?missing=` the list
-// is evergreen while this facet stays gated, and every count it reports is
-// smaller than the rows the list renders. Scoping it through is not a matter of
-// passing the key: with a place named the list narrows by the SCENE ROSTER, and
-// a per-place breakdown of a roster-scoped set is a different question from a
-// per-place breakdown of a literal-city one.
+// The missing-listen-link filter travels for the same reason and carries its own
+// gate switch with it: browseSkipsActiveGate drops the activity gate for it as
+// well, so a facet that dropped the key would count the gated whole catalogue
+// under a filter that lists only the bands with the gap.
+//
+// What the key cannot carry here is the SCENE reading. A place named on the list
+// selects that scene's metro-aware roster; the place keys are dropped above,
+// because this response IS the per-place breakdown, so the counts are keyed on
+// the stored city string. Each city's count is therefore the list total for that
+// city as `?cities=` alone would match it, and the sum over every city is the
+// list total for no place at all.
 func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 	scope := map[string]interface{}{}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
@@ -1027,6 +1030,9 @@ func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 	}
 	if skip, ok := filters["skip_active_filter"].(bool); ok && skip {
 		scope["skip_active_filter"] = true
+	}
+	if missingListenLinkEngaged(filters) {
+		scope[FilterMissingListenLink] = true
 	}
 	return scope
 }
@@ -1038,9 +1044,10 @@ func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 //
 // Drawn through artistBrowseScope, the applier the page and its total already
 // share, so each city's count is the total GET /artists reports for that city
-// under the same tags. That is load-bearing rather than tidy here: a tag filter
-// drops the activity gate (PSY-495), so a facet that kept the gate would count a
-// strictly narrower set than the list it filters.
+// under the same filters. That is load-bearing rather than tidy here: both the
+// tag filter (PSY-495) and the missing-listen-link filter drop the activity
+// gate, so a facet that kept the gate would count a strictly narrower set than
+// the list it filters.
 //
 // The sum over every city equals the unplaced total EXCEPT for artists carrying
 // no city or state: they belong to the list and to no facet row, because there

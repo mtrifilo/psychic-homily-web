@@ -396,3 +396,59 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_UnfilteredKe
 	}
 	suite.Equal(1, byCity["Sedona"], "an artist with no upcoming show is outside the gated facet")
 }
+
+// createArtistWithListenLink places an artist carrying one of the four
+// streaming columns, which is what puts it OUTSIDE the gap population.
+func (suite *ArtistServiceIntegrationTestSuite) createArtistWithListenLink(
+	name, city, state string,
+) *catalogm.Artist {
+	artist := suite.createArtistInCity(name, city, state)
+	link := "https://open.spotify.com/artist/" + name
+	suite.Require().NoError(suite.db.Model(artist).Update("spotify", link).Error)
+	return artist
+}
+
+// The gap filter's half of the same premise, and the second filter that drops
+// the activity gate. Under it the list is evergreen and narrowed to the bands
+// with no listen link, so a facet reading neither half counts the gated whole
+// catalogue under a filter that lists a fraction of it.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListenSumEqualsTheListTotal() {
+	venue := suite.createTestVenue("Facet Gap Room", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// The gap, with nothing booked: in the list, and the row a gated facet drops.
+	suite.createArtistInCity("Facet Gap Quiet", "Flagstaff", "AZ")
+
+	// The gap, with a show: in both readings of the filter.
+	active := suite.createArtistInCity("Facet Gap Active", "Flagstaff", "AZ")
+	suite.createApprovedShowWithArtist(active.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+
+	// A listen link and a show: outside the filter, inside an unfiltered facet.
+	linked := suite.createArtistWithListenLink("Facet Gap Linked", "Bisbee", "AZ")
+	suite.createApprovedShowWithArtist(linked.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+
+	// The gap, placeless: the documented exemption.
+	suite.createArtistInCity("Facet Gap Placeless", "", "")
+
+	filters := map[string]interface{}{FilterMissingListenLink: true}
+
+	cities, err := suite.artistService.GetArtistCities(filters)
+	suite.Require().NoError(err)
+
+	_, total, err := suite.artistService.GetArtistsWithShowCounts(filters, 50, 0)
+	suite.Require().NoError(err)
+
+	suite.Equal(int64(3), total,
+		"the gap list carries the quiet, the active and the placeless band")
+	suite.Equal(total-1, sumArtistCityCounts(cities),
+		"the sum is the list total less the one artist that names no place")
+
+	byCity := map[string]int{}
+	for _, c := range cities {
+		byCity[c.City] = c.ArtistCount
+	}
+	suite.Equal(2, byCity["Flagstaff"],
+		"a quiet band is counted because the gap filter drops the activity gate")
+	suite.Equal(0, byCity["Bisbee"],
+		"a band with a listen link is outside the gap population")
+}

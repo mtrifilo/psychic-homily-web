@@ -46,8 +46,9 @@ import (
 // that reads it spell it once: a typo here is a filter that silently does
 // nothing, which reads as an unfiltered list rather than as an error.
 //
-// Honoured by artistBrowseScope, so by the two paged browse reads. GetArtists,
-// which reads the same map, does not honour it.
+// Honoured by artistBrowseScope, so by the two paged browse reads and by the
+// per-city facet artistCitiesScope hands it. GetArtists, which reads the same
+// map, does not honour it.
 const FilterMissingListenLink = "missing_listen_link"
 
 // artistCityPair is one place a browse request scopes to.

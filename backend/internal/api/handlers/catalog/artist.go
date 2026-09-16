@@ -292,16 +292,20 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 
 // GetArtistCitiesRequest represents the request for getting artist cities.
 //
-// The tag half of ListArtistsRequest, spelled identically down to the length
-// bound: the counts are drawn on the set GET /artists would list under the same
-// parameters, and a parameter the two spell differently is a request one of them
-// refuses and the other answers. TestArtistTagParamsMatch holds them together.
+// The non-place half of ListArtistsRequest, spelled identically down to the
+// length bound: the counts are drawn on the set GET /artists would list under the
+// same parameters, and a parameter the two spell differently is a request one of
+// them refuses and the other answers. TestArtistTagParamsMatch and
+// TestArtistMissingParamVocabularyMatches hold them together.
 //
 // The PLACE half is deliberately absent — the response is the per-place
 // breakdown.
 type GetArtistCitiesRequest struct {
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+	// The doc differs from the list's because there is no place parameter here
+	// to qualify; the accepted VALUES are held equal by test.
+	Missing string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict the counts to the same completeness gap GET /artists' own 'missing' parameter selects. 'listen' counts the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate exactly as the list does. The SCENE reading the list gives a named place is not reachable here: this response IS the per-place breakdown, so a city's count is what the list matches for that city by its stored city string, and the sum over every city is the list total for no place at all." example:"listen"`
 }
 
 // GetArtistCitiesResponse represents the response for the artist cities endpoint
@@ -316,12 +320,26 @@ type GetArtistCitiesResponse struct {
 // The tag filter is capped and paired with skip_active_filter exactly as
 // ListArtistsHandler does it: a tag filter engaged there drops the activity
 // gate, so a facet that read the tags without the pairing would count the gated
-// set under a filter that lists the evergreen one.
+// set under a filter that lists the evergreen one. The gap filter carries its
+// own gate switch inside the service, so it needs no pairing here.
+//
+// The `missing` guard fails closed for the reason the list's does: huma's enum
+// rejects an unrecognised value before this runs, so it answers for callers that
+// build the struct directly, and answering them with counts taken under no
+// filter at all is a wrong answer rather than a missing feature.
 func (h *ArtistHandler) GetArtistCitiesHandler(ctx context.Context, req *GetArtistCitiesRequest) (*GetArtistCitiesResponse, error) {
 	filters := map[string]interface{}{}
 	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
 		filters["tag_filter"] = tf
 		filters["skip_active_filter"] = true
+	}
+
+	switch req.Missing {
+	case "":
+	case artistMissingListen:
+		filters[catalog.FilterMissingListenLink] = true
+	default:
+		return nil, huma.Error422UnprocessableEntity("Unsupported missing filter")
 	}
 
 	cities, err := h.artistService.GetArtistCities(filters)
