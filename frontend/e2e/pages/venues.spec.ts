@@ -163,6 +163,58 @@ test.describe('Venues directory', () => {
     await tableIsUp(page)
   })
 
+  /**
+   * The directory's indexing posture. Asserted in a browser rather than only in
+   * `venuesPageMetadata.test.ts` because the metadata is DYNAMIC: it is
+   * resolved per request against the city facet, so a unit test cannot show
+   * that the facet actually reached it.
+   */
+  test.describe('indexing', () => {
+    const canonical = (page: Page) =>
+      page.locator('link[rel="canonical"]').first()
+
+    test('a city page declares itself canonical', async ({ page }) => {
+      await page.goto(PHOENIX)
+      await tableIsUp(page)
+
+      await expect(canonical(page)).toHaveAttribute(
+        'href',
+        'https://psychichomily.com/venues?cities=Phoenix%2CAZ'
+      )
+    })
+
+    // The owner-locked directory exception to the site's canonicalize-to-root
+    // pagination policy (PSY-1767): each page of a city is its own document.
+    test('page two of a city declares itself, not the city root', async ({
+      page,
+    }) => {
+      await page.goto(`${PHOENIX}&page=2`)
+
+      await expect(canonical(page)).toHaveAttribute(
+        'href',
+        'https://psychichomily.com/venues?cities=Phoenix%2CAZ&page=2'
+      )
+    })
+
+    test('a city with no rooms is reachable and asks not to be indexed', async ({
+      page,
+    }) => {
+      const response = await page.goto('/venues?cities=Nowhereville%2CZZ')
+
+      expect(response?.status()).toBe(200)
+      await expect(page.getByTestId('venues-city-chooser')).toBeVisible()
+      await expect(page.locator('meta[name="robots"]').first()).toHaveAttribute(
+        'content',
+        /noindex/
+      )
+      // It points at the directory it could not answer for, not at itself.
+      await expect(canonical(page)).toHaveAttribute(
+        'href',
+        'https://psychichomily.com/venues'
+      )
+    })
+  })
+
   test.describe('narrow viewports', () => {
     for (const width of [320, 390]) {
       test(`does not scroll sideways at ${width}px`, async ({ page }) => {

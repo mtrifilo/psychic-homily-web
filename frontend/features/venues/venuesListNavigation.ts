@@ -6,7 +6,7 @@
  * table.
  */
 
-import { buildCitiesParam, cityKey } from '@/components/filters/cityParams'
+import { buildCitiesParam, cityKey } from '@/components/filters/cityParamsFormat'
 import type { CityState, CityWithCount } from '@/components/filters'
 import { formatCount, listPageHref } from '@/components/shared/paginationChrome'
 import { VENUE_LIST_PAGE_LIMIT } from './api'

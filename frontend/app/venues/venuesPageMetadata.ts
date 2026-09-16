@@ -4,7 +4,7 @@ import {
   cityKey,
   cityLabel,
   parseCitiesParam,
-} from '@/components/filters/cityParams'
+} from '@/components/filters/cityParamsFormat'
 import type { CityState } from '@/components/filters'
 import { clampPage, MAX_ARCHIVE_PAGE } from '@/features/shows/showArchive'
 import { VENUES_ROOT } from '@/features/venues/venuesListNavigation'
