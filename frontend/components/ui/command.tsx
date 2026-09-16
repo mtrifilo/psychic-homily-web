@@ -20,13 +20,15 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
  * column also holds the pinned `CommandInput`: a list capped at the full
  * available height puts the surface's bottom edge one input row below the space
  * that was available. Capping the column subtracts the input by construction,
- * and the list, being the flex child that scrolls, absorbs the difference.
+ * and `CommandList`, whose `overflow-y-auto` lets it shrink below its content,
+ * is the child that absorbs the difference.
  *
- * It sits here rather than on `PopoverContent`, where `Select` and
- * `DropdownMenu` carry their equivalents, because `PopoverContent` is a generic
- * slot with no scroll region of its own: the popovers that are not command
- * surfaces each cap their own scroller, and a bound there would need flex
- * plumbing added to every one of them.
+ * `min-h-11` is the floor, and it is `CommandInput`'s own `h-11` so the two
+ * scale together with the reader's text size. Below it the column's
+ * `overflow-hidden` would clip the field being typed into, which is reachable
+ * at 200% text on a landscape phone with the keyboard up. The list reaching
+ * zero there is the correct outcome: a row shown at that size would be under
+ * the keyboard.
  */
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -36,7 +38,7 @@ const Command = React.forwardRef<
     ref={ref}
     className={cn(
       'flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
-      'max-h-(--radix-popover-content-available-height)',
+      'max-h-(--radix-popover-content-available-height) min-h-11',
       className
     )}
     {...props}
@@ -66,9 +68,7 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  // `shrink-0`: the row is pinned, so the list below it is what gives way when
-  // the surface is bounded by the popover's available height.
-  <div className="flex shrink-0 items-center border-b border-border/50 px-3" cmdk-input-wrapper="">
+  <div className="flex items-center border-b border-border/50 px-3" cmdk-input-wrapper="">
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
       ref={ref}
@@ -88,12 +88,7 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    // `min-h-0`: the scrolling child of the bounded column, free to shrink
-    // below its content so the rows scroll instead of overflowing the surface.
-    className={cn(
-      'max-h-[300px] min-h-0 overflow-y-auto overflow-x-hidden',
-      className
-    )}
+    className={cn('max-h-[300px] overflow-y-auto overflow-x-hidden', className)}
     {...props}
   />
 ))

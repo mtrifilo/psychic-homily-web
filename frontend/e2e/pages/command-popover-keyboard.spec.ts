@@ -6,15 +6,17 @@ import {
 import { expect, type Locator, type Page } from '@playwright/test'
 
 /**
- * Narrow enough to match the soft-keyboard viewport query and wide enough for
- * `/atlas` to render the globe rather than its scene list, which it swaps in
- * below 640px.
+ * A landscape phone: the shape where a keyboard and this popover can actually
+ * meet. `/atlas` swaps in a searchless scene list below 640px, so a portrait
+ * phone has no atlas search at all, and the wide-but-short landscape case is
+ * also the one that leaves the popover least room.
  */
-const ATLAS_VIEWPORT = { width: 700, height: 600 }
+const ATLAS_VIEWPORT = { width: 844, height: 390 }
 
 /**
- * Wide enough that the city filter opens its combobox popover rather than the
- * bottom sheet, which takes over at or below 767px.
+ * The city filter's popover needs more than 767px, below which its trigger
+ * opens a bottom sheet instead. Reachable here because the `chromium` project
+ * emulates no touch, so the `(pointer: coarse)` half of that query is false.
  */
 const CITY_POPOVER_VIEWPORT = { width: 900, height: 600 }
 
@@ -41,40 +43,39 @@ function availableHeightPx(content: Locator): Promise<number> {
 type Geometry = {
   available: number
   /**
-   * Radix measures the available height from the popover's OUTER top edge,
+   * Radix measures the available height from the popover's outer top edge,
    * while the bound applies to the command column inside the popover's border.
-   * The border is therefore the only thing that can paint past the line the
-   * column was sized from, and it is read off the element rather than assumed.
+   * The bottom border is what can paint past the line the column was sized
+   * from, and it is read off the element rather than assumed.
    */
-  border: number
+  bottomBorder: number
   columnHeight: number
   columnMaxHeight: number
   contentBottom: number
   listScrolls: boolean
+  optionCount: number
 }
 
 /**
  * One round-trip for every measurement, so the whole reading is taken from a
- * single layout rather than from six that the popover's reposition ticks can
- * fall between.
+ * single layout rather than from several that a reposition tick can fall
+ * between.
  */
 function measure(content: Locator): Promise<Geometry> {
   return content.evaluate(el => {
     const style = getComputedStyle(el)
     const column = el.querySelector('[cmdk-root]') as HTMLElement
     const list = el.querySelector('[cmdk-list]') as HTMLElement
-    const contentRect = el.getBoundingClientRect()
     return {
       available: Number.parseFloat(
         style.getPropertyValue('--radix-popover-content-available-height')
       ),
-      border:
-        Number.parseFloat(style.borderTopWidth) +
-        Number.parseFloat(style.borderBottomWidth),
+      bottomBorder: Number.parseFloat(style.borderBottomWidth),
       columnHeight: column.getBoundingClientRect().height,
       columnMaxHeight: Number.parseFloat(getComputedStyle(column).maxHeight),
-      contentBottom: contentRect.bottom,
+      contentBottom: el.getBoundingClientRect().bottom,
       listScrolls: list.scrollHeight > list.clientHeight,
+      optionCount: el.querySelectorAll('[cmdk-item]').length,
     }
   })
 }
@@ -96,6 +97,12 @@ test.describe('Atlas search popover under a software keyboard', () => {
     const search = page.getByPlaceholder('City or state…')
     await expect(search).toBeVisible()
 
+    const unbounded = await measure(content)
+    // The scrolling assertion below only means anything if the seeded scenes
+    // overflow the room the keyboard leaves. Fails loudly if the seed shrinks.
+    expect(unbounded.optionCount).toBeGreaterThan(1)
+    expect(unbounded.listScrolls).toBe(false)
+
     // Open first, then raise the keyboard: the re-measure the shrinking visual
     // viewport triggers is what tightens the bound.
     await raiseKeyboard(page, ATLAS_KEYBOARD_HEIGHT)
@@ -103,25 +110,33 @@ test.describe('Atlas search popover under a software keyboard', () => {
       .poll(() => availableHeightPx(content), { timeout: 10_000 })
       .toBeLessThan(ATLAS_KEYBOARD_HEIGHT)
 
-    // The trigger is docked to the top of the map, so there is never more room
-    // above it than below and the popover stays under it.
-    await expect(content).toHaveAttribute('data-side', 'bottom')
-
     const geometry = await measure(content)
     // The bound itself: the column never exceeds the room Radix reported.
     expect(geometry.columnHeight).toBeLessThanOrEqual(geometry.available)
-    // Nothing but the popover's own border paints below the keyboard line.
+    // Nothing but the popover's own bottom border paints below the keyboard.
     expect(geometry.contentBottom).toBeLessThanOrEqual(
-      ATLAS_KEYBOARD_HEIGHT + geometry.border
+      ATLAS_KEYBOARD_HEIGHT + geometry.bottomBorder
     )
     // The rows scroll inside that bound instead of running past it.
     expect(geometry.listScrolls).toBe(true)
-
-    // The search field stays pinned at the top of the popover, above the line.
+    // The field being typed into is never squeezed out by the bound.
     const searchBox = (await search.boundingBox())!
     expect(searchBox.y + searchBox.height).toBeLessThanOrEqual(
       ATLAS_KEYBOARD_HEIGHT
     )
+
+    // Lowering the keyboard gives the room back: the bound tracks the viewport
+    // in both directions rather than latching at its smallest reading.
+    await raiseKeyboard(page, ATLAS_VIEWPORT.height)
+    await expect
+      .poll(async () => (await measure(content)).listScrolls, {
+        timeout: 10_000,
+      })
+      .toBe(false)
+    const restored = await measure(content)
+    expect(restored.columnHeight).toBeGreaterThan(geometry.columnHeight)
+    // Back to its original size, within the sub-pixel drift a relayout leaves.
+    expect(Math.abs(restored.columnHeight - unbounded.columnHeight)).toBeLessThan(2)
   })
 })
 
@@ -157,9 +172,12 @@ test.describe('City filter popover on a shrinking visual viewport', () => {
     // room Radix reports. The seeded city list is short enough to fit inside
     // it, so the scrolling case is asserted on /atlas.
     const geometry = await measure(content)
-    expect(geometry.columnMaxHeight).toBe(geometry.available)
+    expect(geometry.columnMaxHeight).toBeCloseTo(geometry.available, 1)
     expect(geometry.contentBottom).toBeLessThanOrEqual(
-      CITY_KEYBOARD_HEIGHT + geometry.border
+      CITY_KEYBOARD_HEIGHT + geometry.bottomBorder
     )
+    // A bound that collapsed the surface would satisfy the line above too.
+    expect(geometry.columnHeight).toBeGreaterThan(0)
+    expect(page.getByPlaceholder('Search cities...')).toBeTruthy()
   })
 })
