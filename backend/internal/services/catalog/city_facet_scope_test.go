@@ -9,11 +9,15 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// artistCitiesScope subtracts the place keys and carries everything else, so the
-// closed set it enumerates is the one artistBrowseScope owns. A narrowing added
-// to the list travels by construction; a place key that stopped being subtracted
-// would narrow the breakdown to the place already picked.
-func TestArtistCitiesScope_SubtractsPlaceKeysAndCarriesTheRest(t *testing.T) {
+// artistCitiesScope subtracts exactly the place keys. A place key that stopped
+// being subtracted would narrow the breakdown to the place already picked; a
+// narrowing that stopped being handed on would count a different population than
+// the rows it filters.
+//
+// It pins the subtraction, not a guarantee about filters that do not exist yet:
+// what an unread key MEANS is artistBrowseScope's decision, and a narrowing
+// reaches these counts only once GetArtistCitiesRequest accepts it.
+func TestArtistCitiesScope_SubtractsExactlyThePlaceKeys(t *testing.T) {
 	scope := artistCitiesScope(map[string]interface{}{
 		"cities":                []map[string]string{{"city": "Phoenix", "state": "AZ"}},
 		"city":                  "Phoenix",
@@ -21,7 +25,6 @@ func TestArtistCitiesScope_SubtractsPlaceKeysAndCarriesTheRest(t *testing.T) {
 		"tag_filter":            TagFilter{TagSlugs: []string{"shoegaze"}},
 		"skip_active_filter":    true,
 		FilterMissingListenLink: true,
-		"a_filter_added_later":  true,
 	})
 
 	for _, key := range browsePlaceKeys {
@@ -29,9 +32,7 @@ func TestArtistCitiesScope_SubtractsPlaceKeysAndCarriesTheRest(t *testing.T) {
 			t.Errorf("%q names a place and must not reach the breakdown", key)
 		}
 	}
-	for _, key := range []string{
-		"tag_filter", "skip_active_filter", FilterMissingListenLink, "a_filter_added_later",
-	} {
+	for _, key := range []string{"tag_filter", "skip_active_filter", FilterMissingListenLink} {
 		if _, ok := scope[key]; !ok {
 			t.Errorf("%q narrows the list and must reach the breakdown", key)
 		}
@@ -453,12 +454,18 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListe
 	active := suite.createArtistInCity("Facet Gap Active", "Flagstaff", "AZ")
 	suite.createApprovedShowWithArtist(active.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
-	// A listen link and a show: outside the filter, inside an unfiltered facet.
-	linked := suite.createArtistWithListenLink("Facet Gap Linked", "Bisbee", "AZ")
-	suite.createApprovedShowWithArtist(linked.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	// Two bands with a listen link and a show, in one city: outside the filter,
+	// inside an unfiltered facet. Two rather than one so the sum below is wrong
+	// under a facet that ignores the filter, instead of coincidentally right.
+	for _, name := range []string{"Facet Gap Linked One", "Facet Gap Linked Two"} {
+		linked := suite.createArtistWithListenLink(name, "Bisbee", "AZ")
+		suite.createApprovedShowWithArtist(linked.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	}
 
-	// The gap, placeless: the documented exemption.
+	// The gap with no place at all, and the gap with half a place. The facet
+	// requires BOTH columns, so each is in the list and in no row.
 	suite.createArtistInCity("Facet Gap Placeless", "", "")
+	suite.createArtistInCity("Facet Gap Halfplaced", "Winslow", "")
 
 	filters := map[string]interface{}{FilterMissingListenLink: true}
 
@@ -468,10 +475,10 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListe
 	_, total, err := suite.artistService.GetArtistsWithShowCounts(filters, 50, 0)
 	suite.Require().NoError(err)
 
-	suite.Equal(int64(3), total,
-		"the gap list carries the quiet, the active and the placeless band")
-	suite.Equal(total-1, sumArtistCityCounts(cities),
-		"the sum is the list total less the one artist that names no place")
+	suite.Equal(int64(4), total,
+		"the gap list carries the quiet, the active, the placeless and the half-placed band")
+	suite.Equal(total-2, sumArtistCityCounts(cities),
+		"the sum is the list total less the two artists that name no complete place")
 
 	byCity := map[string]int{}
 	for _, c := range cities {
@@ -479,6 +486,53 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListe
 	}
 	suite.Equal(2, byCity["Flagstaff"],
 		"a quiet band is counted because the gap filter drops the activity gate")
-	suite.Equal(0, byCity["Bisbee"],
-		"a band with a listen link is outside the gap population")
+	suite.NotContains(byCity, "Bisbee",
+		"a city whose every band has a listen link has no row at all")
+	suite.NotContains(byCity, "Winslow",
+		"a band with a city but no state is filed under no place")
+}
+
+// The two gate-dropping filters composed, which neither single-filter case
+// reaches: the handler pairs skip_active_filter with the tag filter while the
+// gap filter carries its own switch, so this is the map shape a request setting
+// both chips produces.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListenComposesWithATagFilter() {
+	slug := tagSlugFor("artists-gap-tag")
+	venue := suite.createTestVenue("Facet Gap Tag Room", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// Tagged, in the gap, nothing booked: only the two filters together keep it.
+	quiet := suite.createArtistInCity("Facet Gap Tag Quiet", "Payson", "AZ")
+	suite.tagArtistForBrowse(quiet.ID, slug)
+
+	// Tagged, with a listen link: the tag matches, the gap does not.
+	linked := suite.createArtistWithListenLink("Facet Gap Tag Linked", "Payson", "AZ")
+	suite.tagArtistForBrowse(linked.ID, slug)
+
+	// In the gap and untagged, with a show: the gap matches, the tag does not.
+	untagged := suite.createArtistInCity("Facet Gap Tag Untagged", "Globe", "AZ")
+	suite.createApprovedShowWithArtist(untagged.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+
+	filters := map[string]interface{}{
+		"tag_filter":            TagFilter{TagSlugs: []string{slug}},
+		"skip_active_filter":    true,
+		FilterMissingListenLink: true,
+	}
+
+	cities, err := suite.artistService.GetArtistCities(filters)
+	suite.Require().NoError(err)
+
+	_, total, err := suite.artistService.GetArtistsWithShowCounts(filters, 50, 0)
+	suite.Require().NoError(err)
+
+	suite.Equal(int64(1), total, "only the tagged band that is also in the gap")
+	suite.Equal(total, sumArtistCityCounts(cities),
+		"the sum is the list total under both filters at once")
+
+	byCity := map[string]int{}
+	for _, c := range cities {
+		byCity[c.City] = c.ArtistCount
+	}
+	suite.Equal(1, byCity["Payson"])
+	suite.NotContains(byCity, "Globe", "the untagged band is outside the tag filter")
 }

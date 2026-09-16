@@ -1005,22 +1005,24 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 	return entries, nil
 }
 
-// artistCitiesScope is a browse filter set with the place keys removed, which is
-// every narrowing a per-city breakdown may carry.
+// artistCitiesScope is a browse filter set with the place keys removed.
 //
-// Subtraction rather than an allowlist, because the two sets are not symmetric.
-// The place keys are the closed set: artistBrowseScope owns them, they are named
-// by browseCityPairs, and dropping them is what makes this response a breakdown
-// rather than a list of the one place already picked. The narrowings are open:
-// each is a rule the list applies, so a facet that did not carry one would count
-// a different population than the rows it filters, and a filter added to the
-// list would have to be remembered here to avoid it.
+// Subtraction rather than an allowlist because the place keys are the set that
+// can be closed: browsePlaceKeys names them, and dropping them is what makes
+// this response a breakdown rather than a list of the one place already picked.
+// Every other key is handed on unread, so the decision about what it means is
+// made once, by artistBrowseScope, for the list and for this breakdown alike.
+//
+// That is a weaker guarantee than it looks, and the weakness is where the next
+// bug of this shape will come from: artistBrowseScope reads a closed set of
+// keys, and the facet's map is built by GetArtistCitiesHandler from its own
+// request struct. So a narrowing added to GET /artists reaches these counts only
+// once it is added to GetArtistCitiesRequest as well. Nothing here can enforce
+// that; the params tests in city_facet_params_test.go are what hold it.
 //
 // What no key can carry is the SCENE reading. A place named on the list selects
 // that scene's metro-aware roster; with the place keys gone the counts are keyed
-// on the stored city string, so each city's count is the list total for that
-// city as `?cities=` alone would match it, and the sum over every city is the
-// list total for no place at all.
+// on the stored city string.
 func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 	scope := make(map[string]interface{}, len(filters))
 	for key, value := range filters {
@@ -1044,9 +1046,16 @@ func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 // gate, so a facet that kept the gate would count a strictly narrower set than
 // the list it filters.
 //
-// The sum over every city equals the unplaced total EXCEPT for artists carrying
-// no city or state: they belong to the list and to no facet row, because there
-// is no place to file them under.
+// ONE filter breaks the per-city half of that equality, and only the per-city
+// half. Under missing-listen-link the list reads a named place as its SCENE, so
+// GET /artists?missing=listen&cities=City,ST answers for a metro-aware,
+// case-insensitive roster while the row here counts the stored city string. For
+// a place inside a CBSA the list total is the wider of the two. The SUM still
+// holds, because it is taken over a request that names no place.
+//
+// The sum over every city equals the unplaced total EXCEPT for artists missing a
+// city or a state: they belong to the list and to no facet row, because there is
+// no complete place to file them under.
 func (s *ArtistService) GetArtistCities(filters map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

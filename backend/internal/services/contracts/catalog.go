@@ -3120,9 +3120,9 @@ type ArtistServiceInterface interface {
 	GetNextShowForArtist(artistID uint, timezone string) (*ArtistShowResponse, error)
 	// GetArtistCities counts the same browse set GetArtistsWithShowCounts lists,
 	// under the same filters, so a city count cannot dead-end at an empty list.
-	// It takes the browse filter map for that reason, and honours every key in it
-	// except the ones that name a place, which a per-place breakdown cannot be
-	// narrowed by.
+	// It takes the browse filter map for that reason, and hands every key in it
+	// to the same applier the list uses, except the ones that name a place: a
+	// per-place breakdown cannot be narrowed by the place already picked.
 	GetArtistCities(filters map[string]interface{}) ([]*ArtistCityResponse, error)
 	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
 	AddArtistAlias(artistID uint, alias string) (*ArtistAliasResponse, error)
