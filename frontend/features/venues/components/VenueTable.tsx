@@ -86,8 +86,9 @@ function VenueRow({
   // The place line: the street when the scope already names the city, and the
   // city AHEAD of the street when it does not. Leading with it is what keeps it
   // out of the clip: it is the only thing telling two rows apart there.
+  const cityLine = venue.city && venue.state ? `${venue.city}, ${venue.state}` : ''
   const place = showCity
-    ? [`${venue.city}, ${venue.state}`, venue.address].filter(Boolean).join(' · ')
+    ? [cityLine, venue.address].filter(Boolean).join(' · ')
     : (venue.address ?? '')
 
   // Through the shared gate, never raw: the column is user-editable free text,

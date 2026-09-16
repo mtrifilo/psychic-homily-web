@@ -262,7 +262,7 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
         state: 'NE',
       }),
     )
-    expect(fetchSpy).toHaveBeenCalledWith('/api/geo')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/geo', expect.any(Object))
   })
 
   it('caches the response in sessionStorage (cross-page reuse, no re-fetch)', async () => {
@@ -333,7 +333,7 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     )
     expect(fetchSpy).not.toHaveBeenCalled()
     rerender(baseParams({ authStatus: 'anonymous', enableClientFetch: true }))
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/geo'))
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/geo', expect.any(Object)))
     await waitFor(() =>
       expect(result.current.appliedGeoDefault).toEqual({
         city: 'Omaha',
@@ -598,6 +598,26 @@ describe('useGeoDefaultCity - isResolving', () => {
     )
     await waitFor(() => expect(result.current.isResolving).toBe(false))
     expect(result.current.appliedGeoDefault).toBeNull()
+  })
+
+  it('settles even when the effect run that started the read was cleaned up', async () => {
+    // The re-entry latch is a ref that survives a cleanup, so a run that
+    // bailed on its cancel flag would leave nothing to settle: a caller gating
+    // its content on this would wait for the life of the page.
+    mockGeo({ city: 'Omaha', state: 'NE' })
+    const { result, rerender, unmount } = renderHook(
+      (props: HookParams) => useGeoDefaultCity(props),
+      { initialProps: baseParams({ enableClientFetch: true }) },
+    )
+    expect(result.current.isResolving).toBe(true)
+    // Flip ineligible (the cleanup runs) and back again while in flight.
+    rerender(
+      baseParams({ enableClientFetch: true, hasExistingSelection: true }),
+    )
+    rerender(baseParams({ enableClientFetch: true }))
+
+    await waitFor(() => expect(result.current.isResolving).toBe(false))
+    unmount()
   })
 
   it('settles when the fetch FAILS, so a broken edge route is not a spinner', async () => {

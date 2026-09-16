@@ -72,12 +72,13 @@ function VenueTableSkeleton() {
 /**
  * The `/venues` directory: one city's rooms.
  *
- * The city is DERIVED during render and never written to the URL, the same rule
- * and the same hook `/shows` uses (favourites, else the IP-geo city). A bare
- * `/venues` is therefore the viewer's own city, `?cities=City,ST` is the
- * shareable address for one city, and `?cities=all` is an explicit whole
- * catalogue. Deriving rather than seeding is what makes the default survive
- * client-side navigation: the URL is the source of truth, not a mount ref.
+ * The city is DERIVED during render and never written to the URL, through the
+ * shared `useGeoDefaultCity`: the viewer's favourite cities, else, for a
+ * SETTLED ANONYMOUS viewer, the IP-geo city. A bare `/venues` is therefore the
+ * viewer's own city, `?cities=City,ST` is the shareable address for one city,
+ * and `?cities=all` is an explicit whole catalogue. Deriving rather than
+ * seeding is what makes the default survive client-side navigation: the URL is
+ * the source of truth, not a mount ref.
  *
  * The rows are not requested until the derivation settles. A surface whose
  * CONTENT is the derived city cannot treat "not known yet" as "no city": doing
@@ -148,8 +149,6 @@ export function VenueList() {
   const {
     data: citiesData,
     isLoading: citiesLoading,
-    isFetching: citiesFetching,
-    isPlaceholderData: citiesArePlaceholder,
     error: citiesError,
     refetch: refetchCities,
   } = useVenueCities({ tags: selectedTags, tagMatch })
@@ -403,10 +402,7 @@ export function VenueList() {
   // Dim only while the rows on screen belong to a DIFFERENT query than the one
   // being awaited. `isPlaceholderData` says exactly that; raw `isFetching` does
   // not, and using it would fade a background revalidation.
-  const isUpdating =
-    (isFetching && isPlaceholderData) ||
-    (citiesFetching && citiesArePlaceholder) ||
-    isPending
+  const isUpdating = (isFetching && isPlaceholderData) || isPending
 
   const chrome = (
     <>
@@ -521,11 +517,15 @@ export function VenueList() {
     </section>
   )
 
-  // The city facet is what every route off this page is built from: the picker,
-  // the busiest-city chips, and the geo match that derives a city at all. When
-  // it fails there is nothing to choose and nothing to derive, so the page says
-  // so and offers the retry rather than rendering an empty invitation to pick.
-  if (citiesError && cities.length === 0) {
+  // The city facet is what the page DERIVES and OFFERS a city from: the picker,
+  // the busiest-city chips, and the geo match. When it fails there is nothing to
+  // choose and nothing to derive, so the page says so and offers the retry
+  // rather than rendering an empty invitation to pick.
+  //
+  // Not when the URL already names the scope. There the facet is decorative, the
+  // rows are on their way, and blanking them would take a shared link out over a
+  // filter bar.
+  if (citiesError && cities.length === 0 && !hasExplicitSelection) {
     return frame(
       <div className="py-12 text-center text-destructive" data-testid="venues-cities-error">
         <p>Failed to load cities. Please try again later.</p>

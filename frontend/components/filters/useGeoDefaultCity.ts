@@ -47,6 +47,13 @@ interface GeoApiResponse {
   geo: GeoLocation | null
 }
 
+/**
+ * How long the `/api/geo` read may take before it counts as answering "no
+ * city". Generous enough for a cold edge invocation, short enough that a
+ * caller rendering a loading state on `isResolving` is not left in it.
+ */
+const GEO_FETCH_TIMEOUT_MS = 5_000
+
 interface UseGeoDefaultCityParams {
   /** Cities that currently have shows (from `useShowCities`); the has-shows gate. */
   cities: CityWithCount[]
@@ -153,9 +160,12 @@ function useGeoSource(
         const cachedCity = toGeoLocation(parsed?.geo)
         let cacheCancelled = false
         Promise.resolve().then(() => {
+          // `settled` is recorded whether or not this run was cleaned up: the
+          // re-entry latch below is a ref that survives the cleanup, so a run
+          // that bailed here would leave nothing to settle it.
+          setSettled(true)
           if (cacheCancelled) return
           setFetched(cachedCity)
-          setSettled(true)
         })
         return () => {
           cacheCancelled = true
@@ -166,13 +176,16 @@ function useGeoSource(
     }
 
     let cancelled = false
-    fetch('/api/geo')
+    // A DEADLINE, not just an error path. `fetch` rejects on a network error and
+    // not on a connection that hangs, and a caller gating its content on
+    // `isResolving` would wait on that hang for the life of the page.
+    fetch('/api/geo', { signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS) })
       .then(res => (res.ok ? (res.json() as Promise<GeoApiResponse>) : null))
       .then(body => {
+        setSettled(true)
         if (cancelled) return
         const geo = toGeoLocation(body?.geo)
         setFetched(geo)
-        setSettled(true)
         try {
           window.sessionStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ geo }))
         } catch {
@@ -181,10 +194,10 @@ function useGeoSource(
         }
       })
       .catch(error => {
-        if (cancelled) return
         // A failed read is an answer for the purposes of the caller's loading
         // state: there is no city coming.
         setSettled(true)
+        if (cancelled) return
         // A geo-default failure is non-critical (the filter just defaults to
         // "All cities"), but capture it so a broken edge route is visible.
         Sentry.captureException(error, {

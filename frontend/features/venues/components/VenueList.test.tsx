@@ -862,6 +862,28 @@ describe('VenueList', () => {
       expect(screen.getByRole('table')).toBeInTheDocument()
     })
 
+    it('still serves the rows when the facet fails on an explicit city', () => {
+      // The facet is what DERIVES and OFFERS a city. A URL that already names
+      // the scope needs none of that, and blanking it would take a shared link
+      // out over a filter bar.
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
+      mockUseVenueCities.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: new Error('boom'),
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      expect(screen.queryByTestId('venues-cities-error')).not.toBeInTheDocument()
+      expect(screen.getByRole('table')).toBeInTheDocument()
+    })
+
     it('says so and offers a retry when the city facet fails', async () => {
       const user = userEvent.setup()
       const refetchCities = vi.fn()
