@@ -7,7 +7,7 @@ import type { VenueWithShowCount } from '../types'
 /**
  * MapLibre stubbed down to the seams this component drives: the handlers it
  * binds per layer, the GeoJSON source it feeds, the feature-state it sets for
- * a hover, and the camera fit. WebGL is out of scope here — the E2E spec is
+ * a hover, and the camera fit. WebGL is out of scope here: the E2E spec is
  * what proves the canvas actually paints.
  */
 interface StubMap {

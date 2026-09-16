@@ -38,7 +38,8 @@ export function useMiniAtlasViewport(): boolean {
   return useMediaQuery(MINI_ATLAS_MEDIA_QUERY)
 }
 
-function MiniAtlasLoadError({ onRetry }: { onRetry?: () => void }) {
+/** Rendered by the dynamic boundary when the MapLibre chunk cannot be fetched. */
+export function MiniAtlasLoadError({ onRetry }: { onRetry?: () => void }) {
   return (
     <div
       role="alert"
@@ -63,7 +64,7 @@ function MiniAtlasLoadError({ onRetry }: { onRetry?: () => void }) {
 // when the pane mounts, which only happens at 1280 and up.
 //
 // next/dynamic re-invokes `loading` with `error`/`retry` set on a failed chunk
-// fetch (it does NOT throw to an error boundary) — without that branch a
+// fetch (it does NOT throw to an error boundary). Without that branch a
 // rotated hashed chunk would strand the reader on a skeleton forever.
 const VenueMiniAtlas = dynamic(() => import('./VenueMiniAtlas'), {
   ssr: false,

@@ -31,7 +31,7 @@ const LAYER_ID = 'room-pins'
 /**
  * How faded a room with nothing booked draws.
  *
- * Quiet rooms stay on the map — they are rooms, and the table lists them — but
+ * Quiet rooms stay on the map (they are rooms, and the table lists them), but
  * a reader scanning the pane for somewhere to go tonight should not have to
  * tell them apart by radius alone.
  */
@@ -110,8 +110,8 @@ export interface VenueMiniAtlasProps {
  * Built on MapLibre directly rather than by mounting the Atlas canvas: that
  * surface is a globe with scene dots, drift and a rail, and none of it belongs
  * beside a city table. What IS shared is everything that decides how a room
- * reads — the basemap, the pin radius scale, and the pin paint — so the same
- * mark means the same thing on both surfaces.
+ * reads: the basemap, the pin radius scale, and the pin paint. The same mark
+ * means the same thing on both surfaces.
  *
  * The canvas is hidden from assistive tech and cannot be tabbed into, and
  * every room on it is a row in the table beside it, which is where a keyboard
@@ -160,8 +160,8 @@ export function VenueMiniAtlas({
       attributionControl: false,
     })
 
-    // Registered first, so the style's own TileJSON fetch — the earliest thing
-    // that can fail — is already covered. A failure BEFORE the style loads is
+    // Registered first, so the style's own TileJSON fetch, the earliest thing
+    // that can fail, is already covered. A failure BEFORE the style loads is
     // fatal to the pane (no basemap, no pins); one after it is a missing tile
     // on a map that already works, which the reader can see for themselves.
     instance.on('error', (event) => {
@@ -242,7 +242,7 @@ export function VenueMiniAtlas({
 
   // The identity of the SET on screen, so the camera refits when the page or
   // the filter changes the rooms and leaves the old ones nowhere near the
-  // frame — and does not refit when a re-render hands over the same rooms.
+  // frame. It does not refit when a re-render hands over the same rooms.
   const pinSetKey = useMemo(
     () => pins.map((p) => p.id).join(','),
     [pins],
@@ -296,7 +296,7 @@ export function VenueMiniAtlas({
       {/* Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
           `.maplibregl-map { position: relative }` on this node at map init,
           which ties with the `absolute` utility class and, since that
-          stylesheet is lazy-loaded after globals.css, wins on order —
+          stylesheet is lazy-loaded after globals.css, wins on order,
           collapsing the container to 0 height, at which point the canvas falls
           back to its 300px default. Inline style always wins. */}
       <div

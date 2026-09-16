@@ -155,7 +155,7 @@ const CITY_VIEW_ENTRY_ZOOM_MARGIN = 1
 /**
  * The camera focus `?city=` names, or null to leave today's behaviour alone.
  *
- * Null for an absent or malformed param and — deliberately — for a city no
+ * Null for an absent or malformed param and, deliberately, for a city no
  * scene in the payload knows: the Atlas can only open on a place it has
  * coordinates for, and inventing one would aim the camera at nothing. The
  * caller falls back to the visitor's geo focus in every null case, so an

@@ -45,7 +45,7 @@ export type MiniAtlasBounds = [[number, number], [number, number]]
  *
  * Position comes from `venuePinPosition` and nowhere else: street coordinates
  * when the API served them, the city centroid otherwise. The two are NOT drawn
- * differently — which coordinate source a pin came from is a privacy
+ * differently: which coordinate source a pin came from is a privacy
  * consequence, not something a reader is being told about the room.
  *
  * A row with no coordinates at all is dropped. It still lists in the table:

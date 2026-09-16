@@ -1,5 +1,5 @@
 /**
- * `/atlas?city=City,ST` — the Atlas's one URL entry point.
+ * `/atlas?city=City,ST`: the Atlas's one URL entry point.
  *
  * READ ONCE, never written. The Atlas keeps no camera state in the URL: a
  * visitor who pans and zooms is not editing an address, and writing the camera

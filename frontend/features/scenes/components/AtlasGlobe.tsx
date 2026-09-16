@@ -421,6 +421,13 @@ export function AtlasGlobe() {
   // path's first-resolution-wins rule would swallow the second link a visitor
   // follows in the same session, leaving them on the previous city.
   const appliedEntryParamRef = useRef<string | null | undefined>(undefined)
+  // Mirrors `pov` for the entry effect, which must know whether a focus has
+  // already been resolved without taking `pov` as a dependency (that would
+  // re-run it on the very resolution it just made).
+  const povRef = useRef<GlobePov | null>(null)
+  useEffect(() => {
+    povRef.current = pov
+  }, [pov])
 
   // Resolve the initial focus once: the visitor's IP-geo region (PSY-946
   // plumbing, shared GeoLocation contract) if it carries coords, else North
@@ -443,25 +450,25 @@ export function AtlasGlobe() {
         setPov((prev) => prev ?? p)
       }
     }
-    // `?city=` outranks both the geo focus and the camera the session left
-    // behind: a link that names a city has to move the map, or it does nothing
-    // at all for a visitor who already used the Atlas this session.
+    // `?city=` outranks the geo focus and the camera the session left behind:
+    // the link names where to open, and a restored camera would put the map
+    // somewhere else. Like the geo focus it resolves ONCE, because GlobeCanvas
+    // documents a teardown hazard for a pov whose identity changes while the
+    // canvas is mounted; a second entry followed WITHOUT a remount therefore
+    // leaves the camera where it is. Both halves are gated on that one
+    // resolution, so a link that cannot move the map does not discard the
+    // camera either.
     //
-    // It does NOT go through `resolve`, whose first-wins rule is for the geo
-    // race: a second link to a DIFFERENT city has to move a camera that is
-    // already resolved. Applied once per param value, so a re-run on the same
-    // URL (a scenes refetch, a Cache Components show) neither re-aims the
-    // camera nor discards the one the visitor has moved to since.
+    // The ref is claimed SYNCHRONOUSLY so a re-run cannot apply the same entry
+    // twice; the write is deferred to a microtask so it lands after the effect
+    // returns (react-hooks/set-state-in-effect), the same pattern the
+    // error-recovery effect below uses.
     if (entryCityPov) {
       if (appliedEntryParamRef.current === entryCityParam) return
-      // The ref is claimed SYNCHRONOUSLY so a re-run cannot apply the same
-      // entry twice; the camera write is deferred to a microtask so it lands
-      // after the effect returns (react-hooks/set-state-in-effect), the same
-      // pattern the error-recovery effect below uses.
       appliedEntryParamRef.current = entryCityParam
       let cancelled = false
       void Promise.resolve().then(() => {
-        if (cancelled) return
+        if (cancelled || povRef.current !== null) return
         clearAtlasCamera()
         setPov(entryCityPov)
       })

@@ -2,7 +2,7 @@ import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 
 /**
- * `/atlas?city=City,ST` (PSY-2079) — the Atlas's one URL entry point.
+ * `/atlas?city=City,ST` (PSY-2079): the Atlas's one URL entry point.
  *
  * The scenes payload is synthesized so the city this asserts on has known
  * coordinates regardless of what the seed geocoded. The SwiftShader flags are

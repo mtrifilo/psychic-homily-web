@@ -2,7 +2,7 @@
  * The Atlas camera carried across map teardowns.
  *
  * Module scope (not a ref) on purpose: it survives not only Cache Components'
- * hide but also REAL unmounts of the canvas — e.g. the <640px mobile-gate
+ * hide but also REAL unmounts of the canvas, such as the <640px mobile-gate
  * flip, which unmounts it entirely. Single-instance surface (one Atlas globe
  * per app), so shared module state is safe. Deliberately a DATA cache, not an
  * init guard: the map is still created fresh on every show, and the one
@@ -10,8 +10,8 @@
  * re-init. Without this, nav-away/back would reset the camera to the initial
  * POV, because the map instance is new each show.
  *
- * Its own module so the entry points that must OVERRIDE a saved camera — a
- * URL that names where to open — can clear it without importing the canvas
+ * Its own module so the entry points that must OVERRIDE a saved camera (a
+ * URL that names where to open) can clear it without importing the canvas
  * (and maplibre with it).
  */
 

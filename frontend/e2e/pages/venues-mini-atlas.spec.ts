@@ -10,7 +10,7 @@ import { expect, type Page } from '@playwright/test'
  * worker). The rest of the directory's behaviour stays in `venues.spec.ts`.
  *
  * The seeded rooms carry no coordinates, so the rows are synthesized at the
- * response shape — which also pins the city's rooms somewhere predictable.
+ * response shape, which also pins the city's rooms somewhere predictable.
  */
 test.use({
   launchOptions: {

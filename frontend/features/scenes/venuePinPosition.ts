@@ -22,8 +22,8 @@ export interface VenuePinPosition {
  *
  * PRIVACY GATE (a locked user decision): street coordinates exist only for
  * verified venues whose geocode still matches their current address. The API
- * enforces that — it omits street_latitude/street_longitude for everyone else
- * — and this function's ONLY job is to honor the omission by falling back to
+ * enforces that (it omits street_latitude/street_longitude for everyone else)
+ * and this function's ONLY job is to honor the omission by falling back to
  * the venue's city centroid. It must never reconstruct a street position from
  * any other field (address, zipcode), because that would street-map the DIY
  * and house venues the gate exists to protect.

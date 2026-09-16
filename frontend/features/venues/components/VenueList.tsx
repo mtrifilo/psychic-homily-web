@@ -272,7 +272,7 @@ export function VenueList() {
   const [hoveredVenueId, setHoveredVenueId] = useState<number | null>(null)
   // Whether the viewport is wide enough for the map pane. False until
   // hydration, so the pane is absent from the server HTML and from every
-  // viewport under 1280 — not merely hidden there.
+  // viewport under 1280, not merely hidden there.
   const miniAtlasViewport = useMiniAtlasViewport()
 
   // The table's one verb, the same shape the city picker's control uses: a pin
