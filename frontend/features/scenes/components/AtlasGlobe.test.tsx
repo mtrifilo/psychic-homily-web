@@ -121,11 +121,15 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
+// `?city=` is the globe's one URL entry point (PSY-2079); tests that exercise
+// it set this before rendering.
+let searchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   // VenuePanel's confirm control reads the pathname to build its auth
   // return-to (PSY-1542).
   usePathname: () => '/atlas',
+  useSearchParams: () => searchParams,
 }))
 
 // Stub the WebGL canvas for the desktop-branch tests (PSY-1308 Drift): it
@@ -228,6 +232,7 @@ describe('AtlasGlobe', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).ResizeObserver = ImmediateResizeObserver
     mockUseScenes.mockReset()
+    searchParams = new URLSearchParams()
     // The geo-centering fetch is non-fatal; stub it to a no-op miss.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
   })
