@@ -7,6 +7,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -36,6 +37,11 @@ import (
 //
 // Rolling from now, not Monday-to-Sunday, which is why the rail says "next 7
 // days" rather than "this week" (PSY-1732).
+//
+// Cancelled nights are outside it, like they are outside the row's
+// upcoming_show_count and both of its picks. The two numbers print side by side
+// in the rail header, so a chip that kept a room for a night that is off would
+// hand the reader a row with nothing to name.
 func (s *VenueService) venueUpcomingWeekCounts(venueIDs []uint, now time.Time) (map[uint]int, error) {
 	type row struct {
 		VenueID uint `gorm:"column:venue_id"`
@@ -48,6 +54,7 @@ func (s *VenueService) venueUpcomingWeekCounts(venueIDs []uint, now time.Time) (
 		JOIN shows s ON s.id = sv.show_id
 		WHERE sv.venue_id IN ?
 		  AND s.status = ?
+		  AND `+shared.UncancelledShowPredicateSQL("s")+`
 		  AND s.event_date >= ?
 		  AND s.event_date < ?
 		GROUP BY sv.venue_id
