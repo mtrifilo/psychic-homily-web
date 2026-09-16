@@ -282,10 +282,17 @@ export function VenueMiniAtlas({
   }, [map, hoveredVenueId])
 
   return (
+    // Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
+    // `.maplibregl-map { position: relative }` on this node at map init, which
+    // ties with the `absolute` utility class and, since that stylesheet is
+    // lazy-loaded after globals.css, wins on order — collapsing the container
+    // to 0 height, at which point the canvas falls back to its 300px default.
+    // Inline style always wins.
     <div
       ref={containerRef}
       data-testid="venue-mini-atlas-canvas"
-      className="ph-mini-atlas absolute inset-0"
+      className="ph-mini-atlas"
+      style={{ position: 'absolute', inset: 0 }}
     />
   )
 }
