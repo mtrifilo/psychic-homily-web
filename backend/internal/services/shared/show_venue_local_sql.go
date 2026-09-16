@@ -45,11 +45,15 @@ import (
 //     directory counts verified rooms only. Its this_week_count slices the same
 //     night set through VenueLocalNightWindowCondition, so the pair is nested
 //     at every hour.
+//   - the /venues directory's per-room upcoming_show_count and its next_show
+//     pick (catalog/venue.go GetVenuesWithShowCounts), on the NIGHT bound, and
+//     its last_show pick on that bound's exact complement
+//     (VenueLocalNightPastDateCondition). One room's count there and its count
+//     on the scene page's rooms leaderboard are the same number.
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
-// several of them draw their own boundary: the /venues list's
-// upcoming_show_count (catalog/venue.go), catalog/venue_rail.go,
+// several of them draw their own boundary: catalog/venue_rail.go,
 // graph_overview.go, charts_rank.go and sitemap.go. Do not read a surface's
 // absence here as a claim that it already agrees with this file.
 //
@@ -501,6 +505,25 @@ var nightUpcomingCoarseBound = `shows.event_date >= now() - interval '` +
 // Postgres per row against that row's own venue zone.
 var VenueLocalNightDateCondition = nightUpcomingCoarseBound + " AND " +
 	VenueLocalDateSQL + " >= " + venueLocalNightStartDateSQL
+
+// VenueLocalNightPastDateCondition selects the shows a night-bounded surface
+// has left behind: those whose venue-local date is before the night in
+// progress.
+//
+// It is the EXACT complement of VenueLocalNightDateCondition over approved
+// shows, because both edges are the same venueLocalNightStartDateSQL. A surface
+// that pairs a night-bounded "next" with VenueLocalDateCondition("past")
+// instead would count a show on the previous local date as both, every night
+// between midnight and NightStartHour.
+//
+// pastCoarseBound is lossless here for the same reason it is on the midnight
+// twin: the latest instant this condition can keep is the moment before local
+// midnight on the night-start date, and that date's midnight is never after
+// now.
+//
+// Carries no bind parameters, like the conditions above it.
+var VenueLocalNightPastDateCondition = pastCoarseBound + " AND " +
+	VenueLocalDateSQL + " < " + venueLocalNightStartDateSQL
 
 // VenueLocalNightWindowCondition returns the WHERE fragment selecting the shows
 // on the night in progress and the nights-1 nights that follow it, each row

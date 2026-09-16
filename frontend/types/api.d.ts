@@ -18411,6 +18411,17 @@ export interface components {
             readonly $schema?: string;
             genres: components["schemas"]["GenreCount"][] | null;
         };
+        VenueListShowRef: {
+            /**
+             * Format: date-time
+             * @description The show's instant. Render it in the venue's timezone, carried on the same row.
+             */
+            event_date: string;
+            /** @description URL slug for the show. Empty when the show has no slug, in which case it cannot be linked. */
+            slug: string;
+            /** @description The show's own title. Empty for most shows. */
+            title: string;
+        };
         VenueListingEntry: {
             /** @description Venue display name */
             name: string;
@@ -18525,11 +18536,15 @@ export interface components {
             /** Format: int64 */
             id: number;
             image_url: string | null;
+            /** @description The most recent past approved show at this venue. Absent when the venue has none. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both. */
+            last_show?: components["schemas"]["VenueListShowRef"];
             /** Format: double */
             latitude?: number;
             /** Format: double */
             longitude?: number;
             name: string;
+            /** @description The soonest upcoming approved show at this venue. Absent when the venue has none, which is exactly when upcoming_show_count is zero. */
+            next_show?: components["schemas"]["VenueListShowRef"];
             next_show_artists?: string[] | null;
             next_show_date?: string;
             next_show_title?: string;
@@ -35774,6 +35789,8 @@ export interface operations {
                 include_rail?: boolean;
                 /** @description Widen the city+state filter to the whole US Census CBSA metro, matching how Atlas scenes are keyed (Tempe lists under Phoenix). Requires both city and state; ignored when 'cities' is set. */
                 metro_rollup?: boolean;
+                /** @description Row order: 'upcoming' (default) by how much the room has booked, 'name' alphabetically, 'next' by how soon its next show is. Rooms with nothing booked sort after rooms that have, under every value, most recently active first. */
+                sort?: "upcoming" | "name" | "next";
             };
             header?: never;
             path?: never;

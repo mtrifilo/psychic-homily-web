@@ -76,6 +76,9 @@ type ListVenuesRequest struct {
 	// browse page's city filter returns, and that filter means the literal
 	// city there. Only the Atlas city rail wants the metro reading.
 	MetroRollup bool `query:"metro_rollup" doc:"Widen the city+state filter to the whole US Census CBSA metro, matching how Atlas scenes are keyed (Tempe lists under Phoenix). Requires both city and state; ignored when 'cities' is set."`
+	// The enum literal must equal contracts.VenueListSortValues joined by
+	// commas; TestListVenuesSortEnumTagMatchesVocabulary holds the two together.
+	Sort string `query:"sort" default:"upcoming" enum:"upcoming,name,next" doc:"Row order: 'upcoming' (default) by how much the room has booked, 'name' alphabetically, 'next' by how soon its next show is. Rooms with nothing booked sort after rooms that have, under every value, most recently active first."`
 }
 
 // ListVenuesResponse represents the response for the list venues endpoint
@@ -120,6 +123,15 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 		filters.TagMatchAny = tf.MatchAny
 	}
 	filters.IncludeRailFields = req.IncludeRail
+
+	// Second gate, not a redundant one: huma's enum rejects an unknown value on
+	// the wire, and this turns the service's own refusal into a 422 rather than
+	// the 500 an unmapped error would become.
+	if !contracts.IsVenueListSort(req.Sort) {
+		return nil, huma.Error422UnprocessableEntity(
+			"Invalid sort: expected one of " + strings.Join(contracts.VenueListSortValues, ", "))
+	}
+	filters.Sort = req.Sort
 
 	limit := req.Limit
 	if limit == 0 {
