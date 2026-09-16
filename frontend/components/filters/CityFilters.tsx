@@ -126,100 +126,100 @@ export function CityFilters({
     handleToggleCity(city)
   }
 
-  // One element in both branches, so the trigger the reader sees, the node the
-  // click replay targets, and the node focus returns to are all the same box
-  // whichever overlay it opens.
-  const renderTrigger = (overlayProps: React.ComponentProps<'button'>) => (
-    <button
-      // In server HTML since PSY-1624, so it is painted and clickable for the
-      // whole window before React attaches the overlay's handler — and a click
-      // in that window is silently dropped, which is exactly what this
-      // primitive exists for. The replay root goes on the trigger rather than
-      // the surrounding bar because the trigger is the element that owns the
-      // interaction.
-      {...replayOnHydrate}
-      ref={setTriggerRef}
-      type="button"
-      aria-label="Filter by city"
-      data-testid="city-filter-combobox"
-      className={cn(
-        'flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm transition-colors',
-        'hover:bg-muted hover:border-border',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        open && 'border-border bg-muted',
-        selectedCities.length === 0 && 'text-muted-foreground',
-        selectedCities.length > 0 && 'text-foreground'
-      )}
-      {...overlayProps}
-    >
-      <Search className="h-3.5 w-3.5 shrink-0 opacity-50" />
-      <span className="whitespace-nowrap">Filter by city...</span>
-      <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-    </button>
-  )
+  // ONE tree shape across the viewport flip. The trigger ships in server HTML
+  // with the popover contract, and swapping the element out for the sheet's
+  // would detach the node a pre-hydration click was buffered against, which
+  // `consumePendingReplay` drops. Same element, different ARIA.
+  const overlayAria: React.ComponentProps<'button'> = softKeyboardViewport
+    ? {
+        'aria-haspopup': 'dialog',
+        'aria-expanded': open,
+        // The popover content the trigger would otherwise point at is never
+        // mounted on a touch viewport; the sheet names itself as a dialog.
+        'aria-controls': undefined,
+      }
+    : { role: 'combobox', 'aria-expanded': open }
 
   return (
     <div className="flex flex-col gap-2">
       {/* Filter bar: trigger + active chips + children */}
       <div className="flex flex-wrap items-center gap-2">
-        {softKeyboardViewport ? (
-          <>
-            {renderTrigger({
-              'aria-haspopup': 'dialog',
-              'aria-expanded': open,
-              onClick: () => setOpen(true),
-            })}
-            <CityFilterSheet
-              cities={cities}
-              selectedCities={selectedCities}
-              onApply={onFilterChange}
-              open={open}
-              onOpenChange={setOpen}
-              resultNoun={resultNoun}
-              triggerRef={triggerRef}
-            />
-          </>
-        ) : (
-          <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-              {renderTrigger({ role: 'combobox', 'aria-expanded': open })}
-            </PopoverTrigger>
-            <PopoverContent className="w-[240px] p-0" align="start" side="bottom">
-              <Command>
-                <CommandInput placeholder="Search cities..." />
-                <CommandList>
-                  <CommandEmpty>No cities found.</CommandEmpty>
-                  <CommandGroup>
-                    {sortedCities.map(city => {
-                      const key = cityKey(city)
-                      const isSelected = selectedSet.has(key)
-                      return (
-                        <CommandItem
-                          key={key}
-                          value={cityLabel(city)}
-                          onSelect={() => handleToggleCity(city)}
-                          data-testid={`city-option-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
-                        >
-                          <Check
-                            className={cn(
-                              'mr-2 h-4 w-4 shrink-0',
-                              isSelected ? 'opacity-100' : 'opacity-0'
-                            )}
-                          />
-                          <span className="flex-1 truncate">
-                            {cityLabel(city)}
-                          </span>
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            ({city.count})
-                          </span>
-                        </CommandItem>
-                      )
-                    })}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+        <Popover open={open && !softKeyboardViewport} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              // In server HTML since PSY-1624, so it is painted and clickable
+              // for the whole window before React attaches the overlay's
+              // handler - and a click in that window is silently dropped, which
+              // is exactly what this primitive exists for. The replay root goes
+              // on the trigger rather than the surrounding bar because the
+              // trigger is the element that owns the interaction.
+              {...replayOnHydrate}
+              ref={setTriggerRef}
+              type="button"
+              aria-label="Filter by city"
+              data-testid="city-filter-combobox"
+              className={cn(
+                'flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm transition-colors',
+                'hover:bg-muted hover:border-border',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                open && 'border-border bg-muted',
+                selectedCities.length === 0 && 'text-muted-foreground',
+                selectedCities.length > 0 && 'text-foreground'
+              )}
+              {...overlayAria}
+            >
+              <Search className="h-3.5 w-3.5 shrink-0 opacity-50" />
+              <span className="whitespace-nowrap">Filter by city...</span>
+              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[240px] p-0" align="start" side="bottom">
+            <Command>
+              <CommandInput placeholder="Search cities..." />
+              <CommandList>
+                <CommandEmpty>No cities found.</CommandEmpty>
+                <CommandGroup>
+                  {sortedCities.map(city => {
+                    const key = cityKey(city)
+                    const isSelected = selectedSet.has(key)
+                    return (
+                      <CommandItem
+                        key={key}
+                        value={cityLabel(city)}
+                        onSelect={() => handleToggleCity(city)}
+                        data-testid={`city-option-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
+                      >
+                        <Check
+                          className={cn(
+                            'mr-2 h-4 w-4 shrink-0',
+                            isSelected ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                        <span className="flex-1 truncate">
+                          {cityLabel(city)}
+                        </span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({city.count})
+                        </span>
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+
+        {softKeyboardViewport && (
+          <CityFilterSheet
+            cities={cities}
+            selectedCities={selectedCities}
+            onApply={onFilterChange}
+            open={open}
+            onOpenChange={setOpen}
+            resultNoun={resultNoun}
+            triggerRef={triggerRef}
+          />
         )}
 
         {/* Active filter chips */}
