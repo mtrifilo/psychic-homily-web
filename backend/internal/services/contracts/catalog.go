@@ -3119,10 +3119,10 @@ type ArtistServiceInterface interface {
 	// the graph-card's next-show glance (PSY-1352).
 	GetNextShowForArtist(artistID uint, timezone string) (*ArtistShowResponse, error)
 	// GetArtistCities counts the same browse set GetArtistsWithShowCounts lists,
-	// under the same tag filter, so a city count cannot dead-end at an empty
-	// list. It takes the browse filter map for that reason, and reads only the
-	// keys a per-place breakdown may be narrowed by: `tag_filter` and the
-	// `skip_active_filter` that travels with it.
+	// under the same filters, so a city count cannot dead-end at an empty list.
+	// It takes the browse filter map for that reason, and honours every key in it
+	// except the ones that name a place, which a per-place breakdown cannot be
+	// narrowed by.
 	GetArtistCities(filters map[string]interface{}) ([]*ArtistCityResponse, error)
 	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
 	AddArtistAlias(artistID uint, alias string) (*ArtistAliasResponse, error)
