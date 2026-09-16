@@ -4,9 +4,7 @@ import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { altitudeForZoom } from './components/globeScale'
 import {
   CITY_VIEW_MIN_ZOOM,
-  VENUE_PIN_CAP_COUNT,
   labelledVenuePinIds,
-  venuePinRadiusPx,
   cityContributionCounts,
   cityContributionSegments,
   cityDataUpdatedAt,
@@ -26,7 +24,6 @@ import {
   venuePanelShowCount,
   venueLocalityLabel,
   venuesSpanMetro,
-  venuePinPosition,
   venueProvenanceSegments,
   venueFieldNoteAttribution,
   mergeVenueConfirmation,
@@ -155,48 +152,6 @@ describe('resolveAtlasCityPov (?city= entry)', () => {
   })
 })
 
-describe('venuePinPosition (PSY-1536 privacy gate)', () => {
-  it('uses street coordinates when the API served them', () => {
-    expect(
-      venuePinPosition(
-        venue({ street_latitude: 30.2686, street_longitude: -97.7376 }),
-      ),
-    ).toEqual({ lat: 30.2686, lng: -97.7376, precision: 'street' })
-  })
-
-  it('falls back to the city centroid when street coords are ABSENT', () => {
-    // The API omits street coords for unverified venues and stale geocodes.
-    // The pin must land on the centroid, never be reconstructed some other way.
-    expect(venuePinPosition(venue())).toEqual({
-      lat: 30.2672,
-      lng: -97.7431,
-      precision: 'centroid',
-    })
-  })
-
-  it('falls back to the centroid when street coords are explicitly null', () => {
-    expect(
-      venuePinPosition(
-        venue({ street_latitude: null, street_longitude: null }),
-      ),
-    ).toEqual({ lat: 30.2672, lng: -97.7431, precision: 'centroid' })
-  })
-
-  it('does not pin on a half-present street geocode', () => {
-    expect(
-      venuePinPosition(
-        venue({ street_latitude: 30.2686, street_longitude: null }),
-      )?.precision,
-    ).toBe('centroid')
-  })
-
-  it('returns null when the venue has no coordinates at all', () => {
-    expect(
-      venuePinPosition(venue({ latitude: null, longitude: null })),
-    ).toBeNull()
-  })
-})
-
 function pin(overrides: Partial<VenuePin> = {}): VenuePin {
   return {
     id: 1,
@@ -208,23 +163,6 @@ function pin(overrides: Partial<VenuePin> = {}): VenuePin {
     ...overrides,
   }
 }
-
-describe('venuePinRadiusPx', () => {
-  it('grows with the upcoming count', () => {
-    expect(venuePinRadiusPx(10)).toBeGreaterThan(venuePinRadiusPx(1))
-  })
-
-  it('caps, so one huge venue cannot swallow the block', () => {
-    expect(venuePinRadiusPx(VENUE_PIN_CAP_COUNT * 20)).toBe(
-      venuePinRadiusPx(VENUE_PIN_CAP_COUNT),
-    )
-  })
-
-  it('never returns NaN for malformed counts', () => {
-    expect(Number.isFinite(venuePinRadiusPx(Number.NaN))).toBe(true)
-    expect(Number.isFinite(venuePinRadiusPx(-5))).toBe(true)
-  })
-})
 
 describe('labelledVenuePinIds', () => {
   it('labels every venue when none collide', () => {

@@ -1,11 +1,14 @@
 'use client'
 
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { atlasCityHref } from '@/features/scenes/atlasCityEntry'
-import { Skeleton } from '@/components/ui/skeleton'
+import type { CityState } from '@/components/filters'
+import { cityLabel } from '@/components/filters/cityParams'
+import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 import type { VenueWithShowCount } from '../types'
+import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
 import {
   MINI_ATLAS_HEIGHT_PX,
   MINI_ATLAS_WIDTH_PX,
@@ -17,54 +20,22 @@ import {
  * The width the pane appears at, matching Tailwind's `xl`.
  *
  * Below it the pane is not rendered at all rather than hidden: a hidden map
- * still downloads MapLibre, still holds a WebGL context, and still draws
- * tiles for a reader who will never see it.
+ * still downloads MapLibre, still holds a WebGL context, and still draws tiles
+ * for a reader who will never see it.
  */
 const MINI_ATLAS_MIN_VIEWPORT_PX = 1280
 const MINI_ATLAS_MEDIA_QUERY = `(min-width: ${MINI_ATLAS_MIN_VIEWPORT_PX}px)`
-
-function subscribeWideViewport(onChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return () => {}
-  }
-  const mq = window.matchMedia(MINI_ATLAS_MEDIA_QUERY)
-  if (typeof mq.addEventListener === 'function') {
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }
-  mq.addListener(onChange)
-  return () => mq.removeListener(onChange)
-}
-
-function readWideViewport(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return false
-  }
-  return window.matchMedia(MINI_ATLAS_MEDIA_QUERY).matches
-}
-
-function readWideViewportOnServer(): boolean {
-  return false
-}
 
 /**
  * Whether this viewport gets the pane.
  *
  * False on the server and until hydration, which is what keeps the pane out of
- * the server HTML and off every narrow viewport. The table's column is a fixed
- * width at `xl` and the space beside it is already empty there, so the pane
- * arriving after hydration moves nothing: it fills space, it does not take it.
+ * the server HTML and off every narrow viewport. The table's column is capped
+ * at `xl` and the space beside it is already empty there, so the pane arriving
+ * after hydration moves nothing: it fills space, it does not take it.
  */
 export function useMiniAtlasViewport(): boolean {
-  return useSyncExternalStore(
-    subscribeWideViewport,
-    readWideViewport,
-    readWideViewportOnServer,
-  )
-}
-
-function MiniAtlasSkeleton() {
-  return <Skeleton className="absolute inset-0 rounded-md" />
+  return useMediaQuery(MINI_ATLAS_MEDIA_QUERY)
 }
 
 function MiniAtlasLoadError({ onRetry }: { onRetry?: () => void }) {
@@ -103,10 +74,8 @@ const VenueMiniAtlas = dynamic(() => import('./VenueMiniAtlas'), {
 export interface VenueMiniAtlasPaneProps {
   /** This page's rows, in the order the table lists them. */
   venues: readonly VenueWithShowCount[]
-  /** The city the page is about, as the facet spells it. */
-  cityLabel: string
-  city: string
-  state: string
+  /** The ONE city the page is about, as the facet spells it. */
+  scopeCity: CityState
   /** The room under the pointer, shared with the table. */
   hoveredVenueId: number | null
   onHoverVenue: (venueId: number | null) => void
@@ -122,15 +91,13 @@ export interface VenueMiniAtlasPaneProps {
  */
 export function VenueMiniAtlasPane({
   venues,
-  cityLabel,
-  city,
-  state,
+  scopeCity,
   hoveredVenueId,
   onHoverVenue,
   onSelectVenue,
 }: VenueMiniAtlasPaneProps) {
-  const [ready, setReady] = useState(false)
   const pins = useMemo(() => miniAtlasPins(venues), [venues])
+  const label = cityLabel(scopeCity)
 
   // No coordinates anywhere in this page of rooms: an empty street map says
   // nothing the table does not, so the pane stays away rather than reserving
@@ -152,22 +119,18 @@ export function VenueMiniAtlasPane({
           hoveredVenueId={hoveredVenueId}
           onHoverVenue={onHoverVenue}
           onSelectVenue={onSelectVenue}
-          onReady={() => setReady(true)}
         />
-        {/* Held over the canvas until the style has painted, so the pane is
-            never a flash of empty box. */}
-        {!ready && <MiniAtlasSkeleton />}
       </div>
       <p className="sr-only">
-        {miniAtlasSummary(pins.length, venues.length, cityLabel)}
+        {miniAtlasSummary(pins.length, venues.length, label)}
       </p>
       <div className="mt-2 text-right">
         <Link
-          href={atlasCityHref(city, state)}
+          href={atlasCityHref(scopeCity.city, scopeCity.state)}
           className="inline-flex min-h-11 items-center text-xs text-primary hover:underline underline-offset-4"
           data-testid="venue-mini-atlas-open"
         >
-          Open {cityLabel} in the Atlas &#8599;
+          Open {label} in the Atlas &#8599;
         </Link>
       </div>
     </aside>

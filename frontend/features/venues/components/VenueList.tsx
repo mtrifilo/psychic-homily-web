@@ -9,7 +9,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile } from '@/features/auth'
 import type { VenueWithShowCount } from '../types'
 import { VenueSearch } from './VenueSearch'
-import { VenueTable } from './VenueTable'
+import { VenueTable, type VenueTableControl } from './VenueTable'
 import { VenueSortControl } from './VenueSortControl'
 import { VenueCityChooser } from './VenueCityChooser'
 import {
@@ -270,24 +270,17 @@ export function VenueList() {
   // mini Atlas reports a pin into the same state, and both read it back, so a
   // room cannot be lit in one view and not the other.
   const [hoveredVenueId, setHoveredVenueId] = useState<number | null>(null)
-  const rowsRef = useRef<HTMLDivElement | null>(null)
   // Whether the viewport is wide enough for the map pane. False until
   // hydration, so the pane is absent from the server HTML and from every
   // viewport under 1280 — not merely hidden there.
   const miniAtlasViewport = useMiniAtlasViewport()
 
-  /**
-   * A pin click, answered in the table: the room's row is scrolled to the
-   * middle of the frame and focused, so the thing a reader clicked is the thing
-   * they end up reading. Focus moves without a second scroll of its own.
-   */
+  // The table's one verb, the same shape the city picker's control uses: a pin
+  // click asks the table to reveal a room and the table owns how its rows are
+  // found. Null while no table is mounted, so every call site stays null-safe.
+  const venueTableControl = useRef<VenueTableControl | null>(null)
   const revealVenueRow = useCallback((venueId: number) => {
-    const row = rowsRef.current?.querySelector<HTMLElement>(
-      `[data-venue-row="${venueId}"]`
-    )
-    if (!row) return
-    row.scrollIntoView({ block: 'center' })
-    row.focus({ preventScroll: true })
+    venueTableControl.current?.revealRow(venueId)
   }, [])
 
   // Spreads the params ALREADY on screen and overrides only `page`, so the city
@@ -617,8 +610,11 @@ export function VenueList() {
   // The pane is for ONE city's rooms: it fits them in a 368px frame, and its
   // link opens the Atlas on that city. A whole-catalogue or multi-city page has
   // no single place to be about, so it gets the table alone.
-  const showMiniAtlas =
-    miniAtlasViewport && scopeCity !== null && venues.length > 0
+  //
+  // The CITY rather than a flag, so the condition and the value the pane needs
+  // are one expression and cannot disagree.
+  const miniAtlasCity =
+    miniAtlasViewport && venues.length > 0 ? scopeCity : null
 
   const renderPager = (position: 'top' | 'bottom') => (
     <Pagination
@@ -657,7 +653,6 @@ export function VenueList() {
       </div>
 
       <div
-        ref={rowsRef}
         className={cn(
           'min-w-0 transition-opacity duration-75',
           isUpdating && 'opacity-60'
@@ -728,8 +723,9 @@ export function VenueList() {
               // Only while the pane is on screen. Without a map beside them the
               // rows carry no hover reporting and no focus target, which is
               // what keeps them identical at every width below 1280.
-              hoveredVenueId={showMiniAtlas ? hoveredVenueId : null}
-              onHoverVenue={showMiniAtlas ? setHoveredVenueId : undefined}
+              hoveredVenueId={miniAtlasCity ? hoveredVenueId : null}
+              onHoverVenue={miniAtlasCity ? setHoveredVenueId : undefined}
+              controlRef={venueTableControl}
             />
             {/* A key for the mark beside each room name. Hidden from assistive
                 tech entirely: the mark itself is `aria-hidden` there and each
@@ -747,12 +743,10 @@ export function VenueList() {
         {venues.length > 0 && renderPager('bottom')}
       </div>
     </>,
-    showMiniAtlas && scopeCity ? (
+    miniAtlasCity ? (
       <VenueMiniAtlasPane
         venues={venues}
-        cityLabel={cityLabel(scopeCity)}
-        city={scopeCity.city}
-        state={scopeCity.state}
+        scopeCity={miniAtlasCity}
         hoveredVenueId={hoveredVenueId}
         onHoverVenue={setHoveredVenueId}
         onSelectVenue={revealVenueRow}

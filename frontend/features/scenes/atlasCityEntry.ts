@@ -13,7 +13,10 @@
  * beside the rest of the city-view geometry.
  */
 
-import { parseCitiesParam } from '@/components/filters/cityParams'
+import {
+  buildCitiesParam,
+  parseCitiesParam,
+} from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters/CityFilters'
 
 /** The query key an entry link writes, and the one the Atlas reads. */
@@ -24,7 +27,11 @@ export const ATLAS_CITY_PARAM = 'city'
  * `?cities=` family already uses.
  */
 export function atlasCityHref(city: string, state: string): string {
-  return `/atlas?${ATLAS_CITY_PARAM}=${encodeURIComponent(`${city},${state}`)}`
+  // Through `buildCitiesParam`, not a template: that module is the single
+  // source of truth for the `City,ST` wire format, and this file already parses
+  // with its counterpart. Serializing by hand is how the two halves drift.
+  const value = buildCitiesParam([{ city, state }])
+  return `/atlas?${ATLAS_CITY_PARAM}=${encodeURIComponent(value)}`
 }
 
 /**

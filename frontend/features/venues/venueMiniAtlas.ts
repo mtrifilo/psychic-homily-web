@@ -23,10 +23,15 @@ export const MINI_ATLAS_FIT_PADDING_PX = 28
  */
 export const MINI_ATLAS_MAX_FIT_ZOOM = 14
 
-/** One room as the map draws it. */
+/**
+ * One room as the map draws it.
+ *
+ * Deliberately no name: the pane draws no labels, and the room's name is in
+ * the row beside it. Carrying one would read as a promise the map does not
+ * keep.
+ */
 export interface MiniAtlasPin {
   id: number
-  name: string
   lng: number
   lat: number
   upcomingShowCount: number
@@ -55,7 +60,6 @@ export function miniAtlasPins(
     if (!position) continue
     pins.push({
       id: venue.id,
-      name: venue.name,
       lng: position.lng,
       lat: position.lat,
       upcomingShowCount: venue.upcoming_show_count,

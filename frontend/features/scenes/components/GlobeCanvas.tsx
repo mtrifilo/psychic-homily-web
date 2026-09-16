@@ -21,13 +21,13 @@ import type {
   VenuePin,
 } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
-import { venuePinPaint } from './venuePinLayer'
-import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import {
-  CITY_VIEW_MIN_ZOOM,
-  labelledVenuePinIds,
+  venuePinFeatures,
+  venuePinPaint,
   venuePinRadiusPx,
-} from '../cityView'
+} from './venuePinLayer'
+import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
+import { CITY_VIEW_MIN_ZOOM, labelledVenuePinIds } from '../cityView'
 import {
   DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
@@ -44,7 +44,6 @@ import {
   visibleLabelScenes,
   zoomForAltitude,
 } from './globeScale'
-
 
 interface GlobeCanvasProps {
   width: number
@@ -329,20 +328,7 @@ export default function GlobeCanvas({
   // into feature properties, hover rides feature-state so a mousemove never
   // rebuilds the source.
   const venueFeatures = useMemo<GeoJSON.FeatureCollection>(
-    () => ({
-      type: 'FeatureCollection',
-      features: venues.map((v) => ({
-        type: 'Feature',
-        properties: {
-          id: v.id,
-          color:
-            v.id === selectedVenueId ? DOT_COLOR_SELECTED : DOT_COLOR_BASE,
-          radiusPx: venuePinRadiusPx(v.upcomingShowCount),
-          isSelected: v.id === selectedVenueId,
-        },
-        geometry: { type: 'Point', coordinates: [v.lng, v.lat] },
-      })),
-    }),
+    () => venuePinFeatures(venues, selectedVenueId ?? null),
     [venues, selectedVenueId],
   )
 

@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-// maplibre-gl v6 has NO default export — a default import is `undefined` and
-// fails confusingly. Namespace import only.
+// Namespace import only: maplibre-gl v6 has no default export (see
+// maplibreWorker.ts).
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
@@ -12,9 +12,11 @@ import {
   PH_BASEMAP_MIN_ZOOM,
   phBasemapFragment,
 } from '@/features/scenes/basemap/phBasemap'
-import { venuePinRadiusPx } from '@/features/scenes/cityView'
-import { DOT_COLOR_BASE } from '@/features/scenes/components/globeScale'
-import { venuePinPaint } from '@/features/scenes/components/venuePinLayer'
+import {
+  venuePinFeatures,
+  venuePinPaint,
+} from '@/features/scenes/components/venuePinLayer'
+import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
 import {
   MINI_ATLAS_FIT_PADDING_PX,
   MINI_ATLAS_MAX_FIT_ZOOM,
@@ -90,27 +92,6 @@ function miniAtlasStyle(): maplibregl.StyleSpecification {
   }
 }
 
-function pinFeatures(
-  pins: readonly MiniAtlasPin[],
-): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: pins.map((pin) => ({
-      type: 'Feature',
-      properties: {
-        id: pin.id,
-        color: DOT_COLOR_BASE,
-        radiusPx: venuePinRadiusPx(pin.upcomingShowCount),
-        // The shared paint reads this to keep a selected pin's color through a
-        // hover. This pane has no selection, so no pin is ever selected.
-        isSelected: false,
-        isQuiet: pin.upcomingShowCount === 0,
-      },
-      geometry: { type: 'Point', coordinates: [pin.lng, pin.lat] },
-    })),
-  }
-}
-
 export interface VenueMiniAtlasProps {
   /** The rows to draw, ALREADY positioned by `miniAtlasPins`. */
   pins: readonly MiniAtlasPin[]
@@ -120,8 +101,6 @@ export interface VenueMiniAtlasProps {
   onHoverVenue: (venueId: number | null) => void
   /** Pin click. The page scrolls the room's row into view and focuses it. */
   onSelectVenue: (venueId: number) => void
-  /** Fired once the style has loaded, so the pane can drop its skeleton. */
-  onReady?: () => void
 }
 
 /**
@@ -142,7 +121,6 @@ export function VenueMiniAtlas({
   hoveredVenueId,
   onHoverVenue,
   onSelectVenue,
-  onReady,
 }: VenueMiniAtlasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [map, setMap] = useState<maplibregl.Map | null>(null)
@@ -153,8 +131,6 @@ export function VenueMiniAtlas({
   onHoverRef.current = onHoverVenue
   const onSelectRef = useRef(onSelectVenue)
   onSelectRef.current = onSelectVenue
-  const onReadyRef = useRef(onReady)
-  onReadyRef.current = onReady
 
   // Plain create/remove, and deliberately NO init guard that survives a hide:
   // a surviving guard ref is the one pattern that broke the previous globe
@@ -201,15 +177,25 @@ export function VenueMiniAtlas({
     canvas.setAttribute('aria-hidden', 'true')
     canvas.setAttribute('tabindex', '-1')
 
+    // `mousemove` fires at pointer rate while the cursor sits on a pin, so
+    // both the cursor write and the report are guarded: the style never
+    // changes after the first frame, and a repeat of the same id would push an
+    // identical update through the page on every frame.
+    let reported: number | null = null
+    const handleEnter = () => {
+      instance.getCanvas().style.cursor = 'pointer'
+    }
     const handleMove = (
       event: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
       const id = event.features?.[0]?.id
-      instance.getCanvas().style.cursor = 'pointer'
-      if (typeof id === 'number') onHoverRef.current(id)
+      if (typeof id !== 'number' || id === reported) return
+      reported = id
+      onHoverRef.current(id)
     }
     const handleLeave = () => {
       instance.getCanvas().style.cursor = ''
+      reported = null
       onHoverRef.current(null)
     }
     const handleClick = (
@@ -219,13 +205,11 @@ export function VenueMiniAtlas({
       if (typeof id === 'number') onSelectRef.current(id)
     }
 
+    instance.on('mouseenter', LAYER_ID, handleEnter)
     instance.on('mousemove', LAYER_ID, handleMove)
     instance.on('mouseleave', LAYER_ID, handleLeave)
     instance.on('click', LAYER_ID, handleClick)
-    instance.on('load', () => {
-      setMap(instance)
-      onReadyRef.current?.()
-    })
+    instance.on('load', () => setMap(instance))
 
     return () => {
       setMap((prev) => (prev === instance ? null : prev))
@@ -233,7 +217,7 @@ export function VenueMiniAtlas({
     }
   }, [])
 
-  const features = useMemo(() => pinFeatures(pins), [pins])
+  const features = useMemo(() => venuePinFeatures(pins), [pins])
 
   // The identity of the SET on screen, so the camera refits when the page or
   // the filter changes the rooms and leaves the old ones nowhere near the
@@ -282,18 +266,24 @@ export function VenueMiniAtlas({
   }, [map, hoveredVenueId])
 
   return (
-    // Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
-    // `.maplibregl-map { position: relative }` on this node at map init, which
-    // ties with the `absolute` utility class and, since that stylesheet is
-    // lazy-loaded after globals.css, wins on order — collapsing the container
-    // to 0 height, at which point the canvas falls back to its 300px default.
-    // Inline style always wins.
-    <div
-      ref={containerRef}
-      data-testid="venue-mini-atlas-canvas"
-      className="ph-mini-atlas"
-      style={{ position: 'absolute', inset: 0 }}
-    />
+    <>
+      {/* Held over the canvas until the style has painted, so the pane is never
+          a flash of empty box. `map` IS the ready signal: it is set in the
+          `load` handler, so nothing second-guesses when the skeleton lifts. */}
+      {!map && <MiniAtlasSkeleton />}
+      {/* Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
+          `.maplibregl-map { position: relative }` on this node at map init,
+          which ties with the `absolute` utility class and, since that
+          stylesheet is lazy-loaded after globals.css, wins on order —
+          collapsing the container to 0 height, at which point the canvas falls
+          back to its 300px default. Inline style always wins. */}
+      <div
+        ref={containerRef}
+        data-testid="venue-mini-atlas-canvas"
+        className="ph-mini-atlas"
+        style={{ position: 'absolute', inset: 0 }}
+      />
+    </>
   )
 }
 

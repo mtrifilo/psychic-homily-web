@@ -33,7 +33,6 @@ import {
   formatNextShowDate,
   resolveAtlasCityPov,
   resolveCityScene,
-  venuePinPosition,
   type CityVenueFilters,
 } from '../cityView'
 import {
@@ -46,6 +45,7 @@ import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
 import { VenuePanel } from './VenuePanel'
 import { ArtistPanel } from './ArtistPanel'
+import { venuePinPosition } from '../venuePinPosition'
 import { pickDriftScene } from './drift'
 import { ATLAS_CITY_PARAM } from '../atlasCityEntry'
 import { clearAtlasCamera } from './atlasCamera'

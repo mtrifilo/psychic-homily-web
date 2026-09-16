@@ -1,23 +1,92 @@
 /**
- * The venue-pin circle layer's paint, shared by every map surface that draws
- * rooms as pins.
+ * How a room reads as a mark on a map: its size, its colors, and the feature
+ * properties the paint reads.
  *
  * One definition so the Atlas city view and the `/venues` mini Atlas cannot
- * drift into two affordance ramps for the same mark. The layer's placement,
- * `minzoom` and source id belong to the caller; only the paint is shared.
+ * drift into two affordance ramps for the same room, and so the paint and the
+ * properties it depends on stay in one file. The layer's placement, `minzoom`
+ * and source id belong to the caller.
  */
 
 import type { CircleLayerSpecification } from 'maplibre-gl'
-import { DOT_COLOR_HOVERED, DOT_HOVER_RADIUS_SCALE } from './globeScale'
+import {
+  DOT_COLOR_BASE,
+  DOT_COLOR_HOVERED,
+  DOT_COLOR_SELECTED,
+  DOT_HOVER_RADIUS_SCALE,
+} from './globeScale'
+
+// ── Pin size ──────────────────────────────────────────────────────────────
+// Same shape as the globe's dot scale (sqrt, capped) for the same reason: a
+// 40-show venue must read as busier than a 4-show one without ballooning over
+// its neighbours on a street map, where venues sit blocks apart. Bigger than
+// the globe dots in absolute px because a city map has far fewer marks
+// competing for the frame. Retune HERE, not inline in a canvas.
+export const VENUE_PIN_BASE_RADIUS_PX = 5
+export const VENUE_PIN_VARIABLE_MAX_PX = 6
+// Every venue at or above this count draws the same max pin.
+export const VENUE_PIN_CAP_COUNT = 20
+
+/** Pin radius in CSS px for a venue's upcoming-show count. */
+export function venuePinRadiusPx(upcomingShowCount: number): number {
+  // Non-finite guard, matching sceneDotRadius: a NaN radius poisons the layer.
+  const count = Number.isFinite(upcomingShowCount)
+    ? Math.max(0, upcomingShowCount)
+    : 0
+  const variable =
+    (Math.sqrt(count) / Math.sqrt(VENUE_PIN_CAP_COUNT)) *
+    VENUE_PIN_VARIABLE_MAX_PX
+  return (
+    VENUE_PIN_BASE_RADIUS_PX + Math.min(variable, VENUE_PIN_VARIABLE_MAX_PX)
+  )
+}
+
+/** The minimum a pin has to carry for the layer below to draw it. */
+export interface VenuePinPlacement {
+  id: number
+  lng: number
+  lat: number
+  upcomingShowCount: number
+}
+
+/**
+ * The source data the paint below reads.
+ *
+ * Built here rather than at each call site, so the properties and the
+ * expressions that consume them cannot drift: adding a property means adding
+ * it once, for every surface that draws a room.
+ */
+export function venuePinFeatures(
+  pins: readonly VenuePinPlacement[],
+  selectedVenueId: number | null = null,
+): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: pins.map((pin) => ({
+      type: 'Feature',
+      properties: {
+        id: pin.id,
+        color:
+          pin.id === selectedVenueId ? DOT_COLOR_SELECTED : DOT_COLOR_BASE,
+        radiusPx: venuePinRadiusPx(pin.upcomingShowCount),
+        isSelected: pin.id === selectedVenueId,
+        // Nothing booked. Read by the surfaces that mute a quiet room; drawing
+        // it is the caller's call, deriving it is not.
+        isQuiet: pin.upcomingShowCount === 0,
+      },
+      geometry: { type: 'Point', coordinates: [pin.lng, pin.lat] },
+    })),
+  }
+}
 
 // A dark rim, not the globe dots' cream one: on a street basemap a light halo
 // reads as a second mark rather than an outline.
 export const VENUE_PIN_STROKE = 'rgba(23,16,11,0.85)'
 
 /**
- * Paint for a venue-pin circle layer, driven by two feature properties the
- * source must carry (`radiusPx`, `color`, `isSelected`) and the `hover`
- * feature-state the caller sets.
+ * Paint for a venue-pin circle layer, driven by the properties
+ * `venuePinFeatures` above writes and the `hover` feature-state the caller
+ * sets.
  *
  * A FUNCTION, not a shared object literal: MapLibre keeps a reference to the
  * style it is handed, and two maps sharing one mutable paint object would let

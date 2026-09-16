@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, memo, useImperativeHandle, useRef, type RefObject } from 'react'
 import Link from 'next/link'
 import { BadgeCheck } from 'lucide-react'
 import { DenseTable } from '@/components/shared'
@@ -57,6 +57,22 @@ export interface VenueTableProps {
   hoveredVenueId?: number | null
   /** Reports the row the pointer entered or left. The page owns the id. */
   onHoverVenue?: (venueId: number | null) => void
+  /**
+   * Filled with the table's one verb, so a surface beside it can act on a row
+   * without knowing how rows are rendered or found.
+   */
+  controlRef?: RefObject<VenueTableControl | null>
+}
+
+/** What another surface may ask of the rows. */
+export interface VenueTableControl {
+  /**
+   * Scrolls a room's row to the middle of the frame and focuses it, so the
+   * thing a reader clicked is the thing they end up reading. Focus moves
+   * without a second scroll of its own. A no-op for a room this page does not
+   * list.
+   */
+  revealRow: (venueId: number) => void
 }
 
 /**
@@ -67,7 +83,7 @@ export interface VenueTableProps {
  * prints its LAST show where an active one prints its next, and the two fields
  * partition the room's shows on one boundary (see `VenueListShowRef`).
  */
-function VenueRow({
+const VenueRow = memo(function VenueRow({
   venue,
   showCity,
   isHovered,
@@ -208,7 +224,7 @@ function VenueRow({
       </td>
     </tr>
   )
-}
+})
 
 /**
  * A column header that applies an order.
@@ -314,8 +330,25 @@ export function VenueTable({
   showCity,
   hoveredVenueId = null,
   onHoverVenue,
+  controlRef,
 }: VenueTableProps) {
   const firstQuietIndex = venues.findIndex(v => v.upcoming_show_count === 0)
+  const bodyRef = useRef<HTMLTableSectionElement | null>(null)
+
+  useImperativeHandle(
+    controlRef,
+    () => ({
+      revealRow(venueId: number) {
+        const row = bodyRef.current?.querySelector<HTMLElement>(
+          `[data-venue-row="${venueId}"]`
+        )
+        if (!row) return
+        row.scrollIntoView({ block: 'center' })
+        row.focus({ preventScroll: true })
+      },
+    }),
+    []
+  )
 
   return (
     // Explicit roles: below `sm` the display of the table, its groups, rows and
@@ -350,7 +383,7 @@ export function VenueTable({
           </th>
         </tr>
       </thead>
-      <tbody role="rowgroup" className="block sm:table-row-group">
+      <tbody ref={bodyRef} role="rowgroup" className="block sm:table-row-group">
         {venues.map((venue, index) => (
           <Fragment key={venue.id}>
             {index === firstQuietIndex && <QuietRoomsHeader />}

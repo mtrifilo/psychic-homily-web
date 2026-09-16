@@ -36,13 +36,7 @@ describe('miniAtlasPins', () => {
     ])
 
     expect(pins).toEqual([
-      {
-        id: 1,
-        name: 'A Room',
-        lat: 33.45,
-        lng: -112.07,
-        upcomingShowCount: 3,
-      },
+      { id: 1, lat: 33.45, lng: -112.07, upcomingShowCount: 3 },
     ])
   })
 
