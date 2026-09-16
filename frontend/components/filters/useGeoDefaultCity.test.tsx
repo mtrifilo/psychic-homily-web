@@ -262,7 +262,7 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
         state: 'NE',
       }),
     )
-    expect(fetchSpy).toHaveBeenCalledWith('/api/geo')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/geo', expect.any(Object))
   })
 
   it('caches the response in sessionStorage (cross-page reuse, no re-fetch)', async () => {
@@ -333,7 +333,7 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     )
     expect(fetchSpy).not.toHaveBeenCalled()
     rerender(baseParams({ authStatus: 'anonymous', enableClientFetch: true }))
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/geo'))
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/geo', expect.any(Object)))
     await waitFor(() =>
       expect(result.current.appliedGeoDefault).toEqual({
         city: 'Omaha',
@@ -513,6 +513,120 @@ describe('useGeoDefaultCity — nearest has-shows city by haversine (PSY-981)', 
         state: 'AZ',
       }),
     )
+  })
+})
+
+// The pending signal: a null default that is "not known yet" rather than "no
+// city". Only a surface whose CONTENT is the derived city reads it, and for that
+// surface the difference decides between a loading state and a no-city state.
+describe('useGeoDefaultCity - isResolving', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    window.sessionStorage.clear()
+  })
+
+  function mockGeo(geo: GeoLocation | null) {
+    return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ geo }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+  }
+
+  it('resolves while auth is pending, whatever the geo path', () => {
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ authStatus: 'pending' })),
+    )
+    expect(result.current.isResolving).toBe(true)
+  })
+
+  it('settles immediately for a visitor the hook will never fetch for', () => {
+    const authed = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({ authStatus: 'authenticated', enableClientFetch: true }),
+      ),
+    )
+    expect(authed.result.current.isResolving).toBe(false)
+
+    const withFavorites = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          favoriteCities: [{ city: 'Omaha', state: 'NE' }],
+          enableClientFetch: true,
+        }),
+      ),
+    )
+    expect(withFavorites.result.current.isResolving).toBe(false)
+
+    const withSelection = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({ hasExistingSelection: true, enableClientFetch: true }),
+      ),
+    )
+    expect(withSelection.result.current.isResolving).toBe(false)
+  })
+
+  it('settles immediately on the server-prop path', () => {
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ geoFromServer: null })),
+    )
+    expect(result.current.isResolving).toBe(false)
+  })
+
+  it('resolves until the client fetch answers, then settles with a city', async () => {
+    mockGeo({ city: 'Omaha', state: 'NE' })
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
+    )
+    expect(result.current.isResolving).toBe(true)
+    await waitFor(() => expect(result.current.isResolving).toBe(false))
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Omaha',
+      state: 'NE',
+    })
+  })
+
+  it('settles when the fetch answers with no city', async () => {
+    mockGeo(null)
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
+    )
+    await waitFor(() => expect(result.current.isResolving).toBe(false))
+    expect(result.current.appliedGeoDefault).toBeNull()
+  })
+
+  it('settles even when the effect run that started the read was cleaned up', async () => {
+    // The re-entry latch is a ref that survives a cleanup, so a run that
+    // bailed on its cancel flag would leave nothing to settle: a caller gating
+    // its content on this would wait for the life of the page.
+    mockGeo({ city: 'Omaha', state: 'NE' })
+    const { result, rerender, unmount } = renderHook(
+      (props: HookParams) => useGeoDefaultCity(props),
+      { initialProps: baseParams({ enableClientFetch: true }) },
+    )
+    expect(result.current.isResolving).toBe(true)
+    // Flip ineligible (the cleanup runs) and back again while in flight.
+    rerender(
+      baseParams({ enableClientFetch: true, hasExistingSelection: true }),
+    )
+    rerender(baseParams({ enableClientFetch: true }))
+
+    await waitFor(() => expect(result.current.isResolving).toBe(false))
+    unmount()
+  })
+
+  it('settles when the fetch FAILS, so a broken edge route is not a spinner', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(baseParams({ enableClientFetch: true })),
+    )
+    await waitFor(() => expect(result.current.isResolving).toBe(false))
+    expect(result.current.appliedGeoDefault).toBeNull()
   })
 })
 

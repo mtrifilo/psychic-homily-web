@@ -9,37 +9,33 @@ import { GEO_CACHE_KEY, matchByGeo, toGeoLocation } from '@/lib/geo-client'
 import { citiesEqual } from './cityParams'
 
 /**
- * Shared IP-geo default-city hook (PSY-946).
+ * Shared IP-geo default-city hook.
  *
- * Extracted from /explore's `UpcomingShowsList` reconciliation logic (PSY-926)
- * so the SAME resolution-order, has-shows gate, canonical-city match, and
- * "from your location — change" affordance run on all three city-filter
- * surfaces: /explore, /shows, and home.
- *
- * The hook RETURNS the derived geo default; it never writes it anywhere (no
- * URL seeding, no setState into the caller). Callers fold the value into
- * their own render-derived selection (URL value ?? favorites ?? geo). The
- * only effect inside is the `/api/geo` fetch itself — a genuine
- * external-system sync.
+ * The hook RETURNS the derived geo default; it never writes it anywhere (no URL
+ * seeding, no setState into the caller). Callers fold the value into their own
+ * render-derived selection (URL value ?? favorites ?? geo). The only effect
+ * inside is the `/api/geo` fetch itself, a genuine external-system sync.
  *
  * Two geo SOURCES, one hook (see the two-read-paths note in
  * `lib/geo-default.ts`):
- *   - /explore passes `geoFromServer` (already read server-side via
- *     `next/headers` at its dynamic boundary) and sets `enableClientFetch:
- *     false` → zero extra client requests there.
- *   - /shows + home set `enableClientFetch: true` (and no `geoFromServer`) →
- *     the hook fetches the `/api/geo` edge route handler on mount, cached in
- *     sessionStorage so cross-page navigation doesn't re-fetch.
+ *   - a caller on an already-dynamic route passes `geoFromServer` (read
+ *     server-side via `next/headers`) and sets `enableClientFetch: false`, so
+ *     that route makes no extra client request.
+ *   - a caller on an ISR or static route sets `enableClientFetch: true` (and no
+ *     `geoFromServer`), and the hook fetches the `/api/geo` route handler on
+ *     mount, cached in sessionStorage so cross-page navigation does not
+ *     re-fetch.
  *
- * Resolution order (mirrors PSY-926, unchanged):
- *   1. authed user with `favoriteCities` → favorites (caller's concern; pass
- *      `favoriteCities` so the hook stands down — it never overrides them),
- *   2. anon + geo city that HAS upcoming shows in PH's data → the CANONICAL
- *      city from `cities` (never the raw header — injection-safe),
- *   3. otherwise → no default ("All cities").
+ * Resolution order:
+ *   1. an authed user with `favoriteCities` wins (the caller's concern; pass
+ *      `favoriteCities` so the hook stands down and never overrides them),
+ *   2. anon + a geo city present in `cities` -> the CANONICAL entry from
+ *      `cities`, never the raw header, which is what makes it injection-safe,
+ *   3. otherwise no default.
  *
- * The returned value is always the canonical PH `{city,state}` from `cities`,
- * so the selection it produces matches the backend filter exactly.
+ * `cities` is whatever the calling surface counts: the returned value is always
+ * an entry from it, so the selection it produces matches that surface's own
+ * filter exactly.
  */
 
 /**
@@ -50,6 +46,13 @@ import { citiesEqual } from './cityParams'
 interface GeoApiResponse {
   geo: GeoLocation | null
 }
+
+/**
+ * How long the `/api/geo` read may take before it counts as answering "no
+ * city". Generous enough for a cold edge invocation, short enough that a
+ * caller rendering a loading state on `isResolving` is not left in it.
+ */
+const GEO_FETCH_TIMEOUT_MS = 5_000
 
 interface UseGeoDefaultCityParams {
   /** Cities that currently have shows (from `useShowCities`); the has-shows gate. */
@@ -81,7 +84,7 @@ interface UseGeoDefaultCityParams {
 }
 
 interface UseGeoDefaultCityResult {
-  /** The canonical has-shows geo city to use as the anon fallback default,
+  /** The canonical geo city from `cities` to use as the anon fallback default,
    *  DERIVED — the hook never writes it anywhere. Callers fold it into their
    *  own derived selection (URL value ?? favorites ?? this). Null whenever
    *  ineligible (authed / favorites present / existing selection / user has
@@ -94,6 +97,20 @@ interface UseGeoDefaultCityResult {
    *  the old seed-effect race is gone structurally (nothing is written), but
    *  without this a slow fetch could still flash the derived default in. */
   notifyUserInteracted: () => void
+  /**
+   * True while `appliedGeoDefault`'s null is "not yet known" rather than "no
+   * default": auth has not settled, or an eligible visitor's `/api/geo` read
+   * is still in flight.
+   *
+   * It separates the two nulls for a surface whose CONTENT depends on the
+   * derived city rather than merely defaulting a filter. Such a surface must
+   * render a loading state while this is true; treating the pending null as
+   * "no city" would flash a no-city state at every visitor who has one. A
+   * surface that merely defaults a FILTER has no use for it: an unfiltered list
+   * is a truthful thing to show for the window, and narrowing it afterwards is
+   * not a correction.
+   */
+  isResolving: boolean
 }
 
 /**
@@ -108,12 +125,16 @@ function useGeoSource(
   geoFromServer: GeoLocation | null | undefined,
   enableClientFetch: boolean,
   eligible: boolean,
-): GeoLocation | null {
+): { geo: GeoLocation | null; settled: boolean } {
   // Seed synchronously from sessionStorage so a cached value is available on
   // first render (no flash, no redundant fetch). Server render + first
   // hydration return null (sessionStorage is client-only) — the value arrives
   // post-mount, same beat as today's authed-favorites seeding.
   const [fetched, setFetched] = useState<GeoLocation | null>(null)
+  // Whether the read has ANSWERED, which is not the same as having produced a
+  // city: a cache hit, a successful fetch and a failed one all settle, and two
+  // of the three can settle on null.
+  const [settled, setSettled] = useState(false)
   const hasFetched = useRef(false)
 
   useEffect(() => {
@@ -139,7 +160,12 @@ function useGeoSource(
         const cachedCity = toGeoLocation(parsed?.geo)
         let cacheCancelled = false
         Promise.resolve().then(() => {
-          if (!cacheCancelled) setFetched(cachedCity)
+          // `settled` is recorded whether or not this run was cleaned up: the
+          // re-entry latch below is a ref that survives the cleanup, so a run
+          // that bailed here would leave nothing to settle it.
+          setSettled(true)
+          if (cacheCancelled) return
+          setFetched(cachedCity)
         })
         return () => {
           cacheCancelled = true
@@ -150,9 +176,13 @@ function useGeoSource(
     }
 
     let cancelled = false
-    fetch('/api/geo')
+    // A DEADLINE, not just an error path. `fetch` rejects on a network error and
+    // not on a connection that hangs, and a caller gating its content on
+    // `isResolving` would wait on that hang for the life of the page.
+    fetch('/api/geo', { signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS) })
       .then(res => (res.ok ? (res.json() as Promise<GeoApiResponse>) : null))
       .then(body => {
+        setSettled(true)
         if (cancelled) return
         const geo = toGeoLocation(body?.geo)
         setFetched(geo)
@@ -164,6 +194,9 @@ function useGeoSource(
         }
       })
       .catch(error => {
+        // A failed read is an answer for the purposes of the caller's loading
+        // state: there is no city coming.
+        setSettled(true)
         if (cancelled) return
         // A geo-default failure is non-critical (the filter just defaults to
         // "All cities"), but capture it so a broken edge route is visible.
@@ -179,7 +212,9 @@ function useGeoSource(
   }, [enableClientFetch, geoFromServer, eligible])
 
   // Server-prop path wins when provided; otherwise the client-fetched value.
-  return geoFromServer !== undefined ? (geoFromServer ?? null) : fetched
+  return geoFromServer !== undefined
+    ? { geo: geoFromServer ?? null, settled: true }
+    : { geo: fetched, settled }
 }
 
 export function useGeoDefaultCity({
@@ -207,7 +242,11 @@ export function useGeoDefaultCity({
     !hasExistingSelection &&
     !userInteracted
 
-  const rawGeo = useGeoSource(geoFromServer, enableClientFetch, eligible)
+  const { geo: rawGeo, settled: geoSettled } = useGeoSource(
+    geoFromServer,
+    enableClientFetch,
+    eligible,
+  )
 
   // The geo suggestion reconciled against PH's has-shows data via the shared
   // two-tier `matchByGeo` (exact city/state, else nearest has-shows city by
@@ -236,7 +275,15 @@ export function useGeoDefaultCity({
 
   const notifyUserInteracted = useCallback(() => setUserInteracted(true), [])
 
-  return { appliedGeoDefault, notifyUserInteracted }
+  // Pending covers both ways the derivation can still be unknown: the viewer's
+  // identity is unresolved (favourites may yet win), or an eligible anonymous
+  // visitor's geo read has not answered. An ineligible settled visitor is not
+  // pending: their null is final.
+  const isResolving =
+    authStatus === 'pending' ||
+    (eligible && enableClientFetch && geoFromServer === undefined && !geoSettled)
+
+  return { appliedGeoDefault, notifyUserInteracted, isResolving }
 }
 
 /**

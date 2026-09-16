@@ -1,6 +1,13 @@
 'use client'
 
-import { useState, useMemo, useCallback, useRef } from 'react'
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  type RefObject,
+} from 'react'
 import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandPopoverContent } from '@/components/ui/command'
 import { Popover, PopoverTrigger } from '@/components/ui/popover'
@@ -37,6 +44,19 @@ export interface CityState {
   state: string
 }
 
+/**
+ * What a surface outside the filter bar can ask the filter to do.
+ *
+ * One verb, deliberately: a "change city" affordance rendered elsewhere on the
+ * page has to be able to OPEN the picker, and nothing more. Lifting the whole
+ * open state into the caller would make every consumer own a boolean almost
+ * none of them read.
+ */
+export interface CityFiltersControl {
+  /** Opens whichever overlay this viewport uses. */
+  open: () => void
+}
+
 interface CityFiltersProps {
   cities: CityWithCount[]
   selectedCities: CityState[]
@@ -47,6 +67,18 @@ interface CityFiltersProps {
    */
   resultNoun: ResultNoun
   allLabel?: string
+  /**
+   * Whether the "Popular:" quick-pick row may render under the filter bar.
+   *
+   * On by default. A surface with its own city-picking affordance turns it off
+   * rather than offering the same cities twice.
+   */
+  showPopularCities?: boolean
+  /**
+   * Receives the filter's imperative handle, so a control elsewhere on the page
+   * can open the picker. Optional; the filter is self-contained without it.
+   */
+  controlRef?: RefObject<CityFiltersControl | null>
   children?: React.ReactNode
 }
 
@@ -63,6 +95,8 @@ export function CityFilters({
   onFilterChange,
   resultNoun,
   allLabel = 'All Cities',
+  showPopularCities = true,
+  controlRef,
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
@@ -89,6 +123,22 @@ export function CityFilters({
     setOpen(next)
   }, [])
 
+  useImperativeHandle(
+    controlRef,
+    () => ({
+      open: () => {
+        // Focus moves to the trigger FIRST. The overlay is anchored to it and
+        // carries its `aria-expanded`/`aria-haspopup`, and on close the overlay
+        // restores focus there; a caller that opened from elsewhere would
+        // otherwise leave the keyboard somewhere it never asked to be.
+        triggerRef.current?.scrollIntoView({ block: 'nearest' })
+        triggerRef.current?.focus()
+        handleOpenChange(true)
+      },
+    }),
+    [handleOpenChange]
+  )
+
   // Composes the two halves of `replayOnHydrate` with a ref of our own: the
   // spread below sets the marker attribute, and dropping the replay ref while
   // keeping the attribute would leave a control that looks adopted and still
@@ -111,10 +161,11 @@ export function CityFilters({
 
   // Popular cities: top N with count >= threshold
   const popularCities = useMemo(() => {
+    if (!showPopularCities) return []
     const eligible = sortedCities.filter(c => c.count >= MIN_POPULAR_COUNT)
     if (eligible.length < MIN_POPULAR_CITIES) return []
     return eligible.slice(0, MAX_POPULAR_CITIES)
-  }, [sortedCities])
+  }, [sortedCities, showPopularCities])
 
   const handleToggleCity = (city: CityWithCount) => {
     const key = cityKey(city)
@@ -270,7 +321,7 @@ export function CityFilters({
 
       {/* Popular cities row */}
       {popularCities.length > 0 && selectedCities.length === 0 && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="popular-cities">
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" data-testid="popular-cities">
           <span className="shrink-0">Popular:</span>
           {popularCities.map((city, i) => (
             <span key={cityKey(city)} className="inline-flex items-center">

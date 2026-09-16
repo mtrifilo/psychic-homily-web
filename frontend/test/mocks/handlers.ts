@@ -155,6 +155,132 @@ export const sceneHandlers = [
 ]
 
 // ============================================================================
+// Venue Handlers
+// ============================================================================
+
+/**
+ * The directory's rooms, as the API orders them.
+ *
+ * The ORDER is the point. `GET /venues` puts every room with something booked
+ * ahead of every quiet one under every sort value, and orders the quiet block
+ * by its last show, most recent first. Nothing in the frontend re-sorts, so
+ * without a fixture that reproduces that order the directory's quiet-rooms
+ * divider is only ever tested against hand-built arrays.
+ */
+const VENUE_ROWS = [
+  {
+    id: 1,
+    slug: 'the-van-buren',
+    name: 'The Van Buren',
+    address: '401 W Van Buren St',
+    city: 'Phoenix',
+    state: 'AZ',
+    timezone: 'America/Phoenix',
+    verified: true,
+    upcoming_show_count: 74,
+    shows_this_week: 3,
+    social: { website: 'https://thevanburenphx.test' },
+    next_show: {
+      event_date: '2026-09-16T02:30:00Z',
+      slug: 'a-show',
+      title: '',
+    },
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 2,
+    slug: 'crescent-ballroom',
+    name: 'Crescent Ballroom',
+    address: '308 N 2nd Ave',
+    city: 'Phoenix',
+    state: 'AZ',
+    timezone: 'America/Phoenix',
+    verified: true,
+    upcoming_show_count: 66,
+    shows_this_week: 2,
+    social: {},
+    next_show: {
+      event_date: '2026-09-16T03:00:00Z',
+      slug: 'b-show',
+      title: '',
+    },
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 3,
+    slug: 'arizona-financial-theatre',
+    name: 'Arizona Financial Theatre',
+    address: '400 W Washington St',
+    city: 'Phoenix',
+    state: 'AZ',
+    timezone: 'America/Phoenix',
+    verified: true,
+    upcoming_show_count: 0,
+    shows_this_week: 0,
+    social: { website: 'https://aft.test' },
+    last_show: {
+      event_date: '2026-08-23T02:00:00Z',
+      slug: 'c-show',
+      title: '',
+    },
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+]
+
+/** Row ids in each accepted order. The quiet room is last in all of them. */
+const VENUE_ORDERS: Record<string, number[]> = {
+  upcoming: [1, 2, 3],
+  next: [1, 2, 3],
+  name: [2, 1, 3],
+}
+
+export const venueHandlers = [
+  http.get(`${TEST_API_BASE}/venues`, ({ request }) => {
+    const url = new URL(request.url)
+    const limit = Number(url.searchParams.get('limit') || 50)
+    const offset = Number(url.searchParams.get('offset') || 0)
+    const sort = url.searchParams.get('sort') ?? 'upcoming'
+    const cities = url.searchParams.get('cities')
+
+    const order = VENUE_ORDERS[sort]
+    if (!order) {
+      return HttpResponse.json(
+        { title: 'Unprocessable Entity', detail: 'invalid sort' },
+        { status: 422 }
+      )
+    }
+
+    // Every fixture room is in Phoenix, so any other city filter answers empty
+    // rather than being ignored: a test that filters has to see it applied.
+    const citySelected =
+      !cities ||
+      cities === 'all' ||
+      cities.split('|').includes('Phoenix,AZ')
+    const scoped = citySelected
+      ? order.map(id => VENUE_ROWS.find(v => v.id === id))
+      : []
+
+    return HttpResponse.json({
+      venues: scoped.slice(offset, offset + limit),
+      total: scoped.length,
+      limit,
+      offset,
+    })
+  }),
+
+  http.get(`${TEST_API_BASE}/venues/cities`, () => {
+    return HttpResponse.json({
+      // Only Phoenix: every fixture room above is there, so the facet and the
+      // row list agree about which cities have rooms.
+      cities: [{ city: 'Phoenix', state: 'AZ', venue_count: 3 }],
+    })
+  }),
+]
+
+// ============================================================================
 // Show Report Handlers
 // ============================================================================
 
@@ -210,6 +336,7 @@ export const nextRouteHandlers = [
 export const handlers = [
   ...adminHandlers,
   ...sceneHandlers,
+  ...venueHandlers,
   ...showReportHandlers,
   ...nextRouteHandlers,
 ]

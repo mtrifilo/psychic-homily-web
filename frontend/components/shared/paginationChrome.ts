@@ -139,3 +139,31 @@ export function isPlainNavigationClick(
     !event.altKey
   )
 }
+
+/**
+ * The href for a 1-based page of the list rooted at `basePath`, built FROM the
+ * params already on screen.
+ *
+ * Every key but `page` is carried through untouched: a list shares its query
+ * string with its own filters and with whatever a campaign link brought along,
+ * and a pager that minted a fresh `URLSearchParams` would silently drop all of
+ * it on every page click.
+ *
+ * Page 1 writes NO `page`, so the first page of any filter state has exactly
+ * one address and the root is reachable by paging back.
+ *
+ * `basePath` is what makes `?page=` mean the same thing inside one list's
+ * sub-route as it does on its root: the page axis is a query in both places,
+ * and only the list it pages through changes.
+ */
+export function listPageHref(
+  params: { toString: () => string },
+  page: number,
+  basePath: string
+): string {
+  const next = new URLSearchParams(params.toString())
+  if (page > 1) next.set('page', String(page))
+  else next.delete('page')
+  const query = next.toString()
+  return query ? `${basePath}?${query}` : basePath
+}

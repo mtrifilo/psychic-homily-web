@@ -37,7 +37,7 @@ export function RemovableFilterChip({
       <button
         type="button"
         onClick={onRemove}
-        className="ml-0.5 rounded-full hover:bg-foreground/10 p-0.5 transition-colors"
+        className="ml-0.5 inline-flex size-6 items-center justify-center rounded-full transition-colors hover:bg-foreground/10"
         aria-label={`Remove ${label} filter`}
         data-testid={removeTestId ?? (testId ? `${testId}-remove` : undefined)}
       >

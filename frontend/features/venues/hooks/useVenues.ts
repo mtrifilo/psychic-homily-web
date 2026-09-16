@@ -19,6 +19,7 @@ import {
   cityCountUrl,
   type CityCountScope,
 } from '@/components/filters/cityCountScope'
+import { DEFAULT_VENUE_SORT, type VenueSort } from '@/features/venues/venuesListNavigation'
 import type { CityState } from '@/components/filters/CityFilters'
 import type {
   Venue,
@@ -57,6 +58,13 @@ interface UseVenuesOptions {
    */
   metroRollup?: boolean
   /**
+   * Row order, one of `VENUE_SORTS`. Omitted from the request when it is
+   * `DEFAULT_VENUE_SORT`: the API applies that order for an absent parameter,
+   * so sending it would give one row order two request URLs and two cache
+   * entries that can never disagree.
+   */
+  sort?: VenueSort
+  /**
    * Gate the request. Defaults to true (every existing caller wants the
    * fetch immediately). Set false when the scope isn't resolved yet — an
    * unscoped GET /venues is a whole-catalogue page, not a cheap no-op, and
@@ -79,6 +87,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
     tagMatch,
     includeRail = false,
     metroRollup = false,
+    sort = DEFAULT_VENUE_SORT,
     enabled = true,
   } = options
 
@@ -105,6 +114,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   appendCityCountScope(params, { tags, tagMatch })
   if (includeRail) params.set('include_rail', 'true')
   if (metroRollupApplies) params.set('metro_rollup', 'true')
+  if (sort !== DEFAULT_VENUE_SORT) params.set('sort', sort)
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -128,6 +138,9 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
       // SENT, not what was asked for, so a rollup the URL dropped doesn't
       // mint a second entry for a byte-identical request.
       metroRollup: metroRollupApplies || undefined,
+      // Same reasoning again, and the reason the default is `undefined` rather
+      // than its name: a request that carries no `sort` must land on one key.
+      sort: sort !== DEFAULT_VENUE_SORT ? sort : undefined,
     }),
     queryFn: async (): Promise<VenuesListResponse> => {
       return apiRequest<VenuesListResponse>(endpoint, {

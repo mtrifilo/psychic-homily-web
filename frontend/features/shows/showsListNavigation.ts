@@ -5,6 +5,7 @@
  * link says can be tested without a rendered list.
  */
 
+import { listPageHref } from '@/components/shared/paginationChrome'
 import { SHOWS_ROOT } from './showsCalendarRoute'
 
 /**
@@ -19,30 +20,11 @@ import { SHOWS_ROOT } from './showsCalendarRoute'
  */
 export const SHOWS_PAGE_SIZE = 50
 
-/**
- * The href for a 1-based page of the list rooted at `basePath`, built FROM the
- * params already on screen.
- *
- * Every key but `page` is carried through untouched. The list shares its query
- * string with the city filter, the tag filter, and whatever a campaign link
- * brought along, and a pager that minted a fresh `URLSearchParams` would
- * silently drop all of it on every page click.
- *
- * Page 1 writes NO `page`, so the first page of any filter state has exactly
- * one address and the root is reachable by paging back.
- *
- * `basePath` is what makes `?page=` mean the same thing inside a month as it
- * does on the root: the page axis is a query in both places, and only the list
- * it pages through changes.
- */
+/** {@link listPageHref} rooted at the shows list. */
 export function showsPageHref(
-  params: URLSearchParams | { toString: () => string },
+  params: { toString: () => string },
   page: number,
   basePath: string = SHOWS_ROOT
 ): string {
-  const next = new URLSearchParams(params.toString())
-  if (page > 1) next.set('page', String(page))
-  else next.delete('page')
-  const query = next.toString()
-  return query ? `${basePath}?${query}` : basePath
+  return listPageHref(params, page, basePath)
 }

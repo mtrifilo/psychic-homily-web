@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
+import { useRef } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CityFilters,
+  type CityFiltersControl,
   type CityWithCount,
 } from './CityFilters'
 import { SOFT_KEYBOARD_VIEWPORT_QUERY } from '@/lib/hooks/common/useSoftKeyboardViewport'
@@ -304,6 +306,55 @@ describe('CityFilters', () => {
       )
 
       expect(screen.queryByTestId('popular-cities')).not.toBeInTheDocument()
+    })
+
+    it('renders no row at all when the surface opts out', () => {
+      render(
+        <CityFilters
+          cities={manyCities}
+          selectedCities={[]}
+          onFilterChange={vi.fn()}
+          resultNoun={{ singular: 'venue', plural: 'venues' }}
+          showPopularCities={false}
+        />
+      )
+
+      expect(screen.queryByTestId('popular-cities')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('imperative control', () => {
+    it('opens the picker when a control elsewhere on the page asks it to', async () => {
+      const user = userEvent.setup()
+
+      function Harness() {
+        const ref = useRef<CityFiltersControl | null>(null)
+        return (
+          <>
+            <button data-testid="outside-change" onClick={() => ref.current?.open()}>
+              change
+            </button>
+            <CityFilters
+              cities={cities}
+              selectedCities={[]}
+              onFilterChange={vi.fn()}
+              resultNoun={{ singular: 'venue', plural: 'venues' }}
+              controlRef={ref}
+            />
+          </>
+        )
+      }
+
+      render(<Harness />)
+      expect(screen.queryByPlaceholderText('Search cities...')).toBeNull()
+
+      await user.click(screen.getByTestId('outside-change'))
+
+      expect(screen.getByPlaceholderText('Search cities...')).toBeInTheDocument()
+      expect(screen.getByTestId('city-filter-combobox')).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      )
     })
   })
 
