@@ -425,6 +425,39 @@ describe('VenueList', () => {
       )
     })
 
+    // Every count carries its unit, on every chip rather than only the first,
+    // and the singular at one. The visible text is hidden from assistive tech,
+    // so both renderings are asserted.
+    it('names the unit on every chip, singular at one', () => {
+      mockUseVenueCities.mockReturnValue({
+        data: {
+          cities: [
+            { city: 'Chicago', state: 'IL', venue_count: 42 },
+            { city: 'Tucson', state: 'AZ', venue_count: 3 },
+            { city: 'Bisbee', state: 'AZ', venue_count: 1 },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      const chooser = screen.getByTestId('venues-city-chooser')
+      expect(chooser).toHaveTextContent('Chicago, IL \u00b7 42 rooms')
+      expect(chooser).toHaveTextContent('Tucson, AZ \u00b7 3 rooms')
+      expect(chooser).toHaveTextContent('Bisbee, AZ \u00b7 1 room')
+      expect(
+        within(chooser).getByTestId('venues-busiest-tucson-az')
+      ).toHaveAccessibleName('Tucson, AZ, 3 rooms')
+      expect(
+        within(chooser).getByTestId('venues-busiest-bisbee-az')
+      ).toHaveAccessibleName('Bisbee, AZ, 1 room')
+    })
+
     it('says so plainly when the facet is empty rather than offering nothing', () => {
       mockUseVenueCities.mockReturnValue({
         data: { cities: [] },

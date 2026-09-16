@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { formatCount } from '@/components/shared/paginationChrome'
 import type { CityWithCount } from '@/components/filters'
 import { countLabel, venuesCityHref } from '../venuesListNavigation'
 
@@ -22,6 +21,9 @@ export interface VenueCityChooserProps {
  * The chips are links rather than filter presses, so every city this state
  * offers is an address a reader can share and a crawler can follow, the same
  * way the rest of the directory is.
+ *
+ * EVERY chip carries its unit, not just the first: a reader who meets the
+ * fourth chip first is otherwise left to name the bare number themselves.
  */
 export function VenueCityChooser({ cities, params }: VenueCityChooserProps) {
   const busiest = [...cities]
@@ -50,13 +52,14 @@ export function VenueCityChooser({ cities, params }: VenueCityChooserProps) {
             aria-labelledby="venues-busiest-label"
             className="flex list-none flex-wrap gap-2"
           >
-            {busiest.map((city, index) => (
+            {busiest.map(city => (
               <li key={`${city.city}-${city.state}`}>
                 <Link
                   href={venuesCityHref(params, city.city, city.state)}
-                  // The unit is printed once, on the leading chip, and carried
-                  // for every chip in the accessible name: a reader who meets
-                  // the fourth chip first must still be told what 24 counts.
+                  // The same words the chip shows, with the separator spoken
+                  // as a pause rather than as a character: the visible text is
+                  // hidden from assistive tech below, so these two are one
+                  // label in two renderings and have to say the same thing.
                   aria-label={`${city.city}, ${city.state}, ${countLabel(city.count, 'room')}`}
                   data-testid={`venues-busiest-${city.city}-${city.state}`
                     .toLowerCase()
@@ -64,8 +67,8 @@ export function VenueCityChooser({ cities, params }: VenueCityChooserProps) {
                   className="inline-flex min-h-11 items-center rounded-md border border-border/50 bg-muted/30 px-3 text-sm transition-colors hover:border-border hover:bg-muted"
                 >
                   <span aria-hidden="true">
-                    {city.city}, {city.state} &middot; {formatCount(city.count)}
-                    {index === 0 && (city.count === 1 ? ' room' : ' rooms')}
+                    {city.city}, {city.state} &middot;{' '}
+                    {countLabel(city.count, 'room')}
                   </span>
                 </Link>
               </li>
