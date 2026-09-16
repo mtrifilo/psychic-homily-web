@@ -8,6 +8,28 @@ import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 
+/**
+ * `max-h-(--radix-popover-content-available-height)` bounds a command surface
+ * by the room its popover has on screen. Radix measures that against the VISUAL
+ * viewport, so the value already accounts for a software keyboard. Outside a
+ * popover the variable is unset, which makes the declaration invalid at
+ * computed-value time and leaves `max-height` at its initial `none` - so the
+ * dialog `CommandDialog` renders keeps `CommandList`'s own 300px cap.
+ *
+ * The bound sits on this flex column rather than on `CommandList` because the
+ * column also holds the pinned `CommandInput`: a list capped at the full
+ * available height puts the surface's bottom edge one input row below the space
+ * that was available. Capping the column subtracts the input by construction,
+ * and `CommandList`, whose `overflow-y-auto` lets it shrink below its content,
+ * is the child that absorbs the difference.
+ *
+ * `min-h-11` is the floor, and it is `CommandInput`'s own `h-11` so the two
+ * scale together with the reader's text size. Below it the column's
+ * `overflow-hidden` would clip the field being typed into, which is reachable
+ * at 200% text on a landscape phone with the keyboard up. The list reaching
+ * zero there is the correct outcome: a row shown at that size would be under
+ * the keyboard.
+ */
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
@@ -16,6 +38,7 @@ const Command = React.forwardRef<
     ref={ref}
     className={cn(
       'flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
+      'max-h-(--radix-popover-content-available-height) min-h-11',
       className
     )}
     {...props}
