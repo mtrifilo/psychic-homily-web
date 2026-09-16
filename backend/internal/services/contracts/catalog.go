@@ -1056,7 +1056,9 @@ type VenueWithShowCountResponse struct {
 	// ROLLING FROM THE REQUEST INSTANT, so it is NOT a subset of
 	// UpcomingShowCount beside it, which is bounded at the venue-local night: a
 	// set that started an hour ago counts in the total and not here, and a row
-	// can therefore read one upcoming show and zero this week.
+	// can therefore read one upcoming show and zero this week. It is the one
+	// field on this response still drawn on the instant; a rolling window has
+	// no night analogue.
 	//
 	// It shares its LENGTH with SceneListResponse.ShowsThisWeek and not that
 	// field's anchor either. Both are worded "next 7 days" and neither says
@@ -1069,16 +1071,21 @@ type VenueWithShowCountResponse struct {
 	// because the row was serialized from a UTC timestamp. Empty when the
 	// venue has no upcoming show.
 	//
-	// Bounded at the REQUEST INSTANT, unlike NextShow above it, which is bounded
-	// at the venue-local night. A set already under way is absent here and
-	// present there.
+	// The SAME show as NextShow above it, rendered rather than picked again, so
+	// a row cannot print a count that includes a set already under way beside a
+	// date that has moved past it. This field is the venue-local calendar date
+	// resolved server-side; NextShow carries the instant for a client that
+	// wants to resolve the zone itself.
 	NextShowDate string `json:"next_show_date,omitempty"`
 	// NextShowTitle is that show's own title, which is EMPTY for most shows —
 	// the app composes display names from the bill everywhere else. Clients
 	// must fall back to NextShowArtists (same contract as SceneShowSummary).
+	// Equal to NextShow.Title; it is the same show.
 	NextShowTitle string `json:"next_show_title,omitempty"`
 	// NextShowArtists is that show's bill in position order, so a titleless
 	// show still carries band names (the PSY-1325 rationale, at venue scope).
+	// It is the one thing in this family NextShow does not carry, and the only
+	// reason the rail still runs a query of its own.
 	NextShowArtists []string `json:"next_show_artists,omitempty"`
 	// DominantGenre is the venue's dominant genre-family key, or "" when no
 	// family holds a confident share. Same rule and same family keys as

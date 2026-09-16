@@ -905,6 +905,10 @@ type VenueWithCount struct {
 	// matched nothing, and the DATE is the field that decides: slug and title
 	// are COALESCEd to '' inside the lateral, so an empty string in either
 	// belongs to a row that exists and has no slug or no title.
+	// NextShowID is not on the wire. It is what lets the rail enrichment fetch
+	// the bill of the show this row already picked, instead of picking one again
+	// on a boundary of its own.
+	NextShowID        *uint      `gorm:"column:next_show_id"`
 	NextShowEventDate *time.Time `gorm:"column:next_show_event_date"`
 	NextShowSlug      *string    `gorm:"column:next_show_slug"`
 	NextShowTitle     *string    `gorm:"column:next_show_title"`
@@ -945,7 +949,7 @@ const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 // `dateCondition`.
 //
 // `alias` names the lateral, so the outer query reads its columns as
-// <alias>.event_date / .slug / .title, and it must be unique across the outer
+// <alias>.show_id / .event_date / .slug / .title, and it must be unique across the outer
 // query. `svAlias` need only be unique inside this subquery: shared.VenueTZJoin
 // nests its own `sv` one scope deeper, where a repeat would shadow rather than
 // collide. Distinct names per call keep an EXPLAIN attributable to the pick it
@@ -958,7 +962,8 @@ const venueListCountSQL = "COALESCE(sc.show_count, 0)"
 // fragment carries no bind parameters at all.
 func venueListShowPickLateral(alias, svAlias, dateCondition, order string) string {
 	return `LEFT JOIN LATERAL (
-			SELECT shows.event_date AS event_date,
+			SELECT shows.id AS show_id,
+			       shows.event_date AS event_date,
 			       COALESCE(shows.slug, '') AS slug,
 			       COALESCE(shows.title, '') AS title
 			FROM show_venues ` + svAlias + `
@@ -1246,7 +1251,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// filters' own.
 	query := s.db.Table("venues").
 		Select("venues.*, "+venueListCountSQL+" as upcoming_show_count, "+
-			"next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, "+
+			"next_show.show_id AS next_show_id, next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, "+
 			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
 		Joins(venueNextShowLateral).
@@ -1323,6 +1328,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// Build responses
 	responses := make([]*contracts.VenueWithShowCountResponse, len(venuesWithCount))
 	dataSources := make(map[uint]*string, len(venuesWithCount))
+	nextShowIDs := make(map[uint]uint, len(venuesWithCount))
 	for i, vc := range venuesWithCount {
 		responses[i] = &contracts.VenueWithShowCountResponse{
 			VenueDetailResponse: *s.buildVenueResponse(&vc.Venue),
@@ -1333,15 +1339,19 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		// data_source is not part of the serialized venue response (it is an
 		// internal provenance column), so carry it alongside for the stamp.
 		dataSources[vc.ID] = vc.DataSource
+		if vc.NextShowID != nil {
+			nextShowIDs[vc.ID] = *vc.NextShowID
+		}
 	}
 
-	// Atlas venue-rail payload (next show, next-7-days slice, dominant genre,
-	// all-ages tag) for the venues on THIS page — four batched scans, no N+1,
-	// all best effort.
+	// Atlas venue-rail payload (the next show's bill, next-7-days slice,
+	// dominant genre, all-ages tag) for the venues on THIS page — three batched
+	// scans, no N+1, all best effort. The next show itself is the pick this
+	// statement already made, handed over as nextShowIDs.
 	// Opt-in: the venue browse page is this endpoint's other caller and renders
 	// none of those fields, so it must not pay for them. See venue_rail.go.
 	if filters.IncludeRailFields {
-		s.enrichVenueRailFields(responses, now)
+		s.enrichVenueRailFields(responses, nextShowIDs, now)
 		// The freshness stamp rides the same opt-in for the same reason: two
 		// more batched scans the browse page has no use for. See
 		// venue_provenance.go.

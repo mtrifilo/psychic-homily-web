@@ -119,26 +119,58 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Night
 	suite.Equal(*last.Slug, row.LastShow.Slug, "one second earlier is the previous night")
 }
 
-// TestGetVenuesWithShowCounts_RailNextShowCanNameADifferentShow pins the one
-// deliberate disagreement on the row: the rail's next_show_date is bounded at
-// the request instant, so it drops a set already under way that next_show keeps.
+// TestGetVenuesWithShowCounts_RailAgreesWithTheRow pins the property a rail row
+// has to have: the count and the show printed beside it name the same night.
 //
-// Written as an assertion rather than left to the contract comments, because a
-// client rendering both fields would otherwise learn about it from a bug report.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailNextShowCanNameADifferentShow() {
-	venue := suite.createTestVenue("Rail Split Room", "Phoenix", "AZ", true)
+// The fixture is the degenerate case, a room whose ONLY booking is a set already
+// under way. A rail that picked its own next show on the request instant would
+// leave this row saying "1 upcoming" with no date at all, which the Atlas rail
+// renders as "nothing on the calendar".
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailAgreesWithTheRow() {
+	venue := suite.createTestVenue("Rail Row", "Phoenix", "AZ", true)
+	// The rail renders its date with venueLocalDate, whose fallback for a room
+	// with no stored zone is UTC rather than the state map the SQL boundary
+	// falls through to. Geocoded rooms are the case that matters, so this one
+	// carries the zone its city has.
+	loc := venueLocalZone(suite.T())
+	suite.Require().NoError(suite.db.Model(venue).Update("timezone", loc.String()).Error)
 	user := suite.createTestUser()
-	underWay := suite.createRailShow(venue.ID, user.ID, "Under Way", time.Now().UTC().Add(-time.Hour))
-	suite.createRailShow(venue.ID, user.ID, "Next Week", time.Now().UTC().AddDate(0, 0, 7))
+	started := time.Now().In(loc).Add(-time.Hour)
+	underWay := suite.createRailShow(venue.ID, user.ID, "Under Way", started, "Opening Band", "Headliner")
 
 	resp, _, err := suite.venueService.GetVenuesWithShowCounts(
 		contracts.VenueListFilters{IncludeRailFields: true}, 10, 0)
 	suite.Require().NoError(err)
-	row := suite.findVenueResponse(resp, "Rail Split Room")
+	row := suite.findVenueResponse(resp, "Rail Row")
 
+	suite.Equal(1, row.UpcomingShowCount)
 	suite.Require().NotNil(row.NextShow)
-	suite.Equal(*underWay.Slug, row.NextShow.Slug, "the night boundary keeps the set under way")
-	suite.Equal("Next Week", row.NextShowTitle, "the rail's instant boundary has already moved on")
+	suite.Equal(*underWay.Slug, row.NextShow.Slug)
+	suite.Equal(started.Format("2006-01-02"), row.NextShowDate,
+		"the rail date is the row's own pick, rendered in the venue's zone")
+	suite.Equal("Under Way", row.NextShowTitle)
+	suite.Equal([]string{"Opening Band", "Headliner"}, row.NextShowArtists,
+		"the bill is the bill of the show the row picked, in position order")
+}
+
+// TestGetVenuesWithShowCounts_RailIsSilentWithoutAnUpcomingShow is the other
+// half: a quiet room carries no rail date rather than an empty-looking one.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_RailIsSilentWithoutAnUpcomingShow() {
+	venue := suite.createTestVenue("Rail Quiet Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.createRailShow(venue.ID, user.ID, "Long Gone", time.Now().UTC().AddDate(0, 0, -30), "Some Band")
+
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{IncludeRailFields: true}, 10, 0)
+	suite.Require().NoError(err)
+	row := suite.findVenueResponse(resp, "Rail Quiet Room")
+
+	suite.Equal(0, row.UpcomingShowCount)
+	suite.Nil(row.NextShow)
+	suite.Empty(row.NextShowDate)
+	suite.Empty(row.NextShowTitle)
+	suite.Empty(row.NextShowArtists)
+	suite.Require().NotNil(row.LastShow, "a quiet room still names the night it last had one")
 }
 
 // TestGetVenuesWithShowCounts_ShowWithoutASlugIsUnlinkable pins the contract

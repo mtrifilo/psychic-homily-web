@@ -14,24 +14,15 @@ import (
 // The rail renders one dense row per venue — name, upcoming count, and a meta
 // line "NEXT <date> · <bill> · <genre family>" — plus the header's filter
 // chips. Everything here exists to fill that row for a PAGE of venues in a
-// fixed number of queries: four batched scans keyed by the page's venue IDs,
-// never one query per venue.
+// fixed number of queries: three batched scans keyed by the page's venue IDs
+// plus one keyed by the shows the list query already picked, never one query
+// per venue.
 //
 // Every aggregation is BEST EFFORT. The rail's reason to exist is the venue
 // list; a missing meta line degrades a row, a failed list degrades the page.
 // So each helper's error is logged and swallowed by the caller, leaving the
 // corresponding fields zero — the same "cosmetic data must not blank the list"
 // rule ListScenes applies to its genre tint.
-
-// venueNextShow is the soonest upcoming approved show at one venue.
-type venueNextShow struct {
-	// Date is the show's instant; the caller renders it in the venue's zone.
-	Date time.Time
-	// Title is the show's own title, empty for most shows.
-	Title string
-	// Artists is the bill in position order — the display name fallback.
-	Artists []string
-}
 
 // venueUpcomingWeekCounts returns, per venue ID, how many of its upcoming
 // approved shows fall inside the rolling next-7-days window.
@@ -71,50 +62,23 @@ func (s *VenueService) venueUpcomingWeekCounts(venueIDs []uint, now time.Time) (
 	return out, nil
 }
 
-// venueNextShows returns, per venue ID, the soonest upcoming approved show.
+// venueNextShowBills returns, per show ID, that show's bill in position order.
 //
-// Two queries, both batched: DISTINCT ON picks one show per venue, then a
-// single scan pulls those shows' bills. The (event_date, id) ordering makes
-// the pick deterministic when a venue has two shows on the same instant.
-func (s *VenueService) venueNextShows(venueIDs []uint, now time.Time) (map[uint]venueNextShow, error) {
-	type showRow struct {
-		VenueID   uint      `gorm:"column:venue_id"`
-		ShowID    uint      `gorm:"column:show_id"`
-		EventDate time.Time `gorm:"column:event_date"`
-		Title     string    `gorm:"column:title"`
+// The shows are the ones GetVenuesWithShowCounts picked for the page's rows, so
+// the rail prints the bill of the SAME show that row's next_show names and that
+// its upcoming count is drawn on. A second pick here would answer on its own
+// boundary, and a row can only be self-consistent if one boundary decides both
+// the count and the show printed beside it.
+func (s *VenueService) venueNextShowBills(showIDs []uint) (map[uint][]string, error) {
+	if len(showIDs) == 0 {
+		return map[uint][]string{}, nil
 	}
-	var showRows []showRow
-	err := s.db.Raw(`
-		SELECT DISTINCT ON (sv.venue_id)
-		       sv.venue_id AS venue_id,
-		       s.id        AS show_id,
-		       s.event_date,
-		       COALESCE(s.title, '') AS title
-		FROM show_venues sv
-		JOIN shows s ON s.id = sv.show_id
-		WHERE sv.venue_id IN ?
-		  AND s.status = ?
-		  AND s.event_date >= ?
-		ORDER BY sv.venue_id, s.event_date ASC, s.id ASC
-	`, venueIDs, catalogm.ShowStatusApproved, now).Scan(&showRows).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to get next shows for venues: %w", err)
-	}
-	if len(showRows) == 0 {
-		return map[uint]venueNextShow{}, nil
-	}
-
-	showIDs := make([]uint, 0, len(showRows))
-	for _, r := range showRows {
-		showIDs = append(showIDs, r.ShowID)
-	}
-
 	type artistRow struct {
 		ShowID uint   `gorm:"column:show_id"`
 		Name   string `gorm:"column:name"`
 	}
 	var artistRows []artistRow
-	err = s.db.Raw(`
+	err := s.db.Raw(`
 		SELECT sa.show_id AS show_id, a.name AS name
 		FROM show_artists sa
 		JOIN artists a ON a.id = sa.artist_id
@@ -122,25 +86,14 @@ func (s *VenueService) venueNextShows(venueIDs []uint, now time.Time) (map[uint]
 		ORDER BY sa.show_id, sa.position ASC, a.name ASC
 	`, showIDs).Scan(&artistRows).Error
 	if err != nil {
-		// The bill is the nicer half of the line, but the date still reads on
-		// its own — degrade to dateless-bill rather than dropping the show.
-		slog.Default().Error("venue next-show bill lookup failed; rendering dates without bills", "error", err)
-		artistRows = nil
-	}
-	billByShow := make(map[uint][]string, len(showIDs))
-	for _, r := range artistRows {
-		billByShow[r.ShowID] = append(billByShow[r.ShowID], r.Name)
+		return nil, fmt.Errorf("failed to get next-show bills for venues: %w", err)
 	}
 
-	out := make(map[uint]venueNextShow, len(showRows))
-	for _, r := range showRows {
-		out[r.VenueID] = venueNextShow{
-			Date:    r.EventDate,
-			Title:   r.Title,
-			Artists: billByShow[r.ShowID],
-		}
+	bills := make(map[uint][]string, len(showIDs))
+	for _, r := range artistRows {
+		bills[r.ShowID] = append(bills[r.ShowID], r.Name)
 	}
-	return out, nil
+	return bills, nil
 }
 
 // venueGenreWindowMonths bounds how far back the dominant-genre mass reaches.
@@ -253,10 +206,15 @@ func venueLocalDate(t time.Time, tz *string) string {
 	return t.UTC().Format("2006-01-02")
 }
 
-// enrichVenueRailFields fills the rail payload on an already-built page of
-// venue responses, in place. Best effort throughout: any aggregation that
-// fails is logged and skipped, leaving those fields zero.
-func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithShowCountResponse, now time.Time) {
+// enrichVenueRailFields fills the rail payload on an already-built page of venue
+// responses, in place. Best effort throughout: any aggregation that fails is
+// logged and skipped, leaving those fields zero.
+//
+// nextShowIDs maps a venue id to the show GetVenuesWithShowCounts picked as that
+// row's next_show. The rail's date and title are rendered from the row's own
+// pick rather than looked up again, so the meta line and the upcoming count
+// beside it are drawn on one boundary.
+func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithShowCountResponse, nextShowIDs map[uint]uint, now time.Time) {
 	if len(responses) == 0 {
 		return
 	}
@@ -265,15 +223,24 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 		venueIDs = append(venueIDs, r.ID)
 	}
 
+	showIDs := make([]uint, 0, len(responses))
+	for _, r := range responses {
+		if id, ok := nextShowIDs[r.ID]; ok {
+			showIDs = append(showIDs, id)
+		}
+	}
+
 	weekCounts, err := s.venueUpcomingWeekCounts(venueIDs, now)
 	if err != nil {
 		slog.Default().Error("venue this-week counts failed; rail renders without them", "error", err)
 		weekCounts = nil
 	}
-	nextShows, err := s.venueNextShows(venueIDs, now)
+	bills, err := s.venueNextShowBills(showIDs)
 	if err != nil {
-		slog.Default().Error("venue next-show lookup failed; rail renders without next dates", "error", err)
-		nextShows = nil
+		// The bill is the nicer half of the line, but the date still reads on
+		// its own — degrade to a billless date rather than dropping the show.
+		slog.Default().Error("venue next-show bill lookup failed; rendering dates without bills", "error", err)
+		bills = nil
 	}
 	genres, err := s.venueDominantGenres(venueIDs, now)
 	if err != nil {
@@ -298,10 +265,12 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 			tagged := allAges[r.ID]
 			r.HostsAllAges = &tagged
 		}
-		if next, ok := nextShows[r.ID]; ok {
-			r.NextShowDate = venueLocalDate(next.Date, r.Timezone)
-			r.NextShowTitle = next.Title
-			r.NextShowArtists = next.Artists
+		// One pick per row: the rail's meta line renders the show the row
+		// already carries, so the date beside the count can never contradict it.
+		if r.NextShow != nil {
+			r.NextShowDate = venueLocalDate(r.NextShow.EventDate, r.Timezone)
+			r.NextShowTitle = r.NextShow.Title
+			r.NextShowArtists = bills[nextShowIDs[r.ID]]
 		}
 	}
 }

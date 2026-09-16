@@ -140,7 +140,8 @@ export interface VenueWithShowCount extends Venue {
   /**
    * Approved shows in the next seven days, rolling from the request instant.
    * NOT a subset of `upcoming_show_count`, which is bounded at the venue-local
-   * night: a set already under way counts there and not here. Drives the chip
+   * night: a set already under way counts there and not here, so a row can read
+   * one upcoming show and zero this week. Drives the chip
    * and the rail's header stat.
    *
    * ROLLING from now, not a Monday-to-Sunday week — which is why both of those
