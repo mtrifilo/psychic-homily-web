@@ -121,11 +121,15 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
+// `?city=` is the globe's one URL entry point (PSY-2079); tests that exercise
+// it set this before rendering.
+let searchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   // VenuePanel's confirm control reads the pathname to build its auth
   // return-to (PSY-1542).
   usePathname: () => '/atlas',
+  useSearchParams: () => searchParams,
 }))
 
 // Stub the WebGL canvas for the desktop-branch tests (PSY-1308 Drift): it
@@ -137,6 +141,7 @@ const flyToSpy = vi.fn()
 // map does and assert what the map would have drawn — the whole
 // camera → city → fetch → filter → pins chain, without WebGL.
 let lastCanvasProps: {
+  pov?: { lat: number; lng: number; altitude: number }
   onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
   onVenueSelect?: (venueId: number) => void
   venues?: readonly { id: number; name: string }[]
@@ -146,6 +151,7 @@ let lastCanvasProps: {
 vi.mock('./GlobeCanvas', () => ({
   default: (props: {
     flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
+    pov?: { lat: number; lng: number; altitude: number }
     onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
     onVenueSelect?: (venueId: number) => void
     venues?: readonly { id: number; name: string }[]
@@ -159,6 +165,9 @@ vi.mock('./GlobeCanvas', () => ({
 }))
 
 import { AtlasGlobe } from './AtlasGlobe'
+import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
+import { CITY_VIEW_MIN_ZOOM } from '../cityView'
+import { altitudeForZoom } from './globeScale'
 
 // ResizeObserver shim to drive the container width (same pattern as
 // SceneGraph.test.tsx). Default to a narrow width → the mobile gate.
@@ -228,6 +237,7 @@ describe('AtlasGlobe', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).ResizeObserver = ImmediateResizeObserver
     mockUseScenes.mockReset()
+    searchParams = new URLSearchParams()
     // The geo-centering fetch is non-fatal; stub it to a no-op miss.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
   })
@@ -275,6 +285,120 @@ describe('AtlasGlobe', () => {
     })
     renderWithProviders(<AtlasGlobe />)
     expect(screen.getByText('Loading…')).toBeInTheDocument()
+  })
+
+  describe('?city= entry (PSY-2079)', () => {
+    // Module state by design (it outlives a canvas teardown), so each case
+    // starts and ends from a known camera.
+    afterEach(() => clearAtlasCamera())
+
+    // The shared sample places only Chicago; these cases need a second city to
+    // move BETWEEN.
+    const twoCities: SceneListResponse = {
+      scenes: [
+        ...sampleData.scenes,
+        {
+          city: 'Phoenix',
+          state: 'AZ',
+          slug: 'phoenix-az',
+          venue_count: 8,
+          upcoming_show_count: 40,
+          total_show_count: 90,
+          shows_this_week: 2,
+          shows_calendar_week: 2,
+          latitude: 33.4484,
+          longitude: -112.074,
+        },
+      ],
+      count: 3,
+    }
+
+    beforeEach(() => {
+      clearAtlasCamera()
+      setMockContainerWidth(800) // above the 640px mobile gate
+      mockUseScenes.mockReturnValue({
+        data: twoCities,
+        isLoading: false,
+        isError: false,
+      })
+    })
+
+    it('opens on the named city, close enough that city view engages', async () => {
+      searchParams = new URLSearchParams('city=Chicago,IL')
+
+      renderWithProviders(<AtlasGlobe />)
+
+      await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.pov?.lat).toBeCloseTo(41.88)
+      expect(lastCanvasProps.pov?.lng).toBeCloseTo(-87.63)
+      expect(lastCanvasProps.pov!.altitude).toBeLessThan(
+        altitudeForZoom(CITY_VIEW_MIN_ZOOM),
+      )
+    })
+
+    it('drops the camera the session left behind, or the link would do nothing', async () => {
+      saveAtlasCamera({ center: [2, 3], zoom: 14 })
+      searchParams = new URLSearchParams('city=Chicago,IL')
+
+      renderWithProviders(<AtlasGlobe />)
+
+      await screen.findByTestId('globe-canvas')
+      expect(readAtlasCamera()).toBeNull()
+    })
+
+    it('leaves a mounted globe where it is for a second city, camera intact', async () => {
+      searchParams = new URLSearchParams('city=Chicago,IL')
+      const { rerender } = renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.pov?.lat).toBeCloseTo(41.88)
+
+      // Where the visitor has moved to since arriving.
+      saveAtlasCamera({ center: [2, 3], zoom: 14 })
+
+      // A second entry followed WITHOUT a remount. The focus resolves once,
+      // because GlobeCanvas documents a teardown hazard for a pov whose
+      // identity changes under a mounted canvas. What must NOT happen is the
+      // camera being discarded by a link that cannot move the map.
+      searchParams = new URLSearchParams('city=Phoenix,AZ')
+      rerender(<AtlasGlobe />)
+      await Promise.resolve()
+
+      expect(lastCanvasProps.pov?.lat).toBeCloseTo(41.88)
+      expect(readAtlasCamera()).not.toBeNull()
+    })
+
+    it('does not re-aim or drop the camera when the same URL re-renders', async () => {
+      searchParams = new URLSearchParams('city=Chicago,IL')
+      const { rerender } = renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const aimed = lastCanvasProps.pov
+
+      saveAtlasCamera({ center: [2, 3], zoom: 14 })
+      rerender(<AtlasGlobe />)
+
+      expect(lastCanvasProps.pov).toBe(aimed)
+      expect(readAtlasCamera()).not.toBeNull()
+    })
+
+    it('falls back to the geo focus for a city no scene knows', async () => {
+      searchParams = new URLSearchParams('city=Atlantis,ZZ')
+
+      renderWithProviders(<AtlasGlobe />)
+
+      await screen.findByTestId('globe-canvas')
+      // The stubbed /api/geo answers a miss, so this is the default focus.
+      expect(lastCanvasProps.pov?.lat).toBeCloseTo(39.5)
+      expect(lastCanvasProps.pov?.lng).toBeCloseTo(-98.35)
+    })
+
+    it('leaves a saved camera alone when no city is named', async () => {
+      saveAtlasCamera({ center: [2, 3], zoom: 14 })
+
+      renderWithProviders(<AtlasGlobe />)
+
+      await screen.findByTestId('globe-canvas')
+      expect(readAtlasCamera()).not.toBeNull()
+    })
   })
 
   describe('Drift (desktop globe branch, PSY-1308)', () => {

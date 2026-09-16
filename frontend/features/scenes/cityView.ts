@@ -17,7 +17,9 @@ import type {
 import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatShowMonth, resolveShowTimezone } from '@/lib/utils/formatters'
-import type { PlaceableScene, VenuePin } from './components/globeTypes'
+import type { GlobePov, PlaceableScene, VenuePin } from './components/globeTypes'
+import { altitudeForZoom } from './components/globeScale'
+import { parseAtlasCityParam } from './atlasCityEntry'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 
 // ── Engagement thresholds ─────────────────────────────────────────────────
@@ -142,80 +144,47 @@ export function resolveCityScene(
   return bestKm <= CITY_VIEW_CLAIM_RADIUS_KM ? best : null
 }
 
-// ── Where a venue pins ────────────────────────────────────────────────────
+// ── Opening on a named city (PSY-2079) ────────────────────────────────────
 
-/** Which coordinate source a venue's pin came from. */
-export type VenuePinPrecision = 'street' | 'centroid'
-
-export interface VenuePinPosition {
-  lng: number
-  lat: number
-  precision: VenuePinPrecision
-}
+// How far past CITY_VIEW_MIN_ZOOM a named-city entry opens. A WHOLE zoom level,
+// not an epsilon: the arrival wants headroom inside city view, so that a
+// visitor who zooms out one step to see the metro is still in it rather than
+// being handed back to the globe by the first gesture they make.
+const CITY_VIEW_ENTRY_ZOOM_MARGIN = 1
 
 /**
- * A venue's map position, and how precise it is.
+ * The camera focus `?city=` names, or null to leave today's behaviour alone.
  *
- * PRIVACY GATE (PSY-1536, a locked user decision): street coordinates exist
- * only for verified venues whose geocode still matches their current address.
- * The API enforces that — it omits street_latitude/street_longitude for
- * everyone else — and this function's ONLY job is to honor the omission by
- * falling back to the venue's city centroid. It must never reconstruct a
- * street position from any other field (address, zipcode), because that would
- * street-map the DIY and house venues the gate exists to protect.
+ * Null for an absent or malformed param and, deliberately, for a city no
+ * scene in the payload knows: the Atlas can only open on a place it has
+ * coordinates for, and inventing one would aim the camera at nothing. The
+ * caller falls back to the visitor's geo focus in every null case, so an
+ * unknown city degrades to a plain `/atlas` rather than to an error.
  *
- * Returns null when the venue has no usable coordinates at all; such a venue
- * still lists in the rail, it just doesn't pin.
+ * The focus lands CITY_VIEW_ENTRY_ZOOM_MARGIN past CITY_VIEW_MIN_ZOOM rather
+ * than exactly on it: the city view is camera-derived and engages at or above
+ * that zoom, so landing on the boundary would leave the arrival depending on a
+ * float comparison.
+ *
+ * Matching is case-insensitive on both halves, so `?city=phoenix,az` resolves.
  */
-export function venuePinPosition(
-  venue: Pick<
-    VenueWithShowCount,
-    'latitude' | 'longitude' | 'street_latitude' | 'street_longitude'
-  >,
-): VenuePinPosition | null {
-  if (
-    Number.isFinite(venue.street_latitude) &&
-    Number.isFinite(venue.street_longitude)
-  ) {
-    return {
-      lat: venue.street_latitude as number,
-      lng: venue.street_longitude as number,
-      precision: 'street',
-    }
-  }
-  if (Number.isFinite(venue.latitude) && Number.isFinite(venue.longitude)) {
-    return {
-      lat: venue.latitude as number,
-      lng: venue.longitude as number,
-      precision: 'centroid',
-    }
-  }
-  return null
-}
-
-// ── Pin size ──────────────────────────────────────────────────────────────
-// Same shape as the globe's dot scale (sqrt, capped) for the same reason: a
-// 40-show venue must read as busier than a 4-show one without ballooning over
-// its neighbours on a street map, where venues sit blocks apart. Bigger than
-// the globe dots in absolute px because a city map has far fewer marks
-// competing for the frame. Retune HERE, not inline in the canvas.
-export const VENUE_PIN_BASE_RADIUS_PX = 5
-export const VENUE_PIN_VARIABLE_MAX_PX = 6
-// Every venue at or above this count draws the same max pin.
-export const VENUE_PIN_CAP_COUNT = 20
-
-/** Pin radius in CSS px for a venue's upcoming-show count. */
-export function venuePinRadiusPx(upcomingShowCount: number): number {
-  // Non-finite guard, matching sceneDotRadius: a NaN radius poisons the layer.
-  const count = Number.isFinite(upcomingShowCount)
-    ? Math.max(0, upcomingShowCount)
-    : 0
-  const variable =
-    (Math.sqrt(count) / Math.sqrt(VENUE_PIN_CAP_COUNT)) *
-    VENUE_PIN_VARIABLE_MAX_PX
-  return (
-    VENUE_PIN_BASE_RADIUS_PX + Math.min(variable, VENUE_PIN_VARIABLE_MAX_PX)
+export function resolveAtlasCityPov(
+  scenes: readonly PlaceableScene[],
+  param: string | null | undefined,
+): GlobePov | null {
+  const wanted = parseAtlasCityParam(param)
+  if (!wanted) return null
+  const city = wanted.city.toLowerCase()
+  const state = wanted.state.toLowerCase()
+  const scene = scenes.find(
+    (s) => s.city.toLowerCase() === city && s.state.toLowerCase() === state,
   )
+  if (!scene) return null
+  return {
+    lat: scene.latitude,
+    lng: scene.longitude,
+    altitude: altitudeForZoom(CITY_VIEW_MIN_ZOOM + CITY_VIEW_ENTRY_ZOOM_MARGIN),
+  }
 }
 
 // ── Label declutter ───────────────────────────────────────────────────────

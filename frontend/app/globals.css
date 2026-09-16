@@ -385,3 +385,12 @@
   color: #eee7d9;
   text-decoration: underline;
 }
+
+/* The /venues mini Atlas pane is narrower than the credit pill's shared
+ * max-width, so the required OpenStreetMap credit would run past the pane's
+ * edge. Bound it to its container and let it wrap. Out-specifies the rule
+ * above through the container's own class. */
+.ph-mini-atlas.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  max-width: 100%;
+  font-size: 10px;
+}

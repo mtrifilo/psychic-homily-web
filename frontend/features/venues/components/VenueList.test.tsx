@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VenueList } from './VenueList'
 import type { VenueWithShowCount } from '../types'
@@ -97,6 +97,49 @@ vi.mock('@/features/tags', () => ({
 vi.mock('./VenueSearch', () => ({
   VenueSearch: () => <div data-testid="venue-search" />,
 }))
+
+// The map itself is covered by `VenueMiniAtlas.test.tsx` against a MapLibre
+// stub. Here it is the module `next/dynamic` resolves to, so the pane wrapper
+// (the media-query gate, the reserved box, the link, the summary) is real while
+// WebGL stays out of jsdom.
+let lastAtlasProps: {
+  pins: { id: number }[]
+  hoveredVenueId: number | null
+  onHoverVenue: (id: number | null) => void
+  onSelectVenue: (id: number) => void
+} | null = null
+vi.mock('./VenueMiniAtlas', () => ({
+  __esModule: true,
+  default: (props: {
+    pins: { id: number }[]
+    hoveredVenueId: number | null
+    onHoverVenue: (id: number | null) => void
+    onSelectVenue: (id: number) => void
+  }) => {
+    lastAtlasProps = props
+    return (
+      <div
+        data-testid="mock-mini-atlas"
+        data-pins={props.pins.map(p => p.id).join(',')}
+        data-hovered={String(props.hoveredVenueId ?? '')}
+      />
+    )
+  },
+}))
+
+/** Puts the viewport on one side of the pane's 1280px threshold. */
+function setViewportWidth(matches: boolean) {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query.includes('1280') ? matches : false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia
+}
 
 // The city filter's own anatomy is pinned by `CityFilters.test.tsx`. This stub
 // echoes the selection it was handed and exposes the two writes the list owns.
@@ -1205,6 +1248,210 @@ describe('VenueList', () => {
       render(<VenueList />)
 
       expect(screen.queryByTestId('venue-site-link-7')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('mini Atlas pane (1280+)', () => {
+    const MAPPED = [
+      makeVenue({ id: 1, name: 'Busy Room', latitude: 33.4, longitude: -112.0 }),
+      makeVenue({
+        id: 2,
+        name: 'Quiet Room',
+        upcoming_show_count: 0,
+        latitude: 33.6,
+        longitude: -111.8,
+      }),
+    ]
+
+    beforeEach(() => {
+      lastAtlasProps = null
+      setViewportWidth(true)
+    })
+
+    it('renders the pane beside one named city\u2019s rooms', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+
+      expect(await screen.findByTestId('mock-mini-atlas')).toBeInTheDocument()
+      expect(lastAtlasProps?.pins.map(p => p.id)).toEqual([1, 2])
+    })
+
+    it('is absent below 1280, and the rows carry nothing for it there', () => {
+      setViewportWidth(false)
+      anonWithGeo()
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+
+      expect(screen.queryByTestId('venue-mini-atlas')).not.toBeInTheDocument()
+      // No hover reporting and no focus target: the rows are what they are with
+      // no map on the page.
+      const row = screen.getByText('Busy Room').closest('tr')
+      expect(row).not.toHaveAttribute('data-venue-row')
+      expect(row).not.toHaveAttribute('tabindex')
+    })
+
+    it('is absent when the page is not about one named city', () => {
+      // `?cities=all` is the whole catalogue: no single place to fit or to open
+      // the Atlas on.
+      mockSearchParams.mockReturnValue(new URLSearchParams('cities=all'))
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+
+      expect(screen.queryByTestId('venue-mini-atlas')).not.toBeInTheDocument()
+    })
+
+    it('shares ONE hover id: a row hover lights the pin', async () => {
+      const user = userEvent.setup()
+      anonWithGeo()
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      await user.hover(screen.getByText('Quiet Room').closest('tr')!)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+          'data-hovered',
+          '2'
+        )
+      )
+    })
+
+    it('shares ONE hover id: a pin hover outlines the row', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      act(() => lastAtlasProps!.onHoverVenue(2))
+
+      await waitFor(() =>
+        expect(screen.getByText('Quiet Room').closest('tr')?.className).toContain(
+          'outline-primary'
+        )
+      )
+      expect(
+        screen.getByText('Busy Room').closest('tr')?.className
+      ).not.toContain('outline-primary')
+
+      act(() => lastAtlasProps!.onHoverVenue(null))
+      await waitFor(() =>
+        expect(
+          screen.getByText('Quiet Room').closest('tr')?.className
+        ).not.toContain('outline-primary')
+      )
+    })
+
+    it('scrolls a clicked pin\u2019s row into view and focuses it', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      const row = screen.getByText('Quiet Room').closest('tr') as HTMLElement
+      const scrollIntoView = vi.fn()
+      row.scrollIntoView = scrollIntoView
+
+      act(() => lastAtlasProps!.onSelectVenue(2))
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+      expect(document.activeElement).toBe(row)
+    })
+
+    it('links into the Atlas opened on this city', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+
+      render(<VenueList />)
+
+      expect(await screen.findByTestId('venue-mini-atlas-open')).toHaveAttribute(
+        'href',
+        '/atlas?city=Phoenix%2CAZ'
+      )
+    })
+
+    it('names the count of mapped rooms for a screen reader', async () => {
+      anonWithGeo()
+      setVenues([...MAPPED, makeVenue({ id: 3, name: 'Unplaced Room' })])
+
+      render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      expect(
+        screen.getByText(/Map of 2 rooms of the 3 listed in Phoenix, AZ/)
+      ).toBeInTheDocument()
+    })
+
+    it('drops the hover when the hovered room leaves the page', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+      const { rerender } = render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      act(() => lastAtlasProps!.onHoverVenue(2))
+      await waitFor(() =>
+        expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+          'data-hovered',
+          '2'
+        )
+      )
+
+      // A page change removes the row from under the pointer, so no mouseleave
+      // ever fires for it.
+      setVenues([MAPPED[0]])
+      rerender(<VenueList />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+          'data-hovered',
+          ''
+        )
+      )
+    })
+
+    it('drops the hover when the viewport narrows past the pane', async () => {
+      anonWithGeo()
+      setVenues(MAPPED)
+      const { rerender } = render(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+
+      act(() => lastAtlasProps!.onHoverVenue(2))
+      await waitFor(() =>
+        expect(
+          screen.getByText('Quiet Room').closest('tr')?.className
+        ).toContain('outline-primary')
+      )
+
+      // Narrowing takes the pane away and unbinds the rows' own handlers, so
+      // nothing else can clear it; widening again would otherwise relight a
+      // room the pointer is nowhere near.
+      setViewportWidth(false)
+      rerender(<VenueList />)
+      expect(screen.queryByTestId('venue-mini-atlas')).not.toBeInTheDocument()
+
+      setViewportWidth(true)
+      rerender(<VenueList />)
+      await screen.findByTestId('mock-mini-atlas')
+      expect(screen.getByTestId('mock-mini-atlas')).toHaveAttribute(
+        'data-hovered',
+        ''
+      )
+    })
+
+    it('stays away when no row on the page has coordinates', () => {
+      anonWithGeo()
+      setVenues([makeVenue({ id: 9, name: 'Unplaced Room' })])
+
+      render(<VenueList />)
+
+      expect(screen.queryByTestId('venue-mini-atlas')).not.toBeInTheDocument()
     })
   })
 })

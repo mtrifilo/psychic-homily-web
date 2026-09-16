@@ -121,7 +121,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.4 Map Tiles</h3>
             <p className="text-foreground/90 leading-relaxed mb-2">
-              The Atlas map loads its imagery directly from third-party tile providers as you pan and zoom. This means those providers receive requests for the specific map areas you look at, along with your IP address and standard browser headers. No account identifier is included in these requests, and they are sent whether or not you are signed in.
+              The maps on this site (the Atlas, and the smaller map beside the venues list) load their imagery directly from third-party tile providers as you pan and zoom. This means those providers receive requests for the specific map areas you look at, along with your IP address and standard browser headers. No account identifier is included in these requests, and they are sent whether or not you are signed in.
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>OpenFreeMap:</strong> Street-level map tiles and label fonts, built from OpenStreetMap data. OpenFreeMap states that it does not log tile requests. <Link href="https://openfreemap.org" className="underline hover:text-muted-foreground">OpenFreeMap</Link></li>

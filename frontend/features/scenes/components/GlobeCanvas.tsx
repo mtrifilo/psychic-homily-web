@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // is `undefined` and fails confusingly (PSY-1537 spike). Namespace import only.
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// Aims the worker pool at the vendored copy before any Map is constructed.
+import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
 import {
@@ -20,12 +22,13 @@ import type {
 } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
-  CITY_VIEW_MIN_ZOOM,
-  labelledVenuePinIds,
+  venuePinFeatures,
+  venuePinPaint,
   venuePinRadiusPx,
-} from '../cityView'
+} from './venuePinLayer'
+import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
+import { CITY_VIEW_MIN_ZOOM, labelledVenuePinIds } from '../cityView'
 import {
-  DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
   DOT_HOVER_RADIUS_SCALE,
@@ -41,18 +44,6 @@ import {
   zoomForAltitude,
 } from './globeScale'
 
-// PSY-1537 SPIKE FINDING (load-bearing): Turbopack rewrites maplibre's
-// `import.meta.url` to a file://…node_modules… URL, so v6's runtime worker
-// resolution returns "" and the map hangs FOREVER with no error — the raster
-// earth renders but GeoJSON sources never parse and `idle` never fires. The
-// fix is the vendored worker + shared modules in public/maplibre/ (pinned
-// byte-identical by maplibreVendored.test.ts), pointed at BEFORE any Map is
-// constructed: the worker pool is a module-global singleton, so a late
-// setWorkerUrl is ignored by maps that already spun the pool.
-if (typeof window !== 'undefined') {
-  maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs')
-}
-
 interface GlobeCanvasProps {
   width: number
   height: number
@@ -62,7 +53,7 @@ interface GlobeCanvasProps {
    * settles behind a guard) before mounting this canvas, and it's stable for
    * the component's lifetime — the map is aimed at it exactly once, at
    * construction (unless a saved camera from a previous show wins; see
-   * savedCamera below).
+   * the saved camera in atlasCamera.ts).
    */
   pov: GlobePov
   onSelect: (scene: PlaceableScene) => void
@@ -163,22 +154,6 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
 // Stable empty default for the `venues` prop, so a caller that omits it can't
 // churn the venue-layer memo on every render.
 const EMPTY_VENUES: readonly VenuePin[] = []
-
-// City-view venue pins (PSY-1539). They reuse the globe dots' affordance ramp
-// (selected > hovered > base) rather than introducing a second one, so the
-// same colors mean the same things on both halves of the Atlas.
-const VENUE_PIN_STROKE = 'rgba(23,16,11,0.85)'
-
-// Camera saved across map teardowns. Module scope (not a ref) on purpose: it
-// survives not only Cache Components' hide but also REAL unmounts of this
-// component — e.g. the <640px mobile-gate flip, which unmounts the canvas
-// entirely. Single-instance surface (one Atlas globe per app), so shared
-// module state is safe. This is deliberately a DATA cache, not an init
-// guard: the map is still created fresh on every show — the one pattern
-// PSY-1284 proved fatal was a guard ref that survives hide and skips
-// re-init. Without this, nav-away/back would reset the camera to the
-// initial POV (the map instance is new each show).
-let savedCamera: { center: [number, number]; zoom: number } | null = null
 
 // Deterministic starfield background (data-URI SVG, module scope — client-only
 // module, so no hydration concern). Mulberry32 keeps it stable across builds.
@@ -286,11 +261,12 @@ export default function GlobeCanvas({
   // bands (globeScale owns the zoom translation). Seeded from the camera the
   // map will actually open on (saved camera from a previous show, else the
   // resolved POV — already in the altitude units the bands were tuned in).
-  const [labelMinCount, setLabelMinCount] = useState(() =>
-    savedCamera
-      ? labelMinCountForZoom(savedCamera.zoom)
-      : labelMinCountForAltitude(pov.altitude),
-  )
+  const [labelMinCount, setLabelMinCount] = useState(() => {
+    const restored = readAtlasCamera()
+    return restored
+      ? labelMinCountForZoom(restored.zoom)
+      : labelMinCountForAltitude(pov.altitude)
+  })
 
   const labelScenes = useMemo(
     () => visibleLabelScenes(scenes, labelMinCount),
@@ -351,20 +327,7 @@ export default function GlobeCanvas({
   // into feature properties, hover rides feature-state so a mousemove never
   // rebuilds the source.
   const venueFeatures = useMemo<GeoJSON.FeatureCollection>(
-    () => ({
-      type: 'FeatureCollection',
-      features: venues.map((v) => ({
-        type: 'Feature',
-        properties: {
-          id: v.id,
-          color:
-            v.id === selectedVenueId ? DOT_COLOR_SELECTED : DOT_COLOR_BASE,
-          radiusPx: venuePinRadiusPx(v.upcomingShowCount),
-          isSelected: v.id === selectedVenueId,
-        },
-        geometry: { type: 'Point', coordinates: [v.lng, v.lat] },
-      })),
-    }),
+    () => venuePinFeatures(venues, selectedVenueId ?? null),
     [venues, selectedVenueId],
   )
 
@@ -574,8 +537,9 @@ export default function GlobeCanvas({
     const container = containerRef.current
     if (!container) return
 
-    const center: [number, number] = savedCamera?.center ?? [pov.lng, pov.lat]
-    const zoom = savedCamera?.zoom ?? zoomForAltitude(pov.altitude)
+    const restored = readAtlasCamera()
+    const center: [number, number] = restored?.center ?? [pov.lng, pov.lat]
+    const zoom = restored?.zoom ?? zoomForAltitude(pov.altitude)
 
     // PH street basemap (PSY-1543): OpenFreeMap vector tiles restyled to the
     // app's dark tokens, with its background ramped in across the Black
@@ -746,32 +710,10 @@ export default function GlobeCanvas({
             type: 'circle',
             source: 'venues',
             minzoom: CITY_VIEW_MIN_ZOOM,
-            paint: {
-              'circle-radius': [
-                '*',
-                ['get', 'radiusPx'],
-                [
-                  'case',
-                  ['boolean', ['feature-state', 'hover'], false],
-                  DOT_HOVER_RADIUS_SCALE,
-                  1,
-                ],
-              ],
-              'circle-color': [
-                'case',
-                [
-                  'all',
-                  ['boolean', ['feature-state', 'hover'], false],
-                  ['!', ['get', 'isSelected']],
-                ],
-                DOT_COLOR_HOVERED,
-                ['get', 'color'],
-              ],
-              // A dark rim, not the globe dots' cream one: on a street basemap
-              // a light halo reads as a second mark rather than an outline.
-              'circle-stroke-width': 1.5,
-              'circle-stroke-color': VENUE_PIN_STROKE,
-            },
+            // The affordance ramp (selected > hovered > base) is shared with
+            // the /venues mini Atlas so the same colors mean the same things
+            // on every surface that draws a room.
+            paint: venuePinPaint(),
           },
         ],
       },
@@ -787,7 +729,7 @@ export default function GlobeCanvas({
     map.on('error', handleBasemapError)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
-    // every input path (savedCamera deliberately persists only center/zoom).
+    // every input path (the saved camera persists only center/zoom).
     map.touchZoomRotate.disableRotation()
     map.keyboard.disableRotation()
 
@@ -1077,7 +1019,7 @@ export default function GlobeCanvas({
     // calls, rather than folded into the style.load handler above: that one is
     // declared before them, and reading a `const` from an earlier closure is a
     // temporal-dead-zone trap waiting for the day the event fires synchronously.
-    // A saved camera (module-scope savedCamera) can reopen the map already at
+    // A saved camera (atlasCamera.ts) can reopen the map already at
     // street zoom, and without this shot no settle event would ever fire to
     // re-engage city view.
     map.once('style.load', () => {
@@ -1088,10 +1030,10 @@ export default function GlobeCanvas({
     return () => {
       // Save the camera so nav-back reopens where the user left off — the
       // map itself is NOT reused (fresh instance every show; see doc above).
-      savedCamera = {
+      saveAtlasCamera({
         center: [map.getCenter().lng, map.getCenter().lat],
         zoom: map.getZoom(),
-      }
+      })
       if (w.__atlasMap === map) {
         w.__atlasMap = null
         w.__atlasMapLoaded = false

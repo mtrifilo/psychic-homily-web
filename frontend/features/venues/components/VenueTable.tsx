@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, memo, useImperativeHandle, useRef, type RefObject } from 'react'
 import Link from 'next/link'
 import { BadgeCheck } from 'lucide-react'
 import { DenseTable } from '@/components/shared'
@@ -48,6 +48,31 @@ export interface VenueTableProps {
    * or multi-city list is rows of names with no way to tell them apart.
    */
   showCity: boolean
+  /**
+   * The room under the pointer, from the table or from the mini Atlas beside
+   * it. `undefined` means nothing is linked to these rows, and then a row
+   * renders exactly as it does with no map on the page: no hover reporting, no
+   * focus target, no highlight.
+   */
+  hoveredVenueId?: number | null
+  /** Reports the row the pointer entered or left. The page owns the id. */
+  onHoverVenue?: (venueId: number | null) => void
+  /**
+   * Filled with the table's one verb, so a surface beside it can act on a row
+   * without knowing how rows are rendered or found.
+   */
+  controlRef?: RefObject<VenueTableControl | null>
+}
+
+/** What another surface may ask of the rows. */
+export interface VenueTableControl {
+  /**
+   * Scrolls a room's row to the middle of the frame and focuses it, so the
+   * thing a reader clicked is the thing they end up reading. Focus moves
+   * without a second scroll of its own. A no-op for a room this page does not
+   * list.
+   */
+  revealRow: (venueId: number) => void
 }
 
 /**
@@ -58,12 +83,16 @@ export interface VenueTableProps {
  * prints its LAST show where an active one prints its next, and the two fields
  * partition the room's shows on one boundary (see `VenueListShowRef`).
  */
-function VenueRow({
+const VenueRow = memo(function VenueRow({
   venue,
   showCity,
+  isHovered,
+  onHoverVenue,
 }: {
   venue: VenueWithShowCount
   showCity: boolean
+  isHovered: boolean
+  onHoverVenue?: (venueId: number | null) => void
 }) {
   const isQuiet = venue.upcoming_show_count === 0
   const show = isQuiet ? venue.last_show : venue.next_show
@@ -97,9 +126,42 @@ function VenueRow({
   // scheme-less one a relative href into /venues.
   const website = socialLinkHref('website', venue.social?.website)
 
+  // Linked to a map, this row is also a scroll-and-focus target for its pin.
+  // `tabIndex={-1}` makes it focusable programmatically without adding a stop
+  // to the tab order: the links inside it are still the keyboard's way in.
+  const linked = onHoverVenue !== undefined
+
   return (
-    <tr role="row" className={cn(rowGridClass, isQuiet && 'text-muted-foreground')}>
-      <td role="cell" className={cn(leadCellClass, 'col-start-1 row-start-1')}>
+    <tr
+      role="row"
+      data-venue-row={linked ? venue.id : undefined}
+      tabIndex={linked ? -1 : undefined}
+      onMouseEnter={linked ? () => onHoverVenue(venue.id) : undefined}
+      onMouseLeave={linked ? () => onHoverVenue(null) : undefined}
+      className={cn(
+        rowGridClass,
+        isQuiet && 'text-muted-foreground',
+        // An outline rather than a fill: the rows already alternate, and a
+        // background change would read as a different stripe instead of as the
+        // one room the pin is pointing at. Inset by a pixel so the mark is not
+        // clipped at the table's edges.
+        isHovered && 'outline outline-1 outline-offset-[-1px] outline-primary'
+      )}
+    >
+      {/* The room name never wraps at table widths. `DenseTable` is
+          `table-layout: auto`, where a cell's `max-width` is a hint the
+          algorithm may ignore, so every column that can hold its content on one
+          line takes its preferred width and the only column that CAN wrap
+          absorbs the deficit. That column is this one, and a wrapped room name
+          is the first thing a reader scans. Below `sm` the mobile grid gives
+          the name its own line, so the rule starts at `sm`. */}
+      <td
+        role="cell"
+        className={cn(
+          leadCellClass,
+          'col-start-1 row-start-1 sm:whitespace-nowrap'
+        )}
+      >
         {venue.slug ? (
           <Link
             href={`/venues/${venue.slug}`}
@@ -126,12 +188,23 @@ function VenueRow({
         role="cell"
         className={cn(
           trailCellClass,
-          'col-start-1 row-start-2 text-muted-foreground sm:max-w-[14rem]'
+          'col-start-1 row-start-2 text-muted-foreground'
         )}
       >
-        {/* The clip lives on a block child: `text-overflow` does nothing on an
-            auto-layout table cell, which sizes to its content instead. */}
-        <span className="block truncate">{place}</span>
+        {/* Both the clip AND its bound live on a block child: `text-overflow`
+            does nothing on an auto-layout table cell, and a `max-width` there
+            is a hint that cell sizing may ignore. On this span the browser
+            honours it, which is what stops the longest street address from
+            taking width the room name needs.
+
+            The full address stays in the DOM, so assistive tech reads it
+            whole and the `title` carries it for a pointer. */}
+        <span
+          className="block truncate sm:max-w-[7.5rem]"
+          title={place || undefined}
+        >
+          {place}
+        </span>
       </td>
 
       <td
@@ -175,7 +248,7 @@ function VenueRow({
       </td>
     </tr>
   )
-}
+})
 
 /**
  * A column header that applies an order.
@@ -279,8 +352,27 @@ export function VenueTable({
   sort,
   onSortChange,
   showCity,
+  hoveredVenueId = null,
+  onHoverVenue,
+  controlRef,
 }: VenueTableProps) {
   const firstQuietIndex = venues.findIndex(v => v.upcoming_show_count === 0)
+  const bodyRef = useRef<HTMLTableSectionElement | null>(null)
+
+  useImperativeHandle(
+    controlRef,
+    () => ({
+      revealRow(venueId: number) {
+        const row = bodyRef.current?.querySelector<HTMLElement>(
+          `[data-venue-row="${venueId}"]`
+        )
+        if (!row) return
+        row.scrollIntoView({ block: 'center' })
+        row.focus({ preventScroll: true })
+      },
+    }),
+    []
+  )
 
   return (
     // Explicit roles: below `sm` the display of the table, its groups, rows and
@@ -315,11 +407,16 @@ export function VenueTable({
           </th>
         </tr>
       </thead>
-      <tbody role="rowgroup" className="block sm:table-row-group">
+      <tbody ref={bodyRef} role="rowgroup" className="block sm:table-row-group">
         {venues.map((venue, index) => (
           <Fragment key={venue.id}>
             {index === firstQuietIndex && <QuietRoomsHeader />}
-            <VenueRow venue={venue} showCity={showCity} />
+            <VenueRow
+              venue={venue}
+              showCity={showCity}
+              isHovered={venue.id === hoveredVenueId}
+              onHoverVenue={onHoverVenue}
+            />
           </Fragment>
         ))}
       </tbody>

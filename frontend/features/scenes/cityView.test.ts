@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import type { VenueWithShowCount } from '@/features/venues/types'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
+import { altitudeForZoom } from './components/globeScale'
 import {
   CITY_VIEW_MIN_ZOOM,
-  VENUE_PIN_CAP_COUNT,
   labelledVenuePinIds,
-  venuePinRadiusPx,
   cityContributionCounts,
   cityContributionSegments,
   cityDataUpdatedAt,
@@ -19,12 +18,12 @@ import {
   formatNextShowDate,
   formatPanelShowDate,
   nextShowBill,
+  resolveAtlasCityPov,
   resolveCityScene,
   venuePanelIdentityLine,
   venuePanelShowCount,
   venueLocalityLabel,
   venuesSpanMetro,
-  venuePinPosition,
   venueProvenanceSegments,
   venueFieldNoteAttribution,
   mergeVenueConfirmation,
@@ -113,45 +112,43 @@ describe('resolveCityScene', () => {
   })
 })
 
-describe('venuePinPosition (PSY-1536 privacy gate)', () => {
-  it('uses street coordinates when the API served them', () => {
-    expect(
-      venuePinPosition(
-        venue({ street_latitude: 30.2686, street_longitude: -97.7376 }),
-      ),
-    ).toEqual({ lat: 30.2686, lng: -97.7376, precision: 'street' })
+describe('resolveAtlasCityPov (?city= entry)', () => {
+  const SCENES = [
+    scene(),
+    scene({ city: 'Phoenix', state: 'AZ', slug: 'phoenix-az', latitude: 33.4484, longitude: -112.074 }),
+  ]
+
+  it('opens on a city the scenes payload knows, close enough for city view', () => {
+    const pov = resolveAtlasCityPov(SCENES, 'Phoenix,AZ')
+
+    expect(pov).not.toBeNull()
+    expect(pov?.lat).toBeCloseTo(33.4484)
+    expect(pov?.lng).toBeCloseTo(-112.074)
+    // The rail engages at CITY_VIEW_MIN_ZOOM and altitude falls as zoom rises,
+    // so the entry altitude must be BELOW the one that threshold maps to.
+    expect(pov!.altitude).toBeLessThan(
+      altitudeForZoom(CITY_VIEW_MIN_ZOOM),
+    )
   })
 
-  it('falls back to the city centroid when street coords are ABSENT', () => {
-    // The API omits street coords for unverified venues and stale geocodes.
-    // The pin must land on the centroid, never be reconstructed some other way.
-    expect(venuePinPosition(venue())).toEqual({
-      lat: 30.2672,
-      lng: -97.7431,
-      precision: 'centroid',
-    })
+  it('matches case-insensitively on both halves', () => {
+    expect(resolveAtlasCityPov(SCENES, 'phoenix,az')?.lat).toBeCloseTo(33.4484)
   })
 
-  it('falls back to the centroid when street coords are explicitly null', () => {
-    expect(
-      venuePinPosition(
-        venue({ street_latitude: null, street_longitude: null }),
-      ),
-    ).toEqual({ lat: 30.2672, lng: -97.7431, precision: 'centroid' })
+  it('leaves today\u2019s behaviour alone for a city no scene knows', () => {
+    expect(resolveAtlasCityPov(SCENES, 'Atlantis,ZZ')).toBeNull()
   })
 
-  it('does not pin on a half-present street geocode', () => {
-    expect(
-      venuePinPosition(
-        venue({ street_latitude: 30.2686, street_longitude: null }),
-      )?.precision,
-    ).toBe('centroid')
+  it('leaves today\u2019s behaviour alone with no param at all', () => {
+    expect(resolveAtlasCityPov(SCENES, null)).toBeNull()
+    expect(resolveAtlasCityPov(SCENES, '')).toBeNull()
   })
 
-  it('returns null when the venue has no coordinates at all', () => {
-    expect(
-      venuePinPosition(venue({ latitude: null, longitude: null })),
-    ).toBeNull()
+  it('refuses a malformed value rather than guessing at one', () => {
+    expect(resolveAtlasCityPov(SCENES, 'Phoenix')).toBeNull()
+    expect(resolveAtlasCityPov(SCENES, 'Phoenix,AZ,US')).toBeNull()
+    // Several cities is not one place to open on.
+    expect(resolveAtlasCityPov(SCENES, 'Phoenix,AZ|Austin,TX')).toBeNull()
   })
 })
 
@@ -166,23 +163,6 @@ function pin(overrides: Partial<VenuePin> = {}): VenuePin {
     ...overrides,
   }
 }
-
-describe('venuePinRadiusPx', () => {
-  it('grows with the upcoming count', () => {
-    expect(venuePinRadiusPx(10)).toBeGreaterThan(venuePinRadiusPx(1))
-  })
-
-  it('caps, so one huge venue cannot swallow the block', () => {
-    expect(venuePinRadiusPx(VENUE_PIN_CAP_COUNT * 20)).toBe(
-      venuePinRadiusPx(VENUE_PIN_CAP_COUNT),
-    )
-  })
-
-  it('never returns NaN for malformed counts', () => {
-    expect(Number.isFinite(venuePinRadiusPx(Number.NaN))).toBe(true)
-    expect(Number.isFinite(venuePinRadiusPx(-5))).toBe(true)
-  })
-})
 
 describe('labelledVenuePinIds', () => {
   it('labels every venue when none collide', () => {

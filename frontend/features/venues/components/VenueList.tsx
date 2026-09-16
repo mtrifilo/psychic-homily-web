@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useTransition } from 'react'
+import { useCallback, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { parseAsInteger, parseAsStringLiteral, useQueryState } from 'nuqs'
@@ -9,9 +9,13 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile } from '@/features/auth'
 import type { VenueWithShowCount } from '../types'
 import { VenueSearch } from './VenueSearch'
-import { VenueTable } from './VenueTable'
+import { VenueTable, type VenueTableControl } from './VenueTable'
 import { VenueSortControl } from './VenueSortControl'
 import { VenueCityChooser } from './VenueCityChooser'
+import {
+  VenueMiniAtlasPane,
+  useMiniAtlasViewport,
+} from './VenueMiniAtlasPane'
 import {
   CityFilters,
   type CityFiltersControl,
@@ -295,6 +299,23 @@ export function VenueList() {
   // overlay state; this is the one verb it exposes.
   const cityFilterControl = useRef<CityFiltersControl | null>(null)
 
+  // ONE hover id for the whole page (PSY-2079). The table reports a row and the
+  // mini Atlas reports a pin into the same state, and both read it back, so a
+  // room cannot be lit in one view and not the other.
+  const [hoveredVenueId, setHoveredVenueId] = useState<number | null>(null)
+  // Whether the viewport is wide enough for the map pane. False until
+  // hydration, so the pane is absent from the server HTML and from every
+  // viewport under 1280, not merely hidden there.
+  const miniAtlasViewport = useMiniAtlasViewport()
+
+  // The table's one verb, the same shape the city picker's control uses: a pin
+  // click asks the table to reveal a room and the table owns how its rows are
+  // found. Null while no table is mounted, so every call site stays null-safe.
+  const venueTableControl = useRef<VenueTableControl | null>(null)
+  const revealVenueRow = useCallback((venueId: number) => {
+    venueTableControl.current?.revealRow(venueId)
+  }, [])
+
   // Spreads the params ALREADY on screen and overrides only `page`, so the city
   // filter, the sort order and any foreign param survive a page click.
   const pageHref = useCallback(
@@ -537,10 +558,13 @@ export function VenueList() {
   // At 1280 and up the content is bounded to 720px and the space beside it is
   // left EMPTY rather than reserved: an empty box would promise content this
   // page does not have.
-  const frame = (children: React.ReactNode) => (
+  const frame = (children: React.ReactNode, aside?: React.ReactNode) => (
     <section className="w-full max-w-6xl">
       {chrome}
-      <div className="xl:max-w-[720px]">{children}</div>
+      <div className="xl:flex xl:items-start xl:gap-8">
+        <div className="min-w-0 xl:max-w-[720px] xl:flex-1">{children}</div>
+        {aside}
+      </div>
     </section>
   )
 
@@ -601,6 +625,29 @@ export function VenueList() {
   // to be true about the city too.
   const hasNarrowingFilter =
     selectedTags.length > 0 || selectedCities.length > 0
+
+  // The pane is for ONE city's rooms: it fits them in a 368px frame, and its
+  // link opens the Atlas on that city. A whole-catalogue or multi-city page has
+  // no single place to be about, so it gets the table alone.
+  //
+  // The CITY rather than a flag, so the condition and the value the pane needs
+  // are one expression and cannot disagree.
+  const miniAtlasCity =
+    miniAtlasViewport && venues.length > 0 ? scopeCity : null
+
+  // Nothing can be hovered that the reader cannot point at. Two ways the id
+  // outlives its pointer, neither of which fires a mouseleave: the row is
+  // removed from under the cursor by a page or filter change, and the window
+  // narrows past 1280, which takes the pane away and unbinds the rows' own
+  // handlers. Without this, widening again relights a room the pointer is
+  // nowhere near. Adjusted during render rather than in an effect, which would
+  // paint that frame first.
+  if (
+    hoveredVenueId !== null &&
+    (miniAtlasCity === null || !venues.some(v => v.id === hoveredVenueId))
+  ) {
+    setHoveredVenueId(null)
+  }
 
   const renderPager = (position: 'top' | 'bottom') => (
     <Pagination
@@ -736,6 +783,12 @@ export function VenueList() {
               // From the SCOPE: exactly one selected city is the only case
               // where every row would repeat the same city.
               showCity={selectedCities.length !== 1}
+              // Only while the pane is on screen. Without a map beside them the
+              // rows carry no hover reporting and no focus target, which is
+              // what keeps them identical at every width below 1280.
+              hoveredVenueId={miniAtlasCity ? hoveredVenueId : null}
+              onHoverVenue={miniAtlasCity ? setHoveredVenueId : undefined}
+              controlRef={venueTableControl}
             />
             {/* A key for the mark beside each room name. Hidden from assistive
                 tech entirely: the mark itself is `aria-hidden` there and each
@@ -752,6 +805,15 @@ export function VenueList() {
 
         {venues.length > 0 && renderPager('bottom')}
       </div>
-    </>
+    </>,
+    miniAtlasCity ? (
+      <VenueMiniAtlasPane
+        venues={venues}
+        scopeCity={miniAtlasCity}
+        hoveredVenueId={hoveredVenueId}
+        onHoverVenue={setHoveredVenueId}
+        onSelectVenue={revealVenueRow}
+      />
+    ) : null
   )
 }

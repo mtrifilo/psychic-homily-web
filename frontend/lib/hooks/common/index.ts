@@ -1,6 +1,7 @@
 export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
 export { useHydrated } from './useHydrated'
+export { useMediaQuery } from './useMediaQuery'
 
 export { useGeoDefaultScene } from './useGeoDefaultScene'
 

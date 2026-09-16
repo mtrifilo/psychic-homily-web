@@ -10,6 +10,7 @@ import {
 } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import type { GeoLocation } from '@/lib/geo-default'
 import { useScenes, useSceneDetail } from '../hooks'
@@ -30,8 +31,8 @@ import {
   NO_CITY_VENUE_FILTERS,
   filterCityVenues,
   formatNextShowDate,
+  resolveAtlasCityPov,
   resolveCityScene,
-  venuePinPosition,
   type CityVenueFilters,
 } from '../cityView'
 import {
@@ -44,7 +45,10 @@ import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
 import { VenuePanel } from './VenuePanel'
 import { ArtistPanel } from './ArtistPanel'
+import { venuePinPosition } from '../venuePinPosition'
 import { pickDriftScene } from './drift'
+import { ATLAS_CITY_PARAM } from '../atlasCityEntry'
+import { clearAtlasCamera } from './atlasCamera'
 import { AtlasSearch } from './AtlasSearch'
 import { GenreLegend } from './GenreLegend'
 import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
@@ -121,6 +125,9 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
   const allScenes = data?.scenes ?? EMPTY_SCENES
+  // The one URL entry point (PSY-2079). Read, never written: see
+  // atlasCityEntry.ts for why the camera stays out of the URL.
+  const entryCityParam = useSearchParams().get(ATLAS_CITY_PARAM)
 
   // Followed scenes (PSY-1340): tint their dots + star the mobile rows. The
   // hook is auth-gated, so logged-out visitors cost no request. Memoized to a
@@ -403,11 +410,34 @@ export function AtlasGlobe() {
     return () => observer.disconnect()
   }, [])
 
+  const entryCityPov = useMemo(
+    () => resolveAtlasCityPov(placeable, entryCityParam),
+    [placeable, entryCityParam],
+  )
+  // Whether `?city=` can still change the answer.
+  const entryCityPending = entryCityParam !== null && isLoading
+  // The entry this globe has already been aimed at. An entry is applied ONCE
+  // per param value, and a NEW value applies again: without this, the geo
+  // path's first-resolution-wins rule would swallow the second link a visitor
+  // follows in the same session, leaving them on the previous city.
+  const appliedEntryParamRef = useRef<string | null | undefined>(undefined)
+  // Mirrors `pov` for the entry effect, which must know whether a focus has
+  // already been resolved without taking `pov` as a dependency (that would
+  // re-run it on the very resolution it just made).
+  const povRef = useRef<GlobePov | null>(null)
+  useEffect(() => {
+    povRef.current = pov
+  }, [pov])
+
   // Resolve the initial focus once: the visitor's IP-geo region (PSY-946
   // plumbing, shared GeoLocation contract) if it carries coords, else North
   // America — whichever lands first, capped by GEO_TIMEOUT_MS so a slow or
   // edge-headerless geo route never blocks the globe.
   useEffect(() => {
+    // A named city has no coordinates until the scenes payload lands, and
+    // opening on the geo focus first would fly the camera away from the place
+    // the link named. Wait for the payload that can answer instead.
+    if (entryCityPending) return
     let settled = false
     const resolve = (p: GlobePov) => {
       if (!settled) {
@@ -420,6 +450,33 @@ export function AtlasGlobe() {
         setPov((prev) => prev ?? p)
       }
     }
+    // `?city=` outranks the geo focus and the camera the session left behind:
+    // the link names where to open, and a restored camera would put the map
+    // somewhere else. Like the geo focus it resolves ONCE, because GlobeCanvas
+    // documents a teardown hazard for a pov whose identity changes while the
+    // canvas is mounted; a second entry followed WITHOUT a remount therefore
+    // leaves the camera where it is. Both halves are gated on that one
+    // resolution, so a link that cannot move the map does not discard the
+    // camera either.
+    //
+    // The ref is claimed SYNCHRONOUSLY so a re-run cannot apply the same entry
+    // twice; the write is deferred to a microtask so it lands after the effect
+    // returns (react-hooks/set-state-in-effect), the same pattern the
+    // error-recovery effect below uses.
+    if (entryCityPov) {
+      if (appliedEntryParamRef.current === entryCityParam) return
+      appliedEntryParamRef.current = entryCityParam
+      let cancelled = false
+      void Promise.resolve().then(() => {
+        if (cancelled || povRef.current !== null) return
+        clearAtlasCamera()
+        setPov(entryCityPov)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    appliedEntryParamRef.current = entryCityParam
     const timer = setTimeout(() => resolve(DEFAULT_POV), GEO_TIMEOUT_MS)
     fetch('/api/geo')
       .then((res) =>
@@ -446,7 +503,10 @@ export function AtlasGlobe() {
       settled = true
       clearTimeout(timer)
     }
-  }, [])
+    // Both deps settle at most once: `entryCityPending` flips false when the
+    // scenes query finishes, and `entryCityPov` is null for every request that
+    // names no city, so a plain /atlas still resolves geo exactly once.
+  }, [entryCityPending, entryCityPov])
 
   // A scene preview must not survive an error→recovery cycle: the error branch
   // unmounts the globe, and a retained selection would pop the old panel back
