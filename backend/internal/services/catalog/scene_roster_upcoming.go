@@ -44,7 +44,9 @@ const rosterUpcomingVenueCols = `COALESCE(iv.name, '') AS venue_name, COALESCE(i
 // when its NIGHT ends in its own venue's zone, so a date-only listing for
 // tonight counts all evening and on through the small hours. Between midnight
 // and shared.NightStartHour that makes Next a row whose venue-local date is the
-// previous one, which is the date the day payload names that night by.
+// previous one. The day payload files that night under the same date wherever
+// the room's zone and the scene's resolve alike, which shared.NightStartHour's
+// doc says is not everywhere.
 //
 // The scene graph's per-artist figures (batchArtistUpcomingShowCounts,
 // batchArtistNextShows) are bounded on the start INSTANT instead, so for a show

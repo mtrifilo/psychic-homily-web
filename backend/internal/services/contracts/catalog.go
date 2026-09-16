@@ -2486,12 +2486,13 @@ type SceneArtistResponse struct {
 	// after its last gig.
 	//
 	// The boundary is the venue's own NIGHT (shared.VenueLocalNightDateCondition),
-	// the bound every other upcoming figure the scene serves is drawn on: a show
-	// leaves this count when its night ends rather than at its start instant, so
-	// a band playing tonight still counts one all evening and until that night is
-	// over. Between midnight and shared.NightStartHour that means NextShow can
-	// carry the PREVIOUS calendar date, which is the date the scene's day payload
-	// files that night under.
+	// the bound SceneStats.UpcomingShowCount and SceneVenueSummary.UpcomingShowCount
+	// are drawn on; see the first of those for what that set holds. A show leaves
+	// this count on those terms rather than at its start instant, so between
+	// midnight and shared.NightStartHour it still holds the whole of the previous
+	// local date and NextShow can therefore carry that PREVIOUS date. Other
+	// upcoming figures the scene serves take the midnight bound instead,
+	// SceneNewArtistShow.IsUpcoming among them.
 	// Cancelled shows are excluded here and from NextShow, matching
 	// SceneNewArtistShow: neither row carries a status badge, so a cancelled
 	// show would read as a date a reader can turn up to.

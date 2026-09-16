@@ -1958,8 +1958,8 @@ func sceneNightFixture() (*time.Location, calendarDate) {
 
 // sceneNightWindowFixture is sceneNightFixture's counterpart for the hours the
 // two venue-local upcoming bounds disagree in. It returns a venue zone whose own
-// clock is inside the night in progress right now, the instant that night began
-// at there, and the date it is named by.
+// clock reads inside those hours right now, the night-start date there, and the
+// date-only instants for that date and the one before it.
 //
 // The pair exists because those bounds differ ONLY between midnight and
 // nightStartHour, and the SQL asks each row's own venue what time it is rather
@@ -1967,40 +1967,53 @@ func sceneNightFixture() (*time.Location, calendarDate) {
 // difference at every wall clock, where one on the scene's own zone exercises it
 // for the few hours a day that zone is inside the window.
 //
-// Postgres picks the zone and dates the instant, because Postgres holds the
+// Postgres picks the zone and dates both instants, because Postgres holds the
 // clock the conditions are evaluated against and a second reading of this
 // process's could disagree with it across a local midnight. The candidates are
 // timezone_names_snapshot, the same set shared.VenueTZJoin's read guard trusts,
 // so a zone returned here is one the boundary honours rather than one it sends
-// to the state map. Region names only: a fixed-offset name carries no DST rule
-// and the write path refuses to store one.
-func (suite *SceneServiceIntegrationTestSuite) sceneNightWindowFixture() (string, time.Time, string) {
+// to the state map, and the excluded prefixes are the ones carrying a fixed
+// offset rather than a DST rule.
+//
+// The instants are 20:00 local, utils.DateOnlyEventHour, and NOT local midnight.
+// Midnight is not a moment in every zone: several transition at 00:00, where it
+// is either skipped or ambiguous, and one second before an ambiguous midnight
+// can resolve back onto the date it was meant to precede. No zone transitions at
+// 20:00, so both instants name the date they were built from.
+func (suite *SceneServiceIntegrationTestSuite) sceneNightWindowFixture() (zone, nightDate string, onNightDate, dateBefore time.Time) {
+	suite.Require().Greater(nightStartHour, 2,
+		"the window below is empty unless nightStartHour leaves an hour of margin at each edge")
 	var picked struct {
-		Zone       string    `gorm:"column:zone"`
-		NightStart time.Time `gorm:"column:night_start"`
-		NightDate  string    `gorm:"column:night_date"`
+		Zone        string    `gorm:"column:zone"`
+		NightDate   string    `gorm:"column:night_date"`
+		OnNightDate time.Time `gorm:"column:on_night_date"`
+		DateBefore  time.Time `gorm:"column:date_before"`
 	}
-	suite.Require().NoError(suite.db.Raw(`
+	// The upper edge stops an hour short of nightStartHour so the zone cannot
+	// leave the window between this read and the assertions.
+	read := suite.db.Raw(`
 		SELECT name AS zone,
-		       (night_date::timestamp AT TIME ZONE name) AS night_start,
-		       night_date::text AS night_date
+		       night_date::text AS night_date,
+		       ((night_date::timestamp + make_interval(hours => ?)) AT TIME ZONE name) AS on_night_date,
+		       (((night_date - 1)::timestamp + make_interval(hours => ?)) AT TIME ZONE name) AS date_before
 		FROM (
 			SELECT name,
 			       (((now() AT TIME ZONE name) - make_interval(hours => ?))::date) AS night_date
 			FROM timezone_names_snapshot
 			WHERE name LIKE '%/%'
 			  AND name NOT LIKE 'Etc/%'
+			  AND name NOT LIKE 'SystemV/%'
 			  AND name NOT LIKE 'posix/%'
 			  AND name NOT LIKE 'right/%'
 			  AND extract(hour FROM (now() AT TIME ZONE name)) BETWEEN 1 AND ?
 			ORDER BY name
 			LIMIT 1
 		) zone_in_window
-	`, nightStartHour, nightStartHour-2).Scan(&picked).Error)
-	// An hour of margin at each edge of the window, so the zone cannot roll out
-	// of it between this read and the assertions.
-	suite.Require().NotEmpty(picked.Zone, "no zone in the snapshot reads inside the night window")
-	return picked.Zone, picked.NightStart, picked.NightDate
+	`, utils.DateOnlyEventHour, utils.DateOnlyEventHour, nightStartHour, nightStartHour-2).Scan(&picked)
+	suite.Require().NoError(read.Error)
+	suite.Require().Equal(int64(1), read.RowsAffected,
+		"no zone in the snapshot reads inside the night window")
+	return picked.Zone, picked.NightDate, picked.OnNightDate, picked.DateBefore
 }
 
 // showInstantOn is a show at `hour` on the venue's local clock on `date`.

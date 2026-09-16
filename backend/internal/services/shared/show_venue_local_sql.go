@@ -37,7 +37,10 @@ import (
 //     roster's per-band upcoming count and next-show pick
 //     (catalog/scene_roster_upcoming.go), on the NIGHT bound
 //     (VenueLocalNightDateCondition), which is the rule the tonight bucket those
-//     three sit beside is drawn on.
+//     three sit beside is drawn on. They draw ONE boundary over different row
+//     sets: the roster excludes cancelled shows and the other two do not, so a
+//     band's figure and the headline differ by the cancelled shows in the
+//     window.
 //   - the scenes DIRECTORY's upcoming_count (catalog/scene.go ListScenes), on
 //     that same NIGHT bound, because a card links to the page printing the
 //     headline above. The two draw one boundary over different room sets: the
@@ -435,10 +438,11 @@ func VenueLocalDateCondition(timeFilter string) string {
 //
 // Before it, the night in progress is still the PREVIOUS calendar date: a night
 // is named by the date it BEGAN on, so at 01:00 on Saturday the night people are
-// out on is Friday's. The scene page's counts are bounded here rather than at
+// out on is Friday's. Three scene figures are bounded here rather than at
 // midnight, so they and the tonight listing they sit beside name the same night:
-// the headline figure, the rooms leaderboard and the per-band roster count. The
-// inventory at the top of this file says which surface takes which bound.
+// the headline figure, the rooms leaderboard and the per-band roster count. Not
+// every number the scene serves is one of them, and the inventory at the top of
+// this file is what says which surface takes which bound.
 // catalog/scene_day.go's tonightDate is the Go statement of the same rule and
 // reads this constant rather than restating it.
 //
