@@ -7,28 +7,26 @@ import { Search } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { PopoverContent } from '@/components/ui/popover'
 
 /**
- * `max-h-(--radix-popover-content-available-height)` bounds a command surface
- * by the room its popover has on screen. Radix measures that against the VISUAL
- * viewport, so the value already accounts for a software keyboard. Outside a
- * popover the variable is unset, which makes the declaration invalid at
- * computed-value time and leaves `max-height` at its initial `none` - so the
- * dialog `CommandDialog` renders keeps `CommandList`'s own 300px cap.
- *
- * The bound sits on this flex column rather than on `CommandList` because the
- * column also holds the pinned `CommandInput`: a list capped at the full
- * available height puts the surface's bottom edge one input row below the space
- * that was available. Capping the column subtracts the input by construction,
- * and `CommandList`, whose `overflow-y-auto` lets it shrink below its content,
- * is the child that absorbs the difference.
+ * This column carries a floor and no ceiling. The ceiling belongs to whichever
+ * frame the column sits in, and `CommandPopoverContent` below is the one that
+ * sets it.
  *
  * `min-h-11` is the floor, and it is `CommandInput`'s own `h-11` so the two
- * scale together with the reader's text size. Below it the column's
+ * scale together with the reader's text size. Below it this column's
  * `overflow-hidden` would clip the field being typed into, which is reachable
  * at 200% text on a landscape phone with the keyboard up. The list reaching
  * zero there is the correct outcome: a row shown at that size would be under
  * the keyboard.
+ *
+ * `overflow-hidden` also zeroes this column's automatic minimum size, which is
+ * what lets it shrink into its frame's cap instead of forcing the frame open.
+ * The floor outranks that, and outranks the cap: where the room on screen falls
+ * below one input row, the column holds at `min-h-11` and paints past the
+ * frame's bottom edge, which nothing clips. Showing the field being typed into
+ * is worth more than the frame staying whole at a size that fits neither.
  */
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -37,8 +35,7 @@ const Command = React.forwardRef<
   <CommandPrimitive
     ref={ref}
     className={cn(
-      'flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
-      'max-h-(--radix-popover-content-available-height) min-h-11',
+      'flex h-full w-full min-h-11 flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
       className
     )}
     {...props}
@@ -63,6 +60,39 @@ function CommandDialog({ children, ...props }: DialogProps) {
     </Dialog>
   )
 }
+
+/**
+ * The popover frame for a command surface, and the mirror of `CommandDialog`
+ * above: the framing a command surface needs lives here, so `popover.tsx` knows
+ * nothing about cmdk.
+ *
+ * `PopoverContent` is both the border box Radix positions and the box
+ * `--radix-popover-content-available-height` is measured from, so the cap
+ * belongs on it. A cap on the column inside instead leaves this frame's own top
+ * and bottom borders to paint past the edge that value was measured from: on a
+ * landscape phone with the keyboard up, 2px of popover below the keyboard.
+ *
+ * `flex flex-col` is what carries the cap inward. A block box overflows its own
+ * `max-height`; a column flex item shrinks into it, and `CommandList`'s
+ * `overflow-y-auto` turns the difference into scroll.
+ *
+ * Pair `Command` with this, never with a bare `PopoverContent`: that pairing
+ * renders a surface nothing bounds to the room on screen.
+ */
+const CommandPopoverContent = React.forwardRef<
+  React.ElementRef<typeof PopoverContent>,
+  React.ComponentPropsWithoutRef<typeof PopoverContent>
+>(({ className, ...props }, ref) => (
+  <PopoverContent
+    ref={ref}
+    className={cn(
+      'flex max-h-(--radix-popover-content-available-height) flex-col',
+      className
+    )}
+    {...props}
+  />
+))
+CommandPopoverContent.displayName = 'CommandPopoverContent'
 
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
@@ -167,6 +197,7 @@ CommandShortcut.displayName = 'CommandShortcut'
 export {
   Command,
   CommandDialog,
+  CommandPopoverContent,
   CommandInput,
   CommandList,
   CommandEmpty,
