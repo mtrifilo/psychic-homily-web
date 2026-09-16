@@ -201,6 +201,7 @@ export function UpcomingShowsList({
           cities={cities}
           selectedCities={selectedCities}
           onFilterChange={handleFilterChange}
+          resultNoun={{ singular: 'show', plural: 'shows' }}
         >
           {isAuthenticated && selectionDiffersFromFavorites && (
             <SaveDefaultsButton

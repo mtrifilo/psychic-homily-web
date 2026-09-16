@@ -202,6 +202,7 @@ export function VenueList() {
             cities={cities}
             selectedCities={selectedCities}
             onFilterChange={handleFilterChange}
+            resultNoun={{ singular: 'venue', plural: 'venues' }}
           />
         )}
       </div>

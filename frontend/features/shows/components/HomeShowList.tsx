@@ -135,6 +135,7 @@ export function HomeShowList() {
             cities={cities}
             selectedCities={effectiveCities}
             onFilterChange={handleFilterChange}
+            resultNoun={{ singular: 'show', plural: 'shows' }}
           >
             {isAuthenticated && selectionDiffersFromFavorites && (
               <SaveDefaultsButton

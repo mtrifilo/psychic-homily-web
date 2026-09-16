@@ -5,8 +5,11 @@ import { Search, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
-import { matchesSoftKeyboardViewport } from '@/lib/softKeyboardViewport'
+import { cityKey, cityLabel } from './cityParams'
+import { CityFilterSheet, type ResultNoun } from './CityFilterSheet'
+import { useSoftKeyboardViewport } from '@/lib/hooks/common/useSoftKeyboardViewport'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { formatCount } from '@/components/shared/paginationChrome'
 import { cn } from '@/lib/utils'
 
 /**
@@ -38,16 +41,13 @@ interface CityFiltersProps {
   cities: CityWithCount[]
   selectedCities: CityState[]
   onFilterChange: (cities: CityState[]) => void
+  /**
+   * What the page below this filter lists, for the bottom sheet's apply
+   * button. Every surface names its own rows, so there is no default.
+   */
+  resultNoun: ResultNoun
   allLabel?: string
   children?: React.ReactNode
-}
-
-function cityKey(c: CityState): string {
-  return `${c.city}|${c.state}`
-}
-
-function cityLabel(c: CityState): string {
-  return `${c.city}, ${c.state}`
 }
 
 /** Minimum number of cities with 2+ items to show the popular row */
@@ -57,49 +57,37 @@ const MAX_POPULAR_CITIES = 5
 /** Minimum count for a city to be "popular" */
 const MIN_POPULAR_COUNT = 2
 
-/** Keeps the scrolled-to trigger clear of the sticky topbar. */
-const TRIGGER_SCROLL_MT = 'scroll-mt-[calc(var(--topbar-height)+1rem)]'
-
-/**
- * Bounds the popover to the space left under its trigger, so the list scrolls
- * inside it with `CommandInput` held at the top.
- *
- * `--radix-popover-content-available-height` is measured against the VISUAL
- * viewport (floating-ui builds its viewport rect from `window.visualViewport`
- * and re-measures on that object's `resize`), so a software keyboard is
- * already in that number. Radix publishes it from a `size` middleware that its
- * `avoidCollisions` prop does not gate. The bottom tab bar is not in that
- * number: it is fixed below `xl`, so this is one of the surfaces that owes it
- * the subtraction named in `globals.css`. A fixed bar is laid out against the
- * layout viewport, so while a keyboard is up the bar is behind the keyboard
- * and the subtraction costs a row of list it did not have to; the keyboard-down
- * open, where the bar really does sit over the popover, is what it buys.
- *
- * The `max()` floor trades one overflow for a smaller one: below `10rem` of
- * remaining space the content is taller than the space it was bounded to and
- * its last rows go under the keyboard, which is the lesser evil against a
- * popover collapsed to nothing. `CommandList`'s own `max-h-[300px]` still caps
- * the content if this expression is ever dropped for an unresolved property.
- */
-export const SOFT_KEYBOARD_CONTENT_CLASS = [
-  'flex flex-col overflow-hidden',
-  'max-h-[max(calc(var(--radix-popover-content-available-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)),10rem)]',
-  'xl:max-h-[max(var(--radix-popover-content-available-height),10rem)]',
-].join(' ')
-
 export function CityFilters({
   cities,
   selectedCities,
   onFilterChange,
+  resultNoun,
   allLabel = 'All Cities',
   children,
 }: CityFiltersProps) {
   const [open, setOpen] = useState(false)
-  // Latched at open, never on close, so the treatment cannot change under the
-  // content's exit animation. A viewport change while the popover is open is
-  // not tracked; the next open reads the viewport again.
-  const [softKeyboardViewport, setSoftKeyboardViewport] = useState(false)
+  // Bumped on every open, so the sheet body remounts even when a reopen lands
+  // inside the exit animation that still has the old one mounted.
+  const [openSeq, setOpenSeq] = useState(0)
+  // Decides which overlay the trigger opens, and with it the trigger's own ARIA
+  // contract, so it is subscribed rather than read at open: a reader has to be
+  // able to trust `aria-haspopup` before pressing.
+  const softKeyboardViewport = useSoftKeyboardViewport()
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+
+  // Crossing the breakpoint swaps which overlay exists. Closing on the flip is
+  // what stops an open sheet from being replaced, mid-edit, by a popover
+  // carrying the applied selection instead of the edited one.
+  const [overlayViewport, setOverlayViewport] = useState(softKeyboardViewport)
+  if (overlayViewport !== softKeyboardViewport) {
+    setOverlayViewport(softKeyboardViewport)
+    setOpen(false)
+  }
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (next) setOpenSeq(seq => seq + 1)
+    setOpen(next)
+  }, [])
 
   // Composes the two halves of `replayOnHydrate` with a ref of our own: the
   // spread below sets the marker attribute, and dropping the replay ref while
@@ -108,21 +96,6 @@ export function CityFilters({
   const setTriggerRef = useCallback((node: HTMLButtonElement | null) => {
     triggerRef.current = node
     replayOnHydrate.ref(node)
-  }, [])
-
-  const handleOpenChange = useCallback((next: boolean) => {
-    if (next) {
-      const softKeyboard = matchesSoftKeyboardViewport()
-      setSoftKeyboardViewport(softKeyboard)
-      // The pinned popover can only use the space under the trigger, and the
-      // keyboard that will shrink that space has not risen yet, so there is
-      // nothing here to measure against: the trigger goes to the top of the
-      // page unconditionally to give the list room.
-      if (softKeyboard) {
-        triggerRef.current?.scrollIntoView?.({ block: 'start' })
-      }
-    }
-    setOpen(next)
   }, [])
 
   const selectedSet = useMemo(
@@ -164,57 +137,58 @@ export function CityFilters({
     handleToggleCity(city)
   }
 
+  // ONE tree shape across the viewport flip. The trigger ships in server HTML
+  // with the popover contract, and swapping the element out for the sheet's
+  // would detach the node a pre-hydration click was buffered against, which
+  // `consumePendingReplay` drops. Same element, different ARIA.
+  const overlayAria: React.ComponentProps<'button'> = softKeyboardViewport
+    ? {
+        'aria-haspopup': 'dialog',
+        'aria-expanded': open,
+        // The popover content the trigger would otherwise point at is never
+        // mounted on a touch viewport; the sheet names itself as a dialog.
+        'aria-controls': undefined,
+      }
+    : { role: 'combobox', 'aria-expanded': open }
+
   return (
     <div className="flex flex-col gap-2">
-      {/* Filter bar: combobox + active chips + children */}
+      {/* Filter bar: trigger + active chips + children */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Searchable combobox */}
-        <Popover open={open} onOpenChange={handleOpenChange}>
+        {/* The Popover root stays mounted on a touch viewport even though it
+            can never open there: its trigger is what owns the open/close
+            toggle for BOTH overlays, and the trigger has to stay one node so
+            the pre-hydration click replay lands on it. */}
+        <Popover open={open && !softKeyboardViewport} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <button
-              // In server HTML since PSY-1624, so it is painted and clickable
-              // for the whole window before React attaches Radix's handler —
-              // and a click in that window is silently dropped, which is
-              // exactly what this primitive exists for. The replay root goes
-              // on the trigger rather than the surrounding bar because the
-              // trigger is the element that owns the interaction.
+              // In server HTML, so it is painted and clickable for the whole
+              // window before React attaches the overlay's handler - and a
+              // click in that window is silently dropped, which is exactly what
+              // this primitive exists for. The replay root goes on the trigger
+              // rather than the surrounding bar because the trigger is the
+              // element that owns the interaction.
               {...replayOnHydrate}
               ref={setTriggerRef}
-              role="combobox"
-              aria-expanded={open}
+              type="button"
               aria-label="Filter by city"
               data-testid="city-filter-combobox"
               className={cn(
                 'flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm transition-colors',
-                TRIGGER_SCROLL_MT,
                 'hover:bg-muted hover:border-border',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 open && 'border-border bg-muted',
                 selectedCities.length === 0 && 'text-muted-foreground',
                 selectedCities.length > 0 && 'text-foreground'
               )}
+              {...overlayAria}
             >
               <Search className="h-3.5 w-3.5 shrink-0 opacity-50" />
               <span className="whitespace-nowrap">Filter by city...</span>
               <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
             </button>
           </PopoverTrigger>
-          <PopoverContent
-            className={cn(
-              'w-[240px] p-0',
-              softKeyboardViewport && SOFT_KEYBOARD_CONTENT_CLASS
-            )}
-            align="start"
-            side="bottom"
-            // Collision avoidance is what flips the popover over the trigger
-            // when a keyboard shrinks the visual viewport, carrying the search
-            // field off-screen. Off, it stays under the trigger even where the
-            // page cannot scroll the trigger clear of the keyboard. The same
-            // prop gates horizontal shifting, which this control can afford to
-            // lose: the trigger is the first item in the bar, so a 240px
-            // content starts at the bar's own inline edge.
-            avoidCollisions={!softKeyboardViewport}
-          >
+          <PopoverContent className="w-[240px] p-0" align="start" side="bottom">
             <Command>
               <CommandInput placeholder="Search cities..." />
               <CommandList>
@@ -240,7 +214,7 @@ export function CityFilters({
                           {cityLabel(city)}
                         </span>
                         <span className="ml-2 text-xs text-muted-foreground">
-                          ({city.count})
+                          ({formatCount(city.count)})
                         </span>
                       </CommandItem>
                     )
@@ -250,6 +224,19 @@ export function CityFilters({
             </Command>
           </PopoverContent>
         </Popover>
+
+        {softKeyboardViewport && (
+          <CityFilterSheet
+            cities={sortedCities}
+            selectedCities={selectedCities}
+            onApply={onFilterChange}
+            open={open}
+            onOpenChange={handleOpenChange}
+            openSeq={openSeq}
+            resultNoun={resultNoun}
+            triggerRef={triggerRef}
+          />
+        )}
 
         {/* Active filter chips */}
         {selectedCities.map(city => (
@@ -289,7 +276,7 @@ export function CityFilters({
                 className="hover:text-foreground transition-colors whitespace-nowrap"
                 data-testid={`popular-city-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
               >
-                {cityLabel(city)} ({city.count})
+                {cityLabel(city)} ({formatCount(city.count)})
               </button>
             </span>
           ))}

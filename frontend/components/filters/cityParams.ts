@@ -39,11 +39,25 @@ export function buildCitiesParam(cities: CityState[]): string {
   return cities.map(c => `${c.city},${c.state}`).join('|')
 }
 
+/**
+ * Identity of a city within a selection. Every surface that compares, dedupes
+ * or keys a selection uses this one rule, so the popover, the bottom sheet and
+ * `citiesEqual` cannot drift into disagreeing about what "the same city" means.
+ */
+export function cityKey(c: CityState): string {
+  return `${c.city}|${c.state}`
+}
+
+/** A city as it reads on screen. */
+export function cityLabel(c: CityState): string {
+  return `${c.city}, ${c.state}`
+}
+
 /** Order-insensitive equality of two city selections. */
 export function citiesEqual(a: CityState[], b: CityState[]): boolean {
   if (a.length !== b.length) return false
-  const setA = new Set(a.map(c => `${c.city}|${c.state}`))
-  return b.every(c => setA.has(`${c.city}|${c.state}`))
+  const setA = new Set(a.map(cityKey))
+  return b.every(c => setA.has(cityKey(c)))
 }
 
 /**
