@@ -602,8 +602,16 @@ func (h *VenueHandler) resolveVenueID(idOrSlug string) (uint, error) {
 	return venue.ID, nil
 }
 
-// GetVenueCitiesRequest represents the request for getting venue cities (empty, no params needed)
-type GetVenueCitiesRequest struct{}
+// GetVenueCitiesRequest represents the request for getting venue cities.
+//
+// The tag half of ListVenuesRequest, spelled identically: the counts are drawn
+// on the set GET /venues would list under the same parameters, so a parameter
+// this facet cannot read is a count the list would contradict. The PLACE half is
+// deliberately absent — the response is the per-place breakdown.
+type GetVenueCitiesRequest struct {
+	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
+	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+}
 
 // GetVenueCitiesResponse represents the response for the venue cities endpoint
 type GetVenueCitiesResponse struct {
@@ -613,8 +621,18 @@ type GetVenueCitiesResponse struct {
 }
 
 // GetVenueCitiesHandler handles GET /venues/cities - returns distinct cities with venue counts
+//
+// The tag filter is parsed with the same reader ListVenuesHandler uses, and with
+// the same absent bound: neither caps the slug list, so capping here would count
+// a wider set than the list beside it.
 func (h *VenueHandler) GetVenueCitiesHandler(ctx context.Context, req *GetVenueCitiesRequest) (*GetVenueCitiesResponse, error) {
-	cities, err := h.venueService.GetVenueCities()
+	filters := contracts.VenueListFilters{}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters.TagSlugs = tf.TagSlugs
+		filters.TagMatchAny = tf.MatchAny
+	}
+
+	cities, err := h.venueService.GetVenueCities(filters)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch cities", err)
 	}

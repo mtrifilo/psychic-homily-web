@@ -1041,7 +1041,7 @@ func TestUpdateSpotify_Success(t *testing.T) {
 
 func TestGetArtistCities_Success(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+		GetArtistCitiesFn: func(map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 			return []*contracts.ArtistCityResponse{
 				{City: "Phoenix", State: "AZ", ArtistCount: 10},
 				{City: "Mesa", State: "AZ", ArtistCount: 5},
@@ -1067,7 +1067,7 @@ func TestGetArtistCities_Success(t *testing.T) {
 
 func TestGetArtistCities_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+		GetArtistCitiesFn: func(map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -1079,7 +1079,7 @@ func TestGetArtistCities_ServiceError(t *testing.T) {
 
 func TestGetArtistCities_Empty(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+		GetArtistCitiesFn: func(map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 			return []*contracts.ArtistCityResponse{}, nil
 		},
 	}

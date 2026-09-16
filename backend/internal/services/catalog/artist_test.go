@@ -736,7 +736,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Success() {
 	suite.createApprovedShowWithArtist(a2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
 	suite.createApprovedShowWithArtist(a3.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 21))
 
-	resp, err := suite.artistService.GetArtistCities()
+	resp, err := suite.artistService.GetArtistCities(nil)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 2)
@@ -760,7 +760,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesNull
 	hasCityArtist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Has City", City: stringPtr("Tempe"), State: stringPtr("AZ")})
 	suite.createApprovedShowWithArtist(hasCityArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
 
-	resp, err := suite.artistService.GetArtistCities()
+	resp, err := suite.artistService.GetArtistCities(nil)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -779,7 +779,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesArti
 	_, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "No Show Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
 	suite.Require().NoError(err)
 
-	resp, err := suite.artistService.GetArtistCities()
+	resp, err := suite.artistService.GetArtistCities(nil)
 
 	suite.Require().NoError(err)
 	suite.Empty(resp)
@@ -787,7 +787,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesArti
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Empty() {
 	// No artists at all
-	resp, err := suite.artistService.GetArtistCities()
+	resp, err := suite.artistService.GetArtistCities(nil)
 
 	suite.Require().NoError(err)
 	suite.Empty(resp)

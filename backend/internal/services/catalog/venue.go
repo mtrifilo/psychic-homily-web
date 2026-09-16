@@ -1233,6 +1233,59 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 	return entries, total, nil
 }
 
+// venueListPredicates returns the predicate applier every reader of the /venues
+// browse set shares: the browse gate, the place filter, and the tag filter.
+//
+// An applier taking a caller-supplied *gorm.DB rather than a builder factory,
+// because GORM builders accumulate clauses: the page and the total that captions
+// it must each hang their own predicates on their own handle, or the page's
+// SELECT, ORDER and LIMIT leak into the count.
+//
+// It is what stops the page, its total and its city facet from describing three
+// different sets. The facet passes a filter set with no place in it, because a
+// per-place breakdown is the one reader that must not be narrowed to a place;
+// everything else it is scoped by reaches it through here.
+//
+// Every predicate is table-qualified. Two of the three callers hang this on a
+// statement that spans more relations than `venues`, and a reader should not
+// have to know a lateral's projection to tell which relation a bare column came
+// from.
+func (s *VenueService) venueListPredicates(filters contracts.VenueListFilters) func(*gorm.DB) *gorm.DB {
+	// Resolved once, outside the applier: resolving a metro reads the embedded
+	// CBSA dataset, and the applier runs per read.
+	metroPred, metroArgs, metroRollup := s.metroRollupPredicate(filters)
+	tf := TagFilter{TagSlugs: filters.TagSlugs, MatchAny: filters.TagMatchAny}
+
+	return func(query *gorm.DB) *gorm.DB {
+		query = query.Where(venueBrowseGate, true)
+
+		if len(filters.Cities) > 0 {
+			var conditions []string
+			var args []interface{}
+			for _, cs := range filters.Cities {
+				if cs.City != "" && cs.State != "" {
+					conditions = append(conditions, "(venues.city = ? AND venues.state = ?)")
+					args = append(args, cs.City, cs.State)
+				}
+			}
+			if len(conditions) > 0 {
+				query = query.Where(strings.Join(conditions, " OR "), args...)
+			}
+		} else if metroRollup {
+			query = query.Where(metroPred, metroArgs...)
+		} else {
+			if filters.State != "" {
+				query = query.Where("venues.state = ?", filters.State)
+			}
+			if filters.City != "" {
+				query = query.Where("venues.city = ?", filters.City)
+			}
+		}
+
+		return ApplyTagFilter(query, s.db, catalogm.TagEntityVenue, "venues.id", tf)
+	}
+}
+
 // GetVenuesWithShowCounts retrieves verified venues with their upcoming show
 // count, their next show and their last one, under filters.Sort.
 //
@@ -1292,66 +1345,15 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title, last_show.is_cancelled AS last_show_is_cancelled").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
 		Joins(venueNextShowLateral).
-		Joins(venueLastShowLateral).
-		Where(venueBrowseGate, true)
+		Joins(venueLastShowLateral)
 
-	// Apply optional filters
-	metroPred, metroArgs, metroRollup := s.metroRollupPredicate(filters)
-	if len(filters.Cities) > 0 {
-		var conditions []string
-		var args []interface{}
-		for _, cs := range filters.Cities {
-			if cs.City != "" && cs.State != "" {
-				conditions = append(conditions, "(venues.city = ? AND venues.state = ?)")
-				args = append(args, cs.City, cs.State)
-			}
-		}
-		if len(conditions) > 0 {
-			query = query.Where(strings.Join(conditions, " OR "), args...)
-		}
-	} else if metroRollup {
-		query = query.Where(metroPred, metroArgs...)
-	} else {
-		if filters.State != "" {
-			query = query.Where("venues.state = ?", filters.State)
-		}
-		if filters.City != "" {
-			query = query.Where("venues.city = ?", filters.City)
-		}
-	}
-	tf := TagFilter{TagSlugs: filters.TagSlugs, MatchAny: filters.TagMatchAny}
-	query = ApplyTagFilter(query, s.db, catalogm.TagEntityVenue, "venues.id", tf)
+	applyPredicates := s.venueListPredicates(filters)
+	query = applyPredicates(query)
 
-	// Get total count of matching venues
+	// Counted over exactly the rows the list pages through: same applier, so the
+	// total under the list cannot describe a different set than the list.
 	var total int64
-	countQuery := s.db.Table("venues").Where(venueBrowseGate, true)
-	if len(filters.Cities) > 0 {
-		var conditions []string
-		var args []interface{}
-		for _, cs := range filters.Cities {
-			if cs.City != "" && cs.State != "" {
-				conditions = append(conditions, "(city = ? AND state = ?)")
-				args = append(args, cs.City, cs.State)
-			}
-		}
-		if len(conditions) > 0 {
-			countQuery = countQuery.Where(strings.Join(conditions, " OR "), args...)
-		}
-	} else if metroRollup {
-		// Same predicate object, not a re-derivation: the total under the list
-		// must be counted over exactly the rows the list pages through, and
-		// "venues." qualifies fine here — this query's table IS venues.
-		countQuery = countQuery.Where(metroPred, metroArgs...)
-	} else {
-		if filters.State != "" {
-			countQuery = countQuery.Where("state = ?", filters.State)
-		}
-		if filters.City != "" {
-			countQuery = countQuery.Where("city = ?", filters.City)
-		}
-	}
-	countQuery = ApplyTagFilter(countQuery, s.db, catalogm.TagEntityVenue, "venues.id", tf)
-	if err := countQuery.Count(&total).Error; err != nil {
+	if err := applyPredicates(s.db.Table("venues")).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	}
 
@@ -1766,9 +1768,20 @@ func (s *VenueService) HasPastShowsInYear(venueID uint, year int) (bool, error) 
 
 // contracts.VenueCityResponse represents a city with venue count for filtering
 
-// GetVenueCities returns distinct cities that have verified venues, with venue counts.
+// GetVenueCities returns distinct cities that have verified venues, with venue
+// counts, under the same non-place filters the list applies.
 // Results are sorted by venue count (descending) to show most active cities first.
-func (s *VenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
+//
+// The counts are drawn through venueListPredicates, so each city's number is the
+// total GET /venues reports for that city under the same filters, and the sum
+// over every city is the total for no city at all. A facet counted on a wider
+// set than the list it filters offers a city whose row count the list then
+// contradicts.
+//
+// The PLACE half of the filter set is dropped rather than refused: this endpoint
+// answers with one row per place, so narrowing it to a place would leave the
+// picker offering only the place already picked.
+func (s *VenueService) GetVenueCities(filters contracts.VenueListFilters) ([]*contracts.VenueCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1779,11 +1792,15 @@ func (s *VenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) 
 		VenueCount int64
 	}
 
+	scope := contracts.VenueListFilters{
+		TagSlugs:    filters.TagSlugs,
+		TagMatchAny: filters.TagMatchAny,
+	}
+
 	var results []CityResult
-	err := s.db.Table("venues").
-		Select("city, state, COUNT(*) as venue_count").
-		Where(venueBrowseGate, true).
-		Group("city, state").
+	err := s.venueListPredicates(scope)(s.db.Table("venues")).
+		Select("venues.city AS city, venues.state AS state, COUNT(*) as venue_count").
+		Group("venues.city, venues.state").
 		Order("venue_count DESC, city ASC").
 		Find(&results).Error
 	if err != nil {

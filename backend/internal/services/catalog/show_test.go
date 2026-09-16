@@ -3136,7 +3136,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_Success() {
 		suite.Require().NoError(err)
 	}
 
-	results, err := suite.showService.GetShowCities("UTC")
+	results, err := suite.showService.GetShowCities("UTC", nil, contracts.ShowCalendarWindow{})
 
 	suite.Require().NoError(err)
 	suite.GreaterOrEqual(len(results), 2)

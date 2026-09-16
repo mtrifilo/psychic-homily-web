@@ -506,7 +506,7 @@ func (m *mockArtistServiceForEnrichment) GetArtistShowMonths(artistID uint, time
 func (m *mockArtistServiceForEnrichment) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
 	return nil, nil
 }
-func (m *mockArtistServiceForEnrichment) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
+func (m *mockArtistServiceForEnrichment) GetArtistCities(map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 	return nil, nil
 }
 func (m *mockArtistServiceForEnrichment) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLabelResponse, error) {

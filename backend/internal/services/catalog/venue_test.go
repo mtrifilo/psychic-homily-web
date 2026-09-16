@@ -1027,7 +1027,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_Success() {
 	suite.createTestVenue("PHX Venue 2", "Phoenix", "AZ", true)
 	suite.createTestVenue("TUC Venue", "Tucson", "AZ", true)
 
-	resp, err := suite.venueService.GetVenueCities()
+	resp, err := suite.venueService.GetVenueCities(contracts.VenueListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 2)
@@ -1042,7 +1042,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_OnlyVerified()
 	suite.createTestVenue("Verified City Venue", "Phoenix", "AZ", true)
 	suite.createTestVenue("Unverified City Venue", "Tucson", "AZ", false)
 
-	resp, err := suite.venueService.GetVenueCities()
+	resp, err := suite.venueService.GetVenueCities(contracts.VenueListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)

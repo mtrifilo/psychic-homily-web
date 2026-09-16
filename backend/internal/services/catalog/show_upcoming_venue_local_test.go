@@ -227,7 +227,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_VenuelessShow
 	suite.Equal([]uint{future.ID}, ids)
 
 	// And it must be counted by the picker on the same terms.
-	cities, err := suite.showService.GetShowCities("UTC")
+	cities, err := suite.showService.GetShowCities("UTC", nil, contracts.ShowCalendarWindow{})
 	suite.Require().NoError(err)
 	suite.Require().Len(cities, 1)
 	suite.Equal("Nowhere", cities[0].City)
@@ -314,7 +314,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_CountsTheSameVen
 	suite.createApprovedShowAt(honolulu.ID, user.ID, "Honolulu", "HI",
 		venueLocalInstant(suite.T(), "Pacific/Honolulu", -1, 23))
 
-	cities, err := suite.showService.GetShowCities("UTC")
+	cities, err := suite.showService.GetShowCities("UTC", nil, contracts.ShowCalendarWindow{})
 	suite.Require().NoError(err)
 	suite.Require().Len(cities, 1, "only cities with a show in the venue-local upcoming partition")
 	suite.Equal("Phoenix", cities[0].City)
@@ -340,7 +340,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_SameAnswerForEve
 
 	assertSameForEveryCallerZone(suite.T(), "GetShowCities",
 		func(callerZone string) []contracts.ShowCityResponse {
-			cities, err := suite.showService.GetShowCities(callerZone)
+			cities, err := suite.showService.GetShowCities(callerZone, nil, contracts.ShowCalendarWindow{})
 			suite.Require().NoError(err, "caller zone %q", callerZone)
 			return cities
 		})

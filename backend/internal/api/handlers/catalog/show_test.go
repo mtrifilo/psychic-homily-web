@@ -743,7 +743,7 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 	// surfaces lat/long unchanged so the wire response includes them.
 	lat, lng := 33.4484, -112.0740
 	mock := &testhelpers.MockShowService{
-		GetShowCitiesFn: func(timezone string) ([]contracts.ShowCityResponse, error) {
+		GetShowCitiesFn: func(timezone string, _ *contracts.UpcomingShowsFilter, _ contracts.ShowCalendarWindow) ([]contracts.ShowCityResponse, error) {
 			return []contracts.ShowCityResponse{
 				{City: "Phoenix", State: "AZ", ShowCount: 5, Latitude: &lat, Longitude: &lng},
 			}, nil
@@ -769,7 +769,7 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 
 func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockShowService{
-		GetShowCitiesFn: func(_ string) ([]contracts.ShowCityResponse, error) {
+		GetShowCitiesFn: func(_ string, _ *contracts.UpcomingShowsFilter, _ contracts.ShowCalendarWindow) ([]contracts.ShowCityResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
