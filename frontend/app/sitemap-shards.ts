@@ -335,8 +335,8 @@ export const FAMILY_QUERY_PARAMS: Partial<Record<Family, string>> = {
  * with FAMILY_QUERY_PARAMS above, so neither can be changed without the other
  * failing its guard test.
  *
- * The PAGE's own address is built elsewhere — `venuesCityHref` for a link,
- * `venuesCityCanonical` for the canonical — and the three have to agree byte
+ * The PAGE's own address is built elsewhere (`venuesCityHref` for a link,
+ * `venuesCityCanonical` for the canonical) and the three have to agree byte
  * for byte. `sitemap-shards.test.ts` asserts this one against the canonical
  * builder directly rather than against a literal, so a change to either side
  * fails rather than silently advertising an address the page disowns.

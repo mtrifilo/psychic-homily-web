@@ -99,7 +99,7 @@ export function resolveVenuesScope(
  * legacy single-city pair that predates it and that `VenueList` still honours
  * (read-only, and only when `?cities=` is absent). BOTH are read here, because
  * a legacy deep link renders a city heading, so it has to get that city's title
- * and canonical too — and, when the facet does not know the city, the same
+ * and canonical too, and, when the facet does not know the city, the same
  * noindex the modern spelling gets.
  */
 export function venuesUrlCities(
@@ -131,8 +131,8 @@ export function resolveVenuesPage(
  * The directory's metadata for one resolved state.
  *
  * Split out from `generateMetadata` so every state can be asserted without a
- * fetch, and so the three facts that move together — title, canonical and
- * robots — are decided in one place rather than in three conditionals.
+ * fetch, and so the three facts that move together (title, canonical and
+ * robots) are decided in one place rather than in three conditionals.
  *
  * Open Graph carries the same title and description and the same URL as the
  * canonical: a shared city link and the indexed city page are one address.
@@ -140,7 +140,7 @@ export function resolveVenuesPage(
  * THE PAGE IN THE CANONICAL IS BOUNDED BY THE CITY'S OWN PAGE SPACE. `?page=`
  * is free text, so without this every city would offer MAX_ARCHIVE_PAGE
  * distinct URLs that each declare THEMSELVES canonical, nearly all of them
- * empty — a crawler trap this surface did not have while every variant
+ * empty: a crawler trap this surface did not have while every variant
  * canonicalized to the root. The facet's room count sizes that space without a
  * second request, and a page past the end canonicalizes to the city's first
  * page, which is what the body of such a page tells the reader to go back to.
@@ -170,7 +170,7 @@ export function buildVenuesMetadata(
   // `unknown` and `unavailable` name no canonical, for two different reasons.
   // An unavailable facet has nothing to name (above). An unknown city is asking
   // NOT to be indexed, and a noindex beside a canonical pointing at a DIFFERENT
-  // url invites that noindex to be consolidated onto the target — which here
+  // url invites that noindex to be consolidated onto the target, which here
   // would be the directory root, the one page on this surface that must stay
   // indexed.
 

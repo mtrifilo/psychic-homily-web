@@ -117,7 +117,7 @@ export function listRootCanonical(rootPath: `/${string}`): string {
  * did the opposite would make the rule unreadable at every other call site.
  * The exception is named here so a reader of either function meets it once.
  *
- * `page` is passed as the page ON SCREEN, so page one drops the parameter — the
+ * `page` is passed as the page ON SCREEN, so page one drops the parameter: the
  * pager never writes `page=1`, and a canonical that did would name an address
  * no link on the site points at.
  *

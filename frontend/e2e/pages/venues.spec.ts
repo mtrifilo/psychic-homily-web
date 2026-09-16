@@ -174,7 +174,7 @@ test.describe('Venues directory', () => {
     // metadata is resolved from `searchParams`, so the server streams these
     // tags into the BODY of the document; React hoists them into the head as it
     // renders. A selector over the whole document would pass either way, and a
-    // canonical or a robots directive outside the head is ignored — so the
+    // canonical or a robots directive outside the head is ignored, so the
     // thing worth pinning is where they END UP, in the DOM a crawler reads.
     const canonical = (page: Page) =>
       page.locator('head > link[rel="canonical"]').first()

@@ -12,13 +12,13 @@ import type { CityState } from './CityFilters'
  * `cityParams.ts` re-exports all of this, so the client surface is unchanged
  * and either import path is correct.
  *
- * Wire format: `Phoenix,AZ|Mesa,AZ` — comma between city/state, pipe between
+ * Wire format: `Phoenix,AZ|Mesa,AZ`, comma between city/state, pipe between
  * pairs; each segment must be exactly city,state, matching the /explore backend
  * parser in handlers/explore/explore.go.
  */
 
 /** Parse the `?cities=` param ("Phoenix,AZ|Mesa,AZ") into typed pairs.
- * Each segment must be exactly city,state — segments with extra commas
+ * Each segment must be exactly city,state; segments with extra commas
  * or a blank half are dropped, matching the /explore backend parser. */
 export function parseCitiesParam(param: string | null | undefined): CityState[] {
   if (!param) return []
@@ -63,7 +63,7 @@ export function citiesEqual(a: CityState[], b: CityState[]): boolean {
 /**
  * Explicit "All Cities" sentinel. `?cities=all` means the user deliberately
  * chose to see every city, which is DISTINCT from an absent `cities` param
- * (which means "apply my default" — the favorite city, or the anon geo
+ * (which means "apply my default": the favorite city, or the anon geo
  * default, derived during render). Disambiguating those two is what lets the
  * default be derived instead of seeded into the URL by an effect.
  */

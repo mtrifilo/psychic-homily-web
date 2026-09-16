@@ -411,7 +411,7 @@ export function VenueList() {
     : null
 
   // Sorting the whole facet is work only the empty state spends, so the
-  // condition that renders it is inside the memo rather than around it — the
+  // condition that renders it is inside the memo rather than around it: the
   // hook stays unconditional, the sort does not run on the path with rows.
   const nearbyCities = useMemo(
     () =>

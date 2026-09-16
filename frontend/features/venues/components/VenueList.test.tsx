@@ -934,7 +934,7 @@ describe('VenueList', () => {
     })
 
     // Under a tag filter the facet is SCOPED to it, so an absent city means "no
-    // rooms with this tag" — a state the reader can undo, and one the server's
+    // rooms with this tag", a state the reader can undo, and one the server's
     // unscoped facet would disagree with.
     it('keeps the zero-result state when a tag is what hid the city', () => {
       mockSearchParams.mockReturnValue(

@@ -72,8 +72,8 @@ export function archiveIsFirstPage(
 /**
  * WHICH page a URL is asking for, bounded by the surface's own maximum.
  *
- * The same two steps as {@link archiveIsFirstPage} — the nuqs parse, then
- * {@link toPageNumber} inside {@link clampPage} — carried through to the number
+ * The same two steps as {@link archiveIsFirstPage} (the nuqs parse, then
+ * {@link toPageNumber} inside {@link clampPage}) carried through to the number
  * rather than collapsed to a boolean. A surface that RENDERS the page ordinal
  * (a canonical naming `?page=N`, a heading, a caption) needs it, and reaching
  * for `Number.parseInt` instead is the third-copy trap the module header warns
