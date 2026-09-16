@@ -901,6 +901,106 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 type VenueWithCount struct {
 	catalogm.Venue
 	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
+	// The two lateral picks, flattened. A NULL date is the only signal that the
+	// lateral matched nothing: slug and title are COALESCEd to '' in SQL, so an
+	// empty string in either is a real empty column rather than a missing row.
+	NextShowEventDate *time.Time `gorm:"column:next_show_event_date"`
+	NextShowSlug      *string    `gorm:"column:next_show_slug"`
+	NextShowTitle     *string    `gorm:"column:next_show_title"`
+	LastShowEventDate *time.Time `gorm:"column:last_show_event_date"`
+	LastShowSlug      *string    `gorm:"column:last_show_slug"`
+	LastShowTitle     *string    `gorm:"column:last_show_title"`
+}
+
+// venueListShowRef assembles one lateral pick into the wire shape, or nil when
+// the lateral matched no row.
+func venueListShowRef(date *time.Time, slug, title *string) *contracts.VenueListShowRef {
+	if date == nil {
+		return nil
+	}
+	ref := &contracts.VenueListShowRef{EventDate: *date}
+	if slug != nil {
+		ref.Slug = *slug
+	}
+	if title != nil {
+		ref.Title = *title
+	}
+	return ref
+}
+
+// venueListCountSQL is the row's upcoming count as an EXPRESSION rather than as
+// the output alias it is also selected under.
+//
+// Every ordering key below tests the count inside a CASE, and Postgres resolves
+// an output name only for a bare ORDER BY term, so the expression is what the
+// order can be written from. Naming it once is what keeps the ordering and the
+// projection counting the same thing.
+const venueListCountSQL = "COALESCE(sc.show_count, 0)"
+
+// venueListShowPickLateral renders the lateral that picks ONE show per venue
+// row: the first under `order`, among the venue's approved shows satisfying
+// `dateCondition`.
+//
+// `alias` names the lateral and prefixes nothing else, so the outer query reads
+// its columns as <alias>.event_date / .slug / .title. `sv` inside is aliased per
+// call because two of these sit in one query, and shared.VenueTZJoin's own
+// lateral uses `sv` in its innermost scope.
+//
+// The show is joined UNALIASED: shared.VenueTZJoin correlates on `shows.id`.
+//
+// It carries exactly one bind parameter, the approved status, so a caller
+// splices its args in the order the joins appear in the SQL text.
+func venueListShowPickLateral(alias, svAlias, dateCondition, order string) string {
+	return `LEFT JOIN LATERAL (
+			SELECT shows.event_date AS event_date,
+			       COALESCE(shows.slug, '') AS slug,
+			       COALESCE(shows.title, '') AS title
+			FROM show_venues ` + svAlias + `
+			JOIN shows ON shows.id = ` + svAlias + `.show_id
+			` + shared.VenueTZJoin + `
+			WHERE ` + svAlias + `.venue_id = venues.id
+			  AND shows.status = ?
+			  AND ` + dateCondition + `
+			ORDER BY ` + order + `
+			LIMIT 1
+		) ` + alias + ` ON true`
+}
+
+// venueListOrderBy renders the row order for one sort key, or an error when the
+// key is not one of contracts.VenueListSortValues.
+//
+// TWO BLOCKS UNDER EVERY SORT: rooms with something booked, then quiet rooms.
+// The leading key is what makes that true, and it is not a tie-breaker on any
+// of the three sorts — a quiet room is ranked by none of them, so it sinks and
+// is ordered by how recently it last had a show instead.
+//
+// Every active-block term yields NULL for a quiet row and the quiet term yields
+// NULL for an active one, because a shared tail term would otherwise order the
+// wrong block: `venues.name ASC` under sort=name would outrank the quiet
+// block's last-show order, and last-show would outrank name in the active one.
+//
+// Name alone does not break a tie: venue names are unique only per city
+// (idx_venues_name_city_unique) and a city filter is optional here, so id ends
+// every key. A total order is what makes offset paging return disjoint pages.
+//
+// Null placement is stated inside each block and can decide nothing across
+// them: the leading key has already separated the two.
+func venueListOrderBy(sort string) (string, error) {
+	quiet := venueListCountSQL + " = 0"
+	active := ""
+	switch sort {
+	case contracts.VenueListSortName:
+		// Name is the shared tail, so the active block needs no term of its own.
+	case contracts.VenueListSortNext:
+		active = "CASE WHEN " + quiet + " THEN NULL ELSE next_show.event_date END ASC NULLS LAST, "
+	case contracts.VenueListSortUpcoming, "":
+		active = "CASE WHEN " + quiet + " THEN NULL ELSE " + venueListCountSQL + " END DESC NULLS LAST, "
+	default:
+		return "", fmt.Errorf("unknown venue list sort %q", sort)
+	}
+	return "(" + quiet + ") ASC, " + active +
+		"CASE WHEN " + quiet + " THEN last_show.event_date END DESC NULLS LAST, " +
+		"venues.name ASC, venues.id ASC", nil
 }
 
 // metroRollupPredicate returns the WHERE fragment that widens a City+State
@@ -1061,12 +1161,37 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 	return entries, total, nil
 }
 
-// GetVenuesWithShowCounts retrieves verified venues with their upcoming show counts.
-// Results are sorted by upcoming show count (descending), then by name (ascending),
-// so venues with upcoming shows appear first.
+// GetVenuesWithShowCounts retrieves verified venues with their upcoming show
+// count, their next show and their last one, under filters.Sort.
+//
+// ONE BOUNDARY DECIDES ALL THREE. The count and the next-show pick are drawn on
+// shared.VenueLocalNightDateCondition, per row in that show's own venue zone,
+// and the last-show pick on that condition's exact complement. So the count is
+// above zero exactly when next_show is non-null, no show is ever both picks,
+// and a room whose only booking is tonight ranks above a room with one show in
+// November instead of reading zero the moment the first set starts.
+//
+// It is the same boundary the scene page's rooms leaderboard counts on
+// (catalog/scene_venues.go), so one room reads one number on both pages. It is
+// deliberately NOT the venue page's own list bound, which is venue-local
+// midnight; the two differ only between midnight and shared.NightStartHour and
+// the contract on VenueWithShowCountResponse.UpcomingShowCount says so.
+//
+// The zone that dates a show is its PRIMARY venue's, not necessarily the venue
+// whose row is being counted, because the boundary is the repo's shared one.
+// For a bill split across two rooms the second room's tally is drawn on the
+// first room's clock, which matters only where a page spans a timezone line.
 func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Rejected rather than defaulted: the handler 422s an unknown sort before
+	// reaching here, and a second caller that misspells one must not be handed
+	// a differently ordered page that looks like the one it asked for.
+	orderBy, err := venueListOrderBy(filters.Sort)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	now := time.Now().UTC()
@@ -1076,13 +1201,24 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	subquery := s.db.Table("show_venues").
 		Select("show_venues.venue_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
+		Joins(shared.VenueTZJoin).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(shared.VenueLocalNightDateCondition).
 		Group("show_venues.venue_id")
 
-	// Start with verified venues only for public display
+	// Start with verified venues only for public display.
+	//
+	// Args bind in SQL TEXT order, which is the order the joins are added: the
+	// count subquery's, then each lateral's status.
 	query := s.db.Table("venues").
-		Select("venues.*, COALESCE(sc.show_count, 0) as upcoming_show_count").
+		Select("venues.*, "+venueListCountSQL+" as upcoming_show_count, "+
+			"next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, "+
+			"last_show.event_date AS last_show_event_date, last_show.slug AS last_show_slug, last_show.title AS last_show_title").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
+		Joins(venueListShowPickLateral("next_show", "nsv", shared.VenueLocalNightDateCondition,
+			"shows.event_date ASC, shows.id ASC"), catalogm.ShowStatusApproved).
+		Joins(venueListShowPickLateral("last_show", "lsv", shared.VenueLocalNightPastDateCondition,
+			"shows.event_date DESC, shows.id DESC"), catalogm.ShowStatusApproved).
 		Where(venueBrowseGate, true)
 
 	// Apply optional filters
@@ -1145,9 +1281,10 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	}
 
-	// Get venues with pagination, sorted by show count (desc) then name (asc)
+	// Get the page under the requested sort. venueListOrderBy owns the whole
+	// key, including the quiet-room block every sort ends with.
 	var venuesWithCount []VenueWithCount
-	if err := query.Order("upcoming_show_count DESC, venues.name ASC").Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
+	if err := query.Order(orderBy).Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get venues: %w", err)
 	}
 
@@ -1158,6 +1295,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		responses[i] = &contracts.VenueWithShowCountResponse{
 			VenueDetailResponse: *s.buildVenueResponse(&vc.Venue),
 			UpcomingShowCount:   int(vc.UpcomingShowCount),
+			NextShow:            venueListShowRef(vc.NextShowEventDate, vc.NextShowSlug, vc.NextShowTitle),
+			LastShow:            venueListShowRef(vc.LastShowEventDate, vc.LastShowSlug, vc.LastShowTitle),
 		}
 		// data_source is not part of the serialized venue response (it is an
 		// internal provenance column), so carry it alongside for the stamp.

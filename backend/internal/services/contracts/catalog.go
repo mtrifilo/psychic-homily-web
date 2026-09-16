@@ -991,6 +991,29 @@ type VenueConfirmationResponse struct {
 	ViewerHasConfirmed bool       `json:"viewer_has_confirmed"`
 }
 
+// VenueListShowRef is one show reduced to what a directory row links to and
+// prints: when it is, where it points, and what to call it.
+//
+// EventDate is the stored instant. A row renders it on the venue's own clock
+// using the timezone field beside it on the same response, which is why no
+// pre-rendered date string is carried here: a date string would fix a zone at
+// serialization time and the /venues table already has the zone.
+//
+// Slug is empty when the show has no slug, and an empty slug cannot form a URL
+// (GenerateSlug returns "" for a name with no Latin characters, and the column
+// is nullable). A client must render such a row as unlinked text rather than
+// building a /shows/ href from it, which resolves to the index.
+//
+// Title is empty for most shows: the app composes display names from the bill
+// everywhere else. A client that needs a label for a titleless show reads the
+// bill from the show endpoint; this projection deliberately carries no artist
+// list, because a directory row prints one line per venue, not per bill.
+type VenueListShowRef struct {
+	EventDate time.Time `json:"event_date" doc:"The show's instant. Render it in the venue's timezone, carried on the same row."`
+	Slug      string    `json:"slug" doc:"URL slug for the show. Empty when the show has no slug, in which case it cannot be linked."`
+	Title     string    `json:"title" doc:"The show's own title. Empty for most shows."`
+}
+
 // VenueWithShowCountResponse includes upcoming show count for a venue.
 //
 // The fields below UpcomingShowCount are the Atlas city-view venue rail's
@@ -1001,7 +1024,26 @@ type VenueConfirmationResponse struct {
 // the list, because a venue row without its meta line still lists.
 type VenueWithShowCountResponse struct {
 	VenueDetailResponse
+	// UpcomingShowCount is the room's approved shows still to come, bounded at
+	// the NIGHT in progress in each show's own venue zone
+	// (shared.VenueLocalNightDateCondition). A set already under way still
+	// counts, and between midnight and shared.NightStartHour the whole previous
+	// local date still counts.
+	//
+	// It is the same boundary, and so the same number, as the room's entry on a
+	// scene page's rooms leaderboard. It is NOT the same number as the venue
+	// page's own upcoming show list, which is bounded at venue-local MIDNIGHT:
+	// the two agree except between midnight and NightStartHour, where this one
+	// is the wider set.
 	UpcomingShowCount int `json:"upcoming_show_count"`
+	// NextShow is the soonest show inside UpcomingShowCount's set, and LastShow
+	// the most recent one outside it. Null when the room has none.
+	//
+	// Both are drawn from ONE boundary, so they partition the room's approved
+	// shows: NextShow is non-null exactly when UpcomingShowCount is above zero,
+	// and no show is ever both.
+	NextShow *VenueListShowRef `json:"next_show" doc:"The soonest upcoming approved show at this venue, or null. Non-null exactly when upcoming_show_count is above zero."`
+	LastShow *VenueListShowRef `json:"last_show" doc:"The most recent past approved show at this venue, or null. Drawn on the exact complement of the boundary upcoming_show_count uses, so no show is both."`
 	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount, driving the
 	// rail's "Next 7 days" filter chip and its header stat.
 	//
@@ -1017,6 +1059,10 @@ type VenueWithShowCountResponse struct {
 	// viewer's): a 9pm Friday show in Austin must not read as Saturday
 	// because the row was serialized from a UTC timestamp. Empty when the
 	// venue has no upcoming show.
+	//
+	// Bounded at the REQUEST INSTANT, unlike NextShow above it, which is bounded
+	// at the venue-local night. A set already under way is absent here and
+	// present there.
 	NextShowDate string `json:"next_show_date,omitempty"`
 	// NextShowTitle is that show's own title, which is EMPTY for most shows —
 	// the app composes display names from the bill everywhere else. Clients
@@ -1124,8 +1170,49 @@ type VenueListingEntry struct {
 	Name string `json:"name" doc:"Venue display name"`
 }
 
+// Venue directory sort keys, the whole accepted set of GET /venues' `sort`.
+//
+// They name what the reader is ranking rooms by, not the SQL: catalog's
+// venueListOrderBy owns the key each one renders to, including the quiet-room
+// block all three end with.
+const (
+	// VenueListSortUpcoming ranks by how much a room has booked. The default,
+	// and what the endpoint did before `sort` existed.
+	VenueListSortUpcoming = "upcoming"
+	// VenueListSortName is alphabetical, for a reader looking for one room
+	// rather than for something to do.
+	VenueListSortName = "name"
+	// VenueListSortNext ranks by how soon the next show is, which is a
+	// different question from how many there are: a room with one show tonight
+	// leads a room with twenty starting in March.
+	VenueListSortNext = "next"
+)
+
+// VenueListSortValues is the accepted set in documentation order. The handler's
+// enum tag and its validation both read it, so the OpenAPI document and the 422
+// cannot name different sets.
+var VenueListSortValues = []string{VenueListSortUpcoming, VenueListSortName, VenueListSortNext}
+
+// IsVenueListSort reports whether sort names an accepted key. The empty string
+// is accepted and means the default: an absent parameter is not a misspelt one.
+func IsVenueListSort(sort string) bool {
+	if sort == "" {
+		return true
+	}
+	for _, v := range VenueListSortValues {
+		if sort == v {
+			return true
+		}
+	}
+	return false
+}
+
 // VenueListFilters contains filter options for listing venues
 type VenueListFilters struct {
+	// Sort names the row order, one of VenueListSortValues or "" for the
+	// default. An unrecognized value is an error from the service rather than a
+	// silent fall-through to the default.
+	Sort     string
 	State    string
 	City     string
 	Cities   []CityStateFilter

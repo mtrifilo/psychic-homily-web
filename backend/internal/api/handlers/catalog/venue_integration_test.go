@@ -9,6 +9,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type VenueHandlerIntegrationSuite struct {
@@ -100,6 +101,34 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_MultiCityFilter() {
 	s.NoError(err)
 	s.Equal(int64(2), resp.Body.Total)
 	s.Len(resp.Body.Venues, 2)
+}
+
+// TestListVenues_InvalidSortIs422 pins the status, not merely the error: a
+// handler test calls the handler directly and never reaches huma's enum
+// validation, so a bare "some error" assertion would pass on a 404 or a 500.
+func (s *VenueHandlerIntegrationSuite) TestListVenues_InvalidSortIs422() {
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+
+	req := &ListVenuesRequest{Limit: 50, Offset: 0, Sort: "bogus"}
+	_, err := s.handler.ListVenuesHandler(s.deps.Ctx, req)
+	s.Require().Error(err)
+	var statusErr huma.StatusError
+	s.Require().ErrorAs(err, &statusErr)
+	s.Equal(422, statusErr.GetStatus())
+}
+
+// TestListVenues_EverySortIsAccepted covers the other end of the same contract:
+// each documented key reaches the service and returns the page.
+func (s *VenueHandlerIntegrationSuite) TestListVenues_EverySortIsAccepted() {
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Crescent Ballroom", "Phoenix", "AZ")
+
+	for _, sort := range append([]string{""}, contracts.VenueListSortValues...) {
+		req := &ListVenuesRequest{Limit: 50, Offset: 0, Sort: sort}
+		resp, err := s.handler.ListVenuesHandler(s.deps.Ctx, req)
+		s.Require().NoErrorf(err, "sort=%q", sort)
+		s.Equalf(int64(2), resp.Body.Total, "sort=%q", sort)
+	}
 }
 
 // --- GetVenueHandler ---
