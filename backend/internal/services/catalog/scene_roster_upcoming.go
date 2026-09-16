@@ -39,17 +39,17 @@ const rosterUpcomingVenueCols = `COALESCE(iv.name, '') AS venue_name, COALESCE(i
 // other figure on the page.
 //
 // The upcoming boundary is shared.VenueLocalNightDateCondition, the bound the
-// scene card, the tonight bucket and the rooms leaderboard printed beside this
-// number are drawn on: a show leaves the count when its NIGHT ends in its own
-// venue's zone, so a date-only listing for tonight counts all evening and on
-// through the small hours. Between midnight and shared.NightStartHour that makes
-// Next a row whose venue-local date is the previous one, which is the date every
-// other scene surface names that night by.
+// scene's headline count (catalog/scene.go GetSceneDetail) and its rooms
+// leaderboard (catalog/scene_venues.go) are drawn on: a show leaves the count
+// when its NIGHT ends in its own venue's zone, so a date-only listing for
+// tonight counts all evening and on through the small hours. Between midnight
+// and shared.NightStartHour that makes Next a row whose venue-local date is the
+// previous one, which is the date the day payload names that night by.
 //
-// The scene graph's per-artist figures on the same page
-// (batchArtistUpcomingShowCounts, batchArtistNextShows) are bounded on the start
-// INSTANT instead, so for a show already under way the two disagree: this count
-// still holds it and the graph node's dot does not.
+// The scene graph's per-artist figures (batchArtistUpcomingShowCounts,
+// batchArtistNextShows) are bounded on the start INSTANT instead, so for a show
+// already under way the two disagree: this count still holds it and the graph
+// node's dot does not.
 //
 // Errors are returned rather than degraded to an empty map, unlike those graph
 // helpers: a count silently reported as zero states something false about a

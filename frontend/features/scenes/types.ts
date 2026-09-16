@@ -117,8 +117,10 @@ export interface SceneArtist {
   // exists to replace, so reach for it rather than for this column.
   bandcamp_embed_url?: string | null
   // How many approved, non-cancelled shows the band has ahead of it, anywhere,
-  // bounded on each show's OWN venue calendar so tonight's show counts all day
-  // (PSY-1813). A different question from `show_count` above, which is all-time,
+  // bounded on each show's OWN venue night so tonight's show counts until that
+  // night is over (PSY-1813). The same bound the scene's other upcoming counts
+  // take, which is why `next_show` can carry the previous calendar date in the
+  // small hours: that is the date the scene files the night under. A different question from `show_count` above, which is all-time,
   // and from `is_active`, which a band keeps for months after its last gig.
   //
   // Optional on the type, required on the wire: a cached body fetched before the
