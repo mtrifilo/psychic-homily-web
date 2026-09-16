@@ -290,11 +290,13 @@ func (s *TagService) applyIntersectionTagFilter(query *gorm.DB, entityType, idCo
 // column, so those two types LEFT JOIN venueLocalUpcomingCountSQL and order by
 // it (name ASC as the stable tiebreaker).
 //
-// The VENUE preview is the busiest-first order, not a copy of /venues page 1.
-// That list sinks rooms with nothing booked into a block of their own ordered by
-// their last show (catalog/venue.go buildVenueListOrderBys), and it takes a sort
-// parameter; the two agree on the rooms that have something booked and part
-// company below them.
+// The VENUE preview is the busiest-first order, NOT a copy of /venues page 1.
+// Three things separate them: this count is bounded at venue-local midnight
+// (venueLocalUpcomingCountSQL) and that one at the night in progress, so between
+// midnight and shared.NightStartHour they disagree about a room whose show is
+// already under way; that list sinks rooms with nothing booked into a block of
+// their own ordered by their last show (catalog/venue.go
+// buildVenueListOrderBys); and it takes a sort parameter.
 //
 // It has to be the SAME renderer the enrich* helpers print from, not merely a
 // similar one: this is the sort key for the very numbers those helpers put on

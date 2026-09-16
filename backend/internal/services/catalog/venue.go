@@ -988,13 +988,16 @@ var (
 // The leading key is what makes that true, and it leads rather than breaking a
 // tie, so no sort can lift a quiet room into the active block.
 //
-// The sort-specific term and the quiet block's last-show term are each CASE-
-// guarded to yield NULL for the other block, because an unguarded term would
-// order the wrong one: last-show would outrank the requested sort among active
-// rooms, and under sort=name the shared `venues.name ASC` would outrank the
-// quiet block's last-show order. Name is still what separates two quiet rooms
-// whose last show is the same day, or that have none: it is the tail, reached
-// after the quiet term rather than before it.
+// Each block's term is CASE-guarded to yield NULL for the other block, because
+// an unguarded term would order the wrong one: last-show would outrank the
+// requested sort among active rooms, and under sort=name the shared
+// `venues.name ASC` would outrank the quiet block's last-show order. sort=name
+// needs no term of its own, so its active block falls straight through to that
+// shared tail.
+//
+// Name still decides between two quiet rooms whose last shows are at the same
+// INSTANT, or that have none: event_date is a timestamp, so rooms that last had
+// a show on the same day are separated before the tail is reached.
 //
 // Name alone does not break a tie: venue names are unique only per city
 // (idx_venues_name_city_unique) and a city filter is optional here, so id ends

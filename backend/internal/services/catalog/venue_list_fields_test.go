@@ -115,6 +115,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Night
 	suite.Equal(1, row.UpcomingShowCount, "local midnight of the night-start date is inside the night")
 	suite.Require().NotNil(row.NextShow)
 	suite.Equal(*first.Slug, row.NextShow.Slug)
+	suite.Require().NotNil(row.LastShow)
 	suite.Equal(*last.Slug, row.LastShow.Slug, "one second earlier is the previous night")
 }
 
@@ -325,8 +326,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestVenueLocalNightConditions_Par
 		suite.createRailShow(venue.ID, user.ID, "P", time.Now().UTC().Add(offset))
 	}
 
-	// The production gate, not a hand-written status comparison, so a divergence
-	// between the two would show up here.
+	// Reads the production gate rather than restating it, so what this counts is
+	// what the endpoint counts.
 	count := func(conditions ...string) int64 {
 		var n int64
 		q := suite.db.Table("show_venues").
