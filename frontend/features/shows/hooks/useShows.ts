@@ -29,6 +29,11 @@ import {
 } from '../showsCalendarRoute'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import {
+  appendCityCountScope,
+  cityCountScopeKey,
+  type CityCountScope,
+} from '@/components/filters/cityCountScope'
 
 /**
  * The filter contract every reader of the venue-local upcoming partition
@@ -344,20 +349,53 @@ export const useShowTimeline = (showId: number | undefined) => {
 }
 
 /**
- * Hook to fetch cities that have upcoming shows with counts.
- *
- * Takes no options and keys on nothing per-viewer: the counts cover the same
- * venue-local upcoming partition `useUpcomingShows` lists, so every viewer gets
- * the same answer (PSY-1678). It requests the seeded URL directly, which is the
- * bare endpoint — there is nothing per-viewer left to put in it.
+ * The half of the shows list's state a city facet may be scoped by: the tag
+ * filter and the calendar window, and no place, because the response IS the
+ * per-place breakdown.
  */
-export const useShowCities = () => {
+interface UseShowCitiesOptions extends CityCountScope {
+  /** The venue-local window the list is reading, or undefined for all of it. */
+  window?: ShowsCalendarWindow
+}
+
+/**
+ * Hook to fetch cities that have upcoming shows with counts, optionally scoped
+ * to the filters and window the list below the picker is reading.
+ *
+ * Nothing per-viewer is keyed either way: the counts cover the same venue-local
+ * upcoming partition `useUpcomingShows` lists, so every viewer gets the same
+ * answer for the same scope (PSY-1678).
+ *
+ * Unscoped it requests the seeded URL directly, which is the bare endpoint, and
+ * keys exactly as the seed does — that is what keeps the first-screen payload a
+ * hit. A filtered deep link is not covered by the seed, which is the same call
+ * the list's own first-screen seeds already make.
+ */
+export const useShowCities = (options: UseShowCitiesOptions = {}) => {
+  const { tags, tagMatch, window: calendarWindow } = options
+
+  const params = new URLSearchParams()
+  appendCityCountScope(params, { tags, tagMatch })
+  appendShowsCalendarWindow(params, calendarWindow)
+  const queryString = params.toString()
+
   return useQuery({
-    queryKey: showQueryKeys.cities(),
+    queryKey: queryString
+      ? [
+          ...showQueryKeys.cities(),
+          {
+            ...cityCountScopeKey({ tags, tagMatch }),
+            ...showsCalendarWindowKey(calendarWindow),
+          },
+        ]
+      : showQueryKeys.cities(),
     queryFn: async (): Promise<ShowCitiesResponse> => {
-      return apiRequest<ShowCitiesResponse>(SHOW_CITIES_FIRST_SCREEN_URL, {
-        method: 'GET',
-      })
+      return apiRequest<ShowCitiesResponse>(
+        queryString
+          ? `${SHOW_CITIES_FIRST_SCREEN_URL}?${queryString}`
+          : SHOW_CITIES_FIRST_SCREEN_URL,
+        { method: 'GET' }
+      )
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousData, // Keep old data visible while fetching

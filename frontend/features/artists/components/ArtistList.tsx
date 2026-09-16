@@ -140,7 +140,15 @@ export function ArtistList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useArtistCities()
+  // Scoped to the tag filter, so the picker's counts and the sheet's apply
+  // button describe the rows this page is about to render. Under a tag filter
+  // that set is the evergreen one, which is why a city here can carry a count
+  // made of artists with nothing booked. NOT scoped to the city selection: the
+  // response is the per-city breakdown.
+  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useArtistCities({
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+    tagMatch,
+  })
   const { data, isLoading, isFetching, error, refetch } = useArtists({
     cities: selectedCities.length > 0 ? selectedCities : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,

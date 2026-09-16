@@ -65,12 +65,20 @@ export function VenueList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
+  // Scoped to the tag filter, so the picker's counts and the sheet's apply
+  // button describe the rows this page is about to render rather than the whole
+  // catalog. NOT scoped to the city selection: the response is the per-city
+  // breakdown, so narrowing it to a city leaves the picker offering only the
+  // city already picked.
   const {
     data: citiesData,
     isLoading: citiesLoading,
     isFetching: citiesFetching,
     isPlaceholderData: citiesArePlaceholder,
-  } = useVenueCities()
+  } = useVenueCities({
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+    tagMatch,
+  })
   const {
     data,
     isLoading,

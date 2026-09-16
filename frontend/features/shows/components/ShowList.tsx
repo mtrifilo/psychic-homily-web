@@ -150,12 +150,24 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
     void setPage(null)
   }, [setPage])
 
+  // Scoped to the tag filter and the window this page is a view of, so the
+  // picker's counts and the sheet's apply button describe the rows about to be
+  // rendered. NOT scoped to the city selection: the response is the per-city
+  // breakdown.
+  //
+  // The geo default below is derived from this same list, which is the point:
+  // an anon visitor whose nearest city has nothing in the active window should
+  // not be defaulted into an empty page.
   const {
     data: citiesData,
     isLoading: citiesLoading,
     isFetching: citiesFetching,
     isPlaceholderData: citiesArePlaceholder,
-  } = useShowCities()
+  } = useShowCities({
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+    tagMatch,
+    window: calendarWindow,
+  })
 
   // Map ShowCity → CityWithCount (the has-shows list). Lifted above the early
   // returns so the geo hook can read it unconditionally.

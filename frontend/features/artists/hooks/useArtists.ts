@@ -18,6 +18,11 @@ import {
 } from '@/features/artists/api'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import {
+  appendCityCountScope,
+  cityCountQueryKey,
+  type CityCountScope,
+} from '@/components/filters/cityCountScope'
 import type { CityState } from '@/components/filters'
 import type {
   Artist,
@@ -102,15 +107,30 @@ export function useArtists(options: UseArtistsOptions = {}) {
 }
 
 /**
- * Hook to fetch distinct cities with artist counts for filtering
+ * Hook to fetch distinct cities with artist counts for filtering, optionally
+ * scoped to the filters the list below the picker is reading.
+ *
+ * Optional, and an omitted scope requests and keys exactly what this hook did
+ * before it took one. See `useVenueCities` for why both halves exist.
+ *
+ * Scoped, the counts cover the EVERGREEN set: a tag filter drops the /artists
+ * activity gate, and the facet follows it, so a city can carry a count made
+ * entirely of artists with nothing booked.
  */
-export function useArtistCities() {
+export function useArtistCities(scope?: CityCountScope) {
+  const params = new URLSearchParams()
+  appendCityCountScope(params, scope)
+  const queryString = params.toString()
+
   return useQuery({
-    queryKey: artistQueryKeys.cities,
+    queryKey: cityCountQueryKey(artistQueryKeys.cities, scope),
     queryFn: async (): Promise<ArtistCitiesResponse> => {
-      return apiRequest<ArtistCitiesResponse>(artistEndpoints.CITIES, {
-        method: 'GET',
-      })
+      return apiRequest<ArtistCitiesResponse>(
+        queryString
+          ? `${artistEndpoints.CITIES}?${queryString}`
+          : artistEndpoints.CITIES,
+        { method: 'GET' }
+      )
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
     placeholderData: keepPreviousData,

@@ -13,6 +13,11 @@ import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import type { VenueShowsTimeFilter } from '@/features/venues/api'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import {
+  appendCityCountScope,
+  cityCountQueryKey,
+  type CityCountScope,
+} from '@/components/filters/cityCountScope'
 import type { CityState } from '@/components/filters/CityFilters'
 import type {
   Venue,
@@ -359,15 +364,32 @@ export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
 }
 
 /**
- * Hook to fetch distinct cities with venue counts for filtering
+ * Hook to fetch distinct cities with venue counts for filtering, optionally
+ * scoped to the filters the list below the picker is reading.
+ *
+ * The scope is optional, and an omitted one requests and keys exactly what this
+ * hook did before it took one: the unscoped totals, on the bare endpoint. That
+ * is what the surfaces which are NOT filtered by tags want, and what keeps a
+ * server-seeded entry matching.
+ *
+ * Scoped, each city's number is the total `GET /venues` reports for that city
+ * under the same filters, which is the premise the bottom sheet's apply button
+ * sums.
  */
-export const useVenueCities = () => {
+export const useVenueCities = (scope?: CityCountScope) => {
+  const params = new URLSearchParams()
+  appendCityCountScope(params, scope)
+  const queryString = params.toString()
+
   return useQuery({
-    queryKey: venueQueryKeys.cities,
+    queryKey: cityCountQueryKey(venueQueryKeys.cities, scope),
     queryFn: async (): Promise<VenueCitiesResponse> => {
-      return apiRequest<VenueCitiesResponse>(venueEndpoints.CITIES, {
-        method: 'GET',
-      })
+      return apiRequest<VenueCitiesResponse>(
+        queryString
+          ? `${venueEndpoints.CITIES}?${queryString}`
+          : venueEndpoints.CITIES,
+        { method: 'GET' }
+      )
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
     placeholderData: keepPreviousData, // Keep old data visible while fetching

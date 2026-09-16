@@ -15,6 +15,7 @@ import {
   VENUE_LIST_FIRST_SCREEN_KEY,
   VENUE_LIST_FIRST_SCREEN_URL,
   VENUE_LIST_PAGE_LIMIT,
+  venueEndpoints,
   venueQueryKeys,
 } from '@/features/venues/api'
 import { useVenueCities, useVenues } from './useVenues'
@@ -74,6 +75,45 @@ describe('venues first-screen prefetch contract', () => {
     const cached = queryClient.getQueryCache().getAll()
     expect(cached).toHaveLength(1)
     expect(cached[0].queryHash).toBe(hashKey(venueQueryKeys.cities))
+  })
+
+  it('an empty scope is the same request and the same entry as no scope', async () => {
+    mockApiRequest.mockResolvedValueOnce({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    // What VenueList passes on a bare /venues: no tags, default AND semantics.
+    const { result } = renderHook(
+      () => useVenueCities({ tags: undefined, tagMatch: 'all' }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(venueEndpoints.CITIES, {
+      method: 'GET',
+    })
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(hashKey(venueQueryKeys.cities))
+  })
+
+  it('a tag filter moves the facet off the unscoped entry', async () => {
+    mockApiRequest.mockResolvedValue({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () => useVenueCities({ tags: ['diy'], tagMatch: 'all' }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(`${venueEndpoints.CITIES}?tags=diy`, {
+      method: 'GET',
+    })
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).not.toBe(hashKey(venueQueryKeys.cities))
   })
 
   it('a city filter moves the request off the first-screen entry', async () => {
