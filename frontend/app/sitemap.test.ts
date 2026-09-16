@@ -53,6 +53,7 @@ function emptyFamilies(
     venues: [],
     venue_years: [],
     shows_months: [],
+    venue_cities: [],
     scenes: [],
     scene_weeks: [],
     labels: [],
@@ -133,6 +134,11 @@ describe('sitemap', () => {
       if (family === 'shows_months') {
         body.shows_months = [{ slug: '2026/11', updated_at: ISO }]
       }
+      // The one family addressed by a query. Its slug carries the comma and the
+      // space the encoding case below is about.
+      if (family === 'venue_cities') {
+        body.venue_cities = [{ slug: 'New York,NY', updated_at: ISO }]
+      }
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -152,6 +158,12 @@ describe('sitemap', () => {
     )
     expect(await urlsOf('shows_months')).toContain(
       'https://psychichomily.com/shows/2026/11'
+    )
+    // Percent-encoded exactly once, and in the spelling the page's own anchors
+    // use: URLSearchParams writes a space as `+`. A slug encoded on the backend
+    // as well would arrive here as `New%2520York`.
+    expect(await urlsOf('venue_cities')).toContain(
+      'https://psychichomily.com/venues?cities=New+York%2CNY'
     )
     expect(await urlsOf('scenes')).toContain(
       'https://psychichomily.com/scenes/a-scenes'

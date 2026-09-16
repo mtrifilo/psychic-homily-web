@@ -425,6 +425,39 @@ describe('VenueList', () => {
       )
     })
 
+    // Every count carries its unit, on every chip rather than only the first,
+    // and the singular at one. The visible text is hidden from assistive tech,
+    // so both renderings are asserted.
+    it('names the unit on every chip, singular at one', () => {
+      mockUseVenueCities.mockReturnValue({
+        data: {
+          cities: [
+            { city: 'Chicago', state: 'IL', venue_count: 42 },
+            { city: 'Tucson', state: 'AZ', venue_count: 3 },
+            { city: 'Bisbee', state: 'AZ', venue_count: 1 },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      const chooser = screen.getByTestId('venues-city-chooser')
+      expect(chooser).toHaveTextContent('Chicago, IL \u00b7 42 rooms')
+      expect(chooser).toHaveTextContent('Tucson, AZ \u00b7 3 rooms')
+      expect(chooser).toHaveTextContent('Bisbee, AZ \u00b7 1 room')
+      expect(
+        within(chooser).getByTestId('venues-busiest-tucson-az')
+      ).toHaveAccessibleName('Tucson, AZ, 3 rooms')
+      expect(
+        within(chooser).getByTestId('venues-busiest-bisbee-az')
+      ).toHaveAccessibleName('Bisbee, AZ, 1 room')
+    })
+
     it('says so plainly when the facet is empty rather than offering nothing', () => {
       mockUseVenueCities.mockReturnValue({
         data: { cities: [] },
@@ -836,6 +869,56 @@ describe('VenueList', () => {
       )
     })
 
+    it('offers the nearby cities with rooms, same state first then busiest', () => {
+      mockUseVenueCities.mockReturnValue({
+        data: {
+          cities: [
+            // Busier, but in another state, so it sorts behind the AZ rooms.
+            { city: 'Chicago', state: 'IL', venue_count: 42 },
+            { city: 'Phoenix', state: 'AZ', venue_count: 8 },
+            { city: 'Tucson', state: 'AZ', venue_count: 5 },
+            { city: 'Flagstaff', state: 'AZ', venue_count: 0 },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      anonWithGeo({ city: 'Flagstaff', state: 'AZ' })
+      setVenues([], 0)
+
+      render(<VenueList />)
+
+      const nearby = screen.getByTestId('venues-nearby-cities')
+      expect(nearby).toHaveTextContent('Nearby cities with rooms:')
+      // The subject city is the one the reader was just told is empty.
+      expect(nearby).not.toHaveTextContent('Flagstaff')
+      const links = within(nearby).getAllByRole('link')
+      expect(links.map(a => a.textContent)).toEqual([
+        'Phoenix, AZ',
+        'Tucson, AZ',
+        'Chicago, IL',
+      ])
+      // Real addresses, the same ones the city chips build.
+      expect(links[0]).toHaveAttribute('href', '/venues?cities=Phoenix%2CAZ')
+      // The unit travels with the number.
+      expect(nearby).toHaveTextContent('Phoenix, AZ (8 rooms)')
+    })
+
+    it('offers no nearby line when the page names no city', () => {
+      mockSearchParams.mockReturnValue(new URLSearchParams({ cities: 'all' }))
+      setVenues([], 0)
+
+      render(<VenueList />)
+
+      expect(screen.getByTestId('venues-zero-result')).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('venues-nearby-cities')
+      ).not.toBeInTheDocument()
+    })
+
     it('offers to clear the filters when a tag is what emptied it', () => {
       anonWithGeo()
       mockSearchParams.mockReturnValue(new URLSearchParams({ tags: 'punk' }))
@@ -846,6 +929,86 @@ describe('VenueList', () => {
 
       render(<VenueList />)
 
+      expect(screen.getByTestId('venues-zero-result')).toHaveTextContent(
+        'No verified rooms match the current filters.'
+      )
+    })
+  })
+
+  describe('unknown city', () => {
+    it('offers a city to choose instead of filtering by a name with no rooms', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Nowhere,ZZ' })
+      )
+      setVenues([], 0)
+
+      render(<VenueList />)
+
+      expect(screen.getByTestId('venues-city-chooser')).toBeInTheDocument()
+      // Nothing to ask the list for: the value names no city the facet knows.
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: false })
+      )
+    })
+
+    it('still filters by a city the facet does offer', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
+
+      render(<VenueList />)
+
+      expect(
+        screen.queryByTestId('venues-city-chooser')
+      ).not.toBeInTheDocument()
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true })
+      )
+    })
+
+    // An empty facet cannot tell a city it does not carry from a city it has
+    // not loaded, so it must not flip a named city into the chooser. This is
+    // the client twin of the server's `unavailable` scope.
+    it('waits for the facet rather than calling a city unknown', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Phoenix,AZ' })
+      )
+      mockUseVenueCities.mockReturnValue({
+        data: { cities: [] },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      expect(
+        screen.queryByTestId('venues-city-chooser')
+      ).not.toBeInTheDocument()
+      expect(mockUseVenues).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true })
+      )
+    })
+
+    // Under a tag filter the facet is SCOPED to it, so an absent city means "no
+    // rooms with this tag", a state the reader can undo, and one the server's
+    // unscoped facet would disagree with.
+    it('keeps the zero-result state when a tag is what hid the city', () => {
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ cities: 'Nowhere,ZZ', tags: 'punk' })
+      )
+      mockUseTags.mockReturnValue({
+        data: { tags: [{ slug: 'punk', usage_count: 12 }] },
+      })
+      setVenues([], 0)
+
+      render(<VenueList />)
+
+      expect(
+        screen.queryByTestId('venues-city-chooser')
+      ).not.toBeInTheDocument()
       expect(screen.getByTestId('venues-zero-result')).toHaveTextContent(
         'No verified rooms match the current filters.'
       )

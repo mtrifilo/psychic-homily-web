@@ -74,6 +74,14 @@ import "time"
 //
 // Anything mapping a URL back to a family has to disambiguate families sharing
 // a prefix by segment count — see FAMILY_URL_PREFIXES in the frontend.
+//
+// # Query slugs (venue_cities)
+//
+// One family addresses a surface by QUERY rather than by path: the venue
+// directory scoped to one city lives at /venues?cities=City,ST. Its
+// SitemapEntry.Slug is the raw, UNENCODED filter value ("Phoenix,AZ"); the
+// generator encodes it exactly once. See familyLoc in the frontend, which owns
+// that step.
 type SitemapEntry struct {
 	Slug      string    `json:"slug"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -94,6 +102,9 @@ type SitemapEntries struct {
 	// ShowsMonths addresses a month of the upcoming list, not a row: see the
 	// composite-slug note above for its shape.
 	ShowsMonths []SitemapEntry `json:"shows_months"`
+	// VenueCities addresses the venue directory scoped to one city, not a row:
+	// its slug is a query VALUE, not a path tail. See the query-slug note above.
+	VenueCities []SitemapEntry `json:"venue_cities"`
 	Scenes      []SitemapEntry `json:"scenes"`
 	SceneWeeks  []SitemapEntry `json:"scene_weeks"`
 	Labels      []SitemapEntry `json:"labels"`
@@ -115,6 +126,7 @@ func (e SitemapEntries) Counts() map[string]int {
 		"venues":       len(e.Venues),
 		"venue_years":  len(e.VenueYears),
 		"shows_months": len(e.ShowsMonths),
+		"venue_cities": len(e.VenueCities),
 		"scenes":       len(e.Scenes),
 		"scene_weeks":  len(e.SceneWeeks),
 		"labels":       len(e.Labels),

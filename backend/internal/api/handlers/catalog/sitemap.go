@@ -47,7 +47,7 @@ type GetSitemapEntriesRequest struct {
 	// frontend shards by family so each Data Cache entry stays under Next's
 	// ~1.50 MiB effective budget (PSY-1622). Omit to receive every family.
 	//
-	// The values after the eleven family names are SUB-SHARDS, each returning one
+	// The values after the twelve family names are SUB-SHARDS, each returning one
 	// bucket of a family that does not fit a single cache entry: `shows-b3` is
 	// the shows whose primary key is 3 modulo 8. They ride in this parameter
 	// rather than a second one because an unrecognised value here is a 422 the
@@ -57,7 +57,7 @@ type GetSitemapEntriesRequest struct {
 	// This literal cannot be built from catalog.SitemapFamilyValues() — huma
 	// reads it off the struct tag — so TestSitemapFamilyEnumMatchesTheService
 	// asserts the two agree.
-	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,shows_months,scenes,scene_weeks,labels,releases,festivals,tags,shows-b0,shows-b1,shows-b2,shows-b3,shows-b4,shows-b5,shows-b6,shows-b7,artists-b0,artists-b1,artists-b2,artists-b3,artists-b4,artists-b5,artists-b6,artists-b7,releases-b0,releases-b1,releases-b2,releases-b3,releases-b4,releases-b5,releases-b6,releases-b7" doc:"When set, only this family is populated; others are empty arrays."`
+	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,shows_months,venue_cities,scenes,scene_weeks,labels,releases,festivals,tags,shows-b0,shows-b1,shows-b2,shows-b3,shows-b4,shows-b5,shows-b6,shows-b7,artists-b0,artists-b1,artists-b2,artists-b3,artists-b4,artists-b5,artists-b6,artists-b7,releases-b0,releases-b1,releases-b2,releases-b3,releases-b4,releases-b5,releases-b6,releases-b7" doc:"When set, only this family is populated; others are empty arrays."`
 }
 
 type GetSitemapEntriesResponse struct {

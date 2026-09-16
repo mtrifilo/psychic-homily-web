@@ -163,6 +163,100 @@ test.describe('Venues directory', () => {
     await tableIsUp(page)
   })
 
+  /**
+   * The directory's indexing posture. Asserted in a browser rather than only in
+   * `venuesPageMetadata.test.ts` because the metadata is DYNAMIC: it is
+   * resolved per request against the city facet, so a unit test cannot show
+   * that the facet actually reached it.
+   */
+  test.describe('indexing', () => {
+    // SCOPED TO `head`, which is the assertion and not a detail. This route's
+    // metadata is resolved from `searchParams`, so the server streams these
+    // tags into the BODY of the document; React hoists them into the head as it
+    // renders. A selector over the whole document would pass either way, and a
+    // canonical or a robots directive outside the head is ignored, so the
+    // thing worth pinning is where they END UP, in the DOM a crawler reads.
+    const canonical = (page: Page) =>
+      page.locator('head > link[rel="canonical"]').first()
+
+    test('a city page names itself in the title and the canonical', async ({
+      page,
+    }) => {
+      await page.goto(PHOENIX)
+      await tableIsUp(page)
+
+      await expect(page).toHaveTitle('Venues in Phoenix, AZ | Psychic Homily')
+      await expect(
+        page.locator('head > meta[name="description"]').first()
+      ).toHaveAttribute('content', /Live-music rooms in Phoenix, AZ/)
+      await expect(canonical(page)).toHaveAttribute(
+        'href',
+        'https://psychichomily.com/venues?cities=Phoenix%2CAZ'
+      )
+    })
+
+    test('the bare directory keeps the generic title and the root canonical', async ({
+      page,
+    }) => {
+      await page.goto('/venues')
+
+      await expect(page).toHaveTitle('Venues | Psychic Homily')
+      await expect(canonical(page)).toHaveAttribute(
+        'href',
+        'https://psychichomily.com/venues'
+      )
+    })
+
+    /**
+     * The other half of the owner-locked pagination exception: a page of a
+     * city is its own document, but only a page the city HAS. The
+     * seed holds well under one page of Phoenix rooms, so `?page=2` is past the
+     * end here and canonicalizes to the city itself, which is also what the
+     * body of such a page tells the reader to go back to.
+     *
+     * The self-canonical for a page that DOES exist needs a city spanning two
+     * pages, which this seed has no way to express; `venuesPageMetadata.test.ts`
+     * drives it against a facet sized to two pages instead.
+     */
+    test('a page past the end of a city canonicalizes to the city', async ({
+      page,
+    }) => {
+      await page.goto(`${PHOENIX}&page=2`)
+
+      await expect(canonical(page)).toHaveAttribute(
+        'href',
+        'https://psychichomily.com/venues?cities=Phoenix%2CAZ'
+      )
+    })
+
+    test('a city with no rooms is reachable and asks not to be indexed', async ({
+      page,
+    }) => {
+      const response = await page.goto('/venues?cities=Nowhereville%2CZZ')
+
+      expect(response?.status()).toBe(200)
+      await expect(page.getByTestId('venues-city-chooser')).toBeVisible()
+      await expect(
+        page.locator('head > meta[name="robots"]').first()
+      ).toHaveAttribute('content', /noindex/)
+      // No canonical at all: a noindex beside a canonical pointing elsewhere
+      // invites the noindex to be consolidated onto the target, which here
+      // would be the directory root.
+      await expect(page.locator('head > link[rel="canonical"]')).toHaveCount(0)
+    })
+
+    // The guard for the title and the canonical: a hand-crafted city value
+    // must not reach either, whatever it contains.
+    test('never echoes an unrecognised city value into the head', async ({
+      page,
+    }) => {
+      await page.goto('/venues?cities=%3Cb%3Epwned%3C%2Fb%3E%2CZZ')
+
+      await expect(page).toHaveTitle('Venues | Psychic Homily')
+      await expect(page.locator('head')).not.toContainText('pwned')
+    })
+  })
+
   test.describe('narrow viewports', () => {
     for (const width of [320, 390]) {
       test(`does not scroll sideways at ${width}px`, async ({ page }) => {

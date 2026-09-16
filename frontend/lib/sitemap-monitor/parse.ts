@@ -17,6 +17,7 @@
 import { parseMonthSegments } from '@/features/shows/showsCalendarRoute'
 import {
   SITEMAP_FAMILIES,
+  FAMILY_QUERY_PARAMS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   type Family,
@@ -155,6 +156,22 @@ export const SHARED_CLAIMANTS: Record<string, Family[]> = Object.fromEntries(
     .map(([prefix, claimants]) => [prefix, [...claimants].sort()])
 )
 
+/**
+ * The families addressed by a query on their prefix, as (prefix, param) pairs.
+ *
+ * Derived from FAMILY_QUERY_PARAMS rather than restated, so a family that gains
+ * a query shape is classified without a second edit here. These are checked
+ * BEFORE the path rules because their path IS the bare prefix, which the
+ * single-segment rule would otherwise count as a listing page.
+ */
+const QUERY_FAMILIES = Object.entries(FAMILY_QUERY_PARAMS).map(
+  ([family, param]) => ({
+    prefix: FAMILY_URL_PREFIXES[family as Family],
+    param: param as string,
+    family: family as Family,
+  })
+)
+
 /** The `/scenes` prefix without its slash, as `classifyLoc` compares segments. */
 const bareScenesPrefix = FAMILY_URL_PREFIXES.scenes.replace(/^\//, '')
 
@@ -183,11 +200,20 @@ const VENUE_YEAR_PATTERN = /^\d{4}$/
  * fooled by a classification gap here.
  */
 export function classifyLoc(loc: string): LocBucket {
-  let path: string
+  let url: URL
   try {
-    path = new URL(loc).pathname
+    url = new URL(loc)
   } catch {
     return 'other'
+  }
+  const path = url.pathname
+
+  // A query family owns its prefix only while the parameter is actually there:
+  // `/venues` bare is the listing page in the `pages` shard, and `/venues?cities=`
+  // with an empty value addresses no city.
+  for (const { prefix, param, family } of QUERY_FAMILIES) {
+    if (path !== prefix && path !== `${prefix}/`) continue
+    if (url.searchParams.get(param)) return family
   }
 
   const segments = path.split('/').filter(Boolean)
@@ -215,7 +241,9 @@ export function classifyLoc(loc: string): LocBucket {
   }
 
   // `/venues/{slug}` is a venue, `/venues/{slug}/shows/{year}` a year archive
-  // (PSY-1756). Stricter than the scenes rule on purpose: `/venues` has room for
+  // (PSY-1756). The prefix's third claimant, `venue_cities`, carries no path
+  // segment at all and was already settled by the query rule above.
+  // Stricter than the scenes rule on purpose: `/venues` has room for
   // other child routes, so anything that is not exactly the archive shape is
   // 'other' rather than being counted as an archive the generator never emitted.
   if (prefix === bareVenuesPrefix) {

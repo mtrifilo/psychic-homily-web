@@ -49,6 +49,9 @@ import {
   VENUES_ROOT,
   VENUE_SORTS,
   countLabel,
+  facetCityFor,
+  nearbyCitiesWithRooms,
+  venuesCityHref,
   venuesPageHref,
   type VenueSort,
 } from '../venuesListNavigation'
@@ -212,10 +215,40 @@ export function VenueList() {
   const derivationPending =
     !hasExplicitSelection && (isResolving || (citiesLoading && !citiesData))
 
+  // The city this page is ABOUT, as the facet spells it.
+  //
+  // The RULE lives in `facetCityFor`, shared with `generateMetadata`; the
+  // INPUTS differ, and deliberately. The server sees only the URL, while
+  // `selectedCities` also carries the city derived from favourites or location.
+  // So a bare `/venues` renders a city heading under the generic title, which
+  // is the point: the URL is the same for every viewer and the heading is not.
+  const scopeCity = useMemo(
+    () => facetCityFor(selectedCities, cities),
+    [selectedCities, cities]
+  )
+
+  // A city the facet does not offer holds no verified rooms, so there is no
+  // table to draw and no name this page is willing to print. It gets the same
+  // state a placeless viewer gets, and `generateMetadata` marks it `noindex`
+  // off the same fact.
+  //
+  // Only while no tag is applied: the facet read here is SCOPED to the tags, so
+  // under a tag filter an absent city means "no rooms with this tag", which the
+  // zero-result state says better and offers a way out of. It is also the only
+  // scoping under which this agrees with the server, whose facet is unscoped.
+  //
+  // `cities.length > 0` is the facet having ANSWERED: an empty one cannot tell
+  // a city it does not carry from a city it has not loaded.
+  const cityIsUnknown =
+    selectedTags.length === 0 &&
+    cities.length > 0 &&
+    selectedCities.length === 1 &&
+    scopeCity === null
+
   const showCityChooser =
     !derivationPending &&
     citiesState !== ALL_CITIES &&
-    selectedCities.length === 0
+    (selectedCities.length === 0 || cityIsUnknown)
 
   const {
     data,
@@ -358,23 +391,6 @@ export function VenueList() {
   // and `keepPreviousData` is holding the previous query's.
   const rowsAnswerCurrentRequest = data !== undefined && !isPlaceholderData
 
-  // The city this page is ABOUT, as the facet spells it.
-  //
-  // Canonical rather than as-typed, and that is the point: `?cities=`, `?city=`
-  // and `?state=` are free text off the URL, and they reach the heading and the
-  // breadcrumb. Matching them against the facet first means a hand-crafted link
-  // cannot put arbitrary text in this page's `<h1>`; an unmatched value still
-  // filters the list (the wire contract is shared with every other surface) but
-  // the page falls back to naming no city.
-  const scopeCity = useMemo(() => {
-    if (selectedCities.length !== 1) return null
-    // Case-insensitive, so `?cities=phoenix,az` still resolves to the facet's
-    // spelling instead of falling back to naming no city.
-    const wanted = cityKey(selectedCities[0]).toLowerCase()
-    const match = cities.find(c => cityKey(c).toLowerCase() === wanted)
-    return match ? { city: match.city, state: match.state } : null
-  }, [selectedCities, cities])
-
   const heading = scopeCity ? `Venues in ${cityLabel(scopeCity)}` : 'Venues'
   // Every selected city, named. A derived selection of two favourites filters
   // the list just as hard as one, and without this the reader is shown a subset
@@ -393,6 +409,17 @@ export function VenueList() {
   const upcomingLabel = rowsAnswerCurrentRequest
     ? countLabel(pageUpcoming, 'upcoming show')
     : null
+
+  // Sorting the whole facet is work only the empty state spends, so the
+  // condition that renders it is inside the memo rather than around it: the
+  // hook stays unconditional, the sort does not run on the path with rows.
+  const nearbyCities = useMemo(
+    () =>
+      scopeCity && rowsAnswerCurrentRequest && venues.length === 0
+        ? nearbyCitiesWithRooms(cities, scopeCity)
+        : [],
+    [cities, scopeCity, rowsAnswerCurrentRequest, venues.length]
+  )
 
   const chooserScope = useMemo(() => {
     const rooms = cities.reduce((sum, c) => sum + c.count, 0)
@@ -651,6 +678,36 @@ export function VenueList() {
                   ? 'No verified rooms match the current filters.'
                   : 'No verified rooms yet.'}
             </p>
+            {/* The way on from a city with nothing in it. Rendered only with a
+                city in hand: "nearby" needs something to be near, and the
+                facet carries no coordinates, so the order is same state first
+                and then busiest (`nearbyCitiesWithRooms`). */}
+            {scopeCity && nearbyCities.length > 0 && (
+              <p className="mt-3 text-sm" data-testid="venues-nearby-cities">
+                <span className="text-muted-foreground">
+                  Nearby cities with rooms:{' '}
+                </span>
+                {nearbyCities.map((city, index) => (
+                  <span key={cityKey(city)}>
+                    {index > 0 && (
+                      <span aria-hidden="true" className="text-muted-foreground">
+                        {' '}
+                        &middot;{' '}
+                      </span>
+                    )}
+                    <Link
+                      href={venuesCityHref(searchParams, city.city, city.state)}
+                      className="text-primary hover:underline"
+                    >
+                      {cityLabel(city)}
+                    </Link>{' '}
+                    <span className="text-muted-foreground">
+                      ({countLabel(city.count, 'room')})
+                    </span>
+                  </span>
+                ))}
+              </p>
+            )}
             <p className="mt-3 text-sm">
               {hasNarrowingFilter && !(scopeCity && selectedTags.length === 0) ? (
                 <button
