@@ -7,7 +7,11 @@ import {
 import type { CityState } from '@/components/filters'
 import { MAX_ARCHIVE_PAGE } from '@/features/shows/showArchive'
 import { archivePageNumber } from '@/features/shows/showArchive.server'
-import { facetCityFor, VENUES_ROOT } from '@/features/venues/venuesListNavigation'
+import {
+  facetCityFor,
+  VENUES_PAGE_SIZE,
+  VENUES_ROOT,
+} from '@/features/venues/venuesListNavigation'
 import { listRootCanonical, venuesCityCanonical } from '@/lib/seo/siteMetadata'
 
 /** The directory's title when it is not about one city. */
@@ -17,34 +21,52 @@ export const VENUES_GENERIC_TITLE = 'Venues'
 export const VENUES_GENERIC_DESCRIPTION =
   'Browse music venues and discover upcoming shows.'
 
-/** One row of the `/venues/cities` facet, reduced to what naming a city needs. */
+/**
+ * One row of the `/venues/cities` facet, reduced to what this page needs: the
+ * spelling to name the city by, and the room count, which is also the size of
+ * the city's page space.
+ */
 export interface FacetCity {
   city: string
   state: string
+  venue_count: number
 }
 
 /**
  * What the URL asks this page to be about, decided against the city facet.
  *
- *   `city`    exactly one city, and the facet offers it.
- *   `unknown` exactly one city, and the facet does not offer it.
- *   `generic` no city, `?cities=all`, or more than one city.
+ *   `city`        exactly one city, and the facet offers it.
+ *   `unknown`     exactly one city, and the facet does not offer it.
+ *   `generic`     no city, `?cities=all`, or more than one city.
+ *   `unavailable` one city, and the facet could not be read.
  *
  * `unknown` is its own state rather than a flavour of `generic` because the two
  * differ in what a crawler should do: a city the facet does not offer has no
  * verified rooms, so the page is real but has nothing to index.
  *
- * The facet being UNAVAILABLE is deliberately `generic` rather than `unknown`.
- * Failing the other way would turn a backend blip into a noindex on every city
- * page for a whole cache window, which is a far more expensive mistake than an
- * indexable empty page for one.
+ * `unavailable` is a fourth state for the same kind of reason, in the opposite
+ * direction: without the facet this page cannot tell an empty city from a busy
+ * one, so it declares NOTHING rather than guessing. Reading it as `unknown`
+ * would turn a backend blip into a noindex on every city page for a cache
+ * window; reading it as `generic` would have a real city page assert that it is
+ * a duplicate of the directory root. A missing canonical is the only honest
+ * answer, and it is also the recoverable one.
+ *
+ * An EMPTY facet is unavailable too, not unknown. A facet with no rows cannot
+ * tell a city it does not carry from a city it has not loaded, which is the
+ * same guard `VenueList` applies before it shows the choose-a-city state.
  */
-export type VenuesScopeKind = 'city' | 'unknown' | 'generic'
+export type VenuesScopeKind = 'city' | 'unknown' | 'generic' | 'unavailable'
 
 export interface VenuesScope {
   kind: VenuesScopeKind
   /** The facet's spelling of the city, present only for `city`. */
   city: CityState | null
+  /**
+   * The city's verified-room count, present only for `city`. It bounds the
+   * city's page space; see `buildVenuesMetadata`.
+   */
+  rooms: number
 }
 
 /**
@@ -60,14 +82,35 @@ export function resolveVenuesScope(
   selected: CityState[],
   facet: FacetCity[] | null
 ): VenuesScope {
-  if (selected.length !== 1 || !facet) return { kind: 'generic', city: null }
+  if (selected.length !== 1) return { kind: 'generic', city: null, rooms: 0 }
+  if (!facet || facet.length === 0) {
+    return { kind: 'unavailable', city: null, rooms: 0 }
+  }
   const city = facetCityFor(selected, facet)
-  return city ? { kind: 'city', city } : { kind: 'unknown', city: null }
+  if (!city) return { kind: 'unknown', city: null, rooms: 0 }
+  const row = facet.find(c => c.city === city.city && c.state === city.state)
+  return { kind: 'city', city, rooms: row?.venue_count ?? 0 }
 }
 
-/** The cities `?cities=` names, in the wire format every surface shares. */
-export function parseVenuesCities(citiesParam: string | undefined): CityState[] {
-  return parseCitiesParam(citiesParam)
+/**
+ * The cities the URL names, read the way the list reads them.
+ *
+ * `?cities=` is the wire format every surface shares; `?city=`/`?state=` are the
+ * legacy single-city pair that predates it and that `VenueList` still honours
+ * (read-only, and only when `?cities=` is absent). BOTH are read here, because
+ * a legacy deep link renders a city heading, so it has to get that city's title
+ * and canonical too — and, when the facet does not know the city, the same
+ * noindex the modern spelling gets.
+ */
+export function venuesUrlCities(
+  params: Record<string, string | string[] | undefined>
+): CityState[] {
+  const fromCities = parseCitiesParam(firstParam(params.cities))
+  if (fromCities.length > 0 || params.cities !== undefined) return fromCities
+
+  const city = firstParam(params.city)?.trim()
+  const state = firstParam(params.state)?.trim()
+  return city && state ? [{ city, state }] : []
 }
 
 /**
@@ -93,6 +136,14 @@ export function resolveVenuesPage(
  *
  * Open Graph carries the same title and description and the same URL as the
  * canonical: a shared city link and the indexed city page are one address.
+ *
+ * THE PAGE IN THE CANONICAL IS BOUNDED BY THE CITY'S OWN PAGE SPACE. `?page=`
+ * is free text, so without this every city would offer MAX_ARCHIVE_PAGE
+ * distinct URLs that each declare THEMSELVES canonical, nearly all of them
+ * empty — a crawler trap this surface did not have while every variant
+ * canonicalized to the root. The facet's room count sizes that space without a
+ * second request, and a page past the end canonicalizes to the city's first
+ * page, which is what the body of such a page tells the reader to go back to.
  */
 export function buildVenuesMetadata(
   scope: VenuesScope,
@@ -104,15 +155,29 @@ export function buildVenuesMetadata(
   const description = named
     ? `Live-music rooms in ${named}: upcoming shows, quiet rooms, links.`
     : VENUES_GENERIC_DESCRIPTION
-  const canonical =
-    scope.kind === 'city' && scope.city
-      ? venuesCityCanonical(VENUES_ROOT, buildCitiesParam([scope.city]), page)
-      : listRootCanonical(VENUES_ROOT)
+
+  let canonical: string | undefined
+  if (scope.kind === 'city' && scope.city) {
+    const lastPage = Math.max(1, Math.ceil(scope.rooms / VENUES_PAGE_SIZE))
+    canonical = venuesCityCanonical(
+      VENUES_ROOT,
+      buildCitiesParam([scope.city]),
+      page <= lastPage ? page : 1
+    )
+  } else if (scope.kind === 'generic') {
+    canonical = listRootCanonical(VENUES_ROOT)
+  }
+  // `unknown` and `unavailable` name no canonical, for two different reasons.
+  // An unavailable facet has nothing to name (above). An unknown city is asking
+  // NOT to be indexed, and a noindex beside a canonical pointing at a DIFFERENT
+  // url invites that noindex to be consolidated onto the target — which here
+  // would be the directory root, the one page on this surface that must stay
+  // indexed.
 
   return {
     title,
     description,
-    alternates: { canonical },
+    ...(canonical ? { alternates: { canonical } } : {}),
     // A city with no verified rooms is a real page with nothing on it: it stays
     // reachable and its links stay followable, and it asks not to be indexed.
     // Every other state is the directory itself, which is indexable.
@@ -120,11 +185,11 @@ export function buildVenuesMetadata(
       ? { robots: { index: false, follow: true } }
       : {}),
     // The same URL as the canonical: a shared link and the indexed page are one
-    // address.
+    // address. With no canonical to name there is no address to assert either.
     openGraph: {
       title: `${title} | Psychic Homily`,
       description,
-      url: canonical,
+      ...(canonical ? { url: canonical } : {}),
       type: 'website',
     },
   }

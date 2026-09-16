@@ -215,9 +215,13 @@ export function VenueList() {
   const derivationPending =
     !hasExplicitSelection && (isResolving || (citiesLoading && !citiesData))
 
-  // The city this page is ABOUT, as the facet spells it. The rule lives in
-  // `facetCityFor`, so `generateMetadata` names the `<title>` off the same
-  // answer this `<h1>` is drawn from.
+  // The city this page is ABOUT, as the facet spells it.
+  //
+  // The RULE lives in `facetCityFor`, shared with `generateMetadata`; the
+  // INPUTS differ, and deliberately. The server sees only the URL, while
+  // `selectedCities` also carries the city derived from favourites or location.
+  // So a bare `/venues` renders a city heading under the generic title, which
+  // is the point: the URL is the same for every viewer and the heading is not.
   const scopeCity = useMemo(
     () => facetCityFor(selectedCities, cities),
     [selectedCities, cities]

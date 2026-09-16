@@ -1227,9 +1227,9 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 // directory's own picker offers, because /venues?cities=City,ST renders the
 // quiet empty state (and asks crawlers to skip it) for anything else.
 //
-// It asserts the two sets are equal rather than asserting a hand-written list,
-// so a browse condition added to one query and not the other fails here instead
-// of silently publishing URLs the page will not index.
+// It asserts the two sets are equal rather than asserting a hand-written list.
+// The two share one predicate applier, so what this guards is a future
+// RESTATEMENT of that rule here, which is how the two would come apart.
 //
 // It also pins the exclusions that fall out of the same query: an unverified
 // room is not public, and a room with an empty city or state would build
@@ -1259,6 +1259,13 @@ func TestSitemapEntriesVenueCitiesMatchTheCityFacet(t *testing.T) {
 		// list's total, and this family must still drop them.
 		{"City Room F", "", "AZ", true},
 		{"City Room G", "Flagstaff", "", true},
+		// Halves that cannot survive the frontend's parseCitiesParam: the
+		// comma is the field separator, the pipe separates pairs, and the
+		// parser trims, so a padded half never matches the facet row it names.
+		{"City Room H", "Winston-Salem, NC", "NC", true},
+		{"City Room I", "Pipe|Town", "AZ", true},
+		{"City Room J", " Padded", "AZ", true},
+		{"City Room K", "Comma", "A,Z", true},
 	}
 	for _, s := range seed {
 		venue := &catalogm.Venue{
@@ -1292,21 +1299,58 @@ func TestSitemapEntriesVenueCitiesMatchTheCityFacet(t *testing.T) {
 		t.Errorf("venue_cities entry carries no lastmod: %+v", entries.VenueCities[0])
 	}
 
+	// A <loc> is a promise. Every slug has to survive the parser the page reads
+	// it back with, and none of them may address a page of a city: this family
+	// announces cities, and the pages under one are reached from its pager.
+	for _, slug := range got {
+		halves := strings.Split(slug, ",")
+		if len(halves) != 2 {
+			t.Errorf("venue_cities slug %q does not split into exactly two halves", slug)
+			continue
+		}
+		for _, half := range halves {
+			if half == "" || half != strings.TrimSpace(half) || strings.Contains(half, "|") {
+				t.Errorf("venue_cities slug %q carries a half the page cannot read back", slug)
+			}
+		}
+		if strings.Contains(slug, "page=") {
+			t.Errorf("venue_cities announces a page of a city: %q", slug)
+		}
+	}
+
 	// The equality this family exists to hold: the announced set is the picker's
-	// set, minus the rows that cannot form a filter value.
+	// set, minus the rows whose name cannot form an addressable filter value.
+	//
+	// That exclusion is written out here rather than taken from
+	// addressableCityFilter, so the rule is pinned against a hand-written truth
+	// rather than against itself.
+	unaddressable := map[string]bool{
+		"":                  true, // no city
+		"Flagstaff":         true, // no state
+		"Winston-Salem, NC": true, // the comma is the field separator
+		"Pipe|Town":         true, // the pipe separates pairs
+		" Padded":           true, // the parser trims, so this never matches back
+		"Comma":             true, // its STATE carries the separator
+	}
 	facet, err := NewVenueService(td.DB).GetVenueCities(contracts.VenueListFilters{})
 	if err != nil {
 		t.Fatalf("GetVenueCities: %v", err)
 	}
 	offered := map[string]bool{}
 	for _, city := range facet {
-		if city.City == "" || city.State == "" {
+		if unaddressable[city.City] {
 			continue
 		}
 		offered[city.City+","+city.State] = true
 	}
+	// Not vacuous: the facet has to have SEEN the rows this drops, or the
+	// exclusion is being asserted against a query that never returned them.
+	if len(facet) != len(offered)+len(unaddressable) {
+		t.Fatalf("the city facet returned %d rows, expected %d offered plus %d unaddressable",
+			len(facet), len(offered), len(unaddressable))
+	}
 	if len(offered) != len(got) {
-		t.Fatalf("venue_cities = %v, the city facet offers %v", got, offered)
+		t.Fatalf("venue_cities = %v, the addressable city facet offers %v", got, offered)
 	}
 	for _, slug := range got {
 		if !offered[slug] {

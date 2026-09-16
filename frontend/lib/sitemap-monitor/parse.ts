@@ -23,7 +23,6 @@ import {
   type Family,
 } from '@/app/sitemap-shards'
 
-
 /**
  * Which document shape was served.
  *

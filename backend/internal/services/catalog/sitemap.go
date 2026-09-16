@@ -700,18 +700,21 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 // venueCitiesScope is what GetVenueCities reads, and venue.go records that the
 // applier is what stops the page, its total and its facet from describing three
 // different sets. Announcing a city the picker does not offer would publish a
-// URL the page answers with noindex, so this is the fourth reader of that same
-// set rather than a fourth definition of it.
+// URL the page answers with noindex. This shares that applier with the facet
+// and the list; the `venues` family above does NOT, so a condition added to the
+// applier reaches these three and not that one.
 //
-// Rows with an empty city or state are dropped, which is the ONE way this
-// narrows the facet. GetVenueCities keeps them, because its numbers have to sum
-// to the list's total, but an empty half builds "?cities=,AZ", which names no
-// city and filters nothing.
+// EVERY SLUG MUST SURVIVE THE PAGE'S OWN PARSER, which is the one way this
+// narrows the facet. The filter value is "City,ST": a half that is empty, that
+// is not its own trimmed self, or that contains a comma or a pipe produces a
+// value parseCitiesParam either drops or splits differently, and the announced
+// URL then serves the unfiltered directory or a page that asks not to be
+// indexed. GetVenueCities keeps such rows, because its numbers have to sum to
+// the list's total; a sitemap cannot, because a <loc> is a promise.
 //
-// UpdatedAt is MAX(venue.updated_at) within the city, the closest durable "this
-// page's content changed" signal, matching venueYearEntries and
-// showsMonthEntries. It moves on a room's own edit rather than on a show's: the
-// rows this page carries ARE venues.
+// UpdatedAt is MAX(venue.updated_at) within the city: the room rows ARE this
+// page's content, so its own edits are the signal, where venueYearEntries and
+// showsMonthEntries take theirs from the shows they list.
 //
 // The grain is (city, state), so entriesFor cannot serve it.
 func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
@@ -737,6 +740,9 @@ func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.Site
 
 	entries := make([]contracts.SitemapEntry, 0, len(rows))
 	for _, r := range rows {
+		if !addressableCityFilter(r.City) || !addressableCityFilter(r.State) {
+			continue
+		}
 		entries = append(entries, contracts.SitemapEntry{
 			Slug:      r.City + "," + r.State,
 			UpdatedAt: r.UpdatedAt,
@@ -747,6 +753,19 @@ func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.Site
 	// every letter, so "Mesa,AZ" precedes "Mesa Verde,CO".
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
+}
+
+// addressableCityFilter reports whether one half of a "City,ST" filter value
+// survives a round trip through the frontend's parseCitiesParam.
+//
+// That parser splits on "|" into pairs and on "," into exactly two halves, and
+// trims each. So a half carrying either separator, a half that is not its own
+// trimmed self, and an empty half all name something other than the row they
+// came from.
+func addressableCityFilter(half string) bool {
+	return half != "" &&
+		half == strings.TrimSpace(half) &&
+		!strings.ContainsAny(half, ",|")
 }
 
 // listQualifyingScenes returns the same threshold-gated scene set as

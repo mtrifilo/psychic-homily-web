@@ -318,9 +318,10 @@ export const FAMILY_URL_PREFIXES = {
  * second time here, so `%2C` would reach the crawler as `%252C` and address a
  * city whose name contains a literal percent sign.
  *
- * `cities` is the same parameter `buildCitiesParam` in
- * components/filters/cityParams writes, so a `<loc>` in this family and a chip
- * on the page address one URL.
+ * `cities` is the parameter the directory reads its city filter from, and the
+ * slug is a value in the format `buildCitiesParam` in
+ * components/filters/cityParamsFormat serializes, so a `<loc>` in this family
+ * and a chip on the page address one URL.
  */
 export const FAMILY_QUERY_PARAMS: Partial<Record<Family, string>> = {
   venue_cities: 'cities',

@@ -84,9 +84,9 @@ export function venuesCityHref(
  *
  * ONE definition, read by both sides of the page: `VenueList` names the `<h1>`
  * and the breadcrumb with it, and `generateMetadata` decides the `<title>`, the
- * canonical and the `robots` off the same answer. Two implementations would let
- * the heading and the title disagree about which city the page is, with only
- * one of them guarded.
+ * canonical and the `robots` off the same rule. They are fed different
+ * selections on purpose (the server sees only the URL), so what this shares is
+ * the RULE, not the answer.
  *
  * Canonical rather than as-typed, and that is the guard: `?cities=`, `?city=`
  * and `?state=` are free text off the URL and they reach all of the above.
@@ -132,7 +132,10 @@ export const NEARBY_CITY_COUNT = 5
  *
  * The subject city is excluded: it is the one the reader has already been told
  * is empty. A city with no rooms is excluded too, so every link offered lands
- * somewhere with something on it.
+ * somewhere with something on it, and so is a row missing either half of its
+ * name: `/venues/cities` keeps a placeless room so its counts sum to the list's
+ * total, and offering one builds "?cities=,AZ", which names no city and lands
+ * the reader on the unfiltered directory.
  */
 export function nearbyCitiesWithRooms(
   cities: CityWithCount[],
@@ -141,7 +144,13 @@ export function nearbyCitiesWithRooms(
 ): CityWithCount[] {
   const excluded = cityKey(subject).toLowerCase()
   return cities
-    .filter(c => c.count > 0 && cityKey(c).toLowerCase() !== excluded)
+    .filter(
+      c =>
+        c.count > 0 &&
+        c.city !== '' &&
+        c.state !== '' &&
+        cityKey(c).toLowerCase() !== excluded
+    )
     .sort((a, b) => {
       const aHome = a.state === subject.state ? 0 : 1
       const bHome = b.state === subject.state ? 0 : 1

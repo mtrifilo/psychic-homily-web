@@ -11,10 +11,9 @@ import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { getVenuesForMetadata } from './venuesMetadata'
 import {
   buildVenuesMetadata,
-  firstParam,
-  parseVenuesCities,
   resolveVenuesPage,
   resolveVenuesScope,
+  venuesUrlCities,
 } from './venuesPageMetadata'
 
 /** The city facet, for naming a city. Null when it could not be read. */
@@ -47,7 +46,7 @@ export async function generateMetadata({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }): Promise<Metadata> {
   const params = await searchParams
-  const selected = parseVenuesCities(firstParam(params.cities))
+  const selected = venuesUrlCities(params)
   // Only a URL naming exactly one city has a spelling to look up, so the bare
   // directory pays nothing for this.
   const facet = selected.length === 1 ? await fetchCityFacet() : null
