@@ -44,7 +44,7 @@ test.describe('Venues directory', () => {
       page.getByRole('link', { name: 'Crescent Ballroom' })
     ).toHaveAttribute('href', '/venues/crescent-ballroom-phoenix-az')
 
-    // The card list and its Load More are gone.
+    // Every row is on the page; nothing is behind a press.
     await expect(page.getByRole('button', { name: /load more/i })).toHaveCount(0)
   })
 
@@ -136,9 +136,9 @@ test.describe('Venues directory', () => {
     await pageTwo.click()
     await expect(page).toHaveURL(/[?&]page=2(?:&|$)/)
     await expect
-      .poll(() => requested.some(s => s.includes('offset=50')))
+      .poll(() => requested.some(s => s.includes(`offset=${PAGE_SIZE}`)))
       .toBe(true)
-    await expect(page.getByText('Seeded Room 51')).toBeVisible()
+    await expect(page.getByText(`Seeded Room ${PAGE_SIZE + 1}`)).toBeVisible()
   })
 
   test('with no derivable city it offers the busiest cities instead of a table', async ({
@@ -172,11 +172,13 @@ test.describe('Venues directory', () => {
           `the directory overflows a ${width}px viewport`
         ).toBeLessThanOrEqual(clientWidth)
 
-        // The column headers are dropped at this width; the count's unit moves
-        // onto the row that carries the number.
+        // The column headers are dropped at this width, so the count's unit
+        // moves onto the row that carries the number and the sort control
+        // becomes the chip.
         await expect(
           page.getByRole('columnheader', { name: /upcoming shows/i })
         ).toBeHidden()
+        await expect(page.getByText(/\d+ upcoming/).first()).toBeVisible()
         await expect(page.getByTestId('venue-sort-chip')).toBeVisible()
       })
     }

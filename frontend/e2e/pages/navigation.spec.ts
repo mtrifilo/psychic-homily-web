@@ -27,7 +27,7 @@ type NavEntity = {
    * Per entity because the containers differ: shows and artists list cards,
    * and the venue directory lists a city's rooms in a table, so a bare
    * `/venues` for a visitor with no derivable city draws its choose-a-city
-   * state instead (PSY-2077).
+   * state instead.
    */
   listContentSelector: string
 }

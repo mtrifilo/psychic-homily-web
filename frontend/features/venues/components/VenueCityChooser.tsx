@@ -19,13 +19,9 @@ export interface VenueCityChooserProps {
  * What the directory shows a visitor it cannot place: a sentence and the
  * busiest cities, each a real link to that city's page.
  *
- * Deliberately NOT a ranked table or an A to Z index. The journeys the
- * directory serves are "my city's rooms", "one city I am visiting", "a room by
- * name" and "one page per city for crawlers"; a full city index served none of
- * them and duplicated the atlas.
- *
- * The chips are links rather than filter presses so this state is reachable and
- * shareable the same way the rest of the directory is.
+ * The chips are links rather than filter presses, so every city this state
+ * offers is an address a reader can share and a crawler can follow, the same
+ * way the rest of the directory is.
  */
 export function VenueCityChooser({ cities, params }: VenueCityChooserProps) {
   const busiest = [...cities]

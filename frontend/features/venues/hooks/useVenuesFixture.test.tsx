@@ -6,16 +6,10 @@ import { useVenues } from './useVenues'
 /**
  * The directory row order, against the shared `/venues` MSW fixture.
  *
- * The sibling `useVenues.test.tsx` mocks `apiRequest`, so it can only assert
- * what the hook ASKS for. This file lets a response through the real client
- * path instead.
- *
- * What it pins is the FIXTURE, not the backend: the order below is a
- * hand-written stand-in for the API's own quiet-rooms-last ordering, and the
- * server-side rule is held by `venue_list_fields_test.go`. Its value here is
- * that the shape the table assumes about a response (quiet rooms in a trailing
- * block, `next_show` and `last_show` partitioned) is written down in frontend
- * CI at all, where before there was no `/venues` fixture to write it in.
+ * What it pins is the FIXTURE: the shape the table assumes about a response,
+ * written down in frontend CI. The rows arrive with quiet rooms in a trailing
+ * block and with `next_show` and `last_show` partitioned, and nothing in the
+ * frontend re-sorts them, so the table's divider lands where that block begins.
  */
 describe('useVenues row order (MSW fixture)', () => {
   it('returns quiet rooms after every room with something booked', async () => {

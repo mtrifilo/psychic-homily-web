@@ -71,6 +71,7 @@ vi.mock('@/components/filters/useGeoDefaultCity', () => ({
 }))
 
 // Mock profile hooks (controllable so tests can set favorite_cities)
+const mockPickerOpen = vi.fn()
 const mockUseProfile = vi.fn(() => ({ data: null as unknown }))
 vi.mock('@/features/auth', () => ({
   useProfile: () => mockUseProfile(),
@@ -81,7 +82,13 @@ const mockUseTags = vi.fn(() => ({
 }))
 vi.mock('@/features/tags', () => ({
   TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
-  TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
+  TagFacetSheet: ({ onToggle }: { onToggle?: (slugs: string[]) => void }) => (
+    <div data-testid="tag-facet-sheet">
+      <button data-testid="mock-toggle-tag" onClick={() => onToggle?.(['punk'])}>
+        toggle punk
+      </button>
+    </div>
+  ),
   parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
   buildTagsParam: (slugs: string[]) => slugs.join(','),
   useTags: () => mockUseTags(),
@@ -101,11 +108,15 @@ vi.mock('@/components/filters', async importOriginal => {
       selectedCities,
       onFilterChange,
       showPopularCities,
+      controlRef,
     }: {
       selectedCities: CityState[]
       onFilterChange: (cities: CityState[]) => void
       showPopularCities?: boolean
-    }) => (
+      controlRef?: { current: { open: () => void } | null }
+    }) => {
+      if (controlRef) controlRef.current = { open: mockPickerOpen }
+      return (
       <div
         data-testid="city-filters"
         data-selected={selectedCities.map(c => `${c.city},${c.state}`).join('|')}
@@ -121,7 +132,8 @@ vi.mock('@/components/filters', async importOriginal => {
           all cities
         </button>
       </div>
-    ),
+      )
+    },
   }
 })
 
@@ -239,6 +251,16 @@ describe('VenueList', () => {
       )
       expect(mockSetCities).not.toHaveBeenCalled()
       expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('opens the city picker from the change control', async () => {
+      const user = userEvent.setup()
+      anonWithGeo()
+      render(<VenueList />)
+
+      await user.click(screen.getByTestId('venues-derived-city-change'))
+
+      expect(mockPickerOpen).toHaveBeenCalled()
     })
 
     it('names the derived city and says it came from the location', () => {
@@ -400,6 +422,23 @@ describe('VenueList', () => {
       expect(screen.queryByRole('table')).not.toBeInTheDocument()
       expect(mockUseVenues).toHaveBeenCalledWith(
         expect.objectContaining({ enabled: false })
+      )
+    })
+
+    it('says so plainly when the facet is empty rather than offering nothing', () => {
+      mockUseVenueCities.mockReturnValue({
+        data: { cities: [] },
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      expect(screen.getByTestId('venues-city-chooser')).toHaveTextContent(
+        'No cities to choose from yet.'
       )
     })
 
@@ -608,7 +647,9 @@ describe('VenueList', () => {
       expect(screen.getByTestId('venues-quiet-group-header')).toHaveTextContent(
         /quiet rooms/i
       )
-      expect(screen.getByText(/last: Sat, Aug 22/)).toBeInTheDocument()
+      // The year is carried: a quiet room is often years dark, and 'last:
+      // Aug 22' cannot say which one.
+      expect(screen.getByText(/last: Sat Aug 22, 2026/)).toBeInTheDocument()
     })
 
     it('renders no quiet heading when every room has something booked', () => {
@@ -705,6 +746,27 @@ describe('VenueList', () => {
       })
       render(<VenueList />)
       expect(screen.getByTestId('tag-facet-panel')).toBeInTheDocument()
+    })
+
+    it('carries the order and the city through a tag change', async () => {
+      const user = userEvent.setup()
+      anonWithGeo()
+      mockSearchParams.mockReturnValue(
+        new URLSearchParams({ sort: 'name', cities: 'Chicago,IL' })
+      )
+      mockUseTags.mockReturnValue({
+        data: { tags: [{ slug: 'punk', usage_count: 12 }] },
+      })
+      render(<VenueList />)
+
+      await user.click(screen.getByTestId('mock-toggle-tag'))
+
+      // Both come from the nuqs values, not from `searchParams`, which lags a
+      // write still in flight.
+      const pushed = mockPush.mock.calls[0][0] as string
+      expect(pushed).toContain('sort=name')
+      expect(pushed).toContain('cities=Chicago%2CIL')
+      expect(pushed).toContain('tags=punk')
     })
 
     it('shows an applied tag as a removable chip', async () => {

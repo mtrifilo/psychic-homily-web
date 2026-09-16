@@ -71,8 +71,10 @@ function VenueRow({
   // The venue's own calendar, never the reader's. `formatShowTime` returns null
   // when this room's zone is not known, and the contract for that is to drop the
   // hour and its separator rather than print a guessed clock.
+  // The quiet block's dates carry their YEAR: a room with nothing booked has
+  // often been dark for years, and "last: Jun 14" cannot say which.
   const date = show
-    ? formatShowDate(show.event_date, venue.state, false, venue.timezone)
+    ? formatShowDate(show.event_date, venue.state, isQuiet, venue.timezone)
     : null
   const time = show
     ? formatShowTime(show.event_date, venue.state, venue.timezone)
@@ -81,13 +83,11 @@ function VenueRow({
     ? `${isQuiet ? 'last: ' : ''}${date}${!isQuiet && time ? ` ${time}` : ''}`
     : null
 
-  // Through the shared gate, never raw: the column is user-editable free text,
-  // so a stored `javascript:` value would otherwise become a live link, and a
-  // scheme-less one a relative href into /venues.
   // The place line: the street when the scope already names the city, and the
-  // city itself when it does not.
+  // city AHEAD of the street when it does not. Leading with it is what keeps it
+  // out of the clip: it is the only thing telling two rows apart there.
   const place = showCity
-    ? [venue.address, `${venue.city}, ${venue.state}`].filter(Boolean).join(' · ')
+    ? [`${venue.city}, ${venue.state}`, venue.address].filter(Boolean).join(' · ')
     : (venue.address ?? '')
 
   // Through the shared gate, never raw: the column is user-editable free text,
@@ -258,7 +258,7 @@ function QuietRoomsHeader() {
 }
 
 /**
- * The directory's rooms, densest register the site has.
+ * The directory's rooms.
  *
  * ONE element tree across the breakpoint, reflowed by CSS rather than swapped:
  * a second rendering for narrow widths would put both in the document and make

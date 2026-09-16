@@ -70,10 +70,8 @@ interface CityFiltersProps {
   /**
    * Whether the "Popular:" quick-pick row may render under the filter bar.
    *
-   * On by default, which is every surface that has ever had it. A surface with
-   * its own city-picking affordance turns it off rather than offering the same
-   * cities twice: the /venues no-city state has the busiest cities as its own
-   * chips.
+   * On by default. A surface with its own city-picking affordance turns it off
+   * rather than offering the same cities twice.
    */
   showPopularCities?: boolean
   /**
@@ -129,10 +127,13 @@ export function CityFilters({
     controlRef,
     () => ({
       open: () => {
-        handleOpenChange(true)
-        // The overlay it opens is anchored to the trigger, which may be off
-        // screen when the press came from somewhere else on the page.
+        // Focus moves to the trigger FIRST. The overlay is anchored to it and
+        // carries its `aria-expanded`/`aria-haspopup`, and on close the overlay
+        // restores focus there; a caller that opened from elsewhere would
+        // otherwise leave the keyboard somewhere it never asked to be.
         triggerRef.current?.scrollIntoView({ block: 'nearest' })
+        triggerRef.current?.focus()
+        handleOpenChange(true)
       },
     }),
     [handleOpenChange]

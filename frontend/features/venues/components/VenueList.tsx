@@ -19,6 +19,7 @@ import {
   type CityState,
 } from '@/components/filters'
 import {
+  buildCitiesParam,
   citiesParser,
   ALL_CITIES,
   cityKey,
@@ -69,7 +70,7 @@ function VenueTableSkeleton() {
 }
 
 /**
- * The `/venues` directory: one city's rooms, densest register the site has.
+ * The `/venues` directory: one city's rooms.
  *
  * The city is DERIVED during render and never written to the URL, the same rule
  * and the same hook `/shows` uses (favourites, else the IP-geo city). A bare
@@ -108,12 +109,11 @@ export function VenueList() {
     citiesParser.withOptions({ history: 'push', startTransition })
   )
 
-  // Legacy single-city params (?city=&state=) — read-only, for back-compat
-  // with older scene deep links that predate the ?cities= wire format.
+  // Legacy single-city params, read-only: older deep links predate the
+  // `?cities=` wire format.
   const legacyCity = searchParams.get('city')
   const legacyState = searchParams.get('state')
 
-  // Multi-tag filter (PSY-309).
   const tagsParam = searchParams.get('tags')
   const tagMatchParam = searchParams.get('tag_match')
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
@@ -158,9 +158,8 @@ export function VenueList() {
   // hook reads it unconditionally.
   //
   // No centroids: `/venues/cities` does not serve them, so `matchByGeo` here is
-  // an EXACT city match, without the nearest-city fallback `/shows` gets. A
-  // visitor in a suburb with no rooms of its own therefore lands on the
-  // choose-a-city state rather than on the nearest metro.
+  // an EXACT city match rather than a nearest-city one. A visitor in a suburb
+  // with no rooms of its own therefore lands on the choose-a-city state.
   const cities: CityWithCount[] = useMemo(
     () =>
       citiesData?.cities?.map(c => ({
@@ -258,7 +257,7 @@ export function VenueList() {
     (selectedTags.length > 0 || (topTagData?.tags?.[0]?.usage_count ?? 0) > 0)
 
   const { targetProps, focusTarget } =
-    usePaginationFocusTarget<HTMLParagraphElement>()
+    usePaginationFocusTarget<HTMLHeadingElement>()
 
   // The derived-city line's "change" opens the city picker, which owns its own
   // overlay state; this is the one verb it exposes.
@@ -274,7 +273,7 @@ export function VenueList() {
   // A city change answers a different question, so it starts at page 1 again.
   // Both writes go through nuqs in the same tick, which batches them into ONE
   // history entry; a `router.push` beside them would abort nuqs's pending queue
-  // and the reset could be dropped (PSY-1388).
+  // and the reset could be dropped.
   const handleFilterChange = useCallback(
     (nextCities: CityState[]) => {
       notifyUserInteracted()
@@ -302,11 +301,16 @@ export function VenueList() {
       params.delete('tags')
       params.delete('tag_match')
       params.delete('page')
-      // The order comes from the nuqs value rather than from `searchParams`,
-      // which lags a write that is still in flight: pressing a sort and then a
-      // tag would otherwise push a URL with the sort missing.
+      // The order and the city come from the nuqs values rather than from
+      // `searchParams`, which lags a write still in flight: picking a city and
+      // then a tag would otherwise push the previous city. `citiesState` carries
+      // the RAW state (absent / all / a selection), so copying it preserves the
+      // rule that a tag change never materializes the derived default.
       params.delete('sort')
       if (sortState) params.set('sort', sortState)
+      params.delete('cities')
+      if (citiesState === ALL_CITIES) params.set('cities', ALL_CITIES)
+      else if (citiesState) params.set('cities', buildCitiesParam(citiesState))
       if (nextTags.length > 0) {
         params.set('tags', buildTagsParam(nextTags))
         if (nextMatch === 'any') params.set('tag_match', 'any')
@@ -319,7 +323,7 @@ export function VenueList() {
         )
       })
     },
-    [searchParams, router, sortState]
+    [searchParams, router, sortState, citiesState]
   )
 
   const handleTagsChange = useCallback(
@@ -351,8 +355,9 @@ export function VenueList() {
   const totalPages = Math.max(1, Math.ceil(total / VENUES_PAGE_SIZE))
 
   // Facts about the current slice are only stated while the rows on screen
-  // answer the current request.
-  const rowsAnswerCurrentRequest = !isPlaceholderData
+  // answer the current request. Two ways they do not: there are no rows yet,
+  // and `keepPreviousData` is holding the previous query's.
+  const rowsAnswerCurrentRequest = data !== undefined && !isPlaceholderData
 
   // The city this page is ABOUT, as the facet spells it.
   //
@@ -415,8 +420,12 @@ export function VenueList() {
       )}
 
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-2xl font-bold sm:text-3xl">{heading}</h1>
-        <p className="font-mono text-[13px] text-muted-foreground" {...targetProps}>
+        {/* The pager's focus target: a stable landmark at the top of the list,
+            and unlike the count beside it never empty. */}
+        <h1 className="text-2xl font-bold sm:text-3xl" {...targetProps}>
+          {heading}
+        </h1>
+        <p className="font-mono text-[13px] text-muted-foreground">
           {showCityChooser ? chooserScope : (roomsLabel ?? '')}
           {!showCityChooser && wholeSetOnScreen && upcomingLabel
             ? ` · ${upcomingLabel}`
@@ -560,7 +569,11 @@ export function VenueList() {
   const pageIsBeyondEnd =
     rowsAnswerCurrentRequest && venues.length === 0 && total > 0
 
-  const hasNarrowingFilter = selectedTags.length > 0
+  // Anything the reader can take off to widen the list. The city counts: the
+  // control that clears it widens to every city, so a sentence offering it has
+  // to be true about the city too.
+  const hasNarrowingFilter =
+    selectedTags.length > 0 || selectedCities.length > 0
 
   const renderPager = (position: 'top' | 'bottom') => (
     <Pagination
@@ -604,10 +617,10 @@ export function VenueList() {
           isUpdating && 'opacity-60'
         )}
       >
-        {/* Not rendered past the end: the pager clamps a hand-typed page to the
-            last real one and would caption "Page 1 of 1" beside a body saying
-            the page does not exist. The link below is the way back. */}
-        {!pageIsBeyondEnd && renderPager('top')}
+        {/* Not rendered over zero rows: the pager clamps a hand-typed page to
+            the last real one and would caption a position no row on screen
+            occupies. The link in the beyond-end body is the way back. */}
+        {venues.length > 0 && renderPager('top')}
 
         {pageIsBeyondEnd ? (
           <div
@@ -630,14 +643,16 @@ export function VenueList() {
             data-testid="venues-zero-result"
           >
             <p className="text-foreground">
-              {hasNarrowingFilter
-                ? 'No verified rooms match the current filters.'
-                : scopeCity
-                  ? `No verified rooms in ${cityLabel(scopeCity)} yet.`
+              {/* The named city only when the facet knows it: a value the facet
+                  cannot vouch for is never echoed back. */}
+              {scopeCity && selectedTags.length === 0
+                ? `No verified rooms in ${cityLabel(scopeCity)} yet.`
+                : hasNarrowingFilter
+                  ? 'No verified rooms match the current filters.'
                   : 'No verified rooms yet.'}
             </p>
             <p className="mt-3 text-sm">
-              {hasNarrowingFilter ? (
+              {hasNarrowingFilter && !(scopeCity && selectedTags.length === 0) ? (
                 <button
                   type="button"
                   onClick={handleClearFilters}
@@ -665,16 +680,20 @@ export function VenueList() {
               // where every row would repeat the same city.
               showCity={selectedCities.length !== 1}
             />
+            {/* A key for the mark beside each room name. Hidden from assistive
+                tech entirely: the mark itself is `aria-hidden` there and each
+                row already says "Verified room" in its own text. */}
             <p
+              aria-hidden="true"
               className="mt-3 text-xs text-muted-foreground"
               data-testid="venues-verified-legend"
             >
-              <span aria-hidden="true">&#10003;</span> verified room
+              &#10003; verified room
             </p>
           </>
         )}
 
-        {!pageIsBeyondEnd && renderPager('bottom')}
+        {venues.length > 0 && renderPager('bottom')}
       </div>
     </>
   )

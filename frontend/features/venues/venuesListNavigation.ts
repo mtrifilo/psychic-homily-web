@@ -14,11 +14,9 @@ import { VENUE_LIST_PAGE_LIMIT } from './api'
 export const VENUES_ROOT = '/venues'
 
 /**
- * Rows per page on `/venues`.
- *
- * Re-exported rather than restated: the pager's arithmetic (which row ordinal
- * falls on which page) has to agree with the limit the request carried, and the
- * request's limit is part of the query key built in `./api`.
+ * Rows per page on `/venues`, re-exported from the module that builds the query
+ * key: the number that sizes a page and the number the key records are one
+ * value, so they are declared once.
  */
 export const VENUES_PAGE_SIZE = VENUE_LIST_PAGE_LIMIT
 

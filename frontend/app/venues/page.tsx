@@ -25,7 +25,11 @@ export const metadata = {
 
 function VenueListLoading() {
   return (
-    <div className="flex justify-center items-center py-12">
+    <div
+      role="status"
+      aria-label="Loading venues"
+      className="flex justify-center items-center py-12"
+    >
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground"></div>
     </div>
   )
@@ -82,8 +86,7 @@ async function HydratedVenueList() {
  * The ItemList itself is NOT measured here, and it is the part that grows with
  * the catalogue: see `contracts.VenueListingEntry`, which records what it weighs
  * in the rendered document and why that, rather than the cache budget, is the
- * constraint that binds first. The slug guard that used to sit in this file now
- * lives in `venuesMetadata.ts`, beside the fetch whose contract it checks.
+ * constraint that binds first.
  */
 export default async function VenuesPage() {
   const venues = await getVenuesForMetadata()

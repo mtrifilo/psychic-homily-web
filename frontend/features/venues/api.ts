@@ -244,16 +244,10 @@ export const venuePastShowsPageParams = (
 // ============================================================================
 
 /**
- * The page size `VenueList` requests, and pages through with `offset`.
+ * The page size the directory requests, and pages through with `offset`.
  *
- * Declared here rather than beside the pager's arithmetic because the query
- * KEY is built in this module: the number that sizes a page and the number the
- * key records have to be one value.
- *
- * There is no server-seeded first screen for the rows. The directory lists one
- * city's rooms and the city resolves in the browser, so the server has no
- * scoped list to seed (see `app/venues/page.tsx`); only the city facet counts
- * are, and only their UNSCOPED entry, which is the one a page carrying no tag
- * filter asks for.
+ * Declared here rather than beside the pager's arithmetic because the query KEY
+ * is built in this module: the number that sizes a page and the number the key
+ * records have to be one value.
  */
 export const VENUE_LIST_PAGE_LIMIT = 50

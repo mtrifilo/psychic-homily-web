@@ -9,37 +9,33 @@ import { GEO_CACHE_KEY, matchByGeo, toGeoLocation } from '@/lib/geo-client'
 import { citiesEqual } from './cityParams'
 
 /**
- * Shared IP-geo default-city hook (PSY-946).
+ * Shared IP-geo default-city hook.
  *
- * Extracted from /explore's `UpcomingShowsList` reconciliation logic (PSY-926)
- * so the SAME resolution-order, has-shows gate, canonical-city match, and
- * "from your location — change" affordance run on all three city-filter
- * surfaces: /explore, /shows, and home.
- *
- * The hook RETURNS the derived geo default; it never writes it anywhere (no
- * URL seeding, no setState into the caller). Callers fold the value into
- * their own render-derived selection (URL value ?? favorites ?? geo). The
- * only effect inside is the `/api/geo` fetch itself — a genuine
- * external-system sync.
+ * The hook RETURNS the derived geo default; it never writes it anywhere (no URL
+ * seeding, no setState into the caller). Callers fold the value into their own
+ * render-derived selection (URL value ?? favorites ?? geo). The only effect
+ * inside is the `/api/geo` fetch itself, a genuine external-system sync.
  *
  * Two geo SOURCES, one hook (see the two-read-paths note in
  * `lib/geo-default.ts`):
- *   - /explore passes `geoFromServer` (already read server-side via
- *     `next/headers` at its dynamic boundary) and sets `enableClientFetch:
- *     false` → zero extra client requests there.
- *   - /shows + home set `enableClientFetch: true` (and no `geoFromServer`) →
- *     the hook fetches the `/api/geo` edge route handler on mount, cached in
- *     sessionStorage so cross-page navigation doesn't re-fetch.
+ *   - a caller on an already-dynamic route passes `geoFromServer` (read
+ *     server-side via `next/headers`) and sets `enableClientFetch: false`, so
+ *     that route makes no extra client request.
+ *   - a caller on an ISR or static route sets `enableClientFetch: true` (and no
+ *     `geoFromServer`), and the hook fetches the `/api/geo` route handler on
+ *     mount, cached in sessionStorage so cross-page navigation does not
+ *     re-fetch.
  *
- * Resolution order (mirrors PSY-926, unchanged):
- *   1. authed user with `favoriteCities` → favorites (caller's concern; pass
- *      `favoriteCities` so the hook stands down — it never overrides them),
- *   2. anon + geo city that HAS upcoming shows in PH's data → the CANONICAL
- *      city from `cities` (never the raw header — injection-safe),
- *   3. otherwise → no default ("All cities").
+ * Resolution order:
+ *   1. an authed user with `favoriteCities` wins (the caller's concern; pass
+ *      `favoriteCities` so the hook stands down and never overrides them),
+ *   2. anon + a geo city present in `cities` -> the CANONICAL entry from
+ *      `cities`, never the raw header, which is what makes it injection-safe,
+ *   3. otherwise no default.
  *
- * The returned value is always the canonical PH `{city,state}` from `cities`,
- * so the selection it produces matches the backend filter exactly.
+ * `cities` is whatever the calling surface counts: the returned value is always
+ * an entry from it, so the selection it produces matches that surface's own
+ * filter exactly.
  */
 
 /**
@@ -81,7 +77,7 @@ interface UseGeoDefaultCityParams {
 }
 
 interface UseGeoDefaultCityResult {
-  /** The canonical has-shows geo city to use as the anon fallback default,
+  /** The canonical geo city from `cities` to use as the anon fallback default,
    *  DERIVED — the hook never writes it anywhere. Callers fold it into their
    *  own derived selection (URL value ?? favorites ?? this). Null whenever
    *  ineligible (authed / favorites present / existing selection / user has
