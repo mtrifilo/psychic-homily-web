@@ -123,7 +123,7 @@ describe('SaveButton', () => {
       />
     )
     expect(
-      screen.getByLabelText('Remove from My List (1 saved)')
+      screen.getByLabelText('Remove from saved shows (1 saved)')
     ).toBeInTheDocument()
   })
 
@@ -135,7 +135,7 @@ describe('SaveButton', () => {
         saveData={{ save_count: 0, is_saved: false }}
       />
     )
-    expect(screen.getByLabelText('Add to My List')).toBeInTheDocument()
+    expect(screen.getByLabelText('Save show')).toBeInTheDocument()
   })
 
   it('redirects anonymous visitors to sign-in instead of toggling', async () => {
@@ -197,7 +197,7 @@ describe('SaveButton', () => {
     expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, true, 42)
     expect(screen.getByText('4')).toBeInTheDocument()
     expect(
-      screen.getByLabelText('Remove from My List (4 saved)')
+      screen.getByLabelText('Remove from saved shows (4 saved)')
     ).toBeInTheDocument()
   })
 
@@ -206,7 +206,21 @@ describe('SaveButton', () => {
       <SaveButton showId={1} saveData={{ save_count: 0, is_saved: false }} />
     )
     expect(screen.queryByText('0')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Add to My List')).toBeInTheDocument()
+    expect(screen.getByLabelText('Save show')).toBeInTheDocument()
+  })
+
+  it('keeps the count in the accessible name when it is not painted', () => {
+    render(
+      <SaveButton
+        showId={1}
+        showCount={false}
+        saveData={{ save_count: 4, is_saved: true }}
+      />
+    )
+    expect(screen.queryByText('4')).not.toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Remove from saved shows (4 saved)')
+    ).toBeInTheDocument()
   })
 
   // ── Saved / unsaved state
@@ -216,18 +230,18 @@ describe('SaveButton', () => {
     expect(screen.getByRole('button')).toBeInTheDocument()
   })
 
-  it('has "Add to My List" aria-label and title when not saved', () => {
+  it('has "Save show" aria-label and title when not saved', () => {
     render(<SaveButton showId={1} />)
-    expect(screen.getByLabelText('Add to My List')).toBeInTheDocument()
-    expect(screen.getByTitle('Add to My List')).toBeInTheDocument()
+    expect(screen.getByLabelText('Save show')).toBeInTheDocument()
+    expect(screen.getByTitle('Save show')).toBeInTheDocument()
   })
 
-  it('has "Remove from My List" aria-label and title when saved', () => {
+  it('has "Remove from saved shows" aria-label and title when saved', () => {
     render(
       <SaveButton showId={1} saveData={{ save_count: 0, is_saved: true }} />
     )
-    expect(screen.getByLabelText('Remove from My List')).toBeInTheDocument()
-    expect(screen.getByTitle('Remove from My List')).toBeInTheDocument()
+    expect(screen.getByLabelText('Remove from saved shows')).toBeInTheDocument()
+    expect(screen.getByTitle('Remove from saved shows')).toBeInTheDocument()
   })
 
   it('passes showId and the resolved isSaved to useSaveShowToggle', () => {
@@ -295,7 +309,7 @@ describe('SaveButton', () => {
     // The hook rolls the cache back, so the button stays un-saved and the
     // failure surfaces in the tooltip.
     expect(await screen.findByText(/Failed to save show/)).toBeInTheDocument()
-    expect(screen.getByLabelText('Add to My List')).toBeInTheDocument()
+    expect(screen.getByLabelText('Save show')).toBeInTheDocument()
   })
 
   // The error auto-hide used to be an untracked `setTimeout`, so it still fired

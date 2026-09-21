@@ -9,7 +9,7 @@ test.describe('Show list actions', () => {
 
     await expect(
       firstShow.getByRole('button', {
-        name: /add to my list|remove from my list/i,
+        name: /save show|remove from saved shows/i,
       })
     ).toHaveCount(0)
   })
@@ -29,22 +29,22 @@ test.describe('Show list actions', () => {
     await expect(reservedShow).toBeVisible({ timeout: 10_000 })
 
     const saveButton = reservedShow.locator(
-      'button[aria-label="Add to My List"], button[aria-label="Remove from My List"]'
+      'button[aria-label="Save show"], button[aria-label="Remove from saved shows"]'
     )
     await expect(saveButton).toBeVisible()
 
     const initialLabel = await saveButton.getAttribute('aria-label')
     expect(
-      initialLabel === 'Add to My List' ||
-        initialLabel === 'Remove from My List'
+      initialLabel === 'Save show' ||
+        initialLabel === 'Remove from saved shows'
     ).toBeTruthy()
 
     const firstToggleMethod =
-      initialLabel === 'Add to My List' ? 'POST' : 'DELETE'
+      initialLabel === 'Save show' ? 'POST' : 'DELETE'
     const firstExpectedLabel =
-      initialLabel === 'Add to My List'
-        ? 'Remove from My List'
-        : 'Add to My List'
+      initialLabel === 'Save show'
+        ? 'Remove from saved shows'
+        : 'Save show'
 
     const [firstToggleResponse] = await Promise.all([
       authenticatedPage.waitForResponse(
@@ -73,7 +73,7 @@ test.describe('Show list actions', () => {
     ])
     expect(secondToggleResponse.status()).toBeLessThan(400)
     await expect(
-      reservedShow.getByRole('button', { name: initialLabel || 'Add to My List' })
+      reservedShow.getByRole('button', { name: initialLabel || 'Save show' })
     ).toBeVisible({ timeout: 5_000 })
   })
 

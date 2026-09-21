@@ -138,6 +138,28 @@ export const prefetchAuthProfile = cache(
 )
 
 /**
+ * Whether the backend has ANSWERED that this request carries a signed-in
+ * viewer. Used to pick a page's viewer variant on the server so the choice is
+ * made once, before paint, instead of flipping after hydration (PSY-2103,
+ * `app/page.tsx`).
+ *
+ * False covers both "answered: nobody" and "could not answer", which are
+ * different facts but not to this reader: a variant needs a decision, and the
+ * anonymous one is the only variant that is correct for a viewer we cannot
+ * name. Nothing re-decides on the client, so a backend outage serves the
+ * logged-out page rather than a personalized one that flashes.
+ *
+ * Shares `fetchAuthProfile`'s `React.cache()` with the `<AuthHydrator>`
+ * prefetch, so calling it adds no extra backend round-trip within a render.
+ */
+export async function isAuthenticatedViewer(): Promise<boolean> {
+  const resolution = await fetchAuthProfile()
+  if (resolution.kind !== 'resolved') return false
+  const { profile } = resolution
+  return profile.success === true && profile.user != null
+}
+
+/**
  * Resolve the authenticated viewer's saved nav-mode preference server-side, or
  * `undefined` when there's no session (anonymous or expired) and equally when
  * the read could not be completed (backend outage). Those are different facts

@@ -115,6 +115,7 @@ export {
   ShowList,
   ShowListSkeleton,
   HomeShowList,
+  HomeShowListView,
   DeleteShowDialog,
   PublishShowDialog,
   UnpublishShowDialog,
@@ -129,6 +130,9 @@ export {
   AIFormFiller,
   SHOW_LIST_FEATURE_POLICY,
 } from './components'
+
+export { useHomeShowCitySelection } from './components'
+export type { HomeShowCitySelection } from './components'
 
 export type {
   ShowCardDensity,

@@ -32,6 +32,13 @@ interface SaveButtonProps {
    * card race the batch.
    */
   saveData?: BatchedSaveData
+  /**
+   * Paint the public save count beside the heart. Off for a surface where the
+   * row is already about THIS viewer's save (the signed-in home's saved-shows
+   * module), where a second number reads as part of the label. The count stays
+   * in the accessible name either way.
+   */
+  showCount?: boolean
   className?: string
   disabled?: boolean
 }
@@ -42,6 +49,7 @@ export function SaveButton({
   size = 'sm',
   showLabel = false,
   saveData,
+  showCount = true,
   className,
   disabled = false,
 }: SaveButtonProps) {
@@ -104,8 +112,8 @@ export function SaveButton({
     authStatus === 'anonymous'
       ? 'Sign in to save'
       : isSaved
-        ? 'Remove from My List'
-        : 'Add to My List'
+        ? 'Remove from saved shows'
+        : 'Save show'
 
   if (variant === 'bracket') {
     return (
@@ -138,6 +146,9 @@ export function SaveButton({
   const buttonSize =
     size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
   const hasCount = saveCount > 0
+  // The accessible name keeps the public count whether or not it is painted:
+  // hiding a number is a density call, not a reason to stop announcing it.
+  const paintsCount = showCount && hasCount
 
   return (
     <div className="relative">
@@ -153,7 +164,7 @@ export function SaveButton({
         className={cn(
           buttonSize,
           'p-0',
-          (showLabel || hasCount) && 'w-auto px-3 gap-1.5',
+          (showLabel || paintsCount) && 'w-auto px-3 gap-1.5',
           className
         )}
         title={label}
@@ -166,7 +177,7 @@ export function SaveButton({
               : 'text-muted-foreground hover:text-foreground'
           } ${isLoading ? 'opacity-50' : ''}`}
         />
-        {hasCount && (
+        {paintsCount && (
           <span className="text-xs tabular-nums text-muted-foreground">
             {saveCount}
           </span>

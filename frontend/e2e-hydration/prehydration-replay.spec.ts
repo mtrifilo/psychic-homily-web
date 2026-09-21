@@ -66,7 +66,7 @@ const SHOW_SLUG = '2026-07-30-e2e-test-show-1'
 const ARTIST_SLUG = 'calexico'
 /** Matches the save control before and after its count query resolves (trap 2). */
 const SAVE_BUTTON =
-  'button[aria-label^="Add to My List"], button[aria-label^="Remove from My List"]'
+  'button[aria-label^="Save show"], button[aria-label^="Remove from saved shows"]'
 const USER_EMAIL = 'e2e-user@test.local'
 const USER_PASSWORD = 'e2e-test-password-123'
 
@@ -124,7 +124,7 @@ function reactKey(node) {
 // prefix (trap 2).
 function target() {
   return document.querySelector(
-    'button[aria-label^="Add to My List"], button[aria-label^="Remove from My List"]'
+    'button[aria-label^="Save show"], button[aria-label^="Remove from saved shows"]'
   );
 }
 

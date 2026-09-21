@@ -173,7 +173,7 @@ test.describe('Follow and save', () => {
     // SaveButton's accessible name carries the public save count once it is
     // non-zero. A fresh reserved show has zero saves, so the name is bare.
     const saveButton = authenticatedPage.getByRole('button', {
-      name: 'Add to My List',
+      name: 'Save show',
       exact: true,
     })
     await expect(saveButton).toBeVisible({ timeout: 5_000 })
@@ -192,7 +192,7 @@ test.describe('Follow and save', () => {
 
     // Saved state flips the label and surfaces the now-public count of 1.
     const savedButton = authenticatedPage.getByRole('button', {
-      name: 'Remove from My List (1 saved)',
+      name: 'Remove from saved shows (1 saved)',
       exact: true,
     })
     await expect(savedButton).toBeVisible({ timeout: 5_000 })
@@ -226,13 +226,13 @@ test.describe('Follow and save', () => {
         { timeout: 10_000 }
       ),
       authenticatedPage
-        .getByRole('button', { name: 'Remove from My List (1 saved)', exact: true })
+        .getByRole('button', { name: 'Remove from saved shows (1 saved)', exact: true })
         .click(),
     ])
 
     // Button reverts to the unsaved label, and the count drops back to zero.
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Add to My List', exact: true })
+      authenticatedPage.getByRole('button', { name: 'Save show', exact: true })
     ).toBeVisible({ timeout: 5_000 })
   })
 })

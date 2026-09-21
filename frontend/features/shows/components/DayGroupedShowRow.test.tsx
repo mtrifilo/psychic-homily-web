@@ -41,7 +41,7 @@ vi.mock('./ShowArtistMusic', async importOriginal => {
 
 vi.mock('@/components/shared/SaveButton', () => ({
   SaveButton: () => (
-    <button type="button" aria-label="Add to My List">
+    <button type="button" aria-label="Save show">
       save
     </button>
   ),
@@ -221,7 +221,7 @@ describe('DayGroupedShowRow', () => {
 
     const row = screen.getByRole('article')
     expect(
-      within(row).getByRole('button', { name: 'Add to My List' })
+      within(row).getByRole('button', { name: 'Save show' })
     ).toBeInTheDocument()
     expect(
       within(row).getByRole('link', { name: 'View show details' })

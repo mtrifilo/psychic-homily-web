@@ -22,13 +22,13 @@ test.describe('Save/unsave a show', () => {
 
     // Save button should NOT be visible when unauthenticated
     await expect(
-      page.getByRole('button', { name: /add to my list|remove from my list/i })
+      page.getByRole('button', { name: /save show|remove from saved shows/i })
     ).not.toBeVisible()
   })
 
   // PSY-1663: the unsave is this test's last step, so a failure between the
-  // save and it leaves the show saved; the retry then finds "Remove from My
-  // List" where it waits for "Add to My List". Opting into
+  // save and it leaves the show saved; the retry then finds "Remove from
+  // saved shows" where it waits for "Save show". Opting into
   // `cleanBetweenRetries` clears the worker user's bookmarks between
   // attempts, which does not depend on the failing attempt reaching its own
   // cleanup.
@@ -47,18 +47,18 @@ test.describe('Save/unsave a show', () => {
         .getByText(RESERVED_SHOW_TITLE)
     ).toBeVisible({ timeout: 10_000 })
 
-    // Save button should be visible and show "Add to My List"
+    // Save button should be visible and show "Save show"
     const saveButton = authenticatedPage.getByRole('button', {
-      name: 'Add to My List',
+      name: 'Save show',
     })
     await expect(saveButton).toBeVisible({ timeout: 5_000 })
 
     // Click to save
     await saveButton.click()
 
-    // Button should change to "Remove from My List"
+    // Button should change to "Remove from saved shows"
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Remove from My List' })
+      authenticatedPage.getByRole('button', { name: 'Remove from saved shows' })
     ).toBeVisible({ timeout: 5_000 })
 
     // Click to unsave — wait for API response to ensure DB state is
@@ -72,13 +72,13 @@ test.describe('Save/unsave a show', () => {
         { timeout: 10_000 }
       ),
       authenticatedPage
-        .getByRole('button', { name: 'Remove from My List' })
+        .getByRole('button', { name: 'Remove from saved shows' })
         .click(),
     ])
 
-    // Button should revert to "Add to My List"
+    // Button should revert to "Save show"
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Add to My List' })
+      authenticatedPage.getByRole('button', { name: 'Save show' })
     ).toBeVisible({ timeout: 5_000 })
   })
 
@@ -96,7 +96,7 @@ test.describe('Save/unsave a show', () => {
 
     // Save the show and wait for the API response to complete
     const saveButton = authenticatedPage.getByRole('button', {
-      name: 'Add to My List',
+      name: 'Save show',
     })
     await expect(saveButton).toBeVisible({ timeout: 5_000 })
 
@@ -110,7 +110,7 @@ test.describe('Save/unsave a show', () => {
     expect(saveResponse.status()).toBeLessThan(400)
 
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Remove from My List' })
+      authenticatedPage.getByRole('button', { name: 'Remove from saved shows' })
     ).toBeVisible({ timeout: 5_000 })
 
     // Navigate away via the breadcrumb link
@@ -132,7 +132,7 @@ test.describe('Save/unsave a show', () => {
 
     // Should still be saved
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Remove from My List' })
+      authenticatedPage.getByRole('button', { name: 'Remove from saved shows' })
     ).toBeVisible({ timeout: 10_000 })
 
     // Clean up: unsave the show — wait for API response
@@ -144,11 +144,11 @@ test.describe('Save/unsave a show', () => {
         { timeout: 10_000 }
       ),
       authenticatedPage
-        .getByRole('button', { name: 'Remove from My List' })
+        .getByRole('button', { name: 'Remove from saved shows' })
         .click(),
     ])
     await expect(
-      authenticatedPage.getByRole('button', { name: 'Add to My List' })
+      authenticatedPage.getByRole('button', { name: 'Save show' })
     ).toBeVisible({ timeout: 5_000 })
   })
 })

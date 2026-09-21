@@ -5,6 +5,7 @@ import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { AUTH_PATH } from '@/lib/auth-href'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { ScryingGridWordmark } from './scrying-grid/ScryingGridWordmark'
 import { HeroLightning } from './scrying-grid/HeroLightning'
 
@@ -24,15 +25,6 @@ import { HeroLightning } from './scrying-grid/HeroLightning'
  * (`openCommandPalette`, same as the nav `SearchTrigger`); it is presented
  * wider here as the page's dominant action.
  */
-
-/** Discover quick-links — acclimation row helping a newcomer find an entry. */
-const DISCOVER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
-  { href: '/shows', label: 'Shows in any city' },
-  { href: '/artists', label: 'Artists' },
-  { href: '/radio', label: 'Freeform Radio' },
-  { href: '/labels', label: 'Record Labels' },
-  { href: '/graph', label: 'Graph Observatory' },
-]
 
 export function HomeHero() {
   return (
@@ -85,27 +77,7 @@ export function HomeHero() {
       </div>
 
       {/* Discover quick-links row */}
-      <nav
-        aria-label="Discover"
-        className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pt-0.5 text-sm"
-      >
-        <span className="font-medium text-muted-foreground">Discover:</span>
-        {DISCOVER_LINKS.map((link, i) => (
-          <span key={link.href} className="inline-flex items-center">
-            <Link
-              href={link.href}
-              className="font-medium text-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
-            >
-              {link.label}
-            </Link>
-            {i < DISCOVER_LINKS.length - 1 && (
-              <span className="ml-1.5 text-muted-foreground/60" aria-hidden>
-                ·
-              </span>
-            )}
-          </span>
-        ))}
-      </nav>
+      <HomeDiscoverLinks className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pt-0.5 text-sm" />
 
       {/* Quiet sign-up nudge */}
       <p className="pt-1 text-sm text-muted-foreground">

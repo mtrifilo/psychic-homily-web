@@ -448,7 +448,7 @@ export const queryKeys = {
     tokenStatus: ['calendar', 'tokenStatus'] as const,
   },
 
-  // Saved shows queries (user's "My List")
+  // Saved shows queries
   savedShows: {
     all: ['savedShows'] as const,
     listPrefix: (userId?: string) =>
