@@ -13324,8 +13324,11 @@ export interface components {
             success: boolean;
         };
         HomeLayoutSection: {
-            /** @description Section id: saved_shows, nearby_shows, community_stats, city_graph or radio_shows */
-            id: string;
+            /**
+             * @description Section id
+             * @enum {string}
+             */
+            id: "saved_shows" | "nearby_shows" | "community_stats" | "city_graph" | "radio_shows";
             /** @description Whether the section renders */
             visible: boolean;
         };

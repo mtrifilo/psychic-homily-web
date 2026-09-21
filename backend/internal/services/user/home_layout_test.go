@@ -12,8 +12,8 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// PSY-386: home layout persistence against a real database. Postgres, not a
-// fake, because the behaviour under test is what the COLUMN holds: NULL
+// Home layout persistence against a real database. Postgres, not a fake,
+// because the behaviour under test is what the COLUMN holds: NULL
 // (shipped default) has to stay distinguishable from a stored document, and
 // that distinction is exactly what an in-memory stand-in would paper over.
 
@@ -57,16 +57,20 @@ func (suite *HomeLayoutIntegrationTestSuite) rawHomeLayout(userID uint) string {
 	return got.HomeLayout
 }
 
-// assertStored compares by PARSED JSON, not bytes: Postgres normalises
-// whitespace and key order in a jsonb column, so a byte comparison would test
-// the driver rather than the write.
-func (suite *HomeLayoutIntegrationTestSuite) assertStored(userID uint, want *authm.HomeLayout) {
+// storedHomeLayout parses the stored document. Parsed, not bytes: Postgres
+// normalises whitespace and key order in a jsonb column, so a byte comparison
+// would test the driver rather than the write.
+func (suite *HomeLayoutIntegrationTestSuite) storedHomeLayout(userID uint) authm.HomeLayout {
 	stored := suite.rawHomeLayout(userID)
 	suite.Require().NotEmpty(stored, "expected a stored document, column is NULL")
 
 	var got authm.HomeLayout
 	suite.Require().NoError(json.Unmarshal([]byte(stored), &got))
-	suite.Equal(*want, got)
+	return got
+}
+
+func (suite *HomeLayoutIntegrationTestSuite) assertStored(userID uint, want *authm.HomeLayout) {
+	suite.Equal(*want, suite.storedHomeLayout(userID))
 }
 
 func shippedHomeLayout() *authm.HomeLayout {
@@ -98,10 +102,12 @@ func (suite *HomeLayoutIntegrationTestSuite) TestSetHomeLayout_CreatesTheRowOnFi
 
 // Replace, not merge: the second write's list is the whole stored list, and a
 // section the second write drops is gone rather than lingering in its old
-// slot.
+// slot. The payload also pins the two properties that ride on replace, since a
+// hidden section and a non-default order both survive it: saved_shows stays in
+// slot 1 while hidden, and radio_shows leads although it ships last.
 func (suite *HomeLayoutIntegrationTestSuite) TestSetHomeLayout_ReplacesTheWholeDocument() {
 	user := suite.createUser("home-layout-replace@example.com")
-	suite.Require().NotNil(mustSet(suite, user.ID, shippedHomeLayout()))
+	mustSet(suite, user.ID, shippedHomeLayout())
 
 	reordered := &authm.HomeLayout{
 		Version: authm.HomeLayoutVersion,
@@ -127,26 +133,7 @@ func (suite *HomeLayoutIntegrationTestSuite) TestSetHomeLayout_PreservesSectionO
 	}
 	mustSet(suite, user.ID, reversed)
 
-	stored := suite.rawHomeLayout(user.ID)
-	var got authm.HomeLayout
-	suite.Require().NoError(json.Unmarshal([]byte(stored), &got))
-	suite.Equal(reversed.Sections, got.Sections)
-}
-
-// A hidden section keeps its slot, so unhiding it later restores the
-// arrangement the user chose instead of moving it to the end.
-func (suite *HomeLayoutIntegrationTestSuite) TestSetHomeLayout_HiddenSectionKeepsItsSlot() {
-	user := suite.createUser("home-layout-hidden@example.com")
-
-	layout := shippedHomeLayout()
-	layout.Sections[1].Visible = false
-	mustSet(suite, user.ID, layout)
-
-	stored := suite.rawHomeLayout(user.ID)
-	var got authm.HomeLayout
-	suite.Require().NoError(json.Unmarshal([]byte(stored), &got))
-	suite.Equal(authm.HomeSectionNearbyShows, got.Sections[1].ID, "hidden section stays in slot 1")
-	suite.False(got.Sections[1].Visible)
+	suite.assertStored(user.ID, reversed)
 }
 
 // A rejected document must not reach the column: a partial write here would
@@ -227,10 +214,9 @@ func (suite *HomeLayoutIntegrationTestSuite) TestHomeLayout_RidesInTheProfilePay
 	suite.Equal(*layout, got)
 }
 
-func mustSet(suite *HomeLayoutIntegrationTestSuite, userID uint, layout *authm.HomeLayout) *authm.HomeLayout {
-	stored, err := suite.userService.SetHomeLayout(userID, layout)
+func mustSet(suite *HomeLayoutIntegrationTestSuite, userID uint, layout *authm.HomeLayout) {
+	_, err := suite.userService.SetHomeLayout(userID, layout)
 	suite.Require().NoError(err)
-	return stored
 }
 
 func TestHomeLayoutIntegrationTestSuite(t *testing.T) {

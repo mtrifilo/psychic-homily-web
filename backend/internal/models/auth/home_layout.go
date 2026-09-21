@@ -3,21 +3,23 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 )
 
-// Signed-in home layout (PSY-386): which sections the home page renders and in
-// what order. Stored in user_preferences.home_layout as a nullable JSONB
-// document; NULL means the shipped default layout, a state a grid of boolean
-// columns could not represent (see the migration for why).
+// Signed-in home layout: which sections the home page renders and in what
+// order. Stored in user_preferences.home_layout as a nullable JSONB document;
+// NULL means the shipped default layout, a state a grid of boolean columns
+// could not represent (see the migration for why).
 //
 // This package, not services/user, is the home for the shape and the rules
-// because contracts imports models/auth, so both the service that writes the
-// document and the handler that rejects a bad one can name the same type.
+// because contracts imports models/auth, so the service that writes the
+// document, the handler that rejects a bad one and the interface between them
+// can all name the same type.
 
-// HomeLayoutVersion is the only document version this server accepts. It is a
-// hard gate rather than a best-effort parse: a newer client's document may
-// place meaning in fields this build does not model, and storing it after a
-// partial read would silently discard them.
+// HomeLayoutVersion is the only document version this server accepts. A newer
+// client's document may place meaning in fields this build does not model, so
+// storing it after a partial read would silently discard them.
 const HomeLayoutVersion = 1
 
 // Section ids. These are a STORAGE CONTRACT shared with the frontend, so they
@@ -31,11 +33,10 @@ const (
 )
 
 // knownHomeSections is the whitelist, in shipped default order. The backend is
-// the whitelist's single home: an id the server does not know can never be
-// rendered, so accepting one would store a section the user can neither see
-// nor remove.
+// its single home: an id the server does not know can never be rendered, so
+// accepting one would store a section the user can neither see nor remove.
 //
-// A document may omit ids: the frontend appends a missing known section in its
+// A document may OMIT ids. The frontend appends a missing known section in its
 // default slot, which is what lets a section ship without a data migration.
 var knownHomeSections = []string{
 	HomeSectionSavedShows,
@@ -50,10 +51,18 @@ var knownHomeSections = []string{
 // "the write failed" (500). The wrapped text says which rule was broken.
 var ErrInvalidHomeLayout = errors.New("invalid home layout")
 
+// HomeSectionVocabularyCSV renders the whitelist for the OpenAPI enum tag on
+// HomeLayoutSection.ID. Struct tags must be constant literals, so the tag
+// cannot be built from the slice; TestHomeSectionEnumTagMatchesVocabulary is
+// the join that keeps the two in step.
+func HomeSectionVocabularyCSV() string {
+	return strings.Join(knownHomeSections, ",")
+}
+
 // HomeLayoutSection is one section's placement and visibility. Position in the
 // enclosing slice is the placement; a hidden section keeps its slot.
 type HomeLayoutSection struct {
-	ID      string `json:"id" doc:"Section id: saved_shows, nearby_shows, community_stats, city_graph or radio_shows"`
+	ID      string `json:"id" enum:"saved_shows,nearby_shows,community_stats,city_graph,radio_shows" doc:"Section id"`
 	Visible bool   `json:"visible" doc:"Whether the section renders"`
 }
 
@@ -65,21 +74,13 @@ type HomeLayout struct {
 	Sections []HomeLayoutSection `json:"sections" doc:"Sections in render order; a hidden section keeps its slot"`
 }
 
-// KnownHomeSections returns the whitelist in shipped default order. It returns
-// a copy so a caller cannot reorder the package's own slice.
-func KnownHomeSections() []string {
-	out := make([]string, len(knownHomeSections))
-	copy(out, knownHomeSections)
-	return out
-}
-
 // Validate reports whether the document may be stored. Every rejection wraps
 // ErrInvalidHomeLayout.
 //
-// The length bound is derived from the whitelist rather than written as its
-// own number: with unknown ids and duplicates already rejected, more entries
-// than known sections is unreachable, so the check is a guard against a future
-// edit loosening one of the other two rules rather than a rule of its own.
+// The enum tag on HomeLayoutSection.ID rejects an unknown id at the transport
+// layer before this runs. These rules are still the authority: they are what a
+// non-HTTP caller of the service gets, and they cover the duplicate and
+// version rules no schema tag can express.
 func (l *HomeLayout) Validate() error {
 	if l == nil {
 		return fmt.Errorf("%w: document is missing", ErrInvalidHomeLayout)
@@ -88,6 +89,8 @@ func (l *HomeLayout) Validate() error {
 		return fmt.Errorf("%w: unsupported version %d, expected %d",
 			ErrInvalidHomeLayout, l.Version, HomeLayoutVersion)
 	}
+	// Bounded before the loop so a caller cannot spend the server's time on a
+	// list longer than any valid document can be.
 	if len(l.Sections) > len(knownHomeSections) {
 		return fmt.Errorf("%w: %d sections exceeds the %d known sections",
 			ErrInvalidHomeLayout, len(l.Sections), len(knownHomeSections))
@@ -95,7 +98,10 @@ func (l *HomeLayout) Validate() error {
 
 	seen := make(map[string]struct{}, len(l.Sections))
 	for _, section := range l.Sections {
-		if !isKnownHomeSection(section.ID) {
+		// Exact match: no trimming, no case folding. The ids are generated by
+		// the client, so a value needing repair is a client defect, and
+		// repairing it here would let two spellings of one section look valid.
+		if !slices.Contains(knownHomeSections, section.ID) {
 			return fmt.Errorf("%w: unknown section id %q", ErrInvalidHomeLayout, section.ID)
 		}
 		if _, duplicate := seen[section.ID]; duplicate {
@@ -104,17 +110,4 @@ func (l *HomeLayout) Validate() error {
 		seen[section.ID] = struct{}{}
 	}
 	return nil
-}
-
-// isKnownHomeSection matches an id EXACTLY. No trimming and no case folding:
-// the ids are machine-generated by the client, so a value needing repair is a
-// client defect, and repairing it here would let two spellings of one section
-// both look valid.
-func isKnownHomeSection(id string) bool {
-	for _, known := range knownHomeSections {
-		if id == known {
-			return true
-		}
-	}
-	return false
 }

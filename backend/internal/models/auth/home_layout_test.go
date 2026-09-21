@@ -3,12 +3,13 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 )
 
-// PSY-386: the home-layout document's rules. These are the whole 422 surface
-// of the two endpoints, so each rejection is pinned here rather than only
-// through the handler.
+// The home-layout document's rules. These are the whole 422 surface of the two
+// endpoints, so each rejection is pinned here rather than only through the
+// handler.
 
 func defaultHomeLayout() *HomeLayout {
 	return &HomeLayout{
@@ -116,15 +117,18 @@ func TestHomeLayoutJSONKeys(t *testing.T) {
 	}
 }
 
-// KnownHomeSections hands out a copy, so a caller sorting or truncating the
-// result cannot reorder the whitelist every validation reads.
-func TestKnownHomeSections_ReturnsACopy(t *testing.T) {
-	first := KnownHomeSections()
-	if len(first) != len(knownHomeSections) {
-		t.Fatalf("expected %d sections, got %d", len(knownHomeSections), len(first))
+// Struct tags must be constant literals, so the OpenAPI enum on
+// HomeLayoutSection.id cannot be built from knownHomeSections. This test is
+// the join: widening the whitelist without widening the tag would leave the
+// API rejecting a section the service accepts, and the regenerated frontend
+// types would silently disagree with the server.
+func TestHomeSectionEnumTagMatchesVocabulary(t *testing.T) {
+	field, ok := reflect.TypeOf(HomeLayoutSection{}).FieldByName("ID")
+	if !ok {
+		t.Fatalf("HomeLayoutSection.ID must exist")
 	}
-	first[0] = "tampered"
-	if KnownHomeSections()[0] != knownHomeSections[0] {
-		t.Errorf("whitelist was mutated through the returned slice")
+	if got := field.Tag.Get("enum"); got != HomeSectionVocabularyCSV() {
+		t.Errorf("enum tag must list exactly the whitelist, in order\n got: %s\nwant: %s",
+			got, HomeSectionVocabularyCSV())
 	}
 }

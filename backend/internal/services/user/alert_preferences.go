@@ -230,19 +230,32 @@ func (s *UserService) upsertPreference(
 	value any,
 	apply func(*authm.UserPreferences),
 ) error {
-	result := s.db.Model(&authm.UserPreferences{}).
-		Where("user_id = ?", userID).
-		Update(column, value)
-	if result.Error != nil {
-		return fmt.Errorf("failed to update %s: %w", column, result.Error)
+	rowsAffected, err := s.updatePreference(userID, column, value)
+	if err != nil {
+		return err
 	}
-	if result.RowsAffected > 0 {
+	if rowsAffected > 0 {
 		return nil
 	}
 
 	prefs := &authm.UserPreferences{UserID: userID}
 	apply(prefs)
 	return upsertUserPreferences(s.db, prefs, column)
+}
+
+// updatePreference writes one column on the user's EXISTING preferences row
+// and reports how many rows that touched. Zero rows is not an error: it is the
+// caller's signal that the user has no preferences row, and only the caller
+// knows whether that state needs one created (upsertPreference) or already
+// says what the write meant (clearing a column back to NULL).
+func (s *UserService) updatePreference(userID uint, column string, value any) (int64, error) {
+	result := s.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update(column, value)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to update %s: %w", column, result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 // upsertUserPreferences inserts a preferences row, or applies just this

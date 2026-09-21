@@ -1,4 +1,4 @@
--- PSY-386: persist the signed-in home page layout per user.
+-- Persist the signed-in home page layout per user.
 --
 -- home_layout is a nullable JSONB document describing section ORDER and
 -- VISIBILITY on the signed-in home:
@@ -10,21 +10,16 @@
 --                 {"id": "city_graph",      "visible": false},
 --                 {"id": "radio_shows",     "visible": true}]}
 --
--- Array order IS the placement, and a hidden section keeps its slot so
--- unhiding it restores the arrangement the user chose rather than appending
--- the section to the end.
+-- Array order IS the placement, and a hidden section keeps its slot.
 --
--- NULL means the SHIPPED DEFAULT layout, and that state must stay
--- representable. A grid of boolean columns could not tell "never customized"
--- apart from "customized to exactly today's defaults", so the current section
--- set would be frozen into every row at migration time and a later change to
--- the shipped layout could never reach a user who had not touched it. Columns
--- also cannot carry order. Same reasoning as alert_defaults (PSY-1907) and
--- chart_defaults (PSY-1423).
+-- NULL means the SHIPPED DEFAULT layout. That state has to stay
+-- representable: boolean columns could not tell "never customized" apart from
+-- "customized to exactly today's defaults", and they cannot carry order at
+-- all. Same document shape, and the same reason for it, as the alert_defaults
+-- and chart_defaults columns on this table.
 --
 -- The version and the section-id whitelist are enforced in Go
--- (models/auth/home_layout.go), not by a CHECK constraint: the section set
--- changes with the frontend, and a constraint would make every such change a
--- migration that has to deploy in lockstep with it.
+-- (models/auth/home_layout.go), not by a CHECK constraint, because the section
+-- set changes with the frontend.
 ALTER TABLE user_preferences
     ADD COLUMN home_layout JSONB;

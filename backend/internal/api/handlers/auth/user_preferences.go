@@ -152,7 +152,7 @@ func (h *UserPreferencesHandler) SetChartDefaultsHandler(ctx context.Context, re
 }
 
 // ===========================================================================
-// PSY-386: signed-in home layout
+// Signed-in home layout
 // ===========================================================================
 
 // SetHomeLayoutRequest carries the WHOLE layout document; the write replaces

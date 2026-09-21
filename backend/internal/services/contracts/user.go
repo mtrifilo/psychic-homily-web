@@ -355,10 +355,10 @@ type UserServiceInterface interface {
 	SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error
 	// PSY-1423: persist /charts window + scene defaults (nil clears).
 	SetChartDefaults(userID uint, defaults *authm.ChartDefaults) error
-	// PSY-386: signed-in home section order + visibility. SetHomeLayout
-	// REPLACES the stored document and returns it; ClearHomeLayout resets to
-	// NULL, which is the shipped default layout. A rejection from SetHomeLayout
-	// wraps authm.ErrInvalidHomeLayout.
+	// Signed-in home section order + visibility. SetHomeLayout REPLACES the
+	// stored document and returns it; ClearHomeLayout resets to NULL, which is
+	// the shipped default layout. A rejection from SetHomeLayout wraps
+	// authm.ErrInvalidHomeLayout.
 	SetHomeLayout(userID uint, layout *authm.HomeLayout) (*authm.HomeLayout, error)
 	ClearHomeLayout(userID uint) error
 	SetShowReminders(userID uint, enabled bool) error
