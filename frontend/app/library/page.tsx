@@ -7,7 +7,11 @@ import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
-import { useInfiniteSavedShows, useUnsaveShow } from '@/features/shows'
+import {
+  SAVED_SHOWS_COLLAPSED_COUNT,
+  useInfiniteSavedShows,
+  useUnsaveShow,
+} from '@/features/shows'
 import type { SavedShowResponse } from '@/features/shows'
 import {
   useSavedReleases,
@@ -36,10 +40,10 @@ import {
   LibraryTasteSidebar,
   LibraryViewToggle,
   LibraryWallGrid,
-  SavedShowRow,
   useLibraryView,
   type LibraryView,
 } from '@/features/library'
+import { SavedShowRow } from '@/features/shows/components/SavedShowRow'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -106,40 +110,6 @@ function EmptyState({
 // Shows tab — the user's saved shows
 // ---------------------------------------------------------------------------
 
-const COLLAPSED_SHOW_COUNT = 4
-
-function SavedShowCard({
-  show,
-  isPast,
-  onRemove,
-  isRemoving,
-  isRemovalPending,
-}: {
-  show: SavedShowResponse
-  isPast: boolean
-  onRemove: (showId: number) => void
-  isRemoving: boolean
-  isRemovalPending: boolean
-}) {
-  return (
-    <SavedShowRow
-      show={show}
-      isPast={isPast}
-      action={
-        <button
-          type="button"
-          onClick={() => onRemove(show.id)}
-          disabled={isRemovalPending}
-          className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
-          aria-label={`Remove ${show.title} from saved shows`}
-        >
-          {isRemoving ? 'removing…' : '✕ remove'}
-        </button>
-      }
-    />
-  )
-}
-
 function SavedShowsSection({
   title,
   shows,
@@ -173,8 +143,10 @@ function SavedShowsSection({
   const wallMode = view === 'wall'
   // Wall shows the full fetched list; table keeps the compact collapse.
   const visibleShows =
-    wallMode || expanded ? shows : shows.slice(0, COLLAPSED_SHOW_COUNT)
-  const hasExpandableRows = !wallMode && shows.length > COLLAPSED_SHOW_COUNT
+    wallMode || expanded
+      ? shows
+      : shows.slice(0, SAVED_SHOWS_COLLAPSED_COUNT)
+  const hasExpandableRows = !wallMode && shows.length > SAVED_SHOWS_COLLAPSED_COUNT
   const countLabel = `${total} ${total === 1 ? 'show' : 'shows'}`
   const orderLabel = isPast ? 'most recent first' : 'soonest first'
   const headingId = `saved-shows-${title.toLowerCase()}`
@@ -224,13 +196,21 @@ function SavedShowsSection({
       ) : (
         <div>
           {visibleShows.map(show => (
-            <SavedShowCard
+            <SavedShowRow
               key={show.id}
               show={show}
               isPast={isPast}
-              onRemove={onRemove}
-              isRemoving={removingShowId === show.id}
-              isRemovalPending={isRemovalPending}
+              action={
+                <button
+                  type="button"
+                  onClick={() => onRemove(show.id)}
+                  disabled={isRemovalPending}
+                  className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
+                  aria-label={`Remove ${show.title} from saved shows`}
+                >
+                  {removingShowId === show.id ? 'removing…' : '✕ remove'}
+                </button>
+              }
             />
           ))}
         </div>

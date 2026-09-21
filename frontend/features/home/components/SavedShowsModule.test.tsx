@@ -7,6 +7,7 @@ const mockUseSavedShows = vi.fn()
 const mockUseShowSaveCountBatch = vi.fn(() => ({ data: undefined }))
 
 vi.mock('@/features/shows/hooks/useSavedShows', () => ({
+  SAVED_SHOWS_COLLAPSED_COUNT: 4,
   useSavedShows: (...args: unknown[]) => mockUseSavedShows(...args),
   useShowSaveCountBatch: (...args: unknown[]) =>
     mockUseShowSaveCountBatch(...(args as [])),

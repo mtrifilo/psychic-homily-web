@@ -5,7 +5,18 @@ import Link from 'next/link'
 import { formatShowTime } from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-import type { SavedShowResponse } from '@/features/shows/types'
+import type { SavedShowResponse } from '../types'
+
+/**
+ * The saved-show ledger row's grid: a fixed date column, a flexible bill, and
+ * a trailing stack that becomes a third column at `md`.
+ *
+ * Exported because the states that sit directly above and below a run of these
+ * rows (the signed-in home's prompt row) must line up with them. A second copy
+ * of this string is how they stop lining up.
+ */
+export const SAVED_SHOW_ROW_GRID =
+  'grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5 md:py-3'
 
 /**
  * One saved-show ledger row, shared by the Library Shows tab and the signed-in
@@ -18,8 +29,8 @@ import type { SavedShowResponse } from '@/features/shows/types'
  * to both and stays here.
  *
  * The markup is the Library row verbatim. Its grid template, mobile/desktop
- * date split and venue line are a contract with the Library table around it,
- * not a per-caller starting point.
+ * date split and venue line are one contract shared by both tables, not a
+ * per-caller starting point.
  */
 export function SavedShowRow({
   show,
@@ -47,7 +58,7 @@ export function SavedShowRow({
   return (
     <article
       aria-label={show.title}
-      className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5 md:py-3"
+      className={SAVED_SHOW_ROW_GRID}
     >
       <div
         className={`row-span-2 font-mono text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${

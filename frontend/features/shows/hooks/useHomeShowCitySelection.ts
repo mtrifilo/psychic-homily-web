@@ -10,7 +10,7 @@ import {
   useGeoDefaultCity,
   shouldShowGeoAffordance,
 } from '@/components/filters/useGeoDefaultCity'
-import { useShowCities } from '../hooks/useShows'
+import { useShowCities } from './useShows'
 
 /**
  * The home surfaces' city selection, owned in one place so the list and any
@@ -98,15 +98,33 @@ export function useHomeShowCitySelection(): HomeShowCitySelection {
     [notifyUserInteracted]
   )
 
-  return {
-    cities,
-    favoriteCities,
-    effectiveCities,
-    geoAffordanceCity: shouldShowGeoAffordance(appliedGeoDefault, effectiveCities)
-      ? appliedGeoDefault
-      : null,
-    // Determines whether "Save as default" / "Clear defaults" should show.
-    selectionDiffersFromFavorites: !citiesEqual(effectiveCities, favoriteCities),
-    onFilterChange,
-  }
+  // Memoized as a whole, not only field by field: callers hold this object as
+  // a prop, so a fresh identity each render would defeat any memo they put
+  // around the list it feeds.
+  return useMemo(
+    () => ({
+      cities,
+      favoriteCities,
+      effectiveCities,
+      geoAffordanceCity: shouldShowGeoAffordance(
+        appliedGeoDefault,
+        effectiveCities
+      )
+        ? appliedGeoDefault
+        : null,
+      // Determines whether "Save as default" / "Clear defaults" should show.
+      selectionDiffersFromFavorites: !citiesEqual(
+        effectiveCities,
+        favoriteCities
+      ),
+      onFilterChange,
+    }),
+    [
+      cities,
+      favoriteCities,
+      effectiveCities,
+      appliedGeoDefault,
+      onFilterChange,
+    ]
+  )
 }

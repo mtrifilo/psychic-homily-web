@@ -13,9 +13,24 @@ const selection = {
 }
 
 const listProps = vi.fn()
+type SavedShowsResult = {
+  data?: { shows: { id: number }[] }
+  isPending: boolean
+}
+const mockUseSavedShows = vi.fn<() => SavedShowsResult>(() => ({
+  data: { shows: [{ id: 7 }, { id: 9 }] },
+  isPending: false,
+}))
 
-vi.mock('@/features/shows/components/useHomeShowCitySelection', () => ({
+vi.mock('@/features/shows/hooks/useHomeShowCitySelection', () => ({
   useHomeShowCitySelection: () => selection,
+}))
+vi.mock('@/features/shows/hooks/useSavedShows', () => ({
+  SAVED_SHOWS_COLLAPSED_COUNT: 4,
+  useSavedShows: () => mockUseSavedShows(),
+}))
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ user: { id: '42' }, isAuthenticated: true }),
 }))
 vi.mock('@/features/shows/components/HomeShowListView', () => ({
   HomeShowListView: (props: unknown) => {
@@ -27,6 +42,10 @@ vi.mock('@/features/shows/components/HomeShowListView', () => ({
 beforeEach(() => {
   selection.effectiveCities = []
   listProps.mockClear()
+  mockUseSavedShows.mockReturnValue({
+    data: { shows: [{ id: 7 }, { id: 9 }] },
+    isPending: false,
+  })
 })
 
 describe('NearbyShowsSection', () => {
@@ -66,12 +85,22 @@ describe('NearbyShowsSection', () => {
     ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ%7CTucson%2CAZ')
   })
 
-  it('hands the list the same selection and asks it to drop saved rows', () => {
+  it('hands the list the same selection and the saved ids to drop', () => {
     render(<NearbyShowsSection id="nearby" />)
 
     expect(screen.getByTestId('home-show-list')).toBeInTheDocument()
     expect(listProps).toHaveBeenCalledWith(
-      expect.objectContaining({ selection, excludeSavedShows: true })
+      expect.objectContaining({ selection, excludeShowIds: [7, 9] })
+    )
+  })
+
+  it("reports the exclusions as pending rather than empty while they load", () => {
+    mockUseSavedShows.mockReturnValueOnce({ data: undefined, isPending: true })
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    expect(listProps).toHaveBeenCalledWith(
+      expect.objectContaining({ excludeShowIds: 'pending' })
     )
   })
 })

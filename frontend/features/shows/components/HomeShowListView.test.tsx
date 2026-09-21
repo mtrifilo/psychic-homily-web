@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { HomeShowListView } from './HomeShowListView'
-import type { HomeShowCitySelection } from './useHomeShowCitySelection'
+import type { HomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 
 const mockUseUpcomingShows = vi.fn()
 const mockUseShowSaveCountBatch = vi.fn()
@@ -70,32 +70,48 @@ describe('HomeShowListView', () => {
     expect(screen.getByText('Not saved')).toBeInTheDocument()
   })
 
-  it('drops rows the viewer already saved when asked to', () => {
-    render(<HomeShowListView selection={selection} excludeSavedShows />)
+  it('drops the excluded rows', () => {
+    render(<HomeShowListView selection={selection} excludeShowIds={[1]} />)
 
     expect(screen.queryByText('Saved one')).not.toBeInTheDocument()
     expect(screen.getByText('Not saved')).toBeInTheDocument()
   })
 
-  it('waits for the save batch rather than painting rows it will drop', () => {
-    mockUseShowSaveCountBatch.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    })
+  it('asks for the excluded rows on top so the section still fills', () => {
+    render(<HomeShowListView selection={selection} excludeShowIds={[1, 2, 3]} />)
 
-    render(<HomeShowListView selection={selection} excludeSavedShows />)
+    expect(mockUseUpcomingShows).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 8 })
+    )
+  })
+
+  it('waits rather than painting rows it is about to drop', () => {
+    render(<HomeShowListView selection={selection} excludeShowIds="pending" />)
 
     expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
   })
 
-  it('does not wait on the batch when it is not filtering', () => {
-    mockUseShowSaveCountBatch.mockReturnValue({
-      data: undefined,
-      isLoading: true,
+  it('says nothing false when exclusions emptied a non-empty page', () => {
+    render(<HomeShowListView selection={selection} excludeShowIds={[1, 2]} />)
+
+    expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/No upcoming shows/i)
+    ).not.toBeInTheDocument()
+  })
+
+  it('still reports a genuinely empty page', () => {
+    mockUseUpcomingShows.mockReturnValue({
+      data: { shows: [] },
+      isLoading: false,
+      isFetching: false,
+      error: null,
     })
 
-    render(<HomeShowListView selection={selection} />)
+    render(<HomeShowListView selection={selection} excludeShowIds={[]} />)
 
-    expect(screen.getAllByTestId('show-card')).toHaveLength(2)
+    expect(
+      screen.getByText('No upcoming shows at this time.')
+    ).toBeInTheDocument()
   })
 })

@@ -1,5 +1,3 @@
-'use client'
-
 import Link from 'next/link'
 
 /** Discover quick-links — acclimation row helping a newcomer find an entry. */

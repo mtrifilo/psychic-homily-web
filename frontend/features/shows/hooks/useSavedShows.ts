@@ -56,14 +56,20 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
   })
 }
 
-const SAVED_SHOWS_INITIAL_PAGE_SIZE = 4
+/**
+ * How many saved shows a surface shows before sending the viewer to the full
+ * list: Library's collapsed table, the signed-in home's module, and this
+ * query's first page. One constant because those three are the SAME promise to
+ * the viewer, and three literals cannot be kept equal by a comment.
+ */
+export const SAVED_SHOWS_COLLAPSED_COUNT = 4
 const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
 
 /**
- * Fetch a date-partitioned saved-show list incrementally. The first request
- * matches the Library's collapsed row count; expansion then uses the API's
- * maximum page size so large collections remain reachable without making the
- * initial Library load hydrate hundreds of hidden records.
+ * Fetch a date-partitioned saved-show list incrementally. The first request is
+ * the collapsed row count; expansion then uses the API's maximum page size so
+ * large collections remain reachable without making the initial Library load
+ * hydrate hundreds of hidden records.
  */
 export const useInfiniteSavedShows = (
   timeFilter: 'upcoming' | 'past',
@@ -72,7 +78,7 @@ export const useInfiniteSavedShows = (
 ) =>
   useInfiniteQuery({
     queryKey: queryKeys.savedShows.infiniteList(userId, timeFilter),
-    initialPageParam: { offset: 0, limit: SAVED_SHOWS_INITIAL_PAGE_SIZE },
+    initialPageParam: { offset: 0, limit: SAVED_SHOWS_COLLAPSED_COUNT },
     queryFn: async ({ pageParam }): Promise<SavedShowsListResponse> => {
       const params = new URLSearchParams({
         limit: pageParam.limit.toString(),

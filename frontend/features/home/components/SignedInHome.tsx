@@ -1,5 +1,3 @@
-'use client'
-
 import { CommunityPulseBand } from './CommunityPulseBand'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeSceneGraph } from './HomeSceneGraph'

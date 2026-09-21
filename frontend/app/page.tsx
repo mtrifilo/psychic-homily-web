@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
 import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
-import { HomeContentSlot } from './HomeContentSlot'
+import { HomeContentSlot } from './_components/HomeContentSlot'
 
 // PSY-389: logged-out discovery landing ("This is not a mirage"). Drops the old
 // "Arizona Music Community" framing. NOTE: Next.js does NOT apply a layout's

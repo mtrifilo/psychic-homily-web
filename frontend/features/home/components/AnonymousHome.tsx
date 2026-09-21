@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { HomeShowList } from '@/features/shows'
+import { HomeShowList } from '@/features/shows/components/HomeShowList'
 import { Button } from '@/components/ui/button'
 import { CommunityPulseBand } from './CommunityPulseBand'
 import { HomeHero } from './HomeHero'

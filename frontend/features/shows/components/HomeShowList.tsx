@@ -1,7 +1,7 @@
 'use client'
 
 import { HomeShowListView } from './HomeShowListView'
-import { useHomeShowCitySelection } from './useHomeShowCitySelection'
+import { useHomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 
 /**
  * The home page's upcoming-shows list, owning its own city selection.
