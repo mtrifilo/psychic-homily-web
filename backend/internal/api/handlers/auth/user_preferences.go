@@ -151,6 +151,106 @@ func (h *UserPreferencesHandler) SetChartDefaultsHandler(ctx context.Context, re
 	}, nil
 }
 
+// ===========================================================================
+// PSY-386: signed-in home layout
+// ===========================================================================
+
+// SetHomeLayoutRequest carries the WHOLE layout document; the write replaces
+// whatever is stored. The body is the document itself rather than a wrapper so
+// the request, the response field and the profile payload all describe the
+// same shape.
+type SetHomeLayoutRequest struct {
+	Body authm.HomeLayout
+}
+
+// ClearHomeLayoutRequest takes nothing: the endpoint resets the session user's
+// own layout, and the user comes from the session.
+type ClearHomeLayoutRequest struct{}
+
+// HomeLayoutResponse reports the resulting layout. A null Layout is the
+// shipped default, the state DELETE restores.
+type HomeLayoutResponse struct {
+	Body struct {
+		Success bool              `json:"success"`
+		Message string            `json:"message"`
+		Layout  *authm.HomeLayout `json:"home_layout"`
+	}
+}
+
+// SetHomeLayoutHandler handles PUT /auth/preferences/home-layout.
+func (h *UserPreferencesHandler) SetHomeLayoutHandler(ctx context.Context, req *SetHomeLayoutRequest) (*HomeLayoutResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	layout := req.Body
+	stored, err := h.userService.SetHomeLayout(user.ID, &layout)
+	if err != nil {
+		// A rejected document is the client's mistake and its text names the
+		// broken rule, so it is safe (and useful) to echo. Any other failure is
+		// ours: it gets a 5xx and its detail stays in the log.
+		if errors.Is(err, authm.ErrInvalidHomeLayout) {
+			logger.FromContext(ctx).Warn("set_home_layout_rejected",
+				"error", err.Error(),
+				"user_id", user.ID,
+				"request_id", requestID,
+			)
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		}
+		logger.FromContext(ctx).Error("set_home_layout_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to save home layout")
+	}
+
+	logger.FromContext(ctx).Info("set_home_layout_success",
+		"user_id", user.ID,
+		"sections", len(layout.Sections),
+	)
+
+	return newHomeLayoutResponse("Home layout updated", stored), nil
+}
+
+// ClearHomeLayoutHandler handles DELETE /auth/preferences/home-layout.
+func (h *UserPreferencesHandler) ClearHomeLayoutHandler(ctx context.Context, _ *ClearHomeLayoutRequest) (*HomeLayoutResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if err := h.userService.ClearHomeLayout(user.ID); err != nil {
+		logger.FromContext(ctx).Error("clear_home_layout_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to reset home layout")
+	}
+
+	logger.FromContext(ctx).Info("clear_home_layout_success",
+		"user_id", user.ID,
+	)
+
+	return newHomeLayoutResponse("Home layout reset", nil), nil
+}
+
+// newHomeLayoutResponse builds the shared body so PUT and DELETE cannot drift
+// in what they report.
+func newHomeLayoutResponse(message string, layout *authm.HomeLayout) *HomeLayoutResponse {
+	resp := &HomeLayoutResponse{}
+	resp.Body.Success = true
+	resp.Body.Message = message
+	resp.Body.Layout = layout
+	return resp
+}
+
 // SetShowRemindersRequest represents the request to toggle show reminders
 type SetShowRemindersRequest struct {
 	Body struct {

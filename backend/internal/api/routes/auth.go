@@ -215,6 +215,10 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/auth/preferences/alerts", userPrefsHandler.GetAlertPreferencesHandler)
 	huma.Put(rc.Protected, "/auth/preferences/home-metro", userPrefsHandler.SetHomeMetroHandler)
 	huma.Patch(rc.Protected, "/auth/preferences/alert-defaults", userPrefsHandler.SetAlertDefaultsHandler)
+	// PSY-386: signed-in home section order + visibility. No GET: the document
+	// rides in the /auth/profile preferences payload the client already loads.
+	huma.Put(rc.Protected, "/auth/preferences/home-layout", userPrefsHandler.SetHomeLayoutHandler)
+	huma.Delete(rc.Protected, "/auth/preferences/home-layout", userPrefsHandler.ClearHomeLayoutHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
 	huma.Post(rc.API, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)

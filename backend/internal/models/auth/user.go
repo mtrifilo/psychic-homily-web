@@ -128,6 +128,13 @@ type UserPreferences struct {
 	// stay representable.
 	AlertDefaults *json.RawMessage `json:"alert_defaults" gorm:"column:alert_defaults;type:jsonb"`
 
+	// HomeLayout is the signed-in home's section order and visibility (PSY-386).
+	// NULL means the shipped default layout. Held raw, like its JSONB siblings,
+	// so the profile payload carries whatever is stored without this struct
+	// becoming a second definition of the document; the typed shape and its
+	// rules live in home_layout.go.
+	HomeLayout *json.RawMessage `json:"home_layout" gorm:"column:home_layout;type:jsonb"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 

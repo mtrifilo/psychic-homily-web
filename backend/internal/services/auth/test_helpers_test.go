@@ -151,6 +151,17 @@ func (n *nilDBUserService) SetChartDefaults(userID uint, defaults *authm.ChartDe
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetHomeLayout(
+	userID uint,
+	layout *authm.HomeLayout,
+) (*authm.HomeLayout, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+
+func (n *nilDBUserService) ClearHomeLayout(userID uint) error {
+	return fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) SetShowReminders(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }
