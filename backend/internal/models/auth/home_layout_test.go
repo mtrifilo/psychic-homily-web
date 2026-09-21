@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -43,14 +44,30 @@ func TestHomeLayoutValidate_AcceptsAPartialDocument(t *testing.T) {
 	}
 }
 
-// An empty section list is "hide nothing, order nothing", which the frontend
-// fills from the defaults. It is not an error: rejecting it would make the
-// only way to say "back to defaults" a DELETE, and a client that sends both is
-// harder to reason about than one that can send either.
+// An empty section list is a well-formed document that happens to place
+// nothing, so it validates. It is NOT a reset: storing it leaves home_layout
+// non-NULL, so the user still reads as customised. DELETE is the only reset.
 func TestHomeLayoutValidate_AcceptsAnEmptySectionList(t *testing.T) {
 	layout := &HomeLayout{Version: HomeLayoutVersion, Sections: []HomeLayoutSection{}}
 	if err := layout.Validate(); err != nil {
 		t.Fatalf("empty section list should validate, got %v", err)
+	}
+}
+
+// A nil list is accepted on the same terms as an empty one, and marshals to
+// `"sections":null`. Pinned because the generated client types the field as
+// nullable, so a client can send it and the stored document must stay readable.
+func TestHomeLayoutValidate_AcceptsANilSectionList(t *testing.T) {
+	layout := &HomeLayout{Version: HomeLayoutVersion}
+	if err := layout.Validate(); err != nil {
+		t.Fatalf("nil section list should validate, got %v", err)
+	}
+	encoded, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if string(encoded) != `{"version":1,"sections":null}` {
+		t.Errorf("nil sections round trip drifted: %s", encoded)
 	}
 }
 
@@ -127,8 +144,22 @@ func TestHomeSectionEnumTagMatchesVocabulary(t *testing.T) {
 	if !ok {
 		t.Fatalf("HomeLayoutSection.ID must exist")
 	}
-	if got := field.Tag.Get("enum"); got != HomeSectionVocabularyCSV() {
+	if got := field.Tag.Get("enum"); got != homeSectionVocabularyCSV() {
 		t.Errorf("enum tag must list exactly the whitelist, in order\n got: %s\nwant: %s",
-			got, HomeSectionVocabularyCSV())
+			got, homeSectionVocabularyCSV())
+	}
+}
+
+// The same join for the length cap. Without it the schema would keep
+// advertising a stale bound after the whitelist grows, so a client would be
+// refused at the transport layer for a document the service accepts.
+func TestHomeSectionMaxItemsMatchesVocabulary(t *testing.T) {
+	field, ok := reflect.TypeOf(HomeLayout{}).FieldByName("Sections")
+	if !ok {
+		t.Fatalf("HomeLayout.Sections must exist")
+	}
+	if got := field.Tag.Get("maxItems"); got != strconv.Itoa(len(knownHomeSections)) {
+		t.Errorf("schema maxItems is %q but the whitelist holds %d sections",
+			got, len(knownHomeSections))
 	}
 }

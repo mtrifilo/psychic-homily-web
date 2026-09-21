@@ -10,8 +10,10 @@ import (
 // Signed-in home layout persistence. The document shape and its rules live in
 // models/auth/home_layout.go; this file owns storage only.
 
-// SetHomeLayout replaces the user's stored home layout and returns what was
-// stored.
+// SetHomeLayout replaces the user's stored home layout and returns the stored
+// document. Nothing is normalised today, so the returned document equals the
+// argument; it is returned rather than echoed by the caller so the response
+// follows this function if that ever stops being true.
 //
 // REPLACE, not merge: the document is an ordered list, and a merge has no
 // defensible answer for where a section the update omits belongs. The writer

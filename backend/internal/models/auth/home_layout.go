@@ -32,12 +32,21 @@ const (
 	HomeSectionRadioShows     = "radio_shows"
 )
 
-// knownHomeSections is the whitelist, in shipped default order. The backend is
-// its single home: an id the server does not know can never be rendered, so
-// accepting one would store a section the user can neither see nor remove.
+// knownHomeSections is the whitelist, in the order the sections are intended
+// to ship in. The backend is its single home: an id the server does not know
+// can never be rendered, so accepting one would store a section the user can
+// neither see nor remove.
 //
-// A document may OMIT ids. The frontend appends a missing known section in its
-// default slot, which is what lets a section ship without a data migration.
+// A document may OMIT ids, and Validate accepts that on the CONTRACT that a
+// client appends any known section the document leaves out, in this order.
+// That is what lets a new section ship without rewriting stored rows. The
+// consuming frontend is not built yet (PSY-2104), so nothing enforces its half
+// of that contract today.
+//
+// These ids are unverified against a renderer: no component keyed to them
+// exists yet. Renaming one after the first production write costs a data
+// migration that rewrites stored documents, so they should be confirmed
+// against the real sections before that write happens.
 var knownHomeSections = []string{
 	HomeSectionSavedShows,
 	HomeSectionNearbyShows,
@@ -51,11 +60,11 @@ var knownHomeSections = []string{
 // "the write failed" (500). The wrapped text says which rule was broken.
 var ErrInvalidHomeLayout = errors.New("invalid home layout")
 
-// HomeSectionVocabularyCSV renders the whitelist for the OpenAPI enum tag on
-// HomeLayoutSection.ID. Struct tags must be constant literals, so the tag
-// cannot be built from the slice; TestHomeSectionEnumTagMatchesVocabulary is
-// the join that keeps the two in step.
-func HomeSectionVocabularyCSV() string {
+// homeSectionVocabularyCSV renders the whitelist in the CSV form the enum tag
+// on HomeLayoutSection.ID must spell literally. Test-only: struct tags must be
+// constant literals, so the tag cannot be built from this slice, and
+// TestHomeSectionEnumTagMatchesVocabulary is the join that keeps them in step.
+func homeSectionVocabularyCSV() string {
 	return strings.Join(knownHomeSections, ",")
 }
 
@@ -71,7 +80,7 @@ type HomeLayoutSection struct {
 // the next read returns.
 type HomeLayout struct {
 	Version  int                 `json:"version" doc:"Document version; must be 1"`
-	Sections []HomeLayoutSection `json:"sections" doc:"Sections in render order; a hidden section keeps its slot"`
+	Sections []HomeLayoutSection `json:"sections" maxItems:"5" doc:"Sections in render order; a hidden section keeps its slot"`
 }
 
 // Validate reports whether the document may be stored. Every rejection wraps
@@ -89,8 +98,13 @@ func (l *HomeLayout) Validate() error {
 		return fmt.Errorf("%w: unsupported version %d, expected %d",
 			ErrInvalidHomeLayout, l.Version, HomeLayoutVersion)
 	}
-	// Bounded before the loop so a caller cannot spend the server's time on a
-	// list longer than any valid document can be.
+	// A document cannot name more sections than exist, since duplicates are
+	// rejected below. Checked up front so the error names the whole-document
+	// problem rather than whichever duplicate happens to come first. This is a
+	// correctness rule, NOT a cost bound: over HTTP the body is already decoded
+	// and schema-validated before Validate runs. maxItems on the field is what
+	// states the cap to clients; TestHomeSectionMaxItemsMatchesVocabulary pins
+	// the two together.
 	if len(l.Sections) > len(knownHomeSections) {
 		return fmt.Errorf("%w: %d sections exceeds the %d known sections",
 			ErrInvalidHomeLayout, len(l.Sections), len(knownHomeSections))

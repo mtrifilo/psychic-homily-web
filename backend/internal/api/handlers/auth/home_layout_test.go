@@ -39,9 +39,8 @@ func TestHomeLayoutHandlers_NoAuth(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 401)
 }
 
-// The response carries the service's return value, not the request body: the
-// stored document is the one the client must render, and only the service
-// knows it.
+// The handler forwards the whole document and renders whatever the service
+// hands back, rather than echoing the request body it was given.
 func TestSetHomeLayoutHandler_EchoesTheStoredDocument(t *testing.T) {
 	var got *authm.HomeLayout
 	stored := &authm.HomeLayout{
@@ -87,6 +86,22 @@ func TestSetHomeLayoutHandler_InvalidDocumentIs422(t *testing.T) {
 
 // A failed write is OUR mistake: 5xx, and its detail stays in the log rather
 // than being handed to the caller as though they could fix it.
+// A nil document with a nil error is a broken service, not a renderable state:
+// an absent home_layout is the RESET signal, so reporting it on a PUT would
+// tell a user who just saved an arrangement that it was discarded. The sibling
+// alerts endpoint holds the same line (TestAlertPreferences_NilResultIs500).
+func TestSetHomeLayoutHandler_NilResultIs500(t *testing.T) {
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		SetHomeLayoutFn: func(uint, *authm.HomeLayout) (*authm.HomeLayout, error) {
+			return nil, nil
+		},
+	})
+
+	_, err := h.SetHomeLayoutHandler(authedPrefsCtx(), homeLayoutRequest())
+
+	testhelpers.AssertHumaErrorWithDetail(t, err, 500, "Failed to save home layout")
+}
+
 func TestSetHomeLayoutHandler_WriteFailureIs500(t *testing.T) {
 	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetHomeLayoutFn: func(uint, *authm.HomeLayout) (*authm.HomeLayout, error) {
@@ -118,7 +133,7 @@ func TestClearHomeLayoutHandler_ReportsNull(t *testing.T) {
 		t.Errorf("expected the service to be asked to clear the layout")
 	}
 	if resp.Body.Layout != nil {
-		t.Errorf("expected a null layout, got %+v", resp.Body.Layout)
+		t.Errorf("expected no layout on a reset, got %+v", resp.Body.Layout)
 	}
 	if !resp.Body.Success {
 		t.Errorf("expected success")

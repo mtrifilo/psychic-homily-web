@@ -157,13 +157,30 @@ func (suite *HomeLayoutIntegrationTestSuite) TestSetHomeLayout_RejectionWritesNo
 // DELETE resets to NULL, the shipped default. NULL and not an empty document,
 // because an empty document would say what NULL already says while also
 // claiming the user made a choice.
+//
+// A sibling preference is set first and re-checked after, because rawHomeLayout
+// reads the same empty string for "column is NULL" and "the row is gone": a
+// reset reimplemented as a row DELETE would wipe every other preference on the
+// row and still leave the NULL assertion green.
 func (suite *HomeLayoutIntegrationTestSuite) TestClearHomeLayout_ResetsToNull() {
 	user := suite.createUser("home-layout-clear@example.com")
+	metro := "38060"
+	suite.Require().NoError(suite.userService.SetHomeMetro(user.ID, &metro))
 	mustSet(suite, user.ID, shippedHomeLayout())
 
 	suite.Require().NoError(suite.userService.ClearHomeLayout(user.ID))
 
 	suite.Empty(suite.rawHomeLayout(user.ID), "column should be NULL after a reset")
+
+	var rows int64
+	suite.Require().NoError(suite.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", user.ID).Count(&rows).Error)
+	suite.EqualValues(1, rows, "the preferences row must survive a reset")
+
+	prefs, err := suite.userService.GetAlertPreferences(user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(prefs.HomeMetro, "a reset must not clear sibling preferences")
+	suite.Equal(metro, *prefs.HomeMetro)
 }
 
 // A user who never customised anything is already at the default, so a reset

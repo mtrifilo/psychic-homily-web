@@ -13319,7 +13319,7 @@ export interface components {
              * @example https://example.com/schemas/HomeLayoutResponseBody.json
              */
             readonly $schema?: string;
-            home_layout: components["schemas"]["HomeLayout"];
+            home_layout?: components["schemas"]["HomeLayout"];
             message: string;
             success: boolean;
         };

@@ -167,13 +167,20 @@ type SetHomeLayoutRequest struct {
 // own layout, and the user comes from the session.
 type ClearHomeLayoutRequest struct{}
 
-// HomeLayoutResponse reports the resulting layout. A null Layout is the
-// shipped default, the state DELETE restores.
+// HomeLayoutResponse reports the resulting layout. An ABSENT home_layout is
+// the shipped default, the state DELETE restores.
+//
+// omitempty, so the generated contract says `home_layout?: HomeLayout` and a
+// client must check before dereferencing. Without it huma publishes a
+// pointer-to-struct field as a required, non-nullable $ref, which would be a
+// lie on every successful DELETE. `nullable:"true"` is NOT the fix here: huma
+// panics at registration for a $ref field, so it would fail the server at boot
+// rather than at codegen.
 type HomeLayoutResponse struct {
 	Body struct {
 		Success bool              `json:"success"`
 		Message string            `json:"message"`
-		Layout  *authm.HomeLayout `json:"home_layout"`
+		Layout  *authm.HomeLayout `json:"home_layout,omitempty"`
 	}
 }
 
@@ -188,6 +195,13 @@ func (h *UserPreferencesHandler) SetHomeLayoutHandler(ctx context.Context, req *
 
 	layout := req.Body
 	stored, err := h.userService.SetHomeLayout(user.ID, &layout)
+	// A nil document with a nil error is a broken implementation, not a state
+	// this endpoint can report: an absent home_layout is the RESET signal, so
+	// rendering it here would tell a user who just saved an arrangement that it
+	// was discarded. Same guard, for the same reason, as alertPreferencesResponse.
+	if err == nil && stored == nil {
+		err = fmt.Errorf("home layout resolved to nothing")
+	}
 	if err != nil {
 		// A rejected document is the client's mistake and its text names the
 		// broken rule, so it is safe (and useful) to echo. Any other failure is

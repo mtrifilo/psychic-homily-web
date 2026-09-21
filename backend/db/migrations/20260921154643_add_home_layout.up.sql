@@ -15,8 +15,10 @@
 -- NULL means the SHIPPED DEFAULT layout. That state has to stay
 -- representable: boolean columns could not tell "never customized" apart from
 -- "customized to exactly today's defaults", and they cannot carry order at
--- all. Same document shape, and the same reason for it, as the alert_defaults
--- and chart_defaults columns on this table.
+-- all. Nullable JSONB for the same reason alert_defaults and chart_defaults on
+-- this table are. The document shape is this column's own: there is no shared
+-- envelope, and unlike alert_defaults an absent key here does NOT mean
+-- "inherit" -- a write replaces the whole document.
 --
 -- The version and the section-id whitelist are enforced in Go
 -- (models/auth/home_layout.go), not by a CHECK constraint, because the section
