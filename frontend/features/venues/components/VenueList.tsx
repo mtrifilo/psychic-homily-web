@@ -437,9 +437,11 @@ export function VenueList() {
     : null
   // Whether that label describes the same set the room count does, which is
   // what lets it stand beside it in the heading. The city-wide field does; a
-  // page sum does only when this page is the whole set. Read only beside a
+  // page sum does only when this page is the whole set: page 1 of one, never a
+  // page past the end, whose empty rows sum to zero. Read only beside a
   // non-null upcomingLabel, which already requires rowsAnswerCurrentRequest.
-  const upcomingLabelIsAboutTheSet = cityUpcoming != null || totalPages === 1
+  const upcomingLabelIsAboutTheSet =
+    cityUpcoming != null || (page === 1 && totalPages === 1)
 
   // Sorting the whole facet is work only the empty state spends, so the
   // condition that renders it is inside the memo rather than around it: the

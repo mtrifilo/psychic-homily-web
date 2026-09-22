@@ -850,6 +850,27 @@ describe('VenueList', () => {
         'upcoming shows'
       )
     })
+
+    // A page past the end of a one-page city holds no rows, so its page sum is
+    // zero: without the field that is not the city's total, and the heading
+    // must not state it as one.
+    it('does not state an empty page sum as the city total past the last page', () => {
+      anonWithGeo()
+      mockSearchParams.mockReturnValue(new URLSearchParams({ page: '2' }))
+      setVenues([], 5, null)
+
+      render(<VenueList />)
+
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).toHaveTextContent(
+        '5 rooms'
+      )
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).not.toHaveTextContent(
+        'upcoming shows'
+      )
+      expect(screen.getByTestId('venues-count-rule')).toHaveTextContent(
+        '0 upcoming shows on this page'
+      )
+    })
   })
 
   describe('tag facet', () => {
