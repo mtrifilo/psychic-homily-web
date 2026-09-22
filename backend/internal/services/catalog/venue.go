@@ -1342,6 +1342,12 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// count for a venue outside that set, so this drops nothing either would
 	// have used; what it drops is the work of dating every other room's nights
 	// only to discard them at the join.
+	//
+	// It holds because venueListPredicates is a ROW FILTER and nothing else: it
+	// adds WHERE clauses alone, so the set it selects here and the set it
+	// selects on the statement outside are the same set. A predicate that
+	// ordered or limited would break that, and the counts would stop matching
+	// the rows beside them.
 	upcomingCounts := func() *gorm.DB {
 		return s.db.Table("show_venues").
 			Select("show_venues.venue_id, COUNT(*) as show_count").
@@ -1372,23 +1378,25 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// through: same applier, so neither number can describe a different set than
 	// the list, and the two cannot describe different sets from each other.
 	//
-	// COUNT(*) still counts ROOMS beside the sum because the joined subquery is
-	// grouped by venue_id, so it contributes at most one row per venue. A room
-	// with nothing booked has no row there at all, and COALESCE makes it
+	// A WINDOW total on the page statement would be one statement fewer and
+	// would be wrong: `COUNT(*) OVER ()` is evaluated over the rows that
+	// survive, so limit=0 and an offset past the end would each report zero
+	// rooms for a set that has some.
+	//
+	// COUNT(*) still counts ROOMS beside the sum because nothing here can fan a
+	// venue into two rows: the joined subquery is grouped by venue_id, and the
+	// tag filter narrows through an IN subquery rather than a join. A room with
+	// nothing booked has no row in `sc` at all, and the COALESCEs make it
 	// contribute zero rather than null.
-	var totalsRow struct {
-		RoomCount     int64
-		UpcomingShows int64
-	}
+	//
+	// The column names are the struct's, so the fields the contract carries are
+	// what the statement names.
+	var totals contracts.VenueListTotals
 	if err := applyPredicates(s.db.Table("venues")).
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", upcomingCounts()).
-		Select("COUNT(*) AS room_count, COALESCE(SUM("+venueListCountSQL+"), 0) AS upcoming_shows").
-		Scan(&totalsRow).Error; err != nil {
+		Select("COUNT(*) AS venues, COALESCE(SUM("+venueListCountSQL+"), 0) AS upcoming_shows").
+		Scan(&totals).Error; err != nil {
 		return nil, contracts.VenueListTotals{}, fmt.Errorf("failed to count venues: %w", err)
-	}
-	totals := contracts.VenueListTotals{
-		Venues:        totalsRow.RoomCount,
-		UpcomingShows: totalsRow.UpcomingShows,
 	}
 
 	// Get the page under the requested sort. venueListOrderBy owns the whole
