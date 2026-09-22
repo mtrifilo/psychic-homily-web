@@ -1388,15 +1388,19 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// tag filter narrows through an IN subquery rather than a join. A room with
 	// nothing booked has no row in `sc` at all, and the COALESCEs make it
 	// contribute zero rather than null.
-	//
-	// The column names are the struct's, so the fields the contract carries are
-	// what the statement names.
-	var totals contracts.VenueListTotals
+	var totalsRow struct {
+		RoomCount     int64
+		UpcomingShows int64
+	}
 	if err := applyPredicates(s.db.Table("venues")).
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", upcomingCounts()).
-		Select("COUNT(*) AS venues, COALESCE(SUM("+venueListCountSQL+"), 0) AS upcoming_shows").
-		Scan(&totals).Error; err != nil {
+		Select("COUNT(*) AS room_count, COALESCE(SUM("+venueListCountSQL+"), 0) AS upcoming_shows").
+		Scan(&totalsRow).Error; err != nil {
 		return nil, contracts.VenueListTotals{}, fmt.Errorf("failed to count venues: %w", err)
+	}
+	totals := contracts.VenueListTotals{
+		Venues:        totalsRow.RoomCount,
+		UpcomingShows: totalsRow.UpcomingShows,
 	}
 
 	// Get the page under the requested sort. venueListOrderBy owns the whole
