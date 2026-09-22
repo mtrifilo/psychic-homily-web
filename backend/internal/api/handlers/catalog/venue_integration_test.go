@@ -133,10 +133,6 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_UpcomingTotalSpansEveryPag
 	busy := testhelpers.CreateVerifiedVenue(s.deps.DB, "Busy Room", "Phoenix", "AZ")
 	middling := testhelpers.CreateVerifiedVenue(s.deps.DB, "Middling Room", "Phoenix", "AZ")
 	testhelpers.CreateVerifiedVenue(s.deps.DB, "Quiet Room", "Phoenix", "AZ")
-	// Booked into THESE rooms rather than through CreateFutureApprovedShow,
-	// which creates a room of its own per show: the assertions below are about
-	// how many rooms the city holds and how their nights add up, so a fixture
-	// that adds a room per show would be asserting against itself.
 	s.bookShow(user.ID, busy.ID, "Busy Show A", 7)
 	s.bookShow(user.ID, busy.ID, "Busy Show B", 8)
 	s.bookShow(user.ID, middling.ID, "Middling Show", 9)

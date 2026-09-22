@@ -1244,6 +1244,11 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // It is what stops the page, its total and its city facet from describing three
 // different sets.
 //
+// It adds WHERE clauses and nothing else. GetVenuesWithShowCounts also applies
+// it inside an IN subquery and relies on that subquery selecting the same set
+// as the statement around it; a LIMIT, or anything else that trims rows by
+// position rather than by predicate, added here would break that.
+//
 // Every predicate is table-qualified. Two of the three callers hang this on a
 // statement that spans more relations than `venues`, and a reader should not
 // have to know a lateral's projection to tell which relation a bare column came
@@ -1326,28 +1331,18 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	applyPredicates := s.venueListPredicates(filters)
 
-	// The per-venue upcoming count, drawn once as a factory because BOTH
-	// statements below need it: the page projects and orders rows by it, and the
-	// totals sum it over the whole filtered set. Rendering it twice is how the
-	// caption above a page and the rows under it would come to count different
-	// sets.
+	// The per-venue upcoming count, one factory for BOTH statements below (the
+	// page orders by it, the totals sum it), so the caption and the rows under
+	// it cannot count different sets.
 	//
-	// COUNT(*) counts distinct shows. Two things hold that: show_venues is keyed
-	// PRIMARY KEY (show_id, venue_id), so a show appears once per venue, and
-	// shared.VenueTZJoin is a LIMIT 1 lateral, so joining it cannot fan a row
-	// out either.
+	// COUNT(*) counts distinct shows: show_venues is keyed PRIMARY KEY (show_id,
+	// venue_id), and shared.VenueTZJoin is a LIMIT 1 lateral that cannot fan a
+	// row out.
 	//
-	// Narrowed to the venues the filters select, through the same applier both
-	// statements hang their own predicates on. Neither statement can keep a
-	// count for a venue outside that set, so this drops nothing either would
-	// have used; what it drops is the work of dating every other room's nights
-	// only to discard them at the join.
-	//
-	// It holds because venueListPredicates is a ROW FILTER and nothing else: it
-	// adds WHERE clauses alone, so the set it selects here and the set it
-	// selects on the statement outside are the same set. A predicate that
-	// ordered or limited would break that, and the counts would stop matching
-	// the rows beside them.
+	// The IN narrowing is a cost cut, not a filter either statement relies on:
+	// both already apply the same predicates outside, so it only spares dating
+	// the nights of rooms the join would discard (see venueListPredicates for
+	// the WHERE-only rule it depends on).
 	upcomingCounts := func() *gorm.DB {
 		return s.db.Table("show_venues").
 			Select("show_venues.venue_id, COUNT(*) as show_count").
@@ -1374,27 +1369,21 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	query = applyPredicates(query)
 
-	// BOTH captions in ONE statement, over exactly the rows the list pages
-	// through: same applier, so neither number can describe a different set than
-	// the list, and the two cannot describe different sets from each other.
+	// BOTH captions in ONE statement under the list's own applier, so neither
+	// can describe a different set than the rows or than each other. Not a
+	// `COUNT(*) OVER ()` on the page statement: that counts surviving rows, so
+	// limit=0 or an offset past the end would report zero rooms.
 	//
-	// A WINDOW total on the page statement would be one statement fewer and
-	// would be wrong: `COUNT(*) OVER ()` is evaluated over the rows that
-	// survive, so limit=0 and an offset past the end would each report zero
-	// rooms for a set that has some.
-	//
-	// COUNT(*) still counts ROOMS beside the sum because nothing here can fan a
-	// venue into two rows: the joined subquery is grouped by venue_id, and the
-	// tag filter narrows through an IN subquery rather than a join. A room with
-	// nothing booked has no row in `sc` at all, and the COALESCEs make it
-	// contribute zero rather than null.
+	// COUNT(*) counts ROOMS because nothing fans a venue out: `sc` is grouped by
+	// venue_id and the tag filter is an IN subquery, not a join. A room with
+	// nothing booked has no `sc` row, and the COALESCEs make it contribute zero.
 	var totalsRow struct {
 		RoomCount     int64
 		UpcomingShows int64
 	}
 	if err := applyPredicates(s.db.Table("venues")).
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", upcomingCounts()).
-		Select("COUNT(*) AS room_count, COALESCE(SUM("+venueListCountSQL+"), 0) AS upcoming_shows").
+		Select("COUNT(*) AS room_count, COALESCE(SUM(" + venueListCountSQL + "), 0) AS upcoming_shows").
 		Scan(&totalsRow).Error; err != nil {
 		return nil, contracts.VenueListTotals{}, fmt.Errorf("failed to count venues: %w", err)
 	}

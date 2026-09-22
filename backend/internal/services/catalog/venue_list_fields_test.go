@@ -607,12 +607,6 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Upcom
 	}
 	suite.Equal([]int64{3, 1, 0}, pageSums,
 		"each page sums to something different, so the total above cannot be the page's own")
-	var acrossPages int64
-	for _, n := range pageSums {
-		acrossPages += n
-	}
-	suite.Equal(int64(4), acrossPages,
-		"the rows of every page add up to the total each page reported")
 }
 
 // TestGetVenuesWithShowCounts_UpcomingTotalNarrowsWithTheFilters pins the

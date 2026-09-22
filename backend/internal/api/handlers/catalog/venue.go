@@ -86,8 +86,6 @@ type ListVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.VenueWithShowCountResponse `json:"venues" doc:"List of venues with show counts"`
 		Total  int64                                   `json:"total" doc:"Total number of venues"`
-		// The pair of totals is contracts.VenueListTotals, which carries what
-		// they mean.
 		UpcomingShowTotal int64 `json:"upcoming_show_total" doc:"Upcoming shows across every matching venue, not only this page: the sum of upcoming_show_count over the whole filtered set, on the same venue-local night boundary, cancelled nights excluded."`
 		Limit             int   `json:"limit" doc:"Limit used in query"`
 		Offset            int   `json:"offset" doc:"Offset used in query"`

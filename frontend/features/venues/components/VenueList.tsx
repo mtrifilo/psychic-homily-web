@@ -423,23 +423,20 @@ export function VenueList() {
   // backend older than the field, and the only honest number left there is the
   // sum of the rows on screen: this page's, labelled as such.
   const cityUpcoming = data?.upcoming_show_total
-  const upcomingSpansTheSet = typeof cityUpcoming === 'number'
-  const pageUpcoming = venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
+  const upcomingCount =
+    cityUpcoming ?? venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
   // Null while the rows on screen answer a DIFFERENT request: the heading flips
   // to the new city on the same render the filter changes, and a count from the
   // outgoing city beneath it is a wrong number rather than a stale one.
   const roomsLabel = rowsAnswerCurrentRequest ? countLabel(total, 'room') : null
   const upcomingLabel = rowsAnswerCurrentRequest
-    ? countLabel(
-        upcomingSpansTheSet ? cityUpcoming : pageUpcoming,
-        'upcoming show'
-      )
+    ? countLabel(upcomingCount, 'upcoming show')
     : null
   // Whether that label describes the same set the room count does, which is
   // what lets it stand beside it in the heading. The city-wide field does; a
-  // page sum does only when this page is the whole set.
-  const upcomingLabelIsAboutTheSet =
-    upcomingSpansTheSet || (rowsAnswerCurrentRequest && totalPages === 1)
+  // page sum does only when this page is the whole set. Read only beside a
+  // non-null upcomingLabel, which already requires rowsAnswerCurrentRequest.
+  const upcomingLabelIsAboutTheSet = cityUpcoming != null || totalPages === 1
 
   // Sorting the whole facet is work only the empty state spends, so the
   // condition that renders it is inside the memo rather than around it: the
