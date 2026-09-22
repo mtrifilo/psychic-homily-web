@@ -1,7 +1,6 @@
 package notification
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -11,7 +10,6 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	engagementm "psychic-homily-backend/internal/models/engagement"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/engagement"
 )
@@ -28,44 +26,26 @@ import (
 // Mode constants are shared from the engagement package (the single owner
 // of scene_notify_mode's accepted values) rather than duplicated here.
 //
-// # Channels (PSY-1926)
+// Channels. scene_notify_mode decides WHICH shows qualify. Whether a qualifying
+// show is also emailed is the account alert matrix's `shows` email channel, the
+// same setting that governs artist and venue show-alert email, and it defaults
+// OFF. Scene follows carry no per-follow alert overrides (scenes are absent from
+// engagement's followAlertEntityTypes, so no write path stores one), which makes
+// the account row the whole email gate: the show-alert unsubscribe clears it and
+// thereby silences this stream completely.
 //
-// The MODE decides which of the scene's shows qualify. It has never decided
-// whether a qualifying show is EMAILED: until PSY-1926 the only gate on the
-// email was whether an email provider was configured at all, so following a
-// scene silently started a per-show email stream nobody opted into. That
-// contradicts PSY-1892 decision 4 (every email alert off until the user turns
-// it on), and it was the last stream in the product still doing it.
-//
-// The channels now resolve through engagement.ResolveFollowAlerts, the same
-// three-layer chain artist and venue alerts use: shipped defaults, then the
-// user's account alert matrix, then the follow's own stored overrides. Email is
-// off in the shipped layer, so an existing scene follow that stored no override
-// resolves to email OFF with no data migration: absent has always meant
-// inherit, and what it now inherits is the locked posture.
-//
-// The IN-APP lane is deliberately NOT switchable here, and
-// engagement.followAlertHasInAppAxis is where that is stated: the single row
-// this pass writes is at once the bell entry and the cross-system dedup marker
-// notifiedAboutShow reads, so it cannot be suppressed without letting the next
-// pass over the same show notify the user again. Turning scene notifications
-// off entirely remains scene_notify_mode's job.
-
-// sceneFollowEntityType is the bookmark entity type these follows subscribe on.
-// Read from the model rather than spelled as a literal because it is the value
-// engagement.followAlertHasInAppAxis compares against: a literal that drifted
-// would silently start reading an in-app switch this pass cannot honour.
-var sceneFollowEntityType = string(engagementm.BookmarkEntityScene)
+// The in-app row is written for every qualifying user whatever the matrix's
+// in-app channel says. That row is also the cross-system dedup marker
+// notifiedAboutShow reads, so suppressing it would let a later pass announce
+// the same show again. Mode "off" is how a scene is silenced.
 
 // sceneFollower is one scene follow joined with its notify mode.
 type sceneFollower struct {
-	UserID    uint             `gorm:"column:user_id"`
-	SceneID   uint             `gorm:"column:scene_id"`
-	Mode      *string          `gorm:"column:mode"`
-	Settings  *json.RawMessage `gorm:"column:settings"`
-	SceneCity string           `gorm:"column:city"`
-	SceneSt   string           `gorm:"column:state"`
-	SceneSlug string           `gorm:"column:slug"`
+	UserID    uint    `gorm:"column:user_id"`
+	Mode      *string `gorm:"column:mode"`
+	SceneCity string  `gorm:"column:city"`
+	SceneSt   string  `gorm:"column:state"`
+	SceneSlug string  `gorm:"column:slug"`
 }
 
 // notifySceneFollowers fans a newly approved show out to followers of its
@@ -81,94 +61,67 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		return
 	}
 
-	// The account alert matrix for every follower, read in bulk. One query for
-	// the whole set rather than one per follow, matching the artist and venue
-	// passes; a user with no preferences row is absent from the map, which
-	// resolves to the shipped defaults, which is what a NULL row means.
+	// Group per user: a show can map to multiple followed scene rows (multi-
+	// venue shows, scope-drift duplicates), and the user qualifies if ANY of
+	// their follows does — an explicit "all" subscription on one scene must
+	// not be vetoed by a stricter (or off) mode on another (review-caught:
+	// iteration order was deciding). "off" contributes nothing, so a scene
+	// followed with "off" can never veto a qualifying follow on another scene,
+	// and a user whose EVERY matching follow is "off" never enters byUser.
 	//
-	// A failed read ABANDONS the pass rather than falling back to the shipped
-	// defaults. Substituting them would be a guess about an opt-in, and the
-	// direction it guesses wrong in is emailing somebody who never asked.
-	userIDs := make([]uint, 0, len(followers))
-	seen := make(map[uint]struct{}, len(followers))
+	// The scene an email names is the first follow of the mode that made the
+	// user qualify (rows arrive ordered by scene id): an "all" follow when there
+	// is one, otherwise a followed-bands one. An "off" follow is never named.
+	type userAgg struct {
+		anyAll               bool
+		anyFollowedBandsOnly bool
+		allScene, bandsScene string
+	}
+	byUser := make(map[uint]*userAgg, len(followers))
 	for _, f := range followers {
-		if _, dup := seen[f.UserID]; dup {
+		mode := engagement.SceneNotifyModeAll
+		if f.Mode != nil {
+			mode = *f.Mode
+		}
+		if mode == engagement.SceneNotifyModeOff {
 			continue
 		}
-		seen[f.UserID] = struct{}{}
-		userIDs = append(userIDs, f.UserID)
+		agg := byUser[f.UserID]
+		if agg == nil {
+			agg = &userAgg{}
+			byUser[f.UserID] = agg
+		}
+		sceneName := fmt.Sprintf("%s, %s", f.SceneCity, f.SceneSt)
+		if mode == engagement.SceneNotifyModeFollowedBands {
+			if !agg.anyFollowedBandsOnly {
+				agg.anyFollowedBandsOnly = true
+				agg.bandsScene = sceneName
+			}
+			continue
+		}
+		// "all" and any unrecognized/legacy value default to "all"
+		// (matches FollowService.SceneNotifyMode's read-side default).
+		if !agg.anyAll {
+			agg.anyAll = true
+			agg.allScene = sceneName
+		}
+	}
+	if len(byUser) == 0 {
+		return
+	}
+
+	// The account alert matrix for every candidate, in one query. A user with no
+	// preferences row is absent from the map, which resolves to the shipped
+	// defaults (email off). A failed read abandons the pass, as the artist pass
+	// does: substituting defaults would be a guess about an opt-in.
+	userIDs := make([]uint, 0, len(byUser))
+	for userID := range byUser {
+		userIDs = append(userIDs, userID)
 	}
 	prefs, err := s.alertPrefsForUserIDs(userIDs)
 	if err != nil {
 		log.Printf("scene-follow notify: %v", err)
 		return
-	}
-
-	// Group per user: a show can map to multiple followed scene rows (multi-
-	// venue shows, scope-drift duplicates), and the user qualifies if ANY of
-	// their follows does — an explicit "all" subscription on one scene must
-	// not be vetoed by a stricter (or off) mode on another (review-caught:
-	// iteration order was deciding). "off" contributes to NEITHER bucket, so
-	// a scene followed with "off" can never veto a qualifying follow on
-	// another scene; a user whose EVERY matching follow is "off" gets no
-	// notification at all (checked below).
-	//
-	// Email aggregates the SAME way and for the same reason: one qualifying
-	// follow with email switched on is an opt-in, and a sibling follow that
-	// left email off must not veto it. emailCity/emailSt record the scene of
-	// the FIRST such follow (rows arrive ordered by scene id), so the message
-	// names a scene whose follow actually has email on rather than whichever
-	// row the planner happened to return first. That is the attribution rule
-	// the artist pass states at length; scenes get the same honesty for free
-	// because the ordering is deterministic.
-	type userAgg struct {
-		anyAll               bool
-		anyFollowedBandsOnly bool
-		city, st             string
-		emailOn              bool
-		emailCity, emailSt   string
-	}
-	byUser := make(map[uint]*userAgg, len(followers))
-	for _, f := range followers {
-		// The subscription's channels, resolved per FOLLOW: two follows of the
-		// same user can carry different overrides.
-		resolved := engagement.ResolveFollowAlerts(
-			sceneFollowEntityType, f.SceneID, f.Settings,
-			authm.ResolveAccountAlertDefaults(prefs[f.UserID].AlertDefaults),
-		)
-		pref := resolved.Shows
-		if !pref.Enabled {
-			// The subscription's master switch, off. Contributes nothing, the
-			// same as mode "off", so it cannot veto a sibling follow either.
-			continue
-		}
-
-		agg := byUser[f.UserID]
-		if agg == nil {
-			agg = &userAgg{city: f.SceneCity, st: f.SceneSt}
-			byUser[f.UserID] = agg
-		}
-		mode := engagement.SceneNotifyModeAll
-		if f.Mode != nil {
-			mode = *f.Mode
-		}
-		switch mode {
-		case engagement.SceneNotifyModeOff:
-			// Contributes nothing — must not veto another qualifying follow.
-			// Its channels contribute nothing either: an "off" follow is not a
-			// place to read an email opt-in from.
-			continue
-		case engagement.SceneNotifyModeFollowedBands:
-			agg.anyFollowedBandsOnly = true
-		default:
-			// "all" and any unrecognized/legacy value default to "all"
-			// (matches FollowService.SceneNotifyMode's read-side default).
-			agg.anyAll = true
-		}
-		if pref.Email && !agg.emailOn {
-			agg.emailOn = true
-			agg.emailCity, agg.emailSt = f.SceneCity, f.SceneSt
-		}
 	}
 
 	// Self-exclusion: the submitter following their own scene shouldn't be
@@ -180,24 +133,20 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 
 	now := time.Now().UTC()
 	for userID, agg := range byUser {
-		f := sceneFollower{UserID: userID, SceneCity: agg.city, SceneSt: agg.st}
 		if userID == submitter && submitter != 0 {
 			continue
 		}
+		sceneName := agg.allScene
 		if !agg.anyAll {
-			if !agg.anyFollowedBandsOnly {
-				// Every matching follow for this user is "off" — no
-				// qualifying subscription, regardless of artist follows.
-				continue
-			}
-			ok, err := s.userFollowsAnyArtist(f.UserID, showArtistIDs)
+			ok, err := s.userFollowsAnyArtist(userID, showArtistIDs)
 			if err != nil {
-				log.Printf("scene-follow notify: artist intersection for user %d: %v", f.UserID, err)
+				log.Printf("scene-follow notify: artist intersection for user %d: %v", userID, err)
 				continue
 			}
 			if !ok {
 				continue
 			}
+			sceneName = agg.bandsScene
 		}
 
 		// Cross-system dedup: skip anyone already notified about this show (a
@@ -211,18 +160,20 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		// scene-follow duplicates.
 		var existing int64
 		if err := s.db.Model(&notificationm.NotificationLog{}).
-			Where("user_id = ? AND entity_id = ?", f.UserID, show.ID).
+			Where("user_id = ? AND entity_id = ?", userID, show.ID).
 			Where(notifiedAboutShow("notification_log")).
 			Count(&existing).Error; err != nil {
-			log.Printf("scene-follow notify: dedup check for user %d: %v", f.UserID, err)
+			log.Printf("scene-follow notify: dedup check for user %d: %v", userID, err)
 			continue
 		}
 		if existing > 0 {
 			continue
 		}
 
+		// Channel is stamped 'email' whether or not a message is sent: on this
+		// path it marks the lane notifiedAboutShow keys the dedup on, not a send.
 		logEntry := notificationm.NotificationLog{
-			UserID:     f.UserID,
+			UserID:     userID,
 			FilterID:   nil, // scene follows have no filter row
 			EntityType: notificationm.NotificationEntityShow,
 			EntityID:   show.ID,
@@ -230,7 +181,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			SentAt:     now,
 		}
 		if err := s.db.Create(&logEntry).Error; err != nil {
-			log.Printf("scene-follow notify: log insert for user %d, show %d: %v", f.UserID, show.ID, err)
+			log.Printf("scene-follow notify: log insert for user %d, show %d: %v", userID, show.ID, err)
 			continue
 		}
 
@@ -238,19 +189,11 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		// path: the row is the durable in-app record (the bell reads it), and
 		// a rate-limited or failed email doesn't erase that the user was
 		// notified in-app.
-		//
-		// The row's channel is stamped 'email' whether or not one is sent, and
-		// that is not a bug to tidy away: on this path the column marks a LANE,
-		// and notifiedAboutShow keys the cross-system dedup on exactly
-		// (entity_type='show', channel='email'). A row stamped otherwise would
-		// stop counting as "already told" and the filter pass would notify the
-		// same user about the same show again.
-		if !agg.emailOn {
+		if !authm.ResolveAccountAlertDefaults(prefs[userID].AlertDefaults).Shows.Email {
 			continue
 		}
 		if s.emailService != nil && s.emailService.IsConfigured() {
-			sceneName := fmt.Sprintf("%s, %s", agg.emailCity, agg.emailSt)
-			s.sendSceneFollowEmail(f.UserID, sceneName, show)
+			s.sendSceneFollowEmail(userID, sceneName, show)
 		}
 	}
 }
@@ -281,17 +224,12 @@ func (s *NotificationFilterService) sceneFollowersForShow(showID uint) ([]sceneF
 			WHERE sv.show_id = ?
 		)
 		SELECT b.user_id,
-		       b.entity_id AS scene_id,
 		       b.settings->>'scene_notify_mode' AS mode,
-		       b.settings,
 		       ss.city, ss.state, ss.slug
 		FROM user_bookmarks b
 		JOIN show_scenes ss ON ss.id = b.entity_id
 		WHERE b.entity_type = 'scene' AND b.action = 'follow'
-		-- Deterministic, because attribution reads the FIRST qualifying row:
-		-- which scene the email names, and which scene's city the in-app row
-		-- is labelled with, would otherwise be the planner's choice and could
-		-- differ between two runs over the same data.
+		-- Ordered so the scene an email names does not depend on the planner.
 		ORDER BY b.user_id, b.entity_id
 	`, showID).Scan(&followers).Error
 	if err != nil {
@@ -323,16 +261,11 @@ func (s *NotificationFilterService) userFollowsAnyArtist(userID uint, artistIDs 
 // ──────────────────────────────────────────────
 
 // sendSceneFollowEmail renders and sends the scene alert. The caller has
-// already established that this user's subscription has email switched on and
-// has written the notification row.
+// already established that the user's account show-alert email is on and has
+// written the notification row.
 //
-// Two things changed here in PSY-1926, and both were the same defect wearing
-// different clothes: the message advertised RFC 8058 one-click unsubscribe over
-// a FRONTEND page (/following?tab=scene, which redirects to the library), so
-// the POST a mailbox provider sends could not be honoured, and the link a human
-// clicked landed somewhere that could not turn the email off either. It now
-// signs the shared show-alert scope and points at the backend route that serves
-// both verbs.
+// The unsubscribe URL targets the BACKEND route, which serves the RFC 8058
+// one-click POST as well as the human GET. A frontend URL cannot honour the POST.
 func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName string, show *catalogm.Show) {
 	if !s.withinDailySceneEmailBudget(userID) {
 		log.Printf("rate limit: skipping scene-follow email for user %d", userID)
@@ -345,12 +278,8 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 		return
 	}
 
-	// The SAME scope the artist and venue show-alert emails sign. All three are
-	// one stream to the recipient and, more to the point, one stream to the
-	// SETTING: alert_defaults carries a single `shows` key covering them, and
-	// UserService.UnsubscribeArtistShowAlertEmails sweeps scene follows as well.
-	// A scene-specific scope would mint a second URL performing an identical
-	// mutation, which is two names for one action rather than extra precision.
+	// The same scope the artist and venue show-alert emails sign: one account
+	// `shows` email setting governs all three, and this scope's handler clears it.
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
 		engagement.DeriveBackendURL(s.frontendURL),
 		userID,
@@ -361,12 +290,6 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 
 	c := s.showEmailContent(show)
 	html := buildSceneShowAlertEmailHTML(sceneName, c, unsubscribeURL, manageURL)
-
-	// The subject is a HEADER. The scene name is assembled from our own scenes
-	// registry rather than scraped, but it is sanitized on the same rule the
-	// sibling senders follow: a CR or LF anywhere in a header value is how a
-	// header is split and another one injected, and which strings are "ours" is
-	// not a fact a future editor of this line should have to re-derive.
 	subject := fmt.Sprintf("New show in %s", entityNameForSubject(sceneName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
@@ -380,15 +303,9 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 }
 
 // withinDailySceneEmailBudget reports whether the user has room in the daily
-// allowance for scene-follow emails.
-//
-// It counts the same rows this pass writes (entity_type='show',
-// channel='email') against the one shared threshold, which is the comparison
-// this sender has always used. What changed is the failure mode: the count's
-// error used to be dropped, leaving emailCount at zero, so an unreadable budget
-// READ AS EMPTY and the send proceeded. A cap exists to bound outbound mail and
-// an unbounded burst is the exact failure it was put there to prevent, so it
-// now fails CLOSED like the sibling budget in artist_follow_notify.go.
+// allowance for scene-follow emails, counting every channel='email' row against
+// the shared threshold. It fails CLOSED: an unreadable budget is not permission
+// to send.
 func (s *NotificationFilterService) withinDailySceneEmailBudget(userID uint) bool {
 	var emailCount int64
 	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
@@ -402,20 +319,12 @@ func (s *NotificationFilterService) withinDailySceneEmailBudget(userID uint) boo
 	return emailCount < int64(maxFilterEmailsPerDay)
 }
 
-// buildSceneShowAlertEmailHTML renders the scene alert in the shared
-// direction-A layout (PSY-1902), so it reads as the same publication as its
-// artist and venue siblings.
+// buildSceneShowAlertEmailHTML renders the scene alert in the shared layout its
+// artist and venue siblings use. It must not reuse the criteria-filter body,
+// whose copy describes a user-authored filter that a scene follow does not have.
 //
-// It replaces a call to buildFilterEmailHTML, whose template is a CRITERIA
-// FILTER's template: it headlined `New show matching "Phoenix, AZ scene"` as
-// though the user had authored a query, and its footer offered to "Pause this
-// filter" over a link that pauses nothing. Borrowing a neighbouring message's
-// copy is how an email ends up describing a feature the reader does not have.
-//
-// Every string reaching this is escaped by the builders. That matters here more
-// than in most templates: show titles, artist names and venue names on an
-// ingest-created show are scraped third-party text, and this message ships from
-// the platform's own DKIM-aligned sender.
+// Every string reaching it is escaped by the layout builders; show titles and
+// artist and venue names can be scraped third-party text.
 func buildSceneShowAlertEmailHTML(
 	sceneName string,
 	c showEmailContentParts,
@@ -436,9 +345,6 @@ func buildSceneShowAlertEmailHTML(
 
 	body := emailHeadline(fmt.Sprintf("A new show in the %s scene.", sceneName)) +
 		emailMonoDetails(details) +
-		emailParagraph(fmt.Sprintf(
-			"You follow %s. Which shows count is set on the scene itself: every show, or only the bands you follow.",
-			sceneName)) +
 		emailButton(c.showURL, "View show") +
 		emailFineprintWithLinks(
 			[]string{fmt.Sprintf(

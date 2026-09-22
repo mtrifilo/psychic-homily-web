@@ -585,12 +585,9 @@ describe('AlertSettings', () => {
     expect(screen.queryByText(/one-click unsubscribe/i)).not.toBeInTheDocument()
   })
 
-  // PSY-1926 closed the gap this card used to have to disclose. Scene emails
-  // are governed by the shows row now, so the exception paragraph is gone and
-  // the footnote's promise is unconditional again. Pinned in BOTH directions:
-  // the exception must not come back, and the row it was folded into must
-  // actually name scenes, or the card has quietly stopped listing a stream it
-  // sends.
+  // Scene emails are governed by the shows row, so the footnote's promise holds
+  // for them. Pinned both ways: the old exception must not return, and the row
+  // must name scenes or the card stops listing a stream it sends.
   it('folds scene emails into the shows row instead of excepting them', () => {
     renderWithProviders(<AlertSettings />)
 
@@ -603,10 +600,8 @@ describe('AlertSettings', () => {
     ).not.toBeInTheDocument()
   })
 
-  // The email box is the one that reaches scenes. The in-app box does not: a
-  // scene's bell row is also the cross-system dedup marker, so it cannot be
-  // switched off. The row has to say so, or the reader takes the two boxes as
-  // symmetric.
+  // The in-app box does not reach scenes, and the row has to say so or the two
+  // boxes read as symmetric.
   it('says a scene keeps its in-app alerts whatever the in-app box says', () => {
     renderWithProviders(<AlertSettings />)
 

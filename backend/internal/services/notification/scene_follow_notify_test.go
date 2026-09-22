@@ -1,10 +1,15 @@
 package notification
 
 import (
+	"html"
+	"net/url"
+	"strconv"
+
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // Scene-follow fan-out tests (PSY-1341) — run inside NotificationFilterSuite
@@ -39,9 +44,7 @@ func (s *NotificationFilterSuite) seedSceneFollow(userID uint, mode string) uint
 }
 
 // seedSceneFollowWithSettings is seedSceneFollow with a caller-supplied
-// settings document, which is what a follow that has been configured carries.
-// The document is shared: scene_notify_mode and the alerts object live side by
-// side in it.
+// settings document.
 func (s *NotificationFilterSuite) seedSceneFollowWithSettings(userID uint, settingsJSON string) uint {
 	sceneID := s.seedSceneFollow(userID, "")
 	s.Require().NoError(s.db.Exec(`
@@ -51,8 +54,8 @@ func (s *NotificationFilterSuite) seedSceneFollowWithSettings(userID uint, setti
 	return sceneID
 }
 
-// setAccountShowEmail writes the ACCOUNT-level opt-in, which is the control the
-// settings card's email box drives and the one an unsubscribe clears.
+// setAccountShowEmail writes the account alert matrix's show-alert email
+// channel, the one scene emails read.
 func (s *NotificationFilterSuite) setAccountShowEmail(userID uint, on bool) {
 	s.Require().NoError(s.db.Exec(`
 		INSERT INTO user_preferences (user_id, alert_defaults)
@@ -267,17 +270,12 @@ func (s *NotificationFilterSuite) TestSceneFollow_FallbackRowMatchesMetroStamped
 }
 
 // =============================================================================
-// EMAIL OPT-IN (PSY-1926)
+// EMAIL OPT-IN
 // =============================================================================
 
-// The violation this ticket exists to fix, stated as a test: a fresh scene
-// follow gets the in-app row and NO mail. Before PSY-1926 the only gate on the
-// email was whether a provider was configured, which this suite always is.
-//
-// It is also the "existing rows align to off" claim in executable form. The
-// follow here stores nothing but a mode, which is exactly the shape every
-// scene follow in production carries, and nothing had to be migrated for it to
-// resolve to off.
+// A scene follow with no account opt-in gets the in-app row and NO mail. Every
+// scene follow in production has this shape, so it is also the claim that
+// existing follows align to email off with nothing migrated.
 func (s *NotificationFilterSuite) TestSceneAlert_EmailIsOffUntilOptedIn() {
 	capture := s.withCapturedEmail()
 
@@ -295,8 +293,8 @@ func (s *NotificationFilterSuite) TestSceneAlert_EmailIsOffUntilOptedIn() {
 	s.Empty(capture.sent, "email is an intentional opt-in on every alert type")
 }
 
-// The ACCOUNT matrix is the opt-in a user actually has today (the settings
-// card's email box), and it must reach a follow that overrode nothing.
+// The account matrix's show-alert email box is the opt-in, and the message it
+// sends carries a working RFC 8058 unsubscribe.
 func (s *NotificationFilterSuite) TestSceneAlert_AccountOptInSendsWithWorkingUnsubscribe() {
 	capture := s.withCapturedEmail()
 
@@ -313,34 +311,33 @@ func (s *NotificationFilterSuite) TestSceneAlert_AccountOptInSendsWithWorkingUns
 	s.Equal(int64(1), s.sceneLogCount(userID, showID))
 	s.Require().Len(capture.sent, 1)
 	sent := capture.sent[0]
-	s.Contains(sent.subject, "New show in Phoenix, AZ")
+	s.Equal("New show in Phoenix, AZ", sent.subject)
 
-	// The RFC 8058 requirement: the header value points at the BACKEND route
-	// that serves the one-click POST, not at a frontend page that redirects.
-	s.Contains(sent.unsubscribeURL, "/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts)
-	s.NotContains(sent.unsubscribeURL, "/following",
-		"the old target redirected to the library and could not honour the POST")
-	// Same endpoint in the header (raw, per RFC 2369) and in the body (HTML
-	// attribute-escaped). A recipient and a mailbox provider get one way out.
-	s.Contains(sent.html, `href="`+htmlEscape(sent.unsubscribeURL)+`"`,
-		"the header URL and the in-body link must be the same endpoint")
-	// The filter template's copy does not belong on this message: the reader
-	// authored no query and has no filter to pause.
+	// The header target is the BACKEND route that serves the one-click POST,
+	// signed for this user under the shared show-alert scope.
+	u, err := url.Parse(sent.unsubscribeURL)
+	s.Require().NoError(err)
+	s.Equal("/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts, u.Path)
+	s.Equal(strconv.FormatUint(uint64(userID), 10), u.Query().Get("uid"))
+	s.True(engagement.VerifyScopedUnsubscribeSignature(
+		userID, engagement.UnsubscribeScopeArtistShowAlerts, u.Query().Get("sig"), s.svc.jwtSecret),
+		"the link must verify, or the recipient's click 403s at the door")
+
+	// One way out for the recipient and the mailbox provider alike.
+	s.Contains(sent.html, `href="`+html.EscapeString(sent.unsubscribeURL)+`"`)
+	s.Contains(sent.html, "You are getting this because you follow Phoenix, AZ with email alerts on.")
 	s.NotContains(sent.html, "Pause this filter")
 	s.NotContains(sent.html, "New show matching")
 }
 
-// A per-follow override sits BELOW the account default, which is why the
-// unsubscribe has to sweep the follows as well as write the account row.
-func (s *NotificationFilterSuite) TestSceneAlert_PerFollowOverrideBeatsTheAccount() {
+// Scene follows have no per-follow alert layer, so an alerts document on the
+// follow row is not an opt-in. The account row is the whole gate, which is what
+// lets the unsubscribe's account write silence this stream by itself.
+func (s *NotificationFilterSuite) TestSceneAlert_StoredFollowOverrideIsNotAnOptIn() {
 	capture := s.withCapturedEmail()
 
-	optedIn := s.createTestUser()
-	s.seedSceneFollowWithSettings(optedIn, `{"alerts":{"shows":{"email":true}}}`)
-
-	silenced := s.createTestUser()
-	s.seedSceneFollowWithSettings(silenced, `{"alerts":{"shows":{"email":false}}}`)
-	s.setAccountShowEmail(silenced, true)
+	userID := s.createTestUser()
+	s.seedSceneFollowWithSettings(userID, `{"alerts":{"shows":{"email":true}}}`)
 
 	artistID := s.createTestArtist("Override Band")
 	venueID := s.createTestVenue("The Rebel Lounge")
@@ -348,21 +345,17 @@ func (s *NotificationFilterSuite) TestSceneAlert_PerFollowOverrideBeatsTheAccoun
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 
-	s.Equal(int64(1), s.sceneLogCount(optedIn, showID))
-	s.Equal(int64(1), s.sceneLogCount(silenced, showID))
-	s.Require().Len(capture.sent, 1,
-		"only the follow that opted in is mailed")
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+	s.Empty(capture.sent)
 }
 
-// The mode is the WHICH-SHOWS axis and still outranks the channels: an "off"
-// follow is no place to read an email opt-in from, so a user who silenced the
-// scene cannot be mailed by switching a channel on somewhere else.
+// Mode "off" outranks the email opt-in: a silenced scene sends nothing.
 func (s *NotificationFilterSuite) TestSceneAlert_OffModeIsNotAnEmailOptIn() {
 	capture := s.withCapturedEmail()
 
 	userID := s.createTestUser()
-	s.seedSceneFollowWithSettings(userID,
-		`{"scene_notify_mode":"off","alerts":{"shows":{"email":true}}}`)
+	s.seedSceneFollow(userID, "off")
+	s.setAccountShowEmail(userID, true)
 
 	artistID := s.createTestArtist("Silent Band")
 	venueID := s.createTestVenue("The Rebel Lounge")
@@ -374,14 +367,43 @@ func (s *NotificationFilterSuite) TestSceneAlert_OffModeIsNotAnEmailOptIn() {
 	s.Empty(capture.sent)
 }
 
-// Clearing the account default with both halves of the shipped unsubscribe is
-// what the emailed link does, and the next show must then be silent. This is
-// the acceptance criterion the broken link could never meet.
+// The email says "you follow X with email alerts on", so X must be a scene whose
+// follow made the user qualify. Phoenix is inserted first (the lower id) and is
+// set to "off"; naming it would put a silenced scene in the message.
+func (s *NotificationFilterSuite) TestSceneAlert_EmailNamesAQualifyingScene() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "off") // phoenix-az
+	s.setAccountShowEmail(userID, true)
+
+	var tucsonID uint
+	s.Require().NoError(s.db.Raw(`
+		INSERT INTO scenes (metro, city, state, slug)
+		VALUES (NULL, 'Tucson', 'AZ', 'tucson-az') RETURNING id`).Scan(&tucsonID).Error)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'scene', ?, 'follow', now())`, userID, tucsonID).Error)
+
+	artistID := s.createTestArtist("Two City Band")
+	phxVenue := s.createTestVenue("The Rebel Lounge")
+	tucsonVenue := catalogm.Venue{Name: "Club Congress", City: "Tucson", State: "AZ"}
+	s.Require().NoError(s.db.Create(&tucsonVenue).Error)
+	showID := s.createTestShow("Two City Show", []uint{artistID}, []uint{phxVenue, tucsonVenue.ID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Require().Len(capture.sent, 1)
+	s.Equal("New show in Tucson, AZ", capture.sent[0].subject)
+}
+
+// The real unsubscribe mutation, then the next show: the in-app row still
+// arrives and the email does not.
 func (s *NotificationFilterSuite) TestSceneAlert_UnsubscribeStopsTheNextShow() {
 	capture := s.withCapturedEmail()
 
 	userID := s.createTestUser()
-	s.seedSceneFollowWithSettings(userID, `{"alerts":{"shows":{"email":true}}}`)
+	s.seedSceneFollow(userID, "")
 	s.setAccountShowEmail(userID, true)
 
 	artistID := s.createTestArtist("Leaving Band")
@@ -390,16 +412,12 @@ func (s *NotificationFilterSuite) TestSceneAlert_UnsubscribeStopsTheNextShow() {
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(firstShow)))
 	s.Require().Len(capture.sent, 1)
 
-	// Both halves, in the order the unsubscribe endpoint performs them: the
-	// account default, then the per-follow override that sits below it.
-	s.setAccountShowEmail(userID, false)
-	s.Require().NoError(engagement.NewFollowService(s.db).DisableFollowAlertEmailChannel(
-		userID, "scene", contracts.FollowAlertTypeShows))
+	s.Require().NoError(usersvc.NewUserService(s.db).UnsubscribeArtistShowAlertEmails(userID))
 
 	secondShow := s.createTestShow("After Unsubscribe", []uint{artistID}, []uint{venueID})
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(secondShow)))
 
 	s.Equal(int64(1), s.sceneLogCount(userID, secondShow),
 		"an email opt-out is not a request to stop being notified in the product")
-	s.Len(capture.sent, 1, "the unsubscribe has to stop the stream, not slow it")
+	s.Len(capture.sent, 1, "the unsubscribe has to stop the stream")
 }

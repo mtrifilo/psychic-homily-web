@@ -307,14 +307,9 @@ export function AlertSettings() {
       // three, which is also what the shared unsubscribe writes. Their DELIVERY
       // differs, and saying so is the honest way to render one control over
       // things at different stages.
-      // Scenes joined the row in PSY-1926. Their emails used to bypass this
-      // card entirely, which is why the footnote beneath the table used to
-      // carry an exception naming them; the exception went when the gate
-      // landed, because the promise now holds for them too.
-      // The EMAIL box governs scenes; the in-app box does not. A scene's bell
-      // row is also the cross-system dedup marker, so it cannot be switched off
-      // without letting the same show be announced twice. Saying that in one
-      // clause is cheaper than a reader discovering it.
+      // The EMAIL box is the whole gate on scene emails; the in-app box does
+      // not reach scenes, because a scene's bell row is also the notifier's
+      // dedup marker and is always written.
       // "In-app" is the claim that has been observed end to end. PSY-1896's
       // email lane is built and covered by integration tests, but no owner has
       // watched a real message arrive, so it is not named as live here.
@@ -323,16 +318,15 @@ export function AlertSettings() {
       // every artist and venue follow that never overrode a channel, so those
       // surfaces all start reading "paused" from this one act. A card that
       // sends people here to fix it cannot be the one surface that never
-      // mentions the state, in either direction. The sentence names artists
-      // and venues only, because a scene's in-app alerts survive it.
+      // mentions the state, in either direction. The pause sentence names
+      // artists and venues only, because a scene's in-app alerts survive it.
       description: (
         <>
           Which shows count for an artist is that follow&rsquo;s own scope, near
           me or everywhere. A venue sits in one place, so its alerts have no
-          scope. A scene&rsquo;s is set on the scene itself, either every show
-          or only the bands you follow, and its in-app alerts stay on whatever
-          this row says. In-app alerts for artists are live; venue alerts are
-          still being switched on.
+          scope. Which shows count for a scene is set on the scene itself, and
+          its in-app alerts stay on whatever this row says. In-app alerts for
+          artists are live; venue alerts are still being switched on.
           {showAlertsPaused && (
             <>
               {' '}
@@ -543,16 +537,6 @@ export function AlertSettings() {
               those emails pauses that whole alert rather than flipping a box
               here.
             </p>
-            {/* The scene-follow exception that used to sit here is GONE, and
-                deleting it was the point of PSY-1926 rather than a tidy-up.
-                It read "One email is not in the table: following a scene starts
-                sending an immediate email for each new show added there", which
-                was true and was a live violation of the locked posture that
-                every email alert is off until the user turns it on. The scene
-                stream now resolves the same account matrix as its siblings and
-                is the shows row above, so the promise is unconditional again.
-                Do not reintroduce an exception here without the gate coming
-                back off with it. */}
             <p className="text-xs text-muted-foreground">
               {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}
             </p>

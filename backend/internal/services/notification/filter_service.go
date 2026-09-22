@@ -1964,8 +1964,7 @@ func ComputeFilterUnsubscribeSignature(filterID uint, secret string) string {
 // Email template
 // ──────────────────────────────────────────────
 
-// buildFilterEmailHTML renders the show-match body shared by the saved-filter
-// and scene-follow alerts.
+// buildFilterEmailHTML renders the show-match body for saved-filter alerts.
 //
 // Every value here is entity text the platform does not author: show titles,
 // artist and venue names, and a user-chosen filter name, none charset-restricted

@@ -126,11 +126,7 @@ func TestRenderVenueShowAlertArtifact(t *testing.T) {
 	t.Logf("wrote %s", out)
 }
 
-// TestRenderSceneShowAlertArtifact does the same for the PSY-1926 scene
-// new-show alert, which until then borrowed the criteria-filter template and
-// therefore had neither the shared frame nor a working unsubscribe. Rendering
-// it is how the footer's two links get judged side by side with its artist and
-// venue siblings.
+// TestRenderSceneShowAlertArtifact does the same for the scene new-show alert.
 //
 //	RENDER_OUT=/tmp/scene-alert.html go test ./internal/services/notification/ \
 //	  -run TestRenderSceneShowAlertArtifact
