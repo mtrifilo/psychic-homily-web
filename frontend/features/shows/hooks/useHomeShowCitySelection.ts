@@ -21,11 +21,24 @@ import { useShowCities } from './useShows'
  * and never written into it. `[]` is a real choice ("All Cities"), distinct
  * from `null` ("the user has not touched the filter").
  *
- * Geo applies to a settled ANONYMOUS visitor only — that gate lives in
- * `useGeoDefaultCity` and is deliberate. A signed-in viewer with no favorite
- * cities therefore resolves to no city at all, and a caller that renders the
- * city's NAME must handle the empty case rather than assume one exists.
+ * Resolution order is favorites, then the IP-geo city, then the liveliest city
+ * that has shows. The last two steps are opt-in per caller
+ * ({@link HomeShowCitySelectionOptions}): the anonymous home takes only the
+ * first two, which is its long-standing behavior, while a caller that NAMES the
+ * resolved city in its copy takes all three so the name is almost always there
+ * to render. Even then the result can be empty (a brand-new index with no
+ * cities at all), so a caller must still handle that.
  */
+
+export interface HomeShowCitySelectionOptions {
+  /**
+   * Resolve the IP-geo city for a settled authenticated viewer with no
+   * favorites too, and fall back to the liveliest city that has shows when geo
+   * yields nothing. Both are for a surface whose copy names the city; leaving
+   * them off preserves the anonymous home's exact behavior.
+   */
+  resolveCityForCopy?: boolean
+}
 export interface HomeShowCitySelection {
   cities: CityWithCount[]
   favoriteCities: CityState[]
@@ -38,7 +51,9 @@ export interface HomeShowCitySelection {
   onFilterChange: (cities: CityState[]) => void
 }
 
-export function useHomeShowCitySelection(): HomeShowCitySelection {
+export function useHomeShowCitySelection({
+  resolveCityForCopy = false,
+}: HomeShowCitySelectionOptions = {}): HomeShowCitySelection {
   const { authStatus } = useAuthContext()
   const { data: profileData } = useProfile()
   const [userSelection, setUserSelection] = useState<CityState[] | null>(null)
@@ -78,7 +93,19 @@ export function useHomeShowCitySelection(): HomeShowCitySelection {
     favoriteCities,
     hasExistingSelection: userSelection !== null,
     enableClientFetch: true,
+    allowAuthenticated: resolveCityForCopy,
   })
+
+  // The liveliest city that has shows, by the same count the filter chips
+  // display. Last resort only: it is a guess about where the viewer is, so it
+  // never outranks a favorite, a geo match, or the viewer's own pick.
+  const liveliestCity: CityState | null = useMemo(() => {
+    if (!resolveCityForCopy || cities.length === 0) return null
+    const top = cities.reduce((best, city) =>
+      city.count > best.count ? city : best
+    )
+    return top.count > 0 ? { city: top.city, state: top.state } : null
+  }, [resolveCityForCopy, cities])
 
   // The effective selection, DERIVED during render: the user's explicit pick
   // wins; otherwise favorites; otherwise the anon geo default. No effect, no
@@ -87,8 +114,9 @@ export function useHomeShowCitySelection(): HomeShowCitySelection {
   const effectiveCities: CityState[] = useMemo(() => {
     if (userSelection !== null) return userSelection
     if (favoriteCities.length > 0) return favoriteCities
-    return appliedGeoDefault ? [appliedGeoDefault] : []
-  }, [userSelection, favoriteCities, appliedGeoDefault])
+    if (appliedGeoDefault) return [appliedGeoDefault]
+    return liveliestCity ? [liveliestCity] : []
+  }, [userSelection, favoriteCities, appliedGeoDefault, liveliestCity])
 
   const onFilterChange = useCallback(
     (nextCities: CityState[]) => {

@@ -11,6 +11,10 @@ vi.mock('@/lib/context/AuthContext', () => ({
 const saveMutate = vi.fn()
 const mockSaveCount = { value: undefined as { save_count: number; is_saved: boolean } | undefined }
 vi.mock('../hooks/useSavedShows', () => ({
+  // Real constants: HomeShowListView reads them at module scope, so a
+  // partial mock without them fails at import, not at render.
+  SAVED_SHOWS_COLLAPSED_COUNT: 4,
+  SAVED_SHOWS_HOME_READ_LIMIT: 100,
   useSaveShow: () => ({ mutate: saveMutate, isPending: false }),
   useShowSaveCount: () => ({ data: mockSaveCount.value }),
 }))

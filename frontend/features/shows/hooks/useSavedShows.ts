@@ -31,11 +31,18 @@ interface UseSavedShowsOptions {
 }
 
 /**
- * Hook to fetch user's saved shows
- * Requires authentication
+ * A page of the viewer's saved shows.
+ *
+ * Holds THE WRITE-SIDE RULE itself rather than leaving it to callers (see
+ * AuthStatus in lib/context/AuthContext): this key carries the viewer's
+ * identity, and a request issued while the profile is in flight still sends
+ * their cookie, so the response would be written under the viewer-less key and
+ * outlive the session. A caller's own `enabled` cannot protect a key its
+ * siblings and the optimistic mutations share.
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
   const { limit = 50, offset = 0, enabled = true, userId, timeFilter } = options
+  const { authStatus } = useAuthContext()
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -51,7 +58,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
         method: 'GET',
       })
     },
-    enabled,
+    enabled: enabled && authStatus !== 'pending' && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -64,6 +71,21 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
  */
 export const SAVED_SHOWS_COLLAPSED_COUNT = 4
 const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
+
+/**
+ * How many upcoming saves the signed-in home reads in one request.
+ *
+ * It is the API's maximum page size, not the four rows the module paints,
+ * because the same response also supplies the ids the nearby list must leave
+ * out. Reading only the displayed four would leave every later save eligible
+ * to reappear in that list — and, since the saved list is ordered by date
+ * across ALL cities, a viewer whose four soonest saves are elsewhere would
+ * exclude nothing at all in the city they are looking at.
+ *
+ * The bound is therefore real but generous: a viewer holding more than this
+ * many UPCOMING saves can still see one repeat.
+ */
+export const SAVED_SHOWS_HOME_READ_LIMIT = SAVED_SHOWS_NEXT_PAGE_SIZE
 
 /**
  * Fetch a date-partitioned saved-show list incrementally. The first request is

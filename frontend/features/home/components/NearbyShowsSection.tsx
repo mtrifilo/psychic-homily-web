@@ -10,7 +10,7 @@ import {
 } from '@/features/shows/components/HomeShowListView'
 import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCitySelection'
 import {
-  SAVED_SHOWS_COLLAPSED_COUNT,
+  SAVED_SHOWS_HOME_READ_LIMIT,
   useSavedShows,
 } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -24,39 +24,51 @@ import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
  * how a show gets saved in the first place.
  *
  * The rows the saved module above is showing are excluded here, so the two
- * lists never repeat one. The exclusion set comes from the same saved-shows
- * query that module runs — one request, shared through the query cache — and it
- * runs BESIDE the upcoming-shows fetch rather than after it, so neither list
- * waits on the other. A save or unsave invalidates that query, which is what
- * moves a row between the two lists with no reload.
+ * lists do not repeat one. The exclusion set is the same saved-shows read that
+ * module renders — one request, shared through the query cache — and it is read
+ * at the API's page size rather than the four rows painted, because the saved
+ * list is ordered by date across ALL cities: reading only the four would
+ * exclude nothing at all for a viewer whose soonest saves are elsewhere. A save
+ * or unsave invalidates that query, which is what moves a row between the two
+ * lists with no reload.
+ *
+ * The list does not paint until that read settles. That is a deliberate gate,
+ * not a parallelism claim: a row shown and then removed is worse than a row
+ * shown a beat later.
  *
  * The header names the city the rows were actually fetched for: the selection
- * is owned here and handed to the list, so the two cannot drift. There may be
- * NO city — `useGeoDefaultCity` resolves an IP-geo default for anonymous
- * visitors only, so a signed-in viewer with no favorite cities has none — and
- * the header then claims none.
+ * is owned here and handed to the list, so the two cannot drift. This surface
+ * asks the selection to resolve a city for its COPY (favorites, then IP-geo,
+ * then the liveliest city with shows), because the approved header and link
+ * both name one.
  */
 export function NearbyShowsSection({ id }: { id: string }) {
-  const { user, isAuthenticated } = useAuthContext()
-  const selection = useHomeShowCitySelection()
+  const { user, authStatus } = useAuthContext()
+  const isAuthenticated = authStatus === 'authenticated'
+  const selection = useHomeShowCitySelection({ resolveCityForCopy: true })
   const { effectiveCities } = selection
 
   // Same key as the saved-shows module's read, so this shares that one request
   // rather than making a second.
-  const { data: savedShows, isPending: isSavedPending } = useSavedShows({
+  const {
+    data: savedShows,
+    isPending: isSavedPending,
+    error: savedError,
+  } = useSavedShows({
     timeFilter: 'upcoming',
-    limit: SAVED_SHOWS_COLLAPSED_COUNT,
+    limit: SAVED_SHOWS_HOME_READ_LIMIT,
     userId: user?.id,
     enabled: isAuthenticated,
   })
 
-  const excludeShowIds: HomeShowExclusions = useMemo(
-    () =>
-      isAuthenticated && isSavedPending
-        ? 'pending'
-        : (savedShows?.shows.map(show => show.id) ?? []),
-    [isAuthenticated, isSavedPending, savedShows?.shows]
-  )
+  const excludeShowIds: HomeShowExclusions = useMemo(() => {
+    // A failed read is an answer for this purpose: exclude nothing rather than
+    // hold the list at 'pending' forever, since a repeated row is recoverable
+    // and a permanent spinner is not. The module above reports the failure.
+    if (savedError) return []
+    if (isAuthenticated && isSavedPending) return 'pending'
+    return savedShows?.shows.map(show => show.id) ?? []
+  }, [savedError, isAuthenticated, isSavedPending, savedShows?.shows])
 
   const cityCount = effectiveCities.length
   const cityNames = effectiveCities.map(cityLabel).join(', ')
@@ -98,7 +110,11 @@ export function NearbyShowsSection({ id }: { id: string }) {
         </Link>
       </div>
 
-      <HomeShowListView selection={selection} excludeShowIds={excludeShowIds} />
+      <HomeShowListView
+        selection={selection}
+        excludeShowIds={excludeShowIds}
+        excludedLabel={cityNames}
+      />
     </section>
   )
 }

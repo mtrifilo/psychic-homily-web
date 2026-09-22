@@ -290,7 +290,12 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
 
   return (
     <div className="space-y-7">
-      <CalendarFeedSection variant="library" />
+      {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
+          here, and CalendarFeedSection returns a different root per state, so
+          the id lives on the wrapper rather than inside it. */}
+      <div id="calendar-feed" className="scroll-mt-24">
+        <CalendarFeedSection variant="library" />
+      </div>
 
       {isInitialLoading ? (
         <div className="flex justify-center py-12">

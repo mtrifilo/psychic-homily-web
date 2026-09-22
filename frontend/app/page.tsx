@@ -35,9 +35,9 @@ export default function Home() {
       <JsonLd data={generateWebSiteSchema()} />
       <div className="flex w-full justify-center">
         <div className="flex w-full max-w-6xl flex-col gap-14 px-4 pb-16 pt-12 md:px-8">
-          {/* The viewer read is confined to this boundary so the route keeps
-              its prerendered shell (see HomeContentSlot). `null` while it
-              streams, matching the root layout's AuthHydrator boundary: a
+          {/* A streaming boundary for the variant swap, NOT what governs the
+              route's shell — the root layout's AuthHydrator boundary already
+              does that (see HomeContentSlot). `null` while it streams: a
               placeholder that guessed a variant would be wrong for half the
               viewers and would shift when the real one arrived. */}
           <Suspense fallback={null}>

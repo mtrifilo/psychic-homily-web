@@ -16,21 +16,27 @@ const listProps = vi.fn()
 type SavedShowsResult = {
   data?: { shows: { id: number }[] }
   isPending: boolean
+  error?: Error | null
 }
 const mockUseSavedShows = vi.fn<() => SavedShowsResult>(() => ({
   data: { shows: [{ id: 7 }, { id: 9 }] },
   isPending: false,
 }))
 
+const citySelectionOptions = vi.fn()
 vi.mock('@/features/shows/hooks/useHomeShowCitySelection', () => ({
-  useHomeShowCitySelection: () => selection,
+  useHomeShowCitySelection: (options?: unknown) => {
+    citySelectionOptions(options)
+    return selection
+  },
 }))
 vi.mock('@/features/shows/hooks/useSavedShows', () => ({
   SAVED_SHOWS_COLLAPSED_COUNT: 4,
+  SAVED_SHOWS_HOME_READ_LIMIT: 100,
   useSavedShows: () => mockUseSavedShows(),
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ user: { id: '42' }, isAuthenticated: true }),
+  useAuthContext: () => ({ user: { id: '42' }, authStatus: 'authenticated' }),
 }))
 vi.mock('@/features/shows/components/HomeShowListView', () => ({
   HomeShowListView: (props: unknown) => {
@@ -101,6 +107,41 @@ describe('NearbyShowsSection', () => {
 
     expect(listProps).toHaveBeenCalledWith(
       expect.objectContaining({ excludeShowIds: 'pending' })
+    )
+  })
+})
+
+describe('NearbyShowsSection exclusion sourcing', () => {
+  it('asks the selection to resolve a city, because its copy names one', () => {
+    render(<NearbyShowsSection id="nearby" />)
+
+    expect(citySelectionOptions).toHaveBeenCalledWith({
+      resolveCityForCopy: true,
+    })
+  })
+
+  it('excludes nothing rather than spinning forever when the saved read fails', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      error: new Error('boom'),
+    })
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    // A repeated row is recoverable; a permanent spinner is not.
+    expect(listProps).toHaveBeenCalledWith(
+      expect.objectContaining({ excludeShowIds: [] })
+    )
+  })
+
+  it('passes the resolved city through for the all-excluded sentence', () => {
+    selection.effectiveCities = [{ city: 'Phoenix', state: 'AZ' }]
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    expect(listProps).toHaveBeenCalledWith(
+      expect.objectContaining({ excludedLabel: 'Phoenix, AZ' })
     )
   })
 })

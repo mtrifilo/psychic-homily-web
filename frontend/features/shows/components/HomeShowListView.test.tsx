@@ -10,6 +10,8 @@ vi.mock('../hooks/useShows', () => ({
   useUpcomingShows: (...args: unknown[]) => mockUseUpcomingShows(...args),
 }))
 vi.mock('../hooks/useSavedShows', () => ({
+  SAVED_SHOWS_COLLAPSED_COUNT: 4,
+  SAVED_SHOWS_HOME_READ_LIMIT: 100,
   useShowSaveCountBatch: (...args: unknown[]) =>
     mockUseShowSaveCountBatch(...args),
 }))
@@ -77,11 +79,22 @@ describe('HomeShowListView', () => {
     expect(screen.getByText('Not saved')).toBeInTheDocument()
   })
 
-  it('asks for the excluded rows on top so the section still fills', () => {
+  it('uses ONE constant over-fetch limit so the query key cannot churn', () => {
     render(<HomeShowListView selection={selection} excludeShowIds={[1, 2, 3]} />)
+    render(<HomeShowListView selection={selection} excludeShowIds={[1]} />)
+
+    // `limit` is part of the query key: a limit that grew with the exclusion
+    // set would re-key mid-flight and fire a second, throwaway request.
+    for (const call of mockUseUpcomingShows.mock.calls) {
+      expect(call[0]).toEqual(expect.objectContaining({ limit: 9 }))
+    }
+  })
+
+  it('asks for only five when it is not excluding', () => {
+    render(<HomeShowListView selection={selection} />)
 
     expect(mockUseUpcomingShows).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 8 })
+      expect.objectContaining({ limit: 5 })
     )
   })
 
@@ -91,13 +104,30 @@ describe('HomeShowListView', () => {
     expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
   })
 
-  it('says nothing false when exclusions emptied a non-empty page', () => {
-    render(<HomeShowListView selection={selection} excludeShowIds={[1, 2]} />)
+  it('reports an all-excluded page as saved, not as empty', () => {
+    render(
+      <HomeShowListView
+        selection={selection}
+        excludeShowIds={[1, 2]}
+        excludedLabel="Phoenix, AZ"
+      />
+    )
 
     expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No upcoming shows/i)).not.toBeInTheDocument()
     expect(
-      screen.queryByText(/No upcoming shows/i)
-    ).not.toBeInTheDocument()
+      screen.getByText(
+        'Every upcoming show in Phoenix, AZ is already in your saved shows.'
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('drops the city from that sentence when none resolved', () => {
+    render(<HomeShowListView selection={selection} excludeShowIds={[1, 2]} />)
+
+    expect(
+      screen.getByText('Every upcoming show is already in your saved shows.')
+    ).toBeInTheDocument()
   })
 
   it('still reports a genuinely empty page', () => {

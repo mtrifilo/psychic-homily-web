@@ -151,10 +151,16 @@ test.describe('Homepage', () => {
 
 test.describe('Homepage (signed in)', () => {
   // PSY-2103: the saved-shows module replaces the wordmark hero, and the
-  // general "Upcoming shows" section is gone for signed-in viewers. The worker
-  // user starts with no saved shows, so this exercises the zero state.
+  // general "Upcoming shows" section is gone for signed-in viewers.
+  //
+  // `cleanBetweenRetries` is not optional here even though this test saves
+  // nothing: it asserts the ZERO state, and the worker user is shared with
+  // every other spec on this worker. save-show.spec saves an upcoming show and
+  // unsaves it only as its last step, so any failure there leaves this test
+  // reading `rows` instead of `empty` and failing for someone else's reason.
   test('replaces the hero with the saved-shows module', async ({
     authenticatedPage,
+    cleanBetweenRetries: _cleanup,
   }) => {
     await authenticatedPage.goto('/')
 
@@ -203,6 +209,63 @@ test.describe('Homepage (signed in)', () => {
     ).toBeVisible()
     await expect(
       authenticatedPage.locator('article').first()
+    ).toBeVisible({ timeout: 10_000 })
+  })
+
+  // AC3 (second half) and AC4: the save loop this ticket exists to close.
+  // Saving from the nearby list must move the row into the module with no
+  // reload, and unsaving from the module must send it back and reach /library.
+  test('moves a show between the nearby list and the module without a reload', async ({
+    authenticatedPage,
+    cleanBetweenRetries: _cleanup,
+  }) => {
+    await authenticatedPage.goto('/')
+
+    const nearby = authenticatedPage.getByRole('region', {
+      name: 'Shows near you this week',
+    })
+    await expect(nearby.locator('article').first()).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // Pin the row by its own accessible name so the assertions below cannot
+    // silently follow a different show when the list reorders.
+    const firstRow = nearby.locator('article').first()
+    const savedTitle = await firstRow.getAttribute('aria-label')
+    expect(savedTitle).toBeTruthy()
+
+    const savedModule = authenticatedPage.getByRole('region', {
+      name: 'Your upcoming shows',
+    })
+
+    await firstRow.getByRole('button', { name: 'Save show' }).click()
+
+    // No goto(): the row must cross over on invalidation alone.
+    await expect(
+      savedModule.locator(`article[aria-label="${savedTitle}"]`)
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      nearby.locator(`article[aria-label="${savedTitle}"]`)
+    ).toHaveCount(0)
+    await expect(savedModule.getByText(/1 saved/)).toBeVisible()
+
+    // Unsave from the module: the row leaves it and returns to the nearby list.
+    await savedModule
+      .locator(`article[aria-label="${savedTitle}"]`)
+      .getByRole('button', { name: /^Remove from saved shows/ })
+      .click()
+
+    await expect(
+      savedModule.locator(`article[aria-label="${savedTitle}"]`)
+    ).toHaveCount(0, { timeout: 10_000 })
+    await expect(
+      authenticatedPage.getByText('Save a show and it shows up here.')
+    ).toBeVisible()
+
+    // ...and /library agrees on the next visit.
+    await authenticatedPage.goto('/library')
+    await expect(
+      authenticatedPage.getByRole('main').getByText('Nothing saved yet.')
     ).toBeVisible({ timeout: 10_000 })
   })
 

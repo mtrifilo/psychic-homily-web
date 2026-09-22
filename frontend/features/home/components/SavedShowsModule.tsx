@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SaveButton } from '@/components/shared/SaveButton'
-import { batchedSaveFor } from '@/components/shared/batchedSaveData'
 // Concrete module paths, not the feature barrels: Turbopack does not
 // tree-shake a `'use client'` barrel per export, so importing one here would
 // ship the whole shows surface into the home chunk. See
@@ -16,6 +15,7 @@ import {
 } from '@/features/shows/components/SavedShowRow'
 import {
   SAVED_SHOWS_COLLAPSED_COUNT,
+  SAVED_SHOWS_HOME_READ_LIMIT,
   useSavedShows,
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
@@ -28,9 +28,11 @@ import { useAuthContext } from '@/lib/context/AuthContext'
  * the body and the footer all describe the same viewer, and three independent
  * conditions is how they start disagreeing.
  *
- * 'loading' covers an unsettled viewer as well as an in-flight read. Neither is
- * an answer about this viewer's saves, so neither the count nor the zero state
- * may be painted from it.
+ * Every state here is TERMINAL except 'loading', and 'loading' is reachable
+ * only from a read that is genuinely still in flight. A settled-anonymous
+ * viewer is not a loading viewer: the module returns null instead, because the
+ * alternative — an `enabled: false` query reporting `isPending` forever — is an
+ * indefinite skeleton under a heading addressing someone who has signed out.
  */
 type ModuleState = 'loading' | 'error' | 'empty' | 'rows'
 
@@ -41,13 +43,17 @@ type ModuleState = 'loading' | 'error' | 'empty' | 'rows'
  * It closes the save loop — save a show, come back, see it — which previously
  * had its second half only at /library, two clicks behind the avatar.
  *
- * Every row carries the pressed SaveButton rather than Library's "✕ remove":
- * an unsave here is the same gesture that made the save, and its invalidation
- * already refreshes both this list and Library's.
+ * Every row carries a SaveButton in its SAVED state rather than Library's
+ * "✕ remove": an unsave here is the same gesture that made the save, and its
+ * invalidation already refreshes both this list and Library's. `is_saved` is
+ * asserted rather than read back, because these rows ARE the viewer's saved
+ * shows; waiting on the save-count batch to learn that would paint an empty
+ * heart labelled "Save show" on every row of a saved-shows list, and a click in
+ * that window would fire a redundant save instead of the unsave the viewer
+ * asked for. The batch still supplies the public count for the accessible name.
  *
- * `total` (not `shows.length`) drives the subline and the zero state: the query
- * asks for at most {@link SAVED_SHOWS_COLLAPSED_COUNT} rows, so the row count
- * says nothing about how many saves exist.
+ * `total` (not `shows.length`) drives the subline and the zero state: the read
+ * is capped, so the row count says nothing about how many saves exist.
  */
 export function SavedShowsModule({
   nearbySectionId,
@@ -56,22 +62,26 @@ export function SavedShowsModule({
    *  nearby list. */
   nearbySectionId: string
 }) {
-  const { user, isAuthenticated } = useAuthContext()
+  const { user, authStatus } = useAuthContext()
+  const isAuthenticated = authStatus === 'authenticated'
 
+  // One read shared with NearbyShowsSection, which needs the full id set to
+  // exclude. See SAVED_SHOWS_HOME_READ_LIMIT for why it is not the four rows
+  // painted here.
   const { data, isPending, error } = useSavedShows({
     timeFilter: 'upcoming',
-    limit: SAVED_SHOWS_COLLAPSED_COUNT,
+    limit: SAVED_SHOWS_HOME_READ_LIMIT,
     userId: user?.id,
     enabled: isAuthenticated,
   })
 
-  const shows = data?.shows ?? []
-  const total = data?.total ?? 0
-
-  const showIds = useMemo(
-    () => data?.shows?.map(show => show.id) ?? [],
+  const shows = useMemo(
+    () => (data?.shows ?? []).slice(0, SAVED_SHOWS_COLLAPSED_COUNT),
     [data?.shows]
   )
+  const total = data?.total ?? 0
+
+  const showIds = useMemo(() => shows.map(show => show.id), [shows])
   const { data: saveCounts } = useShowSaveCountBatch(
     showIds,
     isAuthenticated,
@@ -80,11 +90,16 @@ export function SavedShowsModule({
 
   const state: ModuleState = error
     ? 'error'
-    : !isAuthenticated || isPending
+    : authStatus === 'pending' || isPending
       ? 'loading'
       : total === 0
         ? 'empty'
         : 'rows'
+
+  // The server picked this variant from the viewer's cookie; a viewer who signs
+  // out without navigating leaves it mounted. Say nothing rather than address
+  // someone who is no longer there.
+  if (authStatus === 'anonymous') return null
 
   return (
     <section
@@ -122,7 +137,7 @@ export function SavedShowsModule({
 
         <div className="flex shrink-0 items-center gap-4">
           <Link
-            href="/library?tab=shows"
+            href="/library"
             className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
           >
             View all in Library →
@@ -140,14 +155,11 @@ export function SavedShowsModule({
       )}
 
       {state === 'loading' && (
+        // ONE row, not the four the read may return: the prompt row is the
+        // guaranteed minimum, so reserving the maximum would drop the rest of
+        // the page ~160px for the zero-save viewer this module is designed for.
         <div aria-busy="true" className="flex flex-col">
-          {Array.from({ length: SAVED_SHOWS_COLLAPSED_COUNT }, (_, i) => (
-            <Skeleton
-              key={i}
-              className="my-2.5 h-9 w-full rounded-none md:my-3"
-              aria-hidden
-            />
-          ))}
+          <Skeleton className="my-2.5 h-9 w-full rounded-none md:my-3" aria-hidden />
         </div>
       )}
 
@@ -179,38 +191,45 @@ export function SavedShowsModule({
       )}
 
       {state === 'rows' && (
-        <>
-          <div className="flex flex-col">
-            {shows.map(show => (
-              <SavedShowRow
-                key={show.id}
-                show={show}
-                isPast={false}
-                action={
-                  <SaveButton
-                    showId={show.id}
-                    showLabel
-                    // The row is about THIS viewer's save; the public count is
-                    // a different fact and stays in the accessible name only.
-                    showCount={false}
-                    saveData={batchedSaveFor(saveCounts, show.id)}
-                    className="-my-1 h-auto py-1"
-                  />
-                }
-              />
-            ))}
-          </div>
+        <div className="flex flex-col">
+          {shows.map(show => (
+            <SavedShowRow
+              key={show.id}
+              show={show}
+              isPast={false}
+              action={
+                <SaveButton
+                  showId={show.id}
+                  showLabel
+                  // The row is about THIS viewer's save; the public count is
+                  // a different fact and stays in the accessible name only.
+                  showCount={false}
+                  // Asserted, not read back — see the note on this component.
+                  saveData={{
+                    save_count:
+                      saveCounts?.[String(show.id)]?.save_count ?? 0,
+                    is_saved: true,
+                  }}
+                  className="-my-1 h-auto py-1"
+                />
+              }
+            />
+          ))}
+        </div>
+      )}
 
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-            <span>Past saved shows move to Library → Past automatically</span>
-            <Link
-              href="/library?tab=shows"
-              className="text-primary transition-colors hover:underline underline-offset-4"
-            >
-              Subscribe to calendar →
-            </Link>
-          </div>
-        </>
+      {/* Shown in the zero state too: it is the only line that explains where a
+          viewer's past saves went, and that viewer is the one asking. */}
+      {(state === 'rows' || state === 'empty') && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+          <span>Past saved shows move to Library → Past automatically</span>
+          <Link
+            href="/library#calendar-feed"
+            className="text-primary transition-colors hover:underline underline-offset-4"
+          >
+            Subscribe to calendar →
+          </Link>
+        </div>
       )}
     </section>
   )

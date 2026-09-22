@@ -81,6 +81,18 @@ interface UseGeoDefaultCityParams {
   /** Fetch `/api/geo` client-side (/shows + home). Mutually exclusive in
    *  practice with `geoFromServer`. */
   enableClientFetch?: boolean
+  /**
+   * Also resolve a geo default for a SETTLED AUTHENTICATED viewer who has no
+   * favorite cities (PSY-2103's signed-in home, which names the resolved city
+   * in its copy and so must have one).
+   *
+   * Off by default, which keeps /shows and /explore on the anonymous-only rule.
+   * Safe where it is on: the gate below still requires a settled viewer, and
+   * `favoriteCities.length === 0` on a SETTLED authenticated viewer means they
+   * have none, not that theirs have yet to arrive — which is the case the
+   * anonymous-only gate exists to prevent.
+   */
+  allowAuthenticated?: boolean
 }
 
 interface UseGeoDefaultCityResult {
@@ -224,20 +236,23 @@ export function useGeoDefaultCity({
   hasExistingSelection,
   geoFromServer,
   enableClientFetch = false,
+  allowAuthenticated = false,
 }: UseGeoDefaultCityParams): UseGeoDefaultCityResult {
   // Set once the user interacts with the filter. State (not a ref): the
   // derived default below must recompute — and the affordance drop — on the
   // very next render after the flip.
   const [userInteracted, setUserInteracted] = useState(false)
 
-  // Eligibility: only a SETTLED anonymous visitor, with no favorites, no
-  // existing selection and no prior interaction. Gates BOTH the client fetch
+  // Eligibility: a SETTLED visitor with no favorites, no existing selection and
+  // no prior interaction — anonymous always, authenticated only where the
+  // caller opted in (see allowAuthenticated). Gates BOTH the client fetch
   // (efficiency: an authed / favorited visitor never hits the edge) and the
   // derived default. Waiting for the settle matters: deriving the anon geo
   // default while the viewer's identity is unknown shows geo to someone whose
   // favorites should have won.
   const eligible =
-    authStatus === 'anonymous' &&
+    (authStatus === 'anonymous' ||
+      (allowAuthenticated && authStatus === 'authenticated')) &&
     favoriteCities.length === 0 &&
     !hasExistingSelection &&
     !userInteracted

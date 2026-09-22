@@ -3,7 +3,10 @@
 import { useMemo } from 'react'
 import { useUpcomingShows } from '../hooks/useShows'
 import { batchedSaveFor } from '@/components/shared/batchedSaveData'
-import { useShowSaveCountBatch } from '../hooks/useSavedShows'
+import {
+  SAVED_SHOWS_COLLAPSED_COUNT,
+  useShowSaveCountBatch,
+} from '../hooks/useSavedShows'
 import type { HomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -14,6 +17,17 @@ import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 
 /** Rows the home list shows for the selected city. */
 const HOME_SHOW_LIMIT = 5
+
+/**
+ * Rows asked for when the caller is excluding some, so the list still fills its
+ * five slots after the drop.
+ *
+ * A CONSTANT, not `HOME_SHOW_LIMIT + excluded.length`: `limit` is part of the
+ * query key, so a limit that grows when the exclusion set arrives re-keys the
+ * query and fires a second request whose first response is thrown away.
+ */
+const HOME_SHOW_LIMIT_WITH_EXCLUSIONS =
+  HOME_SHOW_LIMIT + SAVED_SHOWS_COLLAPSED_COUNT
 
 /**
  * Shows to leave out, or 'pending' while the caller is still resolving them.
@@ -30,15 +44,16 @@ interface HomeShowListViewProps {
   selection: HomeShowCitySelection
   /**
    * Show ids to leave out. Set by the signed-in home, where the saved-shows
-   * module directly above already lists them, so the two lists never repeat a
-   * row.
+   * module directly above already lists them.
    *
-   * The caller resolves these from a request of its own that runs BESIDE this
-   * component's, rather than from anything keyed on the rows fetched here: an
-   * exclusion set derived from the response would serialize two round-trips
-   * before a single row could paint.
+   * The list waits for these rather than painting rows it is about to drop, so
+   * the caller's read gates the first paint. That is the accepted cost of not
+   * showing a row twice.
    */
   excludeShowIds?: HomeShowExclusions
+  /** City name for the all-excluded state's sentence; omitted when no city
+   *  resolved, which that sentence then leaves out. */
+  excludedLabel?: string
 }
 
 /**
@@ -53,6 +68,7 @@ interface HomeShowListViewProps {
 export function HomeShowListView({
   selection,
   excludeShowIds,
+  excludedLabel,
 }: HomeShowListViewProps) {
   const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
@@ -65,12 +81,11 @@ export function HomeShowListView({
     onFilterChange,
   } = selection
 
+  const isExcluding = excludeShowIds !== undefined
   const excludedIds = Array.isArray(excludeShowIds) ? excludeShowIds : undefined
 
   const { data, isLoading, isFetching, error } = useUpcomingShows({
-    // Ask for the excluded rows on top, so the section still fills its five
-    // slots instead of shrinking by however many the viewer has saved.
-    limit: HOME_SHOW_LIMIT + (excludedIds?.length ?? 0),
+    limit: isExcluding ? HOME_SHOW_LIMIT_WITH_EXCLUSIONS : HOME_SHOW_LIMIT,
     cities: effectiveCities.length > 0 ? effectiveCities : undefined,
   })
 
@@ -113,6 +128,20 @@ export function HomeShowListView({
     )
   }
 
+  // Three different facts, three different sentences. Only the first is "there
+  // are none"; the third is "you already have them all", which the old copy
+  // would have reported as an empty city.
+  const emptyMessage =
+    visibleShows.length > 0
+      ? null
+      : fetchedShows.length > 0
+        ? excludedLabel
+          ? `Every upcoming show in ${excludedLabel} is already in your saved shows.`
+          : 'Every upcoming show is already in your saved shows.'
+        : effectiveCities.length > 0
+          ? `No upcoming shows in ${effectiveCities.map(c => c.city).join(', ')}.`
+          : 'No upcoming shows at this time.'
+
   return (
     <div className="w-full">
       {/* Show the filter whenever ≥1 city has shows (PSY-932) — consistent
@@ -142,20 +171,10 @@ export function HomeShowListView({
       )}
 
       <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
-        {visibleShows.length === 0 ? (
-          // Only the genuinely-empty page gets the "no shows" sentence. When
-          // rows came back and exclusions removed all of them, the viewer has
-          // saved everything on offer here and they are listed directly above,
-          // so saying there are none would be false.
-          fetchedShows.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>
-                {effectiveCities.length > 0
-                  ? `No upcoming shows in ${effectiveCities.map(c => c.city).join(', ')}.`
-                  : 'No upcoming shows at this time.'}
-              </p>
-            </div>
-          )
+        {emptyMessage ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <p>{emptyMessage}</p>
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {visibleShows.map(show => (
