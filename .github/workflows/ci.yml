@@ -316,8 +316,9 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
-      # Enabling `only-new-issues` needs `pull-requests: read`; without it the
-      # diff fetch fails as a warning and the whole tree is linted, green.
+      # `only-new-issues` fetches the PR diff via pulls.get, so enabling it
+      # means a job block with `pull-requests: read` and `contents: read`. A
+      # failed fetch is only logged, and the whole tree is linted instead.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -953,7 +954,8 @@ jobs:
     timeout-minutes: 5
     # `contents: read` is for repos.getCommit; `issues: write` for
     # issues.listForRepo and issues.create. This block replaces the
-    # workflow-level one, so `contents: read` is not redundant here.
+    # workflow-level one, so `contents: read` must stay listed: getCommit
+    # works without it only while the repository is public.
     permissions:
       contents: read
       issues: write

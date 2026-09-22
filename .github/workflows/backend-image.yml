@@ -66,7 +66,8 @@ concurrency:
 #
 # No `packages:` scope: this workflow logs in to Docker Hub with
 # secrets.DOCKERHUB_* and builds with `push: false`. Publishing to GitHub
-# Packages would need `packages: write` in the build job's own block.
+# Packages would need a build-job block listing both `contents: read` and
+# `packages: write`.
 permissions:
   contents: read
 
@@ -142,12 +143,16 @@ jobs:
   notify-image-failure:
     name: Notify on image build failure
     needs: [backend-image]
+    # Pages only on 'failure', as the in-build step it replaced did. A build
+    # killed by its own timeout-minutes resolves to 'cancelled' and does not
+    # page.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.backend-image.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # `issues: write` only, for issues.listForRepo and issues.create. The
-    # script reads the commit from `context` and makes no contents-scoped
-    # call; adding one (e.g. repos.getCommit) needs `contents: read` here too.
+    # script reads the commit from `context`. Adding a contents-scoped call
+    # (e.g. repos.getCommit) means listing `contents: read` here too: it works
+    # without that scope only while the repository is public.
     permissions:
       issues: write
     steps:
