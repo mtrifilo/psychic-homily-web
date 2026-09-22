@@ -107,7 +107,7 @@ export const API_ENDPOINTS = {
     TOKEN: `${API_BASE_URL}/calendar/token`,
   },
 
-  // Saved shows (user's "My List") endpoints
+  // Saved shows endpoints
   SAVED_SHOWS: {
     LIST: `${API_BASE_URL}/saved-shows`,
     SAVE: (showId: string | number) => `${API_BASE_URL}/saved-shows/${showId}`,

@@ -39,6 +39,7 @@ export {
 
 export {
   useInfiniteSavedShows,
+  SAVED_SHOWS_COLLAPSED_COUNT,
   useSavedShows,
   useSaveShow,
   useUnsaveShow,

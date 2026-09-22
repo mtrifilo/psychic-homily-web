@@ -33,7 +33,13 @@ vi.mock('./queryClient', async () => {
   return { ...actual, getQueryClient: () => new QueryClient() }
 })
 
-import { prefetchAuthProfile, getAuthenticatedNavMode } from './auth-hydration'
+import {
+  prefetchAuthProfile,
+  getAuthenticatedNavMode,
+  isAuthenticatedViewer,
+  prefetchHomeSavedShows,
+  resolveHomeViewer,
+} from './auth-hydration'
 import { queryKeys } from './queryClient'
 
 const PROFILE_KEY = JSON.stringify(queryKeys.auth.profile)
@@ -153,5 +159,198 @@ describe('getAuthenticatedNavMode', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })))
 
     await expect(getAuthenticatedNavMode()).resolves.toBeUndefined()
+  })
+})
+
+// The single switch that decides which homepage a viewer gets (PSY-2103), so
+// its fallback direction is worth pinning: it must fail CLOSED, serving the
+// anonymous page to any viewer the backend did not positively name.
+describe('isAuthenticatedViewer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('is true only when the backend names a user', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, user: { id: 'u1' } }),
+      }))
+    )
+
+    await expect(isAuthenticatedViewer()).resolves.toBe(true)
+  })
+
+  it('is false with no cookie, without asking the backend', async () => {
+    mockGet.mockReturnValue(undefined)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(isAuthenticatedViewer()).resolves.toBe(false)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('is false when the backend answers that the cookie names nobody', async () => {
+    mockGet.mockReturnValue({ value: 'stale' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ error_code: 'TOKEN_MISSING' }),
+      }))
+    )
+
+    await expect(isAuthenticatedViewer()).resolves.toBe(false)
+  })
+
+  it('fails closed when the read is indeterminate', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })))
+
+    await expect(isAuthenticatedViewer()).resolves.toBe(false)
+  })
+
+  it('fails closed on a 2xx whose body is not a profile', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      }))
+    )
+
+    await expect(isAuthenticatedViewer()).resolves.toBe(false)
+  })
+
+  it('is false when the backend reports success but names no user', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      }))
+    )
+
+    await expect(isAuthenticatedViewer()).resolves.toBe(false)
+  })
+})
+
+// The three-way read behind the homepage's variant slot (PSY-2103): only an
+// answer the backend could not give falls through to the client-side switch.
+describe('resolveHomeViewer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('names a viewer the backend named', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, user: { id: 'u1' } }),
+      }))
+    )
+
+    await expect(resolveHomeViewer()).resolves.toBe('authenticated')
+  })
+
+  it('is anonymous with no cookie', async () => {
+    mockGet.mockReturnValue(undefined)
+    vi.stubGlobal('fetch', vi.fn())
+
+    await expect(resolveHomeViewer()).resolves.toBe('anonymous')
+  })
+
+  it('is indeterminate when the backend could not answer', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })))
+
+    await expect(resolveHomeViewer()).resolves.toBe('indeterminate')
+  })
+})
+
+describe('prefetchHomeSavedShows', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const savedKey = JSON.stringify(
+    queryKeys.savedShows.list('u1', 4, 0, 'upcoming')
+  )
+  const seeded = (state: { queries: SeededEntry[] }) =>
+    state.queries.find(q => JSON.stringify(q.queryKey) === savedKey)
+
+  it('seeds the module\'s exact key from the viewer\'s cookie', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/auth/profile')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ success: true, user: { id: 'u1' } }),
+            }
+          : {
+              ok: true,
+              status: 200,
+              json: async () => ({ shows: [{ id: 7 }], total: 1 }),
+            }
+      )
+    )
+
+    const state = await prefetchHomeSavedShows()
+
+    const entry = seeded(state as { queries: SeededEntry[] })
+    expect(entry).toBeDefined()
+    expect(entry?.state.data).toEqual({ shows: [{ id: 7 }], total: 1 })
+    const calls = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(String(calls[1][0])).toContain(
+      '/saved-shows?limit=4&offset=0&time_filter=upcoming'
+    )
+  })
+
+  it('seeds nothing when the read fails, leaving the client query to run', async () => {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/auth/profile')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ success: true, user: { id: 'u1' } }),
+            }
+          : { ok: false, status: 503 }
+      )
+    )
+
+    const state = await prefetchHomeSavedShows()
+
+    expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
+  })
+
+  it('seeds nothing and reads nothing for a viewer with no session', async () => {
+    mockGet.mockReturnValue(undefined)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const state = await prefetchHomeSavedShows()
+
+    expect((state as { queries: SeededEntry[] }).queries).toHaveLength(0)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

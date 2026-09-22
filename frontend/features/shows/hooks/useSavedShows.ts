@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { SAVED_SHOWS_COLLAPSED_COUNT } from '../savedShowsConstants'
 import { useAuthContext } from '@/lib/context/AuthContext'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
 import type {
@@ -31,11 +32,18 @@ interface UseSavedShowsOptions {
 }
 
 /**
- * Hook to fetch user's saved shows
- * Requires authentication
+ * A page of the viewer's saved shows.
+ *
+ * Holds THE WRITE-SIDE RULE itself rather than leaving it to callers (see
+ * AuthStatus in lib/context/AuthContext): this key carries the viewer's
+ * identity, and a request issued while the profile is in flight still sends
+ * their cookie, so the response would be written under the viewer-less key and
+ * outlive the session. A caller's own `enabled` cannot protect a key its
+ * siblings and the optimistic mutations share.
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
   const { limit = 50, offset = 0, enabled = true, userId, timeFilter } = options
+  const { authStatus } = useAuthContext()
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -51,19 +59,19 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
         method: 'GET',
       })
     },
-    enabled,
+    enabled: enabled && authStatus !== 'pending' && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
 
-const SAVED_SHOWS_INITIAL_PAGE_SIZE = 4
+export { SAVED_SHOWS_COLLAPSED_COUNT } from '../savedShowsConstants'
 const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
 
 /**
- * Fetch a date-partitioned saved-show list incrementally. The first request
- * matches the Library's collapsed row count; expansion then uses the API's
- * maximum page size so large collections remain reachable without making the
- * initial Library load hydrate hundreds of hidden records.
+ * Fetch a date-partitioned saved-show list incrementally. The first request is
+ * the collapsed row count; expansion then uses the API's maximum page size so
+ * large collections remain reachable without making the initial Library load
+ * hydrate hundreds of hidden records.
  */
 export const useInfiniteSavedShows = (
   timeFilter: 'upcoming' | 'past',
@@ -72,7 +80,7 @@ export const useInfiniteSavedShows = (
 ) =>
   useInfiniteQuery({
     queryKey: queryKeys.savedShows.infiniteList(userId, timeFilter),
-    initialPageParam: { offset: 0, limit: SAVED_SHOWS_INITIAL_PAGE_SIZE },
+    initialPageParam: { offset: 0, limit: SAVED_SHOWS_COLLAPSED_COUNT },
     queryFn: async ({ pageParam }): Promise<SavedShowsListResponse> => {
       const params = new URLSearchParams({
         limit: pageParam.limit.toString(),

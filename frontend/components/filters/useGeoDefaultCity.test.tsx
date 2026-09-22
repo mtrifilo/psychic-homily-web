@@ -143,6 +143,35 @@ describe('useGeoDefaultCity — server-prop path (/explore)', () => {
     expect(result.current.appliedGeoDefault).toBeNull()
   })
 
+  it('derives the geo city for an authed viewer only where the caller opts in', () => {
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          authStatus: 'authenticated',
+          allowAuthenticated: true,
+          geoFromServer: { city: 'Omaha', state: 'NE' },
+        }),
+      ),
+    )
+    expect(result.current.appliedGeoDefault).toEqual({ city: 'Omaha', state: 'NE' })
+  })
+
+  it('waits for the favorites to be known before geo runs for an authed viewer', () => {
+    // A passkey sign-in sets the user before its profile refetch lands, so
+    // "authenticated with no favorites" can mean "favorites not here yet".
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          authStatus: 'authenticated',
+          allowAuthenticated: true,
+          favoritesSettled: false,
+          geoFromServer: { city: 'Omaha', state: 'NE' },
+        }),
+      ),
+    )
+    expect(result.current.appliedGeoDefault).toBeNull()
+  })
+
   it('derives null when favorites are present (favorites win)', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(

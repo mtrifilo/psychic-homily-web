@@ -338,7 +338,7 @@ export interface BatchRejectResponse {
   errors: BatchShowError[]
 }
 
-// Saved shows (user's "My List") types
+// Saved shows types
 export interface SavedShowResponse extends ShowResponse {
   saved_at: string // ISO date string
 }

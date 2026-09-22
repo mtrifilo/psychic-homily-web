@@ -32,6 +32,13 @@ interface SaveButtonProps {
    * card race the batch.
    */
   saveData?: BatchedSaveData
+  /**
+   * Paint the public save count beside the heart. Off for a surface where the
+   * row is already about THIS viewer's save (the signed-in home's saved-shows
+   * module), where a second number reads as part of the label. The count stays
+   * in the accessible name either way.
+   */
+  showCount?: boolean
   className?: string
   disabled?: boolean
 }
@@ -42,6 +49,7 @@ export function SaveButton({
   size = 'sm',
   showLabel = false,
   saveData,
+  showCount = true,
   className,
   disabled = false,
 }: SaveButtonProps) {
@@ -100,12 +108,17 @@ export function SaveButton({
   // is a claim about the viewer, and the unsettled window is not yet entitled
   // to make it. The control is disabled there, so it announces the neutral
   // add/remove name instead.
+  // With the visible label on, the accessible name starts with that word so
+  // the two agree (WCAG 2.5.3: the visible text must be in the name a voice
+  // user speaks); without it the name carries the whole action alone.
   const label =
     authStatus === 'anonymous'
       ? 'Sign in to save'
       : isSaved
-        ? 'Remove from My List'
-        : 'Add to My List'
+        ? showLabel
+          ? 'Saved, remove from saved shows'
+          : 'Remove from saved shows'
+        : 'Save show'
 
   if (variant === 'bracket') {
     return (
@@ -138,6 +151,9 @@ export function SaveButton({
   const buttonSize =
     size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
   const hasCount = saveCount > 0
+  // The accessible name keeps the public count whether or not it is painted:
+  // hiding a number is a density call, not a reason to stop announcing it.
+  const paintsCount = showCount && hasCount
 
   return (
     <div className="relative">
@@ -153,7 +169,7 @@ export function SaveButton({
         className={cn(
           buttonSize,
           'p-0',
-          (showLabel || hasCount) && 'w-auto px-3 gap-1.5',
+          (showLabel || paintsCount) && 'w-auto px-3 gap-1.5',
           className
         )}
         title={label}
@@ -166,7 +182,7 @@ export function SaveButton({
               : 'text-muted-foreground hover:text-foreground'
           } ${isLoading ? 'opacity-50' : ''}`}
         />
-        {hasCount && (
+        {paintsCount && (
           <span className="text-xs tabular-nums text-muted-foreground">
             {saveCount}
           </span>

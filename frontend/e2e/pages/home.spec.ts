@@ -1,6 +1,12 @@
-import { test } from '../fixtures/error-detection'
-import { expect } from '@playwright/test'
+import { test, expect } from '../fixtures'
+import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
+import {
+  lookupWorkerUserId,
+  resetTestFixtures,
+} from '../fixtures/test-fixtures-reset'
 
+// The homepage has two server-picked viewer variants (PSY-2103). These are the
+// ANONYMOUS one; the signed-in variant has its own describe below.
 test.describe('Homepage', () => {
   test('loads and displays upcoming shows', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/')
@@ -144,6 +150,156 @@ test.describe('Homepage', () => {
     ).toBeVisible()
     await expect(
       page.getByRole('contentinfo').getByText('Your music knowledge graph.')
+    ).toBeVisible()
+  })
+})
+
+test.describe('Homepage (signed in)', () => {
+  // PSY-2103: the saved-shows module replaces the wordmark hero, and the
+  // general "Upcoming shows" section is gone for signed-in viewers.
+  //
+  // These tests assert the ZERO state on a worker user that every other spec
+  // on this worker shares, and save-show.spec unsaves only as its last step. A
+  // reset at SETUP is what protects the first attempt from a sibling's
+  // leftovers; `cleanBetweenRetries` runs at teardown and only protects a
+  // retry, so both are used.
+  test.beforeEach(async ({}, testInfo) => {
+    const authFile = userAuthFileForWorker(testInfo.workerIndex % USER_COUNT)
+    await resetTestFixtures(await lookupWorkerUserId(authFile))
+  })
+  test('replaces the hero with the saved-shows module', async ({
+    authenticatedPage,
+    cleanBetweenRetries: _cleanup,
+  }) => {
+    await authenticatedPage.goto('/')
+
+    await expect(
+      authenticatedPage.getByRole('heading', {
+        name: 'Your upcoming shows',
+        level: 1,
+      })
+    ).toBeVisible()
+
+    // The logged-out hero and its sign-up nudge are gone.
+    await expect(
+      authenticatedPage.getByRole('heading', {
+        name: 'Psychic Homily',
+        level: 1,
+      })
+    ).toHaveCount(0)
+
+    // The general list is gone, and /shows is still one click away.
+    await expect(
+      authenticatedPage.getByRole('heading', { name: 'Upcoming shows', exact: true })
+    ).toHaveCount(0)
+    await expect(
+      authenticatedPage.getByRole('link', { name: /view all shows/i })
+    ).toHaveCount(0)
+    await expect(
+      authenticatedPage.getByRole('link', { name: 'Find a show' })
+    ).toBeVisible()
+    await expect(
+      authenticatedPage.getByRole('link', { name: /view all in library/i })
+    ).toBeVisible()
+
+    // Zero-saves prompt row.
+    await expect(
+      authenticatedPage.getByText('Save a show and it shows up here.')
+    ).toBeVisible()
+
+    // The nearby list renders for every signed-in viewer, saves or none.
+    await expect(
+      authenticatedPage.getByRole('heading', {
+        name: /Shows (near you )?this week/,
+      })
+    ).toBeVisible()
+    await expect(
+      authenticatedPage.getByRole('link', { name: /all upcoming shows/i })
+    ).toBeVisible()
+    await expect(
+      authenticatedPage.locator('article').first()
+    ).toBeVisible({ timeout: 10_000 })
+  })
+
+  // AC3 (second half) and AC4: the save loop this ticket exists to close.
+  // Saving from the nearby list must move the row into the module with no
+  // reload, and unsaving from the module must send it back and reach /library.
+  test('moves a show between the nearby list and the module without a reload', async ({
+    authenticatedPage,
+    cleanBetweenRetries: _cleanup,
+  }) => {
+    await authenticatedPage.goto('/')
+
+    // The heading drops "near you" when the city was only a guess (no geo in
+    // the e2e stack), so match either form.
+    const nearby = authenticatedPage.getByRole('region', {
+      name: /Shows (near you )?this week/,
+    })
+    await expect(nearby.locator('article').first()).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // Pin the row by its own accessible name so the assertions below cannot
+    // silently follow a different show when the list reorders.
+    const firstRow = nearby.locator('article').first()
+    const savedTitle = await firstRow.getAttribute('aria-label')
+    expect(savedTitle).toBeTruthy()
+
+    const savedModule = authenticatedPage.getByRole('region', {
+      name: 'Your upcoming shows',
+    })
+
+    await firstRow.getByRole('button', { name: 'Save show' }).click()
+
+    // No goto(): the row must cross over on invalidation alone.
+    const savedRow = savedModule.getByRole('article', {
+      name: savedTitle!,
+      exact: true,
+    })
+    await expect(savedRow).toBeVisible({ timeout: 10_000 })
+    await expect(
+      nearby.getByRole('article', { name: savedTitle!, exact: true })
+    ).toHaveCount(0)
+    await expect(savedModule.getByText(/1 saved/)).toBeVisible()
+
+    // Unsave from the module: the row leaves it and returns to the nearby list.
+    await savedRow
+      .getByRole('button', { name: /remove from saved shows/i })
+      .click()
+
+    await expect(savedRow).toHaveCount(0, { timeout: 10_000 })
+    await expect(
+      authenticatedPage.getByText('Save a show and it shows up here.')
+    ).toBeVisible()
+
+    // ...and /library agrees on the next visit.
+    await authenticatedPage.goto('/library')
+    await expect(
+      authenticatedPage.getByRole('main').getByText('Nothing saved yet.')
+    ).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('keeps the discovery sections below the module', async ({
+    authenticatedPage,
+  }) => {
+    await authenticatedPage.goto('/')
+
+    await expect(
+      authenticatedPage.getByRole('link', { name: 'Shows in any city' })
+    ).toBeVisible()
+
+    await expect(
+      authenticatedPage.getByRole('region', { name: /current stats/i })
+    ).toBeVisible({ timeout: 10_000 })
+
+    await authenticatedPage
+      .getByRole('heading', { name: /latest radio shows/i })
+      .scrollIntoViewIfNeeded()
+    await expect(
+      authenticatedPage.getByRole('heading', { name: /^the .+ scene graph$/i })
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      authenticatedPage.getByRole('heading', { name: /latest radio shows/i })
     ).toBeVisible()
   })
 })

@@ -89,6 +89,7 @@ export {
 } from './hooks'
 
 export {
+  SAVED_SHOWS_COLLAPSED_COUNT,
   useInfiniteSavedShows,
   useSavedShows,
   useSaveShow,

@@ -7,7 +7,11 @@ import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
-import { useInfiniteSavedShows, useUnsaveShow } from '@/features/shows'
+import {
+  SAVED_SHOWS_COLLAPSED_COUNT,
+  useInfiniteSavedShows,
+  useUnsaveShow,
+} from '@/features/shows'
 import type { SavedShowResponse } from '@/features/shows'
 import {
   useSavedReleases,
@@ -20,8 +24,6 @@ import {
   useUnfollow,
 } from '@/lib/hooks/common/useFollow'
 import type { FollowingEntity } from '@/lib/types/follow'
-import { formatShowTime } from '@/lib/utils/formatters'
-import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -41,6 +43,7 @@ import {
   useLibraryView,
   type LibraryView,
 } from '@/features/library'
+import { SavedShowRow } from '@/features/shows/components/SavedShowRow'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -107,111 +110,6 @@ function EmptyState({
 // Shows tab — the user's saved shows
 // ---------------------------------------------------------------------------
 
-const COLLAPSED_SHOW_COUNT = 4
-
-function SavedShowCard({
-  show,
-  isPast,
-  onRemove,
-  isRemoving,
-  isRemovalPending,
-}: {
-  show: SavedShowResponse
-  isPast: boolean
-  onRemove: (showId: number) => void
-  isRemoving: boolean
-  isRemovalPending: boolean
-}) {
-  const venue = show.venues[0]
-  const artists = show.artists
-  const dateBadge = formatShowDateBadge(
-    show.event_date,
-    show.state,
-    show.venues?.[0]?.timezone
-  )
-  // Null on a guessed zone; the date column then holds the date alone.
-  const startTime = formatShowTime(
-    show.event_date,
-    show.state,
-    show.venues?.[0]?.timezone
-  )
-
-  return (
-    <article
-      aria-label={show.title}
-      className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5 md:py-3"
-    >
-      <div
-        className={`row-span-2 font-mono text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${
-          isPast ? 'text-muted-foreground' : 'text-primary'
-        }`}
-      >
-        <span className="md:hidden">{dateBadge.monthDay}</span>
-        <span className="hidden md:inline">
-          {dateBadge.dayOfWeek} {dateBadge.monthDay}
-        </span>
-        {startTime && (
-          <div className="mt-0.5 hidden text-[11px] font-normal normal-case text-muted-foreground md:block">
-            {startTime}
-          </div>
-        )}
-      </div>
-
-      <div className="min-w-0 self-center">
-        <Link
-          href={`/shows/${show.slug || show.id}`}
-          className="block truncate text-sm font-medium leading-tight transition-colors hover:text-primary md:text-[15px]"
-        >
-          {artists.map(a => a.name).join(' \u00B7 ')}
-        </Link>
-
-        <div className="mt-0.5 truncate text-xs text-muted-foreground md:text-[13px]">
-          {venue && (
-            <>
-              {venue.slug ? (
-                <Link
-                  href={`/venues/${venue.slug}`}
-                  className={`transition-colors hover:text-primary ${
-                    isPast ? '' : 'md:text-primary/80'
-                  }`}
-                >
-                  {venue.name}
-                </Link>
-              ) : (
-                <span className={isPast ? undefined : 'md:text-primary/80'}>
-                  {venue.name}
-                </span>
-              )}
-              {(venue.city || venue.state) && (
-                <span>
-                  {' '}
-                  &middot;{' '}
-                  {[venue.city, venue.state].filter(Boolean).join(', ')}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="col-start-2 mt-1 flex items-center justify-between gap-3 font-mono text-[11px] text-muted-foreground md:col-start-3 md:row-start-1 md:mt-0 md:flex-col md:items-end md:self-center">
-        <span className="whitespace-nowrap">
-          saved {formatRelativeTime(show.saved_at, { short: true })}
-        </span>
-        <button
-          type="button"
-          onClick={() => onRemove(show.id)}
-          disabled={isRemovalPending}
-          className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
-          aria-label={`Remove ${show.title} from saved shows`}
-        >
-          {isRemoving ? 'removing…' : '✕ remove'}
-        </button>
-      </div>
-    </article>
-  )
-}
-
 function SavedShowsSection({
   title,
   shows,
@@ -245,8 +143,10 @@ function SavedShowsSection({
   const wallMode = view === 'wall'
   // Wall shows the full fetched list; table keeps the compact collapse.
   const visibleShows =
-    wallMode || expanded ? shows : shows.slice(0, COLLAPSED_SHOW_COUNT)
-  const hasExpandableRows = !wallMode && shows.length > COLLAPSED_SHOW_COUNT
+    wallMode || expanded
+      ? shows
+      : shows.slice(0, SAVED_SHOWS_COLLAPSED_COUNT)
+  const hasExpandableRows = !wallMode && shows.length > SAVED_SHOWS_COLLAPSED_COUNT
   const countLabel = `${total} ${total === 1 ? 'show' : 'shows'}`
   const orderLabel = isPast ? 'most recent first' : 'soonest first'
   const headingId = `saved-shows-${title.toLowerCase()}`
@@ -296,13 +196,21 @@ function SavedShowsSection({
       ) : (
         <div>
           {visibleShows.map(show => (
-            <SavedShowCard
+            <SavedShowRow
               key={show.id}
               show={show}
               isPast={isPast}
-              onRemove={onRemove}
-              isRemoving={removingShowId === show.id}
-              isRemovalPending={isRemovalPending}
+              action={
+                <button
+                  type="button"
+                  onClick={() => onRemove(show.id)}
+                  disabled={isRemovalPending}
+                  className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
+                  aria-label={`Remove ${show.title} from saved shows`}
+                >
+                  {removingShowId === show.id ? 'removing…' : '✕ remove'}
+                </button>
+              }
             />
           ))}
         </div>
@@ -382,7 +290,12 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
 
   return (
     <div className="space-y-7">
-      <CalendarFeedSection variant="library" />
+      {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
+          here, and CalendarFeedSection returns a different root per state, so
+          the id lives on the wrapper rather than inside it. */}
+      <div id="calendar-feed" className="scroll-mt-24">
+        <CalendarFeedSection variant="library" />
+      </div>
 
       {isInitialLoading ? (
         <div className="flex justify-center py-12">

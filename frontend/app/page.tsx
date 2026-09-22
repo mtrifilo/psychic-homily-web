@@ -1,23 +1,20 @@
-import Link from 'next/link'
-import { HomeShowList } from '@/features/shows'
-import {
-  CommunityPulseBand,
-  HomeHero,
-  HomeSceneGraph,
-  LatestRadioShows,
-} from '@/features/home'
-import { Button } from '@/components/ui/button'
+import { Suspense } from 'react'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
 import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
+import { HomeContentSlot } from './_components/HomeContentSlot'
 
 // PSY-389: logged-out discovery landing ("This is not a mirage"). Drops the old
 // "Arizona Music Community" framing. NOTE: Next.js does NOT apply a layout's
 // `title.template` to a page in the SAME route segment as that layout — and the
 // root `page.tsx` shares the root `layout.tsx` segment — so the global
 // "%s | Psychic Homily" template can't decorate this page. We therefore set the
-// full title via `title.absolute` to match that template's output exactly. The
-// logged-in customizable dashboard is a separate project (out of scope).
+// full title via `title.absolute` to match that template's output exactly.
+//
+// PSY-2103: the page now has two viewer variants, picked server-side inside
+// `<HomeContentSlot>`. The metadata above is the anonymous page's and is shared
+// by both: it is what crawlers and link unfurls see, and they are never signed
+// in. The signed-in variant's ordering/visibility registry is PSY-2104.
 export const metadata = {
   title: { absolute: 'Discover live music | Psychic Homily' },
   description: SITE_DESCRIPTION,
@@ -38,49 +35,14 @@ export default function Home() {
       <JsonLd data={generateWebSiteSchema()} />
       <div className="flex w-full justify-center">
         <div className="flex w-full max-w-6xl flex-col gap-14 px-4 pb-16 pt-12 md:px-8">
-          <div className="flex w-full flex-col gap-6">
-            <HomeHero />
-
-            {/* PSY-1431: global community-pulse hairline band (Figma 1083:7).
-                Same numbers for every visitor — Logged-in Dashboard owns
-                personalized widgets. */}
-            <CommunityPulseBand />
-          </div>
-
-          {/* Upcoming shows — the unique advantage, privileged at top. The city
-              filter, geo-default, and popular-cities row all live inside the
-              reused HomeShowList. */}
-          <section aria-labelledby="home-shows-heading" className="flex w-full flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2
-                id="home-shows-heading"
-                className="text-2xl font-semibold tracking-tight text-foreground"
-              >
-                Upcoming shows
-              </h2>
-              <Link
-                href="/shows"
-                className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
-              >
-                View all shows →
-              </Link>
-            </div>
-
-            <HomeShowList />
-
-            <div className="flex justify-center pt-1.5">
-              <Button asChild size="lg">
-                <Link href="/shows">View more shows →</Link>
-              </Button>
-            </div>
-          </section>
-
-          {/* PSY-1344: "Observatory Lite" — a bounded scene-graph glimpse of
-              the knowledge graph (Figma Option D, locked 2026-07-03). Lazy-
-              mounts on scroll; self-hides if scene data is unavailable. */}
-          <HomeSceneGraph />
-
-          <LatestRadioShows />
+          {/* A streaming boundary for the variant swap, NOT what governs the
+              route's shell — the root layout's AuthHydrator boundary already
+              does that (see HomeContentSlot). `null` while it streams: a
+              placeholder that guessed a variant would be wrong for half the
+              viewers and would shift when the real one arrived. */}
+          <Suspense fallback={null}>
+            <HomeContentSlot />
+          </Suspense>
         </div>
       </div>
     </>

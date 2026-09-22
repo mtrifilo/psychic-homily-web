@@ -322,8 +322,9 @@ describe('useSavedShows', () => {
       total: 2,
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
+    mockAuthStatus = 'authenticated'
 
-    const { result } = renderHook(() => useSavedShows(), {
+    const { result } = renderHook(() => useSavedShows({ userId: '42' }), {
       wrapper: createWrapper(),
     })
 
@@ -339,9 +340,10 @@ describe('useSavedShows', () => {
 
   it('supports pagination with limit and offset', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
+    mockAuthStatus = 'authenticated'
 
     const { result } = renderHook(
-      () => useSavedShows({ limit: 20, offset: 40 }),
+      () => useSavedShows({ limit: 20, offset: 40, userId: '42' }),
       { wrapper: createWrapper() }
     )
 
@@ -374,8 +376,9 @@ describe('useSavedShows', () => {
         </QueryClientProvider>
       )
 
+      mockAuthStatus = 'authenticated'
       const { result } = renderHook(
-        () => useSavedShows({ limit: 100, timeFilter }),
+        () => useSavedShows({ limit: 100, timeFilter, userId: '42' }),
         { wrapper }
       )
 
@@ -387,7 +390,7 @@ describe('useSavedShows', () => {
       )
       expect(
         queryClient.getQueryData(
-          queryKeys.savedShows.list(undefined, 100, 0, timeFilter)
+          queryKeys.savedShows.list('42', 100, 0, timeFilter)
         )
       ).toEqual(expect.objectContaining({ total: 0 }))
     }
@@ -395,12 +398,27 @@ describe('useSavedShows', () => {
 
   it('handles empty saved shows list', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
+    mockAuthStatus = 'authenticated'
 
-    const { result } = renderHook(() => useSavedShows(), {
+    const { result } = renderHook(() => useSavedShows({ userId: '42' }), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  // The write-side rule lives in the hook: a viewer-less key must never be
+  // written from a request that carries the viewer's cookie.
+  it.each([
+    ['auth is unsettled', 'pending' as const, '42'],
+    ['no viewer id is supplied', 'authenticated' as const, undefined],
+  ])('stays idle while %s', (_label, status, userId) => {
+    mockAuthStatus = status
+    const { result } = renderHook(() => useSavedShows({ userId }), {
+      wrapper: createWrapper(),
+    })
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 })
 

@@ -17,7 +17,10 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ isAuthenticated: false, user: undefined }),
 }))
 
-vi.mock('../hooks/useSavedShows', () => ({
+vi.mock('../hooks/useSavedShows', async importOriginal => ({
+  // A superset of the real module: partial mocks fail at import for any
+  // constant a transitive reader takes at module scope.
+  ...(await importOriginal<typeof import('../hooks/useSavedShows')>()),
   useSaveShow: () => ({ mutate: vi.fn(), isPending: false }),
   useShowSaveCount: () => ({ data: undefined }),
   useSaveShowToggle: () => ({

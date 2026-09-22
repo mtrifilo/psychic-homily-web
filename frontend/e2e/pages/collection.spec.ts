@@ -152,7 +152,7 @@ test.describe('Library page (formerly /collection)', () => {
     'shows saved show after saving one',
     { tag: '@smoke' },
     // PSY-1663: this test saves a show and never unsaves it, so its entry
-    // assertion ("Add to My List" is visible) is false for every retry after
+    // assertion ("Save show" is visible) is false for every retry after
     // a failure. `cleanBetweenRetries` clears the worker user's bookmarks
     // between attempts — the same opt-in the release test above uses.
     async ({ authenticatedPage, cleanBetweenRetries }) => {
@@ -174,7 +174,7 @@ test.describe('Library page (formerly /collection)', () => {
 
       // Save the show and wait for API response
       const saveButton = authenticatedPage.getByRole('button', {
-        name: 'Add to My List',
+        name: 'Save show',
       })
       await expect(saveButton).toBeVisible({ timeout: 5_000 })
 
@@ -191,7 +191,7 @@ test.describe('Library page (formerly /collection)', () => {
 
       // Confirm button changed
       await expect(
-        authenticatedPage.getByRole('button', { name: 'Remove from My List' })
+        authenticatedPage.getByRole('button', { name: 'Remove from saved shows' })
       ).toBeVisible({ timeout: 5_000 })
 
       // Navigate to library

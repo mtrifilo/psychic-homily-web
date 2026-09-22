@@ -31,7 +31,10 @@ vi.mock('nuqs', async importOriginal => {
   return { ...actual, useQueryState: () => [null, vi.fn()] }
 })
 
-vi.mock('../hooks/useSavedShows', () => ({
+vi.mock('../hooks/useSavedShows', async importOriginal => ({
+  // A superset of the real module: partial mocks fail at import for any
+  // constant a transitive reader takes at module scope.
+  ...(await importOriginal<typeof import('../hooks/useSavedShows')>()),
   useShowSaveCountBatch: () => ({ data: {} }),
 }))
 

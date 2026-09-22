@@ -36,6 +36,7 @@ vi.mock('@/lib/context/AuthContext', async () => {
 // Stub the heavy feature modules so this suite stays focused on the Library
 // chrome and the compact saved-show row contract introduced by PSY-1440.
 vi.mock('@/features/shows', () => ({
+  SAVED_SHOWS_COLLAPSED_COUNT: 4,
   useInfiniteSavedShows: (
     timeFilter: 'upcoming' | 'past',
     userId: number | undefined,
