@@ -41,7 +41,8 @@ type MoveDirection = 'up' | 'down'
  * The write-failure copy, rendered by whichever surface HOSTS this list rather
  * than by the list itself: the popover unmounts when it closes and the write
  * outlives it, and two hosts rendering it at once would fire two live-region
- * alerts for one failure. See HomeLayoutWriteError.
+ * alerts for one failure. The hosts are `HomeLayoutRuntime` (the toolbar row,
+ * which outlives the popover) and the Settings `HomeLayoutSettings` card.
  */
 export const SAVE_FAILED_MESSAGE = 'Could not save your layout. Try again.'
 
@@ -176,10 +177,32 @@ export function HomeSectionList({
   // clear it would pin them to today's default after it changes.
   const canReset = isReady && hasStoredLayout
 
+  const footer = (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border px-4 py-3">
+      <Button
+        variant="link"
+        size="sm"
+        onClick={handleReset}
+        disabled={!canReset || isResetting}
+        className="h-auto p-0 text-sm text-muted-foreground no-underline hover:text-primary"
+      >
+        Reset to default
+      </Button>
+      <span className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+        Changes apply immediately
+      </span>
+      {footerAction}
+    </div>
+  )
+
+  // The footer rides along even here: it carries the popover's only link to
+  // Settings, and a viewer stuck on the error state needs a way out that is
+  // not just "Try again".
   if (status !== 'ready') {
     return (
       <div className={className}>
         <HomeSectionListPlaceholder status={status} retry={retry} />
+        {footer}
       </div>
     )
   }
@@ -253,21 +276,7 @@ export function HomeSectionList({
         ))}
       </ul>
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border px-4 py-3">
-        <Button
-          variant="link"
-          size="sm"
-          onClick={handleReset}
-          disabled={!canReset || isResetting}
-          className="h-auto p-0 text-sm text-muted-foreground no-underline hover:text-primary"
-        >
-          Reset to default
-        </Button>
-        <span className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
-          Changes apply immediately
-        </span>
-        {footerAction}
-      </div>
+      {footer}
 
     </div>
   )

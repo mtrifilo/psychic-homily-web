@@ -71,13 +71,15 @@ export function HomeCityShowsLink({
  * section is hidden, so it never doubles that section's own city resolution.
  */
 export function ResolvedHomeCityShowsLink({ className }: { className?: string }) {
-  const { effectiveCities, source, isResolving } = useHomeShowCitySelection({
+  const { effectiveCities } = useHomeShowCitySelection({
     resolveCityForCopy: true,
   })
-  // Held while the city is still being decided, the same way the nearby
-  // section holds its subline. Painting the unqualified link first and
-  // swapping in a city one moment later reflows the row it shares with the
-  // toolbar kicker, and a click in that window loses the city filter.
-  if (isResolving && source === 'none') return null
+  // Rendered unconditionally, including while the city is still resolving. The
+  // label gains a city when geo answers, exactly as the nearby section's own
+  // copy of this link does; withholding it instead would blank the page's ONLY
+  // route to the show list on the layout that relocates it here, and
+  // `isResolving` has no deadline of its own (it stays true for as long as
+  // `authStatus` is pending, which a failed client profile read can park
+  // indefinitely).
   return <HomeCityShowsLink cities={effectiveCities} className={className} />
 }

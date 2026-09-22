@@ -380,3 +380,86 @@ describe('a write that outlives its session', () => {
     expect(queryClient.getQueryData(queryKeys.auth.profile)).toBeUndefined()
   })
 })
+
+describe('the write-ordering stamp', () => {
+  // The component that issues writes lives inside a popover that unmounts
+  // every time it closes. A counter held on the hook instance resets there, so
+  // a write started before the close and one started after it both stamp
+  // themselves 1, both pass the guard, and the older response overwrites the
+  // newer gesture. This test remounts BETWEEN the two writes; it passes only
+  // while the stamp outlives the component.
+  it('survives the popover unmounting between two writes', async () => {
+    const pending: Array<{
+      resolve: (value: unknown) => void
+    }> = []
+    apiRequest.mockImplementation(
+      () => new Promise(resolve => pending.push({ resolve }))
+    )
+
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+    const wrapper = createWrapperWithClient(queryClient)
+
+    const first = renderHook(() => useWriteHomeLayout(), { wrapper })
+    act(() => first.result.current.mutate(CUSTOM))
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    // The popover closes, taking the list and its hook with it. The request
+    // keeps running.
+    first.unmount()
+
+    const second = renderHook(() => useWriteHomeLayout(), { wrapper })
+    act(() => second.result.current.mutate(CUSTOM_TWO_STEPS))
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    await act(async () => {
+      pending[1].resolve({
+        success: true,
+        message: 'ok',
+        home_layout: CUSTOM_TWO_STEPS,
+      })
+      pending[0].resolve({ success: true, message: 'ok', home_layout: CUSTOM })
+    })
+
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.preferences.home_layout).toEqual(CUSTOM_TWO_STEPS)
+  })
+
+  // The success path carries the same viewer guard as the rollback: a write
+  // can outlive its session, and the NEXT account's profile must not inherit
+  // this one's layout.
+  it('does not write a previous viewer\'s layout into the next viewer\'s profile', async () => {
+    const pending: Array<{ resolve: (value: unknown) => void }> = []
+    apiRequest.mockImplementation(
+      () => new Promise(resolve => pending.push({ resolve }))
+    )
+
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+
+    const { result } = renderHook(() => useWriteHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    act(() => result.current.mutate(CUSTOM))
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    // Viewer 7 signs out, viewer 9 signs in, all before the PUT answers.
+    queryClient.setQueryData(queryKeys.auth.profile, {
+      success: true,
+      user: { id: 9, preferences: { favorite_cities: [], home_layout: null } },
+    })
+
+    await act(async () => {
+      pending[0].resolve({ success: true, message: 'ok', home_layout: CUSTOM })
+    })
+
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.id).toBe(9)
+    expect(cached.user.preferences.home_layout).toBeNull()
+  })
+})

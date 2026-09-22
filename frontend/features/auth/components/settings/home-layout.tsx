@@ -52,8 +52,7 @@ export function HomeLayoutSettings() {
       <CardHeader>
         <CardTitle className="text-base">Home page</CardTitle>
         <CardDescription>
-          Show, hide, and reorder the sections on your home page. Changes apply
-          immediately.
+          Show, hide, and reorder the sections on your home page.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0">
