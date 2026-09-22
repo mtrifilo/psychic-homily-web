@@ -6,6 +6,7 @@
  */
 
 import type { components } from '@/types/api'
+import type { SceneLink } from '@/lib/sceneLink'
 
 export interface ShowArtistSocials {
   instagram?: string | null
@@ -170,6 +171,11 @@ export interface ShowResponse {
   scraped_at?: string
   // Duplicate detection context
   duplicate_of_show_id?: number
+  /**
+   * The scene page of `venues[0]`. Detail reads only, and present only when
+   * that page serves; see `SceneLink`.
+   */
+  scene?: SceneLink
 }
 
 /**

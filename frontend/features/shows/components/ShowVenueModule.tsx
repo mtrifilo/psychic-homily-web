@@ -5,6 +5,7 @@ import { FollowButton } from '@/components/shared/FollowButton'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { googleMapsSearchUrl } from '@/lib/maps'
+import { sceneLinkHref } from '@/lib/sceneLink'
 import { MiddotSegments } from './MiddotSegments'
 import { venueFactSegments } from './showVenueFacts'
 import type { ShowResponse } from '../types'
@@ -20,9 +21,10 @@ interface ShowVenueModuleProps {
  * under commerce.
  *
  * Three rows: name + address, the facts line, and the venue's verbs
- * (`[Directions ↗] [Follow venue] [Notify me] More at {venue} →`). Every row
- * degrades to omission when its data is absent; an unverified venue's street
- * address arrives redacted server-side and the module simply says less.
+ * (`[Directions ↗] [Follow venue] More at {venue} → More shows in {city} →`).
+ * Every row degrades to omission when its data is absent; an unverified
+ * venue's street address arrives redacted server-side and the module simply
+ * says less.
  *
  * The venue is derived HERE from `show.venues[0]` rather than accepted as a
  * prop, so the facts line (whose age/doors segments read the SHOW) can never
@@ -136,6 +138,18 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
             className="text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             More at {venue.name} &rarr;
+          </Link>
+        )}
+        {/* The venue's own scene, at the same treatment as `More at` so the
+            two read as siblings. `show.scene` belongs to `venues[0]`, the
+            venue this module renders. */}
+        {show.scene && (
+          <Link
+            href={sceneLinkHref(show.scene)}
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            data-testid="venue-scene-link"
+          >
+            More shows in {show.scene.city} &rarr;
           </Link>
         )}
       </div>

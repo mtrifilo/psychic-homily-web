@@ -7,6 +7,7 @@
 
 import { formatLocation } from '@/lib/formatLocation'
 import type { EntityReportResponse } from '@/features/contributions/types'
+import type { SceneLink } from '@/lib/sceneLink'
 
 export interface ArtistSocial {
   instagram: string | null
@@ -61,6 +62,11 @@ export interface Artist {
   updated_at: string
   /** Populated by detail-page lookups (PSY-639). Undefined on list rows. */
   stats?: ArtistStats
+  /**
+   * The scene page the artist header links to. Detail lookups only, and
+   * present only when that page serves; see `SceneLink`.
+   */
+  scene?: SceneLink
 }
 
 export interface ArtistEditRequest {
