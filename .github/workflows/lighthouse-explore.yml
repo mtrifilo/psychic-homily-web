@@ -67,13 +67,9 @@ on:
       # If a regression in those areas materializes on /explore later,
       # widen the filter rather than fix it after the fact.
 
-# PSY-1909: workflow-level DEFAULT for the GITHUB_TOKEN so it is not inherited
-# from the repository's Workflow-permissions setting.
-#
-# Workflow-level default for the GITHUB_TOKEN. Any job declaring its own
-# `permissions:` REPLACES this rather than extending it; a job declaring none
-# inherits exactly this. The job below declares its own, so this line governs
-# only jobs added later. See ci.yml's header for the rule.
+# Pinned so the GITHUB_TOKEN does not depend on the repository's
+# Workflow-permissions setting. Default for jobs without their own block; a
+# job-scoped `permissions:` block REPLACES this rather than extending it.
 permissions:
   contents: read
 
@@ -91,11 +87,9 @@ jobs:
     # calls below. No write permissions required — Lighthouse uploads
     # to temporary-public-storage, not a self-hosted LHCI server.
     #
-    # `contents: read` for actions/checkout. `pull-requests: read` was removed
-    # by PSY-1909: the script below reads the head SHA from `context.payload`,
-    # and its only REST calls are listDeployments / listDeploymentStatuses.
-    # It would be needed again only if a step here is both handed a token and
-    # calls the pulls API.
+    # `contents: read` for actions/checkout. No `pull-requests` scope: the
+    # script below reads the head SHA from `context.payload` and never calls
+    # the pulls API.
     permissions:
       contents: read
       deployments: read

@@ -7,15 +7,13 @@ on:
     branches: [main]
 
 # Least privilege for the GITHUB_TOKEN, pinned in code so it does not depend
-# on the repository's Workflow-permissions setting.
+# on the repository's Workflow-permissions setting. Every job without its own
+# block gets exactly this.
 #
-# The rule to know before editing: a job-scoped `permissions:` block REPLACES
-# this one, it does not extend it. A job needing an extra scope must restate
-# every scope it still uses, or the call that lost one fails at runtime with
-# HTTP 403 "Resource not accessible by integration".
-#
-# Scope-by-scope audit, what this does and does not revoke, and the doc
-# references: see the PSY-1909 pull request.
+# A job-scoped `permissions:` block REPLACES this one, it does not extend it.
+# A job needing an extra scope must restate every scope it still uses, or the
+# call that lost one fails at runtime with HTTP 403 "Resource not accessible
+# by integration".
 permissions:
   contents: read
 
@@ -318,11 +316,10 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
-      # `only-new-issues` is unset. Enabling it makes this action call
-      # pulls.get, which needs `pull-requests: read`; the action swallows a
-      # permission failure and lints the whole tree instead of the diff. Add a
-      # job-scoped block with contents: read AND pull-requests: read if you
-      # enable it.
+      # `only-new-issues` is unset. Enabling it makes this action fetch the PR
+      # diff with pulls.get, which needs `pull-requests: read` in a job-scoped
+      # block that also restates `contents: read`. A failed fetch is only a
+      # warning: the action then lints the whole tree and stays green.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -689,8 +686,6 @@ jobs:
 
   e2e-tests:
     name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    # Inherits `contents: read`. Push-to-main only, so the PR that pinned
-    # these scopes did not exercise it; verify on the first post-merge run.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Push-to-main runs unwatched; without a job cap a stalled step pinned
@@ -804,9 +799,10 @@ jobs:
 
   e2e-report:
     name: E2E Merged Report
-    # Inherits `contents: read`; its download-artifact passes no
-    # `github-token`, so it uses the Actions runtime token. Push-to-main only,
-    # so the PR that pinned these scopes did not exercise it.
+    # Inherits `contents: read`. download-artifact below passes no
+    # `github-token`, so it reads same-run artifacts with the Actions runtime
+    # token. Giving it a `github-token` moves it onto the REST API, which needs
+    # `actions: read` in a job-scoped block.
     # Run after all shards finish, even if some failed — we still want the
     # merged report artifact for triage.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -959,12 +955,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # `contents: read` is for repos.getCommit; `issues: write` for
-    # issues.listForRepo + issues.create. Both must be listed because a
-    # job-scoped block replaces the workflow-level one -- do not delete
-    # `contents: read` as redundant.
-    #
-    # Push-to-main only, and only on a failure, so the PR that added
-    # `contents: read` here did not exercise it.
+    # issues.listForRepo and issues.create. This block replaces the
+    # workflow-level one, so `contents: read` is not redundant here.
     permissions:
       contents: read
       issues: write
@@ -1014,11 +1006,9 @@ jobs:
               'E2E Tests (sharded)': process.env.RES_E2E_TESTS,
               'E2E Merged Report': process.env.RES_E2E_REPORT,
             }
-            // 'cancelled' reaches here only when the run still concluded
-            // 'failure' (a sibling job failed) while another job was
-            // cap-killed. A run that concludes 'cancelled' skips this job
-            // entirely -- see the KNOWN DEFECT note on the if: above. Name it
-            // either way: a killed job must be attributable from the issue.
+            // 'cancelled' here means a job-level timeout kill (run-level
+            // cancellation never reaches this job — see the if: above), so
+            // name it: a timed-out shard must be attributable from the issue.
             const failed = Object.entries(results)
               .filter(([_, r]) => r === 'failure' || r === 'cancelled')
               .map(([name, r]) => r === 'cancelled' ? `${name} (cancelled: job timeout)` : name)

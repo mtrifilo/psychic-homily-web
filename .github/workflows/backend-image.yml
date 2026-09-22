@@ -32,16 +32,15 @@
 # file list cannot express -- a Go source change that builds under `go test` but
 # breaks the image.
 #
-# "Backend Image Build" is a required status check on main. Re-derive rather
-# than trusting this line, which was stale before PSY-1909:
+# It is currently NOT in branch protection's required set (Backend Tests,
+# Frontend Unit Tests, E2E Smoke (PR), Frontend Lint), so today it reports and
+# goes red without blocking. Because there is no path filter, adding "Backend
+# Image Build" to that set is a safe, code-free change whenever the gate should
+# start blocking merges.
 #
-#   gh api repos/mtrifilo/psychic-homily-web/branches/main/protection \
-#     --jq '{contexts: .required_status_checks.contexts, admins: .enforce_admins.enabled}'
-#
-#   >>> While it is required, do NOT add a `paths:` filter to this workflow.
-#   >>> A filtered run reports NOTHING (not "skipped") on PRs that miss the
-#   >>> filter, and a required check that never reports blocks the PR forever
-#   >>> (PSY-1720). Remove it from branch protection FIRST.
+#   >>> If you ever reintroduce a `paths:` filter here, you MUST first remove
+#   >>> this check from branch protection. Required plus path-filtered is the
+#   >>> never-reports/blocks-forever combination this repo does not tolerate.
 name: Backend Image
 
 on:
@@ -49,11 +48,9 @@ on:
     branches: [main]
   # Post-merge too. Two PRs can each be green alone and break the image together
   # (a Dockerfile change on one, a lockfile change on the other), and while this
-  # check is required, a PR run can still be merged past while admins are
-  # exempt. This leg catches both, and the notify-image-failure job below is
-  # what makes it a backstop rather than a red square nobody is subscribed to
-  # -- with the caveat recorded on that job's `if:`, that only a 'failure'
-  # result pages.
+  # check is not required a red PR run can also simply be merged past. This leg
+  # catches both, and the notify-image-failure job below is what makes it a
+  # backstop rather than a red square nobody is subscribed to.
   push:
     branches: [main]
 
@@ -64,9 +61,8 @@ concurrency:
   group: backend-image-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Workflow-level DEFAULT for the GITHUB_TOKEN, not a floor. Any job declaring
-# its own `permissions:` REPLACES this rather than extending it; a job that
-# declares none inherits exactly this. See ci.yml's header for the full rule.
+# Default for jobs without their own block. A job-scoped `permissions:` block
+# REPLACES this rather than extending it.
 #
 # No `packages:` scope: this workflow logs in to Docker Hub with
 # secrets.DOCKERHUB_* and builds with `push: false`. Publishing to GitHub
@@ -78,11 +74,9 @@ jobs:
   backend-image:
     name: Backend Image Build
     runs-on: ubuntu-latest
-    # `contents: read` for the checkout. The `issues: write` this block used to
-    # carry moved to notify-image-failure below, so no write scope is live in
-    # a job that checks out and runs third-party actions. If a scope is ever
-    # added here, keep `contents: read` listed alongside it: a job-scoped
-    # block replaces the workflow-level one.
+    # `contents: read` for the checkout, and no write scope: this job runs
+    # third-party docker/* actions. A scope added here must keep
+    # `contents: read` listed, because this block replaces the workflow one.
     permissions:
       contents: read
     # Measured at 77s cold on this workflow's first run. The ceiling is a hung
@@ -148,31 +142,17 @@ jobs:
   # same `main-ci-failure` triage queue, using only the built-in GITHUB_TOKEN.
   # Deduped on the commit SHA so a rerun storm does not spam.
   #
-  # KNOWN SHARP EDGE, pre-existing: ci.yml's notify-main-failure dedupes on the
-  # same label and SHA, so on a commit that breaks both, whichever files first
-  # suppresses the other.
-  #
-  # This is its own job rather than a step of the build so that `issues: write`
-  # is not held by a job that checks out and runs third-party actions.
+  # A separate job, not a step of the build, so that `issues: write` is never
+  # held by a job that checks out and runs third-party actions.
   notify-image-failure:
     name: Notify on image build failure
     needs: [backend-image]
-    # Same trigger the notify step had before it became a job: this change
-    # moves where the scope lives, not when anyone is paged.
-    #
-    # KNOWN GAP, not fixed here: this fires only on result == 'failure'. A
-    # build killed by the 10-minute job cap concludes 'cancelled', so a wedged
-    # image build on main files nothing.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.backend-image.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # `issues: write` alone: no call below is contents-scoped, since the script
-    # reads only the `context` object. Adding a contents-scoped call (e.g.
-    # repos.getCommit, as ci.yml's notifier does) means adding `contents: read`
-    # here too.
-    #
-    # Needs a failing main build to run, so the PR that added it did not
-    # exercise it.
+    # `issues: write` only, for issues.listForRepo and issues.create. The
+    # script reads the commit from `context` and makes no contents-scoped
+    # call; adding one (e.g. repos.getCommit) needs `contents: read` here too.
     permissions:
       issues: write
     steps:
