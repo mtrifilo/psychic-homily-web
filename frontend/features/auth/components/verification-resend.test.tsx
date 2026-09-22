@@ -270,7 +270,7 @@ describe('VerificationResend', () => {
       renderWithProviders(
         <VerificationResend service="test_surface">
           <VerificationResendButton>Send it again</VerificationResendButton>
-          <VerificationResendFailed alreadyVerified="Already done, in this surface's words." />
+          <VerificationResendFailed alreadyVerifiedMessage="Already done, in this surface's words." />
         </VerificationResend>
       )
 
@@ -292,7 +292,7 @@ describe('VerificationResend', () => {
       renderWithProviders(
         <VerificationResend service="test_surface">
           <VerificationResendButton>Send it again</VerificationResendButton>
-          <VerificationResendFailed alreadyVerified="Already done." />
+          <VerificationResendFailed alreadyVerifiedMessage="Already done." />
         </VerificationResend>
       )
 
@@ -395,7 +395,9 @@ describe('VerificationResend', () => {
       <VerificationResend service="test_surface">
         <VerificationResendButton>Send it again</VerificationResendButton>
         <VerificationResendStatus
-          announce={sent => (sent ? 'Surface says sent.' : null)}
+          announce={({ latestAttemptSent }) =>
+            latestAttemptSent ? 'Surface says sent.' : null
+          }
         />
       </VerificationResend>
     )

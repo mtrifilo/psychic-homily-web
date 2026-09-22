@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as Sentry from '@sentry/nextjs'
@@ -142,24 +142,44 @@ describe('CheckInboxInterstitial', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('takes the confirmation down when a later attempt fails', async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true })
-      try {
-        mockApiRequest
-          .mockResolvedValueOnce({ success: true })
-          .mockRejectedValueOnce(
-            Object.assign(new Error('boom'), { status: 500 })
-          )
+    // The confirmation, seen or heard, belongs to the attempt that earned it:
+    // a later throttle or failure takes it down, and the next success is
+    // announced afresh rather than left as an unchanged region.
+    describe('after a confirmed send', () => {
+      beforeEach(() => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      async function sendThenWaitOut() {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
         renderWithProviders(
           <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
         )
-
         await user.click(resendButton())
-        await waitFor(() => expect(resendButton()).toBeDisabled())
+        await waitFor(() => {
+          expect(screen.getByRole('status')).toHaveTextContent(
+            'Sent again. Give it a minute to arrive.'
+          )
+        })
         act(() => {
           vi.advanceTimersByTime(60_000)
         })
+        return user
+      }
+
+      const visibleConfirmation = () =>
+        screen.queryByText(/Sent again/, { selector: 'p[aria-hidden="true"]' })
+
+      it('takes the confirmation down, seen and heard, when a later attempt fails', async () => {
+        mockApiRequest
+          .mockResolvedValueOnce({ success: true })
+          .mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }))
+        const user = await sendThenWaitOut()
+
         await user.click(resendButton())
 
         await waitFor(() => {
@@ -167,10 +187,53 @@ describe('CheckInboxInterstitial', () => {
             'We could not send that email just now.'
           )
         })
-        expect(screen.queryByText(/Sent again/, { selector: 'p[aria-hidden="true"]' })).not.toBeInTheDocument()
-      } finally {
-        vi.useRealTimers()
-      }
+        expect(visibleConfirmation()).not.toBeInTheDocument()
+        expect(screen.getByRole('status')).not.toHaveTextContent(/Sent again/)
+      })
+
+      it('does not claim a send for a click the server throttled', async () => {
+        mockApiRequest
+          .mockResolvedValueOnce({ success: true })
+          .mockRejectedValueOnce(rateLimitError(30))
+        const user = await sendThenWaitOut()
+
+        await user.click(resendButton())
+
+        await waitFor(() => {
+          expect(screen.getByText('Resend available in 30s')).toBeInTheDocument()
+        })
+        expect(visibleConfirmation()).not.toBeInTheDocument()
+        expect(screen.getByRole('status')).toHaveTextContent(
+          'Resend is not available yet. Please wait a moment.'
+        )
+      })
+
+      it('announces a second success afresh', async () => {
+        mockApiRequest
+          .mockResolvedValueOnce({ success: true })
+          .mockResolvedValueOnce({ success: true })
+        const user = await sendThenWaitOut()
+        const region = screen.getByRole('status')
+        const heard: string[] = []
+        const observer = new MutationObserver(() => {
+          heard.push(region.textContent ?? '')
+        })
+        observer.observe(region, {
+          childList: true,
+          characterData: true,
+          subtree: true,
+        })
+
+        await user.click(resendButton())
+        await waitFor(() => {
+          expect(region).toHaveTextContent('Sent again. Give it a minute to arrive.')
+        })
+        observer.disconnect()
+
+        // Emptied while the second send was in flight, then spoken again.
+        expect(heard).toContain('')
+        expect(heard.at(-1)).toBe('Sent again. Give it a minute to arrive.')
+      })
     })
 
     it('keeps its own in-flight label while a send is pending', async () => {

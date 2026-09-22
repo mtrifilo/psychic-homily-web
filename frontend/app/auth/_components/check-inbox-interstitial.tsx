@@ -51,9 +51,13 @@ const formatWaitOnly: ResendStatusFormat = (_sent, secondsRemaining) =>
 
 const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
 
-/** This surface announces a confirmed send in the same words it shows. */
-const announceSentAgain: ResendAnnouncement = (sent, isCoolingDown) =>
-  sent ? SENT_AGAIN : resendStatusAnnouncement(sent, isCoolingDown)
+/**
+ * This surface announces a confirmed send in the same words it shows, and only
+ * while that send is the latest outcome, matching `ResendConfirmation`. The
+ * region empties when the next attempt starts, so every success is announced.
+ */
+const announceSentAgain: ResendAnnouncement = ({ latestAttemptSent, isCoolingDown }) =>
+  latestAttemptSent ? SENT_AGAIN : resendStatusAnnouncement(false, isCoolingDown)
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -154,9 +158,9 @@ export function CheckInboxInterstitial({
           to send the email.
         </VerificationResendSessionExpired>
 
-        {/* The backend's own words, as this surface showed them before the
-            shared control: retrying can never help a verified address. */}
-        <VerificationResendFailed alreadyVerified="Email is already verified" />
+        {/* Retrying cannot help a verified address, so this surface names the
+            state instead of inviting a retry. */}
+        <VerificationResendFailed alreadyVerifiedMessage="Email is already verified" />
       </VerificationResend>
 
       <p className="text-xs text-muted-foreground">
@@ -175,15 +179,15 @@ export function CheckInboxInterstitial({
 
 /**
  * This surface's own words for a confirmed send, shown only while that send is
- * the latest outcome: a later attempt in flight or refused takes it down, so it
- * never sits beside an alert that contradicts it.
+ * the latest outcome: a later attempt in flight, throttled, or refused takes it
+ * down, so it never claims a send that did not happen.
  *
- * Hidden from assistive tech because the shared live region already speaks the
- * same sentence (`announceSentAgain`).
+ * Hidden from assistive tech because the live region speaks the same sentence
+ * under the same condition (`announceSentAgain`).
  */
 function ResendConfirmation() {
-  const { sent, isPending, failed, sessionExpired } = useVerificationResendState()
-  if (!sent || isPending || failed || sessionExpired) {
+  const { latestAttemptSent } = useVerificationResendState()
+  if (!latestAttemptSent) {
     return null
   }
   return (

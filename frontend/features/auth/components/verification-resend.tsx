@@ -39,9 +39,18 @@ import { Button, buttonVariants } from '@/components/ui/button'
  */
 
 export interface VerificationResendState {
-  /** A send from this surface has been confirmed. */
+  /**
+   * A send from this surface has been confirmed at some point. Sticky, so the
+   * shared status line and announcement stay put once the wait runs out.
+   */
   sent: boolean
-  /** The last attempt failed for a reason the reader can do nothing about. */
+  /**
+   * The most recent settled attempt was a confirmed send: false while a send is
+   * in flight, and after any later throttle, failure, or expired session. For a
+   * surface whose confirmation must not outlive the attempt that earned it.
+   */
+  latestAttemptSent: boolean
+  /** The last attempt failed for a reason other than a throttle or an expired session. */
   failed: boolean
   /**
    * Narrows `failed`: the backend refused because the address is already
@@ -85,6 +94,7 @@ export function VerificationResend({ service, children }: VerificationResendProp
   const sendVerificationEmail = useSendVerificationEmail()
   const cooldown = useVerificationResendCooldown()
   const [sent, setSent] = useState(false)
+  const [latestAttemptSent, setLatestAttemptSent] = useState(false)
   const [failed, setFailed] = useState(false)
   const [alreadyVerified, setAlreadyVerified] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
@@ -96,11 +106,13 @@ export function VerificationResend({ service, children }: VerificationResendProp
     if (isPending || isCoolingDown) {
       return
     }
+    setLatestAttemptSent(false)
     setFailed(false)
     setAlreadyVerified(false)
     try {
       await sendVerificationEmail.mutateAsync()
       setSent(true)
+      setLatestAttemptSent(true)
       cooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
     } catch (error) {
       const retryAfter = verificationResendRetryAfter(error)
@@ -128,6 +140,7 @@ export function VerificationResend({ service, children }: VerificationResendProp
     <VerificationResendContext.Provider
       value={{
         sent,
+        latestAttemptSent,
         failed,
         alreadyVerified,
         sessionExpired,
@@ -146,7 +159,7 @@ interface VerificationResendButtonProps {
   /** The label at rest. Each surface names the action in its own terms. */
   children: ReactNode
   /** Replaces the label while a send is in flight; the spinner shows either way. */
-  pendingLabel?: ReactNode
+  pendingLabel?: string
   className?: string
   variant?: VariantProps<typeof buttonVariants>['variant']
   size?: VariantProps<typeof buttonVariants>['size']
@@ -175,7 +188,7 @@ export function VerificationResendButton({
       className={className}
     >
       {isPending ? <Loader2 className="animate-spin" /> : null}
-      {isPending && pendingLabel !== undefined ? pendingLabel : children}
+      {isPending && pendingLabel ? pendingLabel : children}
     </Button>
   )
 }
@@ -190,13 +203,18 @@ export type ResendStatusFormat = (
 ) => string | null
 
 /**
- * What the live region says; `null` when there is nothing to say. Must not
- * vary with the seconds left, for the reason in `resendStatusAnnouncement`.
+ * What the live region says; `null` when there is nothing to say. It is not
+ * handed the seconds left, so it cannot tick: see `resendStatusAnnouncement`.
  */
 export type ResendAnnouncement = (
-  sent: boolean,
-  isCoolingDown: boolean
+  state: Pick<
+    VerificationResendState,
+    'sent' | 'latestAttemptSent' | 'isCoolingDown'
+  >
 ) => string | null
+
+const sharedAnnouncement: ResendAnnouncement = ({ sent, isCoolingDown }) =>
+  resendStatusAnnouncement(sent, isCoolingDown)
 
 interface VerificationResendStatusProps {
   /** Styling for the visible line; the live region is always sr-only. */
@@ -218,15 +236,16 @@ interface VerificationResendStatusProps {
 export function VerificationResendStatus({
   className,
   format = formatResendStatus,
-  announce = resendStatusAnnouncement,
+  announce = sharedAnnouncement,
 }: VerificationResendStatusProps) {
-  const { sent, isCoolingDown, secondsRemaining } = useVerificationResendState()
+  const { sent, latestAttemptSent, isCoolingDown, secondsRemaining } =
+    useVerificationResendState()
   const status = format(sent, secondsRemaining)
 
   return (
     <>
       <p className="sr-only" role="status">
-        {announce(sent, isCoolingDown) ?? ''}
+        {announce({ sent, latestAttemptSent, isCoolingDown }) ?? ''}
       </p>
       {status && (
         <p aria-hidden="true" className={className}>
@@ -258,16 +277,14 @@ export function VerificationResendSessionExpired({
 }
 
 /**
- * The alert for a send that failed. Never quotes the backend's own message:
- * the only thing the reader can act on is "try again".
- *
- * An already-verified refusal gets the generic line too unless the surface
- * words it via `alreadyVerified`.
+ * The alert for a send that failed. Never renders the backend's message; a
+ * surface may supply its own words for an already-verified refusal, which
+ * otherwise gets the generic line too.
  */
 export function VerificationResendFailed({
-  alreadyVerified: alreadyVerifiedMessage,
+  alreadyVerifiedMessage,
 }: {
-  alreadyVerified?: ReactNode
+  alreadyVerifiedMessage?: string
 }) {
   const { failed, alreadyVerified } = useVerificationResendState()
   if (!failed) {
@@ -275,7 +292,7 @@ export function VerificationResendFailed({
   }
   return (
     <p role="alert" className="text-sm text-destructive">
-      {alreadyVerified && alreadyVerifiedMessage !== undefined
+      {alreadyVerified && alreadyVerifiedMessage
         ? alreadyVerifiedMessage
         : 'We could not send that email just now. Please try again in a moment.'}
     </p>
