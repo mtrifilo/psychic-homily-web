@@ -13,13 +13,18 @@ import {
 const persist = vi.fn()
 const reset = vi.fn()
 let layout = resolveHomeLayout(null)
-let isReady = true
+let status: 'ready' | 'pending' | 'error' = 'ready'
 let hasStoredLayout = true
-let hasError = false
+const retry = vi.fn()
 
 vi.mock('../hooks/useHomeLayout', () => ({
-  useHomeLayout: () => ({ sections: layout, isReady, hasStoredLayout }),
-  useHomeLayoutWriteFailed: () => hasError,
+  useHomeLayout: () => ({
+    sections: layout,
+    isReady: status === 'ready',
+    status,
+    retry,
+    hasStoredLayout,
+  }),
   usePersistHomeLayout: () => ({ persist, reset, isResetting: false }),
 }))
 
@@ -31,9 +36,9 @@ function applyDocument(document: HomeLayoutDocument) {
 
 beforeEach(() => {
   layout = resolveHomeLayout(null)
-  isReady = true
+  status = 'ready'
   hasStoredLayout = true
-  hasError = false
+  retry.mockReset()
   persist.mockReset()
   reset.mockReset()
 })
@@ -200,23 +205,32 @@ describe('HomeSectionList', () => {
   // The list PUTs the whole document built from what it is rendering, so a
   // write issued before the profile answers would persist the shipped default
   // over whatever the viewer had stored.
-  it('refuses to write anything until the viewer\'s layout has actually loaded', async () => {
-    const user = userEvent.setup()
-    isReady = false
+  it('shows no layout at all until it knows it is the viewer\'s', () => {
+    // NOT the shipped default with disabled controls: that tells a viewer who
+    // has two sections hidden that they have none, and the list would PUT that
+    // default over their stored layout on the first click.
+    status = 'pending'
     render(<HomeSectionList />)
 
-    expect(
-      screen.getByRole('checkbox', { name: 'Community stats' })
-    ).toBeDisabled()
-    expect(
-      screen.getByRole('button', { name: 'Move Community stats up' })
-    ).toBeDisabled()
-    expect(
-      screen.getByRole('button', { name: 'Reset to default' })
-    ).toBeDisabled()
-
-    await user.click(screen.getByRole('checkbox', { name: 'Community stats' }))
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Loading your home layout'
+    )
     expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('offers a retry rather than a dead card when the layout cannot be read', async () => {
+    const user = userEvent.setup()
+    status = 'error'
+    render(<HomeSectionList />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not load your layout.'
+    )
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(retry).toHaveBeenCalledTimes(1)
   })
 
   it('resets through the DELETE path, not a PUT of the default document', async () => {
@@ -230,15 +244,13 @@ describe('HomeSectionList', () => {
     expect(persist).not.toHaveBeenCalled()
   })
 
-  it('shows one inline line when a write fails', () => {
-    // Read from the shared mutation cache, not this list's own observer, so
-    // the toolbar can report the same failure after the popover closes.
-    hasError = true
+  // The write outlives the popover this list sits in, so the HOST renders the
+  // failure line. Two owners would fire two live-region alerts for one
+  // failure; see HomeLayoutRuntime and the Settings card.
+  it('leaves the write-failure line to whoever hosts it', () => {
     render(<HomeSectionList />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Could not save your layout. Try again.'
-    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('tells the page whether a section is about to show or hide', async () => {

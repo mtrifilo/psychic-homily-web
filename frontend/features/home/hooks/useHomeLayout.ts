@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   useMutation,
   useMutationState,
@@ -46,6 +46,18 @@ interface HomeLayoutResponse {
   home_layout?: HomeLayoutDocument | null
 }
 
+/**
+ * Issue order for layout writes, MODULE scoped on purpose.
+ *
+ * The guard below has to answer "is this the newest write anyone started",
+ * and the component that starts them is inside a popover that unmounts every
+ * time it closes. A counter held on the hook instance resets there, so a write
+ * started before the close and one started after it both stamp themselves 1,
+ * both pass, and the older response overwrites the newer gesture, which is the
+ * exact defect the guard exists to prevent.
+ */
+let issuedWrites = 0
+
 export interface HomeLayoutState {
   sections: ResolvedHomeSection[]
   /**
@@ -57,6 +69,11 @@ export interface HomeLayoutState {
    * default over the layout the viewer actually stored.
    */
   isReady: boolean
+  /** Why it is not ready, so a surface with no server-read document can say
+   *  so rather than showing a disabled copy of a layout that is not theirs. */
+  status: 'ready' | 'pending' | 'error'
+  /** Ask the profile again. Only meaningful in the `error` status. */
+  retry: () => void
   /** Whether a document is STORED for this viewer. Not the same as "differs
    *  from the default": a viewer who customized and changed their mind back
    *  still holds a row, and only DELETE clears it. */
@@ -76,7 +93,7 @@ export interface HomeLayoutState {
 export function useHomeLayout(
   initialLayout?: HomeLayoutDocument | null
 ): HomeLayoutState {
-  const { data } = useProfile()
+  const { data, isError, refetch } = useProfile()
   const profile = data as ProfileWithHomeLayout | undefined
   // A payload that NAMES a viewer is authoritative, absent field included: the
   // backend omits `home_layout` for a viewer who has none, and reading that as
@@ -85,14 +102,20 @@ export function useHomeLayout(
     ? (profile.user.preferences?.home_layout ?? null)
     : undefined
   const answered = stored === undefined ? initialLayout : stored
+  const retry = useCallback(() => {
+    void refetch()
+  }, [refetch])
 
   return useMemo(
     () => ({
       sections: resolveHomeLayout(answered),
       isReady: answered !== undefined,
+      status:
+        answered !== undefined ? 'ready' : isError ? 'error' : 'pending',
+      retry,
       hasStoredLayout: answered != null,
     }),
-    [answered]
+    [answered, isError, retry]
   )
 }
 
@@ -118,7 +141,6 @@ export function useHomeLayout(
  */
 export function useWriteHomeLayout() {
   const queryClient = useQueryClient()
-  const issued = useRef(0)
 
   return useMutation<
     HomeLayoutResponse,
@@ -138,7 +160,7 @@ export function useWriteHomeLayout() {
       await queryClient.cancelQueries({ queryKey: queryKeys.auth.profile })
       const cached = queryClient.getQueryData(queryKeys.auth.profile)
       const context = {
-        issue: ++issued.current,
+        issue: ++issuedWrites,
         // The layout FIELD, not the whole payload: restoring a whole profile
         // snapshot would put a signed-out viewer's identity back into a cache
         // that a logout had already cleared.
@@ -154,13 +176,17 @@ export function useWriteHomeLayout() {
       // Both endpoints echo the document they stored, so the cache reconciles
       // from the response instead of refetching the whole profile after every
       // click. Only the last-issued write may do so.
-      if (!context || context.issue !== issued.current) return
+      if (!context || context.issue !== issuedWrites) return
+      // Same viewer guard as the rollback: a write can outlive its session,
+      // and the next account's profile must not inherit this one's layout.
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        withHomeLayout(old, response.home_layout ?? null)
+        readViewerId(old) === context.viewerId
+          ? withHomeLayout(old, response.home_layout ?? null)
+          : old
       )
     },
     onError: (_error: Error, _document, context) => {
-      if (!context || context.issue !== issued.current) return
+      if (!context || context.issue !== issuedWrites) return
       // Guarded on the viewer still being the one whose layout this was. A
       // write can outlive its session: `logout()` clears the cache without
       // cancelling in-flight requests, and an unguarded restore would rebuild

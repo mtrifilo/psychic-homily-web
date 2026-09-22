@@ -74,9 +74,6 @@ export function CustomizeHomeToolbar({
               Show, hide, and reorder the sections on your home page. Saved on
               your account.
             </p>
-            <p className="mt-1.5 font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
-              Changes apply immediately
-            </p>
           </div>
           <HomeSectionList
             initialLayout={initialLayout}

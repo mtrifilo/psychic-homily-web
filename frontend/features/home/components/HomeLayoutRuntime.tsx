@@ -26,7 +26,10 @@ import {
 } from '../sections'
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
 import { HomeCityLinkSlotProvider } from './HomeCityShowsLink'
-import { SAVE_FAILED_MESSAGE, type HomeVisibilityChange } from './HomeSectionList'
+import {
+  SAVE_FAILED_MESSAGE,
+  type HomeVisibilityChange,
+} from './HomeSectionList'
 
 /** A section mid-show or mid-hide, and which way it is going. */
 type SlotTransition = 'collapse' | 'expand'
@@ -75,18 +78,27 @@ export function HomeLayoutRuntime({
     ReadonlyMap<HomeSectionId, SlotTransition>
   >(() => new Map())
 
-  const settleTransition = useCallback((id: HomeSectionId) => {
-    setTransitions(current => {
-      if (!current.has(id)) return current
-      const next = new Map(current)
-      next.delete(id)
-      return next
-    })
-  }, [])
+  // Direction-aware: a cancel fires this too, and a re-show staged DURING a
+  // collapse must not have its own transition cleared by the collapse it
+  // interrupted.
+  const settleTransition = useCallback(
+    (id: HomeSectionId, direction: SlotTransition) => {
+      setTransitions(current => {
+        if (current.get(id) !== direction) return current
+        const next = new Map(current)
+        next.delete(id)
+        return next
+      })
+    },
+    []
+  )
 
-  // A section on its way out stays mounted until its height reaches zero.
+  // A section stays mounted for the whole of EITHER transition. Keeping it
+  // only for a collapse meant re-showing a section mid-collapse dropped it
+  // from the list for a frame, destroying and rebuilding its whole subtree
+  // (the graph canvas included) instead of reversing the animation.
   const rendered = layout.filter(
-    section => section.visible || transitions.get(section.id) === 'collapse'
+    section => section.visible || transitions.has(section.id)
   )
   const { register, capture } = useFlipReorder(
     rendered.map(section => section.id)
@@ -158,17 +170,20 @@ export function HomeLayoutRuntime({
             </button>
           </p>
         ) : (
-          // The gap rides on each slot rather than the container so a
-          // collapsing section takes its spacing down with it. On the
-          // container it would survive the height animation and vanish at
-          // unmount, snapping everything below up by its full height.
+          // The gap rides INSIDE each slot rather than on the container: on
+          // the container it survives the height animation and vanishes at
+          // unmount, snapping everything below up by its full height. It also
+          // cannot be padding on the slot itself, because padding floors a
+          // border-box element's rendered height, so the slot would stop 56px
+          // short of collapsing and drop that at unmount instead.
           <div className="mt-4 flex w-full flex-col">
-            {rendered.map(section => (
+            {rendered.map((section, index) => (
               <HomeSectionSlot
                 key={section.id}
                 id={section.id}
                 registerRef={register(section.id)}
                 transition={transitions.get(section.id)}
+                isLast={index === rendered.length - 1}
                 onSettled={settleTransition}
               >
                 {sections[section.id]}
@@ -193,13 +208,15 @@ function HomeSectionSlot({
   id,
   registerRef,
   transition,
+  isLast,
   onSettled,
   children,
 }: {
   id: HomeSectionId
   registerRef: (node: HTMLElement | null) => void
   transition: SlotTransition | undefined
-  onSettled: (id: HomeSectionId) => void
+  isLast: boolean
+  onSettled: (id: HomeSectionId, direction: SlotTransition) => void
   children: ReactNode
 }) {
   const node = useRef<HTMLDivElement | null>(null)
@@ -216,10 +233,10 @@ function HomeSectionSlot({
       node.current,
       transition,
       reducedMotion,
-      () => onSettled(id)
+      () => onSettled(id, transition)
     )
     if (!animation) {
-      onSettled(id)
+      onSettled(id, transition)
       return
     }
     // A collapse holds the slot at zero height after it finishes. If the write
@@ -238,9 +255,10 @@ function HomeSectionSlot({
       // A collapsing section is leaving; keep it out of the a11y tree and out
       // of the tab order for the frames it is still painted.
       aria-hidden={transition === 'collapse' || undefined}
-      className="w-full pb-14 last:pb-0"
+      className="w-full"
     >
-      {children}
+      {/* The spacer is a CHILD so the slot's height animation encloses it. */}
+      <div className={isLast ? undefined : 'pb-14'}>{children}</div>
     </div>
   )
 }

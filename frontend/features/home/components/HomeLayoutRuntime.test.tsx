@@ -16,6 +16,8 @@ vi.mock('../hooks/useHomeLayout', () => ({
   useHomeLayout: () => ({
     sections: layout,
     isReady: true,
+    status: 'ready',
+    retry: vi.fn(),
     hasStoredLayout: true,
   }),
   useHomeLayoutWriteFailed: () => hasWriteFailed,

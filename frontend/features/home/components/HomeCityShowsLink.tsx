@@ -71,8 +71,13 @@ export function HomeCityShowsLink({
  * section is hidden, so it never doubles that section's own city resolution.
  */
 export function ResolvedHomeCityShowsLink({ className }: { className?: string }) {
-  const { effectiveCities } = useHomeShowCitySelection({
+  const { effectiveCities, source, isResolving } = useHomeShowCitySelection({
     resolveCityForCopy: true,
   })
+  // Held while the city is still being decided, the same way the nearby
+  // section holds its subline. Painting the unqualified link first and
+  // swapping in a city one moment later reflows the row it shares with the
+  // toolbar kicker, and a click in that window loses the city filter.
+  if (isResolving && source === 'none') return null
   return <HomeCityShowsLink cities={effectiveCities} className={className} />
 }

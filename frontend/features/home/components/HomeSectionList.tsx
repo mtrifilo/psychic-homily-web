@@ -10,16 +10,10 @@ import {
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-// Concrete module path, not the `@/components/shared` barrel: this component
-// is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
-import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useFlipReorder } from '../homeLayoutMotion'
-import {
-  useHomeLayout,
-  useHomeLayoutWriteFailed,
-  usePersistHomeLayout,
-} from '../hooks/useHomeLayout'
+import { useHomeLayout, usePersistHomeLayout } from '../hooks/useHomeLayout'
 import {
   moveHomeSection,
   setHomeSectionVisibility,
@@ -43,8 +37,12 @@ export type HomeVisibilityChange = {
 
 type MoveDirection = 'up' | 'down'
 
-/** Shared with the toolbar, which reports the same failure when the popover
- *  has already closed. */
+/**
+ * The write-failure copy, rendered by whichever surface HOSTS this list rather
+ * than by the list itself: the popover unmounts when it closes and the write
+ * outlives it, and two hosts rendering it at once would fire two live-region
+ * alerts for one failure. See HomeLayoutWriteError.
+ */
 export const SAVE_FAILED_MESSAGE = 'Could not save your layout. Try again.'
 
 function focusKey(id: HomeSectionId, direction: MoveDirection): string {
@@ -73,9 +71,9 @@ export function HomeSectionList({
   footerAction?: ReactNode
   className?: string
 }) {
-  const { sections, isReady, hasStoredLayout } = useHomeLayout(initialLayout)
+  const { sections, isReady, status, retry, hasStoredLayout } =
+    useHomeLayout(initialLayout)
   const { persist, reset, isResetting } = usePersistHomeLayout()
-  const hasError = useHomeLayoutWriteFailed()
   const { register, capture } = useFlipReorder(
     sections.map(section => section.id)
   )
@@ -178,6 +176,14 @@ export function HomeSectionList({
   // clear it would pin them to today's default after it changes.
   const canReset = isReady && hasStoredLayout
 
+  if (status !== 'ready') {
+    return (
+      <div className={className}>
+        <HomeSectionListPlaceholder status={status} retry={retry} />
+      </div>
+    )
+  }
+
   return (
     <div className={className}>
       <span className="sr-only" role="status">
@@ -263,11 +269,6 @@ export function HomeSectionList({
         {footerAction}
       </div>
 
-      {hasError && (
-        <div className="px-4 pb-3">
-          <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
-        </div>
-      )}
     </div>
   )
 }
@@ -306,5 +307,42 @@ function MoveButton({
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
     </Button>
+  )
+}
+
+/**
+ * What stands in for the rows before the viewer's own layout has arrived.
+ *
+ * Deliberately NOT the shipped default with its controls disabled: that tells
+ * a viewer who has two sections hidden that they have none, and gives them no
+ * reason why nothing responds.
+ */
+function HomeSectionListPlaceholder({
+  status,
+  retry,
+}: {
+  status: 'pending' | 'error'
+  retry: () => void
+}) {
+  if (status === 'error') {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-6">
+        <p role="alert" className="text-sm text-destructive">
+          Could not load your layout.
+        </p>
+        <Button variant="outline" size="sm" onClick={retry}>
+          Try again
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div aria-busy="true" className="flex flex-col px-4 py-3" role="status">
+      <span className="sr-only">Loading your home layout</span>
+      {[0, 1, 2, 3, 4].map(row => (
+        <Skeleton key={row} className="my-2 h-9 w-full" aria-hidden />
+      ))}
+    </div>
   )
 }

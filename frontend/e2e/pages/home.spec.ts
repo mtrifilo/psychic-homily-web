@@ -322,11 +322,16 @@ test.describe('Homepage (signed in)', () => {
   // writes. The DELETE therefore runs here, on every outcome, rather than as
   // the test's last line where a failure halfway through would skip it and
   // leave every later signed-in spec on this worker running against a
-  // customized home.
+  // customized home. It covers every test in this describe on purpose: any of
+  // them could be the one that fails mid-write once more land here.
+  //
+  // The status is asserted: a cleanup that silently 401s leaves exactly the
+  // dirty state it exists to prevent, and the run still reports green.
   test.afterEach(async ({ authenticatedPage }) => {
-    await authenticatedPage.request.delete(
+    const response = await authenticatedPage.request.delete(
       '/api/auth/preferences/home-layout'
     )
+    expect(response.status()).toBeLessThan(400)
   })
 
   test('hides, reorders and resets home sections, and remembers across a reload', async ({

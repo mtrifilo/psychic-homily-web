@@ -10,7 +10,12 @@ import {
 // Concrete module path, not the `@/features/home` barrel: that barrel is
 // root-layout reachable and a `'use client'` barrel is not tree-shaken per
 // export. See features/sharedChunkBarrelGuard.test.ts.
-import { HomeSectionList } from '@/features/home/components/HomeSectionList'
+import {
+  HomeSectionList,
+  SAVE_FAILED_MESSAGE,
+} from '@/features/home/components/HomeSectionList'
+import { useHomeLayoutWriteFailed } from '@/features/home/hooks/useHomeLayout'
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import { HOME_LAYOUT_SETTINGS_ANCHOR } from '@/features/home/sections'
 import { cn } from '@/lib/utils'
 import {
@@ -32,6 +37,10 @@ export function HomeLayoutSettings() {
   // the viewer lands at the top of the page, three cards above the one they
   // clicked to reach.
   const anchorRef = useAnchorScroll(HOME_LAYOUT_SETTINGS_ANCHOR)
+  // The host renders the failure line, not the list: on the home page the host
+  // is the toolbar row, which outlives the popover. Two hosts rendering it at
+  // once would fire two live-region alerts for one failure.
+  const hasWriteFailed = useHomeLayoutWriteFailed()
 
   return (
     <Card
@@ -49,6 +58,11 @@ export function HomeLayoutSettings() {
       </CardHeader>
       <CardContent className="px-0">
         <HomeSectionList className="border-t border-border" />
+        {hasWriteFailed && (
+          <div className="px-4 pt-3">
+            <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
