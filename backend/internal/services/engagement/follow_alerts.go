@@ -55,9 +55,8 @@ const followAlertsKey = "alerts"
 
 // followAlertEntityTypes lists the follow targets that carry a per-follow alert
 // subscription: the per-follow alert endpoints, the Library rows' `alerts`
-// payload and the unsubscribe sweep all read it. Tag follows are display-only
-// (PSY-1903 owns that gap); labels, festivals and radio shows have no alert
-// trigger.
+// payload and the unsubscribe sweep all read it. Tag follows are display-only;
+// labels, festivals and radio shows have no alert trigger.
 //
 // Scenes are absent, and the scene notifier depends on it. A scene follow's
 // scene_notify_mode picks which shows qualify, and its new-show email reads the

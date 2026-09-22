@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strconv"
 
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
@@ -57,11 +58,8 @@ func (s *NotificationFilterSuite) seedSceneFollowWithSettings(userID uint, setti
 // setAccountShowEmail writes the account alert matrix's show-alert email
 // channel, the one scene emails read.
 func (s *NotificationFilterSuite) setAccountShowEmail(userID uint, on bool) {
-	s.Require().NoError(s.db.Exec(`
-		INSERT INTO user_preferences (user_id, alert_defaults)
-		VALUES (?, jsonb_build_object('shows', jsonb_build_object('email', ?::boolean)))
-		ON CONFLICT (user_id) DO UPDATE SET alert_defaults = EXCLUDED.alert_defaults`,
-		userID, on).Error)
+	s.Require().NoError(usersvc.NewUserService(s.db).SetAccountAlertDefaults(userID,
+		authm.AccountAlertDefaultsUpdate{Shows: &authm.AlertChannelDefaultsUpdate{Email: &on}}))
 }
 
 func (s *NotificationFilterSuite) followArtist(userID, artistID uint) {
@@ -273,9 +271,9 @@ func (s *NotificationFilterSuite) TestSceneFollow_FallbackRowMatchesMetroStamped
 // EMAIL OPT-IN
 // =============================================================================
 
-// A scene follow with no account opt-in gets the in-app row and NO mail. Every
-// scene follow in production has this shape, so it is also the claim that
-// existing follows align to email off with nothing migrated.
+// A scene follow with no account opt-in gets the in-app row and NO mail. A user
+// with no preferences row resolves to email off, so existing follows need no
+// migration to align.
 func (s *NotificationFilterSuite) TestSceneAlert_EmailIsOffUntilOptedIn() {
 	capture := s.withCapturedEmail()
 

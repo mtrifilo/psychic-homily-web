@@ -845,6 +845,22 @@ type showEmailContentParts struct {
 	showURL    string
 }
 
+// detailLines is the one-show WHEN/WHERE/WITH/PRICE block the follow-alert
+// emails render with emailMonoDetails; empty fields are omitted.
+func (c showEmailContentParts) detailLines() []string {
+	details := []string{fmt.Sprintf("WHEN .... %s", c.date)}
+	if c.venueText != "" {
+		details = append(details, fmt.Sprintf("WHERE ... %s", c.venueText))
+	}
+	if c.artistText != "" {
+		details = append(details, fmt.Sprintf("WITH .... %s", c.artistText))
+	}
+	if c.priceText != "" {
+		details = append(details, fmt.Sprintf("PRICE ... %s", c.priceText))
+	}
+	return details
+}
+
 // showEmailContent builds the show-derived email fields (extracted from
 // sendFilterEmail for reuse by the scene-follow email, PSY-1341). Venue
 // timezone rendering per PSY-996.

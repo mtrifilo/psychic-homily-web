@@ -147,7 +147,7 @@ func (s *UserService) SetAccountAlertDefaults(userID uint, update authm.AccountA
 
 // UnsubscribeArtistShowAlertEmails stops the new-show alert EMAILS for a user,
 // from artist, venue and scene follows alike, and is what the RFC 8058
-// one-click link behind those emails calls (PSY-1896).
+// one-click link behind those emails calls.
 //
 // Scene follows need only the first write below: they carry no per-follow
 // override, so their email reads the account matrix alone.

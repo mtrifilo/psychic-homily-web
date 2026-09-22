@@ -45,7 +45,6 @@ type sceneFollower struct {
 	Mode      *string `gorm:"column:mode"`
 	SceneCity string  `gorm:"column:city"`
 	SceneSt   string  `gorm:"column:state"`
-	SceneSlug string  `gorm:"column:slug"`
 }
 
 // notifySceneFollowers fans a newly approved show out to followers of its
@@ -72,9 +71,8 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 	// The scene an email names is the first follow of the mode that made the
 	// user qualify (rows arrive ordered by scene id): an "all" follow when there
 	// is one, otherwise a followed-bands one. An "off" follow is never named.
+	// A non-empty field is also the record that a follow of that mode exists.
 	type userAgg struct {
-		anyAll               bool
-		anyFollowedBandsOnly bool
 		allScene, bandsScene string
 	}
 	byUser := make(map[uint]*userAgg, len(followers))
@@ -91,19 +89,14 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			agg = &userAgg{}
 			byUser[f.UserID] = agg
 		}
-		sceneName := fmt.Sprintf("%s, %s", f.SceneCity, f.SceneSt)
-		if mode == engagement.SceneNotifyModeFollowedBands {
-			if !agg.anyFollowedBandsOnly {
-				agg.anyFollowedBandsOnly = true
-				agg.bandsScene = sceneName
-			}
-			continue
-		}
 		// "all" and any unrecognized/legacy value default to "all"
 		// (matches FollowService.SceneNotifyMode's read-side default).
-		if !agg.anyAll {
-			agg.anyAll = true
-			agg.allScene = sceneName
+		slot := &agg.allScene
+		if mode == engagement.SceneNotifyModeFollowedBands {
+			slot = &agg.bandsScene
+		}
+		if *slot == "" {
+			*slot = fmt.Sprintf("%s, %s", f.SceneCity, f.SceneSt)
 		}
 	}
 	if len(byUser) == 0 {
@@ -137,7 +130,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			continue
 		}
 		sceneName := agg.allScene
-		if !agg.anyAll {
+		if sceneName == "" {
 			ok, err := s.userFollowsAnyArtist(userID, showArtistIDs)
 			if err != nil {
 				log.Printf("scene-follow notify: artist intersection for user %d: %v", userID, err)
@@ -207,7 +200,7 @@ func (s *NotificationFilterService) sceneFollowersForShow(showID uint) ([]sceneF
 	var followers []sceneFollower
 	err := s.db.Raw(`
 		WITH show_scenes AS (
-			SELECT DISTINCT sc.id, sc.city, sc.state, sc.slug
+			SELECT DISTINCT sc.id, sc.city, sc.state
 			FROM show_venues sv
 			JOIN venues v ON v.id = sv.venue_id
 			JOIN scenes sc ON (
@@ -225,7 +218,7 @@ func (s *NotificationFilterService) sceneFollowersForShow(showID uint) ([]sceneF
 		)
 		SELECT b.user_id,
 		       b.settings->>'scene_notify_mode' AS mode,
-		       ss.city, ss.state, ss.slug
+		       ss.city, ss.state
 		FROM user_bookmarks b
 		JOIN show_scenes ss ON ss.id = b.entity_id
 		WHERE b.entity_type = 'scene' AND b.action = 'follow'
@@ -304,8 +297,9 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 
 // withinDailySceneEmailBudget reports whether the user has room in the daily
 // allowance for scene-follow emails, counting every channel='email' row against
-// the shared threshold. It fails CLOSED: an unreadable budget is not permission
-// to send.
+// the shared threshold. That count includes rows that sent no mail (see the
+// row comment in notifySceneFollowers), so it over-counts; it never under-counts.
+// It fails CLOSED: an unreadable budget is not permission to send.
 func (s *NotificationFilterService) withinDailySceneEmailBudget(userID uint) bool {
 	var emailCount int64
 	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
@@ -330,21 +324,8 @@ func buildSceneShowAlertEmailHTML(
 	c showEmailContentParts,
 	unsubscribeURL, manageURL string,
 ) string {
-	details := []string{
-		fmt.Sprintf("WHEN .... %s", c.date),
-	}
-	if c.venueText != "" {
-		details = append(details, fmt.Sprintf("WHERE ... %s", c.venueText))
-	}
-	if c.artistText != "" {
-		details = append(details, fmt.Sprintf("WITH .... %s", c.artistText))
-	}
-	if c.priceText != "" {
-		details = append(details, fmt.Sprintf("PRICE ... %s", c.priceText))
-	}
-
 	body := emailHeadline(fmt.Sprintf("A new show in the %s scene.", sceneName)) +
-		emailMonoDetails(details) +
+		emailMonoDetails(c.detailLines()) +
 		emailButton(c.showURL, "View show") +
 		emailFineprintWithLinks(
 			[]string{fmt.Sprintf(
