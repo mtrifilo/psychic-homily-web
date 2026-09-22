@@ -4,16 +4,17 @@ import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useExportData, useGenerateCLIToken } from '@/features/auth'
-// Relative import rather than the feature barrel: the barrel is mocked wholesale
-// by this component's own suite, and the resend control is worth exercising for
-// real.
+// Relative imports rather than the feature barrel: the barrel is mocked
+// wholesale by this component's own suite, and the resend control and its
+// countdown are worth exercising for real.
 import {
   VerificationResend,
-  VerificationResendAlerts,
   VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
   VerificationResendStatus,
 } from '../verification-resend'
-import { buildAuthHref } from '@/lib/auth-href'
+import { formatCompactResendStatus } from '../../hooks/useVerificationResendCooldown'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -43,9 +44,6 @@ import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessa
 
 // How long the "copied ✓" confirmation stays up after copying the CLI token.
 const TOKEN_COPIED_DISMISS_MS = 2000
-
-/** Where a reader whose session died mid-resend is sent to get a new one. */
-const SIGN_IN_HREF = buildAuthHref('/profile?tab=settings')
 
 /**
  * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
@@ -137,20 +135,22 @@ export function SettingsPanel() {
           </div>
 
           {!isEmailVerified && (
-            <VerificationResend service="settings" signInHref={SIGN_IN_HREF}>
+            <VerificationResend service="settings">
               <div className="flex flex-wrap items-center gap-2.5">
                 <VerificationResendButton variant="outline" size="sm">
                   Resend verification
                 </VerificationResendButton>
 
-                {/* Compact wording by design: this row sits in a dense settings
-                    column, not on a dedicated landing surface. */}
                 <VerificationResendStatus
-                  density="compact"
+                  format={formatCompactResendStatus}
                   className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
                 />
 
-                <VerificationResendAlerts />
+                <VerificationResendSessionExpired>
+                  Your session has expired. Sign in again to resend.
+                </VerificationResendSessionExpired>
+
+                <VerificationResendFailed />
               </div>
             </VerificationResend>
           )}

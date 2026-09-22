@@ -6,10 +6,13 @@ import Link from 'next/link'
 // that mocks the barrel still runs the real resend control.
 import {
   VerificationResend,
-  VerificationResendAlerts,
   VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
   VerificationResendStatus,
+  useVerificationResendState,
 } from '@/features/auth/components/verification-resend'
+import { formatResendWait } from '@/features/auth/hooks/useVerificationResendCooldown'
 import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -23,9 +26,8 @@ import { Card } from '@/components/ui/card'
  * never travels through a URL, and so a reload cannot strand anyone on a page
  * with no context.
  *
- * The resend button is the shared `<VerificationResend>` control (PSY-1911).
- * This surface used to carry its own handler and its own 429 wording, which is
- * exactly the drift that control exists to remove.
+ * The resend button is the shared `<VerificationResend>` control, so a throttle
+ * here is the same parked wait it is on every other resend surface.
  */
 
 /** Matches the verification token TTL in backend `jwt.go: CreateVerificationToken`. */
@@ -108,21 +110,31 @@ export function CheckInboxInterstitial({
         </p>
       </div>
 
-      <VerificationResend
-        service="auth_signup"
-        signInHref={buildAuthHref(primaryHref)}
-      >
+      <VerificationResend service="auth_check_inbox">
         <div className="flex flex-wrap items-center gap-3">
           <Button asChild>
             <Link href={primaryHref}>{primaryLabel}</Link>
           </Button>
-          <VerificationResendButton variant="outline">
+          <VerificationResendButton variant="outline" pendingLabel="Sending...">
             Resend email
           </VerificationResendButton>
         </div>
 
-        <VerificationResendStatus className="font-mono text-[11px] uppercase tracking-[0.55px] text-primary" />
-        <VerificationResendAlerts />
+        <ResendConfirmation />
+        <VerificationResendStatus
+          format={formatResendWait}
+          className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
+        />
+
+        <VerificationResendSessionExpired>
+          Your session has expired.{' '}
+          <Link href={buildAuthHref(primaryHref)} className="underline">
+            Sign in again
+          </Link>{' '}
+          to send the email.
+        </VerificationResendSessionExpired>
+
+        <VerificationResendFailed />
       </VerificationResend>
 
       <p className="text-xs text-muted-foreground">
@@ -136,5 +148,23 @@ export function CheckInboxInterstitial({
         .
       </p>
     </Card>
+  )
+}
+
+/**
+ * This surface's own words for a confirmed send. The shared status line under
+ * it carries only the wait, and the shared live region carries the
+ * announcement, so this line stays out of the accessibility tree's live
+ * regions.
+ */
+function ResendConfirmation() {
+  const { sent } = useVerificationResendState()
+  if (!sent) {
+    return null
+  }
+  return (
+    <p className="text-sm text-success-foreground">
+      Sent again. Give it a minute to arrive.
+    </p>
   )
 }

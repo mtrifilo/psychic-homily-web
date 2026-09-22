@@ -1,15 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as Sentry from '@sentry/nextjs'
 import { renderWithProviders } from '@/test/utils'
 import { apiRequest } from '@/lib/api'
 import {
   VerificationResend,
-  VerificationResendAlerts,
   VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
   VerificationResendStatus,
+  useVerificationResendState,
 } from './verification-resend'
+import { formatCompactResendStatus } from '../hooks/useVerificationResendCooldown'
 
 // --- Mocks ---
 //
@@ -26,12 +29,29 @@ const mockApiRequest = vi.mocked(apiRequest)
 
 const resendButton = () => screen.getByRole('button', { name: 'Send it again' })
 
-function renderControl(density?: 'default' | 'compact') {
+function throttle(retryAfter?: number): Error {
+  return Object.assign(new Error('Rate limit exceeded.'), {
+    status: 429,
+    retryAfter,
+  })
+}
+
+function renderControl({
+  compact = false,
+  pendingLabel,
+}: { compact?: boolean; pendingLabel?: string } = {}) {
   return renderWithProviders(
-    <VerificationResend service="test_surface" signInHref="/auth?returnTo=%2F">
-      <VerificationResendButton>Send it again</VerificationResendButton>
-      <VerificationResendStatus density={density} />
-      <VerificationResendAlerts />
+    <VerificationResend service="test_surface">
+      <VerificationResendButton pendingLabel={pendingLabel}>
+        Send it again
+      </VerificationResendButton>
+      <VerificationResendStatus
+        format={compact ? formatCompactResendStatus : undefined}
+      />
+      <VerificationResendSessionExpired>
+        Session gone, in this surface&rsquo;s words.
+      </VerificationResendSessionExpired>
+      <VerificationResendFailed />
     </VerificationResend>
   )
 }
@@ -51,9 +71,19 @@ describe('VerificationResend', () => {
       renderWithProviders(
         <VerificationResendButton>Send it again</VerificationResendButton>
       )
-    ).toThrow(/must be rendered inside <VerificationResend>/)
+    ).toThrow(/must be used inside <VerificationResend>/)
 
     consoleError.mockRestore()
+  })
+
+  it('renders an empty live region and nothing else before any attempt', () => {
+    renderControl()
+
+    // Mounted empty up front so the first announcement lands in a region that
+    // is already on the page.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(resendButton()).toBeEnabled()
   })
 
   it('sends, confirms, and parks the control for the standard cooldown', async () => {
@@ -82,15 +112,8 @@ describe('VerificationResend', () => {
     )
   })
 
-  // ONE 429 voice: a throttle is a wait, never an error, and never leaks the
-  // backend's own wording.
-  it('renders a throttle whose Retry-After was readable as an exact countdown', async () => {
-    mockApiRequest.mockRejectedValueOnce(
-      Object.assign(new Error('Rate limit exceeded.'), {
-        status: 429,
-        retryAfter: 25,
-      })
-    )
+  it('parks a throttle for the wait Retry-After asked for, as a wait and not an error', async () => {
+    mockApiRequest.mockRejectedValueOnce(throttle(25))
     const user = userEvent.setup()
     renderControl()
 
@@ -106,55 +129,48 @@ describe('VerificationResend', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       'Resend is not available yet. Please wait a moment.'
     )
+    expect(Sentry.captureException).not.toHaveBeenCalled()
   })
 
-  // The production path. CORS does not expose Retry-After (PSY-1924), so the
-  // app parks for its own standard cooldown but must not dress that assumption
-  // up as a second count it read off the server.
-  it('states an unreadable-Retry-After throttle approximately, with no second count', async () => {
-    mockApiRequest.mockRejectedValueOnce(
-      Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
-    )
+  it('parks a throttle with no readable Retry-After for the standard cooldown', async () => {
+    mockApiRequest.mockRejectedValueOnce(throttle())
     const user = userEvent.setup()
     renderControl()
 
     await user.click(resendButton())
 
     await waitFor(() => {
-      expect(
-        screen.getByText('Resend available in about a minute')
-      ).toBeInTheDocument()
+      expect(screen.getByText('Resend available in 60s')).toBeInTheDocument()
     })
-    expect(screen.queryByText(/\d/)).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    // Approximate copy, but the same real wait: the button is parked either way.
     expect(resendButton()).toBeDisabled()
   })
 
-  it('gives a dead session a way back rather than a generic failure', async () => {
-    mockApiRequest.mockRejectedValueOnce(
-      Object.assign(new Error('unauthorized'), { status: 401 })
-    )
-    const user = userEvent.setup()
-    renderControl()
-
-    await user.click(resendButton())
-
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Your session has expired.'
+  it.each([401, 403])(
+    'renders the surface\'s own session-expired alert on a %i, without paging Sentry',
+    async status => {
+      mockApiRequest.mockRejectedValueOnce(
+        Object.assign(new Error('unauthorized'), { status })
       )
-    })
-    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
-      'href',
-      '/auth?returnTo=%2F'
-    )
-    expect(
-      screen.queryByText(/We could not send that email just now/)
-    ).not.toBeInTheDocument()
-    // An expiring cookie is an ordinary event, not something to page on-call for.
-    expect(Sentry.captureException).not.toHaveBeenCalled()
-  })
+      const user = userEvent.setup()
+      renderControl()
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Session gone, in this surface’s words.'
+        )
+      })
+      expect(
+        screen.queryByText(/We could not send that email just now/)
+      ).not.toBeInTheDocument()
+      // An expiring cookie is an ordinary event, not something to page on-call for.
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+      // Nothing was sent and nothing was throttled, so no wait is running.
+      expect(resendButton()).toBeEnabled()
+    }
+  )
 
   it('reports a genuine failure to Sentry under the surface it happened on', async () => {
     mockApiRequest.mockRejectedValueOnce(
@@ -178,6 +194,7 @@ describe('VerificationResend', () => {
     expect(Sentry.captureException).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
+        level: 'error',
         tags: { service: 'test_surface', error_type: 'verification_email' },
       })
     )
@@ -185,11 +202,29 @@ describe('VerificationResend', () => {
     expect(resendButton()).toBeEnabled()
   })
 
+  // useSendVerificationEmail turns a 200 body with `success: false` into an
+  // AuthError, which is a real failure rather than a throttle or an expiry.
+  it('treats a refused send in a 200 body as a genuine failure', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      success: false,
+      message: 'Email already verified',
+    })
+    const user = userEvent.setup()
+    renderControl()
+
+    await user.click(resendButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'We could not send that email just now.'
+      )
+    })
+    expect(screen.queryByText(/already verified/)).not.toBeInTheDocument()
+  })
+
   it('clears a stale failure line when the next attempt starts', async () => {
     mockApiRequest
-      .mockRejectedValueOnce(
-        Object.assign(new Error('boom'), { status: 500 })
-      )
+      .mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }))
       .mockResolvedValueOnce({ success: true })
     const user = userEvent.setup()
     renderControl()
@@ -219,15 +254,133 @@ describe('VerificationResend', () => {
     expect(mockApiRequest).toHaveBeenCalledTimes(1)
   })
 
-  it('uses the settings-row phrasing at compact density', async () => {
+  // The disabled attribute stops a pointer, not a caller: a surface that wires
+  // `resend` to its own control still cannot double-send.
+  it('ignores a direct call to resend while a send is in flight', async () => {
+    let resolveSend: (value: { success: boolean }) => void = () => undefined
+    mockApiRequest.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveSend = resolve
+      })
+    )
+    // A surface-owned control that is never disabled, so only the guard
+    // inside `resend` can stop the second send.
+    function OwnControl() {
+      const { resend } = useVerificationResendState()
+      return (
+        <button type="button" onClick={() => void resend()}>
+          Own control
+        </button>
+      )
+    }
+    const user = userEvent.setup()
+    renderWithProviders(
+      <VerificationResend service="test_surface">
+        <OwnControl />
+        <VerificationResendButton>Send it again</VerificationResendButton>
+      </VerificationResend>
+    )
+    const ownControl = screen.getByRole('button', { name: 'Own control' })
+
+    await user.click(ownControl)
+    await waitFor(() => expect(resendButton()).toBeDisabled())
+    await user.click(ownControl)
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveSend({ success: true })
+    })
+  })
+
+  it('swaps in the surface\'s in-flight label only while a send is pending', async () => {
+    let resolveSend: (value: { success: boolean }) => void = () => undefined
+    mockApiRequest.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveSend = resolve
+      })
+    )
+    const user = userEvent.setup()
+    renderControl({ pendingLabel: 'Sending...' })
+
+    await user.click(resendButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+    })
+
+    await act(async () => {
+      resolveSend({ success: true })
+    })
+    await waitFor(() => expect(resendButton()).toBeDisabled())
+  })
+
+  it('renders the visible line in the wording the surface passes', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true })
     const user = userEvent.setup()
-    renderControl('compact')
+    renderControl({ compact: true })
 
     await user.click(resendButton())
 
     await waitFor(() => {
       expect(screen.getByText('Sent · Again in 60s')).toBeInTheDocument()
+    })
+    // The wording is the surface's; the announcement is not.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Verification email sent. Check your inbox.'
+    )
+  })
+
+  describe('cooldown timing', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('releases the control when the wait runs out, keeping the confirmation', async () => {
+      mockApiRequest.mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      renderControl()
+
+      await user.click(resendButton())
+      await waitFor(() => expect(resendButton()).toBeDisabled())
+
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+
+      expect(resendButton()).toBeEnabled()
+      expect(screen.getByText('Sent · Check your inbox')).toBeInTheDocument()
+      // Byte-identical once the wait ends, so nothing is re-announced unprompted.
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Verification email sent. Check your inbox.'
+      )
+    })
+
+    // A timer that outlives unmount fires setState into a torn-down jsdom and
+    // fails the entire vitest run (PSY-1664). Counted by interval id rather than
+    // by total timers, because the query client keeps its own cache timers.
+    it('clears the countdown interval when the surface unmounts mid-cooldown', async () => {
+      const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+      mockApiRequest.mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { unmount } = renderControl()
+
+      await user.click(resendButton())
+      await waitFor(() => expect(resendButton()).toBeDisabled())
+      const countdowns = setIntervalSpy.mock.results.map(result => result.value)
+      expect(countdowns.length).toBeGreaterThan(0)
+
+      unmount()
+
+      for (const id of countdowns) {
+        expect(clearIntervalSpy).toHaveBeenCalledWith(id)
+      }
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
     })
   })
 })

@@ -10,9 +10,11 @@ import { useConfirmVerification } from '@/features/auth'
 // exercising for real wherever these surfaces are tested.
 import {
   VerificationResend,
-  VerificationResendAlerts,
   VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
   VerificationResendStatus,
+  useVerificationResendState,
 } from '@/features/auth/components/verification-resend'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { buildAuthHref } from '@/lib/auth-href'
@@ -161,8 +163,6 @@ function VerifiedLanding() {
  * dressed as a diagnosis.
  */
 function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
-  const { isAuthenticated } = useAuthContext()
-
   return (
     <LandingCard tone="destructive">
       <p className={`${KICKER} text-destructive`}>
@@ -181,21 +181,38 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
         newest email in your inbox.
       </p>
 
-      {isAuthenticated ? (
-        <VerificationResend service="verify_email" signInHref={SIGN_IN_HREF}>
-          <VerificationResendButton>Send a fresh link</VerificationResendButton>
-          <VerificationResendStatus className={`${KICKER} text-primary`} />
-          <VerificationResendAlerts />
-        </VerificationResend>
-      ) : (
-        // A dead link is often opened in a browser with no session, where the
-        // resend endpoint would only 401. Route through sign-in instead of
-        // offering a button that cannot work.
-        <Button asChild>
-          <Link href={SIGN_IN_HREF}>Sign in to send a fresh link</Link>
-        </Button>
-      )}
+      <VerificationResend service="verify_email">
+        <FreshLinkAction />
+        <VerificationResendStatus className={`${KICKER} text-primary`} />
+        <VerificationResendFailed />
+        <VerificationResendSessionExpired>
+          Your session has expired. Sign in again to send a fresh link.
+        </VerificationResendSessionExpired>
+      </VerificationResend>
     </LandingCard>
+  )
+}
+
+/**
+ * The dead-link card's one action: send a fresh link, or sign in first when
+ * there is no session to send it from.
+ *
+ * A dead link is often opened in a browser with no session, and a session can
+ * also die while the card sits open. Either way the resend endpoint would only
+ * 401, so the card routes through sign-in instead of offering a button that
+ * cannot work.
+ */
+function FreshLinkAction() {
+  const { isAuthenticated } = useAuthContext()
+  const { sessionExpired } = useVerificationResendState()
+
+  if (isAuthenticated && !sessionExpired) {
+    return <VerificationResendButton>Send a fresh link</VerificationResendButton>
+  }
+  return (
+    <Button asChild>
+      <Link href={SIGN_IN_HREF}>Sign in to send a fresh link</Link>
+    </Button>
   )
 }
 

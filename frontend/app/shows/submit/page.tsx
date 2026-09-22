@@ -9,8 +9,9 @@ import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 // that mocks the barrel still runs the real resend control.
 import {
   VerificationResend,
-  VerificationResendAlerts,
   VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
   VerificationResendStatus,
 } from '@/features/auth/components/verification-resend'
 import { buildAuthHref } from '@/lib/auth-href'
@@ -56,20 +57,27 @@ function EmailVerificationRequired() {
             send yourself a fresh one.
           </p>
 
-          <VerificationResend service="shows_submit" signInHref={SIGN_IN_HREF}>
+          <VerificationResend service="shows_submit">
             <div className="flex w-full flex-col gap-2.5">
               <VerificationResendButton className="w-full">
                 Send verification email
               </VerificationResendButton>
               <Button asChild variant="outline" className="w-full">
-                <Link href="/profile?tab=settings">
-                  Manage email in Settings
-                </Link>
+                <Link href="/profile?tab=settings">Manage email in Settings</Link>
               </Button>
             </div>
 
             <VerificationResendStatus className="font-mono text-[11px] uppercase tracking-[0.44px] text-primary" />
-            <VerificationResendAlerts />
+
+            <VerificationResendSessionExpired>
+              Your session has expired.{' '}
+              <Link href={SIGN_IN_HREF} className="underline">
+                Sign in again
+              </Link>{' '}
+              to send the email.
+            </VerificationResendSessionExpired>
+
+            <VerificationResendFailed />
           </VerificationResend>
 
           <p className="text-xs text-muted-foreground">

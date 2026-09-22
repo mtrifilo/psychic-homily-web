@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import * as Sentry from '@sentry/nextjs'
 import { renderWithProviders } from '@/test/utils'
 import { apiRequest } from '@/lib/api'
 import { CheckInboxInterstitial } from './_components/check-inbox-interstitial'
@@ -105,7 +106,7 @@ describe('CheckInboxInterstitial', () => {
   // wording. It now runs the shared control, so these pin the shared voice
   // reaching this surface rather than a second copy of the logic.
   describe('resend', () => {
-    it('sends the verification email and parks the control on a cooldown', async () => {
+    it('confirms a send in its own words and parks the control on a cooldown', async () => {
       mockApiRequest.mockResolvedValueOnce({ success: true })
       const user = userEvent.setup()
       renderWithProviders(
@@ -120,9 +121,16 @@ describe('CheckInboxInterstitial', () => {
       )
       await waitFor(() => {
         expect(
-          screen.getByText('Sent · Check your inbox · Resend available in 60s')
+          screen.getByText('Sent again. Give it a minute to arrive.')
         ).toBeInTheDocument()
       })
+      // The shared line carries only the wait; the confirmation above says the
+      // rest, so "Sent · Check your inbox" would say it twice.
+      expect(screen.getByText('Resend available in 60s')).toHaveAttribute(
+        'aria-hidden',
+        'true'
+      )
+      expect(screen.queryByText(/Check your inbox ·/)).not.toBeInTheDocument()
       expect(resendButton()).toBeDisabled()
       expect(screen.getByRole('status')).toHaveTextContent(
         'Verification email sent. Check your inbox.'
@@ -130,9 +138,35 @@ describe('CheckInboxInterstitial', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    // A 429 is the expected outcome of an impatient second click, so it is a
-    // wait everywhere, never the red alert this surface used to show.
-    it('renders a throttled resend as a cooldown rather than an error', async () => {
+    it('keeps its own in-flight label while a send is pending', async () => {
+      let resolveSend: (value: { success: boolean }) => void = () => undefined
+      mockApiRequest.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveSend = resolve
+        })
+      )
+      const user = userEvent.setup()
+      renderWithProviders(
+        <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+      )
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+      })
+
+      resolveSend({ success: true })
+      await waitFor(() => {
+        expect(
+          screen.getByText('Sent again. Give it a minute to arrive.')
+        ).toBeInTheDocument()
+      })
+    })
+
+    // A 429 is the expected outcome of an impatient second click, so it is the
+    // same parked wait here as on every other resend surface, never an alert.
+    it('renders a throttled resend as a cooldown from Retry-After', async () => {
       mockApiRequest.mockRejectedValueOnce(rateLimitError(45))
       const user = userEvent.setup()
       renderWithProviders(
@@ -146,13 +180,14 @@ describe('CheckInboxInterstitial', () => {
       })
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
       expect(screen.queryByText(/Rate limit exceeded/)).not.toBeInTheDocument()
-      expect(screen.queryByText(/lot of resends/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Sent again/)).not.toBeInTheDocument()
       expect(resendButton()).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Resend is not available yet. Please wait a moment.'
+      )
     })
 
-    // The production path: CORS hides Retry-After, so the app does not know the
-    // wait and must not quote a second count off its own assumption.
-    it('states the wait approximately when the 429 carries no Retry-After', async () => {
+    it('falls back to the standard cooldown when the 429 carries no Retry-After', async () => {
       mockApiRequest.mockRejectedValueOnce(rateLimitError())
       const user = userEvent.setup()
       renderWithProviders(
@@ -162,12 +197,36 @@ describe('CheckInboxInterstitial', () => {
       await user.click(resendButton())
 
       await waitFor(() => {
-        expect(
-          screen.getByText('Resend available in about a minute')
-        ).toBeInTheDocument()
+        expect(screen.getByText('Resend available in 60s')).toBeInTheDocument()
       })
-      expect(screen.queryByText(/\d+s/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
       expect(resendButton()).toBeDisabled()
+    })
+
+    it('points a dead session at sign-in, back to where the reader was headed', async () => {
+      mockApiRequest.mockRejectedValueOnce(
+        Object.assign(new Error('unauthorized'), { status: 401 })
+      )
+      const user = userEvent.setup()
+      renderWithProviders(
+        <CheckInboxInterstitial
+          email="listener@example.com"
+          returnTo="/shows/tigers-jaw-at-the-rebel-lounge"
+        />
+      )
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Your session has expired. Sign in again to send the email.'
+        )
+      })
+      expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+        'href',
+        '/auth?returnTo=%2Fshows%2Ftigers-jaw-at-the-rebel-lounge'
+      )
+      expect(Sentry.captureException).not.toHaveBeenCalled()
     })
 
     it('shows generic copy on a server failure instead of the backend message', async () => {
@@ -191,6 +250,12 @@ describe('CheckInboxInterstitial', () => {
       expect(
         screen.queryByText(/Email service is not configured/)
       ).not.toBeInTheDocument()
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: { service: 'auth_check_inbox', error_type: 'verification_email' },
+        })
+      )
       // No cooldown was started, so a genuine failure stays retryable.
       expect(resendButton()).toBeEnabled()
     })
