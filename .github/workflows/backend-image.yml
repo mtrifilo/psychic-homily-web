@@ -143,9 +143,8 @@ jobs:
   notify-image-failure:
     name: Notify on image build failure
     needs: [backend-image]
-    # Pages only on 'failure', as the in-build step it replaced did. A build
-    # killed by its own timeout-minutes resolves to 'cancelled' and does not
-    # page.
+    # Pages only when the build's result is 'failure'. A build killed by its
+    # own timeout-minutes resolves to 'cancelled' and does not page.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.backend-image.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

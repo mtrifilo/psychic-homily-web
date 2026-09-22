@@ -13,7 +13,9 @@ on:
 # A job-scoped `permissions:` block REPLACES this one, it does not extend it.
 # A job needing an extra scope must restate every scope it still uses, or the
 # call that lost one fails at runtime with HTTP 403 "Resource not accessible
-# by integration".
+# by integration". A dropped read scope on a call that reads public data does
+# not fail while the repository is public, so a green run does not prove a
+# block is complete.
 permissions:
   contents: read
 
