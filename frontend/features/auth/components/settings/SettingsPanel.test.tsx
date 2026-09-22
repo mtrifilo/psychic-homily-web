@@ -8,6 +8,7 @@ import {
   AuthErrorCode,
   REAUTH_REQUIRED_MESSAGE,
 } from '@/lib/errors'
+import { HOME_LAYOUT_SETTINGS_ANCHOR, HOME_SECTIONS } from '@/features/home/sections'
 
 // --- Mocks ---
 
@@ -60,6 +61,16 @@ vi.mock('@/features/auth', () => ({
     ...mockGenerateCLITokenState,
   }),
   useProfile: () => ({ data: null as unknown }),
+}))
+
+// The "Home page" card (PSY-2104) renders for real, so the card's presence and
+// its rows are asserted here rather than against a stand-in. Its list reads the
+// profile through the CONCRETE hook module, which the `@/features/auth` barrel
+// mock above does not cover; a live query would leave TanStack's timers behind
+// and break the fake-timer unmount assertion below.
+vi.mock('@/features/auth/hooks/useAuth', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  useProfile: () => ({ data: undefined }),
 }))
 
 vi.mock('./change-password', () => ({
@@ -156,6 +167,20 @@ describe('SettingsPanel', () => {
   it('renders FavoriteCitiesSettings component', () => {
     renderWithProviders(<SettingsPanel />)
     expect(screen.getByTestId('favorite-cities')).toBeInTheDocument()
+  })
+
+  it('renders the Home page card with the same rows as the home popover', () => {
+    renderWithProviders(<SettingsPanel />)
+
+    expect(screen.getByText('Home page')).toBeInTheDocument()
+    for (const section of HOME_SECTIONS) {
+      expect(
+        screen.getByRole('checkbox', { name: section.title })
+      ).toBeChecked()
+      expect(
+        screen.getByRole('button', { name: `Move ${section.title} up` })
+      ).toBeInTheDocument()
+    }
   })
 
   it('renders NotificationSettings component', () => {
@@ -699,6 +724,8 @@ describe('SettingsPanel', () => {
     const texts = [
       'Account',
       'favorite-cities',
+      // PSY-2104 put the Home page card directly after Favorite cities.
+      HOME_LAYOUT_SETTINGS_ANCHOR,
       // PSY-1905 inserted the Alerts matrix ahead of the account-email card,
       // because the reminder and digest rows moved out of that card into it.
       'alert-settings',
@@ -717,11 +744,17 @@ describe('SettingsPanel', () => {
     )
     expect(accountIdx).toBeGreaterThanOrEqual(0)
 
-    const positions = texts.slice(1).map(id =>
-      Array.from(container.querySelectorAll('[data-testid]')).findIndex(
-        el => el.getAttribute('data-testid') === id
+    // The Home page card is real, so it is found by its id; every other entry
+    // is a mocked stand-in found by its testid. One ordered walk over all
+    // elements covers both.
+    const all = Array.from(container.querySelectorAll('*'))
+    const positions = texts
+      .slice(1)
+      .map(id =>
+        all.findIndex(
+          el => el.getAttribute('data-testid') === id || el.id === id
+        )
       )
-    )
     expect(positions.every(p => p !== -1)).toBe(true)
     for (let i = 1; i < positions.length; i++) {
       expect(positions[i]).toBeGreaterThan(positions[i - 1])

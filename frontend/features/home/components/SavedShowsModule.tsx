@@ -20,6 +20,10 @@ import {
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import {
+  ResolvedHomeCityShowsLink,
+  useHomeCityLinkSlot,
+} from './HomeCityShowsLink'
 
 /**
  * What the module paints this render.
@@ -65,6 +69,10 @@ export function SavedShowsModule({
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
   const router = useRouter()
+  // Takes the city link only when the nearby section that normally carries it
+  // is hidden (PSY-2104). The footer is where it goes, next to the other two
+  // lines that point off this module.
+  const ownsCityLink = useHomeCityLinkSlot() === 'saved'
 
   // The server picked this variant from the viewer's cookie. Signing out
   // without navigating leaves it mounted, so ask the server to pick again
@@ -109,6 +117,9 @@ export function SavedShowsModule({
           ? 'empty'
           : 'rows'
   const isStale = state === 'rows' && !!error
+  // Shown in the zero state too: it is the only line that explains where a
+  // viewer's past saves went, and that viewer is the one asking.
+  const showsFooter = state === 'rows' || state === 'empty'
 
   // The server picked this variant from the viewer's cookie; a viewer who signs
   // out without navigating leaves it mounted. Say nothing rather than address
@@ -237,17 +248,26 @@ export function SavedShowsModule({
         </p>
       )}
 
-      {/* Shown in the zero state too: it is the only line that explains where a
-          viewer's past saves went, and that viewer is the one asking. */}
-      {(state === 'rows' || state === 'empty') && (
+      {(showsFooter || ownsCityLink) && (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-          <span>Past saved shows move to Library → Past automatically</span>
-          <Link
-            href="/library#calendar-feed"
-            className="text-primary transition-colors hover:underline underline-offset-4"
-          >
-            Subscribe to calendar →
-          </Link>
+          {showsFooter && (
+            <span>Past saved shows move to Library → Past automatically</span>
+          )}
+          {/* ml-auto, not justify-between alone: the left line is absent when
+              this row exists only to carry the relocated city link. */}
+          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
+            {ownsCityLink && (
+              <ResolvedHomeCityShowsLink className="font-mono text-[11px] text-primary transition-colors hover:underline underline-offset-4" />
+            )}
+            {showsFooter && (
+              <Link
+                href="/library#calendar-feed"
+                className="text-primary transition-colors hover:underline underline-offset-4"
+              >
+                Subscribe to calendar →
+              </Link>
+            )}
+          </div>
         </div>
       )}
     </section>

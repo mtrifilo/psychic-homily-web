@@ -32,6 +32,7 @@ import { OAuthAccounts } from './oauth-accounts'
 import { PasskeyManagement } from './passkey-management'
 import { APITokenManagement } from './api-token-management'
 import { FavoriteCitiesSettings } from './favorite-cities'
+import { HomeLayoutSettings } from './home-layout'
 import { AlertSettings } from './alert-settings'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
@@ -44,11 +45,11 @@ const TOKEN_COPIED_DISMISS_MS = 2000
 
 /**
  * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
- * Your area inserted by PSY-1905:
- * Account → Favorite cities → Alerts → Your area → Account emails → Calendar
- * feed (PSY-1430) → Follows activity feed (PSY-1505) → Default reply
- * permission → Connected accounts → Passkeys → Change password → API tokens →
- * CLI authentication → Export → Danger zone.
+ * Your area inserted by PSY-1905 and Home page by PSY-2104:
+ * Account → Favorite cities → Home page → Alerts → Your area → Account emails
+ * → Calendar feed (PSY-1430) → Follows activity feed (PSY-1505) → Default
+ * reply permission → Connected accounts → Passkeys → Change password → API
+ * tokens → CLI authentication → Export → Danger zone.
  */
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -237,6 +238,10 @@ export function SettingsPanel() {
       </Card>
 
       <FavoriteCitiesSettings />
+
+      {/* Home page section layout (PSY-2104) — the settings mirror of the
+          home page's customize popover. PSY-2105 may relocate it. */}
+      <HomeLayoutSettings />
 
       {/* Alerts + Your area (PSY-1905). Sits ahead of Account emails because
           it is the card people come here for, and because the reminder and

@@ -152,6 +152,15 @@ test.describe('Homepage', () => {
       page.getByRole('contentinfo').getByText('Your music knowledge graph.')
     ).toBeVisible()
   })
+
+  test('never offers the customize-home toolbar (PSY-2104)', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(
+      page.getByRole('button', { name: 'Customize home' })
+    ).toHaveCount(0)
+    await expect(page.getByText(/your layout/i)).toHaveCount(0)
+  })
 })
 
 test.describe('Homepage (signed in)', () => {
@@ -301,5 +310,71 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       authenticatedPage.getByRole('heading', { name: /latest radio shows/i })
     ).toBeVisible()
+  })
+
+  // PSY-2104. One test, not four: each step depends on the one before it, and
+  // the layout it writes is stored on the worker user that every other
+  // signed-in spec shares. It therefore ENDS at the shipped default, and the
+  // reset is asserted rather than assumed.
+  test('hides, reorders and resets home sections, and remembers across a reload', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto('/')
+
+    // Scoped to the list: the page carries other lists (nav, cards), and an
+    // unscoped listitem query would resolve against whichever came first.
+    const sectionRows = page
+      .getByRole('list', { name: 'Home sections' })
+      .getByRole('listitem')
+    const toolbar = page.getByRole('button', { name: 'Customize home' })
+    await expect(toolbar).toBeVisible()
+    await expect(page.getByText(/HOME · 5 SECTIONS · YOUR LAYOUT/i)).toBeVisible()
+
+    const radioHeading = page.getByRole('heading', {
+      name: /latest radio shows/i,
+    })
+    await expect(radioHeading).toBeVisible()
+
+    await toolbar.click()
+    const radioRow = page.getByRole('checkbox', { name: 'Latest radio shows' })
+    await expect(radioRow).toBeChecked()
+
+    // Hide it: the section goes, and the row says so.
+    await radioRow.uncheck()
+    await expect(radioRow).not.toBeChecked()
+    await expect(radioHeading).toHaveCount(0)
+
+    // Reorder: community stats one step up, which is a swap with the nearby
+    // section rather than a re-sort.
+    await page.getByRole('button', { name: 'Move Community stats up' }).click()
+    await expect(sectionRows.nth(1)).toContainText(
+      'Community stats'
+    )
+
+    // Persisted on the account, not in this tab.
+    await page.reload()
+    await expect(radioHeading).toHaveCount(0)
+    await page.getByRole('button', { name: 'Customize home' }).click()
+    await expect(
+      page.getByRole('checkbox', { name: 'Latest radio shows' })
+    ).not.toBeChecked()
+    await expect(sectionRows.nth(1)).toContainText(
+      'Community stats'
+    )
+
+    // Back to the shipped layout, so the rest of this worker's specs see the
+    // page they were written against.
+    await page.getByRole('button', { name: 'Reset to default' }).click()
+    await expect(
+      page.getByRole('checkbox', { name: 'Latest radio shows' })
+    ).toBeChecked()
+    await expect(sectionRows.nth(1)).toContainText(
+      'Shows near you this week'
+    )
+    await page.keyboard.press('Escape')
+    await expect(radioHeading).toBeVisible()
+
+    await page.reload()
+    await expect(radioHeading).toBeVisible()
   })
 })

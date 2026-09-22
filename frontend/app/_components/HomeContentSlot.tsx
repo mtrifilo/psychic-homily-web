@@ -5,7 +5,11 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { AnonymousHome } from '@/features/home/components/AnonymousHome'
 import { HomeVariantSwitch } from '@/features/home/components/HomeVariantSwitch'
 import { SignedInHome } from '@/features/home/components/SignedInHome'
-import { prefetchHomeSavedShows, resolveHomeViewer } from '@/lib/auth-hydration'
+import {
+  getAuthenticatedHomeLayout,
+  prefetchHomeSavedShows,
+  resolveHomeViewer,
+} from '@/lib/auth-hydration'
 
 /**
  * Picks the homepage's viewer variant on the SERVER (PSY-2103), so a signed-in
@@ -22,7 +26,9 @@ import { prefetchHomeSavedShows, resolveHomeViewer } from '@/lib/auth-hydration'
  *
  * The profile read shares `AppShell`'s `React.cache()`, so the variant costs
  * no extra backend fetch. A signed-in viewer's saved rows are prefetched here
- * too, so the module's first paint is its rows rather than a skeleton.
+ * too, so the module's first paint is its rows rather than a skeleton, and the
+ * same cached read supplies their section layout (PSY-2104) so a custom order
+ * is in the first server HTML rather than reflowing after hydration.
  *
  * Three answers, three renders: a named viewer gets their page; an answered
  * "nobody" gets the anonymous page; a read the backend could not answer gets
@@ -35,7 +41,7 @@ export async function HomeContentSlot() {
   if (viewer === 'authenticated') {
     return (
       <HydrationBoundary state={await prefetchHomeSavedShows()}>
-        <SignedInHome />
+        <SignedInHome layout={await getAuthenticatedHomeLayout()} />
       </HydrationBoundary>
     )
   }

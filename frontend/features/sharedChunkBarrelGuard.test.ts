@@ -33,7 +33,19 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
   [
     '@/features/home',
     () => import('@/features/home'),
-    ['AnonymousHome', 'SignedInHome', 'SavedShowsModule', 'NearbyShowsSection'],
+    [
+      'AnonymousHome',
+      'SignedInHome',
+      'SavedShowsModule',
+      'NearbyShowsSection',
+      // PSY-2104's customize-home surface. HomeSectionList is deep-imported by
+      // the Settings "Home page" card, which is reachable from the auth
+      // barrel; a home-barrel export would put the whole signed-in home in the
+      // chunk every route loads.
+      'HomeLayoutRuntime',
+      'CustomizeHomeToolbar',
+      'HomeSectionList',
+    ],
   ],
   ['@/features/shows/components', () => import('@/features/shows/components'), ['ShowDetail']],
   ['@/features/tags', () => import('@/features/tags'), ['TagDetail']],

@@ -79,6 +79,9 @@ export const API_ENDPOINTS = {
     FAVORITE_CITIES: `${API_BASE_URL}/auth/preferences/favorite-cities`,
     // PSY-1423: /charts window + scene landing defaults.
     CHART_DEFAULTS: `${API_BASE_URL}/auth/preferences/chart-defaults`,
+    // PSY-386 / PSY-2104: signed-in home section order + visibility. PUT takes
+    // the whole document; DELETE restores the shipped default.
+    HOME_LAYOUT: `${API_BASE_URL}/auth/preferences/home-layout`,
     SHOW_REMINDERS: `${API_BASE_URL}/auth/preferences/show-reminders`,
     UNSUBSCRIBE_SHOW_REMINDERS: `${API_BASE_URL}/auth/unsubscribe/show-reminders`,
     // PSY-350 / PSY-515: weekly digest of new items in collections you follow.

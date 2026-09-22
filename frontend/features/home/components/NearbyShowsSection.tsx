@@ -1,13 +1,13 @@
 'use client'
 
-import Link from 'next/link'
 // Concrete module paths, not the `@/features/shows` barrel — see the note in
 // SavedShowsModule and features/sharedChunkBarrelGuard.test.ts.
 import { HomeShowListView } from '@/features/shows/components/HomeShowListView'
 import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCitySelection'
 import { NEXT_7_DAYS } from '@/features/shows/quickWindows'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
+import { cityLabel } from '@/components/filters/cityParams'
+import { HomeCityShowsLink } from './HomeCityShowsLink'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 
 /** Rows the section paints, the count on the approved board. */
@@ -66,18 +66,6 @@ export function NearbyShowsSection({ id }: { id: string }) {
       : isGuessedCity
         ? `${cityNames} · the liveliest scene right now · tap ♡ to save`
         : `${cityNames} · tap ♡ to save`
-  const allShowsHref =
-    cityCount > 0
-      ? `/shows?cities=${encodeURIComponent(buildCitiesParam(effectiveCities))}`
-      : '/shows'
-  // One city is the common case and the only one the approved copy names; a
-  // multi-city selection links to all of them under the unqualified label
-  // rather than picking one of the viewer's cities to speak for the rest.
-  const allShowsLabel =
-    cityCount === 1
-      ? `All upcoming shows in ${cityNames} →`
-      : 'All upcoming shows →'
-
   return (
     <section
       id={id}
@@ -94,12 +82,11 @@ export function NearbyShowsSection({ id }: { id: string }) {
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">{subline}</p>
         </div>
-        <Link
-          href={allShowsHref}
-          className="text-sm font-medium text-primary transition-colors hover:underline underline-offset-4"
-        >
-          {allShowsLabel}
-        </Link>
+        {/* This section OWNS the city link whenever it renders. When the
+            viewer hides it, the link relocates to the saved-shows footer and
+            then to the toolbar row rather than disappearing with the section
+            (PSY-2104); see resolveCityLinkSlot. */}
+        <HomeCityShowsLink cities={effectiveCities} />
       </div>
 
       <HomeShowListView
