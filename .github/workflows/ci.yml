@@ -316,10 +316,8 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
-      # `only-new-issues` is unset. Enabling it makes this action fetch the PR
-      # diff with pulls.get, which needs `pull-requests: read` in a job-scoped
-      # block that also restates `contents: read`. A failed fetch is only a
-      # warning: the action then lints the whole tree and stays green.
+      # Enabling `only-new-issues` needs `pull-requests: read`; without it the
+      # diff fetch fails as a warning and the whole tree is linted, green.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -799,10 +797,9 @@ jobs:
 
   e2e-report:
     name: E2E Merged Report
-    # Inherits `contents: read`. download-artifact below passes no
-    # `github-token`, so it reads same-run artifacts with the Actions runtime
-    # token. Giving it a `github-token` moves it onto the REST API, which needs
-    # `actions: read` in a job-scoped block.
+    # download-artifact below takes no `github-token`, so it uses the Actions
+    # runtime token; passing one moves it to the REST API (`actions: read`).
+    #
     # Run after all shards finish, even if some failed — we still want the
     # merged report artifact for triage.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}

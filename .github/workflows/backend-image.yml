@@ -74,11 +74,6 @@ jobs:
   backend-image:
     name: Backend Image Build
     runs-on: ubuntu-latest
-    # `contents: read` for the checkout, and no write scope: this job runs
-    # third-party docker/* actions. A scope added here must keep
-    # `contents: read` listed, because this block replaces the workflow one.
-    permissions:
-      contents: read
     # Measured at 77s cold on this workflow's first run. The ceiling is a hung
     # registry pull, not slow compilation, so 10 minutes is already a wide
     # margin -- and a job that has genuinely wedged should free its runner
