@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { SAVED_SHOWS_COLLAPSED_COUNT } from '../savedShowsConstants'
 import { useAuthContext } from '@/lib/context/AuthContext'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
 import type {
@@ -63,13 +64,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
   })
 }
 
-/**
- * How many saved shows a surface shows before sending the viewer to the full
- * list: Library's collapsed table, the signed-in home's module, and this
- * query's first page. One constant because those three are the SAME promise to
- * the viewer, and three literals cannot be kept equal by a comment.
- */
-export const SAVED_SHOWS_COLLAPSED_COUNT = 4
+export { SAVED_SHOWS_COLLAPSED_COUNT } from '../savedShowsConstants'
 const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
 
 /**

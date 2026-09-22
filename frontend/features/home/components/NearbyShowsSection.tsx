@@ -43,9 +43,11 @@ export function NearbyShowsSection({ id }: { id: string }) {
   const isAuthenticated = authStatus === 'authenticated'
   const selection = useHomeShowCitySelection({ resolveCityForCopy: true })
   const { effectiveCities, source, isResolving } = selection
-  // Geo is still deciding and nothing else claimed the city: hold the list
-  // rather than fetch a city the answer may replace a beat later.
-  const isHolding = isResolving && source === 'none'
+  // Geo is still deciding and nothing else claimed the city. The LIST does not
+  // wait (an unfiltered page is a truthful thing to show, and narrowing it
+  // when geo answers is not a correction, which is how the anonymous home
+  // already behaves); only the COPY holds back the claim it cannot make yet.
+  const isResolvingCity = isResolving && source === 'none'
 
   const cityCount = effectiveCities.length
   // Prose joins with the same separator the subline uses, so two cities do not
@@ -53,9 +55,11 @@ export function NearbyShowsSection({ id }: { id: string }) {
   const cityNames = effectiveCities.map(cityLabel).join(' · ')
   const isGuessedCity = source === 'liveliest'
   const heading =
-    isGuessedCity || isHolding ? 'Shows this week' : 'Shows near you this week'
+    isGuessedCity || isResolvingCity
+      ? 'Shows this week'
+      : 'Shows near you this week'
   const subline =
-    isHolding
+    isResolvingCity
       ? 'finding your city · tap ♡ to save'
       : cityCount === 0
         ? 'tap ♡ to save'
@@ -98,19 +102,13 @@ export function NearbyShowsSection({ id }: { id: string }) {
         </Link>
       </div>
 
-      {isHolding ? (
-        <div className="flex justify-center items-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-foreground"></div>
-        </div>
-      ) : (
-        <HomeShowListView
-          selection={selection}
-          rows={NEARBY_ROWS}
-          excludeSaved={isAuthenticated}
-          withinDays={NEXT_7_DAYS}
-          excludedLabel={cityCount > 0 ? cityNames : undefined}
-        />
-      )}
+      <HomeShowListView
+        selection={selection}
+        rows={NEARBY_ROWS}
+        excludeSaved={isAuthenticated}
+        withinDays={NEXT_7_DAYS}
+        excludedLabel={cityCount > 0 ? cityNames : undefined}
+      />
 
       {/* The quiet acclimation row travels with this section so the five
           reorderable sections stay a contiguous run for PSY-2104. */}

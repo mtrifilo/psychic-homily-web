@@ -98,12 +98,14 @@ describe('NearbyShowsSection', () => {
     ).toBeInTheDocument()
   })
 
-  it('holds the list while geo is still deciding rather than paint a guess', () => {
+  it('keeps the list painting while geo decides, and only the copy holds back', () => {
     selection.isResolving = true
 
     render(<NearbyShowsSection id="nearby" />)
 
-    expect(screen.queryByTestId('home-show-list')).not.toBeInTheDocument()
+    // The list is not gated on the city (an unfiltered page is truthful);
+    // the heading just does not claim proximity yet.
+    expect(screen.getByTestId('home-show-list')).toBeInTheDocument()
     expect(
       screen.getByRole('heading', { name: 'Shows this week' })
     ).toBeInTheDocument()

@@ -109,9 +109,12 @@ export function HomeShowListView({
   const windowedShows = useMemo(() => {
     if (withinDays === undefined) return fetchedShows
     const cutoff = mountedAt + withinDays * DAY_MS
-    return fetchedShows.filter(
-      show => new Date(show.event_date).getTime() <= cutoff
-    )
+    // An unparseable date keeps its row: a dropped row would turn a data
+    // fault into a confident "no shows" sentence.
+    return fetchedShows.filter(show => {
+      const at = new Date(show.event_date).getTime()
+      return Number.isNaN(at) || at <= cutoff
+    })
   }, [fetchedShows, withinDays, mountedAt])
 
   // Keyed on every fetched row: the hearts need each visible row's count, and

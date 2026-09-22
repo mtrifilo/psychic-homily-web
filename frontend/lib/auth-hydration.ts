@@ -36,7 +36,7 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
-import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/hooks/useSavedShows'
+import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/savedShowsConstants'
 import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
@@ -182,6 +182,19 @@ export async function resolveHomeViewer(): Promise<HomeViewer> {
 /** The rows the signed-in home paints, in the shape the client hook expects. */
 const HOME_SAVED_SHOWS_LIMIT = SAVED_SHOWS_COLLAPSED_COUNT
 
+// A value that crossed the client boundary arrives here as a client
+// reference (a function), and String() of it would go out as the limit. Fail
+// at module load rather than send a malformed request on every render.
+if (typeof HOME_SAVED_SHOWS_LIMIT !== 'number') {
+  throw new Error(
+    'SAVED_SHOWS_COLLAPSED_COUNT must come from an isomorphic module; it is a client reference here'
+  )
+}
+
+/** Bound on the server-side saved-shows read: a hung backend must not hold the
+ *  page body, and the fallback (seed nothing) is already the client's path. */
+const HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS = 3_000
+
 /**
  * Prefetch the signed-in home's saved-shows rows on the server so the first
  * paint carries them and nothing shifts when the client query settles.
@@ -211,8 +224,18 @@ export const prefetchHomeSavedShows = cache(async () => {
     const response = await fetch(`${API_BASE_URL}/saved-shows?${params}`, {
       headers: { Cookie: `auth_token=${authToken}` },
       cache: 'no-store',
+      signal: AbortSignal.timeout(HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS),
     })
-    if (!response.ok) return dehydrate(queryClient)
+    if (!response.ok) {
+      if (response.status >= 500) {
+        Sentry.captureMessage(`SSR saved-shows prefetch failed: ${response.status}`, {
+          level: 'warning',
+          tags: { service: 'shows', error_type: 'ssr_prefetch_failure' },
+          extra: { status: response.status },
+        })
+      }
+      return dehydrate(queryClient)
+    }
     const body: unknown = await response.json()
     if (!body || typeof body !== 'object' || !Array.isArray((body as { shows?: unknown }).shows)) {
       return dehydrate(queryClient)
@@ -226,8 +249,14 @@ export const prefetchHomeSavedShows = cache(async () => {
       ),
       queryFn: () => body,
     })
-  } catch {
+  } catch (error) {
     // Same posture as the profile read: a failed prefetch is not an answer.
+    // A deadline or network failure is expected and quiet; anything else is
+    // a programming error and is reported rather than swallowed.
+    const name = error instanceof Error ? error.name : ''
+    if (name !== 'TimeoutError' && name !== 'AbortError' && name !== 'TypeError') {
+      Sentry.captureException(error)
+    }
   }
   return dehydrate(queryClient)
 })
