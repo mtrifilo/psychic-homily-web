@@ -5,9 +5,6 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { useConfirmVerification } from '@/features/auth'
-// Imported by module path, not through the `@/features/auth` barrel: the barrel
-// is mocked wholesale in several suites, and the resend control is worth
-// exercising for real wherever these surfaces are tested.
 import {
   VerificationResend,
   VerificationResendButton,

@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
-  formatCompactResendStatus,
   formatResendStatus,
-  formatResendWait,
   isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
@@ -56,26 +54,6 @@ describe('formatResendStatus', () => {
     )
     expect(formatResendStatus(true, 0)).toBe('Sent · Check your inbox')
     expect(formatResendStatus(false, 30)).toBe('Resend available in 30s')
-  })
-})
-
-describe('formatCompactResendStatus', () => {
-  it('says nothing before anything has happened', () => {
-    expect(formatCompactResendStatus(false, 0)).toBeNull()
-  })
-
-  it('reports the confirmation and the wait in the settings-row wording', () => {
-    expect(formatCompactResendStatus(true, 45)).toBe('Sent · Again in 45s')
-    expect(formatCompactResendStatus(true, 0)).toBe('Sent')
-    expect(formatCompactResendStatus(false, 45)).toBe('Again in 45s')
-  })
-})
-
-describe('formatResendWait', () => {
-  it('reports only the wait, whether or not a send was confirmed', () => {
-    expect(formatResendWait(true, 60)).toBe('Resend available in 60s')
-    expect(formatResendWait(false, 30)).toBe('Resend available in 30s')
-    expect(formatResendWait(true, 0)).toBeNull()
   })
 })
 

@@ -41,50 +41,23 @@ export function verificationResendRetryAfter(error: unknown): number | null {
 }
 
 /**
- * Renders the visible status line from the two independent halves of a resend
- * control's state, or returns `null` when there is nothing to say yet.
+ * The mono status line under a resend control, or `null` when there is nothing
+ * to say yet.
  *
  * Both halves are independent: a user can be waiting without having sent
  * anything from this surface (they were throttled on the first click), and a
  * send can be confirmed after the wait has run out.
  */
-export type ResendStatusFormat = (
+export function formatResendStatus(
   sent: boolean,
   secondsRemaining: number
-) => string | null
-
-function joinStatus(parts: (string | null)[]): string | null {
-  const present = parts.filter(Boolean)
-  return present.length > 0 ? present.join(' · ') : null
+): string | null {
+  const wait =
+    secondsRemaining > 0 ? `Resend available in ${secondsRemaining}s` : null
+  const confirmation = sent ? 'Sent · Check your inbox' : null
+  const parts = [confirmation, wait].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
 }
-
-function landingWait(secondsRemaining: number): string | null {
-  return secondsRemaining > 0 ? `Resend available in ${secondsRemaining}s` : null
-}
-
-/** The landing-surface status line: the mono line under a full-width control. */
-export const formatResendStatus: ResendStatusFormat = (sent, secondsRemaining) =>
-  joinStatus([sent ? 'Sent · Check your inbox' : null, landingWait(secondsRemaining)])
-
-/**
- * The landing-surface wait on its own, for a surface that confirms a send in
- * its own words and only needs the shared line to say how long to wait.
- */
-export const formatResendWait: ResendStatusFormat = (_sent, secondsRemaining) =>
-  landingWait(secondsRemaining)
-
-/**
- * The settings-row status line. Terser than `formatResendStatus` by design:
- * it sits beside the button in a dense column, not on its own line.
- */
-export const formatCompactResendStatus: ResendStatusFormat = (
-  sent,
-  secondsRemaining
-) =>
-  joinStatus([
-    sent ? 'Sent' : null,
-    secondsRemaining > 0 ? `Again in ${secondsRemaining}s` : null,
-  ])
 
 /**
  * True when a resend failed because the session is gone rather than because
@@ -138,8 +111,7 @@ interface VerificationResendCooldown {
  *
  * Deliberately owns only the wait, not the mutation: `<VerificationResend>`
  * pairs the two, and keeping them apart lets the countdown be tested on its
- * own. It is imported by module path rather than through the `@/features/auth`
- * barrel, so a suite that mocks that barrel still exercises it for real.
+ * own.
  *
  * The countdown is driven off an absolute deadline rather than a decrementing
  * counter, so a backgrounded tab that stops firing timers resumes with the

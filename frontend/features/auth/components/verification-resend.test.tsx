@@ -11,8 +11,8 @@ import {
   VerificationResendSessionExpired,
   VerificationResendStatus,
   useVerificationResendState,
+  type ResendStatusFormat,
 } from './verification-resend'
-import { formatCompactResendStatus } from '../hooks/useVerificationResendCooldown'
 
 // --- Mocks ---
 //
@@ -36,17 +36,34 @@ function throttle(retryAfter?: number): Error {
   })
 }
 
+/** Holds the next send open until the test settles it. */
+function deferredSend(): () => Promise<void> {
+  let resolveSend: (value: { success: boolean }) => void = () => undefined
+  mockApiRequest.mockReturnValueOnce(
+    new Promise(resolve => {
+      resolveSend = resolve
+    })
+  )
+  return () =>
+    act(async () => {
+      resolveSend({ success: true })
+    })
+}
+
+const shoutedFormat: ResendStatusFormat = (sent, secondsRemaining) =>
+  `${sent ? 'SENT' : 'IDLE'} / ${secondsRemaining}`
+
 function renderControl({
-  compact = false,
+  format,
   pendingLabel,
-}: { compact?: boolean; pendingLabel?: string } = {}) {
+}: { format?: ResendStatusFormat; pendingLabel?: string } = {}) {
   return renderWithProviders(
     <VerificationResend service="test_surface">
       <VerificationResendButton pendingLabel={pendingLabel}>
         Send it again
       </VerificationResendButton>
       <VerificationResendStatus
-        format={compact ? formatCompactResendStatus : undefined}
+        format={format}
       />
       <VerificationResendSessionExpired>
         Session gone, in this surface&rsquo;s words.
@@ -257,12 +274,7 @@ describe('VerificationResend', () => {
   // The disabled attribute stops a pointer, not a caller: a surface that wires
   // `resend` to its own control still cannot double-send.
   it('ignores a direct call to resend while a send is in flight', async () => {
-    let resolveSend: (value: { success: boolean }) => void = () => undefined
-    mockApiRequest.mockReturnValueOnce(
-      new Promise(resolve => {
-        resolveSend = resolve
-      })
-    )
+    const settleSend = deferredSend()
     // A surface-owned control that is never disabled, so only the guard
     // inside `resend` can stop the second send.
     function OwnControl() {
@@ -287,18 +299,11 @@ describe('VerificationResend', () => {
     await user.click(ownControl)
 
     expect(mockApiRequest).toHaveBeenCalledTimes(1)
-    await act(async () => {
-      resolveSend({ success: true })
-    })
+    await settleSend()
   })
 
   it('swaps in the surface\'s in-flight label only while a send is pending', async () => {
-    let resolveSend: (value: { success: boolean }) => void = () => undefined
-    mockApiRequest.mockReturnValueOnce(
-      new Promise(resolve => {
-        resolveSend = resolve
-      })
-    )
+    const settleSend = deferredSend()
     const user = userEvent.setup()
     renderControl({ pendingLabel: 'Sending...' })
 
@@ -308,21 +313,19 @@ describe('VerificationResend', () => {
       expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
     })
 
-    await act(async () => {
-      resolveSend({ success: true })
-    })
+    await settleSend()
     await waitFor(() => expect(resendButton()).toBeDisabled())
   })
 
   it('renders the visible line in the wording the surface passes', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true })
     const user = userEvent.setup()
-    renderControl({ compact: true })
+    renderControl({ format: shoutedFormat })
 
     await user.click(resendButton())
 
     await waitFor(() => {
-      expect(screen.getByText('Sent · Again in 60s')).toBeInTheDocument()
+      expect(screen.getByText('SENT / 60')).toBeInTheDocument()
     })
     // The wording is the surface's; the announcement is not.
     expect(screen.getByRole('status')).toHaveTextContent(

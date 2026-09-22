@@ -102,9 +102,6 @@ describe('CheckInboxInterstitial', () => {
     })
   })
 
-  // PSY-1911: this surface used to carry its own handler and its own 429
-  // wording. It now runs the shared control, so these pin the shared voice
-  // reaching this surface rather than a second copy of the logic.
   describe('resend', () => {
     it('confirms a send in its own words and parks the control on a cooldown', async () => {
       mockApiRequest.mockResolvedValueOnce({ success: true })

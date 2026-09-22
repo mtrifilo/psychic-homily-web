@@ -4,17 +4,14 @@ import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useExportData, useGenerateCLIToken } from '@/features/auth'
-// Relative imports rather than the feature barrel: the barrel is mocked
-// wholesale by this component's own suite, and the resend control and its
-// countdown are worth exercising for real.
 import {
   VerificationResend,
   VerificationResendButton,
   VerificationResendFailed,
   VerificationResendSessionExpired,
   VerificationResendStatus,
+  type ResendStatusFormat,
 } from '../verification-resend'
-import { formatCompactResendStatus } from '../../hooks/useVerificationResendCooldown'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -44,6 +41,13 @@ import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessa
 
 // How long the "copied ✓" confirmation stays up after copying the CLI token.
 const TOKEN_COPIED_DISMISS_MS = 2000
+
+// Terser than the landing surfaces' status line by design: this row sits in a
+// dense settings column, not on a dedicated landing surface.
+const formatSettingsResendStatus: ResendStatusFormat = (sent, secondsRemaining) =>
+  [sent ? 'Sent' : null, secondsRemaining > 0 ? `Again in ${secondsRemaining}s` : null]
+    .filter(Boolean)
+    .join(' · ') || null
 
 /**
  * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
@@ -142,7 +146,7 @@ export function SettingsPanel() {
                 </VerificationResendButton>
 
                 <VerificationResendStatus
-                  format={formatCompactResendStatus}
+                  format={formatSettingsResendStatus}
                   className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
                 />
 

@@ -5,8 +5,6 @@ import Link from 'next/link'
 import { Loader2, Music } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
-// Imported by module path, not through the `@/features/auth` barrel, so a suite
-// that mocks the barrel still runs the real resend control.
 import {
   VerificationResend,
   VerificationResendButton,

@@ -2,8 +2,6 @@
 
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
-// Imported by module path, not through the `@/features/auth` barrel, so a suite
-// that mocks the barrel still runs the real resend control.
 import {
   VerificationResend,
   VerificationResendButton,
@@ -11,8 +9,9 @@ import {
   VerificationResendSessionExpired,
   VerificationResendStatus,
   useVerificationResendState,
+  type ResendStatusFormat,
 } from '@/features/auth/components/verification-resend'
-import { formatResendWait } from '@/features/auth/hooks/useVerificationResendCooldown'
+import { formatResendStatus } from '@/features/auth/hooks/useVerificationResendCooldown'
 import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -38,6 +37,13 @@ const BROWSE_HREF = '/shows'
 
 /** The account-email fold, which is a tab on the profile page, not `/settings`. */
 const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
+
+/**
+ * The wait alone. This surface confirms a send in its own words
+ * (`ResendConfirmation`), so the shared line must not say it a second time.
+ */
+const formatWaitOnly: ResendStatusFormat = (_sent, secondsRemaining) =>
+  formatResendStatus(false, secondsRemaining)
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -122,7 +128,7 @@ export function CheckInboxInterstitial({
 
         <ResendConfirmation />
         <VerificationResendStatus
-          format={formatResendWait}
+          format={formatWaitOnly}
           className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
         />
 

@@ -8,8 +8,6 @@ import type { VariantProps } from 'class-variance-authority'
 // `useSendVerificationEmail` on `@/features/auth`, and that mock has to reach
 // the control the surface delegates to.
 import { useSendVerificationEmail } from '@/features/auth'
-// By module path, not through the barrel, so a suite that mocks the barrel
-// still runs the real countdown.
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
   formatResendStatus,
@@ -17,7 +15,6 @@ import {
   resendStatusAnnouncement,
   useVerificationResendCooldown,
   verificationResendRetryAfter,
-  type ResendStatusFormat,
 } from '../hooks/useVerificationResendCooldown'
 import { Button, buttonVariants } from '@/components/ui/button'
 
@@ -161,6 +158,15 @@ export function VerificationResendButton({
     </Button>
   )
 }
+
+/**
+ * Wording for the visible status line, from the two independent halves of the
+ * control's state; `null` when there is nothing to say.
+ */
+export type ResendStatusFormat = (
+  sent: boolean,
+  secondsRemaining: number
+) => string | null
 
 interface VerificationResendStatusProps {
   /** Styling for the visible line; the live region is always sr-only. */
