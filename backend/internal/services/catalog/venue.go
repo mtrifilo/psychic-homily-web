@@ -362,6 +362,8 @@ func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailRe
 
 	resp := s.buildVenueResponse(&venue)
 	resp.Provenance = s.venueProvenanceFor(&venue)
+	link, err := servedSceneLink(s.db, s.geocoder, sceneLinkPlace{City: venue.City, State: venue.State, Country: venue.Country})
+	resp.Scene = sceneLinkOrNil("venue", venue.ID, link, err)
 	return resp, nil
 }
 

@@ -49,3 +49,22 @@ func TestCanonicalCountryName(t *testing.T) {
 		t.Error("expected miss for unrecognized country")
 	}
 }
+
+func TestIsUSStateCode(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want bool
+	}{
+		{"AZ", true},
+		{" mo ", true},
+		{"DC", true},
+		{"England", false},
+		{"ON", false}, // a Canadian province code
+		{"UK", false},
+		{"", false},
+	} {
+		if got := IsUSStateCode(c.in); got != c.want {
+			t.Errorf("IsUSStateCode(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
