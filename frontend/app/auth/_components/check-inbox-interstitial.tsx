@@ -9,9 +9,13 @@ import {
   VerificationResendSessionExpired,
   VerificationResendStatus,
   useVerificationResendState,
+  type ResendAnnouncement,
   type ResendStatusFormat,
 } from '@/features/auth/components/verification-resend'
-import { formatResendStatus } from '@/features/auth/hooks/useVerificationResendCooldown'
+import {
+  formatResendStatus,
+  resendStatusAnnouncement,
+} from '@/features/auth/hooks/useVerificationResendCooldown'
 import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -44,6 +48,12 @@ const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
  */
 const formatWaitOnly: ResendStatusFormat = (_sent, secondsRemaining) =>
   formatResendStatus(false, secondsRemaining)
+
+const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
+
+/** This surface announces a confirmed send in the same words it shows. */
+const announceSentAgain: ResendAnnouncement = (sent, isCoolingDown) =>
+  sent ? SENT_AGAIN : resendStatusAnnouncement(sent, isCoolingDown)
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -129,18 +139,24 @@ export function CheckInboxInterstitial({
         <ResendConfirmation />
         <VerificationResendStatus
           format={formatWaitOnly}
+          announce={announceSentAgain}
           className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
         />
 
         <VerificationResendSessionExpired>
           Your session has expired.{' '}
-          <Link href={buildAuthHref(primaryHref)} className="underline">
+          {/* A full page load, not a <Link>: this surface is rendered in place
+              on /auth itself, and a client navigation to /auth keeps the page's
+              signup state, so the interstitial would simply stay up. */}
+          <a href={buildAuthHref(primaryHref)} className="underline">
             Sign in again
-          </Link>{' '}
+          </a>{' '}
           to send the email.
         </VerificationResendSessionExpired>
 
-        <VerificationResendFailed />
+        {/* The backend's own words, as this surface showed them before the
+            shared control: retrying can never help a verified address. */}
+        <VerificationResendFailed alreadyVerified="Email is already verified" />
       </VerificationResend>
 
       <p className="text-xs text-muted-foreground">
@@ -158,19 +174,21 @@ export function CheckInboxInterstitial({
 }
 
 /**
- * This surface's own words for a confirmed send. The shared status line under
- * it carries only the wait, and the shared live region carries the
- * announcement, so this line stays out of the accessibility tree's live
- * regions.
+ * This surface's own words for a confirmed send, shown only while that send is
+ * the latest outcome: a later attempt in flight or refused takes it down, so it
+ * never sits beside an alert that contradicts it.
+ *
+ * Hidden from assistive tech because the shared live region already speaks the
+ * same sentence (`announceSentAgain`).
  */
 function ResendConfirmation() {
-  const { sent } = useVerificationResendState()
-  if (!sent) {
+  const { sent, isPending, failed, sessionExpired } = useVerificationResendState()
+  if (!sent || isPending || failed || sessionExpired) {
     return null
   }
   return (
-    <p className="text-sm text-success-foreground">
-      Sent again. Give it a minute to arrive.
+    <p aria-hidden="true" className="text-sm text-success-foreground">
+      {SENT_AGAIN}
     </p>
   )
 }

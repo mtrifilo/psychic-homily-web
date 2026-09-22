@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as Sentry from '@sentry/nextjs'
 import { renderWithProviders } from '@/test/utils'
@@ -117,9 +117,9 @@ describe('CheckInboxInterstitial', () => {
         expect.objectContaining({ method: 'POST' })
       )
       await waitFor(() => {
-        expect(
-          screen.getByText('Sent again. Give it a minute to arrive.')
-        ).toBeInTheDocument()
+        expect(screen.getByRole('status')).toHaveTextContent(
+          'Sent again. Give it a minute to arrive.'
+        )
       })
       // The shared line carries only the wait; the confirmation above says the
       // rest, so "Sent · Check your inbox" would say it twice.
@@ -129,10 +129,48 @@ describe('CheckInboxInterstitial', () => {
       )
       expect(screen.queryByText(/Check your inbox ·/)).not.toBeInTheDocument()
       expect(resendButton()).toBeDisabled()
+      // Announced in the same words it shows, once: the live region speaks
+      // the sentence and the visible copy of it stays out of the a11y tree.
       expect(screen.getByRole('status')).toHaveTextContent(
-        'Verification email sent. Check your inbox.'
+        'Sent again. Give it a minute to arrive.'
       )
+      expect(
+        screen.getByText('Sent again. Give it a minute to arrive.', {
+          selector: 'p[aria-hidden="true"]',
+        })
+      ).toBeInTheDocument()
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('takes the confirmation down when a later attempt fails', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        mockApiRequest
+          .mockResolvedValueOnce({ success: true })
+          .mockRejectedValueOnce(
+            Object.assign(new Error('boom'), { status: 500 })
+          )
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        renderWithProviders(
+          <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+        )
+
+        await user.click(resendButton())
+        await waitFor(() => expect(resendButton()).toBeDisabled())
+        act(() => {
+          vi.advanceTimersByTime(60_000)
+        })
+        await user.click(resendButton())
+
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toHaveTextContent(
+            'We could not send that email just now.'
+          )
+        })
+        expect(screen.queryByText(/Sent again/, { selector: 'p[aria-hidden="true"]' })).not.toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('keeps its own in-flight label while a send is pending', async () => {
@@ -155,9 +193,9 @@ describe('CheckInboxInterstitial', () => {
 
       resolveSend({ success: true })
       await waitFor(() => {
-        expect(
-          screen.getByText('Sent again. Give it a minute to arrive.')
-        ).toBeInTheDocument()
+        expect(screen.getByRole('status')).toHaveTextContent(
+          'Sent again. Give it a minute to arrive.'
+        )
       })
     })
 
@@ -223,6 +261,29 @@ describe('CheckInboxInterstitial', () => {
         'href',
         '/auth?returnTo=%2Fshows%2Ftigers-jaw-at-the-rebel-lounge'
       )
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+    })
+
+    // Verified in another tab or on another device while this card sat open.
+    it('says the address is already verified rather than inviting a retry', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: false,
+        message: 'Email is already verified',
+        error_code: 'ALREADY_VERIFIED',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(
+        <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+      )
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Email is already verified'
+        )
+      })
+      expect(screen.queryByText(/try again/i)).not.toBeInTheDocument()
       expect(Sentry.captureException).not.toHaveBeenCalled()
     })
 

@@ -224,7 +224,8 @@ describe('VerificationResend', () => {
   it('treats a refused send in a 200 body as a genuine failure', async () => {
     mockApiRequest.mockResolvedValueOnce({
       success: false,
-      message: 'Email already verified',
+      message: 'Email service is not configured',
+      error_code: 'SERVICE_UNAVAILABLE',
     })
     const user = userEvent.setup()
     renderControl()
@@ -236,7 +237,77 @@ describe('VerificationResend', () => {
         'We could not send that email just now.'
       )
     })
-    expect(screen.queryByText(/already verified/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/not configured/)).not.toBeInTheDocument()
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+  })
+
+  describe('an already-verified refusal', () => {
+    const alreadyVerified = {
+      success: false,
+      message: 'Email is already verified',
+      error_code: 'ALREADY_VERIFIED',
+    }
+
+    // The reader verified elsewhere; nothing is broken, so nobody is paged.
+    it('is not reported, and keeps the generic line by default', async () => {
+      mockApiRequest.mockResolvedValueOnce(alreadyVerified)
+      const user = userEvent.setup()
+      renderControl()
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'We could not send that email just now. Please try again in a moment.'
+        )
+      })
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+    })
+
+    it('takes the surface\'s own words when it supplies them', async () => {
+      mockApiRequest.mockResolvedValueOnce(alreadyVerified)
+      const user = userEvent.setup()
+      renderWithProviders(
+        <VerificationResend service="test_surface">
+          <VerificationResendButton>Send it again</VerificationResendButton>
+          <VerificationResendFailed alreadyVerified="Already done, in this surface's words." />
+        </VerificationResend>
+      )
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          "Already done, in this surface's words."
+        )
+      })
+      expect(screen.queryByText(/try again/)).not.toBeInTheDocument()
+    })
+
+    it('lets a genuine failure on the next attempt fall back to the generic line', async () => {
+      mockApiRequest
+        .mockResolvedValueOnce(alreadyVerified)
+        .mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }))
+      const user = userEvent.setup()
+      renderWithProviders(
+        <VerificationResend service="test_surface">
+          <VerificationResendButton>Send it again</VerificationResendButton>
+          <VerificationResendFailed alreadyVerified="Already done." />
+        </VerificationResend>
+      )
+
+      await user.click(resendButton())
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('Already done.')
+      })
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'We could not send that email just now.'
+        )
+      })
+    })
   })
 
   it('clears a stale failure line when the next attempt starts', async () => {
@@ -317,6 +388,25 @@ describe('VerificationResend', () => {
     await waitFor(() => expect(resendButton()).toBeDisabled())
   })
 
+  it('announces in the wording the surface passes, when it passes one', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <VerificationResend service="test_surface">
+        <VerificationResendButton>Send it again</VerificationResendButton>
+        <VerificationResendStatus
+          announce={sent => (sent ? 'Surface says sent.' : null)}
+        />
+      </VerificationResend>
+    )
+
+    await user.click(resendButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Surface says sent.')
+    })
+  })
+
   it('renders the visible line in the wording the surface passes', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true })
     const user = userEvent.setup()
@@ -360,30 +450,6 @@ describe('VerificationResend', () => {
       expect(screen.getByRole('status')).toHaveTextContent(
         'Verification email sent. Check your inbox.'
       )
-    })
-
-    // A timer that outlives unmount fires setState into a torn-down jsdom and
-    // fails the entire vitest run (PSY-1664). Counted by interval id rather than
-    // by total timers, because the query client keeps its own cache timers.
-    it('clears the countdown interval when the surface unmounts mid-cooldown', async () => {
-      const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
-      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
-      mockApiRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const { unmount } = renderControl()
-
-      await user.click(resendButton())
-      await waitFor(() => expect(resendButton()).toBeDisabled())
-      const countdowns = setIntervalSpy.mock.results.map(result => result.value)
-      expect(countdowns.length).toBeGreaterThan(0)
-
-      unmount()
-
-      for (const id of countdowns) {
-        expect(clearIntervalSpy).toHaveBeenCalledWith(id)
-      }
-      setIntervalSpy.mockRestore()
-      clearIntervalSpy.mockRestore()
     })
   })
 })

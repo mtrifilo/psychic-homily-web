@@ -11,6 +11,7 @@ import { useSendVerificationEmail } from '@/features/auth'
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
   formatResendStatus,
+  isVerificationResendAlreadyVerified,
   isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
@@ -27,6 +28,14 @@ import { Button, buttonVariants } from '@/components/ui/button'
  * report only a genuine failure. It renders no DOM. Each surface composes the
  * parts below into its own layout and supplies its own words, because layout
  * and wording are what legitimately differ between surfaces; behaviour is not.
+ *
+ * Every surface must render all four parts. The provider only records an
+ * outcome; the parts are what show it. Leave one out and that outcome goes
+ * silent: without `VerificationResendStatus` a throttle parks the button with
+ * no reason given and nothing is announced, without
+ * `VerificationResendSessionExpired` a dead session fails every click unseen
+ * (and, by design, unreported), and without `VerificationResendFailed` a real
+ * failure reaches Sentry but never the reader.
  */
 
 export interface VerificationResendState {
@@ -34,6 +43,11 @@ export interface VerificationResendState {
   sent: boolean
   /** The last attempt failed for a reason the reader can do nothing about. */
   failed: boolean
+  /**
+   * Narrows `failed`: the backend refused because the address is already
+   * verified. Only ever true while `failed` is.
+   */
+  alreadyVerified: boolean
   /** A send was refused because the session is gone. Sticky until remount. */
   sessionExpired: boolean
   isPending: boolean
@@ -72,6 +86,7 @@ export function VerificationResend({ service, children }: VerificationResendProp
   const cooldown = useVerificationResendCooldown()
   const [sent, setSent] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [alreadyVerified, setAlreadyVerified] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
 
   const isPending = sendVerificationEmail.isPending
@@ -82,6 +97,7 @@ export function VerificationResend({ service, children }: VerificationResendProp
       return
     }
     setFailed(false)
+    setAlreadyVerified(false)
     try {
       await sendVerificationEmail.mutateAsync()
       setSent(true)
@@ -97,6 +113,10 @@ export function VerificationResend({ service, children }: VerificationResendProp
         return
       }
       setFailed(true)
+      if (isVerificationResendAlreadyVerified(error)) {
+        setAlreadyVerified(true)
+        return
+      }
       Sentry.captureException(error, {
         level: 'error',
         tags: { service, error_type: 'verification_email' },
@@ -109,6 +129,7 @@ export function VerificationResend({ service, children }: VerificationResendProp
       value={{
         sent,
         failed,
+        alreadyVerified,
         sessionExpired,
         isPending,
         isCoolingDown,
@@ -168,11 +189,22 @@ export type ResendStatusFormat = (
   secondsRemaining: number
 ) => string | null
 
+/**
+ * What the live region says; `null` when there is nothing to say. Must not
+ * vary with the seconds left, for the reason in `resendStatusAnnouncement`.
+ */
+export type ResendAnnouncement = (
+  sent: boolean,
+  isCoolingDown: boolean
+) => string | null
+
 interface VerificationResendStatusProps {
   /** Styling for the visible line; the live region is always sr-only. */
   className?: string
   /** Wording for the visible line. Defaults to the landing-surface line. */
   format?: ResendStatusFormat
+  /** Wording for the live region. Defaults to the shared announcement. */
+  announce?: ResendAnnouncement
 }
 
 /**
@@ -186,6 +218,7 @@ interface VerificationResendStatusProps {
 export function VerificationResendStatus({
   className,
   format = formatResendStatus,
+  announce = resendStatusAnnouncement,
 }: VerificationResendStatusProps) {
   const { sent, isCoolingDown, secondsRemaining } = useVerificationResendState()
   const status = format(sent, secondsRemaining)
@@ -193,7 +226,7 @@ export function VerificationResendStatus({
   return (
     <>
       <p className="sr-only" role="status">
-        {resendStatusAnnouncement(sent, isCoolingDown) ?? ''}
+        {announce(sent, isCoolingDown) ?? ''}
       </p>
       {status && (
         <p aria-hidden="true" className={className}>
@@ -225,17 +258,26 @@ export function VerificationResendSessionExpired({
 }
 
 /**
- * The alert for a send that genuinely failed. Never quotes the backend's own
- * message: the only thing the reader can act on is "try again".
+ * The alert for a send that failed. Never quotes the backend's own message:
+ * the only thing the reader can act on is "try again".
+ *
+ * An already-verified refusal gets the generic line too unless the surface
+ * words it via `alreadyVerified`.
  */
-export function VerificationResendFailed() {
-  const { failed } = useVerificationResendState()
+export function VerificationResendFailed({
+  alreadyVerified: alreadyVerifiedMessage,
+}: {
+  alreadyVerified?: ReactNode
+}) {
+  const { failed, alreadyVerified } = useVerificationResendState()
   if (!failed) {
     return null
   }
   return (
     <p role="alert" className="text-sm text-destructive">
-      We could not send that email just now. Please try again in a moment.
+      {alreadyVerified && alreadyVerifiedMessage !== undefined
+        ? alreadyVerifiedMessage
+        : 'We could not send that email just now. Please try again in a moment.'}
     </p>
   )
 }
