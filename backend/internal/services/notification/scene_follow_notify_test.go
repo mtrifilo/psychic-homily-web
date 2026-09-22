@@ -425,8 +425,10 @@ func (s *NotificationFilterSuite) TestSceneAlert_UnsubscribeStopsTheNextShow() {
 	s.Len(capture.sent, 1, "the unsubscribe has to stop the stream")
 }
 
-// An unreadable account matrix sends no scene email, and still writes every
-// in-app row: the matrix gates only the email.
+// An unreadable account matrix still writes every in-app row: the matrix gates
+// only the email. The no-email assertion holds through both the explicit
+// emailGateReadable guard and the nil-map default (shipped defaults, email
+// off), so it does not by itself pin the guard.
 func (s *NotificationFilterSuite) TestSceneAlert_UnreadablePreferencesStillDeliverInApp() {
 	capture := &capturingEmailService{}
 

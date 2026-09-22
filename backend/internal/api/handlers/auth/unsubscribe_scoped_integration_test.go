@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -41,6 +42,10 @@ func TestScopedUnsubscribeIntegration(t *testing.T) {
 func (s *ScopedUnsubscribeIntegrationSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.secret = "test-secret-key-at-least-32-characters-long"
+}
+
+func (s *ScopedUnsubscribeIntegrationSuite) TearDownSuite() {
+	s.deps.TestDB.Cleanup()
 }
 
 // optedInUser creates a user opted into show-alert email at both layers: the
@@ -147,6 +152,25 @@ func (s *ScopedUnsubscribeIntegrationSuite) TestBrowserConfirmPostSilencesBothLa
 	account, artistFollow := s.showAlertEmail(userID, artistID)
 	s.False(account)
 	s.False(artistFollow)
+}
+
+// Behind the API-wide security headers, as served in production, the confirm
+// page's CSP must let a browser submit its form back to this origin. The
+// API-wide form-action 'none' would silently block the click.
+func (s *ScopedUnsubscribeIntegrationSuite) TestConfirmPageCSPAllowsItsFormBehindSecurityHeaders() {
+	userID, _ := s.optedInUser("csp@example.com")
+
+	h := NewUserPreferencesHandler(s.deps.UserService, s.secret)
+	served := middleware.SecurityHeaders(http.HandlerFunc(h.UnsubscribeArtistShowAlertsPageHandler))
+	w := httptest.NewRecorder()
+	served.ServeHTTP(w, httptest.NewRequest(http.MethodGet, s.signedTarget(userID), nil))
+
+	s.Equal(http.StatusOK, w.Code)
+	s.Require().Contains(w.Body.String(), `method="POST"`)
+	csp := w.Header().Get("Content-Security-Policy")
+	s.Contains(csp, "form-action 'self'")
+	s.NotContains(csp, "form-action 'none'")
+	s.Contains(csp, "frame-ancestors 'none'")
 }
 
 // A GET must not mutate: mail scanners and link-preview bots fetch links with no
