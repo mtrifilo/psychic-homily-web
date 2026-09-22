@@ -14,7 +14,7 @@ import { SignedInHome } from './SignedInHome'
  * No server-read layout to pass: the read that would have carried it is the
  * one that failed. The client reader takes the layout off the profile query
  * instead, which has settled by the time this branch renders the signed-in
- * page (PSY-2104).
+ * page.
  */
 export function HomeVariantSwitch() {
   const { authStatus } = useAuthContext()

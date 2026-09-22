@@ -239,8 +239,6 @@ export function SettingsPanel() {
 
       <FavoriteCitiesSettings />
 
-      {/* Home page section layout (PSY-2104) — the settings mirror of the
-          home page's customize popover. PSY-2105 may relocate it. */}
       <HomeLayoutSettings />
 
       {/* Alerts + Your area (PSY-1905). Sits ahead of Account emails because

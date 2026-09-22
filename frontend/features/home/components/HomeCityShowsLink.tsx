@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
+import { cn } from '@/lib/utils'
 import type { CityState } from '@/components/filters'
 import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCitySelection'
 import type { HomeCityLinkSlot } from '../sections'
@@ -44,7 +45,9 @@ export function homeCityShowsLink(cities: readonly CityState[]): {
   return { href, label }
 }
 
-const LINK_CLASS =
+/** The home surfaces' primary-link chrome, shared so the relocated city link
+ *  and the popover's "All settings" link cannot drift apart. */
+export const PRIMARY_LINK_CLASS =
   'text-sm font-medium text-primary transition-colors hover:underline underline-offset-4'
 
 /** Presentational form, for a caller that already owns a city selection. */
@@ -57,7 +60,7 @@ export function HomeCityShowsLink({
 }) {
   const { href, label } = homeCityShowsLink(cities)
   return (
-    <Link href={href} className={className ?? LINK_CLASS}>
+    <Link href={href} className={cn(PRIMARY_LINK_CLASS, className)}>
       {label}
     </Link>
   )

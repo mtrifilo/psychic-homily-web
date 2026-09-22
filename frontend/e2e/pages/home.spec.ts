@@ -321,7 +321,7 @@ test.describe('Homepage (signed in)', () => {
   }) => {
     // Changes apply optimistically, so every UI assertion below is satisfied
     // BEFORE the write reaches the backend. A reload taken on the strength of
-    // one of those assertions races the commit and reads the previous layout —
+    // one of those assertions races the commit and reads the previous layout,
     // so each gesture is paired with the response it must have landed.
     const layoutWrite = (method: 'PUT' | 'DELETE') =>
       page.waitForResponse(

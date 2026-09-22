@@ -112,7 +112,7 @@ describe('moveHomeSection', () => {
     const sections = resolveHomeLayout(null)
     const moved = moveHomeSection(sections, 'community_stats', 'up')
 
-    expect(order(moved)).toEqual([
+    expect(order(moved ?? [])).toEqual([
       'saved_shows',
       'community_stats',
       'nearby_shows',
@@ -121,11 +121,12 @@ describe('moveHomeSection', () => {
     ])
   })
 
-  it('returns the same reference at either end', () => {
+  it('answers null at either end, and for an id it does not hold', () => {
     const sections = resolveHomeLayout(null)
 
-    expect(moveHomeSection(sections, 'saved_shows', 'up')).toBe(sections)
-    expect(moveHomeSection(sections, 'radio_shows', 'down')).toBe(sections)
+    expect(moveHomeSection(sections, 'saved_shows', 'up')).toBeNull()
+    expect(moveHomeSection(sections, 'radio_shows', 'down')).toBeNull()
+    expect(moveHomeSection([], 'radio_shows', 'up')).toBeNull()
   })
 
   it('moves a hidden section without changing anything else', () => {
@@ -136,14 +137,14 @@ describe('moveHomeSection', () => {
     )
     const moved = moveHomeSection(hidden, 'city_graph', 'up')
 
-    expect(order(moved)).toEqual([
+    expect(order(moved ?? [])).toEqual([
       'saved_shows',
       'nearby_shows',
       'city_graph',
       'community_stats',
       'radio_shows',
     ])
-    expect(moved.find(s => s.id === 'city_graph')?.visible).toBe(false)
+    expect(moved?.find(s => s.id === 'city_graph')?.visible).toBe(false)
   })
 })
 
@@ -183,8 +184,9 @@ describe('toHomeLayoutDocument', () => {
       'radio_shows',
       'up'
     )
+    expect(custom).not.toBeNull()
 
-    expect(resolveHomeLayout(toHomeLayoutDocument(custom))).toEqual(custom)
+    expect(resolveHomeLayout(toHomeLayoutDocument(custom!))).toEqual(custom)
   })
 })
 
@@ -194,7 +196,7 @@ describe('isDefaultHomeLayout', () => {
 
     expect(isDefaultHomeLayout(sections)).toBe(true)
     expect(
-      isDefaultHomeLayout(moveHomeSection(sections, 'radio_shows', 'up'))
+      isDefaultHomeLayout(moveHomeSection(sections, 'radio_shows', 'up') ?? [])
     ).toBe(false)
     expect(
       isDefaultHomeLayout(

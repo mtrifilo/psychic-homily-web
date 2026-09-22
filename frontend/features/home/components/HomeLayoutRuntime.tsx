@@ -1,23 +1,23 @@
 'use client'
 
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
-import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
+  animateSlotHeight,
+  useFlipReorder,
+  useReducedMotion,
+} from '../homeLayoutMotion'
 import { useHomeLayout } from '../hooks/useHomeLayout'
 import {
-  HOME_SECTIONS,
   resolveCityLinkSlot,
   type HomeLayoutDocument,
   type HomeSectionId,
 } from '../sections'
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
 import { HomeCityLinkSlotProvider } from './HomeCityShowsLink'
-import type { HomeLayoutChange } from './HomeSectionList'
+import type { HomeVisibilityChange } from './HomeSectionList'
+
+/** A section mid-show or mid-hide, and which way it is going. */
+type SlotTransition = 'collapse' | 'expand'
 
 /**
  * The signed-in home's client shell: the toolbar, and the sections in this
@@ -26,7 +26,7 @@ import type { HomeLayoutChange } from './HomeSectionList'
  * `sections` arrives already rendered by the SERVER component above, one entry
  * per registry id. Every section is handed over whether or not it is visible,
  * because showing one has to paint immediately; only the ones this component
- * renders actually mount, so a hidden section still issues no requests.
+ * renders actually mount, so a hidden section issues no request.
  *
  * First paint carries the viewer's own order: `initialLayout` is the document
  * the server read on this request, and the profile query it defers to is
@@ -42,52 +42,62 @@ export function HomeLayoutRuntime({
   const layout = useHomeLayout(initialLayout)
   const [isPopoverOpen, setPopoverOpen] = useState(false)
 
-  // Staged by the gesture that caused them, never derived from the layout:
-  // a change arriving from another device should apply instantly, not play an
-  // animation nobody asked for.
-  const [collapsingId, setCollapsingId] = useState<HomeSectionId | null>(null)
-  const [enteringId, setEnteringId] = useState<HomeSectionId | null>(null)
+  // Staged by the gesture that caused them, never derived from the layout: a
+  // change arriving from another device should apply instantly, not play an
+  // animation nobody asked for. A MAP, not one id, so toggling a second
+  // section does not yank the first out mid-animation.
+  const [transitions, setTransitions] = useState<
+    ReadonlyMap<HomeSectionId, SlotTransition>
+  >(() => new Map())
+
+  const settleTransition = useCallback((id: HomeSectionId) => {
+    setTransitions(current => {
+      if (!current.has(id)) return current
+      const next = new Map(current)
+      next.delete(id)
+      return next
+    })
+  }, [])
 
   // A section on its way out stays mounted until its height reaches zero.
   const rendered = layout.filter(
-    section => section.visible || section.id === collapsingId
+    section => section.visible || transitions.get(section.id) === 'collapse'
   )
   const { register, capture } = useFlipReorder(
-    rendered.map(section => section.id).join('|')
+    rendered.map(section => section.id)
   )
 
   const handleBeforeChange = useCallback(
-    (change: HomeLayoutChange) => {
-      if (change.kind !== 'visibility') {
-        // A reorder slides the sections between their old and new positions.
-        // A show or hide does not: the slot's own height transition is what
-        // moves everything below it, and adding a slide on top would move
-        // those sections twice.
+    (change: HomeVisibilityChange) => {
+      if (!change) {
+        // A reorder or a reset slides the sections between their old and new
+        // positions. A show or hide does not: the slot's own height transition
+        // is what moves everything below it.
         capture()
-        setCollapsingId(null)
-        setEnteringId(null)
         return
       }
-      setCollapsingId(change.visible ? null : change.id)
-      setEnteringId(change.visible ? change.id : null)
+      setTransitions(current => {
+        const next = new Map(current)
+        next.set(change.id, change.visible ? 'expand' : 'collapse')
+        return next
+      })
     },
     [capture]
   )
 
-  const handleCollapsed = useCallback(() => setCollapsingId(null), [])
-  const handleEntered = useCallback(() => setEnteringId(null), [])
-
-  const allHidden = layout.every(section => !section.visible)
+  // Read from `rendered`, not `layout`: a section still collapsing is on
+  // screen, and calling the page empty while it animates would unmount it
+  // before it finished and strand it in the transition map forever.
+  const allHidden = rendered.length === 0
   const cityLinkSlot = resolveCityLinkSlot(layout)
 
   return (
     <HomeCityLinkSlotProvider value={cityLinkSlot}>
       <div className="flex w-full flex-col">
         <CustomizeHomeToolbar
-          sectionCount={HOME_SECTIONS.length}
           open={isPopoverOpen}
           onOpenChange={setPopoverOpen}
-          fallback={initialLayout}
+          initialLayout={initialLayout}
           onBeforeChange={handleBeforeChange}
           withCityLink={cityLinkSlot === 'toolbar'}
         />
@@ -108,11 +118,10 @@ export function HomeLayoutRuntime({
             {rendered.map(section => (
               <HomeSectionSlot
                 key={section.id}
+                id={section.id}
                 registerRef={register(section.id)}
-                collapsing={section.id === collapsingId}
-                entering={section.id === enteringId}
-                onCollapsed={handleCollapsed}
-                onEntered={handleEntered}
+                transition={transitions.get(section.id)}
+                onSettled={settleTransition}
               >
                 {sections[section.id]}
               </HomeSectionSlot>
@@ -133,62 +142,54 @@ export function HomeLayoutRuntime({
  * and overriding those from outside would be a different bug on each one.
  */
 function HomeSectionSlot({
+  id,
   registerRef,
-  collapsing,
-  entering,
-  onCollapsed,
-  onEntered,
+  transition,
+  onSettled,
   children,
 }: {
+  id: HomeSectionId
   registerRef: (node: HTMLElement | null) => void
-  collapsing: boolean
-  entering: boolean
-  onCollapsed: () => void
-  onEntered: () => void
+  transition: SlotTransition | undefined
+  onSettled: (id: HomeSectionId) => void
   children: ReactNode
 }) {
   const node = useRef<HTMLDivElement | null>(null)
+  const reducedMotion = useReducedMotion()
 
-  const setNode = useCallback(
-    (element: HTMLDivElement | null) => {
-      node.current = element
-      registerRef(element)
-    },
-    [registerRef]
-  )
+  const setNode = (element: HTMLDivElement | null) => {
+    node.current = element
+    registerRef(element)
+  }
 
   useLayoutEffect(() => {
-    if (!collapsing || !node.current) return
-    const animation = animateSlotHeight(node.current, 'collapse', onCollapsed)
+    if (!transition || !node.current) return
+    const animation = animateSlotHeight(
+      node.current,
+      transition,
+      reducedMotion,
+      () => onSettled(id)
+    )
     if (!animation) {
-      onCollapsed()
+      onSettled(id)
       return
     }
     // A collapse holds the slot at zero height after it finishes. If the write
     // failed and the section is staying after all, this slot is still mounted
-    // and would be pinned invisible; cancelling releases it.
+    // and would be pinned invisible; cancelling releases it, and the cancel
+    // handler settles the transition either way.
     return () => animation.cancel()
-  }, [collapsing, onCollapsed])
-
-  useLayoutEffect(() => {
-    if (!entering || !node.current) return
-    const animation = animateSlotHeight(node.current, 'expand', onEntered)
-    if (!animation) {
-      onEntered()
-      return
-    }
-    return () => animation.cancel()
-  }, [entering, onEntered])
+  }, [id, onSettled, reducedMotion, transition])
 
   return (
     <div
       ref={setNode}
       // Clipped only while a height is being animated: a section's own content
       // (popovers, the graph's hover chrome) may legitimately overflow at rest.
-      style={collapsing || entering ? { overflow: 'hidden' } : undefined}
+      style={transition ? { overflow: 'hidden' } : undefined}
       // A collapsing section is leaving; keep it out of the a11y tree and out
       // of the tab order for the frames it is still painted.
-      aria-hidden={collapsing || undefined}
+      aria-hidden={transition === 'collapse' || undefined}
       className="w-full"
     >
       {children}

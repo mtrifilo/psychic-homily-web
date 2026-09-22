@@ -29,27 +29,27 @@ interface ProfileWithHomeLayout {
   user?: { preferences?: ProfilePreferences | null } | null
 }
 
-/** Shared key so a write can tell whether another write is still in flight
- *  before it lets the profile refetch. */
+/** Shared key so a write can tell whether another write is still in flight. */
 const HOME_LAYOUT_MUTATION_KEY = ['auth', 'home-layout'] as const
 
 interface HomeLayoutResponse {
   success: boolean
   message: string
+  /** Absent means the shipped default, which is what DELETE restores. */
   home_layout?: HomeLayoutDocument | null
 }
 
 /**
  * This viewer's home layout, merged with the registry.
  *
- * `fallback` is the document the SERVER read for this request. It is what the
- * first paint renders from, so a viewer with a custom order never sees the
+ * `initialLayout` is the document the SERVER read for this request. It is what
+ * the first paint renders from, so a viewer with a custom order never sees the
  * shipped order reflow into theirs after hydration. Once the profile query
  * holds a payload (it is hydrated from the same request) that payload wins,
  * which is also how an optimistic write reaches the page.
  */
 export function useHomeLayout(
-  fallback?: HomeLayoutDocument | null
+  initialLayout?: HomeLayoutDocument | null
 ): ResolvedHomeSection[] {
   const { data } = useProfile()
   const profile = data as ProfileWithHomeLayout | undefined
@@ -60,35 +60,40 @@ export function useHomeLayout(
     ? (profile.user.preferences?.home_layout ?? null)
     : undefined
   return useMemo(
-    () => resolveHomeLayout(stored === undefined ? fallback : stored),
-    [stored, fallback]
+    () => resolveHomeLayout(stored === undefined ? initialLayout : stored),
+    [stored, initialLayout]
   )
 }
 
 /**
- * Persist a layout, optimistically.
+ * Write the whole document, optimistically. `null` resets to the shipped
+ * layout, which is a DELETE rather than a PUT of the default: the stored
+ * absence is what lets a future default change reach viewers who never
+ * customized.
  *
  * The page reads its order from the profile cache, so writing the new document
- * there IS the immediate apply the owner asked for; the PUT only confirms it.
- * A failure restores the exact snapshot taken before the write, so the rows
+ * there IS the immediate apply the owner asked for; the request only confirms
+ * it. A failure restores the exact snapshot taken before the write, so the rows
  * snap back to what the server still holds.
  */
-export function useUpdateHomeLayout() {
+export function useWriteHomeLayout() {
   const queryClient = useQueryClient()
 
   return useMutation<
     HomeLayoutResponse,
     Error,
-    HomeLayoutDocument,
+    HomeLayoutDocument | null,
     { previous: unknown }
   >({
     mutationKey: HOME_LAYOUT_MUTATION_KEY,
-    mutationFn: (document: HomeLayoutDocument) =>
-      apiRequest<HomeLayoutResponse>(API_ENDPOINTS.AUTH.HOME_LAYOUT, {
-        method: 'PUT',
-        body: JSON.stringify(document),
-      }),
-    onMutate: async (document: HomeLayoutDocument) => {
+    mutationFn: (document: HomeLayoutDocument | null) =>
+      apiRequest<HomeLayoutResponse>(
+        API_ENDPOINTS.AUTH.HOME_LAYOUT,
+        document
+          ? { method: 'PUT', body: JSON.stringify(document) }
+          : { method: 'DELETE' }
+      ),
+    onMutate: async (document: HomeLayoutDocument | null) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.auth.profile })
       const previous = queryClient.getQueryData(queryKeys.auth.profile)
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
@@ -96,58 +101,38 @@ export function useUpdateHomeLayout() {
       )
       return { previous }
     },
-    onError: (_error, _document, context) => {
-      if (context) {
-        queryClient.setQueryData(queryKeys.auth.profile, context.previous)
+    onSuccess: (response: HomeLayoutResponse) => {
+      // Both endpoints echo the document they stored, so the cache reconciles
+      // from the response instead of refetching the whole profile after every
+      // click. An echo can only be trusted when it is the last word: a slower
+      // response from an earlier click would otherwise overwrite a later one.
+      if (
+        queryClient.isMutating({ mutationKey: HOME_LAYOUT_MUTATION_KEY }) > 1
+      ) {
+        return
       }
-    },
-    onSettled: () => {
-      settleProfile(queryClient)
-    },
-  })
-}
-
-/** Clear the stored document so the shipped order and visibility come back. */
-export function useResetHomeLayout() {
-  const queryClient = useQueryClient()
-
-  return useMutation<HomeLayoutResponse, Error, void, { previous: unknown }>({
-    mutationKey: HOME_LAYOUT_MUTATION_KEY,
-    mutationFn: () =>
-      apiRequest<HomeLayoutResponse>(API_ENDPOINTS.AUTH.HOME_LAYOUT, {
-        method: 'DELETE',
-      }),
-    onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.auth.profile })
-      const previous = queryClient.getQueryData(queryKeys.auth.profile)
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        withHomeLayout(old, null)
+        withHomeLayout(old, response.home_layout ?? null)
       )
-      return { previous }
     },
-    onError: (_error, _variables, context) => {
+    onError: (
+      _error: Error,
+      _document: HomeLayoutDocument | null,
+      context: { previous: unknown } | undefined
+    ) => {
       if (context) {
         queryClient.setQueryData(queryKeys.auth.profile, context.previous)
       }
     },
     onSettled: () => {
-      settleProfile(queryClient)
+      // Marked stale, not refetched: the entry is already reconciled, and the
+      // next natural read (a remount, a focus) re-validates it for free.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.auth.profile,
+        refetchType: 'none',
+      })
     },
   })
-}
-
-/**
- * Refetch the profile only once the last write has landed.
- *
- * Every ▲ click fires its own PUT, and an invalidation from the first one
- * resolving mid-run would repaint the page with a document two clicks stale.
- * The settling write counts itself, so "1" means "no other write pending".
- */
-function settleProfile(queryClient: ReturnType<typeof useQueryClient>): void {
-  if (queryClient.isMutating({ mutationKey: HOME_LAYOUT_MUTATION_KEY }) > 1) {
-    return
-  }
-  queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
 }
 
 /** Write `home_layout` into a cached profile payload without disturbing the
@@ -173,22 +158,17 @@ function withHomeLayout(
  * list the viewer just produced and persists it.
  */
 export function usePersistHomeLayout() {
-  const update = useUpdateHomeLayout()
-  const reset = useResetHomeLayout()
-
-  const persist = useCallback(
-    (document: HomeLayoutDocument) => {
-      update.mutate(document)
-    },
-    [update]
-  )
+  const { mutate, isPending, isError, variables } = useWriteHomeLayout()
+  const reset = useCallback(() => mutate(null), [mutate])
 
   return {
-    persist,
-    reset: reset.mutate,
-    isResetting: reset.isPending,
-    /** One inline line covers both writes: the viewer made one gesture and
+    persist: mutate,
+    reset,
+    /** `variables === null` is the reset call; a reorder in flight must not
+     *  disable the reset control. */
+    isResetting: isPending && variables === null,
+    /** One inline line covers every write: the viewer made one gesture and
      *  wants to know whether it stuck. */
-    hasError: update.isError || reset.isError,
+    hasError: isError,
   }
 }

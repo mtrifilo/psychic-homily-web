@@ -14,7 +14,7 @@ import { HomeSectionList } from '@/features/home/components/HomeSectionList'
 import { HOME_LAYOUT_SETTINGS_ANCHOR } from '@/features/home/sections'
 
 /**
- * The Settings mirror of the home page's customize popover (PSY-2104).
+ * The Settings mirror of the home page's customize popover.
  *
  * The SAME list component, reading and writing the same profile cache entry,
  * so the two surfaces cannot report different layouts. There is no server

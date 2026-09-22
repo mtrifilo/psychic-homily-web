@@ -1,24 +1,16 @@
 'use client'
 
 import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 
 /** One step of reorder, matched between the popover list and the page behind
  *  it so the two read as the same gesture. */
 export const HOME_REORDER_DURATION_MS = 180
 
-/**
- * Whether motion is allowed at all.
- *
- * Read at the moment of the gesture rather than subscribed to: this decides a
- * single animation that is about to start, and a viewer who changes the OS
- * setting mid-click is not a case worth a listener.
- */
-export function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
+/** Whether the viewer has asked for less motion. Shared primitive rather than
+ *  a fourth hand-rolled `matchMedia` read. */
+export function useReducedMotion(): boolean {
+  return useMediaQuery('(prefers-reduced-motion: reduce)')
 }
 
 /** Web Animations is absent in jsdom and in older Safari. Motion is a garnish
@@ -30,7 +22,7 @@ function canAnimate(node: Element): boolean {
 /**
  * FLIP for a keyed list whose reorders originate in an event handler.
  *
- * `orderKey` is a signature of the current order. It is what makes the capture
+ * `order` is the ids in their current order. It is what makes a capture
  * survive the renders BETWEEN the click and the reorder: the write is
  * optimistic but not synchronous, and the click itself re-renders (the live
  * region's text changes), so an effect that consumed the capture on the next
@@ -42,11 +34,12 @@ function canAnimate(node: Element): boolean {
  * every render would animate a reorder that never happened every time a show
  * list settled.
  */
-export function useFlipReorder(orderKey: string) {
+export function useFlipReorder(order: readonly string[]) {
+  const reducedMotion = useReducedMotion()
   const nodes = useRef(new Map<string, HTMLElement>())
   const pending = useRef<{
     tops: Map<string, number>
-    orderKey: string
+    order: readonly string[]
   } | null>(null)
 
   // A fresh closure per render is deliberate: React detaches the previous ref
@@ -61,7 +54,7 @@ export function useFlipReorder(orderKey: string) {
   )
 
   const capture = useCallback(() => {
-    if (prefersReducedMotion()) {
+    if (reducedMotion) {
       pending.current = null
       return
     }
@@ -69,14 +62,14 @@ export function useFlipReorder(orderKey: string) {
     for (const [key, node] of nodes.current) {
       tops.set(key, node.getBoundingClientRect().top)
     }
-    pending.current = { tops, orderKey }
-  }, [orderKey])
+    pending.current = { tops, order }
+  }, [order, reducedMotion])
 
   useLayoutEffect(() => {
     const captured = pending.current
     // Nothing captured, or the order has not moved yet: keep waiting. A capture
     // that is never followed by a move is dropped by the next capture.
-    if (!captured || captured.orderKey === orderKey) return
+    if (!captured || sameOrder(captured.order, order)) return
     pending.current = null
     for (const [key, node] of nodes.current) {
       const previousTop = captured.tops.get(key)
@@ -93,6 +86,10 @@ export function useFlipReorder(orderKey: string) {
   return { register, capture }
 }
 
+function sameOrder(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index])
+}
+
 /**
  * Animate a section slot's height between zero and its natural height.
  *
@@ -105,9 +102,10 @@ export function useFlipReorder(orderKey: string) {
 export function animateSlotHeight(
   node: HTMLElement,
   direction: 'collapse' | 'expand',
+  reducedMotion: boolean,
   onFinish: () => void
 ): Animation | null {
-  if (prefersReducedMotion() || !canAnimate(node)) return null
+  if (reducedMotion || !canAnimate(node)) return null
   const naturalHeight = node.getBoundingClientRect().height
   if (naturalHeight < 1) return null
 
@@ -129,6 +127,10 @@ export function animateSlotHeight(
     // must release so the section can grow with its own content afterwards.
     fill: direction === 'collapse' ? 'forwards' : 'none',
   })
+  // Cancel settles too: a slot that unmounts mid-animation must still clear
+  // itself from the in-flight set, or it stays there and keeps a hidden
+  // section mounted for the life of the page.
   animation.onfinish = onFinish
+  animation.oncancel = onFinish
   return animation
 }

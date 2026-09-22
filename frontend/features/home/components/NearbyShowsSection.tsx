@@ -7,7 +7,7 @@ import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCity
 import { NEXT_7_DAYS } from '@/features/shows/quickWindows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { cityLabel } from '@/components/filters/cityParams'
-import { HomeCityShowsLink } from './HomeCityShowsLink'
+import { HomeCityShowsLink, useHomeCityLinkSlot } from './HomeCityShowsLink'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 
 /** Rows the section paints, the count on the approved board. */
@@ -41,6 +41,11 @@ const NEARBY_ROWS = 4
 export function NearbyShowsSection({ id }: { id: string }) {
   const { authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
+  // Every surface that can carry the city link reads the same predicate, so
+  // "exactly one renders it" is enforced rather than coordinated. This section
+  // owns it whenever it is visible, but it stays mounted while it collapses,
+  // and by then ownership has already moved on.
+  const ownsCityLink = useHomeCityLinkSlot() === 'nearby'
   const selection = useHomeShowCitySelection({ resolveCityForCopy: true })
   const { effectiveCities, source, isResolving } = selection
   // Geo is still deciding and nothing else claimed the city. The LIST does not
@@ -82,11 +87,7 @@ export function NearbyShowsSection({ id }: { id: string }) {
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">{subline}</p>
         </div>
-        {/* This section OWNS the city link whenever it renders. When the
-            viewer hides it, the link relocates to the saved-shows footer and
-            then to the toolbar row rather than disappearing with the section
-            (PSY-2104); see resolveCityLinkSlot. */}
-        <HomeCityShowsLink cities={effectiveCities} />
+        {ownsCityLink && <HomeCityShowsLink cities={effectiveCities} />}
       </div>
 
       <HomeShowListView

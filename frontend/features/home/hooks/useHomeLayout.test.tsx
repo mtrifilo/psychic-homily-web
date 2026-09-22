@@ -3,11 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapperWithClient } from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
-import {
-  useHomeLayout,
-  useResetHomeLayout,
-  useUpdateHomeLayout,
-} from './useHomeLayout'
+import { useHomeLayout, useWriteHomeLayout } from './useHomeLayout'
 import {
   moveHomeSection,
   resolveHomeLayout,
@@ -27,7 +23,7 @@ vi.mock('@/features/auth/hooks/useAuth', () => ({
 }))
 
 const CUSTOM: HomeLayoutDocument = toHomeLayoutDocument(
-  moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')
+  moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
 )
 
 /**
@@ -56,7 +52,16 @@ function profilePayload(home_layout: HomeLayoutDocument | null | undefined) {
 
 beforeEach(() => {
   apiRequest.mockReset()
-  apiRequest.mockResolvedValue({ success: true, message: 'ok' })
+  // Both endpoints echo the document they stored; the hook reconciles from it.
+  apiRequest.mockImplementation(
+    async (_endpoint: string, options: { method: string; body?: string }) => ({
+      success: true,
+      message: 'ok',
+      ...(options.method === 'PUT'
+        ? { home_layout: JSON.parse(options.body ?? 'null') }
+        : {}),
+    })
+  )
   profile = undefined
 })
 
@@ -100,12 +105,12 @@ describe('useHomeLayout', () => {
   })
 })
 
-describe('useUpdateHomeLayout', () => {
+describe('useWriteHomeLayout', () => {
   it('PUTs the whole document and writes it into the profile cache first', async () => {
     const queryClient = createClient()
     queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
 
-    const { result } = renderHook(() => useUpdateHomeLayout(), {
+    const { result } = renderHook(() => useWriteHomeLayout(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -130,7 +135,7 @@ describe('useUpdateHomeLayout', () => {
     const queryClient = createClient()
     queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
 
-    const { result } = renderHook(() => useUpdateHomeLayout(), {
+    const { result } = renderHook(() => useWriteHomeLayout(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -147,7 +152,7 @@ describe('useUpdateHomeLayout', () => {
     const queryClient = createClient()
     queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
 
-    const { result } = renderHook(() => useUpdateHomeLayout(), {
+    const { result } = renderHook(() => useWriteHomeLayout(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -171,7 +176,7 @@ describe('useUpdateHomeLayout', () => {
     const anonymous = { success: false }
     queryClient.setQueryData(queryKeys.auth.profile, anonymous)
 
-    const { result } = renderHook(() => useUpdateHomeLayout(), {
+    const { result } = renderHook(() => useWriteHomeLayout(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
@@ -182,16 +187,16 @@ describe('useUpdateHomeLayout', () => {
   })
 })
 
-describe('useResetHomeLayout', () => {
-  it('DELETEs and clears the stored document optimistically', async () => {
+describe('useWriteHomeLayout, reset', () => {
+  it('DELETEs on a null document and clears the stored one optimistically', async () => {
     const queryClient = createClient()
     queryClient.setQueryData(queryKeys.auth.profile, profilePayload(CUSTOM))
 
-    const { result } = renderHook(() => useResetHomeLayout(), {
+    const { result } = renderHook(() => useWriteHomeLayout(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
-    result.current.mutate()
+    result.current.mutate(null)
 
     await waitFor(() => {
       const cached = queryClient.getQueryData(
@@ -205,21 +210,61 @@ describe('useResetHomeLayout', () => {
     expect(options).toMatchObject({ method: 'DELETE' })
   })
 
-  it('restores the previous document when the delete fails', async () => {
+  it('restores the previous document when the reset fails', async () => {
     apiRequest.mockRejectedValue(new Error('nope'))
     const queryClient = createClient()
     queryClient.setQueryData(queryKeys.auth.profile, profilePayload(CUSTOM))
 
-    const { result } = renderHook(() => useResetHomeLayout(), {
+    const { result } = renderHook(() => useWriteHomeLayout(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
-    result.current.mutate()
+    result.current.mutate(null)
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     const cached = queryClient.getQueryData(
       queryKeys.auth.profile
     ) as ReturnType<typeof profilePayload>
     expect(cached.user.preferences.home_layout).toEqual(CUSTOM)
+  })
+})
+
+describe('the server echo', () => {
+  it('reconciles the cache from the response rather than refetching the profile', async () => {
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+    const refetch = vi.spyOn(queryClient, 'refetchQueries')
+
+    const { result } = renderHook(() => useWriteHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    result.current.mutate(CUSTOM)
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.preferences.home_layout).toEqual(CUSTOM)
+    // One PUT, and no second trip for the profile it already answered with.
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+    expect(refetch).not.toHaveBeenCalled()
+  })
+
+  it('takes an absent home_layout in the echo as the shipped default', async () => {
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(CUSTOM))
+
+    const { result } = renderHook(() => useWriteHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    result.current.mutate(null)
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.preferences.home_layout).toBeNull()
   })
 })

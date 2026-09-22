@@ -8,10 +8,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { HomeSectionList, type HomeLayoutChange } from './HomeSectionList'
-import { ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
+import { HomeSectionList, type HomeVisibilityChange } from './HomeSectionList'
+import { PRIMARY_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
 import {
   HOME_LAYOUT_SETTINGS_HREF,
+  HOME_SECTIONS,
   type HomeLayoutDocument,
 } from '../sections'
 
@@ -21,24 +22,22 @@ import {
  * It is a row of its own rather than a gear on a section header: the popover
  * anchors here, and this row never moves, so nothing under the cursor jumps
  * when the page reorders behind it. Anonymous viewers never reach this
- * component — the server picks the signed-in variant before paint.
+ * component: the server picks the signed-in variant before paint.
  *
  * The popover is used at every width. At 390px it is capped to the viewport
  * with a gutter, which fits the five rows without the modal weight of a sheet.
  */
 export function CustomizeHomeToolbar({
-  sectionCount,
   open,
   onOpenChange,
-  fallback,
+  initialLayout,
   onBeforeChange,
   withCityLink,
 }: {
-  sectionCount: number
   open: boolean
   onOpenChange: (open: boolean) => void
-  fallback?: HomeLayoutDocument | null
-  onBeforeChange?: (change: HomeLayoutChange) => void
+  initialLayout?: HomeLayoutDocument | null
+  onBeforeChange?: (change: HomeVisibilityChange) => void
   /** Last stop for the "All upcoming shows in {city} →" link, taken when both
    *  the nearby section and the saved-shows module are hidden. */
   withCityLink: boolean
@@ -47,7 +46,7 @@ export function CustomizeHomeToolbar({
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-2">
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
         <p className="font-mono text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
-          Home · {sectionCount} sections · Your layout
+          Home · {HOME_SECTIONS.length} sections · Your layout
         </p>
         {withCityLink && <ResolvedHomeCityShowsLink />}
       </div>
@@ -77,14 +76,11 @@ export function CustomizeHomeToolbar({
             </p>
           </div>
           <HomeSectionList
-            fallback={fallback}
+            initialLayout={initialLayout}
             onBeforeChange={onBeforeChange}
             className="border-t border-border"
             footerAction={
-              <Link
-                href={HOME_LAYOUT_SETTINGS_HREF}
-                className="text-sm font-medium text-primary transition-colors hover:underline underline-offset-4"
-              >
+              <Link href={HOME_LAYOUT_SETTINGS_HREF} className={PRIMARY_LINK_CLASS}>
                 All settings →
               </Link>
             }

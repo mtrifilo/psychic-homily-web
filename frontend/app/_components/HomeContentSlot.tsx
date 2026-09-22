@@ -27,8 +27,8 @@ import {
  * The profile read shares `AppShell`'s `React.cache()`, so the variant costs
  * no extra backend fetch. A signed-in viewer's saved rows are prefetched here
  * too, so the module's first paint is its rows rather than a skeleton, and the
- * same cached read supplies their section layout (PSY-2104) so a custom order
- * is in the first server HTML rather than reflowing after hydration.
+ * same cached read supplies their section layout, so a custom order is in the
+ * first server HTML rather than reflowing after hydration.
  *
  * Three answers, three renders: a named viewer gets their page; an answered
  * "nobody" gets the anonymous page; a read the backend could not answer gets

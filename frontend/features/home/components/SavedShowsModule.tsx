@@ -70,8 +70,8 @@ export function SavedShowsModule({
   const isAuthenticated = authStatus === 'authenticated'
   const router = useRouter()
   // Takes the city link only when the nearby section that normally carries it
-  // is hidden (PSY-2104). The footer is where it goes, next to the other two
-  // lines that point off this module.
+  // is hidden. The footer is where it goes, next to the other two lines that
+  // point off this module.
   const ownsCityLink = useHomeCityLinkSlot() === 'saved'
 
   // The server picked this variant from the viewer's cookie. Signing out

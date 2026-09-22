@@ -37,9 +37,12 @@ import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/savedShowsConstants'
-// Type-only: `features/home/sections` is isomorphic, but nothing runtime from
-// the home feature belongs in this server helper.
-import type { HomeLayoutDocument } from '@/features/home/sections'
+// `features/home/sections` is isomorphic (no 'use client'), so this server
+// helper reads real values from it rather than client references.
+import {
+  isHomeLayoutDocument,
+  type HomeLayoutDocument,
+} from '@/features/home/sections'
 import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
@@ -275,7 +278,9 @@ export const prefetchHomeSavedShows = cache(async () => {
  * `<AuthHydrator>` prefetch, so it adds no backend round-trip.
  *
  * Returned as an opaque document, not a resolved list: the merge with the
- * registry belongs in one place, and that place is shared with the client.
+ * registry belongs in one place, and that place is shared with the client. So
+ * is the test for what counts as a document, or a version this reader cannot
+ * apply would pass here and be discarded a layer later.
  */
 export async function getAuthenticatedHomeLayout(): Promise<HomeLayoutDocument | null> {
   const resolution = await fetchAuthProfile()
@@ -289,9 +294,7 @@ export async function getAuthenticatedHomeLayout(): Promise<HomeLayoutDocument |
     | { preferences?: { home_layout?: unknown } | null }
     | undefined
   const layout = user?.preferences?.home_layout
-  if (!layout || typeof layout !== 'object') return null
-  const candidate = layout as HomeLayoutDocument
-  return typeof candidate.version === 'number' ? candidate : null
+  return isHomeLayoutDocument(layout) ? layout : null
 }
 
 /**

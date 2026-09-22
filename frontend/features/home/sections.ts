@@ -8,13 +8,17 @@
  * therefore stays out of this file; only ids, copy, the default order and pure
  * functions live here.
  *
- * The id set mirrors the backend whitelist
- * (backend/internal/services/user/home_layout.go). A section added here and not
- * there produces a document the PUT rejects.
+ * The id set and the document shape are DERIVED from the generated API
+ * contract, not restated: the backend owns the whitelist, and a hand-written
+ * union would let a sixth id ship on the backend and be silently dropped here
+ * (see resolveHomeLayout) instead of failing the build. The order, the copy and
+ * the default visibility are this module's own; they are not in the contract.
  */
 
+import type { components } from '@/types/api'
+
 /** The only document version this reader understands. */
-export const HOME_LAYOUT_VERSION = 1
+const HOME_LAYOUT_VERSION = 1
 
 /** The Settings card that mirrors the home popover, and the route to it.
  *  Declared here rather than beside the card so the popover can link to it
@@ -23,11 +27,7 @@ export const HOME_LAYOUT_SETTINGS_ANCHOR = 'home-layout'
 export const HOME_LAYOUT_SETTINGS_HREF = `/profile?tab=settings#${HOME_LAYOUT_SETTINGS_ANCHOR}`
 
 export type HomeSectionId =
-  | 'saved_shows'
-  | 'nearby_shows'
-  | 'community_stats'
-  | 'city_graph'
-  | 'radio_shows'
+  components['schemas']['HomeLayoutSection']['id']
 
 export interface HomeSectionDefinition {
   id: HomeSectionId
@@ -83,20 +83,34 @@ const SECTIONS_BY_ID = new Map<HomeSectionId, HomeSectionDefinition>(
   HOME_SECTIONS.map(section => [section.id, section])
 )
 
-export interface HomeLayoutSectionEntry {
-  id: HomeSectionId
-  visible: boolean
-}
+export type HomeLayoutSectionEntry = components['schemas']['HomeLayoutSection']
 
-/** The stored document, exactly as `user_preferences.home_layout` holds it. */
-export interface HomeLayoutDocument {
-  version: number
-  sections: HomeLayoutSectionEntry[] | null
-}
+/** The stored document, exactly as `user_preferences.home_layout` holds it.
+ *  `$schema` is a response-only field the client never sends. */
+export type HomeLayoutDocument = Omit<
+  components['schemas']['HomeLayout'],
+  '$schema'
+>
 
 /** A registry entry with this viewer's visibility applied, in render order. */
 export interface ResolvedHomeSection extends HomeSectionDefinition {
   visible: boolean
+}
+
+/**
+ * Whether an unknown value is a document this reader understands. The version
+ * check lives here rather than at each boundary so a v2 document is refused in
+ * one place instead of half-accepted at the edge and discarded later.
+ */
+export function isHomeLayoutDocument(
+  value: unknown
+): value is HomeLayoutDocument {
+  if (!value || typeof value !== 'object') return false
+  const document = value as HomeLayoutDocument
+  return (
+    document.version === HOME_LAYOUT_VERSION &&
+    (document.sections === null || Array.isArray(document.sections))
+  )
 }
 
 function defaultSections(): ResolvedHomeSection[] {
@@ -104,10 +118,6 @@ function defaultSections(): ResolvedHomeSection[] {
     ...section,
     visible: section.defaultVisible,
   }))
-}
-
-function isKnownId(id: unknown): id is HomeSectionId {
-  return typeof id === 'string' && SECTIONS_BY_ID.has(id as HomeSectionId)
 }
 
 /**
@@ -128,23 +138,18 @@ function isKnownId(id: unknown): id is HomeSectionId {
 export function resolveHomeLayout(
   document: HomeLayoutDocument | null | undefined
 ): ResolvedHomeSection[] {
-  const stored = document?.sections
-  if (
-    !document ||
-    document.version !== HOME_LAYOUT_VERSION ||
-    !Array.isArray(stored) ||
-    stored.length === 0
-  ) {
-    return defaultSections()
-  }
+  if (!isHomeLayoutDocument(document)) return defaultSections()
+  const stored = document.sections
+  if (!stored || stored.length === 0) return defaultSections()
 
   const seen = new Set<HomeSectionId>()
   const resolved: ResolvedHomeSection[] = []
   for (const entry of stored) {
-    if (!entry || !isKnownId(entry.id) || seen.has(entry.id)) continue
-    seen.add(entry.id)
+    if (!entry || seen.has(entry.id)) continue
     const definition = SECTIONS_BY_ID.get(entry.id)
+    // An id the registry no longer knows is dropped here, by the lookup.
     if (!definition) continue
+    seen.add(entry.id)
     resolved.push({ ...definition, visible: entry.visible !== false })
   }
 
@@ -175,19 +180,19 @@ export function toHomeLayoutDocument(
 }
 
 /**
- * Swap one section with its neighbour. Out-of-range moves return the SAME
- * array reference, which is how callers tell "nothing happened" from a move
- * worth animating, announcing and persisting.
+ * Swap one section with its neighbour, or `null` when the row is already at
+ * that end. Callers distinguish the two: only a real move is worth animating,
+ * announcing and persisting.
  */
 export function moveHomeSection(
   sections: readonly ResolvedHomeSection[],
   id: HomeSectionId,
   direction: 'up' | 'down'
-): ResolvedHomeSection[] {
+): ResolvedHomeSection[] | null {
   const from = sections.findIndex(section => section.id === id)
-  if (from === -1) return sections as ResolvedHomeSection[]
+  if (from === -1) return null
   const to = direction === 'up' ? from - 1 : from + 1
-  if (to < 0 || to >= sections.length) return sections as ResolvedHomeSection[]
+  if (to < 0 || to >= sections.length) return null
   const next = [...sections]
   ;[next[from], next[to]] = [next[to], next[from]]
   return next

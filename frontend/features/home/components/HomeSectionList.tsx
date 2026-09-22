@@ -8,7 +8,11 @@ import {
   type ReactNode,
 } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+// Concrete module path, not the `@/components/shared` barrel: this component
+// is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import { cn } from '@/lib/utils'
 import { useFlipReorder } from '../homeLayoutMotion'
 import { useHomeLayout, usePersistHomeLayout } from '../hooks/useHomeLayout'
@@ -23,14 +27,16 @@ import {
 } from '../sections'
 
 /**
- * What is about to change, handed to the page behind the list BEFORE the
- * layout state moves, so it can capture positions and stage its own
- * transitions against the same gesture.
+ * The visibility change about to commit, or `null` for a reorder or a reset.
+ *
+ * Handed to the page behind the list BEFORE the layout state moves, because
+ * the two answer it differently: a reorder slides the sections, a show or hide
+ * transitions one section's height.
  */
-export type HomeLayoutChange =
-  | { kind: 'move'; id: HomeSectionId }
-  | { kind: 'visibility'; id: HomeSectionId; visible: boolean }
-  | { kind: 'reset' }
+export type HomeVisibilityChange = {
+  id: HomeSectionId
+  visible: boolean
+} | null
 
 type MoveDirection = 'up' | 'down'
 
@@ -48,29 +54,29 @@ function focusKey(id: HomeSectionId, direction: MoveDirection): string {
  * already an edit in the other; nothing syncs them explicitly.
  */
 export function HomeSectionList({
-  fallback,
+  initialLayout,
   onBeforeChange,
   footerAction,
   className,
 }: {
   /** The document the server read for this request, so the first paint renders
    *  the viewer's own order. Omitted on surfaces with no server read. */
-  fallback?: HomeLayoutDocument | null
-  onBeforeChange?: (change: HomeLayoutChange) => void
+  initialLayout?: HomeLayoutDocument | null
+  onBeforeChange?: (change: HomeVisibilityChange) => void
   /** Trailing footer affordance, opposite "Reset to default". The popover puts
    *  its "All settings →" link here; the settings card is already there. */
   footerAction?: ReactNode
   className?: string
 }) {
-  const sections = useHomeLayout(fallback)
+  const sections = useHomeLayout(initialLayout)
   const { persist, reset, isResetting, hasError } = usePersistHomeLayout()
   const { register, capture } = useFlipReorder(
-    sections.map(section => section.id).join('|')
+    sections.map(section => section.id)
   )
 
   // Mounted unconditionally and updated in place: assistive tech announces
   // changes WITHIN a region already on the page, so a region inserted together
-  // with its text is announced unreliably. ONE region for the whole list —
+  // with its text is announced unreliably. ONE region for the whole list;
   // per-row regions would each claim the same move.
   const [announcement, setAnnouncement] = useState('')
 
@@ -116,50 +122,43 @@ export function HomeSectionList({
     sibling?.focus()
   })
 
-  const commit = useCallback(
-    (next: ResolvedHomeSection[], change: HomeLayoutChange) => {
-      onBeforeChange?.(change)
-      // Only a reorder moves these rows. A visibility toggle swaps a checkbox
-      // and a tag in place, so capturing for it would leave a measurement
-      // waiting for a move that never comes.
-      if (change.kind !== 'visibility') capture()
-      persist(toHomeLayoutDocument(next))
-    },
-    [capture, onBeforeChange, persist]
-  )
-
   const handleMove = useCallback(
     (section: ResolvedHomeSection, direction: MoveDirection) => {
       const next = moveHomeSection(sections, section.id, direction)
-      // Same reference means the row was already at that end. Nothing to
-      // announce, animate or persist.
-      if (next === sections) return
+      // Null means the row was already at that end. Nothing to announce,
+      // animate or persist.
+      if (!next) return
       const fromIndex = sections.findIndex(entry => entry.id === section.id)
       const position = next.findIndex(entry => entry.id === section.id) + 1
       pendingFocus.current = { id: section.id, direction, fromIndex }
       setAnnouncement(
         `${section.title} moved ${direction}, now ${position} of ${next.length}.`
       )
-      commit(next, { kind: 'move', id: section.id })
+      onBeforeChange?.(null)
+      capture()
+      persist(toHomeLayoutDocument(next))
     },
-    [commit, sections]
+    [capture, onBeforeChange, persist, sections]
   )
 
   const handleToggle = useCallback(
     (section: ResolvedHomeSection, visible: boolean) => {
       setAnnouncement(`${section.title} ${visible ? 'shown' : 'hidden'}`)
-      commit(setHomeSectionVisibility(sections, section.id, visible), {
-        kind: 'visibility',
-        id: section.id,
-        visible,
-      })
+      // No capture: the slot's own height transition is what moves the
+      // sections below it, and a slide on top of that would move them twice.
+      onBeforeChange?.({ id: section.id, visible })
+      persist(
+        toHomeLayoutDocument(
+          setHomeSectionVisibility(sections, section.id, visible)
+        )
+      )
     },
-    [commit, sections]
+    [onBeforeChange, persist, sections]
   )
 
   const handleReset = useCallback(() => {
     setAnnouncement('Home layout reset to default.')
-    onBeforeChange?.({ kind: 'reset' })
+    onBeforeChange?.(null)
     capture()
     reset()
   }, [capture, onBeforeChange, reset])
@@ -235,21 +234,22 @@ export function HomeSectionList({
       </ul>
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border px-4 py-3">
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="sm"
           onClick={handleReset}
           disabled={isDefault || isResetting}
-          className="text-sm text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground disabled:hover:no-underline"
+          className="h-auto p-0 text-sm text-muted-foreground no-underline hover:text-primary"
         >
           Reset to default
-        </button>
+        </Button>
         {footerAction}
       </div>
 
       {hasError && (
-        <p role="alert" className="px-4 pb-3 text-sm text-destructive">
-          {SAVE_FAILED_MESSAGE}
-        </p>
+        <div className="px-4 pb-3">
+          <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
+        </div>
       )}
     </div>
   )
@@ -275,15 +275,16 @@ function MoveButton({
 }) {
   const Icon = direction === 'up' ? ChevronUp : ChevronDown
   return (
-    <button
+    <Button
       ref={ref}
-      type="button"
+      variant="ghost"
+      size="sm"
       onClick={onClick}
       disabled={disabled}
       aria-label={`Move ${title} ${direction}`}
-      className="flex h-4 w-5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-muted-foreground"
+      className="h-4 w-5 p-0 text-muted-foreground hover:text-primary disabled:opacity-30"
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-    </button>
+    </Button>
   )
 }

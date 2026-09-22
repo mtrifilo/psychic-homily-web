@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { HomeLayoutRuntime } from './HomeLayoutRuntime'
 import {
   moveHomeSection,
@@ -63,7 +64,7 @@ describe('HomeLayoutRuntime', () => {
   })
 
   it('renders a custom order on the FIRST paint, with no reflow', () => {
-    layout = moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')
+    layout = moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
 
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
@@ -128,5 +129,30 @@ describe('HomeLayoutRuntime', () => {
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
     expect(screen.getByTestId('relocated-city-link')).toBeInTheDocument()
+  })
+
+  // The empty state is read off what is RENDERED, not off the layout. Reading
+  // the layout would call the page empty the instant the last section's hide
+  // commits, unmounting it before its collapse finished and stranding it in
+  // the in-flight set, where it would keep that hidden section mounted for the
+  // life of the page.
+  it('still paints the last section while it is collapsing', async () => {
+    const user = userEvent.setup()
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    await user.click(screen.getByRole('button', { name: /customize home/i }))
+    for (const section of resolveHomeLayout(null)) {
+      layout = setHomeSectionVisibility(layout, section.id, false)
+    }
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Latest radio shows' })
+    )
+
+    // jsdom has no Web Animations, so the collapse settles synchronously and
+    // the page reaches its empty state rather than hanging in the transition.
+    expect(
+      screen.getByText(/You have hidden every section\./)
+    ).toBeInTheDocument()
+    expect(renderedOrder()).toEqual([])
   })
 })

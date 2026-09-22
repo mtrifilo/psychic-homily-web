@@ -214,14 +214,13 @@ describe('HomeSectionList', () => {
     )
   })
 
-  it('tells the page what is about to change before it commits', async () => {
+  it('tells the page whether a section is about to show or hide', async () => {
     const user = userEvent.setup()
     const onBeforeChange = vi.fn()
     render(<HomeSectionList onBeforeChange={onBeforeChange} />)
 
     await user.click(screen.getByRole('checkbox', { name: 'Latest radio shows' }))
     expect(onBeforeChange).toHaveBeenLastCalledWith({
-      kind: 'visibility',
       id: 'radio_shows',
       visible: false,
     })
@@ -229,9 +228,7 @@ describe('HomeSectionList', () => {
     await user.click(
       screen.getByRole('button', { name: 'Move Latest radio shows up' })
     )
-    expect(onBeforeChange).toHaveBeenLastCalledWith({
-      kind: 'move',
-      id: 'radio_shows',
-    })
+    // Null: a reorder does not transition any one section's height.
+    expect(onBeforeChange).toHaveBeenLastCalledWith(null)
   })
 })
