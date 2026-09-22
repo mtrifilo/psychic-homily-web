@@ -125,6 +125,30 @@ func (s *ScopedUnsubscribeIntegrationSuite) TestOneClickPostIsIdempotent() {
 	s.False(artistFollow)
 }
 
+// The human path: the emailed body link opens the confirm page, whose form POSTs
+// back with the browser marker. That POST must unsubscribe and answer with the
+// HTML page, not re-render the prompt.
+func (s *ScopedUnsubscribeIntegrationSuite) TestBrowserConfirmPostSilencesBothLayers() {
+	userID, artistID := s.optedInUser("browser@example.com")
+	s.requireOptedIn(userID, artistID)
+
+	req := httptest.NewRequest(http.MethodPost, s.signedTarget(userID),
+		strings.NewReader(unsubscribeBrowserConfirmField+"=1"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	h := NewUserPreferencesHandler(s.deps.UserService, s.secret)
+	w := httptest.NewRecorder()
+	h.UnsubscribeArtistShowAlertsPageHandler(w, req)
+
+	s.Equal(http.StatusOK, w.Code, "body=%s", w.Body.String())
+	s.Contains(w.Body.String(), "been unsubscribed from")
+	s.NotContains(w.Body.String(), `method="POST"`, "the confirm prompt must not come back")
+
+	account, artistFollow := s.showAlertEmail(userID, artistID)
+	s.False(account)
+	s.False(artistFollow)
+}
+
 // A GET must not mutate: mail scanners and link-preview bots fetch links with no
 // human involved.
 func (s *ScopedUnsubscribeIntegrationSuite) TestGetConfirmsWithoutMutating() {

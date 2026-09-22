@@ -105,16 +105,17 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 
 	// The account alert matrix for every candidate, in one query. A user with no
 	// preferences row is absent from the map, which resolves to the shipped
-	// defaults (email off). A failed read abandons the pass, as the artist pass
-	// does: substituting defaults would be a guess about an opt-in.
+	// defaults (email off). The matrix gates only the email, so a failed read
+	// still writes every in-app row and sends no email in this pass: off is the
+	// fail-closed direction for an opt-in.
 	userIDs := make([]uint, 0, len(byUser))
 	for userID := range byUser {
 		userIDs = append(userIDs, userID)
 	}
 	prefs, err := s.alertPrefsForUserIDs(userIDs)
+	emailGateReadable := err == nil
 	if err != nil {
-		log.Printf("scene-follow notify: %v", err)
-		return
+		log.Printf("scene-follow notify: %v; sending no scene emails for show %d", err, show.ID)
 	}
 
 	// Self-exclusion: the submitter following their own scene shouldn't be
@@ -182,7 +183,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		// path: the row is the durable in-app record (the bell reads it), and
 		// a rate-limited or failed email doesn't erase that the user was
 		// notified in-app.
-		if !authm.ResolveAccountAlertDefaults(prefs[userID].AlertDefaults).Shows.Email {
+		if !emailGateReadable || !authm.ResolveAccountAlertDefaults(prefs[userID].AlertDefaults).Shows.Email {
 			continue
 		}
 		if s.emailService != nil && s.emailService.IsConfigured() {
@@ -260,7 +261,7 @@ func (s *NotificationFilterService) userFollowsAnyArtist(userID uint, artistIDs 
 // The unsubscribe URL targets the BACKEND route, which serves the RFC 8058
 // one-click POST as well as the human GET. A frontend URL cannot honour the POST.
 func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName string, show *catalogm.Show) {
-	if !s.withinDailySceneEmailBudget(userID) {
+	if !s.withinDailySceneEmailBudget(userID, show.ID) {
 		log.Printf("rate limit: skipping scene-follow email for user %d", userID)
 		return
 	}
@@ -296,16 +297,24 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 }
 
 // withinDailySceneEmailBudget reports whether the user has room in the daily
-// allowance for scene-follow emails, counting every channel='email' row against
-// the shared threshold. That count includes rows that sent no mail (see the
-// row comment in notifySceneFollowers), so it over-counts; it never under-counts.
-// It fails CLOSED: an unreadable budget is not permission to send.
-func (s *NotificationFilterService) withinDailySceneEmailBudget(userID uint) bool {
+// allowance for scene-follow emails. It fails CLOSED: an unreadable budget is
+// not permission to send.
+//
+// It counts every channel='email' row from the last day except this show's own
+// scene row, which the caller has already written. The filter and scene writers
+// stamp that channel on in-app-only rows too, so the count can exceed the mail
+// actually sent and refuse an email the user opted into: the hazard
+// withinDailyAlertEmailBudget in artist_follow_notify.go avoids by counting
+// only email-lane rows. Scene rows cannot be counted that way until the scene
+// pass writes separate in-app and email rows.
+func (s *NotificationFilterService) withinDailySceneEmailBudget(userID, showID uint) bool {
 	var emailCount int64
 	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
 	if err := s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND channel = ? AND sent_at > ?",
 			userID, notificationm.NotificationChannelEmail, dayAgo).
+		Where("NOT (entity_type = ? AND entity_id = ? AND filter_id IS NULL)",
+			notificationm.NotificationEntityShow, showID).
 		Count(&emailCount).Error; err != nil {
 		log.Printf("scene-follow notify: daily email budget check for user %d: %v", userID, err)
 		return false
@@ -329,7 +338,7 @@ func buildSceneShowAlertEmailHTML(
 		emailButton(c.showURL, "View show") +
 		emailFineprintWithLinks(
 			[]string{fmt.Sprintf(
-				"You are getting this because you follow %s with email alerts on.", sceneName)},
+				"You are getting this because you follow %s and show alert emails are on in your settings.", sceneName)},
 			[]emailFineprintLink{
 				{Href: unsubscribeURL, Label: "Unsubscribe from show alerts"},
 				{Href: manageURL, Label: "Manage alerts in Settings"},

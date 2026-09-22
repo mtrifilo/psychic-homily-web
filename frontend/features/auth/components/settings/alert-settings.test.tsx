@@ -560,10 +560,9 @@ describe('AlertSettings', () => {
   // (saying every unsubscribe "flips the same box you see here", which is
   // false for the custom-alerts row, whose link pauses one filter and whose
   // cell is deliberately not a box).
-  // Scoped to the TABLE, not to "this card". The wider phrasing was read as a
-  // claim about every email the index sends, and scene follows falsify that:
-  // they email immediately on each new show with no opt-in anywhere and are
-  // not a row here. The claim now covers exactly the rows it can keep.
+  // Scoped to the TABLE, not to "this card": the wider phrasing reads as a
+  // claim about every email the index sends. The claim covers exactly the rows
+  // it can keep.
   it('scopes the opt-in promise to the rows in the table', () => {
     renderWithProviders(<AlertSettings />)
 

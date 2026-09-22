@@ -30,7 +30,8 @@ type scopedUnsubscribeConfig struct {
 	logSuffix string // structured-log event discriminator
 
 	// confirmOnGet makes GET render a confirm button instead of performing the
-	// unsubscribe, so the mutation only ever happens on POST.
+	// unsubscribe, so the mutation only ever happens on POST (any POST: the
+	// one-click one and the confirm form's).
 	//
 	// Opt-in per scope rather than on for everything, because turning it on
 	// changes a shipped flow: the existing categories have always unsubscribed
@@ -91,8 +92,9 @@ func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.R
 		setPref: func(uid uint) error { return h.userService.UnsubscribeArtistShowAlertEmails(uid) },
 		// The noun says "show-alert emails", not "artist show-alert emails",
 		// because the setter is genuinely that wide: alert_defaults carries ONE
-		// `shows` key covering artist and venue show alerts alike, so the account
-		// write silences both and the per-follow sweep matches it. Naming only
+		// `shows` key covering artist, venue and scene show alerts alike, so the
+		// account write silences all three and the per-follow sweep matches it for
+		// the two follow types that carry overrides. Naming only
 		// artists here would be the copy promising less than the button does.
 		noun:         "show-alert emails",
 		logSuffix:    "artist_show_alerts",
@@ -121,7 +123,10 @@ func (h *UserPreferencesHandler) handleScopedUnsubscribe(w http.ResponseWriter, 
 
 	// The signature is verified BEFORE the confirm page is rendered, so a bad
 	// link still fails at the door rather than showing a button that will fail.
-	if cfg.confirmOnGet && !isOneClickPost(r) {
+	// Only a GET is held for confirmation. Every POST mutates: the RFC 8058
+	// one-click POST and the confirm page's own form POST alike, which differ
+	// only in the response they get below.
+	if cfg.confirmOnGet && r.Method != http.MethodPost {
 		writeUnsubscribeConfirmPrompt(r.Context(), w, r.URL.RequestURI(), cfg.noun)
 		return
 	}
