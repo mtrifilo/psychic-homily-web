@@ -282,8 +282,13 @@ export async function getAuthenticatedHomeLayout(): Promise<HomeLayoutDocument |
   if (resolution.kind !== 'resolved') return null
   const { profile } = resolution
   if (!profile.success) return null
-  const user = profile.user as { home_layout?: unknown } | undefined
-  const layout = user?.home_layout
+  // `preferences`, not the user: the document is stored beside the other
+  // per-viewer preferences, and reading it off the user resolves to undefined
+  // for everyone.
+  const user = profile.user as
+    | { preferences?: { home_layout?: unknown } | null }
+    | undefined
+  const layout = user?.preferences?.home_layout
   if (!layout || typeof layout !== 'object') return null
   const candidate = layout as HomeLayoutDocument
   return typeof candidate.version === 'number' ? candidate : null

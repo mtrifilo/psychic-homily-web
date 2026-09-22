@@ -14,9 +14,19 @@ import {
   type ResolvedHomeSection,
 } from '../sections'
 
-/** The subset of the profile payload these hooks read and write. */
+/**
+ * The subset of the profile payload these hooks read and write.
+ *
+ * The document hangs off `user.preferences`, beside the other stored
+ * preferences, NOT off the user. Reading it one level too high resolves to
+ * `undefined` for every viewer, which looks exactly like "has no layout".
+ */
+interface ProfilePreferences {
+  home_layout?: HomeLayoutDocument | null
+}
+
 interface ProfileWithHomeLayout {
-  user?: { home_layout?: HomeLayoutDocument | null } | null
+  user?: { preferences?: ProfilePreferences | null } | null
 }
 
 /** Shared key so a write can tell whether another write is still in flight
@@ -46,7 +56,9 @@ export function useHomeLayout(
   // A payload that NAMES a viewer is authoritative, absent field included: the
   // backend omits `home_layout` for a viewer who has none, and reading that as
   // "no answer" would fall back to the server document and undo a reset.
-  const stored = profile?.user ? (profile.user.home_layout ?? null) : undefined
+  const stored = profile?.user
+    ? (profile.user.preferences?.home_layout ?? null)
+    : undefined
   return useMemo(
     () => resolveHomeLayout(stored === undefined ? fallback : stored),
     [stored, fallback]
@@ -147,7 +159,13 @@ function withHomeLayout(
 ): unknown {
   const profile = cached as ProfileWithHomeLayout | undefined
   if (!profile?.user) return cached
-  return { ...profile, user: { ...profile.user, home_layout: document } }
+  return {
+    ...profile,
+    user: {
+      ...profile.user,
+      preferences: { ...profile.user.preferences, home_layout: document },
+    },
+  }
 }
 
 /**

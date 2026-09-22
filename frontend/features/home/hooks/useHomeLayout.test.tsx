@@ -45,8 +45,13 @@ function createClient(): QueryClient {
   })
 }
 
+/** The document hangs off `user.preferences`, where the backend stores it
+ *  beside the viewer's other preferences. */
 function profilePayload(home_layout: HomeLayoutDocument | null | undefined) {
-  return { success: true, user: { id: 7, home_layout } }
+  return {
+    success: true,
+    user: { id: 7, preferences: { favorite_cities: [], home_layout } },
+  }
 }
 
 beforeEach(() => {
@@ -110,7 +115,7 @@ describe('useUpdateHomeLayout', () => {
       const cached = queryClient.getQueryData(
         queryKeys.auth.profile
       ) as ReturnType<typeof profilePayload>
-      expect(cached.user.home_layout).toEqual(CUSTOM)
+      expect(cached.user.preferences.home_layout).toEqual(CUSTOM)
     })
 
     await waitFor(() => expect(apiRequest).toHaveBeenCalled())
@@ -135,7 +140,30 @@ describe('useUpdateHomeLayout', () => {
     const cached = queryClient.getQueryData(
       queryKeys.auth.profile
     ) as ReturnType<typeof profilePayload>
-    expect(cached.user.home_layout).toBeNull()
+    expect(cached.user.preferences.home_layout).toBeNull()
+  })
+
+  it('leaves the viewer\'s other preferences untouched', async () => {
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+
+    const { result } = renderHook(() => useUpdateHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    result.current.mutate(CUSTOM)
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(
+        queryKeys.auth.profile
+      ) as ReturnType<typeof profilePayload>
+      expect(cached.user.preferences.home_layout).toEqual(CUSTOM)
+    })
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.preferences.favorite_cities).toEqual([])
+    expect(cached.user.id).toBe(7)
   })
 
   it('leaves a cache entry that names no viewer alone', async () => {
@@ -169,7 +197,7 @@ describe('useResetHomeLayout', () => {
       const cached = queryClient.getQueryData(
         queryKeys.auth.profile
       ) as ReturnType<typeof profilePayload>
-      expect(cached.user.home_layout).toBeNull()
+      expect(cached.user.preferences.home_layout).toBeNull()
     })
 
     const [endpoint, options] = apiRequest.mock.calls[0]
@@ -192,6 +220,6 @@ describe('useResetHomeLayout', () => {
     const cached = queryClient.getQueryData(
       queryKeys.auth.profile
     ) as ReturnType<typeof profilePayload>
-    expect(cached.user.home_layout).toEqual(CUSTOM)
+    expect(cached.user.preferences.home_layout).toEqual(CUSTOM)
   })
 })

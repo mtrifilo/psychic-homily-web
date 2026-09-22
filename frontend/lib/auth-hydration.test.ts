@@ -35,6 +35,7 @@ vi.mock('./queryClient', async () => {
 
 import {
   prefetchAuthProfile,
+  getAuthenticatedHomeLayout,
   getAuthenticatedNavMode,
   isAuthenticatedViewer,
   prefetchHomeSavedShows,
@@ -352,5 +353,66 @@ describe('prefetchHomeSavedShows', () => {
 
     expect((state as { queries: SeededEntry[] }).queries).toHaveLength(0)
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('getAuthenticatedHomeLayout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  function stubProfile(user: unknown) {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, user }),
+      }))
+    )
+  }
+
+  const document = {
+    version: 1,
+    sections: [
+      { id: 'radio_shows', visible: true },
+      { id: 'saved_shows', visible: false },
+    ],
+  }
+
+  // The shape the backend actually serves: the document hangs off
+  // `preferences`, beside favorite_cities and the rest. A reader that looks on
+  // the user resolves undefined for every viewer and silently serves the
+  // default layout, which is indistinguishable from "has not customized".
+  it('reads the document out of user.preferences', async () => {
+    stubProfile({ id: 'u1', preferences: { favorite_cities: [], home_layout: document } })
+
+    await expect(getAuthenticatedHomeLayout()).resolves.toEqual(document)
+  })
+
+  it('answers null for a viewer who has not customized', async () => {
+    stubProfile({ id: 'u1', preferences: { favorite_cities: [] } })
+
+    await expect(getAuthenticatedHomeLayout()).resolves.toBeNull()
+  })
+
+  it('answers null for a payload with no preferences at all', async () => {
+    stubProfile({ id: 'u1' })
+
+    await expect(getAuthenticatedHomeLayout()).resolves.toBeNull()
+  })
+
+  it('answers null rather than a shape the client would have to guess at', async () => {
+    stubProfile({ id: 'u1', preferences: { home_layout: 'not-a-document' } })
+
+    await expect(getAuthenticatedHomeLayout()).resolves.toBeNull()
+  })
+
+  it('answers null when there is no session', async () => {
+    mockGet.mockReturnValue(undefined)
+
+    await expect(getAuthenticatedHomeLayout()).resolves.toBeNull()
   })
 })
