@@ -1,0 +1,153 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	authm "psychic-homily-backend/internal/models/auth"
+)
+
+// The two home-layout endpoints. The document's rules are pinned in
+// models/auth; what these assert is the TRANSPORT mapping on top of them,
+// which is where a rejected document and a failed write would otherwise blur
+// into one status.
+
+func homeLayoutRequest() *SetHomeLayoutRequest {
+	req := &SetHomeLayoutRequest{}
+	req.Body = authm.HomeLayout{
+		Version: authm.HomeLayoutVersion,
+		Sections: []authm.HomeLayoutSection{
+			{ID: authm.HomeSectionSavedShows, Visible: true},
+			{ID: authm.HomeSectionCityGraph, Visible: false},
+		},
+	}
+	return req
+}
+
+// Both endpoints act on the session user's own preferences, so neither may
+// answer without a session.
+func TestHomeLayoutHandlers_NoAuth(t *testing.T) {
+	h := userPrefsHandler(&testhelpers.MockUserService{})
+
+	_, err := h.SetHomeLayoutHandler(context.Background(), homeLayoutRequest())
+	testhelpers.AssertHumaError(t, err, 401)
+
+	_, err = h.ClearHomeLayoutHandler(context.Background(), &ClearHomeLayoutRequest{})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+// The handler forwards the whole document and renders whatever the service
+// hands back, rather than echoing the request body it was given.
+func TestSetHomeLayoutHandler_EchoesTheStoredDocument(t *testing.T) {
+	var got *authm.HomeLayout
+	stored := &authm.HomeLayout{
+		Version:  authm.HomeLayoutVersion,
+		Sections: []authm.HomeLayoutSection{{ID: authm.HomeSectionRadioShows, Visible: true}},
+	}
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		SetHomeLayoutFn: func(_ uint, layout *authm.HomeLayout) (*authm.HomeLayout, error) {
+			got = layout
+			return stored, nil
+		},
+	})
+
+	resp, err := h.SetHomeLayoutHandler(authedPrefsCtx(), homeLayoutRequest())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || len(got.Sections) != 2 {
+		t.Fatalf("handler should forward the whole document, got %+v", got)
+	}
+	if resp.Body.Layout != stored {
+		t.Errorf("expected the stored document echoed, got %+v", resp.Body.Layout)
+	}
+	if !resp.Body.Success {
+		t.Errorf("expected success")
+	}
+}
+
+// A rejected document is the client's mistake: 422, and the reason is echoed
+// so the caller can see which rule it broke.
+func TestSetHomeLayoutHandler_InvalidDocumentIs422(t *testing.T) {
+	rejection := fmt.Errorf("%w: unknown section id %q", authm.ErrInvalidHomeLayout, "mixtapes")
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		SetHomeLayoutFn: func(uint, *authm.HomeLayout) (*authm.HomeLayout, error) {
+			return nil, rejection
+		},
+	})
+
+	_, err := h.SetHomeLayoutHandler(authedPrefsCtx(), homeLayoutRequest())
+
+	testhelpers.AssertHumaErrorWithDetail(t, err, 422, rejection.Error())
+}
+
+// A failed write is OUR mistake: 5xx, and its detail stays in the log rather
+// than being handed to the caller as though they could fix it.
+// A nil document with a nil error is a broken service, not a renderable state:
+// an absent home_layout is the RESET signal, so reporting it on a PUT would
+// tell a user who just saved an arrangement that it was discarded. The sibling
+// alerts endpoint holds the same line (TestAlertPreferences_NilResultIs500).
+func TestSetHomeLayoutHandler_NilResultIs500(t *testing.T) {
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		SetHomeLayoutFn: func(uint, *authm.HomeLayout) (*authm.HomeLayout, error) {
+			return nil, nil
+		},
+	})
+
+	_, err := h.SetHomeLayoutHandler(authedPrefsCtx(), homeLayoutRequest())
+
+	testhelpers.AssertHumaErrorWithDetail(t, err, 500, "Failed to save home layout")
+}
+
+func TestSetHomeLayoutHandler_WriteFailureIs500(t *testing.T) {
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		SetHomeLayoutFn: func(uint, *authm.HomeLayout) (*authm.HomeLayout, error) {
+			return nil, errors.New("connection refused on 10.0.0.4:5432")
+		},
+	})
+
+	_, err := h.SetHomeLayoutHandler(authedPrefsCtx(), homeLayoutRequest())
+
+	testhelpers.AssertHumaErrorWithDetail(t, err, 500, "Failed to save home layout")
+}
+
+// The reset reports a null layout, which is the client's signal to render the
+// shipped defaults rather than an empty home.
+func TestClearHomeLayoutHandler_ReportsNull(t *testing.T) {
+	cleared := false
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		ClearHomeLayoutFn: func(uint) error {
+			cleared = true
+			return nil
+		},
+	})
+
+	resp, err := h.ClearHomeLayoutHandler(authedPrefsCtx(), &ClearHomeLayoutRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cleared {
+		t.Errorf("expected the service to be asked to clear the layout")
+	}
+	if resp.Body.Layout != nil {
+		t.Errorf("expected no layout on a reset, got %+v", resp.Body.Layout)
+	}
+	if !resp.Body.Success {
+		t.Errorf("expected success")
+	}
+}
+
+func TestClearHomeLayoutHandler_WriteFailureIs500(t *testing.T) {
+	h := userPrefsHandler(&testhelpers.MockUserService{
+		ClearHomeLayoutFn: func(uint) error {
+			return errors.New("connection refused on 10.0.0.4:5432")
+		},
+	})
+
+	_, err := h.ClearHomeLayoutHandler(authedPrefsCtx(), &ClearHomeLayoutRequest{})
+
+	testhelpers.AssertHumaErrorWithDetail(t, err, 500, "Failed to reset home layout")
+}

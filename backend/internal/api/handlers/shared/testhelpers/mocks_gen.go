@@ -4138,6 +4138,8 @@ type MockUserService struct {
 	GetFavoriteCitiesFn                func(uint) ([]authm.FavoriteCity, error)
 	SetFavoriteCitiesFn                func(uint, []authm.FavoriteCity) error
 	SetChartDefaultsFn                 func(uint, *authm.ChartDefaults) error
+	SetHomeLayoutFn                    func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
+	ClearHomeLayoutFn                  func(uint) error
 	SetShowRemindersFn                 func(uint, bool) error
 	SetDefaultReplyPermissionFn        func(uint, string) error
 	SetNotifyOnCommentSubscriptionFn   func(uint, bool) error
@@ -4365,6 +4367,18 @@ func (m *MockUserService) SetFavoriteCities(userID uint, cities []authm.Favorite
 func (m *MockUserService) SetChartDefaults(userID uint, defaults *authm.ChartDefaults) error {
 	if m.SetChartDefaultsFn != nil {
 		return m.SetChartDefaultsFn(userID, defaults)
+	}
+	return nil
+}
+func (m *MockUserService) SetHomeLayout(userID uint, layout *authm.HomeLayout) (*authm.HomeLayout, error) {
+	if m.SetHomeLayoutFn != nil {
+		return m.SetHomeLayoutFn(userID, layout)
+	}
+	return nil, nil
+}
+func (m *MockUserService) ClearHomeLayout(userID uint) error {
+	if m.ClearHomeLayoutFn != nil {
+		return m.ClearHomeLayoutFn(userID)
 	}
 	return nil
 }

@@ -1,0 +1,27 @@
+-- Persist the signed-in home page layout per user.
+--
+-- home_layout is a nullable JSONB document describing section ORDER and
+-- VISIBILITY on the signed-in home:
+--
+--   {"version": 1,
+--    "sections": [{"id": "saved_shows",     "visible": true},
+--                 {"id": "nearby_shows",    "visible": true},
+--                 {"id": "community_stats", "visible": true},
+--                 {"id": "city_graph",      "visible": false},
+--                 {"id": "radio_shows",     "visible": true}]}
+--
+-- Array order IS the placement, and a hidden section keeps its slot.
+--
+-- NULL means the SHIPPED DEFAULT layout. That state has to stay
+-- representable: boolean columns could not tell "never customized" apart from
+-- "customized to exactly today's defaults", and they cannot carry order at
+-- all. Nullable JSONB for the same reason alert_defaults and chart_defaults on
+-- this table are. The document shape is this column's own: there is no shared
+-- envelope, and unlike alert_defaults an absent key here does NOT mean
+-- "inherit" -- a write replaces the whole document.
+--
+-- The version and the section-id whitelist are enforced in Go
+-- (models/auth/home_layout.go), not by a CHECK constraint, because the section
+-- set changes with the frontend.
+ALTER TABLE user_preferences
+    ADD COLUMN home_layout JSONB;

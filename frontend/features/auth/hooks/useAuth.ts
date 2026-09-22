@@ -85,6 +85,24 @@ interface UserPreferencesData {
     window: 'month' | 'quarter' | 'all_time'
     scene: string | null
   } | null
+  // Signed-in home section order + visibility. Absent/null = the shipped
+  // default layout. Array order is placement, and a hidden section keeps its
+  // slot; a known section the document omits is appended in its default slot
+  // by the reader. The backend owns the id whitelist.
+  home_layout?: {
+    version: number
+    sections:
+      | {
+          id:
+            | 'saved_shows'
+            | 'nearby_shows'
+            | 'community_stats'
+            | 'city_graph'
+            | 'radio_shows'
+          visible: boolean
+        }[]
+      | null
+  } | null
   default_reply_permission?: string
   // PSY-350 / PSY-515: weekly digest of new items in collections the user
   // follows. Server default is FALSE (opt-IN); user toggles this from the

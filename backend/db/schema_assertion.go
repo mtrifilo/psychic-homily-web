@@ -26,6 +26,10 @@ var requiredSchemaColumns = []requiredColumn{
 	// so recorded-migration-but-absent-DDL fails the Library following page and
 	// both follow-alert endpoints at once rather than degrading.
 	{Table: "user_preferences", Column: "alert_defaults"},
+	// Same table, same reason: GORM enumerates every model column, so an
+	// absent home_layout DDL fails EVERY preferences write at request time,
+	// not just the home-layout one.
+	{Table: "user_preferences", Column: "home_layout"},
 	// GORM's Create builds an explicit column list from the model, so these
 	// three appear in every show INSERT. Absent DDL breaks show submission at
 	// request time rather than at boot, which is exactly what this list is for.

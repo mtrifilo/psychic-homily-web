@@ -102,9 +102,11 @@ var authRouteRateLimitScope = map[string]string{
 
 	"PUT /auth/preferences/chart-defaults":  scopeProtectedNoLimit,
 	"PUT /auth/preferences/favorite-cities": scopeProtectedNoLimit,
+	"PUT /auth/preferences/home-layout":     scopeProtectedNoLimit,
 	"PUT /auth/preferences/home-metro":      scopeProtectedNoLimit,
 
 	"PUT /auth/profile/sections/{section_id}":          scopeProtectedNoLimit,
+	"DELETE /auth/preferences/home-layout":             scopeProtectedNoLimit,
 	"DELETE /auth/profile/sections/{section_id}":       scopeProtectedNoLimit,
 	"DELETE /auth/oauth/accounts/{provider}":           scopeProtectedNoLimit,
 	"DELETE /auth/passkey/credentials/{credential_id}": scopeProtectedNoLimit,

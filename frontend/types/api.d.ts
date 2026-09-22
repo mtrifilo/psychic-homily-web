@@ -2798,6 +2798,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/preferences/home-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put auth preferences home layout */
+        put: operations["put-auth-preferences-home-layout"];
+        post?: never;
+        /** Delete auth preferences home layout */
+        delete: operations["delete-auth-preferences-home-layout"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/preferences/home-metro": {
         parameters: {
             query?: never;
@@ -13279,6 +13297,41 @@ export interface components {
              */
             timestamp: string;
         };
+        HomeLayout: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/HomeLayout.json
+             */
+            readonly $schema?: string;
+            /** @description Sections in render order; a hidden section keeps its slot */
+            sections: components["schemas"]["HomeLayoutSection"][] | null;
+            /**
+             * Format: int64
+             * @description Document version; must be 1
+             */
+            version: number;
+        };
+        HomeLayoutResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/HomeLayoutResponseBody.json
+             */
+            readonly $schema?: string;
+            home_layout?: components["schemas"]["HomeLayout"];
+            message: string;
+            success: boolean;
+        };
+        HomeLayoutSection: {
+            /**
+             * @description Section id
+             * @enum {string}
+             */
+            id: "saved_shows" | "nearby_shows" | "community_stats" | "city_graph" | "radio_shows";
+            /** @description Whether the section renders */
+            visible: boolean;
+        };
         HotReleaseResponse: {
             artist_names: string[] | null;
             /** Format: int64 */
@@ -18134,6 +18187,7 @@ export interface components {
             created_at: string;
             default_reply_permission: string;
             favorite_cities: unknown;
+            home_layout: unknown;
             home_metro: string | null;
             /** Format: int64 */
             id: number;
@@ -24772,6 +24826,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetFavoriteCitiesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-auth-preferences-home-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HomeLayout"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeLayoutResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-auth-preferences-home-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeLayoutResponseBody"];
                 };
             };
             /** @description Error */

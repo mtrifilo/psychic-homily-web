@@ -21,18 +21,20 @@ func shippedAlertPreferences() *authm.AlertPreferences {
 	}
 }
 
-func alertPrefsHandler(mock *testhelpers.MockUserService) *UserPreferencesHandler {
+// Shared by every user-preferences handler test in this package, so the
+// handler gains a dependency in one place rather than at each call site.
+func userPrefsHandler(mock *testhelpers.MockUserService) *UserPreferencesHandler {
 	return NewUserPreferencesHandler(mock, "secret")
 }
 
-func authedAlertCtx() context.Context {
+func authedPrefsCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 7, IsActive: true})
 }
 
 // Every one of the three endpoints is session-scoped; none may answer without
 // a user, since all of them read or write that user's own preferences.
 func TestAlertPreferencesHandlers_NoAuth(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{})
+	h := userPrefsHandler(&testhelpers.MockUserService{})
 
 	_, err := h.GetAlertPreferencesHandler(context.Background(), &GetAlertPreferencesRequest{})
 	testhelpers.AssertHumaError(t, err, 401)
@@ -47,13 +49,13 @@ func TestAlertPreferencesHandlers_NoAuth(t *testing.T) {
 // A user who has configured nothing reads the shipped defaults and no home
 // area, rather than an empty body the client would have to interpret.
 func TestGetAlertPreferencesHandler_UnsetYieldsShippedDefaults(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		GetAlertPreferencesFn: func(uint) (*authm.AlertPreferences, error) {
 			return shippedAlertPreferences(), nil
 		},
 	})
 
-	resp, err := h.GetAlertPreferencesHandler(authedAlertCtx(), &GetAlertPreferencesRequest{})
+	resp, err := h.GetAlertPreferencesHandler(authedPrefsCtx(), &GetAlertPreferencesRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +73,7 @@ func TestGetAlertPreferencesHandler_UnsetYieldsShippedDefaults(t *testing.T) {
 func TestSetHomeMetroHandler_StoresAndEchoesResolvedState(t *testing.T) {
 	metro := "38060"
 	var stored *string
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetHomeMetroFn: func(_ uint, m *string) error {
 			stored = m
 			return nil
@@ -86,7 +88,7 @@ func TestSetHomeMetroHandler_StoresAndEchoesResolvedState(t *testing.T) {
 	req := &SetHomeMetroRequest{}
 	req.Body.Metro = &metro
 
-	resp, err := h.SetHomeMetroHandler(authedAlertCtx(), req)
+	resp, err := h.SetHomeMetroHandler(authedPrefsCtx(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,7 +104,7 @@ func TestSetHomeMetroHandler_StoresAndEchoesResolvedState(t *testing.T) {
 // service as nil rather than being rejected as a missing field.
 func TestSetHomeMetroHandler_AbsentMetroClears(t *testing.T) {
 	called := false
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetHomeMetroFn: func(_ uint, m *string) error {
 			called = true
 			if m != nil {
@@ -115,7 +117,7 @@ func TestSetHomeMetroHandler_AbsentMetroClears(t *testing.T) {
 		},
 	})
 
-	resp, err := h.SetHomeMetroHandler(authedAlertCtx(), &SetHomeMetroRequest{})
+	resp, err := h.SetHomeMetroHandler(authedPrefsCtx(), &SetHomeMetroRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -130,7 +132,7 @@ func TestSetHomeMetroHandler_AbsentMetroClears(t *testing.T) {
 // An unrecognized CBSA is a client error, not a server one: storing it would
 // leave near-me scoping matching nothing while looking configured.
 func TestSetHomeMetroHandler_UnknownMetroIs422(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetHomeMetroFn: func(uint, *string) error {
 			return autherrors.ErrUnknownHomeMetro("99999")
 		},
@@ -140,7 +142,7 @@ func TestSetHomeMetroHandler_UnknownMetroIs422(t *testing.T) {
 	req := &SetHomeMetroRequest{}
 	req.Body.Metro = &metro
 
-	_, err := h.SetHomeMetroHandler(authedAlertCtx(), req)
+	_, err := h.SetHomeMetroHandler(authedPrefsCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
 	if strings.Contains(err.Error(), "99999") {
 		t.Errorf("the rejected value must stay in the logs, not the response: %v", err)
@@ -151,7 +153,7 @@ func TestSetHomeMetroHandler_UnknownMetroIs422(t *testing.T) {
 // user their input was bad, stop the client retrying, and record a 4xx for a
 // server fault, and echoing the error would leak driver text.
 func TestSetHomeMetroHandler_WriteFailureIs500(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetHomeMetroFn: func(uint, *string) error {
 			return errors.New("failed to update home_metro: pq: connection reset by peer")
 		},
@@ -161,7 +163,7 @@ func TestSetHomeMetroHandler_WriteFailureIs500(t *testing.T) {
 	req := &SetHomeMetroRequest{}
 	req.Body.Metro = &metro
 
-	_, err := h.SetHomeMetroHandler(authedAlertCtx(), req)
+	_, err := h.SetHomeMetroHandler(authedPrefsCtx(), req)
 	testhelpers.AssertHumaError(t, err, 500)
 	if strings.Contains(err.Error(), "pq:") {
 		t.Errorf("driver text must not reach the client: %v", err)
@@ -171,13 +173,13 @@ func TestSetHomeMetroHandler_WriteFailureIs500(t *testing.T) {
 // A nil result with a nil error is a broken implementation, not something to
 // render: dereferencing it would panic the request instead of failing it.
 func TestAlertPreferences_NilResultIs500(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		GetAlertPreferencesFn: func(uint) (*authm.AlertPreferences, error) {
 			return nil, nil
 		},
 	})
 
-	_, err := h.GetAlertPreferencesHandler(authedAlertCtx(), &GetAlertPreferencesRequest{})
+	_, err := h.GetAlertPreferencesHandler(authedPrefsCtx(), &GetAlertPreferencesRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
@@ -185,7 +187,7 @@ func TestAlertPreferences_NilResultIs500(t *testing.T) {
 // the merged result, read back from the service.
 func TestSetAlertDefaultsHandler_PartialUpdateReachesServiceAsPointers(t *testing.T) {
 	var got authm.AccountAlertDefaultsUpdate
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetAccountAlertDefaultsFn: func(_ uint, update authm.AccountAlertDefaultsUpdate) error {
 			got = update
 			return nil
@@ -200,7 +202,7 @@ func TestSetAlertDefaultsHandler_PartialUpdateReachesServiceAsPointers(t *testin
 	req := &SetAlertDefaultsRequest{}
 	req.Body.Shows = &AlertChannelDefaultsInput{Email: alertBoolPtr(true)}
 
-	resp, err := h.SetAlertDefaultsHandler(authedAlertCtx(), req)
+	resp, err := h.SetAlertDefaultsHandler(authedPrefsCtx(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -222,7 +224,7 @@ func TestSetAlertDefaultsHandler_PartialUpdateReachesServiceAsPointers(t *testin
 // This is the exact cell where a bool-shaped API would lose the user's choice.
 func TestSetAlertDefaultsHandler_ExplicitFalseIsAnOverride(t *testing.T) {
 	var got authm.AccountAlertDefaultsUpdate
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetAccountAlertDefaultsFn: func(_ uint, update authm.AccountAlertDefaultsUpdate) error {
 			got = update
 			return nil
@@ -235,7 +237,7 @@ func TestSetAlertDefaultsHandler_ExplicitFalseIsAnOverride(t *testing.T) {
 	req := &SetAlertDefaultsRequest{}
 	req.Body.Releases = &AlertChannelDefaultsInput{InApp: alertBoolPtr(false)}
 
-	if _, err := h.SetAlertDefaultsHandler(authedAlertCtx(), req); err != nil {
+	if _, err := h.SetAlertDefaultsHandler(authedPrefsCtx(), req); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got.Releases == nil || got.Releases.InApp == nil || *got.Releases.InApp {
@@ -246,7 +248,7 @@ func TestSetAlertDefaultsHandler_ExplicitFalseIsAnOverride(t *testing.T) {
 // A body that pins nothing is rejected rather than silently accepted, so a
 // client that mis-serialised its request finds out.
 func TestSetAlertDefaultsHandler_EmptyUpdateIs422(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		SetAccountAlertDefaultsFn: func(uint, authm.AccountAlertDefaultsUpdate) error {
 			t.Fatal("service must not be called for an empty update")
 			return nil
@@ -262,7 +264,7 @@ func TestSetAlertDefaultsHandler_EmptyUpdateIs422(t *testing.T) {
 		"present but every cell unset": everyCellUnset,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := h.SetAlertDefaultsHandler(authedAlertCtx(), req)
+			_, err := h.SetAlertDefaultsHandler(authedPrefsCtx(), req)
 			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
@@ -271,12 +273,12 @@ func TestSetAlertDefaultsHandler_EmptyUpdateIs422(t *testing.T) {
 // A failed read-back must not report success with an empty matrix: the client
 // would render every channel as its zero value and show email opt-ins as off.
 func TestAlertPreferences_ReadBackFailureIs500(t *testing.T) {
-	h := alertPrefsHandler(&testhelpers.MockUserService{
+	h := userPrefsHandler(&testhelpers.MockUserService{
 		GetAlertPreferencesFn: func(uint) (*authm.AlertPreferences, error) {
 			return nil, errors.New("db down")
 		},
 	})
 
-	_, err := h.GetAlertPreferencesHandler(authedAlertCtx(), &GetAlertPreferencesRequest{})
+	_, err := h.GetAlertPreferencesHandler(authedPrefsCtx(), &GetAlertPreferencesRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
 }
