@@ -43,17 +43,6 @@ func TestArtistHasAnyLocation(t *testing.T) {
 	assert.True(t, artistHasAnyLocation(&catalogm.Artist{Country: stringPtr("Japan")}))
 }
 
-func TestArtistOwnPlace(t *testing.T) {
-	_, ok := artistOwnPlace(&catalogm.Artist{City: stringPtr("Phoenix")})
-	assert.False(t, ok, "a city without a state names no scene slug")
-
-	place, ok := artistOwnPlace(&catalogm.Artist{City: stringPtr("Phoenix"), State: stringPtr("AZ"), Country: stringPtr("USA")})
-	assert.True(t, ok)
-	assert.Equal(t, "Phoenix", place.City)
-	assert.Equal(t, "AZ", place.State)
-	assert.Equal(t, "USA", *place.Country)
-}
-
 // =============================================================================
 // INTEGRATION (runs inside SceneServiceIntegrationTestSuite for its teardown
 // and fixtures)

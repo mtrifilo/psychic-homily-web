@@ -2,7 +2,10 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
+import {
+  ENTITY_LINK_CLASS,
+  type EntityLinkTier,
+} from '@/components/shared/entityLink'
 import { EN_DASH } from '../showArchive'
 import { splitBill } from '../utils'
 
@@ -61,7 +64,7 @@ export interface ShowBillProps {
    * treatment (`ENTITY_LINK_CLASS.restrained`). Omitted, the names keep this
    * cell's own hover styling.
    */
-  linkTreatment?: 'restrained'
+  linkTreatment?: Extract<EntityLinkTier, 'restrained'>
 }
 
 /**

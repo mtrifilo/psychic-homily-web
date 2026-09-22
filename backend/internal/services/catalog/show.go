@@ -2735,9 +2735,7 @@ func (s *ShowService) attachSceneLink(resp *contracts.ShowResponse, show *catalo
 	if resp == nil || len(show.Venues) == 0 {
 		return
 	}
-	venue := show.Venues[0]
-	link, err := servedSceneLink(s.db, s.geocoder, sceneLinkPlace{City: venue.City, State: venue.State, Country: venue.Country})
-	resp.Scene = sceneLinkOrNil("show", show.ID, link, err)
+	resp.Scene = venueSceneLink(s.db, s.geocoder, "show", show.ID, &show.Venues[0])
 }
 
 // attachSubmitterAttribution fills in SubmittedByName / SubmittedByUsername on

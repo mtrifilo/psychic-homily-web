@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +13,22 @@ import (
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 )
+
+// sceneServesPage is GetSceneDetail's existence rule for a scene addressed by
+// its display identity: the scope its rooms form clears the verified-venue
+// floor. The /scenes/{slug} soft-404 gate and the detail-page scene links both
+// ask it, so neither can disagree with the page.
+func (s *SceneService) sceneServesPage(city, state string) (bool, error) {
+	scope, err := s.scopeFor(city, state)
+	if err != nil {
+		return false, err
+	}
+	n, err := s.verifiedVenueCount(scope)
+	if err != nil {
+		return false, fmt.Errorf("failed to count the verified venues of scene %s, %s: %w", city, state, err)
+	}
+	return n >= sceneMinVenues, nil
+}
 
 // sceneLinkPlace is the place a detail page links to its scene from.
 type sceneLinkPlace struct {
@@ -50,15 +65,6 @@ func artistHasAnyLocation(artist *catalogm.Artist) bool {
 	return false
 }
 
-// artistOwnPlace is the artist's own location as a scene-link place, and
-// false when the artist lacks the city or the state a scene slug needs.
-func artistOwnPlace(artist *catalogm.Artist) (sceneLinkPlace, bool) {
-	if artist.City == nil || artist.State == nil {
-		return sceneLinkPlace{}, false
-	}
-	return sceneLinkPlace{City: *artist.City, State: *artist.State, Country: artist.Country}, true
-}
-
 // servedSceneLink returns the scene page a detail page may link to for a
 // place, or nil when no such page serves.
 //
@@ -66,8 +72,7 @@ func artistOwnPlace(artist *catalogm.Artist) (sceneLinkPlace, bool) {
 // page renders: the place's own slug is resolved by ParseSceneSlug (a metro
 // member resolves to its principal city, a fallback group to its own city),
 // the resulting display identity is rebuilt into the canonical slug, that slug
-// is resolved again as the page resolves it, and GetSceneDetail's venue floor
-// is applied to the scope it lands on.
+// is resolved again as the page resolves it, and sceneServesPage decides.
 //
 // The SceneService built here has no slug-miss cache, so a lookup never
 // poisons, or is answered from, the cache the scene routes share.
@@ -101,18 +106,18 @@ func servedSceneLink(database *gorm.DB, g geo.Geocoder, place sceneLinkPlace) (*
 		city, state = pageCity, pageState
 	}
 
-	scope, err := sc.scopeFor(city, state)
-	if err != nil {
+	serves, err := sc.sceneServesPage(city, state)
+	if err != nil || !serves {
 		return nil, err
 	}
-	venues, err := sc.verifiedVenueCount(scope)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count the verified venues of scene %q: %w", slug, err)
-	}
-	if venues < sceneMinVenues {
-		return nil, nil
-	}
 	return &contracts.SceneLinkResponse{Slug: slug, City: city, State: state}, nil
+}
+
+func ignoreSceneNotFound(err error) error {
+	if apperrors.IsSceneNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 // sceneLinkOrNil is how a detail read attaches a scene link: the link, or nil
@@ -125,22 +130,17 @@ func sceneLinkOrNil(entity string, id uint, link *contracts.SceneLinkResponse, e
 	return link
 }
 
-func ignoreSceneNotFound(err error) error {
-	var sceneErr *apperrors.SceneError
-	if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
-		return nil
-	}
-	return err
+// venueSceneLink is the scene link a show or venue detail read attaches for
+// one venue, logged and dropped on failure. entity and id name the read.
+func venueSceneLink(database *gorm.DB, g geo.Geocoder, entity string, id uint, venue *catalogm.Venue) *contracts.SceneLinkResponse {
+	link, err := servedSceneLink(database, g, sceneLinkPlace{City: venue.City, State: venue.State, Country: venue.Country})
+	return sceneLinkOrNil(entity, id, link, err)
 }
 
 // latestShowVenuePlace is the primary venue of the artist's latest approved
 // show that has a venue, by event date, and false when there is none.
 func latestShowVenuePlace(database *gorm.DB, artistID uint) (sceneLinkPlace, bool, error) {
-	var rows []struct {
-		City    string
-		State   string
-		Country *string
-	}
+	var rows []sceneLinkPlace
 	err := database.Raw(`
 		SELECT pv.city, pv.state, pv.country
 		FROM shows s
@@ -157,7 +157,7 @@ func latestShowVenuePlace(database *gorm.DB, artistID uint) (sceneLinkPlace, boo
 	if len(rows) == 0 {
 		return sceneLinkPlace{}, false, nil
 	}
-	return sceneLinkPlace{City: rows[0].City, State: rows[0].State, Country: rows[0].Country}, true, nil
+	return rows[0], true, nil
 }
 
 // artistSceneLink is the scene link on an artist's detail page: from the
@@ -165,11 +165,11 @@ func latestShowVenuePlace(database *gorm.DB, artistID uint) (sceneLinkPlace, boo
 // from the venue of its latest approved show.
 func artistSceneLink(database *gorm.DB, g geo.Geocoder, artist *catalogm.Artist) (*contracts.SceneLinkResponse, error) {
 	if artistHasAnyLocation(artist) {
-		place, ok := artistOwnPlace(artist)
-		if !ok {
-			return nil, nil
-		}
-		return servedSceneLink(database, g, place)
+		return servedSceneLink(database, g, sceneLinkPlace{
+			City:    derefString(artist.City),
+			State:   derefString(artist.State),
+			Country: artist.Country,
+		})
 	}
 	place, ok, err := latestShowVenuePlace(database, artist.ID)
 	if err != nil || !ok {

@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -44,4 +45,11 @@ func ErrSceneNotFound(message string) *SceneError {
 		Code:    CodeSceneNotFound,
 		Message: message,
 	}
+}
+
+// IsSceneNotFound reports whether err, or anything it wraps, is a
+// scene-not-found error.
+func IsSceneNotFound(err error) bool {
+	var sceneErr *SceneError
+	return errors.As(err, &sceneErr) && sceneErr.Code == CodeSceneNotFound
 }

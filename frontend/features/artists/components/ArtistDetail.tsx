@@ -57,7 +57,7 @@ import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
-import { sceneLinkHref } from '@/lib/sceneLink'
+import { entityHref } from '@/lib/entity-slug'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
@@ -1142,9 +1142,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // it, named for the scene it opens rather than for the artist's own city (a
   // metro suburb links to its principal city's scene). Without one it is the
   // artist's plain location, and with neither it is absent.
-  const headerSubtitle = artist.scene ? (
+  const sceneHref = entityHref('/scenes', artist.scene?.slug)
+  const headerSubtitle = artist.scene && sceneHref ? (
     <Link
-      href={sceneLinkHref(artist.scene)}
+      href={sceneHref}
       className={ENTITY_LINK_CLASS.accent}
       data-testid="artist-scene-link"
     >

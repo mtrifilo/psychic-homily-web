@@ -1,14 +1,20 @@
 'use client'
 
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { googleMapsSearchUrl } from '@/lib/maps'
-import { sceneLinkHref } from '@/lib/sceneLink'
+import { entityHref } from '@/lib/entity-slug'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import { MiddotSegments } from './MiddotSegments'
 import { venueFactSegments } from './showVenueFacts'
 import type { ShowResponse } from '../types'
+
+/** The module's quiet onward links: `More at {venue}` and its scene sibling. */
+const ONWARD_LINK_CLASS =
+  'text-sm text-muted-foreground hover:text-primary transition-colors'
 
 interface ShowVenueModuleProps {
   show: ShowResponse
@@ -48,6 +54,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
   const cityState =
     formattedCityState === LOCATION_UNKNOWN ? null : formattedCityState
   const factSegments = venueFactSegments(show, venue)
+  const sceneHref = entityHref('/scenes', show.scene?.slug)
   // VERIFIED venues only. The venue's own page refuses to map an unverified
   // venue at all (city/state text, no directions, no embed) because a
   // name + city map search narrows a house show to a door — server-side
@@ -78,7 +85,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
         {venue.slug ? (
           <Link
             href={`/venues/${venue.slug}`}
-            className="text-lg text-primary/80 hover:text-primary font-medium transition-colors"
+            className={cn('text-lg', ENTITY_LINK_CLASS.accent)}
           >
             {venue.name}
           </Link>
@@ -135,7 +142,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
         {venue.slug && (
           <Link
             href={`/venues/${venue.slug}`}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            className={ONWARD_LINK_CLASS}
           >
             More at {venue.name} &rarr;
           </Link>
@@ -143,10 +150,10 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
         {/* The venue's own scene, at the same treatment as `More at` so the
             two read as siblings. `show.scene` belongs to `venues[0]`, the
             venue this module renders. */}
-        {show.scene && (
+        {show.scene && sceneHref && (
           <Link
-            href={sceneLinkHref(show.scene)}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            href={sceneHref}
+            className={ONWARD_LINK_CLASS}
             data-testid="venue-scene-link"
           >
             More shows in {show.scene.city} &rarr;

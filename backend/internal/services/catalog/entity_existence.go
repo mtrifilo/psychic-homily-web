@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 
@@ -106,19 +105,10 @@ func (s *EntityExistenceService) existsByIDOrSlug(model any, idOrSlug string, ex
 func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
 	city, state, err := s.scenes.ParseSceneSlug(slug)
 	if err != nil {
-		var sceneErr *apperrors.SceneError
-		if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
+		if apperrors.IsSceneNotFound(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	scope, err := s.scenes.scopeFor(city, state)
-	if err != nil {
-		return false, err
-	}
-	n, err := s.scenes.verifiedVenueCount(scope)
-	if err != nil {
-		return false, err
-	}
-	return n >= sceneMinVenues, nil
+	return s.scenes.sceneServesPage(city, state)
 }
