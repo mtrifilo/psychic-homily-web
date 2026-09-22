@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { SavedShowResponse } from '@/features/shows/types'
 
@@ -34,8 +35,12 @@ vi.mock('@/components/shared/SaveButton', () => ({
 vi.mock('./HomeCityShowsLink', async importOriginal => ({
   ...(await importOriginal<object>()),
   useHomeCityLinkSlot: () => mockCityLinkSlot(),
+  // next/link is mocked globally in this suite's setup, so the stand-in uses
+  // it rather than a bare <a> (which the Next lint rule rejects for a route).
   ResolvedHomeCityShowsLink: () => (
-    <a href="/shows?cities=Phoenix%2CAZ">All upcoming shows in Phoenix, AZ →</a>
+    <Link href="/shows?cities=Phoenix%2CAZ">
+      All upcoming shows in Phoenix, AZ →
+    </Link>
   ),
 }))
 const mockCityLinkSlot = vi.fn<() => 'nearby' | 'saved' | 'toolbar'>(

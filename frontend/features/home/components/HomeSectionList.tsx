@@ -64,7 +64,9 @@ export function HomeSectionList({
 }) {
   const sections = useHomeLayout(fallback)
   const { persist, reset, isResetting, hasError } = usePersistHomeLayout()
-  const { register, capture } = useFlipReorder()
+  const { register, capture } = useFlipReorder(
+    sections.map(section => section.id).join('|')
+  )
 
   // Mounted unconditionally and updated in place: assistive tech announces
   // changes WITHIN a region already on the page, so a region inserted together
@@ -117,7 +119,10 @@ export function HomeSectionList({
   const commit = useCallback(
     (next: ResolvedHomeSection[], change: HomeLayoutChange) => {
       onBeforeChange?.(change)
-      capture()
+      // Only a reorder moves these rows. A visibility toggle swaps a checkbox
+      // and a tag in place, so capturing for it would leave a measurement
+      // waiting for a move that never comes.
+      if (change.kind !== 'visibility') capture()
       persist(toHomeLayoutDocument(next))
     },
     [capture, onBeforeChange, persist]

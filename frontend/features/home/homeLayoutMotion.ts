@@ -30,14 +30,24 @@ function canAnimate(node: Element): boolean {
 /**
  * FLIP for a keyed list whose reorders originate in an event handler.
  *
- * Positions are captured on demand (`capture()` in the click handler, before
- * the state change) rather than on every render, because these lists sit
- * inside sections whose own content resizes constantly: measuring every render
- * would animate a reorder that never happened every time a show list settled.
+ * `orderKey` is a signature of the current order. It is what makes the capture
+ * survive the renders BETWEEN the click and the reorder: the write is
+ * optimistic but not synchronous, and the click itself re-renders (the live
+ * region's text changes), so an effect that consumed the capture on the next
+ * render would measure a list that had not moved yet and then have nothing
+ * left when it did.
+ *
+ * Positions are captured on demand rather than every render because these
+ * lists sit inside sections whose own content resizes constantly; measuring
+ * every render would animate a reorder that never happened every time a show
+ * list settled.
  */
-export function useFlipReorder() {
+export function useFlipReorder(orderKey: string) {
   const nodes = useRef(new Map<string, HTMLElement>())
-  const capturedTops = useRef<Map<string, number> | null>(null)
+  const pending = useRef<{
+    tops: Map<string, number>
+    orderKey: string
+  } | null>(null)
 
   // A fresh closure per render is deliberate: React detaches the previous ref
   // and reattaches this one during commit, which runs before the layout effect
@@ -52,23 +62,24 @@ export function useFlipReorder() {
 
   const capture = useCallback(() => {
     if (prefersReducedMotion()) {
-      capturedTops.current = null
+      pending.current = null
       return
     }
     const tops = new Map<string, number>()
     for (const [key, node] of nodes.current) {
       tops.set(key, node.getBoundingClientRect().top)
     }
-    capturedTops.current = tops
-  }, [])
+    pending.current = { tops, orderKey }
+  }, [orderKey])
 
   useLayoutEffect(() => {
-    const before = capturedTops.current
-    if (!before) return
-    // Consumed once: a later render that moved nothing must not replay it.
-    capturedTops.current = null
+    const captured = pending.current
+    // Nothing captured, or the order has not moved yet: keep waiting. A capture
+    // that is never followed by a move is dropped by the next capture.
+    if (!captured || captured.orderKey === orderKey) return
+    pending.current = null
     for (const [key, node] of nodes.current) {
-      const previousTop = before.get(key)
+      const previousTop = captured.tops.get(key)
       if (previousTop === undefined || !canAnimate(node)) continue
       const delta = previousTop - node.getBoundingClientRect().top
       if (Math.abs(delta) < 1) continue
@@ -85,17 +96,20 @@ export function useFlipReorder() {
 /**
  * Animate a section slot's height between zero and its natural height.
  *
- * Returns whether an animation actually started, so the caller knows to wait
- * for `onFinish` rather than unmounting immediately.
+ * Returns the running animation so the caller can cancel it, or `null` when no
+ * animation started and the caller should settle immediately. A collapse is
+ * `fill: 'forwards'`, which HOLDS the slot at zero after it finishes; the
+ * caller must cancel it if the section turns out to be staying (a failed write
+ * that rolled back), or the slot stays invisible at full height.
  */
 export function animateSlotHeight(
   node: HTMLElement,
   direction: 'collapse' | 'expand',
   onFinish: () => void
-): boolean {
-  if (prefersReducedMotion() || !canAnimate(node)) return false
+): Animation | null {
+  if (prefersReducedMotion() || !canAnimate(node)) return null
   const naturalHeight = node.getBoundingClientRect().height
-  if (naturalHeight < 1 && direction === 'collapse') return false
+  if (naturalHeight < 1) return null
 
   const frames =
     direction === 'collapse'
@@ -116,6 +130,5 @@ export function animateSlotHeight(
     fill: direction === 'collapse' ? 'forwards' : 'none',
   })
   animation.onfinish = onFinish
-  animation.oncancel = onFinish
-  return true
+  return animation
 }

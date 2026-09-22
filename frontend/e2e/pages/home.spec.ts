@@ -319,6 +319,18 @@ test.describe('Homepage (signed in)', () => {
   test('hides, reorders and resets home sections, and remembers across a reload', async ({
     authenticatedPage: page,
   }) => {
+    // Changes apply optimistically, so every UI assertion below is satisfied
+    // BEFORE the write reaches the backend. A reload taken on the strength of
+    // one of those assertions races the commit and reads the previous layout —
+    // so each gesture is paired with the response it must have landed.
+    const layoutWrite = (method: 'PUT' | 'DELETE') =>
+      page.waitForResponse(
+        response =>
+          response.url().includes('/auth/preferences/home-layout') &&
+          response.request().method() === method &&
+          response.ok()
+      )
+
     await page.goto('/')
 
     // Scoped to the list: the page carries other lists (nav, cards), and an
@@ -340,16 +352,18 @@ test.describe('Homepage (signed in)', () => {
     await expect(radioRow).toBeChecked()
 
     // Hide it: the section goes, and the row says so.
+    const hideWritten = layoutWrite('PUT')
     await radioRow.uncheck()
     await expect(radioRow).not.toBeChecked()
     await expect(radioHeading).toHaveCount(0)
+    await hideWritten
 
     // Reorder: community stats one step up, which is a swap with the nearby
     // section rather than a re-sort.
+    const moveWritten = layoutWrite('PUT')
     await page.getByRole('button', { name: 'Move Community stats up' }).click()
-    await expect(sectionRows.nth(1)).toContainText(
-      'Community stats'
-    )
+    await expect(sectionRows.nth(1)).toContainText('Community stats')
+    await moveWritten
 
     // Persisted on the account, not in this tab.
     await page.reload()
@@ -358,23 +372,24 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       page.getByRole('checkbox', { name: 'Latest radio shows' })
     ).not.toBeChecked()
-    await expect(sectionRows.nth(1)).toContainText(
-      'Community stats'
-    )
+    await expect(sectionRows.nth(1)).toContainText('Community stats')
 
     // Back to the shipped layout, so the rest of this worker's specs see the
     // page they were written against.
+    const resetWritten = layoutWrite('DELETE')
     await page.getByRole('button', { name: 'Reset to default' }).click()
     await expect(
       page.getByRole('checkbox', { name: 'Latest radio shows' })
     ).toBeChecked()
-    await expect(sectionRows.nth(1)).toContainText(
-      'Shows near you this week'
-    )
+    await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
+    await resetWritten
     await page.keyboard.press('Escape')
     await expect(radioHeading).toBeVisible()
 
     await page.reload()
     await expect(radioHeading).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: /Shows (near you )?this week/ })
+    ).toBeVisible()
   })
 })

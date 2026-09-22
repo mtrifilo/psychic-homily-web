@@ -40,7 +40,6 @@ export function HomeLayoutRuntime({
   sections: Record<HomeSectionId, ReactNode>
 }) {
   const layout = useHomeLayout(initialLayout)
-  const { register, capture } = useFlipReorder()
   const [isPopoverOpen, setPopoverOpen] = useState(false)
 
   // Staged by the gesture that caused them, never derived from the layout:
@@ -49,10 +48,22 @@ export function HomeLayoutRuntime({
   const [collapsingId, setCollapsingId] = useState<HomeSectionId | null>(null)
   const [enteringId, setEnteringId] = useState<HomeSectionId | null>(null)
 
+  // A section on its way out stays mounted until its height reaches zero.
+  const rendered = layout.filter(
+    section => section.visible || section.id === collapsingId
+  )
+  const { register, capture } = useFlipReorder(
+    rendered.map(section => section.id).join('|')
+  )
+
   const handleBeforeChange = useCallback(
     (change: HomeLayoutChange) => {
-      capture()
       if (change.kind !== 'visibility') {
+        // A reorder slides the sections between their old and new positions.
+        // A show or hide does not: the slot's own height transition is what
+        // moves everything below it, and adding a slide on top would move
+        // those sections twice.
+        capture()
         setCollapsingId(null)
         setEnteringId(null)
         return
@@ -66,10 +77,6 @@ export function HomeLayoutRuntime({
   const handleCollapsed = useCallback(() => setCollapsingId(null), [])
   const handleEntered = useCallback(() => setEnteringId(null), [])
 
-  // A section on its way out stays mounted until its height reaches zero.
-  const rendered = layout.filter(
-    section => section.visible || section.id === collapsingId
-  )
   const allHidden = layout.every(section => !section.visible)
   const cityLinkSlot = resolveCityLinkSlot(layout)
 
@@ -152,12 +159,25 @@ function HomeSectionSlot({
 
   useLayoutEffect(() => {
     if (!collapsing || !node.current) return
-    if (!animateSlotHeight(node.current, 'collapse', onCollapsed)) onCollapsed()
+    const animation = animateSlotHeight(node.current, 'collapse', onCollapsed)
+    if (!animation) {
+      onCollapsed()
+      return
+    }
+    // A collapse holds the slot at zero height after it finishes. If the write
+    // failed and the section is staying after all, this slot is still mounted
+    // and would be pinned invisible; cancelling releases it.
+    return () => animation.cancel()
   }, [collapsing, onCollapsed])
 
   useLayoutEffect(() => {
     if (!entering || !node.current) return
-    if (!animateSlotHeight(node.current, 'expand', onEntered)) onEntered()
+    const animation = animateSlotHeight(node.current, 'expand', onEntered)
+    if (!animation) {
+      onEntered()
+      return
+    }
+    return () => animation.cancel()
   }, [entering, onEntered])
 
   return (

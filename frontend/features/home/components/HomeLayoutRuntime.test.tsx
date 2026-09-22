@@ -23,9 +23,7 @@ vi.mock('../hooks/useHomeLayout', () => ({
 vi.mock('./HomeCityShowsLink', async importOriginal => ({
   ...(await importOriginal<object>()),
   ResolvedHomeCityShowsLink: () => (
-    <a href="/shows" data-testid="relocated-city-link">
-      All upcoming shows →
-    </a>
+    <span data-testid="relocated-city-link">All upcoming shows →</span>
   ),
 }))
 
