@@ -209,6 +209,23 @@ describe('SaveButton', () => {
     expect(screen.getByLabelText('Save show')).toBeInTheDocument()
   })
 
+  it('starts the accessible name with the visible label when one is shown', () => {
+    render(
+      <SaveButton
+        showId={1}
+        showLabel
+        showCount={false}
+        saveData={{ save_count: 4, is_saved: true }}
+      />
+    )
+    // The visible text is "Saved"; a voice user says that word, so the name
+    // must begin with it (WCAG 2.5.3).
+    expect(
+      screen.getByLabelText('Saved, remove from saved shows (4 saved)')
+    ).toBeInTheDocument()
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
   it('keeps the count in the accessible name when it is not painted', () => {
     render(
       <SaveButton

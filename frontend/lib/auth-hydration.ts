@@ -36,6 +36,7 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/hooks/useSavedShows'
 import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
@@ -158,6 +159,78 @@ export async function isAuthenticatedViewer(): Promise<boolean> {
   const { profile } = resolution
   return profile.success === true && profile.user != null
 }
+
+/** The three answers a page variant can get about its viewer. */
+export type HomeViewer = 'authenticated' | 'anonymous' | 'indeterminate'
+
+/**
+ * Like {@link isAuthenticatedViewer}, but keeps "could not answer" distinct
+ * from "answered: nobody". A page that has a signed-in variant uses this to
+ * fall back to a CLIENT-side switch on the indeterminate path only, so a
+ * backend blip during SSR does not pin a signed-in viewer to the logged-out
+ * page for the whole session while the chrome above shows their avatar.
+ */
+export async function resolveHomeViewer(): Promise<HomeViewer> {
+  const resolution = await fetchAuthProfile()
+  if (resolution.kind !== 'resolved') return 'indeterminate'
+  const { profile } = resolution
+  return profile.success === true && profile.user != null
+    ? 'authenticated'
+    : 'anonymous'
+}
+
+/** The rows the signed-in home paints, in the shape the client hook expects. */
+const HOME_SAVED_SHOWS_LIMIT = SAVED_SHOWS_COLLAPSED_COUNT
+
+/**
+ * Prefetch the signed-in home's saved-shows rows on the server so the first
+ * paint carries them and nothing shifts when the client query settles.
+ *
+ * The key is built the way `useSavedShows` builds it, so the client query
+ * finds this entry fresh and does not refetch on mount. A failed or absent
+ * read seeds nothing; the client query then runs as it always did.
+ */
+export const prefetchHomeSavedShows = cache(async () => {
+  const queryClient = getQueryClient()
+  const resolution = await fetchAuthProfile()
+  const userId =
+    resolution.kind === 'resolved' &&
+    resolution.profile.success === true &&
+    resolution.profile.user != null
+      ? (resolution.profile.user as { id?: unknown }).id
+      : undefined
+  const authToken = (await cookies()).get('auth_token')?.value
+  if (userId == null || !authToken) return dehydrate(queryClient)
+
+  try {
+    const params = new URLSearchParams({
+      limit: String(HOME_SAVED_SHOWS_LIMIT),
+      offset: '0',
+      time_filter: 'upcoming',
+    })
+    const response = await fetch(`${API_BASE_URL}/saved-shows?${params}`, {
+      headers: { Cookie: `auth_token=${authToken}` },
+      cache: 'no-store',
+    })
+    if (!response.ok) return dehydrate(queryClient)
+    const body: unknown = await response.json()
+    if (!body || typeof body !== 'object' || !Array.isArray((body as { shows?: unknown }).shows)) {
+      return dehydrate(queryClient)
+    }
+    await queryClient.prefetchQuery({
+      queryKey: queryKeys.savedShows.list(
+        String(userId),
+        HOME_SAVED_SHOWS_LIMIT,
+        0,
+        'upcoming'
+      ),
+      queryFn: () => body,
+    })
+  } catch {
+    // Same posture as the profile read: a failed prefetch is not an answer.
+  }
+  return dehydrate(queryClient)
+})
 
 /**
  * Resolve the authenticated viewer's saved nav-mode preference server-side, or

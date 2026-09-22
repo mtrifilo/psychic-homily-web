@@ -39,10 +39,26 @@ export interface HomeShowCitySelectionOptions {
    */
   resolveCityForCopy?: boolean
 }
+/**
+ * Where `effectiveCities` came from. A header that claims proximity must know
+ * whether the city is the viewer's own pick, a favorite, an IP-geo match, or
+ * the last-resort guess; the bare list erases that.
+ */
+export type HomeShowCitySource =
+  | 'user'
+  | 'favorites'
+  | 'geo'
+  | 'liveliest'
+  | 'none'
+
 export interface HomeShowCitySelection {
   cities: CityWithCount[]
   favoriteCities: CityState[]
   effectiveCities: CityState[]
+  source: HomeShowCitySource
+  /** True while the IP-geo tier is still deciding. A surface whose copy names
+   *  the city should hold rather than paint a city it may be about to swap. */
+  isResolving: boolean
   /** The IP-geo city to explain in the "from your location" affordance, or null
    *  when there is nothing to explain. Carries the city rather than a flag so
    *  the consumer needs no non-null assertion to render it. */
@@ -56,6 +72,11 @@ export function useHomeShowCitySelection({
 }: HomeShowCitySelectionOptions = {}): HomeShowCitySelection {
   const { authStatus } = useAuthContext()
   const { data: profileData } = useProfile()
+  // The favorites are known once the profile read has answered. For an
+  // authenticated viewer that read can lag `authStatus` (a passkey sign-in
+  // sets the user before its refetch lands), and geo must not run ahead of it.
+  const favoritesSettled =
+    authStatus !== 'authenticated' || profileData !== undefined
   const [userSelection, setUserSelection] = useState<CityState[] | null>(null)
 
   // Read favorites from profile
@@ -87,36 +108,46 @@ export function useHomeShowCitySelection({
   // arrives via the `/api/geo` edge route handler client-side. Favorites win
   // (the hook stands down when favoriteCities is non-empty); a user
   // interaction nulls the derived value.
-  const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
-    cities,
-    authStatus,
-    favoriteCities,
-    hasExistingSelection: userSelection !== null,
-    enableClientFetch: true,
-    allowAuthenticated: resolveCityForCopy,
-  })
+  const { appliedGeoDefault, notifyUserInteracted, isResolving } =
+    useGeoDefaultCity({
+      cities,
+      authStatus,
+      favoriteCities,
+      hasExistingSelection: userSelection !== null,
+      enableClientFetch: true,
+      allowAuthenticated: resolveCityForCopy,
+      favoritesSettled,
+    })
 
   // The liveliest city that has shows, by the same count the filter chips
   // display. Last resort only: it is a guess about where the viewer is, so it
-  // never outranks a favorite, a geo match, or the viewer's own pick.
+  // never outranks a favorite, a geo match, or the viewer's own pick, and it
+  // waits for geo to answer rather than filling the slot geo may still claim.
   const liveliestCity: CityState | null = useMemo(() => {
-    if (!resolveCityForCopy || cities.length === 0) return null
+    if (!resolveCityForCopy || isResolving || cities.length === 0) return null
     const top = cities.reduce((best, city) =>
       city.count > best.count ? city : best
     )
     return top.count > 0 ? { city: top.city, state: top.state } : null
-  }, [resolveCityForCopy, cities])
+  }, [resolveCityForCopy, isResolving, cities])
 
   // The effective selection, DERIVED during render: the user's explicit pick
   // wins; otherwise favorites; otherwise the anon geo default. No effect, no
   // ref — the default can't be dropped or applied late because it's computed
   // from the current inputs on every render.
-  const effectiveCities: CityState[] = useMemo(() => {
-    if (userSelection !== null) return userSelection
-    if (favoriteCities.length > 0) return favoriteCities
-    if (appliedGeoDefault) return [appliedGeoDefault]
-    return liveliestCity ? [liveliestCity] : []
+  const resolved = useMemo((): {
+    cities: CityState[]
+    source: HomeShowCitySource
+  } => {
+    if (userSelection !== null) return { cities: userSelection, source: 'user' }
+    if (favoriteCities.length > 0)
+      return { cities: favoriteCities, source: 'favorites' }
+    if (appliedGeoDefault) return { cities: [appliedGeoDefault], source: 'geo' }
+    if (liveliestCity) return { cities: [liveliestCity], source: 'liveliest' }
+    return { cities: [], source: 'none' }
   }, [userSelection, favoriteCities, appliedGeoDefault, liveliestCity])
+  const effectiveCities = resolved.cities
+  const source = resolved.source
 
   const onFilterChange = useCallback(
     (nextCities: CityState[]) => {
@@ -134,6 +165,8 @@ export function useHomeShowCitySelection({
       cities,
       favoriteCities,
       effectiveCities,
+      source,
+      isResolving,
       geoAffordanceCity: shouldShowGeoAffordance(
         appliedGeoDefault,
         effectiveCities
@@ -151,6 +184,8 @@ export function useHomeShowCitySelection({
       cities,
       favoriteCities,
       effectiveCities,
+      source,
+      isResolving,
       appliedGeoDefault,
       onFilterChange,
     ]

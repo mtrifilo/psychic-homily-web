@@ -73,21 +73,6 @@ export const SAVED_SHOWS_COLLAPSED_COUNT = 4
 const SAVED_SHOWS_NEXT_PAGE_SIZE = 100
 
 /**
- * How many upcoming saves the signed-in home reads in one request.
- *
- * It is the API's maximum page size, not the four rows the module paints,
- * because the same response also supplies the ids the nearby list must leave
- * out. Reading only the displayed four would leave every later save eligible
- * to reappear in that list — and, since the saved list is ordered by date
- * across ALL cities, a viewer whose four soonest saves are elsewhere would
- * exclude nothing at all in the city they are looking at.
- *
- * The bound is therefore real but generous: a viewer holding more than this
- * many UPCOMING saves can still see one repeat.
- */
-export const SAVED_SHOWS_HOME_READ_LIMIT = SAVED_SHOWS_NEXT_PAGE_SIZE
-
-/**
  * Fetch a date-partitioned saved-show list incrementally. The first request is
  * the collapsed row count; expansion then uses the API's maximum page size so
  * large collections remain reachable without making the initial Library load

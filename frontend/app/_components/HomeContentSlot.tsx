@@ -1,9 +1,11 @@
+import { HydrationBoundary } from '@tanstack/react-query'
 // Deep imports, not the `@/features/home` barrel: this file pulls in BOTH
 // variants, and a `'use client'` barrel is not tree-shaken per export here.
 // See features/sharedChunkBarrelGuard.test.ts.
 import { AnonymousHome } from '@/features/home/components/AnonymousHome'
+import { HomeVariantSwitch } from '@/features/home/components/HomeVariantSwitch'
 import { SignedInHome } from '@/features/home/components/SignedInHome'
-import { isAuthenticatedViewer } from '@/lib/auth-hydration'
+import { prefetchHomeSavedShows, resolveHomeViewer } from '@/lib/auth-hydration'
 
 /**
  * Picks the homepage's viewer variant on the SERVER (PSY-2103), so a signed-in
@@ -18,13 +20,25 @@ import { isAuthenticatedViewer } from '@/lib/auth-hydration'
  * boundary buys is that the variant swap suspends on its own instead of the
  * page's markup.
  *
- * The read shares `AppShell`'s nav-mode `React.cache()`, so the variant costs
- * no extra backend fetch.
+ * The profile read shares `AppShell`'s `React.cache()`, so the variant costs
+ * no extra backend fetch. A signed-in viewer's saved rows are prefetched here
+ * too, so the module's first paint is its rows rather than a skeleton.
  *
- * The anonymous branch is the fallback for an unresolved read as well as for a
- * genuinely logged-out one. See {@link isAuthenticatedViewer}.
+ * Three answers, three renders: a named viewer gets their page; an answered
+ * "nobody" gets the anonymous page; a read the backend could not answer gets
+ * the anonymous page with a client-side switch, so the viewer whose cookie is
+ * valid still reaches their page once their own profile query settles. See
+ * {@link resolveHomeViewer}.
  */
 export async function HomeContentSlot() {
-  const isSignedIn = await isAuthenticatedViewer()
-  return isSignedIn ? <SignedInHome /> : <AnonymousHome />
+  const viewer = await resolveHomeViewer()
+  if (viewer === 'authenticated') {
+    return (
+      <HydrationBoundary state={await prefetchHomeSavedShows()}>
+        <SignedInHome />
+      </HydrationBoundary>
+    )
+  }
+  if (viewer === 'indeterminate') return <HomeVariantSwitch />
+  return <AnonymousHome />
 }

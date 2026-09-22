@@ -1,4 +1,9 @@
 import { test, expect } from '../fixtures'
+import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
+import {
+  lookupWorkerUserId,
+  resetTestFixtures,
+} from '../fixtures/test-fixtures-reset'
 
 // The homepage has two server-picked viewer variants (PSY-2103). These are the
 // ANONYMOUS one; the signed-in variant has its own describe below.
@@ -153,11 +158,15 @@ test.describe('Homepage (signed in)', () => {
   // PSY-2103: the saved-shows module replaces the wordmark hero, and the
   // general "Upcoming shows" section is gone for signed-in viewers.
   //
-  // `cleanBetweenRetries` is not optional here even though this test saves
-  // nothing: it asserts the ZERO state, and the worker user is shared with
-  // every other spec on this worker. save-show.spec saves an upcoming show and
-  // unsaves it only as its last step, so any failure there leaves this test
-  // reading `rows` instead of `empty` and failing for someone else's reason.
+  // These tests assert the ZERO state on a worker user that every other spec
+  // on this worker shares, and save-show.spec unsaves only as its last step. A
+  // reset at SETUP is what protects the first attempt from a sibling's
+  // leftovers; `cleanBetweenRetries` runs at teardown and only protects a
+  // retry, so both are used.
+  test.beforeEach(async ({}, testInfo) => {
+    const authFile = userAuthFileForWorker(testInfo.workerIndex % USER_COUNT)
+    await resetTestFixtures(await lookupWorkerUserId(authFile))
+  })
   test('replaces the hero with the saved-shows module', async ({
     authenticatedPage,
     cleanBetweenRetries: _cleanup,
@@ -201,7 +210,7 @@ test.describe('Homepage (signed in)', () => {
     // The nearby list renders for every signed-in viewer, saves or none.
     await expect(
       authenticatedPage.getByRole('heading', {
-        name: 'Shows near you this week',
+        name: /Shows (near you )?this week/,
       })
     ).toBeVisible()
     await expect(
@@ -221,8 +230,10 @@ test.describe('Homepage (signed in)', () => {
   }) => {
     await authenticatedPage.goto('/')
 
+    // The heading drops "near you" when the city was only a guess (no geo in
+    // the e2e stack), so match either form.
     const nearby = authenticatedPage.getByRole('region', {
-      name: 'Shows near you this week',
+      name: /Shows (near you )?this week/,
     })
     await expect(nearby.locator('article').first()).toBeVisible({
       timeout: 10_000,
@@ -241,23 +252,22 @@ test.describe('Homepage (signed in)', () => {
     await firstRow.getByRole('button', { name: 'Save show' }).click()
 
     // No goto(): the row must cross over on invalidation alone.
+    const savedRow = savedModule.getByRole('article', {
+      name: savedTitle!,
+      exact: true,
+    })
+    await expect(savedRow).toBeVisible({ timeout: 10_000 })
     await expect(
-      savedModule.locator(`article[aria-label="${savedTitle}"]`)
-    ).toBeVisible({ timeout: 10_000 })
-    await expect(
-      nearby.locator(`article[aria-label="${savedTitle}"]`)
+      nearby.getByRole('article', { name: savedTitle!, exact: true })
     ).toHaveCount(0)
     await expect(savedModule.getByText(/1 saved/)).toBeVisible()
 
     // Unsave from the module: the row leaves it and returns to the nearby list.
-    await savedModule
-      .locator(`article[aria-label="${savedTitle}"]`)
-      .getByRole('button', { name: /^Remove from saved shows/ })
+    await savedRow
+      .getByRole('button', { name: /remove from saved shows/i })
       .click()
 
-    await expect(
-      savedModule.locator(`article[aria-label="${savedTitle}"]`)
-    ).toHaveCount(0, { timeout: 10_000 })
+    await expect(savedRow).toHaveCount(0, { timeout: 10_000 })
     await expect(
       authenticatedPage.getByText('Save a show and it shows up here.')
     ).toBeVisible()

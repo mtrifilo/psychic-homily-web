@@ -11,9 +11,12 @@ const mockUseShowSaveCountBatch = vi.fn<() => SaveCountBatchResult>(() => ({
   data: undefined,
 }))
 
+const mockRefresh = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh, push: vi.fn() }),
+}))
 vi.mock('@/features/shows/hooks/useSavedShows', () => ({
   SAVED_SHOWS_COLLAPSED_COUNT: 4,
-  SAVED_SHOWS_HOME_READ_LIMIT: 100,
   useSavedShows: (...args: unknown[]) => mockUseSavedShows(...args),
   useShowSaveCountBatch: () => mockUseShowSaveCountBatch(),
 }))
@@ -93,7 +96,7 @@ describe('SavedShowsModule', () => {
     ).toBeInTheDocument()
   })
 
-  it('reads the full upcoming page, soonest-first, scoped to the viewer', () => {
+  it('reads exactly the rows it paints, soonest-first, scoped to the viewer', () => {
     mockUseSavedShows.mockReturnValue({
       data: { shows: [], total: 0 },
       isPending: false,
@@ -104,7 +107,7 @@ describe('SavedShowsModule', () => {
 
     expect(mockUseSavedShows).toHaveBeenCalledWith({
       timeFilter: 'upcoming',
-      limit: 100,
+      limit: 4,
       userId: '42',
       enabled: true,
     })
@@ -166,6 +169,24 @@ describe('SavedShowsModule', () => {
       screen.getByText('Unable to load your saved shows.')
     ).toBeInTheDocument()
     expect(screen.queryByText(/Nothing saved yet/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the rows it already has when a refetch fails, and says so', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [savedShow(1)], total: 1 },
+      isPending: false,
+      error: new Error('boom'),
+    })
+
+    render(<SavedShowsModule nearbySectionId="nearby" />)
+
+    expect(screen.getAllByRole('article')).toHaveLength(1)
+    expect(
+      screen.queryByText('Unable to load your saved shows.')
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Could not refresh your saved shows.'
+    )
   })
 
   it('leaves the query disabled until the viewer is settled', () => {
@@ -232,6 +253,19 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     // Not a skeleton: an `enabled: false` query is pending forever, and a
     // signed-out viewer must not be left under "Welcome back".
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('asks the server to re-pick the variant once the viewer signs out', () => {
+    mockAuthStatus.mockReturnValue('anonymous')
+    mockUseSavedShows.mockReturnValue({
+      data: undefined,
+      isPending: true,
+      error: null,
+    })
+
+    render(<SavedShowsModule nearbySectionId="nearby" />)
+
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the skeleton while the viewer is unsettled', () => {

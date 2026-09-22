@@ -1,20 +1,17 @@
 'use client'
 
-import { useMemo } from 'react'
 import Link from 'next/link'
 // Concrete module paths, not the `@/features/shows` barrel — see the note in
 // SavedShowsModule and features/sharedChunkBarrelGuard.test.ts.
-import {
-  HomeShowListView,
-  type HomeShowExclusions,
-} from '@/features/shows/components/HomeShowListView'
+import { HomeShowListView } from '@/features/shows/components/HomeShowListView'
 import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCitySelection'
-import {
-  SAVED_SHOWS_HOME_READ_LIMIT,
-  useSavedShows,
-} from '@/features/shows/hooks/useSavedShows'
+import { NEXT_7_DAYS } from '@/features/shows/quickWindows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+
+/** Rows the section paints, the count on the approved board. */
+const NEARBY_ROWS = 4
 
 /**
  * "Shows near you this week" — the signed-in home's discovery list (PSY-2103).
@@ -23,18 +20,17 @@ import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
  * "Upcoming shows" section the anonymous page carries is gone for them: this is
  * how a show gets saved in the first place.
  *
- * The rows the saved module above is showing are excluded here, so the two
- * lists do not repeat one. The exclusion set is the same saved-shows read that
- * module renders — one request, shared through the query cache — and it is read
- * at the API's page size rather than the four rows painted, because the saved
- * list is ordered by date across ALL cities: reading only the four would
- * exclude nothing at all for a viewer whose soonest saves are elsewhere. A save
- * or unsave invalidates that query, which is what moves a row between the two
- * lists with no reload.
+ * The rows the saved module above is showing are left out here, so the two
+ * lists do not repeat one. The list learns which rows are saved from the batch
+ * save-count read it already makes for its hearts, so the exclusion is exact
+ * for the page and costs no second request. A save or unsave invalidates that
+ * batch and the module's read, which is what moves a row between the two lists
+ * with no reload.
  *
- * The list does not paint until that read settles. That is a deliberate gate,
- * not a parallelism claim: a row shown and then removed is worse than a row
- * shown a beat later.
+ * "This week" is a claim the list has to keep: rows are held to the next seven
+ * days. "Near you" is a claim it can only make when the city came from the
+ * viewer (their pick, their favorites, or their location); when the city is
+ * the last-resort guess, the header says so instead of asserting proximity.
  *
  * The header names the city the rows were actually fetched for: the selection
  * is owned here and handed to the list, so the two cannot drift. This surface
@@ -43,35 +39,29 @@ import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
  * both name one.
  */
 export function NearbyShowsSection({ id }: { id: string }) {
-  const { user, authStatus } = useAuthContext()
+  const { authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
   const selection = useHomeShowCitySelection({ resolveCityForCopy: true })
-  const { effectiveCities } = selection
-
-  // Same key as the saved-shows module's read, so this shares that one request
-  // rather than making a second.
-  const {
-    data: savedShows,
-    isPending: isSavedPending,
-    error: savedError,
-  } = useSavedShows({
-    timeFilter: 'upcoming',
-    limit: SAVED_SHOWS_HOME_READ_LIMIT,
-    userId: user?.id,
-    enabled: isAuthenticated,
-  })
-
-  const excludeShowIds: HomeShowExclusions = useMemo(() => {
-    // A failed read is an answer for this purpose: exclude nothing rather than
-    // hold the list at 'pending' forever, since a repeated row is recoverable
-    // and a permanent spinner is not. The module above reports the failure.
-    if (savedError) return []
-    if (isAuthenticated && isSavedPending) return 'pending'
-    return savedShows?.shows.map(show => show.id) ?? []
-  }, [savedError, isAuthenticated, isSavedPending, savedShows?.shows])
+  const { effectiveCities, source, isResolving } = selection
+  // Geo is still deciding and nothing else claimed the city: hold the list
+  // rather than fetch a city the answer may replace a beat later.
+  const isHolding = isResolving && source === 'none'
 
   const cityCount = effectiveCities.length
-  const cityNames = effectiveCities.map(cityLabel).join(', ')
+  // Prose joins with the same separator the subline uses, so two cities do not
+  // read as four; the link label below keeps the single-city form only.
+  const cityNames = effectiveCities.map(cityLabel).join(' · ')
+  const isGuessedCity = source === 'liveliest'
+  const heading =
+    isGuessedCity || isHolding ? 'Shows this week' : 'Shows near you this week'
+  const subline =
+    isHolding
+      ? 'finding your city · tap ♡ to save'
+      : cityCount === 0
+        ? 'tap ♡ to save'
+      : isGuessedCity
+        ? `${cityNames} · the liveliest scene right now · tap ♡ to save`
+        : `${cityNames} · tap ♡ to save`
   const allShowsHref =
     cityCount > 0
       ? `/shows?cities=${encodeURIComponent(buildCitiesParam(effectiveCities))}`
@@ -96,11 +86,9 @@ export function NearbyShowsSection({ id }: { id: string }) {
             id="home-nearby-shows-heading"
             className="text-2xl font-semibold tracking-tight text-foreground"
           >
-            Shows near you this week
+            {heading}
           </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {cityCount > 0 ? `${cityNames} · ` : ''}tap ♡ to save
-          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{subline}</p>
         </div>
         <Link
           href={allShowsHref}
@@ -110,11 +98,23 @@ export function NearbyShowsSection({ id }: { id: string }) {
         </Link>
       </div>
 
-      <HomeShowListView
-        selection={selection}
-        excludeShowIds={excludeShowIds}
-        excludedLabel={cityNames}
-      />
+      {isHolding ? (
+        <div className="flex justify-center items-center py-8">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-foreground"></div>
+        </div>
+      ) : (
+        <HomeShowListView
+          selection={selection}
+          rows={NEARBY_ROWS}
+          excludeSaved={isAuthenticated}
+          withinDays={NEXT_7_DAYS}
+          excludedLabel={cityCount > 0 ? cityNames : undefined}
+        />
+      )}
+
+      {/* The quiet acclimation row travels with this section so the five
+          reorderable sections stay a contiguous run for PSY-2104. */}
+      <HomeDiscoverLinks className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-2 text-sm" />
     </section>
   )
 }

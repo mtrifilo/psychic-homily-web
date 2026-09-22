@@ -29,7 +29,8 @@ import { citiesEqual } from './cityParams'
  * Resolution order:
  *   1. an authed user with `favoriteCities` wins (the caller's concern; pass
  *      `favoriteCities` so the hook stands down and never overrides them),
- *   2. anon + a geo city present in `cities` -> the CANONICAL entry from
+ *   2. anon (or, where the caller opts in, a settled authed viewer with no
+ *      favorites) + a geo city present in `cities` -> the CANONICAL entry from
  *      `cities`, never the raw header, which is what makes it injection-safe,
  *   3. otherwise no default.
  *
@@ -58,7 +59,8 @@ interface UseGeoDefaultCityParams {
   /** Cities that currently have shows (from `useShowCities`); the has-shows gate. */
   cities: CityWithCount[]
   /**
-   * The settled-auth signal. Geo applies to a SETTLED anonymous visitor only.
+   * The settled-auth signal. Geo applies to a SETTLED visitor: anonymous
+   * always, authenticated only where `allowAuthenticated` is set.
    *
    * `authStatus`, not an `isAuthenticated` / `isLoading` pair: `isLoading` is
    * false both before the profile fetch starts and after it fails without
@@ -82,17 +84,23 @@ interface UseGeoDefaultCityParams {
    *  practice with `geoFromServer`. */
   enableClientFetch?: boolean
   /**
-   * Also resolve a geo default for a SETTLED AUTHENTICATED viewer who has no
-   * favorite cities (PSY-2103's signed-in home, which names the resolved city
-   * in its copy and so must have one).
+   * Also resolve a geo default for an AUTHENTICATED viewer who has no favorite
+   * cities (PSY-2103's signed-in home, which names the resolved city in its
+   * copy and so must have one).
    *
    * Off by default, which keeps /shows and /explore on the anonymous-only rule.
-   * Safe where it is on: the gate below still requires a settled viewer, and
-   * `favoriteCities.length === 0` on a SETTLED authenticated viewer means they
-   * have none, not that theirs have yet to arrive — which is the case the
-   * anonymous-only gate exists to prevent.
+   * `authStatus === 'authenticated'` alone does NOT mean the favorites have
+   * arrived: a passkey sign-in sets the user before its profile refetch lands.
+   * So an opted-in caller must also say when the favorites are known, via
+   * `favoritesSettled`; until then the viewer is not eligible.
    */
   allowAuthenticated?: boolean
+  /**
+   * Whether `favoriteCities` reflects an answered profile read. Only consulted
+   * for an authenticated viewer under `allowAuthenticated`; defaults to true so
+   * anonymous-only callers are unaffected.
+   */
+  favoritesSettled?: boolean
 }
 
 interface UseGeoDefaultCityResult {
@@ -237,6 +245,7 @@ export function useGeoDefaultCity({
   geoFromServer,
   enableClientFetch = false,
   allowAuthenticated = false,
+  favoritesSettled = true,
 }: UseGeoDefaultCityParams): UseGeoDefaultCityResult {
   // Set once the user interacts with the filter. State (not a ref): the
   // derived default below must recompute — and the affordance drop — on the
@@ -246,13 +255,16 @@ export function useGeoDefaultCity({
   // Eligibility: a SETTLED visitor with no favorites, no existing selection and
   // no prior interaction — anonymous always, authenticated only where the
   // caller opted in (see allowAuthenticated). Gates BOTH the client fetch
-  // (efficiency: an authed / favorited visitor never hits the edge) and the
+  // (efficiency: a favorited visitor never hits the edge, and an authed one
+  // only where the caller opted in) and the
   // derived default. Waiting for the settle matters: deriving the anon geo
   // default while the viewer's identity is unknown shows geo to someone whose
   // favorites should have won.
   const eligible =
     (authStatus === 'anonymous' ||
-      (allowAuthenticated && authStatus === 'authenticated')) &&
+      (allowAuthenticated &&
+        authStatus === 'authenticated' &&
+        favoritesSettled)) &&
     favoriteCities.length === 0 &&
     !hasExistingSelection &&
     !userInteracted

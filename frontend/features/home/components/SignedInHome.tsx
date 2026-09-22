@@ -1,5 +1,4 @@
 import { CommunityPulseBand } from './CommunityPulseBand'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeSceneGraph } from './HomeSceneGraph'
 import { LatestRadioShows } from './LatestRadioShows'
 import { NearbyShowsSection } from './NearbyShowsSection'
@@ -16,15 +15,16 @@ const NEARBY_SECTION_ID = 'home-shows-near-you'
  *
  * The five sections are flat siblings in one parent, in their default order, so
  * PSY-2104 can reorder and hide them from a registry without restructuring the
- * tree. Nothing here reads a per-viewer layout preference yet, and no section
- * header carries a gear.
+ * tree; the Discover links row rides inside the nearby section so the run stays
+ * contiguous. Nothing here reads a per-viewer layout preference yet, and no
+ * section header carries a gear. A viewer who signs out while this is mounted
+ * is handled by the module, which asks the server to re-pick the variant.
  */
 export function SignedInHome() {
   return (
     <>
       <SavedShowsModule nearbySectionId={NEARBY_SECTION_ID} />
       <NearbyShowsSection id={NEARBY_SECTION_ID} />
-      <HomeDiscoverLinks className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm" />
       <CommunityPulseBand />
       <HomeSceneGraph />
       <LatestRadioShows />

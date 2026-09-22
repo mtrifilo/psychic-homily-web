@@ -2,38 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { NearbyShowsSection } from './NearbyShowsSection'
 import type { CityState } from '@/components/filters'
+import type { HomeShowCitySource } from '@/features/shows/hooks/useHomeShowCitySelection'
 
 const selection = {
   cities: [],
   favoriteCities: [] as CityState[],
   effectiveCities: [] as CityState[],
+  source: 'none' as HomeShowCitySource,
+  isResolving: false,
   geoAffordanceCity: null,
   selectionDiffersFromFavorites: false,
   onFilterChange: vi.fn(),
 }
 
 const listProps = vi.fn()
-type SavedShowsResult = {
-  data?: { shows: { id: number }[] }
-  isPending: boolean
-  error?: Error | null
-}
-const mockUseSavedShows = vi.fn<() => SavedShowsResult>(() => ({
-  data: { shows: [{ id: 7 }, { id: 9 }] },
-  isPending: false,
-}))
-
 const citySelectionOptions = vi.fn()
 vi.mock('@/features/shows/hooks/useHomeShowCitySelection', () => ({
   useHomeShowCitySelection: (options?: unknown) => {
     citySelectionOptions(options)
     return selection
   },
-}))
-vi.mock('@/features/shows/hooks/useSavedShows', () => ({
-  SAVED_SHOWS_COLLAPSED_COUNT: 4,
-  SAVED_SHOWS_HOME_READ_LIMIT: 100,
-  useSavedShows: () => mockUseSavedShows(),
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ user: { id: '42' }, authStatus: 'authenticated' }),
@@ -45,18 +33,20 @@ vi.mock('@/features/shows/components/HomeShowListView', () => ({
   },
 }))
 
+const phoenix = { city: 'Phoenix', state: 'AZ' }
+const tucson = { city: 'Tucson', state: 'AZ' }
+
 beforeEach(() => {
   selection.effectiveCities = []
+  selection.source = 'none'
+  selection.isResolving = false
   listProps.mockClear()
-  mockUseSavedShows.mockReturnValue({
-    data: { shows: [{ id: 7 }, { id: 9 }] },
-    isPending: false,
-  })
 })
 
 describe('NearbyShowsSection', () => {
   it('names the city the rows were fetched for and links to it', () => {
-    selection.effectiveCities = [{ city: 'Phoenix', state: 'AZ' }]
+    selection.effectiveCities = [phoenix]
+    selection.source = 'geo'
 
     render(<NearbyShowsSection id="nearby" />)
 
@@ -79,39 +69,66 @@ describe('NearbyShowsSection', () => {
   })
 
   it('carries every selected city in the link rather than speaking for one', () => {
-    selection.effectiveCities = [
-      { city: 'Phoenix', state: 'AZ' },
-      { city: 'Tucson', state: 'AZ' },
-    ]
+    selection.effectiveCities = [phoenix, tucson]
+    selection.source = 'favorites'
 
     render(<NearbyShowsSection id="nearby" />)
 
     expect(
       screen.getByRole('link', { name: 'All upcoming shows →' })
     ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ%7CTucson%2CAZ')
+    // Prose joins with the subline's own separator, so two cities do not read
+    // as four.
+    expect(
+      screen.getByText('Phoenix, AZ · Tucson, AZ · tap ♡ to save')
+    ).toBeInTheDocument()
   })
 
-  it('hands the list the same selection and the saved ids to drop', () => {
-    render(<NearbyShowsSection id="nearby" />)
-
-    expect(screen.getByTestId('home-show-list')).toBeInTheDocument()
-    expect(listProps).toHaveBeenCalledWith(
-      expect.objectContaining({ selection, excludeShowIds: [7, 9] })
-    )
-  })
-
-  it("reports the exclusions as pending rather than empty while they load", () => {
-    mockUseSavedShows.mockReturnValueOnce({ data: undefined, isPending: true })
+  it('does not claim proximity for a city that was only a guess', () => {
+    selection.effectiveCities = [phoenix]
+    selection.source = 'liveliest'
 
     render(<NearbyShowsSection id="nearby" />)
 
+    expect(
+      screen.getByRole('heading', { name: 'Shows this week' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Phoenix, AZ · the liveliest scene right now · tap ♡ to save')
+    ).toBeInTheDocument()
+  })
+
+  it('holds the list while geo is still deciding rather than paint a guess', () => {
+    selection.isResolving = true
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    expect(screen.queryByTestId('home-show-list')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Shows this week' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('finding your city · tap ♡ to save')
+    ).toBeInTheDocument()
+  })
+
+  it('hands the list its rows, the week window, and the saved-row exclusion', () => {
+    selection.effectiveCities = [phoenix]
+    selection.source = 'favorites'
+
+    render(<NearbyShowsSection id="nearby" />)
+
     expect(listProps).toHaveBeenCalledWith(
-      expect.objectContaining({ excludeShowIds: 'pending' })
+      expect.objectContaining({
+        selection,
+        rows: 4,
+        excludeSaved: true,
+        withinDays: 7,
+        excludedLabel: 'Phoenix, AZ',
+      })
     )
   })
-})
 
-describe('NearbyShowsSection exclusion sourcing', () => {
   it('asks the selection to resolve a city, because its copy names one', () => {
     render(<NearbyShowsSection id="nearby" />)
 
@@ -120,28 +137,11 @@ describe('NearbyShowsSection exclusion sourcing', () => {
     })
   })
 
-  it('excludes nothing rather than spinning forever when the saved read fails', () => {
-    mockUseSavedShows.mockReturnValue({
-      data: undefined,
-      isPending: false,
-      error: new Error('boom'),
-    })
-
+  it('keeps the Discover links row at its foot', () => {
     render(<NearbyShowsSection id="nearby" />)
 
-    // A repeated row is recoverable; a permanent spinner is not.
-    expect(listProps).toHaveBeenCalledWith(
-      expect.objectContaining({ excludeShowIds: [] })
-    )
-  })
-
-  it('passes the resolved city through for the all-excluded sentence', () => {
-    selection.effectiveCities = [{ city: 'Phoenix', state: 'AZ' }]
-
-    render(<NearbyShowsSection id="nearby" />)
-
-    expect(listProps).toHaveBeenCalledWith(
-      expect.objectContaining({ excludedLabel: 'Phoenix, AZ' })
-    )
+    expect(
+      screen.getByRole('navigation', { name: 'Discover' })
+    ).toBeInTheDocument()
   })
 })

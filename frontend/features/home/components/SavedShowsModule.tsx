@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SaveButton } from '@/components/shared/SaveButton'
@@ -15,7 +16,6 @@ import {
 } from '@/features/shows/components/SavedShowRow'
 import {
   SAVED_SHOWS_COLLAPSED_COUNT,
-  SAVED_SHOWS_HOME_READ_LIMIT,
   useSavedShows,
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
@@ -64,13 +64,22 @@ export function SavedShowsModule({
 }) {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
+  const router = useRouter()
 
-  // One read shared with NearbyShowsSection, which needs the full id set to
-  // exclude. See SAVED_SHOWS_HOME_READ_LIMIT for why it is not the four rows
-  // painted here.
+  // The server picked this variant from the viewer's cookie. Signing out
+  // without navigating leaves it mounted, so ask the server to pick again
+  // rather than paint a headless page; until it answers, the module renders
+  // nothing (see below).
+  useEffect(() => {
+    if (authStatus === 'anonymous') router.refresh()
+  }, [authStatus, router])
+
+  // Exactly the rows painted. The server prefetches this same key for the
+  // first paint (app/_components/HomeContentSlot.tsx), so the key must stay
+  // byte-identical to the one that prefetch builds.
   const { data, isPending, error } = useSavedShows({
     timeFilter: 'upcoming',
-    limit: SAVED_SHOWS_HOME_READ_LIMIT,
+    limit: SAVED_SHOWS_COLLAPSED_COUNT,
     userId: user?.id,
     enabled: isAuthenticated,
   })
@@ -88,13 +97,18 @@ export function SavedShowsModule({
     user?.id
   )
 
-  const state: ModuleState = error
-    ? 'error'
-    : authStatus === 'pending' || isPending
-      ? 'loading'
-      : total === 0
-        ? 'empty'
-        : 'rows'
+  // A failed REFETCH keeps the rows it already has: TanStack retains `data`
+  // alongside `error`, and un-answering a payload the viewer has seen is worse
+  // than a stale one. Only a read that never answered is an error state.
+  const state: ModuleState =
+    error && !data
+      ? 'error'
+      : authStatus === 'pending' || isPending
+        ? 'loading'
+        : total === 0
+          ? 'empty'
+          : 'rows'
+  const isStale = state === 'rows' && !!error
 
   // The server picked this variant from the viewer's cookie; a viewer who signs
   // out without navigating leaves it mounted. Say nothing rather than address
@@ -119,8 +133,7 @@ export function SavedShowsModule({
           </h1>
           {state === 'rows' && (
             <p className="mt-1.5 text-sm text-muted-foreground">
-              {total} saved · soonest first
-              <span className="hidden sm:inline"> · times are venue-local</span>
+              {total} saved · soonest first · times are venue-local
             </p>
           )}
           {state === 'empty' && (
@@ -216,6 +229,12 @@ export function SavedShowsModule({
             />
           ))}
         </div>
+      )}
+
+      {isStale && (
+        <p className="font-mono text-[11px] text-muted-foreground" role="status">
+          Could not refresh your saved shows. Showing the last list.
+        </p>
       )}
 
       {/* Shown in the zero state too: it is the only line that explains where a

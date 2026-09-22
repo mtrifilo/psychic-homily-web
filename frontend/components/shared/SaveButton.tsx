@@ -108,11 +108,16 @@ export function SaveButton({
   // is a claim about the viewer, and the unsettled window is not yet entitled
   // to make it. The control is disabled there, so it announces the neutral
   // add/remove name instead.
+  // With the visible label on, the accessible name starts with that word so
+  // the two agree (WCAG 2.5.3: the visible text must be in the name a voice
+  // user speaks); without it the name carries the whole action alone.
   const label =
     authStatus === 'anonymous'
       ? 'Sign in to save'
       : isSaved
-        ? 'Remove from saved shows'
+        ? showLabel
+          ? 'Saved, remove from saved shows'
+          : 'Remove from saved shows'
         : 'Save show'
 
   if (variant === 'bracket') {

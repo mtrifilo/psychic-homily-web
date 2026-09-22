@@ -27,6 +27,14 @@ import { describe, it, expect } from 'vitest'
 
 const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly string[]]> = [
   ['@/features/shows', () => import('@/features/shows'), ['ShowDetail']],
+  // The home variants are deep-imported by app/_components/HomeContentSlot.tsx
+  // (PSY-2103), which mounts BOTH; a barrel export would ship the signed-in
+  // module's tree to every anonymous homepage load.
+  [
+    '@/features/home',
+    () => import('@/features/home'),
+    ['AnonymousHome', 'SignedInHome', 'SavedShowsModule', 'NearbyShowsSection'],
+  ],
   ['@/features/shows/components', () => import('@/features/shows/components'), ['ShowDetail']],
   ['@/features/tags', () => import('@/features/tags'), ['TagDetail']],
   ['@/features/tags/components', () => import('@/features/tags/components'), ['TagDetail']],
