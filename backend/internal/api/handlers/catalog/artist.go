@@ -153,16 +153,11 @@ type ListArtistsRequest struct {
 const artistMissingListen = "listen"
 
 // applyArtistMissingFilter records the completeness gap a browse request asks
-// for, and refuses every other value.
+// for. It is the only reader of `missing` for the list and its city facet, so
+// the two accept and refuse the same values.
 //
-// One reader for the list and for its city facet, which publish the parameter
-// tag-for-tag: a second switch is where an endpoint that advertises a value and
-// an endpoint that refuses it come apart.
-//
-// It fails closed. huma's enum rejects an unrecognised value on the wire before
-// this runs, so the refusal answers for callers that build the request struct
-// directly, for which the alternative is rows or counts built under a different
-// rule than the one they named.
+// It fails closed: huma's enum rejects an unrecognised value on the wire, and
+// this refuses it for callers that build the request struct directly.
 func applyArtistMissingFilter(missing string, filters map[string]interface{}) error {
 	switch missing {
 	case "":

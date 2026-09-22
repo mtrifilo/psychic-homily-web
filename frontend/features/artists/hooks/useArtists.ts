@@ -35,18 +35,25 @@ import type {
   ArtistTimeFilter,
 } from '../types'
 
-interface UseArtistsOptions {
+/**
+ * The artists facet's scope: the shared tag half, plus the completeness gap
+ * only /artists takes.
+ */
+export interface ArtistCitiesScope extends CityCountScope {
+  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
+  missing?: ArtistMissingFilter
+}
+
+/**
+ * The list's options: the facet's narrowings, plus the place and the page the
+ * facet deliberately does not take.
+ */
+interface UseArtistsOptions extends ArtistCitiesScope {
   cities?: CityState[]
-  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
-  tags?: string[]
-  /** Set to 'any' to switch the tag filter to OR semantics. */
-  tagMatch?: 'all' | 'any'
   /** Rows per page. Defaults to the browse page size (PSY-1774). */
   limit?: number
   /** Rows to skip. Defaults to 0 (the first page). */
   offset?: number
-  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
-  missing?: ArtistMissingFilter
 }
 
 /**
@@ -107,15 +114,6 @@ export function useArtists(options: UseArtistsOptions = {}) {
 }
 
 /**
- * The artists facet's scope: the shared tag half, plus the completeness gap
- * only /artists takes.
- */
-export interface ArtistCitiesScope extends CityCountScope {
-  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
-  missing?: ArtistMissingFilter
-}
-
-/**
  * Hook to fetch distinct cities with artist counts for filtering, optionally
  * scoped to the filters the list below the picker is reading.
  *
@@ -124,12 +122,9 @@ export interface ArtistCitiesScope extends CityCountScope {
  *
  * Scoped, the counts can cover the EVERGREEN set: a tag filter and the gap
  * filter each drop the /artists activity gate, and the facet follows them, so a
- * city can carry a count made entirely of artists with nothing booked.
- *
- * Under the gap filter a row counts the stored city string, while the list
- * reads a picked city as its scene's metro-aware roster, so for a metro city
- * the list can hold more rows than the chip counted. The sum over every row
- * still matches the unplaced list, less the artists with no complete place.
+ * city can carry a count made entirely of artists with nothing booked. Under
+ * the gap filter a row counts the stored city string rather than the scene
+ * roster the list reads a picked city as; see the API's `missing` doc.
  */
 export function useArtistCities(scope: ArtistCitiesScope = {}) {
   const { missing, ...tagScope } = scope

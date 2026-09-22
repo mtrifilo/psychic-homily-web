@@ -13,10 +13,6 @@ import (
 // being subtracted would narrow the breakdown to the place already picked; a
 // narrowing that stopped being handed on would count a different population than
 // the rows it filters.
-//
-// It pins the subtraction, not a guarantee about filters that do not exist yet:
-// what an unread key MEANS is artistBrowseScope's decision, and a narrowing
-// reaches these counts only once GetArtistCitiesRequest accepts it.
 func TestArtistCitiesScope_SubtractsExactlyThePlaceKeys(t *testing.T) {
 	scope := artistCitiesScope(map[string]interface{}{
 		"cities":                []map[string]string{{"city": "Phoenix", "state": "AZ"}},
@@ -85,6 +81,14 @@ func sumArtistCityCounts(cities []*contracts.ArtistCityResponse) int64 {
 		sum += int64(c.ArtistCount)
 	}
 	return sum
+}
+
+func artistCountsByCity(cities []*contracts.ArtistCityResponse) map[string]int {
+	byCity := make(map[string]int, len(cities))
+	for _, c := range cities {
+		byCity[c.City] = c.ArtistCount
+	}
+	return byCity
 }
 
 // createArtistInCity places an artist, which createTestArtist deliberately does
@@ -400,10 +404,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ScopedSumEqu
 	suite.Equal(total-1, sumArtistCityCounts(cities),
 		"the sum is the list total less the one artist that names no place")
 
-	byCity := map[string]int{}
-	for _, c := range cities {
-		byCity[c.City] = c.ArtistCount
-	}
+	byCity := artistCountsByCity(cities)
 	suite.Equal(1, byCity["Phoenix"], "the untagged Phoenix artist is outside the filter")
 	suite.Equal(1, byCity["Tucson"], "a quiet artist is counted because the tag drops the activity gate")
 }
@@ -421,10 +422,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_UnfilteredKe
 	cities, err := suite.artistService.GetArtistCities(nil)
 	suite.Require().NoError(err)
 
-	byCity := map[string]int{}
-	for _, c := range cities {
-		byCity[c.City] = c.ArtistCount
-	}
+	byCity := artistCountsByCity(cities)
 	suite.Equal(1, byCity["Sedona"], "an artist with no upcoming show is outside the gated facet")
 }
 
@@ -480,10 +478,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListe
 	suite.Equal(total-2, sumArtistCityCounts(cities),
 		"the sum is the list total less the two artists that name no complete place")
 
-	byCity := map[string]int{}
-	for _, c := range cities {
-		byCity[c.City] = c.ArtistCount
-	}
+	byCity := artistCountsByCity(cities)
 	suite.Equal(2, byCity["Flagstaff"],
 		"a quiet band is counted because the gap filter drops the activity gate")
 	suite.NotContains(byCity, "Bisbee",
@@ -529,10 +524,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_MissingListe
 	suite.Equal(total, sumArtistCityCounts(cities),
 		"the sum is the list total under both filters at once")
 
-	byCity := map[string]int{}
-	for _, c := range cities {
-		byCity[c.City] = c.ArtistCount
-	}
+	byCity := artistCountsByCity(cities)
 	suite.Equal(1, byCity["Payson"])
 	suite.NotContains(byCity, "Globe", "the untagged band is outside the tag filter")
 }

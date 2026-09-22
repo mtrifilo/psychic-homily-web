@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
 	"net/url"
 	"strings"
 	"time"
@@ -1007,27 +1008,12 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 
 // artistCitiesScope is a browse filter set with the place keys removed.
 //
-// Subtraction rather than an allowlist because the place keys are the set that
-// can be closed: browsePlaceKeys names them, and dropping them is what makes
-// this response a breakdown rather than a list of the one place already picked.
-// Every other key is handed on unread, so the decision about what it means is
-// made once, by artistBrowseScope, for the list and for this breakdown alike.
-//
-// That is a weaker guarantee than it looks, and the weakness is where the next
-// bug of this shape will come from: artistBrowseScope reads a closed set of
-// keys, and the facet's map is built by GetArtistCitiesHandler from its own
-// request struct. So a narrowing added to GET /artists reaches these counts only
-// once it is added to GetArtistCitiesRequest as well. Nothing here can enforce
-// that; the params tests in city_facet_params_test.go are what hold it.
-//
-// What no key can carry is the SCENE reading. A place named on the list selects
-// that scene's metro-aware roster; with the place keys gone the counts are keyed
-// on the stored city string.
+// Every other key is handed to artistBrowseScope unread, so the list and this
+// breakdown share one reading of each narrowing. A narrowing reaches these
+// counts only once GetArtistCitiesRequest accepts it; the params tests in
+// city_facet_params_test.go hold the two request structs together.
 func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
-	scope := make(map[string]interface{}, len(filters))
-	for key, value := range filters {
-		scope[key] = value
-	}
+	scope := maps.Clone(filters)
 	for _, key := range browsePlaceKeys {
 		delete(scope, key)
 	}

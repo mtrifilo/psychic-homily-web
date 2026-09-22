@@ -79,13 +79,9 @@ func browseSkipsActiveGate(filters map[string]interface{}) bool {
 	return missingListenLinkEngaged(filters)
 }
 
-// browsePlaceKeys is every filters-map key that names a place.
-//
-// Three readers narrow by them: browseCityPairs and browseNamesACity below, and
-// artistBrowseScope's own literal-matching branch. artistCitiesScope subtracts
-// exactly this set, so a fourth place key has to be added here as well as to
-// those readers, or it survives the subtraction and narrows a per-place
-// breakdown to the place already picked.
+// browsePlaceKeys is every filters-map key that names a place. A new place key
+// must be added here, or it survives artistCitiesScope's subtraction and
+// narrows a per-place breakdown to the place already picked.
 var browsePlaceKeys = []string{"cities", "city", "state"}
 
 // browseCityPairs returns the (city, state) places a browse request names, from
