@@ -37,6 +37,12 @@ import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/savedShowsConstants'
+// `features/home/sections` is isomorphic (no 'use client'), so this server
+// helper reads real values from it rather than client references.
+import {
+  isHomeLayoutDocument,
+  type HomeLayoutDocument,
+} from '@/features/home/sections'
 import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
@@ -260,6 +266,36 @@ export const prefetchHomeSavedShows = cache(async () => {
   }
   return dehydrate(queryClient)
 })
+
+/**
+ * The authenticated viewer's stored signed-in-home layout, or `null` when
+ * there is none to apply (no session, an unreadable profile, or a viewer who
+ * has never customized). `null` means the shipped default, which is exactly
+ * what the client reader does with it.
+ *
+ * Read here rather than on the client so the FIRST paint carries the viewer's
+ * own section order. Shares `fetchAuthProfile`'s `React.cache()` with the
+ * `<AuthHydrator>` prefetch, so it adds no backend round-trip.
+ *
+ * Returned as an opaque document, not a resolved list: the merge with the
+ * registry belongs in one place, and that place is shared with the client. So
+ * is the test for what counts as a document, or a version this reader cannot
+ * apply would pass here and be discarded a layer later.
+ */
+export async function getAuthenticatedHomeLayout(): Promise<HomeLayoutDocument | null> {
+  const resolution = await fetchAuthProfile()
+  if (resolution.kind !== 'resolved') return null
+  const { profile } = resolution
+  if (!profile.success) return null
+  // `preferences`, not the user: the document is stored beside the other
+  // per-viewer preferences, and reading it off the user resolves to undefined
+  // for everyone.
+  const user = profile.user as
+    | { preferences?: { home_layout?: unknown } | null }
+    | undefined
+  const layout = user?.preferences?.home_layout
+  return isHomeLayoutDocument(layout) ? layout : null
+}
 
 /**
  * Resolve the authenticated viewer's saved nav-mode preference server-side, or

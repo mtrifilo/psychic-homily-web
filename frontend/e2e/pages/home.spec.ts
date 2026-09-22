@@ -152,6 +152,15 @@ test.describe('Homepage', () => {
       page.getByRole('contentinfo').getByText('Your music knowledge graph.')
     ).toBeVisible()
   })
+
+  test('never offers the customize-home toolbar (PSY-2104)', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(
+      page.getByRole('button', { name: 'Customize home' })
+    ).toHaveCount(0)
+    await expect(page.getByText(/your layout/i)).toHaveCount(0)
+  })
 })
 
 test.describe('Homepage (signed in)', () => {
@@ -176,7 +185,7 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       authenticatedPage.getByRole('heading', {
         name: 'Your upcoming shows',
-        level: 1,
+        level: 2,
       })
     ).toBeVisible()
 
@@ -300,6 +309,116 @@ test.describe('Homepage (signed in)', () => {
     ).toBeVisible({ timeout: 10_000 })
     await expect(
       authenticatedPage.getByRole('heading', { name: /latest radio shows/i })
+    ).toBeVisible()
+  })
+
+  // PSY-2104. One test, not four: each step depends on the one before it, and
+  // the layout it writes is stored on the worker user that every other
+  // signed-in spec shares. It therefore ENDS at the shipped default, and the
+  // reset is asserted rather than assumed.
+  // `user_preferences` is deliberately OUTSIDE the fixture-reset allowlist
+  // ("upsert-on-login; resetting would hide regressions"), so neither the
+  // per-worker teardown nor `cleanBetweenRetries` can undo what this test
+  // writes. The DELETE therefore runs here, on every outcome, rather than as
+  // the test's last line where a failure halfway through would skip it and
+  // leave every later signed-in spec on this worker running against a
+  // customized home. It covers every test in this describe on purpose: any of
+  // them could be the one that fails mid-write once more land here.
+  //
+  // The status is asserted: a cleanup that silently 401s leaves exactly the
+  // dirty state it exists to prevent, and the run still reports green.
+  test.afterEach(async ({ authenticatedPage }) => {
+    const response = await authenticatedPage.request.delete(
+      '/api/auth/preferences/home-layout'
+    )
+    expect(response.status()).toBeLessThan(400)
+  })
+
+  test('hides, reorders and resets home sections, and remembers across a reload', async ({
+    authenticatedPage: page,
+    cleanBetweenRetries: _cleanup,
+  }) => {
+    // Changes apply optimistically, so every UI assertion below is satisfied
+    // BEFORE the write reaches the backend. A reload taken on the strength of
+    // one of those assertions races the commit and reads the previous layout,
+    // so each gesture is paired with the response it must have landed.
+    const layoutWrite = (method: 'PUT' | 'DELETE') =>
+      page.waitForResponse(
+        response =>
+          response.url().includes('/auth/preferences/home-layout') &&
+          response.request().method() === method &&
+          response.ok()
+      )
+
+    await page.goto('/')
+
+    // Scoped to the list: the page carries other lists (nav, cards), and an
+    // unscoped listitem query would resolve against whichever came first.
+    const sectionRows = page
+      .getByRole('list', { name: 'Home sections' })
+      .getByRole('listitem')
+    const toolbar = page.getByRole('button', { name: 'Customize home' })
+    await expect(toolbar).toBeVisible()
+    await expect(page.getByText(/HOME · 5 SECTIONS · YOUR LAYOUT/i)).toBeVisible()
+
+    await toolbar.click()
+    // Asserted, not assumed. If a previous run left this worker's user
+    // customized, fail HERE naming the reason, rather than three assertions
+    // later in a way that reads as a product bug.
+    await expect(sectionRows).toHaveCount(5)
+    await expect(sectionRows.nth(0)).toContainText('Your upcoming shows')
+    await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
+    await expect(
+      page.getByRole('button', { name: 'Reset to default' })
+    ).toBeDisabled()
+
+    const radioHeading = page.getByRole('heading', {
+      name: /latest radio shows/i,
+    })
+    await expect(radioHeading).toBeVisible()
+
+    const radioRow = page.getByRole('checkbox', { name: 'Latest radio shows' })
+    await expect(radioRow).toBeChecked()
+
+    // Hide it: the section goes, and the row says so.
+    const hideWritten = layoutWrite('PUT')
+    await radioRow.uncheck()
+    await expect(radioRow).not.toBeChecked()
+    await expect(radioHeading).toHaveCount(0)
+    await hideWritten
+
+    // Reorder: community stats one step up, which is a swap with the nearby
+    // section rather than a re-sort.
+    const moveWritten = layoutWrite('PUT')
+    await page.getByRole('button', { name: 'Move Community stats up' }).click()
+    await expect(sectionRows.nth(1)).toContainText('Community stats')
+    await moveWritten
+
+    // Persisted on the account, not in this tab.
+    await page.reload()
+    await expect(radioHeading).toHaveCount(0)
+    await page.getByRole('button', { name: 'Customize home' }).click()
+    await expect(
+      page.getByRole('checkbox', { name: 'Latest radio shows' })
+    ).not.toBeChecked()
+    await expect(sectionRows.nth(1)).toContainText('Community stats')
+
+    // Back to the shipped layout, so the rest of this worker's specs see the
+    // page they were written against.
+    const resetWritten = layoutWrite('DELETE')
+    await page.getByRole('button', { name: 'Reset to default' }).click()
+    await expect(
+      page.getByRole('checkbox', { name: 'Latest radio shows' })
+    ).toBeChecked()
+    await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
+    await resetWritten
+    await page.keyboard.press('Escape')
+    await expect(radioHeading).toBeVisible()
+
+    await page.reload()
+    await expect(radioHeading).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: /Shows (near you )?this week/ })
     ).toBeVisible()
   })
 })

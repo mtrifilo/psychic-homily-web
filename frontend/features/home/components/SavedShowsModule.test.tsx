@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { SavedShowResponse } from '@/features/shows/types'
 
@@ -28,6 +29,23 @@ vi.mock('@/components/shared/SaveButton', () => ({
     return <button type="button">save-{props.showId}</button>
   },
 }))
+
+// PSY-2104: the relocated city link resolves its own city selection. Stubbed
+// so this suite stays about the module, and so the slot can be driven directly.
+vi.mock('./HomeCityShowsLink', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  useHomeCityLinkSlot: () => mockCityLinkSlot(),
+  // next/link is mocked globally in this suite's setup, so the stand-in uses
+  // it rather than a bare <a> (which the Next lint rule rejects for a route).
+  ResolvedHomeCityShowsLink: () => (
+    <Link href="/shows?cities=Phoenix%2CAZ">
+      All upcoming shows in Phoenix, AZ →
+    </Link>
+  ),
+}))
+const mockCityLinkSlot = vi.fn<() => 'nearby' | 'saved' | 'toolbar'>(
+  () => 'nearby'
+)
 
 const mockAuthStatus = vi.fn<() => 'pending' | 'authenticated' | 'anonymous'>(
   () => 'authenticated'
@@ -63,6 +81,7 @@ function savedShow(
 beforeEach(() => {
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
+  mockCityLinkSlot.mockReturnValue('nearby')
   saveButtonProps.mockClear()
 })
 
@@ -80,7 +99,7 @@ describe('SavedShowsModule', () => {
     render(<SavedShowsModule nearbySectionId="nearby" />)
 
     expect(
-      screen.getByRole('heading', { name: 'Your upcoming shows', level: 1 })
+      screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
     ).toBeInTheDocument()
     // The read is the full page; only the collapsed count is painted.
     expect(screen.getAllByRole('article')).toHaveLength(4)
@@ -147,7 +166,7 @@ describe('SavedShowsModule', () => {
     render(<SavedShowsModule nearbySectionId="nearby" />)
 
     expect(
-      screen.getByRole('heading', { name: 'Your upcoming shows', level: 1 })
+      screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
     ).toBeInTheDocument()
     expect(screen.queryByText(/0 saved/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Nothing saved yet/)).not.toBeInTheDocument()
@@ -255,7 +274,10 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('asks the server to re-pick the variant once the viewer signs out', () => {
+  // The post-logout re-pick moved to HomeLayoutRuntime, which a viewer cannot
+  // hide; parked here it disappeared along with this section. Pinned so it
+  // does not drift back into a hideable component.
+  it('leaves the post-logout variant re-pick to the layout shell', () => {
     mockAuthStatus.mockReturnValue('anonymous')
     mockUseSavedShows.mockReturnValue({
       data: undefined,
@@ -265,7 +287,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
 
     render(<SavedShowsModule nearbySectionId="nearby" />)
 
-    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    expect(mockRefresh).not.toHaveBeenCalled()
   })
 
   it('keeps the skeleton while the viewer is unsettled', () => {
@@ -279,7 +301,93 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     render(<SavedShowsModule nearbySectionId="nearby" />)
 
     expect(
-      screen.getByRole('heading', { name: 'Your upcoming shows', level: 1 })
+      screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
     ).toBeInTheDocument()
+  })
+
+  describe('the relocated city link (PSY-2104)', () => {
+    it('stays off the footer while the nearby section still carries it', () => {
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [savedShow(1)], total: 1 },
+        isPending: false,
+        error: null,
+      })
+
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(
+        screen.queryByRole('link', { name: /All upcoming shows/ })
+      ).not.toBeInTheDocument()
+    })
+
+    it('takes it into the footer when the nearby section is hidden', () => {
+      mockCityLinkSlot.mockReturnValue('saved')
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [savedShow(1)], total: 1 },
+        isPending: false,
+        error: null,
+      })
+
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(
+        screen.getByRole('link', { name: 'All upcoming shows in Phoenix, AZ →' })
+      ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ')
+    })
+
+    it('keeps it even when the saved-shows read failed, so it is never lost', () => {
+      mockCityLinkSlot.mockReturnValue('saved')
+      mockUseSavedShows.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        error: new Error('nope'),
+      })
+
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(
+        screen.getByRole('link', { name: 'All upcoming shows in Phoenix, AZ →' })
+      ).toBeInTheDocument()
+      // The lines that belong to a list it does not have stay away.
+      expect(
+        screen.queryByRole('link', { name: 'Subscribe to calendar →' })
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the zero state\'s way down to the nearby list', () => {
+    it('anchors to the nearby section while it is on the page', () => {
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [], total: 0 },
+        isPending: false,
+        error: null,
+      })
+
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(
+        screen.getByRole('link', { name: 'Pick from this week ↓' })
+      ).toHaveAttribute('href', '#nearby')
+    })
+
+    // The anchor's target is one of the five hideable sections, so the link
+    // has to stop pointing at it once the viewer hides it.
+    it('sends the viewer to /shows once the nearby section is hidden', () => {
+      mockCityLinkSlot.mockReturnValue('saved')
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [], total: 0 },
+        isPending: false,
+        error: null,
+      })
+
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(
+        screen.queryByRole('link', { name: 'Pick from this week ↓' })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'Find one to save →' })
+      ).toHaveAttribute('href', '/shows')
+    })
   })
 })

@@ -1,0 +1,264 @@
+'use client'
+
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuthContext } from '@/lib/context/AuthContext'
+// Concrete module path, not the `@/components/shared` barrel: this component
+// is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
+import {
+  animateSlotHeight,
+  useFlipReorder,
+  useReducedMotion,
+} from '../homeLayoutMotion'
+import { useHomeLayout, useHomeLayoutWriteFailed } from '../hooks/useHomeLayout'
+import {
+  resolveCityLinkSlot,
+  type HomeLayoutDocument,
+  type HomeSectionId,
+} from '../sections'
+import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
+import { HomeCityLinkSlotProvider } from './HomeCityShowsLink'
+import {
+  SAVE_FAILED_MESSAGE,
+  type HomeVisibilityChange,
+} from './HomeSectionList'
+
+/** A section mid-show or mid-hide, and which way it is going. */
+type SlotTransition = 'collapse' | 'expand'
+
+/**
+ * The signed-in home's client shell: the toolbar, and the sections in this
+ * viewer's order.
+ *
+ * `sections` arrives already rendered by the SERVER component above, one entry
+ * per registry id. Every section is handed over whether or not it is visible,
+ * because showing one has to paint immediately; only the ones this component
+ * renders actually mount, so a hidden section issues no request.
+ *
+ * First paint carries the viewer's own order: `initialLayout` is the document
+ * the server read on this request, and the profile query it defers to is
+ * hydrated from the same read, so hydration finds the order it rendered.
+ */
+export function HomeLayoutRuntime({
+  initialLayout,
+  sections,
+}: {
+  initialLayout?: HomeLayoutDocument | null
+  sections: Record<HomeSectionId, ReactNode>
+}) {
+  const { authStatus } = useAuthContext()
+  const router = useRouter()
+  const { sections: layout } = useHomeLayout(initialLayout)
+  const hasWriteFailed = useHomeLayoutWriteFailed()
+  const [isPopoverOpen, setPopoverOpen] = useState(false)
+
+  // The server picked this variant from the viewer's cookie; signing out
+  // without navigating leaves it mounted. This guard lives HERE, on the shell
+  // that is always present, rather than inside a section a viewer can hide:
+  // parked in the saved-shows module it disappeared with that section, and a
+  // viewer who had hidden it kept the signed-in page, the toolbar, and the
+  // previous account's layout after signing out.
+  useEffect(() => {
+    if (authStatus === 'anonymous') router.refresh()
+  }, [authStatus, router])
+
+  // Staged by the gesture that caused them, never derived from the layout: a
+  // change arriving from another device should apply instantly, not play an
+  // animation nobody asked for. A MAP, not one id, so toggling a second
+  // section does not yank the first out mid-animation.
+  const [transitions, setTransitions] = useState<
+    ReadonlyMap<HomeSectionId, SlotTransition>
+  >(() => new Map())
+
+  // Direction-aware: a cancel fires this too, and a re-show staged DURING a
+  // collapse must not have its own transition cleared by the collapse it
+  // interrupted.
+  const settleTransition = useCallback(
+    (id: HomeSectionId, direction: SlotTransition) => {
+      setTransitions(current => {
+        if (current.get(id) !== direction) return current
+        const next = new Map(current)
+        next.delete(id)
+        return next
+      })
+    },
+    []
+  )
+
+  // A section stays mounted for the whole of EITHER transition. Keeping it
+  // only for a collapse meant re-showing a section mid-collapse dropped it
+  // from the list for a frame, destroying and rebuilding its whole subtree
+  // (the graph canvas included) instead of reversing the animation.
+  const rendered = layout.filter(
+    section => section.visible || transitions.has(section.id)
+  )
+  const { register, capture } = useFlipReorder(
+    rendered.map(section => section.id)
+  )
+
+  const handleBeforeChange = useCallback(
+    (change: HomeVisibilityChange) => {
+      if (!change) {
+        // A reorder or a reset slides the sections between their old and new
+        // positions. A show or hide does not: the slot's own height transition
+        // is what moves everything below it.
+        capture()
+        return
+      }
+      setTransitions(current => {
+        const next = new Map(current)
+        next.set(change.id, change.visible ? 'expand' : 'collapse')
+        return next
+      })
+    },
+    [capture]
+  )
+
+  // Read from `rendered`, not `layout`: a section still collapsing is on
+  // screen, and calling the page empty while it animates would unmount it
+  // before it finished and strand it in the transition map forever.
+  const allHidden = rendered.length === 0
+  const cityLinkSlot = resolveCityLinkSlot(layout)
+
+  // Say nothing rather than address a viewer who is no longer there. The
+  // effect above has already asked the server for the anonymous page.
+  if (authStatus === 'anonymous') return null
+
+  return (
+    <HomeCityLinkSlotProvider value={cityLinkSlot}>
+      <div className="flex w-full flex-col">
+        {/* The page's only h1, deliberately outside the sections: every one of
+            them is hideable, so a heading that lived in one would take the
+            document's top-level heading with it. */}
+        <h1 className="sr-only">Home</h1>
+
+        <CustomizeHomeToolbar
+          open={isPopoverOpen}
+          onOpenChange={setPopoverOpen}
+          initialLayout={initialLayout}
+          onBeforeChange={handleBeforeChange}
+          withCityLink={cityLinkSlot === 'toolbar'}
+        />
+
+        {/* The failure line lives on the ALWAYS-present toolbar row, not only
+            inside the popover: the write outlives the popover, so a viewer who
+            closed it would otherwise watch their change silently undo itself
+            with no explanation anywhere. */}
+        {hasWriteFailed && (
+          <div className="mt-3">
+            <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
+          </div>
+        )}
+
+        {allHidden ? (
+          <p className="mt-6 text-sm text-muted-foreground">
+            You have hidden every section.{' '}
+            <button
+              type="button"
+              onClick={() => setPopoverOpen(true)}
+              className="font-medium text-primary transition-colors hover:underline underline-offset-4"
+            >
+              Customize home →
+            </button>
+          </p>
+        ) : (
+          // The gap rides INSIDE each slot rather than on the container: on
+          // the container it survives the height animation and vanishes at
+          // unmount, snapping everything below up by its full height. It also
+          // cannot be padding on the slot itself, because padding floors a
+          // border-box element's rendered height, so the slot would stop 56px
+          // short of collapsing and drop that at unmount instead.
+          <div className="mt-4 flex w-full flex-col">
+            {rendered.map((section, index) => (
+              <HomeSectionSlot
+                key={section.id}
+                id={section.id}
+                registerRef={register(section.id)}
+                transition={transitions.get(section.id)}
+                isLast={index === rendered.length - 1}
+                onSettled={settleTransition}
+              >
+                {sections[section.id]}
+              </HomeSectionSlot>
+            ))}
+          </div>
+        )}
+      </div>
+    </HomeCityLinkSlotProvider>
+  )
+}
+
+/**
+ * One section's place in the column, and the only element that animates on a
+ * show or hide.
+ *
+ * The wrapper exists so the height transition has something to animate that is
+ * not the section's own layout: sections set their own flex column and gaps,
+ * and overriding those from outside would be a different bug on each one.
+ */
+function HomeSectionSlot({
+  id,
+  registerRef,
+  transition,
+  isLast,
+  onSettled,
+  children,
+}: {
+  id: HomeSectionId
+  registerRef: (node: HTMLElement | null) => void
+  transition: SlotTransition | undefined
+  isLast: boolean
+  onSettled: (id: HomeSectionId, direction: SlotTransition) => void
+  children: ReactNode
+}) {
+  const node = useRef<HTMLDivElement | null>(null)
+  const reducedMotion = useReducedMotion()
+
+  const setNode = (element: HTMLDivElement | null) => {
+    node.current = element
+    registerRef(element)
+  }
+
+  useLayoutEffect(() => {
+    if (!transition || !node.current) return
+    const animation = animateSlotHeight(
+      node.current,
+      transition,
+      reducedMotion,
+      () => onSettled(id, transition)
+    )
+    if (!animation) {
+      onSettled(id, transition)
+      return
+    }
+    // A collapse holds the slot at zero height after it finishes. If the write
+    // failed and the section is staying after all, this slot is still mounted
+    // and would be pinned invisible; cancelling releases it, and the cancel
+    // handler settles the transition either way.
+    return () => animation.cancel()
+  }, [id, onSettled, reducedMotion, transition])
+
+  return (
+    <div
+      ref={setNode}
+      // Clipped only while a height is being animated: a section's own content
+      // (popovers, the graph's hover chrome) may legitimately overflow at rest.
+      style={transition ? { overflow: 'hidden' } : undefined}
+      // A collapsing section is leaving; keep it out of the a11y tree and out
+      // of the tab order for the frames it is still painted.
+      aria-hidden={transition === 'collapse' || undefined}
+      className="w-full"
+    >
+      {/* The spacer is a CHILD so the slot's height animation encloses it. */}
+      <div className={isLast ? undefined : 'pb-14'}>{children}</div>
+    </div>
+  )
+}
