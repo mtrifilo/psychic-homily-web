@@ -13,16 +13,14 @@ import {
 const persist = vi.fn()
 const reset = vi.fn()
 let layout = resolveHomeLayout(null)
+let isReady = true
+let hasStoredLayout = true
 let hasError = false
 
 vi.mock('../hooks/useHomeLayout', () => ({
-  useHomeLayout: () => layout,
-  usePersistHomeLayout: () => ({
-    persist,
-    reset,
-    isResetting: false,
-    hasError,
-  }),
+  useHomeLayout: () => ({ sections: layout, isReady, hasStoredLayout }),
+  useHomeLayoutWriteFailed: () => hasError,
+  usePersistHomeLayout: () => ({ persist, reset, isResetting: false }),
 }))
 
 /** The list writes into the profile cache in production; here the mocked
@@ -33,6 +31,8 @@ function applyDocument(document: HomeLayoutDocument) {
 
 beforeEach(() => {
   layout = resolveHomeLayout(null)
+  isReady = true
+  hasStoredLayout = true
   hasError = false
   persist.mockReset()
   reset.mockReset()
@@ -185,13 +185,38 @@ describe('HomeSectionList', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Community stats shown')
   })
 
-  it('disables reset on the shipped layout and enables it after a change', () => {
+  it('offers reset while a document is STORED, not only while it differs from the default', () => {
+    // A viewer who customized and changed their mind back still holds a row;
+    // only DELETE clears it, so the control has to stay reachable.
+    hasStoredLayout = false
     const { rerender } = render(<HomeSectionList />)
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled()
 
-    layout = setHomeSectionVisibility(layout, 'radio_shows', false)
+    hasStoredLayout = true
     rerender(<HomeSectionList />)
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeEnabled()
+  })
+
+  // The list PUTs the whole document built from what it is rendering, so a
+  // write issued before the profile answers would persist the shipped default
+  // over whatever the viewer had stored.
+  it('refuses to write anything until the viewer\'s layout has actually loaded', async () => {
+    const user = userEvent.setup()
+    isReady = false
+    render(<HomeSectionList />)
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Community stats' })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Move Community stats up' })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Reset to default' })
+    ).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Community stats' }))
+    expect(persist).not.toHaveBeenCalled()
   })
 
   it('resets through the DELETE path, not a PUT of the default document', async () => {
@@ -206,6 +231,8 @@ describe('HomeSectionList', () => {
   })
 
   it('shows one inline line when a write fails', () => {
+    // Read from the shared mutation cache, not this list's own observer, so
+    // the toolbar can report the same failure after the popover closes.
     hasError = true
     render(<HomeSectionList />)
 

@@ -10,14 +10,33 @@ import {
 } from '../sections'
 
 let layout: ResolvedHomeSection[] = resolveHomeLayout(null)
+let hasWriteFailed = false
 
 vi.mock('../hooks/useHomeLayout', () => ({
-  useHomeLayout: () => layout,
+  useHomeLayout: () => ({
+    sections: layout,
+    isReady: true,
+    hasStoredLayout: true,
+  }),
+  useHomeLayoutWriteFailed: () => hasWriteFailed,
   usePersistHomeLayout: () => ({
     persist: vi.fn(),
     reset: vi.fn(),
     isResetting: false,
-    hasError: false,
+  }),
+}))
+
+const mockRefresh = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh, push: vi.fn() }),
+}))
+
+let authStatus: 'pending' | 'authenticated' | 'anonymous' = 'authenticated'
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    authStatus,
+    isAuthenticated: authStatus === 'authenticated',
+    user: authStatus === 'authenticated' ? { id: '42' } : null,
   }),
 }))
 
@@ -42,6 +61,9 @@ function renderedOrder() {
 
 beforeEach(() => {
   layout = resolveHomeLayout(null)
+  hasWriteFailed = false
+  authStatus = 'authenticated'
+  mockRefresh.mockClear()
 })
 
 describe('HomeLayoutRuntime', () => {
@@ -153,6 +175,62 @@ describe('HomeLayoutRuntime', () => {
     expect(
       screen.getByText(/You have hidden every section\./)
     ).toBeInTheDocument()
+    expect(renderedOrder()).toEqual([])
+  })
+
+  // The page's h1 lives on the shell, not in a section, because every section
+  // is hideable and a heading inside one would take the document's top-level
+  // heading with it.
+  it('keeps exactly one h1 whatever the viewer hides', () => {
+    layout = setHomeSectionVisibility(
+      resolveHomeLayout(null),
+      'saved_shows',
+      false
+    )
+    const { rerender } = render(
+      <HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />
+    )
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+
+    layout = resolveHomeLayout(null).map(section => ({
+      ...section,
+      visible: false,
+    }))
+    rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  })
+
+  // The write outlives the popover, so the failure has to be reported by
+  // something the popover closing cannot unmount.
+  it('reports a failed write on the toolbar row, outside the popover', () => {
+    hasWriteFailed = true
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not save your layout. Try again.'
+    )
+    // The popover is closed; the line is on the page regardless.
+    expect(
+      screen.queryByRole('checkbox', { name: 'Community stats' })
+    ).not.toBeInTheDocument()
+  })
+
+  // The post-logout re-pick used to live inside the saved-shows section, which
+  // a viewer can hide. Hidden, nothing asked the server for the anonymous page
+  // and the signed-out viewer kept the previous account's layout on screen.
+  it('asks the server to re-pick the variant when the viewer signs out, with every section hidden', () => {
+    authStatus = 'anonymous'
+    layout = resolveHomeLayout(null).map(section => ({
+      ...section,
+      visible: false,
+    }))
+
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByRole('button', { name: /customize home/i })
+    ).not.toBeInTheDocument()
     expect(renderedOrder()).toEqual([])
   })
 })

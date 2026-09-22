@@ -185,7 +185,7 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       authenticatedPage.getByRole('heading', {
         name: 'Your upcoming shows',
-        level: 1,
+        level: 2,
       })
     ).toBeVisible()
 
@@ -316,8 +316,22 @@ test.describe('Homepage (signed in)', () => {
   // the layout it writes is stored on the worker user that every other
   // signed-in spec shares. It therefore ENDS at the shipped default, and the
   // reset is asserted rather than assumed.
+  // `user_preferences` is deliberately OUTSIDE the fixture-reset allowlist
+  // ("upsert-on-login; resetting would hide regressions"), so neither the
+  // per-worker teardown nor `cleanBetweenRetries` can undo what this test
+  // writes. The DELETE therefore runs here, on every outcome, rather than as
+  // the test's last line where a failure halfway through would skip it and
+  // leave every later signed-in spec on this worker running against a
+  // customized home.
+  test.afterEach(async ({ authenticatedPage }) => {
+    await authenticatedPage.request.delete(
+      '/api/auth/preferences/home-layout'
+    )
+  })
+
   test('hides, reorders and resets home sections, and remembers across a reload', async ({
     authenticatedPage: page,
+    cleanBetweenRetries: _cleanup,
   }) => {
     // Changes apply optimistically, so every UI assertion below is satisfied
     // BEFORE the write reaches the backend. A reload taken on the strength of
@@ -342,12 +356,22 @@ test.describe('Homepage (signed in)', () => {
     await expect(toolbar).toBeVisible()
     await expect(page.getByText(/HOME · 5 SECTIONS · YOUR LAYOUT/i)).toBeVisible()
 
+    await toolbar.click()
+    // Asserted, not assumed. If a previous run left this worker's user
+    // customized, fail HERE naming the reason, rather than three assertions
+    // later in a way that reads as a product bug.
+    await expect(sectionRows).toHaveCount(5)
+    await expect(sectionRows.nth(0)).toContainText('Your upcoming shows')
+    await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
+    await expect(
+      page.getByRole('button', { name: 'Reset to default' })
+    ).toBeDisabled()
+
     const radioHeading = page.getByRole('heading', {
       name: /latest radio shows/i,
     })
     await expect(radioHeading).toBeVisible()
 
-    await toolbar.click()
     const radioRow = page.getByRole('checkbox', { name: 'Latest radio shows' })
     await expect(radioRow).toBeChecked()
 

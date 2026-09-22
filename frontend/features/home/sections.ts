@@ -210,21 +210,6 @@ export function setHomeSectionVisibility(
   )
 }
 
-/** Whether this list is the shipped layout, so the reset control can say
- *  whether it has anything to do. */
-export function isDefaultHomeLayout(
-  sections: readonly ResolvedHomeSection[]
-): boolean {
-  return (
-    sections.length === HOME_SECTIONS.length &&
-    sections.every(
-      (section, index) =>
-        section.id === HOME_SECTIONS[index].id &&
-        section.visible === HOME_SECTIONS[index].defaultVisible
-    )
-  )
-}
-
 /**
  * Where the "All upcoming shows in {city} →" link renders for a given layout.
  *

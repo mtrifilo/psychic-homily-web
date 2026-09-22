@@ -15,11 +15,19 @@ const NEARBY_SECTION_ID = 'home-shows-near-you'
  * — /shows stays one click away via "Find a show" and the nearby section's
  * city link.
  *
- * A SERVER component, deliberately: it holds the map from registry id to
- * component, which is the one thing the isomorphic registry (`../sections`)
- * must not carry. Order and visibility come from `layout`, the document the
- * server read for this request, so the first paint is already this viewer's
- * page; `HomeLayoutRuntime` owns everything that changes after hydration.
+ * It holds the map from registry id to component, which is the one thing the
+ * isomorphic registry (`../sections`) must not carry. Order and visibility
+ * come from `layout`, the document the server read for this request, so the
+ * first paint is already this viewer's page; `HomeLayoutRuntime` owns
+ * everything that changes after hydration.
+ *
+ * ISOMORPHIC, not server-only. It renders as a server component under
+ * `HomeContentSlot` and as a CLIENT component under `HomeVariantSwitch`, the
+ * fallback used when the server's viewer read failed. Nothing server-only may
+ * be called here: that path fires on a backend blip, so a `cookies()` or a
+ * `fetch` added in this file would break only in production. An OMITTED
+ * `layout` means the server had no answer, which is not the same as `null`
+ * ("this viewer has no stored layout") and must not be passed as one.
  *
  * All five sections are handed over whether or not they are visible, because
  * showing one has to paint without a round-trip. A section the runtime does
@@ -31,7 +39,7 @@ const NEARBY_SECTION_ID = 'home-shows-near-you'
 export function SignedInHome({
   layout,
 }: {
-  layout: HomeLayoutDocument | null
+  layout?: HomeLayoutDocument | null
 }) {
   return (
     <HomeLayoutRuntime

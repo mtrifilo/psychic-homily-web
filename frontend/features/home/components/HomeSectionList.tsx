@@ -15,9 +15,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import { cn } from '@/lib/utils'
 import { useFlipReorder } from '../homeLayoutMotion'
-import { useHomeLayout, usePersistHomeLayout } from '../hooks/useHomeLayout'
 import {
-  isDefaultHomeLayout,
+  useHomeLayout,
+  useHomeLayoutWriteFailed,
+  usePersistHomeLayout,
+} from '../hooks/useHomeLayout'
+import {
   moveHomeSection,
   setHomeSectionVisibility,
   toHomeLayoutDocument,
@@ -40,7 +43,9 @@ export type HomeVisibilityChange = {
 
 type MoveDirection = 'up' | 'down'
 
-const SAVE_FAILED_MESSAGE = 'Could not save your layout. Try again.'
+/** Shared with the toolbar, which reports the same failure when the popover
+ *  has already closed. */
+export const SAVE_FAILED_MESSAGE = 'Could not save your layout. Try again.'
 
 function focusKey(id: HomeSectionId, direction: MoveDirection): string {
   return `${id}:${direction}`
@@ -68,8 +73,9 @@ export function HomeSectionList({
   footerAction?: ReactNode
   className?: string
 }) {
-  const sections = useHomeLayout(initialLayout)
-  const { persist, reset, isResetting, hasError } = usePersistHomeLayout()
+  const { sections, isReady, hasStoredLayout } = useHomeLayout(initialLayout)
+  const { persist, reset, isResetting } = usePersistHomeLayout()
+  const hasError = useHomeLayoutWriteFailed()
   const { register, capture } = useFlipReorder(
     sections.map(section => section.id)
   )
@@ -124,6 +130,7 @@ export function HomeSectionList({
 
   const handleMove = useCallback(
     (section: ResolvedHomeSection, direction: MoveDirection) => {
+      if (!isReady) return
       const next = moveHomeSection(sections, section.id, direction)
       // Null means the row was already at that end. Nothing to announce,
       // animate or persist.
@@ -138,11 +145,12 @@ export function HomeSectionList({
       capture()
       persist(toHomeLayoutDocument(next))
     },
-    [capture, onBeforeChange, persist, sections]
+    [capture, isReady, onBeforeChange, persist, sections]
   )
 
   const handleToggle = useCallback(
     (section: ResolvedHomeSection, visible: boolean) => {
+      if (!isReady) return
       setAnnouncement(`${section.title} ${visible ? 'shown' : 'hidden'}`)
       // No capture: the slot's own height transition is what moves the
       // sections below it, and a slide on top of that would move them twice.
@@ -153,17 +161,22 @@ export function HomeSectionList({
         )
       )
     },
-    [onBeforeChange, persist, sections]
+    [isReady, onBeforeChange, persist, sections]
   )
 
   const handleReset = useCallback(() => {
+    if (!isReady) return
     setAnnouncement('Home layout reset to default.')
     onBeforeChange?.(null)
     capture()
     reset()
-  }, [capture, onBeforeChange, reset])
+  }, [capture, isReady, onBeforeChange, reset])
 
-  const isDefault = isDefaultHomeLayout(sections)
+  // Enabled while a document is STORED, not merely while the list differs from
+  // the shipped order. A viewer who customized and changed their mind back
+  // still holds a row that only DELETE clears, and leaving them no way to
+  // clear it would pin them to today's default after it changes.
+  const canReset = isReady && hasStoredLayout
 
   return (
     <div className={className}>
@@ -183,20 +196,21 @@ export function HomeSectionList({
                 ref={registerButton(focusKey(section.id, 'up'))}
                 direction="up"
                 title={section.title}
-                disabled={index === 0}
+                disabled={!isReady || index === 0}
                 onClick={() => handleMove(section, 'up')}
               />
               <MoveButton
                 ref={registerButton(focusKey(section.id, 'down'))}
                 direction="down"
                 title={section.title}
-                disabled={index === sections.length - 1}
+                disabled={!isReady || index === sections.length - 1}
                 onClick={() => handleMove(section, 'down')}
               />
             </div>
 
             <Checkbox
               checked={section.visible}
+              disabled={!isReady}
               onCheckedChange={checked => handleToggle(section, checked === true)}
               aria-labelledby={`home-section-title-${section.id}`}
               aria-describedby={`home-section-description-${section.id}`}
@@ -238,11 +252,14 @@ export function HomeSectionList({
           variant="link"
           size="sm"
           onClick={handleReset}
-          disabled={isDefault || isResetting}
+          disabled={!canReset || isResetting}
           className="h-auto p-0 text-sm text-muted-foreground no-underline hover:text-primary"
         >
           Reset to default
         </Button>
+        <span className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+          Changes apply immediately
+        </span>
         {footerAction}
       </div>
 
@@ -282,7 +299,10 @@ function MoveButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={`Move ${title} ${direction}`}
-      className="h-4 w-5 p-0 text-muted-foreground hover:text-primary disabled:opacity-30"
+      // 24px square: below that, the two stacked arrows are close enough on a
+      // touch screen that a mis-tap hits the OTHER one, which moves the
+      // section the wrong way and persists it. WCAG 2.5.8.
+      className="h-6 w-6 p-0 text-muted-foreground hover:text-primary disabled:opacity-30"
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
     </Button>

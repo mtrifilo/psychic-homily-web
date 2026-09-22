@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapperWithClient } from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
@@ -24,6 +24,14 @@ vi.mock('@/features/auth/hooks/useAuth', () => ({
 
 const CUSTOM: HomeLayoutDocument = toHomeLayoutDocument(
   moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
+)
+
+const CUSTOM_TWO_STEPS: HomeLayoutDocument = toHomeLayoutDocument(
+  moveHomeSection(
+    moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!,
+    'radio_shows',
+    'up'
+  )!
 )
 
 /**
@@ -71,7 +79,7 @@ describe('useHomeLayout', () => {
       wrapper: createWrapperWithClient(createClient()),
     })
 
-    expect(result.current.map(s => s.id)).toEqual([
+    expect(result.current.sections.map(section => section.id)).toEqual([
       'saved_shows',
       'nearby_shows',
       'community_stats',
@@ -87,7 +95,7 @@ describe('useHomeLayout', () => {
       wrapper: createWrapperWithClient(createClient()),
     })
 
-    expect(result.current.map(s => s.id)).toEqual(
+    expect(result.current.sections.map(section => section.id)).toEqual(
       resolveHomeLayout(null).map(s => s.id)
     )
   })
@@ -99,7 +107,7 @@ describe('useHomeLayout', () => {
       wrapper: createWrapperWithClient(createClient()),
     })
 
-    expect(result.current.map(s => s.id)).toEqual(
+    expect(result.current.sections.map(section => section.id)).toEqual(
       resolveHomeLayout(null).map(s => s.id)
     )
   })
@@ -266,5 +274,109 @@ describe('the server echo', () => {
       queryKeys.auth.profile
     ) as ReturnType<typeof profilePayload>
     expect(cached.user.preferences.home_layout).toBeNull()
+  })
+})
+
+describe('concurrent writes', () => {
+  /** A PUT whose response the test releases by hand. */
+  function deferredApi() {
+    const pending: Array<{
+      body: unknown
+      resolve: (value: unknown) => void
+      reject: (error: Error) => void
+    }> = []
+    apiRequest.mockImplementation(
+      (_endpoint: string, options: { method: string; body?: string }) =>
+        new Promise((resolve, reject) => {
+          pending.push({
+            body: options.body ? JSON.parse(options.body) : null,
+            resolve,
+            reject,
+          })
+        })
+    )
+    return pending
+  }
+
+  // Moving a section three slots is three clicks, so two writes in flight is
+  // the ordinary path. Only the LAST ISSUED write may touch the cache when it
+  // settles; otherwise a slow response from an earlier click reverts a gesture
+  // the viewer already watched apply.
+  it('ignores an earlier write that answers after a later one', async () => {
+    const pending = deferredApi()
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+
+    const { result } = renderHook(() => useWriteHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    const first = toHomeLayoutDocument(
+      moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
+    )
+    act(() => result.current.mutate(first))
+    await waitFor(() => expect(pending).toHaveLength(1))
+    act(() => result.current.mutate(CUSTOM_TWO_STEPS))
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    // The LATER write answers first, then the earlier one.
+    await act(async () => {
+      pending[1].resolve({ success: true, message: 'ok', home_layout: CUSTOM_TWO_STEPS })
+      pending[0].resolve({ success: true, message: 'ok', home_layout: first })
+    })
+
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.preferences.home_layout).toEqual(CUSTOM_TWO_STEPS)
+  })
+
+  // Symmetrically: an earlier FAILURE must not roll back to a snapshot that
+  // predates a later write the viewer has already seen applied.
+  it('ignores an earlier failure that lands after a later write', async () => {
+    const pending = deferredApi()
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+
+    const { result } = renderHook(() => useWriteHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    act(() => result.current.mutate(CUSTOM))
+    await waitFor(() => expect(pending).toHaveLength(1))
+    act(() => result.current.mutate(CUSTOM_TWO_STEPS))
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    await act(async () => {
+      pending[1].resolve({ success: true, message: 'ok', home_layout: CUSTOM_TWO_STEPS })
+      pending[0].reject(new Error('nope'))
+    })
+
+    const cached = queryClient.getQueryData(
+      queryKeys.auth.profile
+    ) as ReturnType<typeof profilePayload>
+    expect(cached.user.preferences.home_layout).toEqual(CUSTOM_TWO_STEPS)
+  })
+})
+
+describe('a write that outlives its session', () => {
+  // `logout()` clears the query cache without cancelling in-flight requests.
+  // Restoring a whole profile snapshot in onError would REBUILD the cleared
+  // entry and repaint the signed-out viewer as signed in.
+  it('does not put the previous viewer back into a cleared cache', async () => {
+    apiRequest.mockRejectedValue(new Error('401'))
+    const queryClient = createClient()
+    queryClient.setQueryData(queryKeys.auth.profile, profilePayload(null))
+
+    const { result } = renderHook(() => useWriteHomeLayout(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    result.current.mutate(CUSTOM)
+    // The viewer signs out while the PUT is in flight.
+    queryClient.clear()
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(queryClient.getQueryData(queryKeys.auth.profile)).toBeUndefined()
   })
 })

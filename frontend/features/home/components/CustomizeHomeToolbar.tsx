@@ -24,8 +24,11 @@ import {
  * when the page reorders behind it. Anonymous viewers never reach this
  * component: the server picks the signed-in variant before paint.
  *
- * The popover is used at every width. At 390px it is capped to the viewport
- * with a gutter, which fits the five rows without the modal weight of a sheet.
+ * The popover is used at every width: capped to the viewport with a gutter so
+ * it fits at 390px without the modal weight of a sheet, and capped to the
+ * available HEIGHT so a short viewport (a landscape phone, a small window, or
+ * simply more sections than five) scrolls the rows rather than putting the
+ * footer out of reach.
  */
 export function CustomizeHomeToolbar({
   open,
@@ -60,7 +63,7 @@ export function CustomizeHomeToolbar({
         </PopoverTrigger>
         <PopoverContent
           align="end"
-          className="w-[min(24rem,calc(100vw-2rem))]"
+          className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-y-auto"
           aria-label="Customize home"
         >
           <div className="px-4 pb-3 pt-4">

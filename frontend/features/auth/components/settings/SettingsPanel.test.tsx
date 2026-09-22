@@ -68,9 +68,15 @@ vi.mock('@/features/auth', () => ({
 // profile through the CONCRETE hook module, which the `@/features/auth` barrel
 // mock above does not cover; a live query would leave TanStack's timers behind
 // and break the fake-timer unmount assertion below.
+let mockHomeLayout: unknown = null
 vi.mock('@/features/auth/hooks/useAuth', async importOriginal => ({
   ...(await importOriginal<object>()),
-  useProfile: () => ({ data: undefined }),
+  useProfile: () => ({
+    data: {
+      success: true,
+      user: { id: 7, preferences: { home_layout: mockHomeLayout } },
+    },
+  }),
 }))
 
 vi.mock('./change-password', () => ({
@@ -181,6 +187,32 @@ describe('SettingsPanel', () => {
         screen.getByRole('button', { name: `Move ${section.title} up` })
       ).toBeInTheDocument()
     }
+  })
+
+  // Asserting the DEFAULT layout here would pass for a card that ignored the
+  // stored document entirely, which is the whole thing the mirror promises.
+  it('renders the Home page card in the viewer\'s STORED order, not the default', () => {
+    mockHomeLayout = {
+      version: 1,
+      sections: [
+        { id: 'radio_shows', visible: true },
+        { id: 'saved_shows', visible: true },
+        { id: 'nearby_shows', visible: false },
+        { id: 'community_stats', visible: true },
+        { id: 'city_graph', visible: true },
+      ],
+    }
+
+    renderWithProviders(<SettingsPanel />)
+
+    const rows = screen
+      .getByRole('list', { name: 'Home sections' })
+      .querySelectorAll('li')
+    expect(rows[0]).toHaveTextContent('Latest radio shows')
+    expect(rows[1]).toHaveTextContent('Your upcoming shows')
+    expect(
+      screen.getByRole('checkbox', { name: 'Shows near you this week' })
+    ).not.toBeChecked()
   })
 
   it('renders NotificationSettings component', () => {

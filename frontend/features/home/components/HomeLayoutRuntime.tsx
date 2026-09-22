@@ -1,12 +1,24 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuthContext } from '@/lib/context/AuthContext'
+// Concrete module path, not the `@/components/shared` barrel: this component
+// is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import {
   animateSlotHeight,
   useFlipReorder,
   useReducedMotion,
 } from '../homeLayoutMotion'
-import { useHomeLayout } from '../hooks/useHomeLayout'
+import { useHomeLayout, useHomeLayoutWriteFailed } from '../hooks/useHomeLayout'
 import {
   resolveCityLinkSlot,
   type HomeLayoutDocument,
@@ -14,7 +26,7 @@ import {
 } from '../sections'
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
 import { HomeCityLinkSlotProvider } from './HomeCityShowsLink'
-import type { HomeVisibilityChange } from './HomeSectionList'
+import { SAVE_FAILED_MESSAGE, type HomeVisibilityChange } from './HomeSectionList'
 
 /** A section mid-show or mid-hide, and which way it is going. */
 type SlotTransition = 'collapse' | 'expand'
@@ -36,11 +48,24 @@ export function HomeLayoutRuntime({
   initialLayout,
   sections,
 }: {
-  initialLayout: HomeLayoutDocument | null
+  initialLayout?: HomeLayoutDocument | null
   sections: Record<HomeSectionId, ReactNode>
 }) {
-  const layout = useHomeLayout(initialLayout)
+  const { authStatus } = useAuthContext()
+  const router = useRouter()
+  const { sections: layout } = useHomeLayout(initialLayout)
+  const hasWriteFailed = useHomeLayoutWriteFailed()
   const [isPopoverOpen, setPopoverOpen] = useState(false)
+
+  // The server picked this variant from the viewer's cookie; signing out
+  // without navigating leaves it mounted. This guard lives HERE, on the shell
+  // that is always present, rather than inside a section a viewer can hide:
+  // parked in the saved-shows module it disappeared with that section, and a
+  // viewer who had hidden it kept the signed-in page, the toolbar, and the
+  // previous account's layout after signing out.
+  useEffect(() => {
+    if (authStatus === 'anonymous') router.refresh()
+  }, [authStatus, router])
 
   // Staged by the gesture that caused them, never derived from the layout: a
   // change arriving from another device should apply instantly, not play an
@@ -91,9 +116,18 @@ export function HomeLayoutRuntime({
   const allHidden = rendered.length === 0
   const cityLinkSlot = resolveCityLinkSlot(layout)
 
+  // Say nothing rather than address a viewer who is no longer there. The
+  // effect above has already asked the server for the anonymous page.
+  if (authStatus === 'anonymous') return null
+
   return (
     <HomeCityLinkSlotProvider value={cityLinkSlot}>
       <div className="flex w-full flex-col">
+        {/* The page's only h1, deliberately outside the sections: every one of
+            them is hideable, so a heading that lived in one would take the
+            document's top-level heading with it. */}
+        <h1 className="sr-only">Home</h1>
+
         <CustomizeHomeToolbar
           open={isPopoverOpen}
           onOpenChange={setPopoverOpen}
@@ -101,6 +135,16 @@ export function HomeLayoutRuntime({
           onBeforeChange={handleBeforeChange}
           withCityLink={cityLinkSlot === 'toolbar'}
         />
+
+        {/* The failure line lives on the ALWAYS-present toolbar row, not only
+            inside the popover: the write outlives the popover, so a viewer who
+            closed it would otherwise watch their change silently undo itself
+            with no explanation anywhere. */}
+        {hasWriteFailed && (
+          <div className="mt-3">
+            <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
+          </div>
+        )}
 
         {allHidden ? (
           <p className="mt-6 text-sm text-muted-foreground">
@@ -114,7 +158,11 @@ export function HomeLayoutRuntime({
             </button>
           </p>
         ) : (
-          <div className="mt-4 flex w-full flex-col gap-14">
+          // The gap rides on each slot rather than the container so a
+          // collapsing section takes its spacing down with it. On the
+          // container it would survive the height animation and vanish at
+          // unmount, snapping everything below up by its full height.
+          <div className="mt-4 flex w-full flex-col">
             {rendered.map(section => (
               <HomeSectionSlot
                 key={section.id}
@@ -190,7 +238,7 @@ function HomeSectionSlot({
       // A collapsing section is leaving; keep it out of the a11y tree and out
       // of the tab order for the frames it is still painted.
       aria-hidden={transition === 'collapse' || undefined}
-      className="w-full"
+      className="w-full pb-14 last:pb-0"
     >
       {children}
     </div>

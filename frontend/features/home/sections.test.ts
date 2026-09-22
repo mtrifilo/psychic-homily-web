@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   HOME_SECTIONS,
-  isDefaultHomeLayout,
   moveHomeSection,
   resolveCityLinkSlot,
   resolveHomeLayout,
@@ -187,22 +186,6 @@ describe('toHomeLayoutDocument', () => {
     expect(custom).not.toBeNull()
 
     expect(resolveHomeLayout(toHomeLayoutDocument(custom!))).toEqual(custom)
-  })
-})
-
-describe('isDefaultHomeLayout', () => {
-  it('is true for the shipped layout and false after any change', () => {
-    const sections = resolveHomeLayout(null)
-
-    expect(isDefaultHomeLayout(sections)).toBe(true)
-    expect(
-      isDefaultHomeLayout(moveHomeSection(sections, 'radio_shows', 'up') ?? [])
-    ).toBe(false)
-    expect(
-      isDefaultHomeLayout(
-        setHomeSectionVisibility(sections, 'radio_shows', false)
-      )
-    ).toBe(false)
   })
 })
 

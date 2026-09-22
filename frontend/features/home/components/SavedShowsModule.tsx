@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SaveButton } from '@/components/shared/SaveButton'
@@ -68,19 +67,15 @@ export function SavedShowsModule({
 }) {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
-  const router = useRouter()
   // Takes the city link only when the nearby section that normally carries it
   // is hidden. The footer is where it goes, next to the other two lines that
   // point off this module.
-  const ownsCityLink = useHomeCityLinkSlot() === 'saved'
-
-  // The server picked this variant from the viewer's cookie. Signing out
-  // without navigating leaves it mounted, so ask the server to pick again
-  // rather than paint a headless page; until it answers, the module renders
-  // nothing (see below).
-  useEffect(() => {
-    if (authStatus === 'anonymous') router.refresh()
-  }, [authStatus, router])
+  const cityLinkSlot = useHomeCityLinkSlot()
+  const ownsCityLink = cityLinkSlot === 'saved'
+  // The zero state's "Pick from this week ↓" scrolls to the nearby section. It
+  // only still owns the city link while it is on the page, so that is also the
+  // test for whether the anchor exists to scroll to.
+  const hasNearbySection = cityLinkSlot === 'nearby'
 
   // Exactly the rows painted. The server prefetches this same key for the
   // first paint (app/_components/HomeContentSlot.tsx), so the key must stay
@@ -136,12 +131,14 @@ export function SavedShowsModule({
           <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
             Welcome back
           </p>
-          <h1
+          {/* h2, not h1: this section is hideable, and the page's h1 lives on
+              the layout shell so the document outline survives hiding it. */}
+          <h2
             id="signed-in-home-heading"
             className="mt-1 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
           >
             Your upcoming shows
-          </h1>
+          </h2>
           {state === 'rows' && (
             <p className="mt-1.5 text-sm text-muted-foreground">
               {total} saved · soonest first · times are venue-local
@@ -204,12 +201,21 @@ export function SavedShowsModule({
             </p>
           </div>
           <div className="col-start-2 mt-1 font-mono text-[11px] md:col-start-3 md:row-start-1 md:mt-0 md:self-center">
-            <a
-              href={`#${nearbySectionId}`}
-              className="whitespace-nowrap text-primary transition-colors hover:underline underline-offset-4"
-            >
-              Pick from this week ↓
-            </a>
+            {hasNearbySection ? (
+              <a
+                href={`#${nearbySectionId}`}
+                className="whitespace-nowrap text-primary transition-colors hover:underline underline-offset-4"
+              >
+                Pick from this week ↓
+              </a>
+            ) : (
+              <Link
+                href="/shows"
+                className="whitespace-nowrap text-primary transition-colors hover:underline underline-offset-4"
+              >
+                Find one to save →
+              </Link>
+            )}
           </div>
         </div>
       )}

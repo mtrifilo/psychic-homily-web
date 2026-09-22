@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import {
@@ -27,7 +27,10 @@ import {
   useAlertPreferences,
   useSetAlertDefaults,
 } from '../../hooks/useAlertPreferences'
-import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import {
+  SETTINGS_ANCHOR_SCROLL_MT,
+  useAnchorScroll,
+} from './useAnchorScroll'
 import { cn } from '@/lib/utils'
 
 /**
@@ -36,54 +39,7 @@ import { cn } from '@/lib/utils'
  * use; a hardcoded `scroll-mt-24` guesses the bar's height instead of reading
  * it, which now matters because an EMAIL links here.
  */
-const ALERTS_SCROLL_MT = 'scroll-mt-[calc(var(--topbar-height)+1rem)]'
-
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined' &&
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-
-/**
- * A ref that scrolls its card into view when a link carrying that card's
- * fragment lands here.
- *
- * A callback REF rather than an effect keyed on the hash. Both anchors live
- * inside a Radix TabsContent that mounts only after the client navigation
- * commits, and the cards themselves can mount later still, so on a cold load
- * (bookmark, refresh, opened from an email) nothing with that id exists when
- * the browser, or an effect that only re-runs on `hashchange`, resolves the
- * fragment. Firing when the NODE arrives is the one signal that is always
- * available at the right moment. `once` keeps a later re-render from yanking
- * the page back after the user has scrolled away.
- *
- * Both cards need it, not just the area card: PSY-1896's artist show-alert
- * email links "Manage alerts in Settings" at `/settings/notifications`, which
- * this branch retargets to `#alerts`. Without this the emailed reader lands at
- * the top of the settings tab, two cards above the matrix they were sent to.
- */
-function useAnchorScroll(anchorId: string) {
-  const urlHash = useUrlHash()
-  const scrolled = useRef(false)
-
-  return useCallback(
-    (node: HTMLDivElement | null) => {
-      if (!node || scrolled.current) return
-      if (urlHash.replace(/^#/, '') !== anchorId) return
-      scrolled.current = true
-      // Moving the VIEWPORT is only half of following a link. Without focus, a
-      // keyboard or screen-reader user arriving from the alert email's "Manage
-      // alerts in Settings" gets the page scrolled to the matrix while focus
-      // stays at the document start, so their next Tab lands in the top nav
-      // rather than on the control they were sent to. The card is not
-      // otherwise focusable, hence the -1 tabindex.
-      node.scrollIntoView({
-        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-        block: 'start',
-      })
-      node.focus({ preventScroll: true })
-    },
-    [urlHash, anchorId]
-  )
-}
+const ALERTS_SCROLL_MT = SETTINGS_ANCHOR_SCROLL_MT
 
 /**
  * One channel cell. Six shapes, and the differences all matter, because a

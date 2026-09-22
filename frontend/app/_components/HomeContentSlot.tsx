@@ -5,6 +5,7 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { AnonymousHome } from '@/features/home/components/AnonymousHome'
 import { HomeVariantSwitch } from '@/features/home/components/HomeVariantSwitch'
 import { SignedInHome } from '@/features/home/components/SignedInHome'
+import { resolveHomeLayout } from '@/features/home/sections'
 import {
   getAuthenticatedHomeLayout,
   prefetchHomeSavedShows,
@@ -39,9 +40,20 @@ import {
 export async function HomeContentSlot() {
   const viewer = await resolveHomeViewer()
   if (viewer === 'authenticated') {
+    const layout = await getAuthenticatedHomeLayout()
+    // The rows are prefetched only for a viewer whose saved-shows section is
+    // actually on their page. Hiding it should take the list out of the page
+    // SOURCE too, not just out of the render, and it saves the backend read.
+    // Both reads share the same `React.cache()`d profile, so asking for the
+    // layout first costs nothing.
+    const wantsSavedShows = resolveHomeLayout(layout).some(
+      section => section.id === 'saved_shows' && section.visible
+    )
     return (
-      <HydrationBoundary state={await prefetchHomeSavedShows()}>
-        <SignedInHome layout={await getAuthenticatedHomeLayout()} />
+      <HydrationBoundary
+        state={wantsSavedShows ? await prefetchHomeSavedShows() : undefined}
+      >
+        <SignedInHome layout={layout} />
       </HydrationBoundary>
     )
   }
