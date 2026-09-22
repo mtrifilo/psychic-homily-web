@@ -434,6 +434,30 @@ describe('VerificationResend', () => {
       vi.useRealTimers()
     })
 
+    // The default surfaces keep main's sticky confirmation: a later attempt
+    // that goes nowhere leaves their live region exactly as it was.
+    it.each([
+      ['a failure', Object.assign(new Error('boom'), { status: 500 })],
+      ['a throttle', Object.assign(new Error('slow down'), { status: 429, retryAfter: 30 })],
+      ['an expired session', Object.assign(new Error('unauthorized'), { status: 401 })],
+    ])('keeps the default announcement after a send, then %s', async (_label, error) => {
+      mockApiRequest.mockResolvedValueOnce({ success: true }).mockRejectedValueOnce(error)
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      renderControl()
+
+      await user.click(resendButton())
+      await waitFor(() => expect(resendButton()).toBeDisabled())
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      await user.click(resendButton())
+      await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(2))
+
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Verification email sent. Check your inbox.'
+      )
+    })
+
     it('releases the control when the wait runs out, keeping the confirmation', async () => {
       mockApiRequest.mockResolvedValueOnce({ success: true })
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })

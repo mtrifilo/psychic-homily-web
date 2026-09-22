@@ -327,6 +327,32 @@ describe('CheckInboxInterstitial', () => {
       expect(Sentry.captureException).not.toHaveBeenCalled()
     })
 
+    it('withdraws the session-expired alert once a later send goes through', async () => {
+      mockApiRequest
+        .mockRejectedValueOnce(Object.assign(new Error('unauthorized'), { status: 401 }))
+        .mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup()
+      renderWithProviders(
+        <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+      )
+
+      await user.click(resendButton())
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Your session has expired.'
+        )
+      })
+      // Signed in again in another tab; this card's button is still usable.
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toHaveTextContent(
+          'Sent again. Give it a minute to arrive.'
+        )
+      })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
     // Verified in another tab or on another device while this card sat open.
     it('says the address is already verified rather than inviting a retry', async () => {
       mockApiRequest.mockResolvedValueOnce({

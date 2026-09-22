@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
   VerificationResend,
@@ -147,7 +147,7 @@ export function CheckInboxInterstitial({
           className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
         />
 
-        <VerificationResendSessionExpired>
+        <SessionExpiredUntilSent>
           Your session has expired.{' '}
           {/* A full page load, not a <Link>: this surface is rendered in place
               on /auth itself, and a client navigation to /auth keeps the page's
@@ -156,7 +156,7 @@ export function CheckInboxInterstitial({
             Sign in again
           </a>{' '}
           to send the email.
-        </VerificationResendSessionExpired>
+        </SessionExpiredUntilSent>
 
         {/* Retrying cannot help a verified address, so this surface names the
             state instead of inviting a retry. */}
@@ -175,6 +175,18 @@ export function CheckInboxInterstitial({
       </p>
     </Card>
   )
+}
+
+/**
+ * The session-expired alert, withdrawn once a later send is confirmed (the
+ * reader signed in again elsewhere), so it never sits beside "Sent again".
+ */
+function SessionExpiredUntilSent({ children }: { children: ReactNode }) {
+  const { latestAttemptSent } = useVerificationResendState()
+  if (latestAttemptSent) {
+    return null
+  }
+  return <VerificationResendSessionExpired>{children}</VerificationResendSessionExpired>
 }
 
 /**
