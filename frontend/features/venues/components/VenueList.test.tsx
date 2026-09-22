@@ -851,6 +851,36 @@ describe('VenueList', () => {
       )
     })
 
+    // keepPreviousData holds the outgoing city's response, total included, while
+    // the heading already names the incoming city: neither count may render.
+    it('states no upcoming total while the rows answer the previous request', () => {
+      anonWithGeo()
+      mockUseVenues.mockReturnValue({
+        data: {
+          venues: [makeVenue({ upcoming_show_count: 74 })],
+          total: 120,
+          upcoming_show_total: 900,
+          limit: 50,
+          offset: 0,
+        },
+        isLoading: false,
+        isFetching: true,
+        isPlaceholderData: true,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      render(<VenueList />)
+
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).not.toHaveTextContent(
+        'upcoming shows'
+      )
+      expect(screen.getByRole('heading', { level: 1 }).nextSibling).not.toHaveTextContent(
+        'rooms'
+      )
+      expect(screen.queryByTestId('venues-count-rule')).not.toBeInTheDocument()
+    })
+
     // A page past the end of a one-page city holds no rows, so its page sum is
     // zero: without the field that is not the city's total, and the heading
     // must not state it as one.
