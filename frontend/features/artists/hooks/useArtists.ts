@@ -107,22 +107,38 @@ export function useArtists(options: UseArtistsOptions = {}) {
 }
 
 /**
+ * The artists facet's scope: the shared tag half, plus the completeness gap
+ * only /artists takes.
+ */
+export interface ArtistCitiesScope extends CityCountScope {
+  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
+  missing?: ArtistMissingFilter
+}
+
+/**
  * Hook to fetch distinct cities with artist counts for filtering, optionally
  * scoped to the filters the list below the picker is reading.
  *
  * An omitted scope requests the bare endpoint and keys on the base alone. See
  * `useVenueCities` for why both halves exist.
  *
- * Scoped, the counts cover the EVERGREEN set: a tag filter drops the /artists
- * activity gate, and the facet follows it, so a city can carry a count made
- * entirely of artists with nothing booked.
+ * Scoped, the counts can cover the EVERGREEN set: a tag filter and the gap
+ * filter each drop the /artists activity gate, and the facet follows them, so a
+ * city can carry a count made entirely of artists with nothing booked.
+ *
+ * Under the gap filter a row counts the stored city string, while the list
+ * reads a picked city as its scene's metro-aware roster, so for a metro city
+ * the list can hold more rows than the chip counted. The sum over every row
+ * still matches the unplaced list, less the artists with no complete place.
  */
-export function useArtistCities(scope?: CityCountScope) {
+export function useArtistCities(scope: ArtistCitiesScope = {}) {
+  const { missing, ...tagScope } = scope
   const params = new URLSearchParams()
-  appendCityCountScope(params, scope)
+  appendCityCountScope(params, tagScope)
+  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
 
   return useQuery({
-    queryKey: cityCountQueryKey(artistQueryKeys.cities, scope),
+    queryKey: cityCountQueryKey(artistQueryKeys.cities, tagScope, { missing }),
     queryFn: async (): Promise<ArtistCitiesResponse> => {
       return apiRequest<ArtistCitiesResponse>(
         cityCountUrl(artistEndpoints.CITIES, params),

@@ -65,7 +65,7 @@ const mockUseArtists = vi.fn()
 const mockUseArtistCities = vi.fn()
 vi.mock('../hooks/useArtists', () => ({
   useArtists: (opts: unknown) => mockUseArtists(opts),
-  useArtistCities: () => mockUseArtistCities(),
+  useArtistCities: (scope: unknown) => mockUseArtistCities(scope),
 }))
 
 const mockUseDensity = vi.fn()
@@ -652,6 +652,17 @@ describe('ArtistList', () => {
       expect(options.missing).toBe('listen')
     })
 
+    // The facet has to count the population the list renders, or the sheet's
+    // apply button promises a number of rows the page below contradicts.
+    it('scopes the city facet by the filter', () => {
+      withMissing('listen')
+
+      renderWithProviders(<ArtistList />)
+
+      const [scope] = mockUseArtistCities.mock.calls.at(-1) as [{ missing?: string }]
+      expect(scope.missing).toBe('listen')
+    })
+
     it('names the engaged filter in a chip', () => {
       withMissing('listen')
 
@@ -677,6 +688,8 @@ describe('ArtistList', () => {
 
       const [options] = mockUseArtists.mock.calls.at(-1) as [{ missing?: string }]
       expect(options.missing).toBeUndefined()
+      const [scope] = mockUseArtistCities.mock.calls.at(-1) as [{ missing?: string }]
+      expect(scope.missing).toBeUndefined()
       expect(screen.queryByTestId('artist-missing-chip')).not.toBeInTheDocument()
     })
 
