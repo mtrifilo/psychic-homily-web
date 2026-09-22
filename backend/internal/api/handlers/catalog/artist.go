@@ -143,7 +143,7 @@ type ListArtistsRequest struct {
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
-	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate. GET /artists takes AT MOST ONE city with it, which must name its state, and reads that city as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string; where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it, and that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps literal state matching. GET /artists/cities has no place parameter: it breaks the same population down by the stored city string, so its counts sum to the list total for no place at all, less the bands that name no city or state and so belong to no row." example:"listen"`
+	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate. GET /artists takes AT MOST ONE city with it, which must name its state, and reads that city as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string; where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it, and that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps literal state matching. GET /artists/cities has no place parameter: it breaks the same population down by the stored city string, so its counts sum to the list total for no place at all, less the bands missing a city or a state, which belong to no row." example:"listen"`
 }
 
 // artistMissingListen is the only value the `missing` parameter takes. It must
@@ -153,8 +153,10 @@ type ListArtistsRequest struct {
 const artistMissingListen = "listen"
 
 // applyArtistMissingFilter records the completeness gap a browse request asks
-// for. It is the only reader of `missing` for the list and its city facet, so
-// the two accept and refuse the same values.
+// for. It is the only place `missing` becomes a filter key, for the list and its
+// city facet alike, so the two accept and refuse the same values.
+// ListArtistsHandler additionally gates the place shape on `missing`; that
+// guard is the list's alone, because the facet takes no place.
 //
 // It fails closed: huma's enum rejects an unrecognised value on the wire, and
 // this refuses it for callers that build the request struct directly.
@@ -315,7 +317,7 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 type GetArtistCitiesRequest struct {
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
-	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate. GET /artists takes AT MOST ONE city with it, which must name its state, and reads that city as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string; where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it, and that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps literal state matching. GET /artists/cities has no place parameter: it breaks the same population down by the stored city string, so its counts sum to the list total for no place at all, less the bands that name no city or state and so belong to no row." example:"listen"`
+	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate. GET /artists takes AT MOST ONE city with it, which must name its state, and reads that city as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string; where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it, and that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps literal state matching. GET /artists/cities has no place parameter: it breaks the same population down by the stored city string, so its counts sum to the list total for no place at all, less the bands missing a city or a state, which belong to no row." example:"listen"`
 }
 
 // GetArtistCitiesResponse represents the response for the artist cities endpoint

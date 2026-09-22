@@ -23,12 +23,19 @@ func TestArtistCitiesScope_SubtractsExactlyThePlaceKeys(t *testing.T) {
 		FilterMissingListenLink: true,
 	})
 
-	for _, key := range browsePlaceKeys {
-		if _, ok := scope[key]; ok {
+	// Spelled out rather than read from browsePlaceKeys, so a key dropped from
+	// that list fails here instead of shrinking what this test checks.
+	want := map[string]bool{
+		"tag_filter":            true,
+		"skip_active_filter":    true,
+		FilterMissingListenLink: true,
+	}
+	for key := range scope {
+		if !want[key] {
 			t.Errorf("%q names a place and must not reach the breakdown", key)
 		}
 	}
-	for _, key := range []string{"tag_filter", "skip_active_filter", FilterMissingListenLink} {
+	for key := range want {
 		if _, ok := scope[key]; !ok {
 			t.Errorf("%q narrows the list and must reach the breakdown", key)
 		}

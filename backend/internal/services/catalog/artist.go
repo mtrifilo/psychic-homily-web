@@ -1021,7 +1021,7 @@ func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
 }
 
 // GetArtistCities returns distinct cities for the artists the /artists browse
-// page lists, under the same tag filter, with artist counts.
+// page lists, under the same non-place filters, with artist counts.
 // Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
 //

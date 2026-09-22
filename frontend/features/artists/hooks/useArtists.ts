@@ -45,6 +45,19 @@ export interface ArtistCitiesScope extends CityCountScope {
 }
 
 /**
+ * Appends the facet's narrowings: the shared tag params, then the gap. The list
+ * appends its narrowings through this too, so the two requests cannot spell
+ * them differently.
+ */
+function appendArtistCitiesScope(
+  params: URLSearchParams,
+  { missing, ...tagScope }: ArtistCitiesScope
+): void {
+  appendCityCountScope(params, tagScope)
+  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
+}
+
+/**
  * The list's options: the facet's narrowings, plus the place and the page the
  * facet deliberately does not take.
  */
@@ -79,10 +92,9 @@ export function useArtists(options: UseArtistsOptions = {}) {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  // One spelling of the tag params for the list and the city facet beside it,
-  // which is scoped by exactly this half of the list's filter set.
-  appendCityCountScope(params, { tags, tagMatch })
-  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
+  // The list's narrowings are the facet's, appended by the one helper so the
+  // city counts beside the list are requested under the same filters.
+  appendArtistCitiesScope(params, { tags, tagMatch, missing })
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -129,8 +141,7 @@ export function useArtists(options: UseArtistsOptions = {}) {
 export function useArtistCities(scope: ArtistCitiesScope = {}) {
   const { missing, ...tagScope } = scope
   const params = new URLSearchParams()
-  appendCityCountScope(params, tagScope)
-  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
+  appendArtistCitiesScope(params, scope)
 
   return useQuery({
     queryKey: cityCountQueryKey(artistQueryKeys.cities, tagScope, { missing }),
