@@ -80,6 +80,8 @@ concurrency:
   group: sitemap-freshness
   cancel-in-progress: false
 
+# Default for jobs without their own block. A job-scoped `permissions:` block
+# REPLACES this rather than extending it.
 permissions:
   contents: read
 

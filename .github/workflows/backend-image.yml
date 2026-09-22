@@ -49,8 +49,8 @@ on:
   # Post-merge too. Two PRs can each be green alone and break the image together
   # (a Dockerfile change on one, a lockfile change on the other), and while this
   # check is not required a red PR run can also simply be merged past. This leg
-  # catches both, and the notify step below is what makes it a backstop rather
-  # than a red square nobody is subscribed to.
+  # catches both, and the notify-image-failure job below is what makes it a
+  # backstop rather than a red square nobody is subscribed to.
   push:
     branches: [main]
 
@@ -61,6 +61,13 @@ concurrency:
   group: backend-image-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Default for jobs without their own block. A job-scoped `permissions:` block
+# REPLACES this rather than extending it.
+#
+# No `packages:` scope: this workflow logs in to Docker Hub with
+# secrets.DOCKERHUB_* and builds with `push: false`. Publishing to GitHub
+# Packages would need a build-job block listing both `contents: read` and
+# `packages: write`.
 permissions:
   contents: read
 
@@ -68,12 +75,6 @@ jobs:
   backend-image:
     name: Backend Image Build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # For the main-branch failure issue below. On pull_request events the
-      # token is read-only regardless, so this grant is only live on the push
-      # leg -- which is the only leg that files anything.
-      issues: write
     # Measured at 77s cold on this workflow's first run. The ceiling is a hung
     # registry pull, not slow compilation, so 10 minutes is already a wide
     # margin -- and a job that has genuinely wedged should free its runner
@@ -131,14 +132,30 @@ jobs:
           # cache, hit on every layer, and cost seconds.
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=backend-image' || '' }}
 
-      # A red square in the Actions tab is not a backstop -- nobody is
-      # subscribed to it. ci.yml's notify-main-failure job cannot cover this
-      # workflow (it can only aggregate `needs:` within its own workflow), so
-      # this files into the same `main-ci-failure` triage queue, using only the
-      # built-in GITHUB_TOKEN. Deduped on the commit SHA so a rerun storm does
-      # not spam.
+  # A red square in the Actions tab is not a backstop -- nobody is subscribed
+  # to it. ci.yml's notify-main-failure job cannot cover this workflow (it can
+  # only aggregate `needs:` within its own workflow), so this files into the
+  # same `main-ci-failure` triage queue, using only the built-in GITHUB_TOKEN.
+  # Deduped on the commit SHA so a rerun storm does not spam.
+  #
+  # A separate job, not a step of the build, so that `issues: write` is never
+  # held by a job that checks out and runs third-party actions.
+  notify-image-failure:
+    name: Notify on image build failure
+    needs: [backend-image]
+    # Pages only when the build's result is 'failure'. A build killed by its
+    # own timeout-minutes resolves to 'cancelled' and does not page.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.backend-image.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # `issues: write` only, for issues.listForRepo and issues.create. The
+    # script reads the commit from `context`. Adding a contents-scoped call
+    # (e.g. repos.getCommit) means listing `contents: read` here too: it works
+    # without that scope only while the repository is public.
+    permissions:
+      issues: write
+    steps:
       - name: File a tracking issue on main-branch failure
-        if: ${{ failure() && github.event_name == 'push' }}
         uses: actions/github-script@v7
         with:
           script: |

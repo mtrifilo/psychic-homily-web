@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege for the GITHUB_TOKEN, pinned in code so it does not depend
+# on the repository's Workflow-permissions setting. Every job without its own
+# block gets exactly this.
+#
+# A job-scoped `permissions:` block REPLACES this one, it does not extend it.
+# A job needing an extra scope must restate every scope it still uses, or the
+# call that lost one fails at runtime with HTTP 403 "Resource not accessible
+# by integration". A dropped read scope on a call that reads public data does
+# not fail while the repository is public, so a green run does not prove a
+# block is complete.
+permissions:
+  contents: read
+
 jobs:
   migration-lint:
     name: Migration Lint
@@ -305,6 +318,9 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
+      # `only-new-issues` fetches the PR diff via pulls.get, so enabling it
+      # means a job block with `pull-requests: read` and `contents: read`. A
+      # failed fetch is only logged, and the whole tree is linted instead.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -467,6 +483,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend-unit-shards]
     if: ${{ always() }}
+    # No checkout, no install, no API call, so no scope. Safe on a required
+    # check: the check-run comes from the Actions service, not this token.
+    permissions: {}
     steps:
       - name: Report shard results
         run: |
@@ -781,6 +800,9 @@ jobs:
 
   e2e-report:
     name: E2E Merged Report
+    # download-artifact below takes no `github-token`, so it uses the Actions
+    # runtime token; passing one moves it to the REST API (`actions: read`).
+    #
     # Run after all shards finish, even if some failed — we still want the
     # merged report artifact for triage.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -932,7 +954,12 @@ jobs:
       - e2e-report
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `contents: read` is for repos.getCommit; `issues: write` for
+    # issues.listForRepo and issues.create. This block replaces the
+    # workflow-level one, so `contents: read` must stay listed: getCommit
+    # works without it only while the repository is public.
     permissions:
+      contents: read
       issues: write
     steps:
       - name: File or dedupe tracking issue

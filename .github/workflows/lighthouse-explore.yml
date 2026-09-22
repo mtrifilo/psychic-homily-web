@@ -67,6 +67,12 @@ on:
       # If a regression in those areas materializes on /explore later,
       # widen the filter rather than fix it after the fact.
 
+# Pinned so the GITHUB_TOKEN does not depend on the repository's
+# Workflow-permissions setting. Default for jobs without their own block; a
+# job-scoped `permissions:` block REPLACES this rather than extending it.
+permissions:
+  contents: read
+
 jobs:
   lighthouse:
     name: Lighthouse /explore (mobile)
@@ -80,10 +86,13 @@ jobs:
     # `deployments: read` covers the Vercel-preview-discovery API
     # calls below. No write permissions required — Lighthouse uploads
     # to temporary-public-storage, not a self-hosted LHCI server.
+    #
+    # `contents: read` for actions/checkout. No `pull-requests` scope: the
+    # script below reads the head SHA from `context.payload` and never calls
+    # the pulls API.
     permissions:
       contents: read
       deployments: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@v4
 
