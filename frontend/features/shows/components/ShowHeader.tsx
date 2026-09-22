@@ -4,6 +4,7 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import { showPageDate } from '../showPageDate'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
@@ -425,7 +426,8 @@ export function ShowHeader({
                   {artist.slug ? (
                     <Link
                       href={`/artists/${artist.slug}`}
-                      className="font-medium text-foreground hover:text-primary transition-colors"
+                      className={ENTITY_LINK_CLASS.accent}
+                      data-testid="support-act-link"
                     >
                       {artist.name}
                     </Link>

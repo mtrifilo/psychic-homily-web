@@ -82,6 +82,7 @@ import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 // The REAL constant (not a literal) — a rename that missed one side would
 // otherwise still pass.
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
 // ResizeObserver mock — the Dialog measures its content via ResizeObserver.
 // Shared immediate shim (PSY-1305).
@@ -149,6 +150,21 @@ describe('ArtistSimilarSidebar', () => {
     expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
     expect(screen.getByText('Undeath')).toBeInTheDocument()
     expect(screen.getByText('Creeping Death')).toBeInTheDocument()
+  })
+
+  // A discovery list: every name carries the accent tier from the shared
+  // definition, so it reads as a link at rest rather than only on hover.
+  it('gives each similar-artist name the accent entity-link treatment', () => {
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    const link = screen.getByText('Frozen Soul').closest('a')
+    expect(link).not.toBeNull()
+    for (const token of ENTITY_LINK_CLASS.accent.split(' ')) {
+      expect(link!.className.split(' ')).toContain(token)
+    }
+    // The reason badges stay as they are: hidden below `sm`.
+    expect(link!.nextElementSibling?.className).toContain('hidden sm:flex')
   })
 
   it('renders an [Explore graph] link when relationships exist', () => {

@@ -59,6 +59,7 @@ vi.mock('@/components/shared', async importOriginal => ({
 }))
 
 import { ShowHeader } from './ShowHeader'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
 function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
   return {
@@ -540,6 +541,25 @@ describe('ShowHeader layout', () => {
 })
 
 describe('ShowHeader bill rendering', () => {
+  // Support acts are a discovery list: the accent tier, from the one shared
+  // definition. The H1 headliner keeps its own treatment.
+  it('gives support-act links the accent entity-link treatment', () => {
+    const show = makeShow({
+      artists: [
+        makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
+        makeArtist({ id: 2, name: 'Opener', slug: 'opener', position: 1 }),
+      ],
+    })
+
+    render(<ShowHeader lifecycle="upcoming" show={show} />)
+
+    const support = screen.getByRole('link', { name: 'Opener' })
+    expect(support).toHaveAttribute('href', '/artists/opener')
+    expect(support.className).toBe(ENTITY_LINK_CLASS.accent)
+    const headliner = screen.getByRole('link', { name: 'Top Bill' })
+    expect(headliner.className).not.toContain('text-primary/80')
+  })
+
   describe('bill order', () => {
     it('renders support artists in position order, not API array order', () => {
       const show = makeShow({

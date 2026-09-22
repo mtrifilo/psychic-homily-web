@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { BracketLink, SectionHeader } from '@/components/shared'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
+import { cn } from '@/lib/utils'
 import { useDismissTimer } from '@/lib/hooks/common'
 import { useIsAuthenticated } from '@/features/auth'
 import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
@@ -1374,11 +1376,13 @@ function RelatedArtistRow({
         // OTHER flexible item below now yields first (badges wrap, score truncates), so the name
         // wins the space contest instead of losing it. (Re-tune this floor if the row font/padding
         // or the sidebar width changes.)
-        className="flex-1 min-w-[7rem] flex items-center gap-2"
+        className={cn(
+          'flex-1 min-w-[7rem] flex items-center gap-2',
+          ENTITY_LINK_CLASS.accent
+        )}
+        data-testid="similar-artist-link"
       >
-        <span className="text-sm font-medium truncate group-hover:text-foreground">
-          {node.name}
-        </span>
+        <span className="text-sm truncate">{node.name}</span>
       </Link>
 
       {/* Relationship badges — wrap + shrink (PSY-1288) so a row with several long badges yields
