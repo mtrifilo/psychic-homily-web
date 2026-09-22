@@ -1253,8 +1253,7 @@ type VenueListFilters struct {
 }
 
 // VenueListTotals is what captions the /venues page: how many rooms the
-// filtered set holds, and how many upcoming shows those rooms hold between
-// them.
+// filtered set holds, and the sum of those rooms' upcoming show counts.
 //
 // Both describe the WHOLE filtered set rather than the requested page, so a
 // caption built from them says the same thing on page 1 and on page 4. They are
@@ -1265,7 +1264,9 @@ type VenueListTotals struct {
 	Venues int64
 	// UpcomingShows sums VenueWithShowCountResponse.UpcomingShowCount over that
 	// same set, so it carries that field's venue-local night boundary and its
-	// exclusion of cancelled nights. Quiet rooms contribute zero.
+	// exclusion of cancelled nights. Quiet rooms contribute zero. It is a sum of
+	// per-room counts, not a count of distinct shows: a show billed in two
+	// rooms of the set counts once for each room, exactly as the two rows do.
 	UpcomingShows int64
 }
 

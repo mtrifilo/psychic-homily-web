@@ -421,7 +421,10 @@ export function VenueList() {
   // `upcoming_show_total` spans the whole filtered set, so the heading states
   // it on every page of a paged city. A response without it comes from a
   // backend older than the field, and the only honest number left there is the
-  // sum of the rows on screen: this page's, labelled as such.
+  // sum of the rows on screen: this page's, labelled as such. That fallback
+  // (and the optional field in VenuesListResponse) exists only for the window
+  // in which this frontend is live before that backend; once production's
+  // backend serves the field it can be deleted.
   const cityUpcoming = data?.upcoming_show_total
   const upcomingCount =
     cityUpcoming ?? venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)

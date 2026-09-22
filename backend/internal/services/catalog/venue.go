@@ -1245,9 +1245,9 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 // different sets.
 //
 // It adds WHERE clauses and nothing else. GetVenuesWithShowCounts also applies
-// it inside an IN subquery and relies on that subquery selecting the same set
-// as the statement around it; a LIMIT, or anything else that trims rows by
-// position rather than by predicate, added here would break that.
+// it inside an IN subquery that must select at least every room the statement
+// around it keeps; a LIMIT, or anything else that trims rows by position rather
+// than by predicate, added here would zero the counts of the rooms it cut.
 //
 // Every predicate is table-qualified. Two of the three callers hang this on a
 // statement that spans more relations than `venues`, and a reader should not
@@ -1339,10 +1339,11 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// venue_id), and shared.VenueTZJoin is a LIMIT 1 lateral that cannot fan a
 	// row out.
 	//
-	// The IN narrowing is a cost cut, not a filter either statement relies on:
-	// both already apply the same predicates outside, so it only spares dating
-	// the nights of rooms the join would discard (see venueListPredicates for
-	// the WHERE-only rule it depends on).
+	// The IN narrowing is a cost cut and must select a SUPERSET of the rooms
+	// the outer statement keeps: `sc` is LEFT JOINed and COALESCEd, so a room it
+	// drops that the outer WHERE keeps reads zero upcoming, silently. Applying
+	// the outer statement's own applier is what guarantees that (see
+	// venueListPredicates).
 	upcomingCounts := func() *gorm.DB {
 		return s.db.Table("show_venues").
 			Select("show_venues.venue_id, COUNT(*) as show_count").
@@ -1358,7 +1359,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Start with verified venues only for public display. Neither lateral
 	// carries a bind parameter, so the only args in this statement are the
-	// filters' own.
+	// filters' own, bound twice: once in `sc`'s IN subquery, once outside.
 	query := s.db.Table("venues").
 		Select("venues.*, "+venueListCountSQL+" as upcoming_show_count, "+
 			"next_show.show_id AS next_show_id, next_show.event_date AS next_show_event_date, next_show.slug AS next_show_slug, next_show.title AS next_show_title, next_show.is_cancelled AS next_show_is_cancelled, "+

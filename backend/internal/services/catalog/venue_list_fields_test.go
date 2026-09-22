@@ -673,3 +673,22 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Upcom
 	suite.Equal(summed, totals.UpcomingShows,
 		"the total is what the rows add up to when one page holds them all")
 }
+
+// TestGetVenuesWithShowCounts_UpcomingTotalCountsASplitBillPerRoom pins the
+// total as a sum of per-room counts rather than a count of distinct shows: one
+// show billed in two rooms of the set counts once for each, as the two rows do.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_UpcomingTotalCountsASplitBillPerRoom() {
+	user := suite.createTestUser()
+	mainStage := suite.createTestVenue("Totals Main Stage", "Phoenix", "AZ", true)
+	sideStage := suite.createTestVenue("Totals Side Stage", "Phoenix", "AZ", true)
+	show := suite.createRailShow(mainStage.ID, user.ID, "Split Bill", time.Now().UTC().AddDate(0, 0, 4))
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: sideStage.ID}).Error)
+
+	rows, totals, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Phoenix", State: "AZ"}, 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(1, suite.findVenueResponse(rows, "Totals Main Stage").UpcomingShowCount)
+	suite.Equal(1, suite.findVenueResponse(rows, "Totals Side Stage").UpcomingShowCount)
+	suite.Equal(int64(2), totals.UpcomingShows,
+		"one show in two rooms of the set is two room-nights, the sum of the rows")
+}
