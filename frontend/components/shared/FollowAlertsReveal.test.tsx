@@ -407,10 +407,9 @@ describe('FollowAlertsReveal', () => {
     })
   })
 
-  // Capability truth, and it is PER TYPE since PSY-1896: artist show alerts
-  // deliver, venue ones do not. Both tooltips have to be pinned to the right
-  // side of that line, and pinned to the CLAIM rather than to the existence of
-  // a tooltip button.
+  // Capability truth, per type: artist and venue show alerts deliver, release
+  // alerts do not. Both tooltips are pinned to the CLAIM rather than to the
+  // existence of a tooltip button.
   describe('capability truth in the tooltips', () => {
     const openTooltip = async () => {
       const user = userEvent.setup()
@@ -434,31 +433,21 @@ describe('FollowAlertsReveal', () => {
       expect(
         screen.queryByText(/Alerts from the artists and venues you follow/i)
       ).toBeNull()
-      expect(
-        screen.queryByText(/shows a venue you follow adds are still being switched on/i)
-      ).toBeNull()
     })
 
-    it('discloses pending delivery in the venue tooltip', async () => {
+    // Venue alerts deliver, coalesced per venue per day. The tooltip names
+    // that unit, names email only as something switched on, and carries no
+    // pending note: a venue has no release axis to be pending about.
+    it('states venue delivery and its daily unit in the venue tooltip', async () => {
       renderVenue()
       await openTooltip()
 
       expect(
         await screen.findAllByText(
-          /Alerts for shows a venue you follow adds are still being switched on/i
+          /Sets whether you are alerted about new shows this venue adds\..*one alert per venue per day, in your inbox, and by email too if you switch email on in your alert settings\./i
         )
       ).not.toHaveLength(0)
-    })
-
-    // The venue tooltip used to open with "Turns alerts on or off", a
-    // present-tense capability claim, and then say two sentences later that
-    // those same alerts are not on yet. One tooltip, contradicting itself.
-    it('does not open the venue tooltip with a present-tense delivery claim', async () => {
-      renderVenue()
-      await openTooltip()
-
-      await screen.findAllByText(/still being switched on/i)
-      expect(screen.queryByText(/^Turns alerts on or off/i)).toBeNull()
+      expect(screen.queryByText(/still being switched on/i)).toBeNull()
     })
 
     // A venue has no geography, so it must never be told about scope.
@@ -466,7 +455,7 @@ describe('FollowAlertsReveal', () => {
       renderVenue()
       await openTooltip()
 
-      await screen.findAllByText(/still being switched on/i)
+      await screen.findAllByText(/one alert per venue per day/i)
       expect(screen.queryByText(/near me/i)).toBeNull()
     })
   })

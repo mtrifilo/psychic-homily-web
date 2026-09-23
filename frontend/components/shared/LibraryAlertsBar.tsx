@@ -10,7 +10,6 @@ import {
   CUSTOM_ALERTS_HREF,
   followAlertHasChannel,
   followAlertHasScopeAxis,
-  followAlertPendingNote,
 } from './followAlertChoices'
 
 interface LibraryAlertsBarProps {
@@ -38,7 +37,6 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   // restriction this tab's follows do not have, and contradicting the venue
   // control one page over that says exactly that.
   const hasScopeAxis = followAlertHasScopeAxis(entityType)
-  const pendingNote = followAlertPendingNote(entityType)
 
   // Fetched on EVERY tab this bar renders on, not only the scoped ones.
   //
@@ -202,13 +200,6 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
           className="font-mono text-[11px]"
         />
       </div>
-
-      {/* Only where there is something pending to disclose. Artist show
-          alerts deliver (PSY-1896), so an "any day now" line above the
-          Artists tab would be the opposite kind of lie. */}
-      {pendingNote && (
-        <p className="mt-2 text-xs text-muted-foreground">{pendingNote}</p>
-      )}
     </div>
   )
 }

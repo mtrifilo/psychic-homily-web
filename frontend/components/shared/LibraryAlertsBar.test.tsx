@@ -118,23 +118,16 @@ describe('LibraryAlertsBar', () => {
     ).toHaveAttribute('href', '/settings/notification-filters')
   })
 
-  // PSY-1896 made delivery a per-type fact rather than one shared state, and
-  // this bar is one of the two surfaces that has to honour it. Both arms are
-  // pinned: an unconditional note is exactly the regression to catch, and it
-  // would pass a presence-only test.
-  describe('pending-delivery disclosure', () => {
-    it('discloses it on the venues tab, where nothing delivers yet', () => {
-      renderWithProviders(<LibraryAlertsBar entityType="venues" />)
-
-      expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
-    })
-
-    it('stays silent on the artists tab, whose alerts already deliver', () => {
-      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+  // Artist and venue show alerts both deliver, so neither tab carries an
+  // "any day now" line above its rows.
+  it.each(['artists', 'venues'])(
+    'carries no pending-delivery line on the %s tab',
+    entityType => {
+      renderWithProviders(<LibraryAlertsBar entityType={entityType} />)
 
       expect(screen.queryByText(/still being switched on/i)).toBeNull()
-    })
-  })
+    }
+  )
 
   // FAILED is not PENDING. On a failed read the bar loses its area half AND
   // every row bracket disappears (an unknown home area makes each menu render
@@ -260,7 +253,7 @@ describe('LibraryAlertsBar', () => {
         screen.getByRole('link', { name: /paused.*alert settings/i })
       ).toBeInTheDocument()
       expect(screen.queryByText(/Your area/)).toBeNull()
-      expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
+      expect(screen.queryByText(/still being switched on/i)).toBeNull()
     })
 
     // UNKNOWN is not "no channel". A pending read must not paint a pause over

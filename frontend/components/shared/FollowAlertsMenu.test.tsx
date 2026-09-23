@@ -282,8 +282,9 @@ describe('FollowAlertsMenu', () => {
     })
 
     // A venue has no scope axis, so promising its scope back would invent a
-    // setting that follow never had. It does still have a delivery
-    // disclosure, and pausing must not be how that disclosure disappears.
+    // setting that follow never had, and no release axis, so it has nothing
+    // pending to disclose. The trigger's name already says "paused", so its
+    // description stays empty.
     it('tailors the explanation to a venue, scope promise and all', async () => {
       renderMenu({
         entityType: 'venues',
@@ -294,9 +295,13 @@ describe('FollowAlertsMenu', () => {
         },
       })
 
-      await userEvent.click(screen.getByRole('button', { name: /paused/i }))
+      const trigger = screen.getByRole('button', { name: /paused/i })
+      expect(trigger).not.toHaveAttribute('title')
 
-      expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
+      await userEvent.click(trigger)
+
+      expect(screen.getByText(/lifts the pause/i)).toBeInTheDocument()
+      expect(screen.queryByText(/still being switched on/i)).toBeNull()
       expect(screen.queryByText(/scope for this follow/i)).toBeNull()
       expect(screen.queryByText(/geography-scoped/i)).toBeNull()
     })

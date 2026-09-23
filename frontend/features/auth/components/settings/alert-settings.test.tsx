@@ -469,18 +469,18 @@ describe('AlertSettings', () => {
     )
   })
 
-  // Capability truth, and it is now per alert type. Artist show alerts DELIVER
-  // (PSY-1896); venue show alerts and release alerts do not. Claiming either
-  // state for the wrong one is a lie in one direction or the other.
-  it('discloses only the alert types that do not deliver yet', () => {
+  // Capability truth, per alert type. Artist and venue show alerts deliver;
+  // release alerts do not. The footer's pending note is therefore the release
+  // note alone, and nothing else on the card is "still being switched on".
+  it('discloses only the alert type that does not deliver yet', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
-      screen.getByText(/Alerts for shows a venue you follow adds are still being switched on/i)
+      screen.getByText(
+        'Release alerts are still being switched on. These settings decide where they will reach you once they are.'
+      )
     ).toBeInTheDocument()
-    expect(
-      screen.getByText(/Release alerts are still being switched on/i)
-    ).toBeInTheDocument()
+    expect(screen.getAllByText(/still being switched on/i)).toHaveLength(1)
   })
 
   // PENDING is not UNAVAILABLE. The first paint of the settings tab has no
@@ -536,15 +536,15 @@ describe('AlertSettings', () => {
     ).toBeInTheDocument()
   })
 
-  // The claim is scoped to the channel that has been observed delivering.
-  // PSY-1896's email lane is built and integration-tested but has never sent a
-  // real message, so "live" may not stretch across the Email column.
-  it('claims delivery only for the artist in-app channel', () => {
+  // "Live" is scoped to the in-app channel and may not stretch across the
+  // Email column, which the footer describes as off until switched on. A
+  // venue alert's unit is named so the claim does not read as one per show.
+  it('claims delivery only for the in-app channel, naming the venue unit', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.getByText(
-        /In-app alerts for artists are live; venue alerts are still being switched on/i
+        /its new shows arrive together as one alert per venue per day\. In-app alerts for artists and venues are live\./i
       )
     ).toBeInTheDocument()
     expect(screen.queryByText(/^Artist alerts are live/i)).not.toBeInTheDocument()
