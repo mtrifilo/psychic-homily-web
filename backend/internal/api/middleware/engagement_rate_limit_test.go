@@ -30,9 +30,9 @@ func TestRateLimitEngagementMutationSustained_ReturnsMiddleware(t *testing.T) {
 // burst limiter trips here.
 func engagementMW(jwtService *auth.JWTService) func(http.Handler) http.Handler {
 	burst := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	sustained := httprate.Limit(1000, time.Hour, httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	return RateLimitMutationsByUser(jwtService, burst, sustained)
 }
 
@@ -66,7 +66,7 @@ func TestRateLimitEntityRequestBatchSustained_LimitsAtItsOwnCeiling(t *testing.T
 	token := mkEngagementToken(t, jwtService, 1)
 	burst := httprate.Limit(EntityRequestBatchSustainedPerHour*2, time.Minute,
 		httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	handler := RateLimitMutationsByUser(jwtService, burst, RateLimitEntityRequestBatchSustained())(okHandler())
 
 	send := func() *httptest.ResponseRecorder {
@@ -102,7 +102,7 @@ func TestEntityRequestBatchSustained_IsNotTheEngagementSustained(t *testing.T) {
 	wideBurst := func() func(http.Handler) http.Handler {
 		return httprate.Limit(EngagementMutationSustainedPerHour*2, time.Minute,
 			httprate.WithKeyFuncs(mutationUserKeyFunc),
-			httprate.WithLimitHandler(RateLimitExceededHandler))
+			httprate.WithLimitHandler(testRejection))
 	}
 	batch := RateLimitMutationsByUser(jwtService, wideBurst(), RateLimitEntityRequestBatchSustained())(okHandler())
 	engagement := RateLimitMutationsByUser(jwtService, wideBurst(), RateLimitEngagementMutationSustained())(okHandler())
@@ -152,9 +152,9 @@ func TestRateLimitMutationsByUser_SustainedWindowEnforced(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 42)
 	burst := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	sustained := httprate.Limit(1, time.Hour, httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	handler := RateLimitMutationsByUser(jwtService, burst, sustained)(okHandler())
 
 	if rr := serve(handler, mutationReq("9.9.9.9:1000", token)); rr.Code != http.StatusOK {

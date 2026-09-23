@@ -8,10 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/httprate"
-
-	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/respond"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
@@ -86,56 +82,37 @@ const (
 // - Email bombing via magic links
 // - Spam account creation
 func RateLimitAuthEndpoints() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		AuthRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(KeyByClientIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return limiterSpec{name: limiterAuth, limit: AuthRequestsPerMinute, window: time.Minute, key: KeyByClientIP}.handler()
 }
 
 // RateLimitPasskeyEndpoints creates a rate limiter for passkey/WebAuthn endpoints
 // 20 requests per minute per IP - slightly more lenient for multi-step flows
 func RateLimitPasskeyEndpoints() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		PasskeyRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(KeyByClientIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return limiterSpec{name: limiterPasskey, limit: PasskeyRequestsPerMinute, window: time.Minute, key: KeyByClientIP}.handler()
 }
 
-// RateLimitAPIEndpoints creates a general rate limiter for API endpoints
-// 100 requests per minute per IP - basic abuse protection
-func RateLimitAPIEndpoints() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		APIRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(KeyByClientIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+// RateLimitPublicReadAnonymousEndpoints is the per-IP limiter for anonymous
+// public reads: APIRequestsPerMinute per KeyByClientIP bucket. It logs a sample
+// of the requests it allows (allowedReadSampleRate) with auth_state=anonymous.
+func RateLimitPublicReadAnonymousEndpoints() func(http.Handler) http.Handler {
+	return limiterSpec{
+		name:   limiterPublicReadAnonymous,
+		limit:  APIRequestsPerMinute,
+		window: time.Minute,
+		key:    KeyByClientIP,
+	}.sampledHandler(authStateAnonymous, sampleAt(allowedReadSampleRate))
 }
 
 // RateLimitTagCreateEndpoints creates a rate limiter for tag creation endpoints
 // 20 requests per hour per IP - prevents tag spam on entities
 func RateLimitTagCreateEndpoints() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		TagCreateRequestsPerHour,
-		time.Hour,
-		httprate.WithKeyFuncs(KeyByClientIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return limiterSpec{name: limiterTagCreate, limit: TagCreateRequestsPerHour, window: time.Hour, key: KeyByClientIP}.handler()
 }
 
 // RateLimitTagVoteEndpoints creates a rate limiter for tag voting endpoints
 // 30 requests per minute per IP - prevents rapid vote manipulation
 func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		TagVoteRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(KeyByClientIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return limiterSpec{name: limiterTagVote, limit: TagVoteRequestsPerMinute, window: time.Minute, key: KeyByClientIP}.handler()
 }
 
 // SkipRateLimitForAdmin wraps a rate-limit middleware with two hatches: a
@@ -293,12 +270,12 @@ func rateLimitUserKeyFunc(r *http.Request) (string, error) {
 // shared-IP logged-in users each get their own bucket. Pair with
 // RateLimitPublicReadsByAuthState, which supplies the user id via context.
 func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		PublicReadUserRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(rateLimitUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return limiterSpec{
+		name:   limiterPublicReadUser,
+		limit:  PublicReadUserRequestsPerMinute,
+		window: time.Minute,
+		key:    rateLimitUserKeyFunc,
+	}.handler()
 }
 
 // RateLimitPublicReadAuthenticatedIPCeiling is the COARSE per-IP backstop for
@@ -307,14 +284,16 @@ func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 // RateLimitPublicReadsByAuthState INSIDE the per-user limiter (see the ORDER note
 // there) so that one IP running many scripted accounts is bounded in aggregate —
 // the per-user cap alone only meters a single account. Its own httprate store means
-// it never shares a counter with the anonymous per-IP limiter (RateLimitAPIEndpoints).
+// it never shares a counter with the anonymous per-IP limiter
+// (RateLimitPublicReadAnonymousEndpoints). It logs a sample of the requests it
+// allows (allowedReadSampleRate) with auth_state=authenticated.
 func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		PublicReadAuthenticatedIPCeilingPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(KeyByClientIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return limiterSpec{
+		name:   limiterPublicReadIPCeiling,
+		limit:  PublicReadAuthenticatedIPCeilingPerMinute,
+		window: time.Minute,
+		key:    KeyByClientIP,
+	}.sampledHandler(authStateAuthenticated, sampleAt(allowedReadSampleRate))
 }
 
 // RateLimitPublicReadsByAuthState routes each request to the right limiter:
@@ -440,44 +419,4 @@ func validatedAPIToken(validate func(string) bool, r *http.Request) bool {
 func extractJWT(r *http.Request) string {
 	token, _ := credentialFromRequest(r)
 	return token
-}
-
-// RateLimitExceededHandler handles rate limit exceeded responses for the
-// minute-window limiters. Retry-After is a minute because every limiter wired to
-// it directly meters a minute; an hour window must use
-// rateLimitExceededHandlerAfter so the header does not understate the wait by an
-// order of magnitude.
-func RateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
-	rateLimitExceededHandlerAfter(time.Minute)(w, r)
-}
-
-// rateLimitExceededHandlerAfter builds a 429 handler whose Retry-After and
-// message both name the limiter's OWN window. The header is what
-// ApiError.retryAfter carries into client countdown copy, so a limiter that
-// reports a minute on an hour bucket tells the caller to retry 59 times before
-// the budget can possibly refill.
-func rateLimitExceededHandlerAfter(window time.Duration) func(http.ResponseWriter, *http.Request) {
-	seconds := int(window.Seconds())
-	retryAfter := strconv.Itoa(seconds)
-	body := []byte(fmt.Sprintf(
-		`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in %d seconds."}`,
-		seconds))
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Log the rate limit hit.
-		log := logger.FromContext(r.Context())
-		if log == nil {
-			log = logger.Default()
-		}
-		log.Warn("rate limit exceeded",
-			"path", r.URL.Path,
-			"method", r.Method,
-			"remote_addr", r.RemoteAddr,
-		)
-
-		// Return 429 Too Many Requests with JSON response
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Retry-After", retryAfter)
-		w.WriteHeader(http.StatusTooManyRequests)
-		respond.SafeWrite(r.Context(), w, body)
-	}
 }

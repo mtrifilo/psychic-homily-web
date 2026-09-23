@@ -55,7 +55,7 @@ func rateLimitHandler(w http.ResponseWriter, r *http.Request) {
 	log.Warn("rate limit exceeded",
 		"path", r.URL.Path,
 		"method", r.Method,
-		"remote_addr", r.RemoteAddr,
+		"key_fingerprint", middleware.ClientIPKeyFingerprint(r),
 	)
 
 	w.Header().Set("Content-Type", "application/json")

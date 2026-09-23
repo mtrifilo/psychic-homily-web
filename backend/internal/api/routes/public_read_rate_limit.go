@@ -179,7 +179,7 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
 		validateAPIToken,
-		middleware.RateLimitAPIEndpoints(), // anonymous → per-IP
+		middleware.RateLimitPublicReadAnonymousEndpoints(),     // anonymous → per-IP
 		middleware.RateLimitPublicReadUserEndpoints(),          // authenticated → per-user
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)
 	)
