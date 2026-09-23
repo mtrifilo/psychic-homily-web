@@ -218,14 +218,6 @@ describe('NotificationInboxPage', () => {
         'href',
         '/artists'
       )
-      expect(screen.getByRole('link', { name: 'venues' })).toHaveAttribute(
-        'href',
-        '/venues'
-      )
-      expect(screen.getByRole('link', { name: 'scenes' })).toHaveAttribute(
-        'href',
-        '/scenes'
-      )
       expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
     })
 

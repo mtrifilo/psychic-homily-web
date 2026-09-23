@@ -53,7 +53,8 @@ export function NotificationBell() {
   const entries = data?.notifications ?? []
   const { unread, read } = partitionNotificationsByRead(entries)
   // Only a list that actually loaded can say the viewer has never received
-  // anything; without one (a failed first fetch) history is unknown.
+  // anything. Without one (a failed first fetch) the popover falls through to
+  // NotificationList's generic empty line instead.
   const neverReceived = data != null && entries.length === 0
 
   if (!isAuthenticated) return null

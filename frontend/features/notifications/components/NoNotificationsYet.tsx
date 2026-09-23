@@ -13,10 +13,9 @@
  */
 
 import { BracketLink } from '@/components/shared/BracketLink'
-import { cn } from '@/lib/utils'
 
 /** Directories whose entity pages carry a Follow control. */
-export const FOLLOW_DESTINATIONS = [
+const FOLLOW_DESTINATIONS = [
   { label: 'artists', href: '/artists' },
   { label: 'venues', href: '/venues' },
   { label: 'scenes', href: '/scenes' },
@@ -64,12 +63,7 @@ export function NoNotificationsYet({
   }
 
   return (
-    <div
-      className={cn(
-        'flex flex-col items-center justify-center gap-2 px-4 py-6 text-center',
-        'rounded-lg border border-dashed border-border/50'
-      )}
-    >
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/50 px-4 py-6 text-center">
       <p className="text-sm font-medium text-foreground">
         Nothing has arrived yet.
       </p>

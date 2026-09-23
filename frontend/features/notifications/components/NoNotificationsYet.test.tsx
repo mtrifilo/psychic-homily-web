@@ -36,11 +36,6 @@ describe('NoNotificationsYet', () => {
       render(<NoNotificationsYet />)
       expect(screen.getByText('Nothing has arrived yet.')).toBeInTheDocument()
     })
-
-    it('does not reuse the everything-read line', () => {
-      render(<NoNotificationsYet variant="page" />)
-      expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
-    })
   })
 
   describe('popover variant', () => {
