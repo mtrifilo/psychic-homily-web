@@ -203,8 +203,9 @@ if best is not None:
 # from a previous snapshot's machine-captured tables, or exits non-zero with a
 # one-line reason on stderr. The google.com figures are summed from that doc's
 # Google organic daily table and the visitor sum must equal its own headline
-# count (the doc has no pageview headline, so pageviews are taken as written); the totals
-# come from its headline line; its Filter line must name <google-filter>. Each
+# count (the doc has no pageview headline, so pageviews are taken as written);
+# the totals come from its headline line; its Filter line must name
+# <google-filter>. Each
 # anchor it reads (the Window, headline, and Filter lines, the Google organic,
 # Daily, and Landing pages headings, the daily table rows) is a line this
 # script's own doc template emits, and each must appear exactly once. Any shape
