@@ -21,6 +21,9 @@ const rateLimitDelay = queryRetryDelay
 const httpError = (status: number, retryAfter?: number) =>
   Object.assign(new Error(`HTTP ${status}`), { status, retryAfter })
 
+/** An attempt far enough out that the curve exceeds the per-attempt ceiling. */
+const SATURATED_ATTEMPT = 10
+
 /** Deterministic jitter sources, so every delay assertion is exact. */
 const noJitter = () => 0
 const maxJitter = () => 1
@@ -132,12 +135,10 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
   })
 
   it('clamps the curve to the per-attempt ceiling', () => {
-    // Past the budget's attempts the curve would exceed the ceiling; the clamp
-    // bounds it with or without a header.
-    expect(rateLimitDelay(5, httpError(429), noJitter)).toBe(
+    expect(rateLimitDelay(SATURATED_ATTEMPT, httpError(429), noJitter)).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS
     )
-    expect(rateLimitDelay(5, httpError(429, 60), noJitter)).toBe(
+    expect(rateLimitDelay(SATURATED_ATTEMPT, httpError(429, 60), noJitter)).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS
     )
   })
@@ -146,7 +147,7 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
     // Regression guard. Clamping AFTER jitter instead would collapse every
     // saturated delay onto the same number and retry the whole page in
     // lockstep, recreating the burst that exhausted the budget.
-    const jittered = rateLimitDelay(5, httpError(429), maxJitter)
+    const jittered = rateLimitDelay(SATURATED_ATTEMPT, httpError(429), maxJitter)
     expect(jittered).toBeGreaterThan(RATE_LIMIT_MAX_BASE_DELAY_MS)
     expect(jittered).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS * (1 + RATE_LIMIT_JITTER_RATIO)
@@ -194,7 +195,7 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
     // clamp allows can exceed it.
     const worstCase = Array.from(
       { length: RATE_LIMIT_MAX_RETRIES },
-      () => rateLimitDelay(10, httpError(429), maxJitter)
+      () => rateLimitDelay(SATURATED_ATTEMPT, httpError(429), maxJitter)
     ).reduce((total, delay) => total + delay, 0)
 
     // The message carries the WHY, so a failure explains itself instead of

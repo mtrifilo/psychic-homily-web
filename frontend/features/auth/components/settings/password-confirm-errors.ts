@@ -26,10 +26,8 @@ interface PasswordConfirmErrorCopy {
  * The 429 branch is the one this exists for: the raw limiter body reads as a
  * server complaint rather than as "slow down, your password is fine".
  *
- * The seconds branch is the usual one: the limiter's 429 carries `Retry-After`
- * and the backend's CORS config exposes it cross-origin (fact (4) in
- * `lib/query-retry-policy.ts`). The headerless branch covers a 429 that
- * arrives without a usable header.
+ * The seconds branch is the usual one. The headerless branch covers a 429 that
+ * arrives without a usable `Retry-After`.
  *
  * Either way the number is the whole window the limiter names, not the time
  * left in the current one, and it does not tick down.
