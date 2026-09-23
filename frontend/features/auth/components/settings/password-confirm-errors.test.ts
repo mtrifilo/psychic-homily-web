@@ -30,9 +30,7 @@ describe('formatPasswordConfirmError', () => {
     )
   })
 
-  it('names the window when retryAfter is absent, the deployed path', () => {
-    // The deployed frontend calls the backend cross-origin, where Retry-After
-    // is not exposed, so `retryAfter` is undefined for real users.
+  it('names the window when retryAfter is absent', () => {
     const error = Object.assign(new Error('Rate limit exceeded.'), {
       status: 429,
     })

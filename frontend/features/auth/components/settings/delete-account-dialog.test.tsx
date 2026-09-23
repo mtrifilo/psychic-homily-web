@@ -443,9 +443,7 @@ describe('DeleteAccountDialog', () => {
     expect(line.closest('[role="alert"]')).not.toBeNull()
   })
 
-  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', async () => {
-    // The deployed frontend calls the backend cross-origin, where no CORS
-    // config exposes Retry-After, so this is the branch real users see.
+  it('renders throttle copy naming the window when Retry-After is absent', async () => {
     mockDeleteMutationState = {
       ...mockDeleteMutationState,
       isError: true,

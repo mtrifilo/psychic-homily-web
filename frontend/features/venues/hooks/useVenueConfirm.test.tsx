@@ -106,6 +106,12 @@ describe('formatVenueConfirmError', () => {
     )
   })
 
+  it('names an hour-window limit as its raw seconds', () => {
+    expect(formatVenueConfirmError({ status: 429, retryAfter: 3600 })).toBe(
+      'Too many confirmations — try again in 3600s.',
+    )
+  })
+
   it('still says "slow down" when the header is missing or unusable', () => {
     expect(formatVenueConfirmError({ status: 429 })).toBe(
       'Too many confirmations — try again in a minute.',

@@ -42,22 +42,38 @@ function capitalizeFirst(s: string): string {
 }
 
 /**
- * Format a submission error into a user-facing inline-banner string. 429
- * gets countdown copy populated from the `Retry-After` header (or the
- * service message body as a fallback). Any other status falls back to the
- * raw message. Returns null if there is no error.
+ * Format a submission error into a user-facing inline-banner string. A 429
+ * shows the server's message whenever the body carried one, and countdown copy
+ * from `Retry-After` only when it did not. Any other status shows the raw
+ * message. Returns null if there is no error.
  *
- * Exported for unit testing — the hook test asserts that 429 with a
- * Retry-After header produces "Please wait Ns before commenting again."
+ * The message outranks the header because it names the cap that fired (the
+ * per-entity pause or the viewer's hourly tier limit), while `Retry-After` is
+ * the limiter's whole window: 3600 on the hourly cap, which the message states
+ * more usefully than "3600s".
  */
+/**
+ * The 429's own server message, or '' when the body carried none. `apiRequest`
+ * fills a body-less error with the bare status text or a synthesized
+ * `HTTP <status>: <statusText>` line, and neither names the cap that fired.
+ */
+function serverMessage(err: ApiError): string {
+  const message = err.message ?? ''
+  if (message === (err.statusText ?? '') || /^HTTP \d{3}:/.test(message)) {
+    return ''
+  }
+  return message
+}
+
 export function formatCommentSubmissionError(error: unknown): string | null {
   if (!error) return null
   const apiErr = error as ApiError
   if (apiErr.status === 429) {
+    const message = serverMessage(apiErr)
+    if (message) return capitalizeFirst(message)
     if (apiErr.retryAfter && Number.isFinite(apiErr.retryAfter)) {
       return `Please wait ${apiErr.retryAfter}s before commenting again.`
     }
-    if (apiErr.message) return capitalizeFirst(apiErr.message)
     return 'Please wait a minute before commenting again.'
   }
   if (apiErr.message) return capitalizeFirst(apiErr.message)

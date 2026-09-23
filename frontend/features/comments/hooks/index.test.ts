@@ -7,20 +7,49 @@ import { formatCommentSubmissionError } from './index'
 // formatCommentSubmissionError is the seam — the hook itself is a thin
 // react-query mutation, but it exposes the api.ts error verbatim, and
 // CommentThread/CommentCard pass that error through this formatter to
-// drive the banner copy + countdown.
+// drive the banner copy.
 describe('formatCommentSubmissionError (PSY-589)', () => {
   it('returns null when there is no error (no banner)', () => {
     expect(formatCommentSubmissionError(null)).toBeNull()
     expect(formatCommentSubmissionError(undefined)).toBeNull()
   })
 
-  it('uses Retry-After seconds for 429 countdown copy', () => {
-    const err: ApiError = Object.assign(new Error('please wait 60 seconds...'), {
-      status: 429,
-      retryAfter: 60,
-    })
+  // Body-less 429s shaped the way apiRequest builds them: the bare status text
+  // (HTTP/1.1) or a synthesized `HTTP 429: ` line (HTTP/2, empty statusText).
+  it.each([
+    ['bare status text', 'Too Many Requests', 'Too Many Requests'],
+    ['synthesized status line', 'HTTP 429: ', ''],
+  ])(
+    'uses Retry-After countdown copy when the body carried no message (%s)',
+    (_label, message, statusText) => {
+      const err: ApiError = Object.assign(new Error(message), {
+        status: 429,
+        statusText,
+        retryAfter: 60,
+      })
+      expect(formatCommentSubmissionError(err)).toBe(
+        'Please wait 60s before commenting again.'
+      )
+    }
+  )
+
+  it('prefers the server message over a readable Retry-After', () => {
+    const err: ApiError = Object.assign(
+      new Error('please wait 60 seconds between comments on the same entity'),
+      { status: 429, retryAfter: 60 }
+    )
     expect(formatCommentSubmissionError(err)).toBe(
-      'Please wait 60s before commenting again.'
+      'Please wait 60 seconds between comments on the same entity'
+    )
+  })
+
+  it('keeps the hourly cap message rather than a 3600s countdown', () => {
+    const err: ApiError = Object.assign(
+      new Error("you've reached your hourly comment limit (5/hour for new users)"),
+      { status: 429, retryAfter: 3600 }
+    )
+    expect(formatCommentSubmissionError(err)).toBe(
+      "You've reached your hourly comment limit (5/hour for new users)"
     )
   })
 
@@ -35,7 +64,10 @@ describe('formatCommentSubmissionError (PSY-589)', () => {
   })
 
   it('falls back to a static message for 429 with neither header nor body', () => {
-    const err: ApiError = Object.assign(new Error(''), { status: 429 })
+    const err: ApiError = Object.assign(new Error('HTTP 429: '), {
+      status: 429,
+      statusText: '',
+    })
     expect(formatCommentSubmissionError(err)).toBe(
       'Please wait a minute before commenting again.'
     )

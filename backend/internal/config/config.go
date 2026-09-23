@@ -452,6 +452,15 @@ func CORSAllowedHeaders(base []string, isProduction bool) []string {
 	return append(out, LighthouseBypassHeader)
 }
 
+// CORSExposedHeaders returns the response headers a cross-origin browser may
+// read beyond the CORS-safelisted set. Retry-After is the only entry: it tells
+// a rate-limited client when to retry. Every other
+// non-safelisted response header stays unreadable cross-origin. Returns a new
+// slice on each call so no caller can mutate the shared list.
+func CORSExposedHeaders() []string {
+	return []string{"Retry-After"}
+}
+
 // getWebAuthnRPID returns the WebAuthn Relying Party ID based on environment
 func getWebAuthnRPID() string {
 	if rpID := os.Getenv(EnvWebAuthnRPID); rpID != "" {

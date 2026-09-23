@@ -576,7 +576,7 @@ describe('FieldNotesSection', () => {
   // PSY-608: createFieldNote 4xx must surface inline (was silent — same
   // failure mode as PSY-589 on createComment).
   describe('mutation error surfacing (PSY-608)', () => {
-    it('renders inline 429 banner with countdown copy when create mutation rate-limits', () => {
+    it('renders inline 429 banner with the server message when create mutation rate-limits', () => {
       const err = Object.assign(
         new Error('please wait 60 seconds between comments on the same entity'),
         { status: 429, retryAfter: 60 }
@@ -609,7 +609,7 @@ describe('FieldNotesSection', () => {
       expect(banner).toBeInTheDocument()
       expect(banner).toHaveAttribute('role', 'alert')
       expect(banner).toHaveTextContent(
-        'Please wait 60s before commenting again.'
+        'Please wait 60 seconds between comments on the same entity'
       )
     })
   })

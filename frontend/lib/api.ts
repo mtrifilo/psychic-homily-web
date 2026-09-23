@@ -646,14 +646,14 @@ export const apiRequest = async <T = unknown>(
     apiError.details = errorBody.details || errorBody.errors || errorBody
 
     // PSY-589: surface Retry-After on 429 so callers can render a
-    // countdown ("Please wait Ns before commenting again"). RFC 7231
+    // countdown ("retry in Ns"). RFC 7231
     // §7.1.3 also allows an HTTP-date form; we only parse the integer
     // delta-seconds variant since every backend rate-limit path emits
     // that form.
     //
-    // In PRODUCTION this header is unreadable and `retryAfter` stays
-    // undefined, because CORS does not expose it. See fact (4) in
-    // ./query-retry-policy for the detail and for how the schedule copes.
+    // `retryAfter` is undefined when a 429 omits the header or carries the
+    // HTTP-date form. Cross-origin readability is fact (4) in
+    // ./query-retry-policy.
     if (response.status === 429) {
       const retryAfterRaw = response.headers.get('Retry-After')
       if (retryAfterRaw) {

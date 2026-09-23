@@ -340,7 +340,7 @@ describe('CommentThread', () => {
 
     // PSY-589: when the create mutation 429s, the form must surface an
     // inline banner instead of silently clearing.
-    it('renders inline 429 banner with countdown copy when create mutation rate-limits', () => {
+    it('renders inline 429 banner with the server message when create mutation rate-limits', () => {
       const err = Object.assign(
         new Error('please wait 60 seconds between comments on the same entity'),
         { status: 429, retryAfter: 60 }
@@ -363,7 +363,7 @@ describe('CommentThread', () => {
 
       const banner = screen.getByTestId('comment-form-error')
       expect(banner).toBeInTheDocument()
-      expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
+      expect(banner).toHaveTextContent('Please wait 60 seconds between comments on the same entity')
     })
 
     it('drops the optimistic entry once the canonical row appears in the list (post-approval refetch)', () => {
