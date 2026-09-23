@@ -385,6 +385,24 @@ describe('generateMetadata', () => {
     expect(meta.openGraph?.url).toBe('/shows/test-show')
   })
 
+  it('canonicalises a numeric request to the loaded show slug', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ id: 1359 })))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: '1359' }) })
+
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/shows/test-show')
+    expect(meta.openGraph?.url).toBe('/shows/test-show')
+  })
+
+  it('keeps a slug-less show canonical at its numeric URL, never the /shows root', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ id: 1359, slug: '' })))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: '1359' }) })
+
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/shows/1359')
+    expect(meta.openGraph?.url).toBe('/shows/1359')
+  })
+
   it('declares a large-image Twitter card mirroring the OG title/description', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
@@ -562,6 +580,24 @@ describe('ShowPage', () => {
 
     expect(notFoundMock).not.toHaveBeenCalled()
     expect(result).toBeTruthy()
+  })
+
+  it('points the breadcrumb at the slug URL when the request was a numeric id', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ id: 1359 })))
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: '1359' }) })
+
+    const breadcrumb = Children.toArray(
+      (result.props as { children?: React.ReactNode }).children
+    )
+      .filter(isValidElement)
+      .map(child => (child.props as { data?: Record<string, unknown> }).data)
+      .find(data => data?.['@type'] === 'BreadcrumbList') as
+      | { itemListElement: Array<{ item: string }> }
+      | undefined
+    expect(breadcrumb?.itemListElement.at(-1)?.item).toBe(
+      'https://psychichomily.com/shows/test-show'
+    )
   })
 })
 

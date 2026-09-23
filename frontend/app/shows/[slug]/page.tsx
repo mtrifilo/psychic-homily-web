@@ -28,6 +28,7 @@ import type {
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { showSnippet } from '@/lib/seo/entitySnippets'
+import { showCanonicalPath } from '@/lib/seo/showCanonical'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
@@ -155,18 +156,19 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
       timing: showTimingInput(show),
       authoredDescription: show.description,
     })
+    const canonicalPath = showCanonicalPath(slug, show.slug)
 
     return {
       title,
       description,
       alternates: {
-        canonical: `https://psychichomily.com/shows/${slug}`,
+        canonical: `https://psychichomily.com${canonicalPath}`,
       },
       openGraph: {
         title,
         description,
         type: 'website',
-        url: `/shows/${slug}`,
+        url: canonicalPath,
       },
       // The root layout already sets `twitter.card`, so the card type is not
       // what this fixes. It sets `twitter.images: ['/og-image.jpg']` too, and
@@ -408,7 +410,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
       <JsonLd data={generateBreadcrumbSchema([
         { name: 'Home', url: 'https://psychichomily.com' },
         { name: 'Shows', url: 'https://psychichomily.com/shows' },
-        { name: showName, url: `https://psychichomily.com/shows/${slug}` },
+        { name: showName, url: `https://psychichomily.com${showCanonicalPath(slug, showData.slug)}` },
       ])} />
       <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<ShowLoadingFallback />}>

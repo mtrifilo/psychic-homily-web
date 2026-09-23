@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { API_BASE_URL } from '@/lib/api-base'
+import {
+  isNumericShowSegment,
+  showSlugRedirectPath,
+} from '@/lib/seo/showCanonical'
 
 /**
  * Slug-existence proxy — real HTTP 404 for unknown entity slug pages (PSY-897).
@@ -572,6 +576,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next()
   }
 
+  if (entityType === 'shows' && isNumericShowSegment(slug)) {
+    return numericShowRedirect(request, slug)
+  }
+
   return existenceCheck(request, buildCheckUrl(slug), {
     requireApiAuthoredNotFound: false,
   })
@@ -699,6 +707,58 @@ async function existenceCheck(
   } catch {
     // Network error reaching the backend: fail OPEN. The proxy must never take
     // a route down when the check itself fails.
+    return NextResponse.next()
+  }
+}
+
+/**
+ * A show addressed by its numeric id, permanently redirected to its slug URL,
+ * so one show is never indexed at two addresses.
+ *
+ * Here and not in the page, because only the proxy can set the status: the page
+ * body resolves after the root layout's Suspense boundary has committed a 200,
+ * so a `permanentRedirect()` there arrives as a client-side meta refresh.
+ *
+ * A GET of the show rather than the HEAD existence probe, because the answer
+ * needed is the slug and only the detail read carries it. It stands in for the
+ * probe on this path, so a numeric request still costs one backend call here.
+ *
+ * The same fail-open rules as `existenceCheck`: a backend 404 is a real 404,
+ * and any other failure lets the page render. So does a show with no
+ * addressable slug, whose page stays at the numeric URL. Query parameters
+ * survive the redirect.
+ */
+async function numericShowRedirect(
+  request: NextRequest,
+  id: string
+): Promise<NextResponse> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(id)}`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
+    })
+    if (res.status === 404) {
+      return notFoundResponse(request)
+    }
+    if (!res.ok) {
+      return NextResponse.next()
+    }
+    const body: unknown = await res.json()
+    const loadedSlug =
+      typeof body === 'object' && body !== null
+        ? (body as { slug?: unknown }).slug
+        : undefined
+    const target = showSlugRedirectPath(
+      id,
+      typeof loadedSlug === 'string' ? loadedSlug : null
+    )
+    if (!target) {
+      return NextResponse.next()
+    }
+    const url = new URL(target, request.url)
+    url.search = request.nextUrl.search
+    return NextResponse.redirect(url, 308)
+  } catch {
     return NextResponse.next()
   }
 }
