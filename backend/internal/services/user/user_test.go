@@ -480,12 +480,9 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 	suite.Require().NotZero(user.ID)
 
 	preferences := &authm.UserPreferences{
-		UserID:            user.ID,
-		NotificationEmail: true,
-		NotificationPush:  false,
-		Theme:             "dark",
-		Timezone:          "America/New_York",
-		Language:          "en",
+		UserID:                 user.ID,
+		ShowReminders:          true,
+		DefaultReplyPermission: "followers",
 	}
 
 	err = suite.db.Create(preferences).Error
@@ -502,11 +499,8 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 
 	prefs := retrievedUser.Preferences
 	suite.Equal(user.ID, prefs.UserID)
-	suite.True(prefs.NotificationEmail)
-	suite.False(prefs.NotificationPush)
-	suite.Equal("dark", prefs.Theme)
-	suite.Equal("America/New_York", prefs.Timezone)
-	suite.Equal("en", prefs.Language)
+	suite.True(prefs.ShowReminders)
+	suite.Equal("followers", prefs.DefaultReplyPermission)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAndPreferences() {
@@ -534,9 +528,9 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 	suite.Require().NoError(err)
 
 	err = suite.db.Exec(`
-		INSERT INTO user_preferences (user_id, notification_email, notification_push, theme, timezone, language, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, user.ID, false, true, "light", "UTC", "es").Error
+		INSERT INTO user_preferences (user_id, show_reminders, default_reply_permission, created_at, updated_at)
+		VALUES (?, ?, ?, NOW(), NOW())
+	`, user.ID, true, "author_only").Error
 	suite.Require().NoError(err)
 
 	retrievedUser, err := suite.userService.GetUserByUsername(username)
@@ -555,11 +549,8 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 
 	prefs := retrievedUser.Preferences
 	suite.Equal(user.ID, prefs.UserID)
-	suite.False(prefs.NotificationEmail)
-	suite.True(prefs.NotificationPush)
-	suite.Equal("light", prefs.Theme)
-	suite.Equal("UTC", prefs.Timezone)
-	suite.Equal("es", prefs.Language)
+	suite.True(prefs.ShowReminders)
+	suite.Equal("author_only", prefs.DefaultReplyPermission)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_EmptyUsername() {
@@ -1330,9 +1321,6 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 	// Verify export version
 	suite.Equal("1.0", export.ExportVersion)
 
-	// Verify preferences
-	suite.NotNil(export.Preferences)
-
 	// Verify OAuth (without tokens)
 	suite.Require().Len(export.OAuthAccounts, 1)
 	suite.Equal("google", export.OAuthAccounts[0].Provider)
@@ -1377,6 +1365,16 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON() {
 	suite.Equal("1.0", parsed["export_version"])
 	suite.Contains(parsed, "profile")
 	suite.Contains(parsed, "exported_at")
+
+	// The account has a user_preferences row, and none of the dropped
+	// preference keys appear anywhere in the export.
+	var prefsRows int64
+	suite.Require().NoError(suite.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", user.ID).Count(&prefsRows).Error)
+	suite.Require().Equal(int64(1), prefsRows)
+	for _, key := range []string{"notification_email", "notification_push", "theme", "timezone", "language"} {
+		suite.NotContains(string(jsonBytes), `"`+key+`"`)
+	}
 }
 
 // =============================================================================

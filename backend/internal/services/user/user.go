@@ -1168,7 +1168,6 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	var user authm.User
 	if err := s.db.
 		Preload("OAuthAccounts").
-		Preload("Preferences").
 		Preload("PasskeyCredentials").
 		First(&user, userID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -1189,17 +1188,6 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 			CreatedAt:     user.CreatedAt,
 			UpdatedAt:     user.UpdatedAt,
 		},
-	}
-
-	// Export preferences
-	if user.Preferences != nil {
-		export.Preferences = &contracts.UserPreferencesExport{
-			NotificationEmail: user.Preferences.NotificationEmail,
-			NotificationPush:  user.Preferences.NotificationPush,
-			Theme:             user.Preferences.Theme,
-			Timezone:          user.Preferences.Timezone,
-			Language:          user.Preferences.Language,
-		}
 	}
 
 	// Export OAuth accounts (without tokens)

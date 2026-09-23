@@ -530,15 +530,7 @@ func seedTestUsers(db *gorm.DB) int {
 			continue
 		}
 
-		// Create user preferences
-		prefs := &authm.UserPreferences{
-			UserID:            user.ID,
-			NotificationEmail: true,
-			Theme:             "system",
-			Timezone:          "America/Phoenix",
-			Language:          "en",
-		}
-		if err := db.Create(prefs).Error; err != nil {
+		if err := db.Create(&authm.UserPreferences{UserID: user.ID}).Error; err != nil {
 			log.Printf("Warning: Failed to create preferences for %s: %v", u.Email, err)
 		}
 

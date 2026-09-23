@@ -73,12 +73,7 @@ interface FavoriteCity {
 }
 
 interface UserPreferencesData {
-  notification_email?: boolean
-  notification_push?: boolean
   show_reminders?: boolean
-  theme?: string
-  timezone?: string
-  language?: string
   favorite_cities?: FavoriteCity[]
   // PSY-1423: saved /charts window + scene. Absent/null = no saved defaults.
   chart_defaults?: {
@@ -882,10 +877,6 @@ interface ExportDataResponse {
     email_verified: boolean
     created_at: string
     updated_at: string
-  }
-  preferences?: {
-    email_notifications: boolean
-    marketing_emails: boolean
   }
   oauth_accounts?: Array<{
     provider: string
