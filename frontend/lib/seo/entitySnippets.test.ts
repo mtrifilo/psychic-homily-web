@@ -126,6 +126,17 @@ describe('fitDescription', () => {
     expect(result).toBe('x'.repeat(DESCRIPTION_BUDGET - 4) + '...')
   })
 
+  it('does not put the ellipsis after a full stop or a comma', () => {
+    const endsInStop = 'x'.repeat(DESCRIPTION_BUDGET - 4) + '. More text follows'
+    expect(fitDescription(endsInStop)).toBe(
+      'x'.repeat(DESCRIPTION_BUDGET - 4) + '...'
+    )
+    const endsInComma = 'y'.repeat(DESCRIPTION_BUDGET - 5) + ', and more text'
+    expect(fitDescription(endsInComma)).toBe(
+      'y'.repeat(DESCRIPTION_BUDGET - 5) + '...'
+    )
+  })
+
   it('never splits a surrogate pair', () => {
     const result = fitDescription('🎸'.repeat(200))
     expect(Array.from(result)).toHaveLength(DESCRIPTION_BUDGET)

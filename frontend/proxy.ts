@@ -404,7 +404,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const scene = encodeURIComponent(slug)
     if (sub === 'week') {
       return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`, {
-        // Shipped route; see existenceCheck's note on the four `false`s.
+        // Shipped route; see failedProbeResponse's note on the `false`s.
         requireApiAuthoredNotFound: false,
       })
     }
@@ -646,7 +646,7 @@ const API_ERROR_CONTENT_TYPE = 'application/problem+json'
  * reading that neighbour happened to need.
  *
  * `true` is the answer for a NEW route, and the answer to reach for when unsure.
- * The four `false`s below are the shipped probes, kept as they are because
+ * The callers that pass `false` probe shipped routes, kept as they are because
  * turning the guard on for them changes 404 semantics site-wide — worth doing,
  * but as its own change with its own verification across every entity type, not
  * as a side effect of a performance ticket.
@@ -771,6 +771,8 @@ async function numericShowRedirect(
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
     const failed = failedProbeResponse(request, res, {
+      // `GET /shows/{id}` is a shipped route, read the way the shows existence
+      // probe it stands in for is read.
       requireApiAuthoredNotFound: false,
     })
     if (failed) {

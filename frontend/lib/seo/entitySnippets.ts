@@ -88,6 +88,8 @@ export function fitTitle(
 /**
  * Collapse whitespace, then cut to {@link DESCRIPTION_BUDGET} with the ellipsis
  * counted inside the budget. Text already within budget is returned whole.
+ * Whitespace and punctuation at the cut are dropped so the ellipsis never
+ * follows a full stop or a comma.
  */
 export function fitDescription(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
@@ -96,7 +98,7 @@ export function fitDescription(text: string): string {
   const kept = chars
     .slice(0, DESCRIPTION_BUDGET - ELLIPSIS.length)
     .join('')
-    .trimEnd()
+    .replace(/[\s.,;:!?]+$/u, '')
   return kept + ELLIPSIS
 }
 
