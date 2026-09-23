@@ -899,25 +899,36 @@ interface ExportDataResponse {
   }>
 }
 
-// The export endpoint answers HTTP 200 either with the export document itself
-// (no envelope) or, when the request reaches it without an authenticated
-// user, with this inline error body instead of the document.
+// The export endpoint's successful answer is the export document itself, with
+// no response envelope. When the handler runs without a user set by the auth
+// middleware (a server wiring defect; a missing or expired session is a 401
+// from the middleware instead), it answers HTTP 200 with this body instead.
 interface ExportDataErrorBody {
   success: false
   error: string
   message: string
 }
 
+// `null` is a JSON `null` body; `undefined` is what apiRequest returns for 204.
+type ExportDataBody = ExportDataResponse | ExportDataErrorBody | null | undefined
+
 // Only the export document carries `exported_at`; the inline error body never
-// does. Anything else, including an unexpected shape, is not a document.
-function isExportDocument(
-  body: ExportDataResponse | ExportDataErrorBody | null
-): body is ExportDataResponse {
+// does.
+function isExportDocument(body: ExportDataBody): body is ExportDataResponse {
   return (
     typeof body === 'object' &&
     body !== null &&
     'exported_at' in body &&
     typeof body.exported_at === 'string'
+  )
+}
+
+function isExportErrorBody(body: ExportDataBody): body is ExportDataErrorBody {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'success' in body &&
+    body.success === false
   )
 }
 
@@ -927,7 +938,7 @@ export const useExportData = () => {
     mutationFn: async (): Promise<ExportDataResponse> => {
       authLogger.debug('Exporting user data')
 
-      const body = await apiRequest<ExportDataResponse | ExportDataErrorBody | null>(
+      const body = await apiRequest<ExportDataBody>(
         API_ENDPOINTS.AUTH.EXPORT_DATA,
         {
           method: 'GET',
@@ -935,15 +946,18 @@ export const useExportData = () => {
         }
       )
 
-      if (!isExportDocument(body)) {
-        throw new AuthError(
-          body?.message || 'Failed to export data',
-          AuthErrorCode.UNKNOWN,
-          { status: 400 }
-        )
+      if (isExportDocument(body)) {
+        return body
       }
 
-      return body
+      // Only the handler's own error body contributes its message; any other
+      // non-document body is an unrecognized response.
+      const handlerMessage = isExportErrorBody(body) ? body.message : undefined
+      throw new AuthError(
+        handlerMessage || 'Failed to export data',
+        AuthErrorCode.UNKNOWN,
+        { status: 400 }
+      )
     },
     onSuccess: data => {
       authLogger.info('Data export successful', { exportedAt: data.exported_at })

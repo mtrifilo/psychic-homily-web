@@ -1134,9 +1134,10 @@ describe('useAuth hooks', () => {
       [
         'a success envelope without the document',
         { success: true, message: 'Export ready' },
-        'Export ready',
+        'Failed to export data',
       ],
-      ['an empty body', null, 'Failed to export data'],
+      ['a JSON null body', null, 'Failed to export data'],
+      ['a 204 with no body', undefined, 'Failed to export data'],
     ])('throws AuthError on %s', async (_label, body, expectedMessage) => {
       mockApiRequest.mockResolvedValueOnce(body)
 
