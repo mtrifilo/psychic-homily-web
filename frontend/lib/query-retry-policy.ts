@@ -58,13 +58,14 @@
  *     CORS-safelisted response header, so this holds only because the
  *     backend's CORS config lists it in `Access-Control-Expose-Headers`
  *     (`config.CORSExposedHeaders`). `ApiError.retryAfter` therefore carries
- *     the limiter's window length wherever the header arrives, and is
- *     undefined only when a 429 omits it.
+ *     the 429's own `Retry-After` value wherever the header arrives, and is
+ *     undefined only when a 429 omits it or uses the HTTP-date form.
  *
  * Taken together: the exponential backoff below is the schedule, and
  * `Retry-After` is an upper bound that can only shorten a wait, never lengthen
- * it. With today's constant 60s the header never binds, so the schedule is the
- * same whether or not the header is readable.
+ * it. Every value the backend sends today (60 or 3600) exceeds every step, so
+ * the header never binds and the schedule is the same whether or not it is
+ * readable.
  */
 
 import type { ApiError } from './api'
@@ -119,7 +120,7 @@ export const RATE_LIMIT_MAX_BASE_DELAY_MS = 10_000
  * Deliberately eager: the window is sliding, so capacity is returning the
  * whole time, and a refused probe costs no budget.
  */
-export const RATE_LIMIT_FALLBACK_BASE_MS = 2_000
+export const RATE_LIMIT_BACKOFF_BASE_MS = 2_000
 
 /**
  * Extra wait added as a fraction of the base delay, to de-synchronize the
@@ -188,7 +189,7 @@ function rateLimitRetryDelay(
   random: () => number = Math.random
 ): number {
   // The header is an upper bound on the curve's step, never a replacement.
-  const curve = RATE_LIMIT_FALLBACK_BASE_MS * 2 ** failureCount
+  const curve = RATE_LIMIT_BACKOFF_BASE_MS * 2 ** failureCount
   const base = Math.min(
     curve,
     retryAfterMs(error) ?? Number.POSITIVE_INFINITY,

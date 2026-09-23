@@ -220,7 +220,7 @@ describe('recordRateLimitHit', () => {
     expect(capturedMessages()).toHaveLength(2)
   })
 
-  it('flags a missing Retry-After, the production case', async () => {
+  it('flags a 429 that arrived without a usable Retry-After', async () => {
     const { recordRateLimitHit } = await loadTelemetry()
 
     recordRateLimitHit({ endpoint: '/artists/12/releases' })
