@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/go-chi/httprate"
 
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
 	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
@@ -102,6 +101,7 @@ func setupShowRoutes(rc RouteContext) {
 	showCreateGroup := huma.NewGroup(rc.API, "")
 	showCreateGroup.UseMiddleware(humaFromHTTP(rateLimitUnlessValidatedAPIToken(
 		rc.ValidateAPIToken,
+		middleware.LimiterShowCreate,
 		middleware.ShowCreateRequestsPerHour,
 		time.Hour,
 	)))
@@ -112,12 +112,7 @@ func setupShowRoutes(rc RouteContext) {
 	// Rate-limited AI processing: 5 requests per minute per IP
 	// Calls external Anthropic API — expensive operation
 	aiProcessGroup := huma.NewGroup(rc.API, "")
-	aiProcessGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
-		middleware.AIProcessRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(middleware.KeyByClientIP),
-		httprate.WithLimitHandler(rateLimitHandler),
-	)))
+	aiProcessGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(middleware.LimiterAIProcess, middleware.AIProcessRequestsPerMinute, time.Minute)))
 	aiProcessGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	aiProcessGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(aiProcessGroup, "/shows/ai-process", showHandler.AIProcessShowHandler)
