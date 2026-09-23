@@ -319,3 +319,53 @@ test.describe('Radio browse flow', () => {
     ).toBeVisible({ timeout: 10_000 })
   })
 })
+
+// The show page's episode archive stacks each row below `sm`. At phone width
+// the Played names must read in full: no element between a name and its cell
+// may clip it, and the page itself must not scroll sideways. The seeded
+// episode carries one matched artist (Calexico) and one unmatched (Beach
+// House), so both hop kinds are exercised.
+test.describe('Radio show archive at phone width', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('the Played column shows each artist in full without widening the page', async ({
+    page,
+  }) => {
+    await page.goto(`/radio/${KEXP_SLUG}/${KEXP_SHOW_SLUG}`)
+
+    const archive = page
+      .getByRole('main')
+      .getByRole('table')
+      .filter({
+        has: page.getByRole('columnheader', { name: 'Played', exact: true }),
+      })
+    const matched = archive.getByRole('link', { name: 'Calexico', exact: true })
+    const unmatched = archive.getByText('Beach House', { exact: true })
+
+    await expect(matched).toBeVisible({ timeout: 10_000 })
+    await expect(matched).toHaveAttribute('href', '/artists/calexico')
+    await expect(unmatched).toBeVisible()
+    await expect(unmatched.locator('xpath=ancestor-or-self::a')).toHaveCount(0)
+
+    for (const name of [matched, unmatched]) {
+      const clippedBy = await name.evaluate(el => {
+        const clipping: string[] = []
+        for (let node: Element | null = el; node; node = node.parentElement) {
+          if (node.scrollWidth > node.clientWidth + 1) clipping.push(node.tagName)
+          if (node.tagName === 'TD') break
+        }
+        return clipping
+      })
+      expect(clippedBy).toEqual([])
+      const box = await name.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+    }
+
+    const pageOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth
+    )
+    expect(pageOverflow).toBeLessThanOrEqual(0)
+  })
+})

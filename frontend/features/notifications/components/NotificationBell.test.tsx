@@ -204,6 +204,77 @@ describe('NotificationBell', () => {
     ).not.toBeInTheDocument()
   })
 
+  describe('empty popover', () => {
+    it('shows the never-received copy and follow links when nothing has arrived', async () => {
+      mockUseUserNotifications.mockReturnValue({
+        data: { notifications: [], unread_count: 0 },
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      renderBell()
+      await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+      expect(
+        screen.getByText(
+          'Nothing yet. New shows from artists, venues and scenes you follow land here.'
+        )
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'artists' })).toHaveAttribute(
+        'href',
+        '/artists'
+      )
+      expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
+    })
+
+    it('closes the popover when a follow link is clicked', async () => {
+      mockUseUserNotifications.mockReturnValue({
+        data: { notifications: [], unread_count: 0 },
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      renderBell()
+      await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+      await user.click(screen.getByRole('link', { name: 'artists' }))
+
+      expect(
+        screen.queryByRole('link', { name: 'artists' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders read rows, not the never-received copy, when everything is read', async () => {
+      mockUseUserNotifications.mockReturnValue({
+        data: {
+          notifications: [commentEntry({ read_at: new Date().toISOString() })],
+          unread_count: 0,
+        },
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      renderBell()
+      await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+      expect(screen.getByText('Earlier')).toBeInTheDocument()
+      expect(screen.getByText('alice')).toBeInTheDocument()
+      expect(screen.queryByText(/^Nothing yet\./)).not.toBeInTheDocument()
+    })
+
+    it('does not claim nothing has arrived when the first fetch failed', async () => {
+      mockUseUserNotifications.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      renderBell()
+      await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+      expect(screen.queryByText(/^Nothing yet\./)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'artists' })
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('renders read rows under an EARLIER divider after unread rows', async () => {
     const unreadRow = commentEntry({ id: 1 })
     const readRow = commentEntry({
