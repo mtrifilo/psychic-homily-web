@@ -5,6 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +154,7 @@ func TestRateLimitRejection_LogLineCarriesNoRawAddress(t *testing.T) {
 		"msg":               "rate limit exceeded",
 		"level":             "WARN",
 		"limiter":           string(LimiterPublicReadAnonymous),
+		"limit":             float64(1),
 		"window_seconds":    float64(60),
 		"path_family":       pathFamilyArtist,
 		"method":            http.MethodGet,
@@ -469,22 +473,99 @@ func TestLogAttrs_OriginPresentCarriesNoOriginValue(t *testing.T) {
 	}
 }
 
-// Log queries group on the limiter attribute, so two limiters sharing a name
-// would merge their counts silently.
-func TestLimiterNamesAreDistinct(t *testing.T) {
-	names := []LimiterName{
-		LimiterPublicReadAnonymous, LimiterPublicReadUser, LimiterPublicReadIPCeiling,
-		LimiterEngagementMutationBurst, LimiterEngagementMutationSustained,
-		LimiterEntityRequestBatchBurst, LimiterEntityRequestBatchSustained,
-		LimiterAuth, LimiterPasskey, LimiterVerificationResend, LimiterPasswordConfirm,
-		LimiterOAuthLinkToken, LimiterTagCreate, LimiterTagVote, LimiterShowReport,
-		LimiterEntityReport, LimiterShowCreate, LimiterAIProcess,
-	}
-	seen := make(map[LimiterName]bool, len(names))
-	for _, name := range names {
-		if name == "" || seen[name] {
-			t.Errorf("limiter name %q is empty or repeated", name)
+// Saved log queries group on these wire values, so each one is pinned here as a
+// literal rather than compared against the constant that produces it. The
+// LimiterName set is also read from ratelimit_observe.go, so a new limiter name
+// fails this test until it is pinned, and two names sharing a value fail it too.
+func TestRateLimitLogValuesAreStable(t *testing.T) {
+	for got, want := range map[string]string{
+		rateLimitRejectedEvent:      "ratelimit_rejected",
+		rateLimitAllowedSampleEvent: "ratelimit_allowed_sample",
+		authStateAnonymous:          "anonymous",
+		authStateAuthenticated:      "authenticated",
+		pathFamilyArtist:            "/artists/{slug}",
+		pathFamilyShow:              "/shows/{slug}",
+		pathFamilyVenue:             "/venues/{slug}",
+		pathFamilyScene:             "/scenes/{slug}",
+		pathFamilySearch:            "/search",
+		PathFamilyOther:             "other",
+	} {
+		if got != want {
+			t.Errorf("log value %q, want %q", got, want)
 		}
-		seen[name] = true
 	}
+
+	limiters := map[string]LimiterName{
+		"LimiterPublicReadAnonymous":         "public_read_anonymous",
+		"LimiterPublicReadUser":              "public_read_user",
+		"LimiterPublicReadIPCeiling":         "public_read_ip_ceiling",
+		"LimiterEngagementMutationBurst":     "engagement_mutation_burst",
+		"LimiterEngagementMutationSustained": "engagement_mutation_sustained",
+		"LimiterEntityRequestBatchBurst":     "entity_request_batch_burst",
+		"LimiterEntityRequestBatchSustained": "entity_request_batch_sustained",
+		"LimiterAuth":                        "auth",
+		"LimiterPasskey":                     "passkey",
+		"LimiterVerificationResend":          "verification_resend",
+		"LimiterPasswordConfirm":             "password_confirm",
+		"LimiterOAuthLinkToken":              "oauth_link_token",
+		"LimiterTagCreate":                   "tag_create",
+		"LimiterTagVote":                     "tag_vote",
+		"LimiterShowReport":                  "show_report",
+		"LimiterEntityReport":                "entity_report",
+		"LimiterShowCreate":                  "show_create",
+		"LimiterAIProcess":                   "ai_process",
+	}
+
+	declared := declaredLimiterNames(t)
+	if len(declared) != len(limiters) {
+		t.Errorf("ratelimit_observe.go declares %d LimiterName constants, this test pins %d", len(declared), len(limiters))
+	}
+	seen := make(map[LimiterName]string, len(declared))
+	for ident, value := range declared {
+		want, pinned := limiters[ident]
+		if !pinned {
+			t.Errorf("LimiterName constant %s is not pinned here", ident)
+		} else if value != want {
+			t.Errorf("%s = %q, want %q", ident, value, want)
+		}
+		if other, dup := seen[value]; dup {
+			t.Errorf("%s and %s share the limiter value %q", ident, other, value)
+		}
+		seen[value] = ident
+	}
+}
+
+// declaredLimiterNames parses ratelimit_observe.go and returns every constant
+// declared with type LimiterName, keyed by identifier, with its string value.
+func declaredLimiterNames(t *testing.T) map[string]LimiterName {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "ratelimit_observe.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse ratelimit_observe.go: %v", err)
+	}
+	names := map[string]LimiterName{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			if typ, ok := vs.Type.(*ast.Ident); !ok || typ.Name != "LimiterName" {
+				continue
+			}
+			for i, ident := range vs.Names {
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok {
+					t.Fatalf("%s is not a string literal", ident.Name)
+				}
+				value, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatalf("unquote %s: %v", ident.Name, err)
+				}
+				names[ident.Name] = LimiterName(value)
+			}
+		}
+	}
+	return names
 }

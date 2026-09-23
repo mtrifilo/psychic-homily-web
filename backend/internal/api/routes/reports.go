@@ -20,9 +20,8 @@ func setupShowReportRoutes(rc RouteContext) {
 	// PSY-1598: registered on the MAIN api via a Huma group, not on its own
 	// humachi.New inside a chi.Group. A separate instance owns a separate
 	// OpenAPI document, so this operation was absent from the published spec.
-	// The limiter is the same httprate middleware as before, bridged by
-	// humaFromHTTP — see its doc for why the existing one is reused rather than
-	// reimplemented.
+	// The limiter is the LimiterShowReport ipRateLimiter, bridged by
+	// humaFromHTTP.
 	//
 	// No HumaRequestIDMiddleware here: the main API already applies it (routes.go)
 	// and a Huma group inherits its parent's middleware. See the note on the

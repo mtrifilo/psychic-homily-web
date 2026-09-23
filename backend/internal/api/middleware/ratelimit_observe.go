@@ -20,7 +20,8 @@ import (
 
 // Values of the `event` attribute on rate-limit log lines. Log queries count
 // rejections and buckets by grouping on these, so renaming one silently breaks
-// every query built on it.
+// every query built on it; TestRateLimitLogValuesAreStable pins every value a
+// query can group on.
 const (
 	rateLimitRejectedEvent      = "ratelimit_rejected"
 	rateLimitAllowedSampleEvent = "ratelimit_allowed_sample"
@@ -32,7 +33,8 @@ const (
 type LimiterName string
 
 // Every limiter name, for the limiters built here and the per-IP limiters the
-// routes package builds. TestLimiterNamesAreDistinct lists them all.
+// routes package builds. TestRateLimitLogValuesAreStable reads this file and
+// fails on a LimiterName constant it does not pin, or on two that share a value.
 const (
 	LimiterPublicReadAnonymous         LimiterName = "public_read_anonymous"
 	LimiterPublicReadUser              LimiterName = "public_read_user"
@@ -116,6 +118,7 @@ func (s limiterSpec) logAttrs(event string, r *http.Request) []any {
 	return []any{
 		"event", event,
 		"limiter", s.name,
+		"limit", s.limit,
 		"window_seconds", int(s.window.Seconds()),
 		"path_family", RateLimitPathFamily(r.URL.Path),
 		"key_fingerprint", requestKeyFingerprint(s.key, r),
@@ -147,7 +150,6 @@ func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authStat
 	}
 	logger.FromContext(r.Context()).Info("rate limit sample", append(s.logAttrs(rateLimitAllowedSampleEvent, r),
 		"auth_state", authState,
-		"limit", s.limit,
 		"remaining", remaining,
 	)...)
 }

@@ -52,6 +52,7 @@ func TestIPRateLimiter_LogsNamedRejectionWithoutAddress(t *testing.T) {
 	for field, want := range map[string]any{
 		"event":          "ratelimit_rejected",
 		"limiter":        string(middleware.LimiterTagCreate),
+		"limit":          float64(1),
 		"window_seconds": float64(3600),
 		"path_family":    middleware.PathFamilyOther,
 		"method":         http.MethodPost,
