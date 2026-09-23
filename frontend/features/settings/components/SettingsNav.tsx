@@ -1,6 +1,6 @@
 'use client'
 
-import { type MouseEvent, type RefObject } from 'react'
+import { type MouseEvent, type ReactNode } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isPlainNavigationClick } from '@/components/shared/paginationChrome'
@@ -9,12 +9,6 @@ import {
   settingsSectionCount,
   type SettingsSection,
 } from '../sections'
-import { jumpToAnchor } from '../anchorTargets'
-import { useActiveSection } from '../hooks/useActiveSection'
-
-const SECTION_ANCHORS: readonly string[] = SETTINGS_SECTIONS.map(
-  section => section.anchor
-)
 
 const COUNT_CLASS = 'font-mono text-[11px] text-muted-foreground'
 
@@ -33,34 +27,51 @@ function SectionCount({ section }: { section: SettingsSection }) {
 }
 
 /**
- * Handles a plain click on a section link by jumping within `root`. The href
- * keeps it a real link (open in a new tab, copy the address); a plain click
- * resolves the target inside the hub rather than letting the browser take the
- * document's first match. Returns whether it handled the click.
+ * A section link. The href keeps it a real link (open in a new tab, copy the
+ * address); a plain click is handed to `onJump` instead of the browser's own
+ * fragment navigation.
  */
-function jumpOnPlainClick(
-  event: MouseEvent<HTMLAnchorElement>,
-  root: HTMLElement | null,
-  anchor: string
-): boolean {
-  if (!isPlainNavigationClick(event)) return false
-  event.preventDefault()
-  jumpToAnchor(root, anchor)
-  return true
+function SectionLink({
+  section,
+  onJump,
+  className,
+  children,
+  ...rest
+}: {
+  section: SettingsSection
+  onJump: (anchor: string) => void
+  className: string
+  children: ReactNode
+  'aria-current'?: 'true'
+}) {
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!isPlainNavigationClick(event)) return
+    event.preventDefault()
+    onJump(section.anchor)
+  }
+
+  return (
+    <a
+      href={`#${section.anchor}`}
+      onClick={handleClick}
+      className={className}
+      {...rest}
+    >
+      {children}
+    </a>
+  )
 }
 
-/**
- * The desktop rail: every section in page order, marking the one in view.
- */
+/** The desktop rail: every section in page order, marking `activeAnchor`. */
 export function SettingsRail({
-  rootRef,
+  activeAnchor,
+  onJump,
   className,
 }: {
-  rootRef: RefObject<HTMLElement | null>
+  activeAnchor: string
+  onJump: (anchor: string) => void
   className?: string
 }) {
-  const { activeAnchor, select } = useActiveSection(SECTION_ANCHORS, rootRef)
-
   return (
     <nav aria-label="Settings sections" className={className}>
       <ul className="flex flex-col gap-0.5">
@@ -68,13 +79,9 @@ export function SettingsRail({
           const isActive = section.anchor === activeAnchor
           return (
             <li key={section.anchor}>
-              <a
-                href={`#${section.anchor}`}
-                onClick={event => {
-                  if (jumpOnPlainClick(event, rootRef.current, section.anchor)) {
-                    select(section.anchor)
-                  }
-                }}
+              <SectionLink
+                section={section}
+                onJump={onJump}
                 aria-current={isActive ? 'true' : undefined}
                 className={cn(
                   'flex items-center justify-between gap-3 border-l-2 px-3 py-2 text-sm transition-colors',
@@ -85,7 +92,7 @@ export function SettingsRail({
               >
                 <span>{section.title}</span>
                 <SectionCount section={section} />
-              </a>
+              </SectionLink>
             </li>
           )
         })}
@@ -99,10 +106,10 @@ export function SettingsRail({
  * of the one long page.
  */
 export function SettingsJumpIndex({
-  rootRef,
+  onJump,
   className,
 }: {
-  rootRef: RefObject<HTMLElement | null>
+  onJump: (anchor: string) => void
   className?: string
 }) {
   return (
@@ -119,11 +126,9 @@ export function SettingsJumpIndex({
       <ul className="divide-y divide-border border-t border-border">
         {SETTINGS_SECTIONS.map(section => (
           <li key={section.anchor}>
-            <a
-              href={`#${section.anchor}`}
-              onClick={event => {
-                jumpOnPlainClick(event, rootRef.current, section.anchor)
-              }}
+            <SectionLink
+              section={section}
+              onJump={onJump}
               className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-muted/50"
             >
               <span>{section.title}</span>
@@ -134,7 +139,7 @@ export function SettingsJumpIndex({
                   className="h-3.5 w-3.5 text-muted-foreground"
                 />
               </span>
-            </a>
+            </SectionLink>
           </li>
         ))}
       </ul>

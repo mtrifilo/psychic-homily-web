@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useRef } from 'react'
+import { useCallback, useId, useRef } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,13 @@ import {
   type SettingsRow,
   type SettingsSection,
 } from '../sections'
+import { jumpToAnchor } from '../anchorTargets'
+import { useActiveSection } from '../hooks/useActiveSection'
 import { SettingsJumpIndex, SettingsRail } from './SettingsNav'
+
+const SECTION_ANCHORS: readonly string[] = SETTINGS_SECTIONS.map(
+  section => section.anchor
+)
 
 const ROW_CLASS =
   'flex flex-col items-start gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'
@@ -111,6 +117,14 @@ function SettingsSectionView({ section }: { section: SettingsSection }) {
  */
 export function SettingsHub() {
   const hubRef = useRef<HTMLDivElement>(null)
+  const { activeAnchor, select } = useActiveSection(SECTION_ANCHORS, hubRef)
+  const jump = useCallback(
+    (anchor: string) => {
+      jumpToAnchor(hubRef.current, anchor)
+      select(anchor)
+    },
+    [select]
+  )
 
   return (
     <div
@@ -123,11 +137,15 @@ export function SettingsHub() {
             <p className="font-mono text-[11px] text-primary">/settings</p>
             <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           </header>
-          <SettingsRail rootRef={hubRef} className="hidden lg:block" />
+          <SettingsRail
+            activeAnchor={activeAnchor}
+            onJump={jump}
+            className="hidden lg:block"
+          />
         </div>
 
         <div className="flex flex-col gap-6">
-          <SettingsJumpIndex rootRef={hubRef} className="lg:hidden" />
+          <SettingsJumpIndex onJump={jump} className="lg:hidden" />
           {SETTINGS_SECTIONS.map(section => (
             <SettingsSectionView key={section.anchor} section={section} />
           ))}

@@ -44,7 +44,7 @@ test.describe('/settings hub', () => {
     await page.goto('/settings')
 
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Settings' })
+      page.getByRole('heading', { level: 1, name: 'Settings', exact: true })
     ).toBeVisible({ timeout: 10_000 })
 
     const rail = page.getByRole('navigation', { name: 'Settings sections' })
@@ -101,6 +101,50 @@ test.describe('/settings hub', () => {
     const section = page.locator('main section[id="appearance"]')
     await expect(section).toBeFocused({ timeout: 10_000 })
     await expectLandedBelowTopBar(page, 'appearance')
+  })
+
+  test('the rail follows a scroll that no click started', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/settings')
+    const rail = page.getByRole('navigation', { name: 'Settings sections' })
+    await expect(rail).toBeVisible({ timeout: 10_000 })
+
+    await page.evaluate(() => {
+      document
+        .querySelector('main section[id="appearance"]')
+        ?.scrollIntoView({ block: 'start' })
+    })
+    await expect(
+      rail.getByRole('link', { name: /^Appearance/ })
+    ).toHaveAttribute('aria-current', 'true')
+    await expect(rail.locator('a[aria-current="true"]')).toHaveCount(1)
+  })
+
+  test('Back from a linked page returns to the hub after a section jump', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/settings')
+    const rail = page.getByRole('navigation', { name: 'Settings sections' })
+    await rail.getByRole('link', { name: /^Feeds/ }).click({ timeout: 10_000 })
+    await expect(page).toHaveURL(/\/settings#feeds$/)
+
+    await page
+      .getByRole('region', { name: 'Feeds' })
+      .getByRole('link', { name: 'Manage in profile settings' })
+      .click()
+    await expect(page).toHaveURL(/\/profile\?tab=settings$/)
+    await expect(
+      page.getByRole('heading', { level: 1, name: /edit profile & settings/i })
+    ).toBeVisible()
+
+    await page.goBack()
+    await expect(page).toHaveURL(/\/settings#feeds$/)
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Settings', exact: true })
+    ).toBeVisible()
   })
 
   test('a link row lands on the control where it lives today', async ({

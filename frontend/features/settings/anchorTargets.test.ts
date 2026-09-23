@@ -44,6 +44,28 @@ describe('anchorTargets', () => {
     expect(window.location.hash).toBe('#alerts')
   })
 
+  // The App Router restores only history entries written through its patched
+  // pushState; a native fragment navigation leaves Back from the next page
+  // stranded on that page.
+  it('records the fragment through history.pushState, not a native navigation', () => {
+    const pushState = vi.spyOn(window.history, 'pushState')
+    const onHashChange = vi.fn()
+    window.addEventListener('hashchange', onHashChange)
+    try {
+      jumpToAnchor(root, 'alerts')
+      expect(pushState).toHaveBeenCalledTimes(1)
+      expect(pushState).toHaveBeenCalledWith(null, '', '#alerts')
+
+      jumpToAnchor(root, 'alerts')
+      expect(pushState).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+    } finally {
+      pushState.mockRestore()
+      window.removeEventListener('hashchange', onHashChange)
+    }
+    expect(onHashChange).not.toHaveBeenCalled()
+  })
+
   it('does nothing without a root or a target', () => {
     jumpToAnchor(null, 'alerts')
     jumpToAnchor(root, 'feeds')
