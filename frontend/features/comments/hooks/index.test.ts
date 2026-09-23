@@ -7,22 +7,31 @@ import { formatCommentSubmissionError } from './index'
 // formatCommentSubmissionError is the seam — the hook itself is a thin
 // react-query mutation, but it exposes the api.ts error verbatim, and
 // CommentThread/CommentCard pass that error through this formatter to
-// drive the banner copy + countdown.
+// drive the banner copy.
 describe('formatCommentSubmissionError (PSY-589)', () => {
   it('returns null when there is no error (no banner)', () => {
     expect(formatCommentSubmissionError(null)).toBeNull()
     expect(formatCommentSubmissionError(undefined)).toBeNull()
   })
 
-  it('uses Retry-After seconds for 429 countdown copy when there is no message', () => {
-    const err: ApiError = Object.assign(new Error(''), {
-      status: 429,
-      retryAfter: 60,
-    })
-    expect(formatCommentSubmissionError(err)).toBe(
-      'Please wait 60s before commenting again.'
-    )
-  })
+  // Body-less 429s shaped the way apiRequest builds them: the bare status text
+  // (HTTP/1.1) or a synthesized `HTTP 429: ` line (HTTP/2, empty statusText).
+  it.each([
+    ['bare status text', 'Too Many Requests', 'Too Many Requests'],
+    ['synthesized status line', 'HTTP 429: ', ''],
+  ])(
+    'uses Retry-After countdown copy when the body carried no message (%s)',
+    (_label, message, statusText) => {
+      const err: ApiError = Object.assign(new Error(message), {
+        status: 429,
+        statusText,
+        retryAfter: 60,
+      })
+      expect(formatCommentSubmissionError(err)).toBe(
+        'Please wait 60s before commenting again.'
+      )
+    }
+  )
 
   it('prefers the server message over a readable Retry-After', () => {
     const err: ApiError = Object.assign(
@@ -55,7 +64,10 @@ describe('formatCommentSubmissionError (PSY-589)', () => {
   })
 
   it('falls back to a static message for 429 with neither header nor body', () => {
-    const err: ApiError = Object.assign(new Error(''), { status: 429 })
+    const err: ApiError = Object.assign(new Error('HTTP 429: '), {
+      status: 429,
+      statusText: '',
+    })
     expect(formatCommentSubmissionError(err)).toBe(
       'Please wait a minute before commenting again.'
     )
