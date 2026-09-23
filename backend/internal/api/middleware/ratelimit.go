@@ -84,7 +84,7 @@ func RateLimitPublicReadAnonymousEndpoints() func(http.Handler) http.Handler {
 
 func publicReadAnonymousLimiter(sample func() bool) func(http.Handler) http.Handler {
 	return limiterSpec{
-		name:   limiterPublicReadAnonymous,
+		name:   LimiterPublicReadAnonymous,
 		limit:  APIRequestsPerMinute,
 		window: time.Minute,
 		key:    KeyByClientIP,
@@ -247,7 +247,7 @@ func rateLimitUserKeyFunc(r *http.Request) (string, error) {
 // RateLimitPublicReadsByAuthState, which supplies the user id via context.
 func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 	return limiterSpec{
-		name:   limiterPublicReadUser,
+		name:   LimiterPublicReadUser,
 		limit:  PublicReadUserRequestsPerMinute,
 		window: time.Minute,
 		key:    rateLimitUserKeyFunc,
@@ -269,7 +269,7 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 
 func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Handler {
 	return limiterSpec{
-		name:   limiterPublicReadIPCeiling,
+		name:   LimiterPublicReadIPCeiling,
 		limit:  PublicReadAuthenticatedIPCeilingPerMinute,
 		window: time.Minute,
 		key:    KeyByClientIP,

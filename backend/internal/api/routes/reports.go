@@ -28,7 +28,7 @@ func setupShowReportRoutes(rc RouteContext) {
 	// and a Huma group inherits its parent's middleware. See the note on the
 	// entity-report group below for why re-applying it is not merely redundant.
 	reportSubmitGroup := huma.NewGroup(rc.API, "")
-	reportSubmitGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(limiterShowReport, middleware.ReportRequestsPerMinute, time.Minute)))
+	reportSubmitGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(middleware.LimiterShowReport, middleware.ReportRequestsPerMinute, time.Minute)))
 	reportSubmitGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(reportSubmitGroup, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
 
@@ -92,7 +92,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 	// correlate. The groups converted in shows.go, tags.go and auth.go still carry
 	// the redundant copy; removing it there is a follow-up.
 	entityReportGroup := huma.NewGroup(rc.API, "")
-	entityReportGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(limiterEntityReport, middleware.ReportRequestsPerMinute, time.Minute)))
+	entityReportGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(middleware.LimiterEntityReport, middleware.ReportRequestsPerMinute, time.Minute)))
 	entityReportGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 
 	huma.Post(entityReportGroup, "/artists/{entity_id}/report", entityReportHandler.ReportArtistHandler)

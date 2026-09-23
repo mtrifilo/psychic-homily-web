@@ -129,7 +129,7 @@ func TestRateLimitRejection_LogLineCarriesNoRawAddress(t *testing.T) {
 	t.Setenv(TrustedProxyHopsEnvVar, "2")
 	logs := newLogCapture(t)
 	handler := limiterSpec{
-		name: limiterPublicReadAnonymous, limit: 1, window: time.Minute, key: KeyByClientIP,
+		name: LimiterPublicReadAnonymous, limit: 1, window: time.Minute, key: KeyByClientIP,
 	}.handler()(okHandler())
 
 	for i, want := range []int{http.StatusOK, http.StatusTooManyRequests} {
@@ -150,7 +150,7 @@ func TestRateLimitRejection_LogLineCarriesNoRawAddress(t *testing.T) {
 	for field, want := range map[string]any{
 		"msg":               "rate limit exceeded",
 		"level":             "WARN",
-		"limiter":           limiterPublicReadAnonymous,
+		"limiter":           string(LimiterPublicReadAnonymous),
 		"window_seconds":    float64(60),
 		"path_family":       pathFamilyArtist,
 		"method":            http.MethodGet,
@@ -214,7 +214,7 @@ func TestSampledHandler_LogsBucketStateOfSelectedRequests(t *testing.T) {
 	t.Setenv(TrustedProxyHopsEnvVar, "2")
 	logs := newLogCapture(t)
 	handler := limiterSpec{
-		name: limiterPublicReadAnonymous, limit: 3, window: time.Minute, key: KeyByClientIP,
+		name: LimiterPublicReadAnonymous, limit: 3, window: time.Minute, key: KeyByClientIP,
 	}.sampledHandler(authStateAnonymous, always)(okHandler())
 
 	for i := 0; i < 4; i++ {
@@ -231,7 +231,7 @@ func TestSampledHandler_LogsBucketStateOfSelectedRequests(t *testing.T) {
 		for field, want := range map[string]any{
 			"msg":             "rate limit sample",
 			"level":           "INFO",
-			"limiter":         limiterPublicReadAnonymous,
+			"limiter":         string(LimiterPublicReadAnonymous),
 			"auth_state":      authStateAnonymous,
 			"window_seconds":  float64(60),
 			"path_family":     pathFamilyArtist,
@@ -259,7 +259,7 @@ func TestSampledHandler_LogsOnlyWhatTheSamplerSelects(t *testing.T) {
 		return calls%3 == 0
 	}
 	handler := limiterSpec{
-		name: limiterPublicReadIPCeiling, limit: 100, window: time.Minute, key: KeyByClientIP,
+		name: LimiterPublicReadIPCeiling, limit: 100, window: time.Minute, key: KeyByClientIP,
 	}.sampledHandler(authStateAuthenticated, everyThird)(okHandler())
 
 	for i := 0; i < 9; i++ {
@@ -286,7 +286,7 @@ func TestSampledHandler_LogsOnlyWhatTheSamplerSelects(t *testing.T) {
 
 	quiet := newLogCapture(t)
 	silent := limiterSpec{
-		name: limiterPublicReadIPCeiling, limit: 100, window: time.Minute, key: KeyByClientIP,
+		name: LimiterPublicReadIPCeiling, limit: 100, window: time.Minute, key: KeyByClientIP,
 	}.sampledHandler(authStateAuthenticated, never)(okHandler())
 	silent.ServeHTTP(httptest.NewRecorder(), quiet.attach(httptest.NewRequest(http.MethodGet, "/", nil)))
 	if got := len(quiet.events(rateLimitAllowedSampleEvent)); got != 0 {
@@ -327,11 +327,11 @@ func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 		name    string
 		mw      func(http.Handler) http.Handler
 		limit   int
-		limiter string
+		limiter LimiterName
 		window  float64
 	}{
-		{"anonymous public read", RateLimitPublicReadAnonymousEndpoints(), APIRequestsPerMinute, limiterPublicReadAnonymous, 60},
-		{"authenticated ip ceiling", RateLimitPublicReadAuthenticatedIPCeiling(), PublicReadAuthenticatedIPCeilingPerMinute, limiterPublicReadIPCeiling, 60},
+		{"anonymous public read", RateLimitPublicReadAnonymousEndpoints(), APIRequestsPerMinute, LimiterPublicReadAnonymous, 60},
+		{"authenticated ip ceiling", RateLimitPublicReadAuthenticatedIPCeiling(), PublicReadAuthenticatedIPCeilingPerMinute, LimiterPublicReadIPCeiling, 60},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := newLogCapture(t)
@@ -353,12 +353,12 @@ func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 			if len(lines) != 1 {
 				t.Fatalf("got %d rejection lines, want 1", len(lines))
 			}
-			if lines[0]["limiter"] != tc.limiter || lines[0]["window_seconds"] != tc.window {
+			if lines[0]["limiter"] != string(tc.limiter) || lines[0]["window_seconds"] != tc.window {
 				t.Errorf("limiter=%v window_seconds=%v, want %s %v",
 					lines[0]["limiter"], lines[0]["window_seconds"], tc.limiter, tc.window)
 			}
 			for _, s := range logs.events(rateLimitAllowedSampleEvent) {
-				if s["limiter"] != tc.limiter {
+				if s["limiter"] != string(tc.limiter) {
 					t.Errorf("sample line names limiter %v, want %s", s["limiter"], tc.limiter)
 				}
 			}
@@ -370,12 +370,12 @@ func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 // they meter.
 func TestPublicReadLimiters_SampleWithTheirAuthState(t *testing.T) {
 	for _, tc := range []struct {
-		limiter   string
+		limiter   LimiterName
 		mw        func(http.Handler) http.Handler
 		authState string
 	}{
-		{limiterPublicReadAnonymous, publicReadAnonymousLimiter(always), authStateAnonymous},
-		{limiterPublicReadIPCeiling, publicReadIPCeilingLimiter(always), authStateAuthenticated},
+		{LimiterPublicReadAnonymous, publicReadAnonymousLimiter(always), authStateAnonymous},
+		{LimiterPublicReadIPCeiling, publicReadIPCeilingLimiter(always), authStateAuthenticated},
 	} {
 		logs := newLogCapture(t)
 		handler := tc.mw(okHandler())
@@ -389,7 +389,7 @@ func TestPublicReadLimiters_SampleWithTheirAuthState(t *testing.T) {
 			t.Fatalf("%s: got %d sampled lines from 3 allowed requests, want 3", tc.limiter, len(samples))
 		}
 		for _, s := range samples {
-			if s["limiter"] != tc.limiter || s["auth_state"] != tc.authState {
+			if s["limiter"] != string(tc.limiter) || s["auth_state"] != tc.authState {
 				t.Errorf("%s: sample carries limiter=%v auth_state=%v", tc.limiter, s["limiter"], s["auth_state"])
 			}
 		}
@@ -466,5 +466,25 @@ func TestLogAttrs_OriginPresentCarriesNoOriginValue(t *testing.T) {
 				t.Errorf("origin %q: %s origin_present = %v, want %v", tc.origin, event, lines[0]["origin_present"], tc.want)
 			}
 		}
+	}
+}
+
+// Log queries group on the limiter attribute, so two limiters sharing a name
+// would merge their counts silently.
+func TestLimiterNamesAreDistinct(t *testing.T) {
+	names := []LimiterName{
+		LimiterPublicReadAnonymous, LimiterPublicReadUser, LimiterPublicReadIPCeiling,
+		LimiterEngagementMutationBurst, LimiterEngagementMutationSustained,
+		LimiterEntityRequestBatchBurst, LimiterEntityRequestBatchSustained,
+		LimiterAuth, LimiterPasskey, LimiterVerificationResend, LimiterPasswordConfirm,
+		LimiterOAuthLinkToken, LimiterTagCreate, LimiterTagVote, LimiterShowReport,
+		LimiterEntityReport, LimiterShowCreate, LimiterAIProcess,
+	}
+	seen := make(map[LimiterName]bool, len(names))
+	for _, name := range names {
+		if name == "" || seen[name] {
+			t.Errorf("limiter name %q is empty or repeated", name)
+		}
+		seen[name] = true
 	}
 }

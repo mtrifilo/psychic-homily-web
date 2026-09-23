@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"psychic-homily-backend/internal/api/middleware"
 )
 
 // TestVerificationResendBudget_ThrottlesAfterBudget pins the throttle behind
@@ -20,7 +22,7 @@ func TestVerificationResendBudget_ThrottlesAfterBudget(t *testing.T) {
 		served++
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := authScopedRateLimiter(limiterVerificationResend, VerificationResendPerMinute)(next)
+	wrapped := authScopedRateLimiter(middleware.LimiterVerificationResend, VerificationResendPerMinute)(next)
 
 	for i := 0; i < VerificationResendPerMinute; i++ {
 		w := httptest.NewRecorder()
@@ -57,7 +59,7 @@ func TestVerificationResendBudget_HonorsDisableFlag(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := authScopedRateLimiter(limiterVerificationResend, VerificationResendPerMinute)(next)
+	wrapped := authScopedRateLimiter(middleware.LimiterVerificationResend, VerificationResendPerMinute)(next)
 
 	for i := 0; i < VerificationResendPerMinute*3; i++ {
 		w := httptest.NewRecorder()

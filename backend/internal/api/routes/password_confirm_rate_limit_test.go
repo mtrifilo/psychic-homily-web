@@ -88,7 +88,7 @@ func TestPasswordConfirmRateLimiter_ThrottlesAfterBudget(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
 	var served int
-	limited := authScopedRateLimiter(limiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(&served))
+	limited := authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(&served))
 	const ip = "203.0.113.61:1234"
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
@@ -140,7 +140,7 @@ func TestPasswordConfirmKeyIgnoresTheRoute(t *testing.T) {
 func TestPasswordConfirmRateLimiter_IsPerIP(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
-	limited := authScopedRateLimiter(limiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(nil))
+	limited := authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(nil))
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
 		limiterAttempt(t, limited, "198.51.100.61:5000")
@@ -158,7 +158,7 @@ func TestPasswordConfirmRateLimiter_IsPerIP(t *testing.T) {
 func TestPasswordConfirmRateLimiter_HonorsDisableFlag(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
 
-	limited := authScopedRateLimiter(limiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(nil))
+	limited := authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(nil))
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute*3; i++ {
 		if code := limiterAttempt(t, limited, "203.0.113.62:1234").Code; code != http.StatusOK {
@@ -174,8 +174,8 @@ func TestPasswordConfirmRateLimiter_HonorsDisableFlag(t *testing.T) {
 func TestAuthScopedLimitersOfTheSameSizeDoNotShareACounter(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 
-	passwordConfirm := authScopedRateLimiter(limiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(nil))
-	resend := authScopedRateLimiter(limiterVerificationResend, VerificationResendPerMinute)(okHandler(nil))
+	passwordConfirm := authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)(okHandler(nil))
+	resend := authScopedRateLimiter(middleware.LimiterVerificationResend, VerificationResendPerMinute)(okHandler(nil))
 	const ip = "203.0.113.63:1234"
 
 	for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {

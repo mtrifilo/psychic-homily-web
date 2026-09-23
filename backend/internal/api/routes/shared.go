@@ -35,43 +35,27 @@ type RouteContext struct {
 // SkipRateLimitForAdmin with the admin-JWT hatch withheld, which is the nil JWT
 // service: an admin session is metered here even though it is exempt on tag
 // creation. TestAPITokenBypassThroughRouter pins both halves of that asymmetry.
-func rateLimitUnlessValidatedAPIToken(validateAPIToken func(string) bool, name string, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
+func rateLimitUnlessValidatedAPIToken(validateAPIToken func(string) bool, name middleware.LimiterName, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
 	return middleware.SkipRateLimitForAdmin(nil, validateAPIToken, ipRateLimiter(name, requestLimit, windowLength))
 }
 
-// Values of the `limiter` attribute on the 429 lines of the limiters this
-// package builds.
-const (
-	limiterAuth               = "auth"
-	limiterPasskey            = "passkey"
-	limiterVerificationResend = "verification_resend"
-	limiterPasswordConfirm    = "password_confirm"
-	limiterOAuthLinkToken     = "oauth_link_token"
-	limiterTagCreate          = "tag_create"
-	limiterTagVote            = "tag_vote"
-	limiterShowReport         = "show_report"
-	limiterEntityReport       = "entity_report"
-	limiterShowCreate         = "show_create"
-	limiterAIProcess          = "ai_process"
-)
-
 // ipRateLimiter is a per-IP (middleware.KeyByClientIP) limiter whose 429s log
 // as the limiter named name. Each call returns a limiter with its own counter.
-func ipRateLimiter(name string, requestLimit int, window time.Duration) func(http.Handler) http.Handler {
+func ipRateLimiter(name middleware.LimiterName, requestLimit int, window time.Duration) func(http.Handler) http.Handler {
 	return httprate.Limit(
 		requestLimit,
 		window,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
-		httprate.WithLimitHandler(rateLimitHandler(name, window)),
+		httprate.WithLimitHandler(rateLimitHandler(name, requestLimit, window)),
 	)
 }
 
 // rateLimitHandler builds the 429 handler for the ipRateLimiter named name. The
 // log line is middleware's ratelimit_rejected line with the limiter's real
 // window; the response says Retry-After: 60 whatever the window.
-func rateLimitHandler(name string, window time.Duration) http.HandlerFunc {
+func rateLimitHandler(name middleware.LimiterName, requestLimit int, window time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		middleware.LogClientIPRateLimitRejection(r, name, window)
+		middleware.LogClientIPRateLimitRejection(r, name, requestLimit, window)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "60")

@@ -26,16 +26,32 @@ const (
 	rateLimitAllowedSampleEvent = "ratelimit_allowed_sample"
 )
 
-// Values of the `limiter` attribute for the limiters built in this package:
-// which limiter wrote the line.
+// LimiterName is the value of the `limiter` attribute: which limiter wrote a
+// rate-limit line. Log queries group on it, so each limiter's name is distinct
+// and renaming one breaks every query built on it.
+type LimiterName string
+
+// Every limiter name, for the limiters built here and the per-IP limiters the
+// routes package builds. TestLimiterNamesAreDistinct lists them all.
 const (
-	limiterPublicReadAnonymous         = "public_read_anonymous"
-	limiterPublicReadUser              = "public_read_user"
-	limiterPublicReadIPCeiling         = "public_read_ip_ceiling"
-	limiterEngagementMutationBurst     = "engagement_mutation_burst"
-	limiterEngagementMutationSustained = "engagement_mutation_sustained"
-	limiterEntityRequestBatchBurst     = "entity_request_batch_burst"
-	limiterEntityRequestBatchSustained = "entity_request_batch_sustained"
+	LimiterPublicReadAnonymous         LimiterName = "public_read_anonymous"
+	LimiterPublicReadUser              LimiterName = "public_read_user"
+	LimiterPublicReadIPCeiling         LimiterName = "public_read_ip_ceiling"
+	LimiterEngagementMutationBurst     LimiterName = "engagement_mutation_burst"
+	LimiterEngagementMutationSustained LimiterName = "engagement_mutation_sustained"
+	LimiterEntityRequestBatchBurst     LimiterName = "entity_request_batch_burst"
+	LimiterEntityRequestBatchSustained LimiterName = "entity_request_batch_sustained"
+	LimiterAuth                        LimiterName = "auth"
+	LimiterPasskey                     LimiterName = "passkey"
+	LimiterVerificationResend          LimiterName = "verification_resend"
+	LimiterPasswordConfirm             LimiterName = "password_confirm"
+	LimiterOAuthLinkToken              LimiterName = "oauth_link_token"
+	LimiterTagCreate                   LimiterName = "tag_create"
+	LimiterTagVote                     LimiterName = "tag_vote"
+	LimiterShowReport                  LimiterName = "show_report"
+	LimiterEntityReport                LimiterName = "entity_report"
+	LimiterShowCreate                  LimiterName = "show_create"
+	LimiterAIProcess                   LimiterName = "ai_process"
 )
 
 // Values of the `auth_state` attribute on sampled lines.
@@ -58,7 +74,7 @@ const rateLimitRemainingHeader = "X-RateLimit-Remaining"
 // limiterSpec is one rate limiter: its budget, the key that picks a bucket, and
 // the name its log lines carry.
 type limiterSpec struct {
-	name   string
+	name   LimiterName
 	limit  int
 	window time.Duration
 	key    httprate.KeyFunc
@@ -116,9 +132,9 @@ func (s limiterSpec) logRejected(r *http.Request) {
 
 // LogClientIPRateLimitRejection writes the ratelimit_rejected line for a
 // KeyByClientIP limiter whose 429 response is built outside this package, so
-// every rejection in the process shares one log schema.
-func LogClientIPRateLimitRejection(r *http.Request, limiter string, window time.Duration) {
-	limiterSpec{name: limiter, window: window, key: KeyByClientIP}.logRejected(r)
+// that limiter's rejections share the log schema of the limiters built here.
+func LogClientIPRateLimitRejection(r *http.Request, limiter LimiterName, limit int, window time.Duration) {
+	limiterSpec{name: limiter, limit: limit, window: window, key: KeyByClientIP}.logRejected(r)
 }
 
 // logAllowed writes one ratelimit_allowed_sample line. A response without the
@@ -145,9 +161,8 @@ func sampleAt(rate float64) func() bool {
 
 // rejection builds this limiter's 429 handler, which writes one
 // ratelimit_rejected line per rejection. Retry-After and the message both name
-// the limiter's OWN window: the header is what ApiError.retryAfter carries into
-// client countdown copy, so a limiter that reports a minute on an hour bucket
-// tells the caller to retry 59 times before the budget can possibly refill.
+// the limiter's OWN window, so a caller reading either one is told the wait the
+// bucket actually needs to refill.
 func (s limiterSpec) rejection() http.HandlerFunc {
 	seconds := int(s.window.Seconds())
 	retryAfter := strconv.Itoa(seconds)

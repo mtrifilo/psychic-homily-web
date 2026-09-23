@@ -22,7 +22,7 @@ func TestIPRateLimiter_LogsNamedRejectionWithoutAddress(t *testing.T) {
 	const address = "192.0.2.123"
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
-	limited := ipRateLimiter(limiterTagCreate, 1, time.Hour)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	limited := ipRateLimiter(middleware.LimiterTagCreate, 1, time.Hour)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -51,7 +51,7 @@ func TestIPRateLimiter_LogsNamedRejectionWithoutAddress(t *testing.T) {
 	}
 	for field, want := range map[string]any{
 		"event":          "ratelimit_rejected",
-		"limiter":        limiterTagCreate,
+		"limiter":        string(middleware.LimiterTagCreate),
 		"window_seconds": float64(3600),
 		"path_family":    middleware.PathFamilyOther,
 		"method":         http.MethodPost,

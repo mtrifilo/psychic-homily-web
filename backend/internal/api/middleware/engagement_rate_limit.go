@@ -84,34 +84,34 @@ func mutationUserKeyFunc(r *http.Request) (string, error) {
 // The 429 names this window's own length in Retry-After, so an hour bucket does
 // not tell a caller to come back in a minute. That value reaches the picker's
 // countdown copy through ApiError.retryAfter.
-func perUserMutationLimiter(name string, limit int, window time.Duration) func(http.Handler) http.Handler {
+func perUserMutationLimiter(name LimiterName, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return limiterSpec{name: name, limit: limit, window: window, key: mutationUserKeyFunc}.handler()
 }
 
 // RateLimitEngagementMutationBurst is the shared budget's minute window. Pair
 // with RateLimitMutationsByUser, which supplies the user id via context.
 func RateLimitEngagementMutationBurst() func(http.Handler) http.Handler {
-	return perUserMutationLimiter(limiterEngagementMutationBurst, EngagementMutationBurstPerMinute, time.Minute)
+	return perUserMutationLimiter(LimiterEngagementMutationBurst, EngagementMutationBurstPerMinute, time.Minute)
 }
 
 // RateLimitEngagementMutationSustained is the shared budget's hour window.
 // Chained INSIDE the burst limiter (see the ORDER note on
 // RateLimitMutationsByUser).
 func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
-	return perUserMutationLimiter(limiterEngagementMutationSustained, EngagementMutationSustainedPerHour, time.Hour)
+	return perUserMutationLimiter(LimiterEngagementMutationSustained, EngagementMutationSustainedPerHour, time.Hour)
 }
 
 // RateLimitEntityRequestBatchBurst is the entity-request batch budget's minute
 // window.
 func RateLimitEntityRequestBatchBurst() func(http.Handler) http.Handler {
-	return perUserMutationLimiter(limiterEntityRequestBatchBurst, EntityRequestBatchBurstPerMinute, time.Minute)
+	return perUserMutationLimiter(LimiterEntityRequestBatchBurst, EntityRequestBatchBurstPerMinute, time.Minute)
 }
 
 // RateLimitEntityRequestBatchSustained is the entity-request batch budget's hour
 // window. Chained INSIDE the burst limiter (see the ORDER note on
 // RateLimitMutationsByUser).
 func RateLimitEntityRequestBatchSustained() func(http.Handler) http.Handler {
-	return perUserMutationLimiter(limiterEntityRequestBatchSustained, EntityRequestBatchSustainedPerHour, time.Hour)
+	return perUserMutationLimiter(LimiterEntityRequestBatchSustained, EntityRequestBatchSustainedPerHour, time.Hour)
 }
 
 // RateLimitMutationsByUser meters an authenticated mutation against a per-user

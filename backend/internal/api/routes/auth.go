@@ -20,7 +20,7 @@ func setupAuthRoutes(rc RouteContext) {
 	// The public auth budget: brute force on login, credential stuffing, email
 	// bombing via magic links, and spam account creation all draw on this one
 	// per-IP counter.
-	authRateLimiter := authScopedRateLimiter(limiterAuth, middleware.AuthRequestsPerMinute)
+	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 
 	// Rate-limited OAuth routes
 	rc.Router.Group(func(r chi.Router) {
@@ -107,7 +107,7 @@ const PasswordConfirmAttemptsPerMinute = 5
 // Each CALL returns a limiter with its own counter, so routes share a budget
 // only when they are handed the same value. The counters are per process, so a
 // deployment of N replicas serves N times the budget per IP.
-func authScopedRateLimiter(name string, requestsPerMinute int) func(http.Handler) http.Handler {
+func authScopedRateLimiter(name middleware.LimiterName, requestsPerMinute int) func(http.Handler) http.Handler {
 	if IsAuthRateLimitDisabled(os.Getenv) {
 		return noopRateLimiter()
 	}
@@ -139,7 +139,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// DISABLE_AUTH_RATE_LIMITS escape hatch as the public auth group, so E2E
 	// shards sharing 127.0.0.1 are unaffected.
 	verifyEmailGroup := huma.NewGroup(rc.Protected, "")
-	verifyEmailGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(limiterVerificationResend, VerificationResendPerMinute)))
+	verifyEmailGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterVerificationResend, VerificationResendPerMinute)))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
 	// Every route on this group takes the account password as confirmation, and
@@ -153,7 +153,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// its own. The route inventory guard requires every mutating route under
 	// /auth/ to record which budget meters it.
 	passwordConfirmGroup := huma.NewGroup(rc.Protected, "")
-	passwordConfirmGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(limiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)))
+	passwordConfirmGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)))
 	huma.Post(passwordConfirmGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
@@ -185,7 +185,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// own: it is an unauthenticated-shaped primitive behind a session, and
 	// nothing else bounds how fast a client can ask for signed tokens.
 	linkTokenGroup := huma.NewGroup(rc.Protected, "")
-	linkTokenGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(limiterOAuthLinkToken, VerificationResendPerMinute)))
+	linkTokenGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterOAuthLinkToken, VerificationResendPerMinute)))
 	huma.Post(linkTokenGroup, "/auth/oauth/link-token", oauthAccountHandler.StartOAuthLinkHandler)
 
 	// User preferences endpoints
@@ -260,7 +260,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 
 	// Passkey gets its own budget, more lenient than the auth one because a
 	// WebAuthn flow is several requests.
-	passkeyRateLimiter := authScopedRateLimiter(limiterPasskey, middleware.PasskeyRequestsPerMinute)
+	passkeyRateLimiter := authScopedRateLimiter(middleware.LimiterPasskey, middleware.PasskeyRequestsPerMinute)
 
 	// Rate-limited public passkey endpoints.
 	//

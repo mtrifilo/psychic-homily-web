@@ -41,7 +41,7 @@ func setupTagRoutes(rc RouteContext) {
 	// admin JWTs as well as validated API tokens, so the conversion has to
 	// preserve two escape hatches, not one.
 	tagCreateGroup := huma.NewGroup(rc.API, "")
-	tagCreateGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, rc.ValidateAPIToken, ipRateLimiter(limiterTagCreate, middleware.TagCreateRequestsPerHour, time.Hour))))
+	tagCreateGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, rc.ValidateAPIToken, ipRateLimiter(middleware.LimiterTagCreate, middleware.TagCreateRequestsPerHour, time.Hour))))
 	tagCreateGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	tagCreateGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(tagCreateGroup, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
@@ -55,7 +55,7 @@ func setupTagRoutes(rc RouteContext) {
 	// tag creation above. Both the POST and the DELETE share this one group, so
 	// they share one limiter budget exactly as they did under the chi group.
 	tagVoteGroup := huma.NewGroup(rc.API, "")
-	tagVoteGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, rc.ValidateAPIToken, ipRateLimiter(limiterTagVote, middleware.TagVoteRequestsPerMinute, time.Minute))))
+	tagVoteGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, rc.ValidateAPIToken, ipRateLimiter(middleware.LimiterTagVote, middleware.TagVoteRequestsPerMinute, time.Minute))))
 	tagVoteGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	tagVoteGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(tagVoteGroup, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
