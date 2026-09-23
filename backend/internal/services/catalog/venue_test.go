@@ -808,10 +808,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_OnlyV
 	suite.createTestVenue("Verified Venue", "Phoenix", "AZ", true)
 	suite.createTestVenue("Unverified Venue", "Phoenix", "AZ", false)
 
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
+	suite.Equal(int64(1), totals.Venues)
 	suite.Require().Len(resp, 1)
 	suite.Equal("Verified Venue", resp[0].Name)
 }
@@ -841,10 +841,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Filte
 	suite.createTestVenue("PHX Counted", "Phoenix", "AZ", true)
 	suite.createTestVenue("TUC Counted", "Tucson", "AZ", true)
 
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{City: "Phoenix"}, 10, 0)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{City: "Phoenix"}, 10, 0)
 
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
+	suite.Equal(int64(1), totals.Venues)
 	suite.Require().Len(resp, 1)
 	suite.Equal("PHX Counted", resp[0].Name)
 }
@@ -855,9 +855,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Pagin
 	}
 
 	// Page 1
-	resp1, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 2, 0)
+	resp1, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 2, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(5), total)
+	suite.Equal(int64(5), totals.Venues)
 	suite.Len(resp1, 2)
 
 	// Page 2
@@ -1243,32 +1243,32 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueGenreProfile_Insuffic
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ZeroLimitZeroOffset() {
 	suite.createTestVenue("ZeroLimit Venue", "Phoenix", "AZ", true)
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 0, 0)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 0, 0)
 	suite.Require().NoError(err)
-	suite.GreaterOrEqual(total, int64(1), "total should reflect venue count")
+	suite.GreaterOrEqual(totals.Venues, int64(1), "total should reflect venue count")
 	suite.Empty(resp, "limit=0 should return no results")
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_LargeLimit() {
 	suite.createTestVenue("LargeLimit Venue", "Phoenix", "AZ", true)
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 1000, 0)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 1000, 0)
 	suite.Require().NoError(err)
-	suite.GreaterOrEqual(total, int64(1))
+	suite.GreaterOrEqual(totals.Venues, int64(1))
 	suite.NotEmpty(resp, "should return all venues with a large limit")
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_OffsetBeyondResults() {
 	suite.createTestVenue("OffBeyond Venue", "Phoenix", "AZ", true)
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 10000)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 10000)
 	suite.Require().NoError(err)
-	suite.GreaterOrEqual(total, int64(1), "total should still reflect venue count")
+	suite.GreaterOrEqual(totals.Venues, int64(1), "total should still reflect venue count")
 	suite.Empty(resp, "offset beyond results should return empty slice")
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_EmptyResultSet() {
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(0), total)
+	suite.Equal(int64(0), totals.Venues)
 	suite.Empty(resp)
 }
 
@@ -1276,9 +1276,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Limit
 	suite.createTestVenue("L1 Venue A", "Phoenix", "AZ", true)
 	suite.createTestVenue("L1 Venue B", "Phoenix", "AZ", true)
 	suite.createTestVenue("L1 Venue C", "Phoenix", "AZ", true)
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 1, 0)
+	resp, totals, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 1, 0)
 	suite.Require().NoError(err)
-	suite.GreaterOrEqual(total, int64(3))
+	suite.GreaterOrEqual(totals.Venues, int64(3))
 	suite.Len(resp, 1, "limit=1 should return exactly 1 result")
 }
 

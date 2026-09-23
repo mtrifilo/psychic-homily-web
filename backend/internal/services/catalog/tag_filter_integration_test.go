@@ -436,11 +436,11 @@ func (s *TagFilterIntegrationTestSuite) TestVenues_AND() {
 	s.tag("venue", v1, "phoenix")
 	s.tag("venue", v2, "post-punk")
 
-	resp, total, err := s.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{
+	resp, totals, err := s.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{
 		TagSlugs: []string{"post-punk", "phoenix"},
 	}, 50, 0)
 	s.Require().NoError(err)
-	s.Equal(int64(1), total)
+	s.Equal(int64(1), totals.Venues)
 	s.Require().Len(resp, 1)
 	s.Equal("V1", resp[0].Name)
 }
@@ -453,12 +453,12 @@ func (s *TagFilterIntegrationTestSuite) TestVenues_OR() {
 	s.tag("venue", v2, "shoegaze")
 	_ = v3
 
-	resp, total, err := s.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{
+	resp, totals, err := s.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{
 		TagSlugs:    []string{"post-punk", "shoegaze"},
 		TagMatchAny: true,
 	}, 50, 0)
 	s.Require().NoError(err)
-	s.Equal(int64(2), total)
+	s.Equal(int64(2), totals.Venues)
 	s.Require().Len(resp, 2)
 }
 

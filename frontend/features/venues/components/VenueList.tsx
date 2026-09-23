@@ -418,18 +418,30 @@ export function VenueList() {
   // of the catalogue under a bare "Venues" with nothing saying which cities.
   const selectionLabel = selectedCities.map(cityLabel).join(' and ')
 
-  // The upcoming total is a SUM OF THE ROWS ON SCREEN, so it is labelled as
-  // this page's whenever the page is not the whole set. The API serves no
-  // city-wide sum.
-  const pageUpcoming = venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
-  const wholeSetOnScreen = rowsAnswerCurrentRequest && totalPages === 1
+  // `upcoming_show_total` spans the whole filtered set, so the heading states
+  // it on every page of a paged city. A response without it comes from a
+  // backend older than the field, and the only honest number left there is the
+  // sum of the rows on screen: this page's, labelled as such. That fallback
+  // (and the optional field in VenuesListResponse) exists only for the window
+  // in which this frontend is live before that backend; once production's
+  // backend serves the field it can be deleted.
+  const cityUpcoming = data?.upcoming_show_total
+  const upcomingCount =
+    cityUpcoming ?? venues.reduce((sum, v) => sum + v.upcoming_show_count, 0)
   // Null while the rows on screen answer a DIFFERENT request: the heading flips
   // to the new city on the same render the filter changes, and a count from the
   // outgoing city beneath it is a wrong number rather than a stale one.
   const roomsLabel = rowsAnswerCurrentRequest ? countLabel(total, 'room') : null
   const upcomingLabel = rowsAnswerCurrentRequest
-    ? countLabel(pageUpcoming, 'upcoming show')
+    ? countLabel(upcomingCount, 'upcoming show')
     : null
+  // Whether that label describes the same set the room count does, which is
+  // what lets it stand beside it in the heading. The city-wide field does; a
+  // page sum does only when this page is the whole set: page 1 of one, never a
+  // page past the end, whose empty rows sum to zero. Read only beside a
+  // non-null upcomingLabel, which already requires rowsAnswerCurrentRequest.
+  const upcomingLabelIsAboutTheSet =
+    cityUpcoming != null || (page === 1 && totalPages === 1)
 
   // Sorting the whole facet is work only the empty state spends, so the
   // condition that renders it is inside the memo rather than around it: the
@@ -471,7 +483,7 @@ export function VenueList() {
         </h1>
         <p className="font-mono text-[13px] text-muted-foreground">
           {showCityChooser ? chooserScope : (roomsLabel ?? '')}
-          {!showCityChooser && wholeSetOnScreen && upcomingLabel
+          {!showCityChooser && upcomingLabelIsAboutTheSet && upcomingLabel
             ? ` · ${upcomingLabel}`
             : ''}
         </p>
@@ -679,8 +691,8 @@ export function VenueList() {
             data-testid="venues-count-rule"
           >
             {roomsLabel} &middot; {upcomingLabel}
-            {wholeSetOnScreen ? '' : ' on this page'} at verified rooms, on each
-            venue&apos;s local calendar
+            {upcomingLabelIsAboutTheSet ? '' : ' on this page'} at verified
+            rooms, on each venue&apos;s local calendar
           </p>
         )}
       </div>

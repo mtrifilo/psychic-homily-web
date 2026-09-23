@@ -13921,6 +13921,11 @@ export interface components {
              * @description Total number of venues
              */
             total: number;
+            /**
+             * Format: int64
+             * @description The sum of upcoming_show_count over every matching venue, not only this page: same venue-local night boundary, cancelled nights excluded. A sum of per-venue counts, so a show billed at two matching venues counts once for each.
+             */
+            upcoming_show_total: number;
             /** @description List of venues with show counts */
             venues: components["schemas"]["VenueWithShowCountResponse"][] | null;
         };

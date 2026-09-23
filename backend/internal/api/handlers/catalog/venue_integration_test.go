@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
@@ -103,6 +104,55 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_MultiCityFilter() {
 	s.NoError(err)
 	s.Equal(int64(2), resp.Body.Total)
 	s.Len(resp.Body.Venues, 2)
+}
+
+// bookShow puts one approved show daysFromNow into an EXISTING room, which is
+// what separates it from testhelpers.CreateFutureApprovedShow: that one creates
+// a room per show, so it cannot be used to say how many rooms a city holds.
+func (s *VenueHandlerIntegrationSuite) bookShow(userID, venueID uint, title string, daysFromNow int) {
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   time.Now().UTC().AddDate(0, 0, daysFromNow),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &userID,
+	}
+	s.Require().NoError(s.deps.DB.Create(show).Error)
+	s.Require().NoError(s.deps.DB.Exec(
+		"INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venueID).Error)
+}
+
+// TestListVenues_UpcomingTotalSpansEveryPage pins what the /venues heading is
+// built from: both envelope totals describe the whole filtered set, so the
+// caption above a city's rooms reads the same on page 2 as on page 1. The rooms
+// carry different counts (3, 1, 0), so each page's own row differs from the
+// total, and the city holds 3 rooms but 4 shows, so a handler that swapped the
+// two envelope fields fails here.
+func (s *VenueHandlerIntegrationSuite) TestListVenues_UpcomingTotalSpansEveryPage() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	busy := testhelpers.CreateVerifiedVenue(s.deps.DB, "Busy Room", "Phoenix", "AZ")
+	middling := testhelpers.CreateVerifiedVenue(s.deps.DB, "Middling Room", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Quiet Room", "Phoenix", "AZ")
+	s.bookShow(user.ID, busy.ID, "Busy Show A", 7)
+	s.bookShow(user.ID, busy.ID, "Busy Show B", 8)
+	s.bookShow(user.ID, busy.ID, "Busy Show C", 10)
+	s.bookShow(user.ID, middling.ID, "Middling Show", 9)
+
+	pageCounts := make([]int, 0, 3)
+	for offset := 0; offset < 3; offset++ {
+		resp, err := s.handler.ListVenuesHandler(s.deps.Ctx, &ListVenuesRequest{
+			Cities: "Phoenix,AZ", Limit: 1, Offset: offset, Sort: "upcoming",
+		})
+		s.Require().NoErrorf(err, "offset=%d", offset)
+		s.Require().Lenf(resp.Body.Venues, 1, "offset=%d", offset)
+		s.Equalf(int64(3), resp.Body.Total, "offset=%d: total counts rooms", offset)
+		s.Equalf(int64(4), resp.Body.UpcomingShowTotal,
+			"offset=%d: the upcoming total spans the whole city, quiet rooms contributing zero", offset)
+		pageCounts = append(pageCounts, resp.Body.Venues[0].UpcomingShowCount)
+	}
+	s.Equal([]int{3, 1, 0}, pageCounts,
+		"no page's own row carries the city total, so the envelope cannot be echoing the page")
 }
 
 // TestListVenuesSortEnumTagMatchesVocabulary holds the OpenAPI enum and the

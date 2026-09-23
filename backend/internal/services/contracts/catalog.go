@@ -1252,6 +1252,24 @@ type VenueListFilters struct {
 	MetroRollup bool
 }
 
+// VenueListTotals is what captions the /venues page: how many rooms the
+// filtered set holds, and the sum of those rooms' upcoming show counts.
+//
+// Both describe the WHOLE filtered set rather than the requested page, so a
+// caption built from them says the same thing on page 1 and on page 4. They are
+// read in ONE statement under the same predicates, so no page can be captioned
+// with two numbers that describe different sets.
+type VenueListTotals struct {
+	// Venues is how many rows the filtered set holds across every page.
+	Venues int64
+	// UpcomingShows sums VenueWithShowCountResponse.UpcomingShowCount over that
+	// same set, so it carries that field's venue-local night boundary and its
+	// exclusion of cancelled nights. Quiet rooms contribute zero. It is a sum of
+	// per-room counts, not a count of distinct shows: a show billed in two
+	// rooms of the set counts once for each room, exactly as the two rows do.
+	UpcomingShows int64
+}
+
 // VenueShowResponse represents a show in the venue shows endpoint
 type VenueShowResponse struct {
 	ID uint `json:"id"`
@@ -2940,7 +2958,10 @@ type VenueServiceInterface interface {
 	SearchVenues(query string) ([]*VenueDetailResponse, error)
 	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
 	VerifyVenue(venueID uint) (*VenueDetailResponse, error)
-	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error)
+	// GetVenuesWithShowCounts returns a page of rows and the totals that caption
+	// it. The totals are read over the whole filtered set, not the page, which
+	// is what lets the caption hold on every page of a paged city.
+	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, VenueListTotals, error)
 	// GetVenueListing is the slug+name projection behind GET /venues/listing.
 	// Same SET as an unfiltered GetVenuesWithShowCounts, two columns wide and
 	// unpaginated, ordered by name rather than by that path's activity sort; see
