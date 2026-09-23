@@ -217,6 +217,9 @@ const scopedUnsubscribeConfirmationTemplate = `<!DOCTYPE html>
 // unchanged; it is escaped because it reaches an HTML attribute. noun comes from
 // a fixed internal allowlist.
 func writeUnsubscribeConfirmPrompt(ctx context.Context, w http.ResponseWriter, action, noun string) {
+	// Replaces the API-wide CSP, whose form-action 'none' makes a browser refuse
+	// to submit this page's form. The form posts to the same origin only.
+	w.Header().Set("Content-Security-Policy", unsubscribeConfirmPromptCSP)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
@@ -224,6 +227,11 @@ func writeUnsubscribeConfirmPrompt(ctx context.Context, w http.ResponseWriter, a
 		html.EscapeString(action), html.EscapeString(noun))
 	respond.SafeWrite(ctx, w, []byte(page))
 }
+
+// unsubscribeConfirmPromptCSP is the confirm page's policy: the API-wide policy
+// with form submission allowed back to this origin and the page's own inline
+// style attributes allowed. It loads nothing and runs no script.
+const unsubscribeConfirmPromptCSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 // unsubscribeConfirmPromptTemplate is the GET confirm page. The two %s are the
 // form action (the signed URL) and the category noun. Literal CSS percent signs

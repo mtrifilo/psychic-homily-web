@@ -845,6 +845,22 @@ type showEmailContentParts struct {
 	showURL    string
 }
 
+// detailLines is the one-show WHEN/WHERE/WITH/PRICE block the follow-alert
+// emails render with emailMonoDetails; empty fields are omitted.
+func (c showEmailContentParts) detailLines() []string {
+	details := []string{fmt.Sprintf("WHEN .... %s", c.date)}
+	if c.venueText != "" {
+		details = append(details, fmt.Sprintf("WHERE ... %s", c.venueText))
+	}
+	if c.artistText != "" {
+		details = append(details, fmt.Sprintf("WITH .... %s", c.artistText))
+	}
+	if c.priceText != "" {
+		details = append(details, fmt.Sprintf("PRICE ... %s", c.priceText))
+	}
+	return details
+}
+
 // showEmailContent builds the show-derived email fields (extracted from
 // sendFilterEmail for reuse by the scene-follow email, PSY-1341). Venue
 // timezone rendering per PSY-996.
@@ -907,54 +923,6 @@ func (s *NotificationFilterService) showEmailContent(show *catalogm.Show) showEm
 		artistText: strings.Join(artistNames, ", "),
 		priceText:  priceText,
 		showURL:    showURL,
-	}
-}
-
-// sendSceneFollowEmail mirrors sendFilterEmail for a scene follow (PSY-1341):
-// same per-user daily rate limit, scene name in place of the filter name, and
-// the manage page in place of a filter-scoped one-click unsubscribe (scene
-// follows have no filter row to sign; the weekly-digest ticket owns richer
-// unsubscribe scoping).
-func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName string, show *catalogm.Show) {
-	var emailCount int64
-	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
-	s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND channel = ? AND sent_at > ?", userID, "email", dayAgo).
-		Count(&emailCount)
-	if emailCount >= int64(maxFilterEmailsPerDay) {
-		log.Printf("rate limit: skipping scene-follow email for user %d (sent %d today)", userID, emailCount)
-		return
-	}
-
-	var email string
-	if err := s.db.Table("users").Where("id = ?", userID).Pluck("email", &email).Error; err != nil || email == "" {
-		log.Printf("failed to get email for user %d: %v", userID, err)
-		return
-	}
-
-	c := s.showEmailContent(show)
-	manageURL := fmt.Sprintf("%s/following?tab=scene", s.frontendURL)
-	html, err := buildFilterEmailHTML(
-		fmt.Sprintf("%s scene", sceneName),
-		show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, manageURL,
-	)
-	if err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "notification_filter")
-			scope.SetTag("email_type", "scene_follow")
-			sentry.CaptureException(err)
-		})
-		log.Printf("failed to render scene-follow email for user %d: %v", userID, err)
-		return
-	}
-	subject := fmt.Sprintf("New show in %s", entityNameForSubject(sceneName))
-	if err := s.sendEmail(email, subject, html, manageURL); err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "notification_filter")
-			scope.SetTag("email_type", "scene_follow")
-			sentry.CaptureException(err)
-		})
-		log.Printf("failed to send scene-follow email to %s: %v", email, err)
 	}
 }
 
@@ -2012,8 +1980,7 @@ func ComputeFilterUnsubscribeSignature(filterID uint, secret string) string {
 // Email template
 // ──────────────────────────────────────────────
 
-// buildFilterEmailHTML renders the show-match body shared by the saved-filter
-// and scene-follow alerts.
+// buildFilterEmailHTML renders the show-match body for saved-filter alerts.
 //
 // Every value here is entity text the platform does not author: show titles,
 // artist and venue names, and a user-chosen filter name, none charset-restricted

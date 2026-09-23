@@ -145,9 +145,12 @@ func (s *UserService) SetAccountAlertDefaults(userID uint, update authm.AccountA
 	})
 }
 
-// UnsubscribeArtistShowAlertEmails stops the artist new-show alert EMAILS for a
-// user, and is what the RFC 8058 one-click link behind those emails calls
-// (PSY-1896).
+// UnsubscribeArtistShowAlertEmails stops the new-show alert EMAILS for a user,
+// from artist, venue and scene follows alike, and is what the RFC 8058
+// one-click link behind those emails calls.
+//
+// Scene follows need only the first write below: they carry no per-follow
+// override, so their email reads the account matrix alone.
 //
 // It takes two writes because the preference is resolved from two layers and
 // either one alone can keep the mail flowing:

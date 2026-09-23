@@ -462,8 +462,13 @@ func TestVenueAndArtistAlertEmailsShareOneUnsubscribeScope(t *testing.T) {
 		showEmailContentParts{date: "today"},
 		shared, "https://example.com/m")
 
+	sceneHTML := buildSceneShowAlertEmailHTML("Phoenix, AZ",
+		showEmailContentParts{date: "today"},
+		shared, "https://example.com/m")
+
 	assert.Contains(t, venueHTML, "unsubscribe/artist-show-alerts")
 	assert.Contains(t, artistHTML, "unsubscribe/artist-show-alerts")
+	assert.Contains(t, sceneHTML, "unsubscribe/artist-show-alerts")
 
 	// And the signature verifies under that scope, so the link the recipient
 	// clicks actually works rather than 403ing at the door.

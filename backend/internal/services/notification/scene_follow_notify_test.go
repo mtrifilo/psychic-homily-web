@@ -1,9 +1,21 @@
 package notification
 
 import (
+	"errors"
+	"html"
+	"net/url"
+	"strconv"
+	"time"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // Scene-follow fan-out tests (PSY-1341) — run inside NotificationFilterSuite
@@ -35,6 +47,24 @@ func (s *NotificationFilterSuite) seedSceneFollow(userID uint, mode string) uint
 			userID, sceneID, mode).Error)
 	}
 	return sceneID
+}
+
+// seedSceneFollowWithSettings is seedSceneFollow with a caller-supplied
+// settings document.
+func (s *NotificationFilterSuite) seedSceneFollowWithSettings(userID uint, settingsJSON string) uint {
+	sceneID := s.seedSceneFollow(userID, "")
+	s.Require().NoError(s.db.Exec(`
+		UPDATE user_bookmarks SET settings = ?::jsonb
+		WHERE user_id = ? AND entity_type = 'scene' AND entity_id = ? AND action = 'follow'`,
+		settingsJSON, userID, sceneID).Error)
+	return sceneID
+}
+
+// setAccountShowEmail writes the account alert matrix's show-alert email
+// channel, the one scene emails read.
+func (s *NotificationFilterSuite) setAccountShowEmail(userID uint, on bool) {
+	s.Require().NoError(usersvc.NewUserService(s.db).SetAccountAlertDefaults(userID,
+		authm.AccountAlertDefaultsUpdate{Shows: &authm.AlertChannelDefaultsUpdate{Email: &on}}))
 }
 
 func (s *NotificationFilterSuite) followArtist(userID, artistID uint) {
@@ -240,4 +270,277 @@ func (s *NotificationFilterSuite) TestSceneFollow_FallbackRowMatchesMetroStamped
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+}
+
+// =============================================================================
+// EMAIL OPT-IN
+// =============================================================================
+
+// A scene follow with no account opt-in gets the in-app row and NO mail. A user
+// with no preferences row resolves to email off, so existing follows need no
+// migration to align.
+func (s *NotificationFilterSuite) TestSceneAlert_EmailIsOffUntilOptedIn() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+
+	artistID := s.createTestArtist("Unasked Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Unasked Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, showID),
+		"in-app delivery is unchanged: the bell row is still written")
+	s.Empty(capture.sent, "email is an intentional opt-in on every alert type")
+}
+
+// The account matrix's show-alert email box is the opt-in, and the message it
+// sends carries a working RFC 8058 unsubscribe.
+func (s *NotificationFilterSuite) TestSceneAlert_AccountOptInSendsWithWorkingUnsubscribe() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+	s.setAccountShowEmail(userID, true)
+
+	artistID := s.createTestArtist("Asked Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Asked Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+	s.Require().Len(capture.sent, 1)
+	sent := capture.sent[0]
+	s.Equal("New show in Phoenix, AZ", sent.subject)
+
+	// The header target is the BACKEND route that serves the one-click POST,
+	// signed for this user under the shared show-alert scope.
+	u, err := url.Parse(sent.unsubscribeURL)
+	s.Require().NoError(err)
+	s.Equal("/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts, u.Path)
+	s.Equal(strconv.FormatUint(uint64(userID), 10), u.Query().Get("uid"))
+	s.True(engagement.VerifyScopedUnsubscribeSignature(
+		userID, engagement.UnsubscribeScopeArtistShowAlerts, u.Query().Get("sig"), s.svc.jwtSecret),
+		"the link must verify, or the recipient's click 403s at the door")
+
+	// One way out for the recipient and the mailbox provider alike.
+	s.Contains(sent.html, `href="`+html.EscapeString(sent.unsubscribeURL)+`"`)
+	s.Contains(sent.html, "You are getting this because you follow Phoenix, AZ and show alert emails are on in your settings.")
+	s.NotContains(sent.html, "Pause this filter")
+	s.NotContains(sent.html, "New show matching")
+}
+
+// Scene follows have no per-follow alert layer, so an alerts document on the
+// follow row is not an opt-in. The account row is the whole gate, which is what
+// lets the unsubscribe's account write silence this stream by itself.
+func (s *NotificationFilterSuite) TestSceneAlert_StoredFollowOverrideIsNotAnOptIn() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollowWithSettings(userID, `{"alerts":{"shows":{"email":true}}}`)
+
+	artistID := s.createTestArtist("Override Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Override Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+	s.Empty(capture.sent)
+}
+
+// Mode "off" outranks the email opt-in: a silenced scene sends nothing.
+func (s *NotificationFilterSuite) TestSceneAlert_OffModeIsNotAnEmailOptIn() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "off")
+	s.setAccountShowEmail(userID, true)
+
+	artistID := s.createTestArtist("Silent Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Silent Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(0), s.sceneLogCount(userID, showID))
+	s.Empty(capture.sent)
+}
+
+// The email says "you follow X", so X must be a scene whose
+// follow made the user qualify. Phoenix is inserted first (the lower id) and is
+// set to "off"; naming it would put a silenced scene in the message.
+func (s *NotificationFilterSuite) TestSceneAlert_EmailNamesAQualifyingScene() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "off") // phoenix-az
+	s.setAccountShowEmail(userID, true)
+
+	var tucsonID uint
+	s.Require().NoError(s.db.Raw(`
+		INSERT INTO scenes (metro, city, state, slug)
+		VALUES (NULL, 'Tucson', 'AZ', 'tucson-az') RETURNING id`).Scan(&tucsonID).Error)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'scene', ?, 'follow', now())`, userID, tucsonID).Error)
+
+	artistID := s.createTestArtist("Two City Band")
+	phxVenue := s.createTestVenue("The Rebel Lounge")
+	tucsonVenue := catalogm.Venue{Name: "Club Congress", City: "Tucson", State: "AZ"}
+	s.Require().NoError(s.db.Create(&tucsonVenue).Error)
+	showID := s.createTestShow("Two City Show", []uint{artistID}, []uint{phxVenue, tucsonVenue.ID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Require().Len(capture.sent, 1)
+	s.Equal("New show in Tucson, AZ", capture.sent[0].subject)
+}
+
+// The real unsubscribe mutation, then the next show: the in-app row still
+// arrives and the email does not.
+func (s *NotificationFilterSuite) TestSceneAlert_UnsubscribeStopsTheNextShow() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+	s.setAccountShowEmail(userID, true)
+
+	artistID := s.createTestArtist("Leaving Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	firstShow := s.createTestShow("Before Unsubscribe", []uint{artistID}, []uint{venueID})
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(firstShow)))
+	s.Require().Len(capture.sent, 1)
+
+	s.Require().NoError(usersvc.NewUserService(s.db).UnsubscribeArtistShowAlertEmails(userID))
+
+	secondShow := s.createTestShow("After Unsubscribe", []uint{artistID}, []uint{venueID})
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(secondShow)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, secondShow),
+		"an email opt-out is not a request to stop being notified in the product")
+	s.Len(capture.sent, 1, "the unsubscribe has to stop the stream")
+}
+
+// An unreadable account matrix still writes every in-app row: the matrix gates
+// only the email. The no-email assertion holds through both the explicit
+// emailGateReadable guard and the nil-map default (shipped defaults, email
+// off), so it does not by itself pin the guard.
+func (s *NotificationFilterSuite) TestSceneAlert_UnreadablePreferencesStillDeliverInApp() {
+	capture := &capturingEmailService{}
+
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
+	failing, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{})
+	s.Require().NoError(err)
+	s.Require().NoError(failing.Callback().Row().Before("gorm:row").
+		Register("psy_fail_user_preferences", func(tx *gorm.DB) {
+			if tx.Statement.Table == "user_preferences" {
+				_ = tx.AddError(errors.New("user_preferences unavailable"))
+			}
+		}))
+	svc := NewNotificationFilterService(failing, capture, "test-secret", "http://localhost:3000")
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+	s.setAccountShowEmail(userID, true)
+
+	artistID := s.createTestArtist("Unreadable Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Unreadable Show", []uint{artistID}, []uint{venueID})
+
+	svc.notifySceneFollowers(s.loadShow(showID), nil)
+
+	s.Equal(int64(1), s.sceneLogCount(userID, showID), "the bell row does not depend on the matrix")
+	s.Empty(capture.sent, "an unread opt-in is not an opt-in")
+}
+
+// An "all" follow outranks a followed-bands follow when naming the scene, even
+// when the followed-bands scene has the lower id and arrives first.
+func (s *NotificationFilterSuite) TestSceneAlert_EmailPrefersTheAllModeScene() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "followed_bands_only") // phoenix-az, lower id
+	s.setAccountShowEmail(userID, true)
+
+	var tucsonID uint
+	s.Require().NoError(s.db.Raw(`
+		INSERT INTO scenes (metro, city, state, slug)
+		VALUES (NULL, 'Tucson', 'AZ', 'tucson-az') RETURNING id`).Scan(&tucsonID).Error)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'scene', ?, 'follow', now())`, userID, tucsonID).Error)
+
+	artistID := s.createTestArtist("Priority Band")
+	phxVenue := s.createTestVenue("The Rebel Lounge")
+	tucsonVenue := catalogm.Venue{Name: "Club Congress", City: "Tucson", State: "AZ"}
+	s.Require().NoError(s.db.Create(&tucsonVenue).Error)
+	showID := s.createTestShow("Priority Show", []uint{artistID}, []uint{phxVenue, tucsonVenue.ID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Require().Len(capture.sent, 1)
+	s.Equal("New show in Tucson, AZ", capture.sent[0].subject)
+}
+
+// The scene email gate reads the account matrix alone, which is sound only
+// while no scene follow can store a per-follow override. If this starts
+// passing a write through, route notifySceneFollowers through
+// engagement.ResolveFollowAlerts and add scenes to the unsubscribe sweep in
+// user.UnsubscribeArtistShowAlertEmails before changing this assertion.
+func (s *NotificationFilterSuite) TestSceneAlert_SceneFollowsCannotStoreAnOverride() {
+	userID := s.createTestUser()
+	sceneID := s.seedSceneFollow(userID, "")
+	on := true
+
+	_, err := engagement.NewFollowService(s.db).SetFollowAlertSettings(userID, "scene", sceneID,
+		contracts.FollowAlertUpdate{Shows: &contracts.FollowAlertPreferenceUpdate{Email: &on}})
+
+	s.ErrorContains(err, "invalid entity type for follow")
+}
+
+// The daily cap allows maxFilterEmailsPerDay emails. The row this pass writes
+// for the show is not one of them, so a user with one fewer prior row still
+// gets this email, and a user at the cap does not.
+func (s *NotificationFilterSuite) TestSceneAlert_DailyBudgetBoundary() {
+	capture := s.withCapturedEmail()
+
+	seedPriorRows := func(userID uint, n int) {
+		for i := 0; i < n; i++ {
+			s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+				UserID:     userID,
+				EntityType: notificationm.NotificationEntityShow,
+				EntityID:   uint(900000 + i),
+				Channel:    notificationm.NotificationChannelEmail,
+				SentAt:     time.Now().UTC().Add(-time.Hour),
+			}).Error)
+		}
+	}
+
+	underCap := s.createTestUser()
+	s.seedSceneFollow(underCap, "")
+	s.setAccountShowEmail(underCap, true)
+	seedPriorRows(underCap, maxFilterEmailsPerDay-1)
+
+	atCap := s.createTestUser()
+	s.seedSceneFollow(atCap, "")
+	s.setAccountShowEmail(atCap, true)
+	seedPriorRows(atCap, maxFilterEmailsPerDay)
+
+	artistID := s.createTestArtist("Budget Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Budget Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(underCap, showID))
+	s.Equal(int64(1), s.sceneLogCount(atCap, showID))
+	s.Require().Len(capture.sent, 1, "only the user under the cap is mailed")
+	var underCapEmail string
+	s.Require().NoError(s.db.Table("users").Where("id = ?", underCap).Pluck("email", &underCapEmail).Error)
+	s.Equal(underCapEmail, capture.sent[0].to)
 }

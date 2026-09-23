@@ -709,6 +709,15 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowing_CarriesA
 	suite.Require().NoError(err)
 	suite.Require().Len(labels, 1)
 	suite.Nil(labels[0].Alerts, "alert-less types carry no subscription")
+
+	// A scene row carrying `alerts` would render the artist-shaped Library
+	// control, whose writes the per-follow endpoints refuse for scenes.
+	sceneID := suite.createTestScene("Phoenix", "AZ", "library-alerts-scene")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "scene", sceneID))
+	scenes, _, err := suite.followService.GetLibraryFollowing(user.ID, "scene", 50, nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Nil(scenes[0].Alerts, "scene follows carry no per-follow subscription")
 }
 
 // setAccountAlertDefaults writes the user's account alert matrix directly.

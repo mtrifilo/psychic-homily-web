@@ -458,7 +458,7 @@ var sceneDigestEmailTemplate = mustEmailTemplate("scene_digest", `{{template "pl
 {{template "plainFrameClose"}}`)
 
 // ──────────────────────────────────────────────
-// Filter and scene-follow match
+// Filter match
 // ──────────────────────────────────────────────
 
 type filterEmailData struct {

@@ -125,3 +125,35 @@ func TestRenderVenueShowAlertArtifact(t *testing.T) {
 	require.NoError(t, os.WriteFile(out, []byte(html), 0o600))
 	t.Logf("wrote %s", out)
 }
+
+// TestRenderSceneShowAlertArtifact does the same for the scene new-show alert.
+//
+//	RENDER_OUT=/tmp/scene-alert.html go test ./internal/services/notification/ \
+//	  -run TestRenderSceneShowAlertArtifact
+func TestRenderSceneShowAlertArtifact(t *testing.T) {
+	out := os.Getenv("RENDER_OUT")
+	if out == "" {
+		t.Skip("set RENDER_OUT to a file path to capture the rendered email")
+	}
+
+	content := showEmailContentParts{
+		date:       "Saturday, August 29, 2026",
+		venueText:  "Valley Bar",
+		artistText: "Oneida, Din of Celestial Birds",
+		priceText:  "$18",
+		showURL:    "https://psychichomily.com/shows/oneida-valley-bar",
+	}
+	// A fabricated signature of the real length, so the footer's wrapping can be
+	// judged. It verifies against nothing.
+	unsubURL := "https://api.psychichomily.com/unsubscribe/artist-show-alerts" +
+		"?uid=421&sig=9f2c1ad35b7e40c8a6d1e93b0f47c25ad8e6b1349f0a7c25e83bd1470c96af52"
+
+	html := buildSceneShowAlertEmailHTML(
+		"Phoenix, AZ",
+		content,
+		unsubURL,
+		"https://psychichomily.com/settings/notifications",
+	)
+	require.NoError(t, os.WriteFile(out, []byte(html), 0o600))
+	t.Logf("wrote %s", out)
+}
