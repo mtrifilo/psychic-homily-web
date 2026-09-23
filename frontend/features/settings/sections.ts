@@ -1,15 +1,14 @@
 /**
  * The `/settings` hub's section registry.
  *
- * The anchors are a redirect CONTRACT, not presentation: every link into the
- * hub is `/settings#<anchor>`, and there are no `/settings/<section>`
- * subroutes. A renamed anchor degrades every such link to a silent scroll to
- * the top, so anchors are spelled once, here, and every caller builds its href
- * with {@link settingsSectionHref}.
+ * The anchors are a redirect CONTRACT, not presentation: a link into the hub
+ * is `/settings#<anchor>`, and there are no `/settings/<section>` subroutes. A
+ * renamed anchor degrades every such link to a silent scroll to the top, so
+ * anchors are spelled once, here.
  *
  * ISOMORPHIC ON PURPOSE: no `'use client'`, and nothing here may import a
- * client module, so a server module (a redirect, a prefetch) can read these
- * values rather than a client reference to them.
+ * client module, so a server module can read these values rather than a
+ * client reference to them.
  */
 
 import {
@@ -40,18 +39,36 @@ export const SETTINGS_ANCHORS = {
 export type SettingsAnchor =
   (typeof SETTINGS_ANCHORS)[keyof typeof SETTINGS_ANCHORS]
 
-export const SETTINGS_HREF = '/settings'
-
-export function settingsSectionHref(anchor: SettingsAnchor): string {
-  return `${SETTINGS_HREF}#${anchor}`
+/**
+ * Where controls live today, each with the action label that names it. A row
+ * spreads one of these, so a label cannot drift from its destination.
+ */
+const PROFILE_EDITOR = { href: '/profile', action: 'Manage in profile editor' }
+const PROFILE_PRIVACY = {
+  href: '/profile?tab=privacy',
+  action: 'Manage in profile privacy',
 }
-
-/** The profile editor's tabs, where most controls still live. */
-const PROFILE_EDITOR_HREF = '/profile'
-const PROFILE_PRIVACY_HREF = '/profile?tab=privacy'
-const PROFILE_SECTIONS_HREF = '/profile?tab=sections'
-const PROFILE_SETTINGS_HREF = '/profile?tab=settings'
-const APPEARANCE_SETTINGS_HREF = '/settings/appearance'
+const PROFILE_SECTIONS = {
+  href: '/profile?tab=sections',
+  action: 'Manage in profile sections',
+}
+const PROFILE_SETTINGS = {
+  href: '/profile?tab=settings',
+  action: 'Manage in profile settings',
+}
+const PROFILE_ALERTS = { href: ALERTS_HREF, action: PROFILE_SETTINGS.action }
+const PROFILE_ALERTS_AREA = {
+  href: ALERTS_AREA_HREF,
+  action: PROFILE_SETTINGS.action,
+}
+const CUSTOM_ALERTS = {
+  href: CUSTOM_ALERTS_HREF,
+  action: 'Manage in custom alerts',
+}
+const APPEARANCE_SETTINGS = {
+  href: '/settings/appearance',
+  action: 'Manage in appearance settings',
+}
 
 /**
  * A row that sends the viewer to the surface that owns these settings today.
@@ -82,8 +99,6 @@ export interface SettingsSection {
   rows: readonly SettingsRow[]
 }
 
-const MANAGE_IN_PROFILE_SETTINGS = 'Manage in profile settings'
-
 /** Rail, jump index and page order. */
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
@@ -102,8 +117,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
           'Export your data',
           'Delete account',
         ],
-        href: PROFILE_SETTINGS_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_SETTINGS,
       },
     ],
   },
@@ -114,26 +128,22 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       {
         kind: 'link',
         covers: ['Identity and bio'],
-        href: PROFILE_EDITOR_HREF,
-        action: 'Manage in profile editor',
+        ...PROFILE_EDITOR,
       },
       {
         kind: 'link',
         covers: ['Custom sections'],
-        href: PROFILE_SECTIONS_HREF,
-        action: 'Manage in profile sections',
+        ...PROFILE_SECTIONS,
       },
       {
         kind: 'link',
         covers: ['Who sees what'],
-        href: PROFILE_PRIVACY_HREF,
-        action: 'Manage in profile privacy',
+        ...PROFILE_PRIVACY,
       },
       {
         kind: 'link',
         covers: ['Default reply permission'],
-        href: PROFILE_SETTINGS_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_SETTINGS,
       },
     ],
   },
@@ -147,14 +157,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       {
         kind: 'link',
         covers: ['Favorite cities'],
-        href: PROFILE_SETTINGS_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_SETTINGS,
       },
       {
         kind: 'link',
         covers: ['Your area'],
-        href: ALERTS_AREA_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_ALERTS_AREA,
         anchor: SETTINGS_ANCHORS.alertsArea,
       },
     ],
@@ -166,14 +174,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       {
         kind: 'link',
         covers: ['Alert matrix', 'Reminders and digests', 'Account emails'],
-        href: ALERTS_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_ALERTS,
       },
       {
         kind: 'link',
         covers: ['Custom alerts'],
-        href: CUSTOM_ALERTS_HREF,
-        action: 'Manage in custom alerts',
+        ...CUSTOM_ALERTS,
       },
     ],
   },
@@ -185,8 +191,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       {
         kind: 'link',
         covers: ['Navigation style'],
-        href: APPEARANCE_SETTINGS_HREF,
-        action: 'Manage in appearance settings',
+        ...APPEARANCE_SETTINGS,
       },
     ],
   },
@@ -197,8 +202,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       {
         kind: 'link',
         covers: ['Calendar feed', 'Follows activity feed'],
-        href: PROFILE_SETTINGS_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_SETTINGS,
       },
     ],
   },
@@ -209,14 +213,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       {
         kind: 'link',
         covers: ['Profile visibility'],
-        href: PROFILE_PRIVACY_HREF,
-        action: 'Manage in profile privacy',
+        ...PROFILE_PRIVACY,
       },
       {
         kind: 'link',
         covers: ['Export or delete your account'],
-        href: PROFILE_SETTINGS_HREF,
-        action: MANAGE_IN_PROFILE_SETTINGS,
+        ...PROFILE_SETTINGS,
       },
     ],
   },

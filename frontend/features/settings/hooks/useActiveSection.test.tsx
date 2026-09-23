@@ -30,6 +30,8 @@ function mountSections() {
   for (const anchor of ANCHORS) {
     const section = document.createElement('section')
     section.id = anchor
+    // What the hub's `scroll-mt-[calc(var(--topbar-height)+1rem)]` resolves to.
+    section.style.scrollMarginTop = '72px'
     section.getBoundingClientRect = () =>
       ({ top: tops[anchor] }) as DOMRect
     if (anchor === 'second') {
@@ -71,7 +73,6 @@ function scroll() {
 describe('useActiveSection', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] })
-    document.documentElement.style.setProperty('--topbar-height', '3.5rem')
     window.history.replaceState(null, '', '/settings')
     tops = { first: 80, second: 900, third: 1800 }
     setScroll({ scrollY: 0, innerHeight: 800, scrollHeight: 3000 })
@@ -91,7 +92,7 @@ describe('useActiveSection', () => {
   it('marks the last section whose top has passed the line under the TopBar', () => {
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
 
-    // 56px TopBar + 16px: a top at 72 or above has been passed.
+    // The reading line is the 72px scroll margin: a top at 72 has passed it.
     tops = { first: -700, second: 72, third: 900 }
     setScroll({ scrollY: 800, innerHeight: 800, scrollHeight: 3000 })
     scroll()

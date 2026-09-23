@@ -8,6 +8,8 @@
  * a page resolves and jumps within its own root instead.
  */
 
+import { revealAnchorTarget } from '@/features/auth/components/settings/useAnchorScroll'
+
 export function findAnchorTarget(
   root: ParentNode,
   anchor: string
@@ -16,9 +18,8 @@ export function findAnchorTarget(
 }
 
 /**
- * Brings the root's own target for `anchor` to the top of the viewport and
- * gives it focus, and records the fragment in the address bar. The target's
- * scroll margin keeps it clear of the sticky TopBar.
+ * Reveals the root's own target for `anchor` and records the fragment in the
+ * address bar.
  */
 export function jumpToAnchor(root: ParentNode | null, anchor: string): void {
   if (!root) return
@@ -27,6 +28,5 @@ export function jumpToAnchor(root: ParentNode | null, anchor: string): void {
   if (window.location.hash !== `#${anchor}`) {
     window.location.hash = anchor
   }
-  target.scrollIntoView({ block: 'start' })
-  target.focus({ preventScroll: true })
+  revealAnchorTarget(target)
 }

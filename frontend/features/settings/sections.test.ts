@@ -7,7 +7,6 @@ import {
   SETTINGS_ANCHORS,
   SETTINGS_SECTIONS,
   settingsSectionCount,
-  settingsSectionHref,
   type SettingsLinkRow,
 } from './sections'
 
@@ -122,16 +121,5 @@ describe('settingsSectionCount', () => {
       feeds: 2,
       privacy: 2,
     })
-  })
-})
-
-describe('settingsSectionHref', () => {
-  it('addresses a section as a fragment on the one hub route', () => {
-    expect(settingsSectionHref(SETTINGS_ANCHORS.account)).toBe(
-      '/settings#account'
-    )
-    expect(settingsSectionHref(SETTINGS_ANCHORS.alertsArea)).toBe(
-      '/settings#alerts-area'
-    )
   })
 })
