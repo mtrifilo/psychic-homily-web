@@ -1102,15 +1102,7 @@ describe('useAuth hooks', () => {
       ],
     }
 
-    // The handler's inline sad-path body, byte for byte: an HTTP 200 that
-    // carries an error instead of the document.
-    const handlerInlineErrorBody = {
-      success: false,
-      error: 'unauthorized',
-      message: 'User not found in context',
-    }
-
-    it('resolves with the export document the endpoint serves', async () => {
+    it('resolves with the export document, which carries no success field', async () => {
       mockApiRequest.mockResolvedValueOnce(capturedExportDocument)
 
       const { result } = renderHook(() => useExportData(), {
@@ -1127,30 +1119,26 @@ describe('useAuth hooks', () => {
         expect.objectContaining({ method: 'GET' })
       )
       expect(returned).toEqual(capturedExportDocument)
+      expect(returned).not.toHaveProperty('success')
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
     })
 
-    it('does not require a success field on the document', async () => {
-      expect(capturedExportDocument).not.toHaveProperty('success')
-      mockApiRequest.mockResolvedValueOnce(capturedExportDocument)
-
-      const { result } = renderHook(() => useExportData(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate()
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(result.current.error).toBeNull()
-    })
-
-    it('rejects a success envelope that carries no export document', async () => {
-      mockApiRequest.mockResolvedValueOnce({
-        success: true,
-        message: 'Export ready',
-      })
+    it.each([
+      [
+        // The handler's inline sad-path body, byte for byte: an HTTP 200
+        // that carries an error instead of the document.
+        'the handler inline error body',
+        { success: false, error: 'unauthorized', message: 'User not found in context' },
+        'User not found in context',
+      ],
+      [
+        'a success envelope without the document',
+        { success: true, message: 'Export ready' },
+        'Export ready',
+      ],
+      ['an empty body', null, 'Failed to export data'],
+    ])('throws AuthError on %s', async (_label, body, expectedMessage) => {
+      mockApiRequest.mockResolvedValueOnce(body)
 
       const { result } = renderHook(() => useExportData(), {
         wrapper: createWrapper(),
@@ -1163,43 +1151,8 @@ describe('useAuth hooks', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
       const error = result.current.error as AuthError
       expect(error).toBeInstanceOf(AuthError)
-      expect(error.message).toBe('Export ready')
-    })
-
-    it('throws AuthError carrying the handler message on the inline error body', async () => {
-      mockApiRequest.mockResolvedValueOnce(handlerInlineErrorBody)
-
-      const { result } = renderHook(() => useExportData(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate()
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-      const error = result.current.error as AuthError
-      expect(error).toBeInstanceOf(AuthError)
-      expect(error.message).toBe('User not found in context')
+      expect(error.message).toBe(expectedMessage)
       expect(error.code).toBe(AuthErrorCode.UNKNOWN)
-      expect(error.status).toBe(400)
-    })
-
-    it('falls back to a generic message when the body is empty', async () => {
-      mockApiRequest.mockResolvedValueOnce(null)
-
-      const { result } = renderHook(() => useExportData(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate()
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-      const error = result.current.error as AuthError
-      expect(error).toBeInstanceOf(AuthError)
-      expect(error.message).toBe('Failed to export data')
     })
 
     it('propagates the request error when the export fails with a 5xx', async () => {

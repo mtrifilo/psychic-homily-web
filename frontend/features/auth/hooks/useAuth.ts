@@ -916,7 +916,8 @@ function isExportDocument(
   return (
     typeof body === 'object' &&
     body !== null &&
-    typeof (body as Partial<ExportDataResponse>).exported_at === 'string'
+    'exported_at' in body &&
+    typeof body.exported_at === 'string'
   )
 }
 
