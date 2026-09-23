@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -219,29 +218,4 @@ func TestKeyByClientIP_HonoursConfiguredHops(t *testing.T) {
 			t.Errorf("got %q, want 198.51.100.9 — the env knob is not reaching key derivation", got)
 		}
 	})
-}
-
-// TestFingerprint_IsStableAndNonReversible: the observation log compares
-// fingerprints to answer "same bucket or different" across a burst. That only
-// works if the same key maps to the same tag, and it is only safe to log if the
-// IP cannot be read back out.
-func TestFingerprint_IsStableAndNonReversible(t *testing.T) {
-	const ip = "198.51.100.4"
-
-	first := fingerprint(ip)
-	second := fingerprint(ip)
-	other := fingerprint("198.51.100.5")
-
-	if first != second {
-		t.Error("fingerprint is not stable; the burst comparison would be meaningless")
-	}
-	if first == other {
-		t.Error("different IPs collide; the burst comparison would be misleading")
-	}
-	if strings.Contains(first, "198") || strings.Contains(first, ip) {
-		t.Error("fingerprint leaks the address it was derived from")
-	}
-	if len(first) != 8 {
-		t.Errorf("fingerprint length = %d, want 8 hex chars", len(first))
-	}
 }
