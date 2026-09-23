@@ -8,6 +8,7 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import type { Artist } from '@/features/artists/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { artistSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -69,15 +70,20 @@ export async function generateMetadata({ params }: ArtistPageProps): Promise<Met
   const artist = await getArtist(slug)
 
   if (artist) {
+    const { title, description } = artistSnippet({
+      name: artist.name,
+      city: artist.city,
+      state: artist.state,
+    })
     return {
-      title: artist.name,
-      description: `${artist.name} - upcoming shows and artist details on Psychic Homily`,
+      title,
+      description,
       alternates: {
         canonical: `https://psychichomily.com/artists/${slug}`,
       },
       openGraph: {
-        title: artist.name,
-        description: `View upcoming shows featuring ${artist.name}`,
+        title,
+        description,
         type: 'website',
         url: `/artists/${slug}`,
       },

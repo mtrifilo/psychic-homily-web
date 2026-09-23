@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { BACKEND_BASE_URL } from '../backend-url'
 
 /**
  * FLAKE NOTE on the list-to-detail leg below (`/shows` -> click the first
@@ -99,4 +100,33 @@ test.describe('Show detail', () => {
     await expect(page).toHaveTitle(/.+ at .+/, { timeout: 10_000 })
   })
 
+  test('a numeric show URL permanently redirects to its slug URL', async ({
+    page,
+    request,
+  }) => {
+    // Read-only use of the reserved seeded show, so parallel mutating specs
+    // cannot move it.
+    const slug = 'e2e-attendance-test'
+    const show = await request.get(`${BACKEND_BASE_URL}/shows/${slug}`)
+    expect(show.ok()).toBe(true)
+    const { id } = (await show.json()) as { id: number }
+
+    const numeric = await request.get(`/shows/${id}?ref=e2e`, { maxRedirects: 0 })
+    expect(numeric.status()).toBe(308)
+    const location = new URL(numeric.headers()['location'], 'http://origin')
+    expect(`${location.pathname}${location.search}`).toBe(
+      `/shows/${slug}?ref=e2e`
+    )
+
+    // The slug URL is the end of the chain: no second redirect.
+    const canonical = await request.get(`/shows/${slug}`, { maxRedirects: 0 })
+    expect(canonical.status()).toBe(200)
+
+    await page.goto(`/shows/${id}`)
+    await expect(page).toHaveURL(new RegExp(`/shows/${slug}$`))
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      `https://psychichomily.com/shows/${slug}`
+    )
+  })
 })

@@ -9,9 +9,35 @@ import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/js
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 import { archiveData, getArchiveYears, getVenue } from '@/features/venues/archiveApi'
+import type { Venue, VenueShowsResponse } from '@/features/venues/types'
+// The policy module, not the shows barrel: `showRails.ts` renders nothing.
+import { venueRailShowsUrl } from '@/features/shows/showRails'
+import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { venueNextShowFrom, venueSnippet } from '@/lib/seo/entitySnippets'
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>
+}
+
+/**
+ * The venue's soonest upcoming shows, for the `Next` clause of the meta
+ * description.
+ *
+ * The same URL and cache window as the show page's venue rail. The window is
+ * the short one because the next show changes as each night passes. Null on
+ * any failure, which only drops the clause.
+ */
+function getVenueUpcomingShows(venue: Venue): Promise<VenueShowsResponse | null> {
+  // Checked rather than trusted: the id arrives from `res.json()` through a
+  // type assertion and is interpolated into a server-side URL path.
+  if (!Number.isSafeInteger(venue.id)) return Promise.resolve(null)
+  return fetchListPayload<VenueShowsResponse>({
+    url: venueRailShowsUrl(venue.id),
+    collection: 'shows',
+    service: 'venue-page-next-show',
+    revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+  })
 }
 
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
@@ -19,15 +45,27 @@ export async function generateMetadata({ params }: VenuePageProps): Promise<Meta
   const venue = archiveData(await getVenue(slug))
 
   if (venue) {
+    const upcoming = await getVenueUpcomingShows(venue)
+    const { title, description } = venueSnippet({
+      name: venue.name,
+      city: venue.city,
+      state: venue.state,
+      nextShow: upcoming
+        ? venueNextShowFrom(upcoming.shows, {
+            state: venue.state,
+            timezone: venue.timezone,
+          })
+        : null,
+    })
     return {
-      title: venue.name,
-      description: `${venue.name} in ${venue.city}, ${venue.state} - upcoming shows and venue details`,
+      title,
+      description,
       alternates: {
         canonical: `https://psychichomily.com/venues/${slug}`,
       },
       openGraph: {
-        title: venue.name,
-        description: `View upcoming shows at ${venue.name}`,
+        title,
+        description,
         type: 'website',
         url: `/venues/${slug}`,
       },
