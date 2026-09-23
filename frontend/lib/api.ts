@@ -651,9 +651,9 @@ export const apiRequest = async <T = unknown>(
     // delta-seconds variant since every backend rate-limit path emits
     // that form.
     //
-    // In PRODUCTION this header is unreadable and `retryAfter` stays
-    // undefined, because CORS does not expose it. See fact (4) in
-    // ./query-retry-policy for the detail and for how the schedule copes.
+    // The header is readable cross-origin because the backend's CORS config
+    // exposes it (fact (4) in ./query-retry-policy). `retryAfter` is undefined
+    // only when a 429 omits the header or carries the HTTP-date form.
     if (response.status === 429) {
       const retryAfterRaw = response.headers.get('Retry-After')
       if (retryAfterRaw) {

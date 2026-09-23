@@ -284,8 +284,8 @@ func main() {
 	})
 
 	// Setup CORS middleware
-	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, Credentials=%v",
-		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, cfg.CORS.AllowCredentials)
+	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, ExposedHeaders=%v, Credentials=%v",
+		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, config.CORSExposedHeaders(), cfg.CORS.AllowCredentials)
 
 	// CORS middleware with dynamic origin validation. Construction is
 	// extracted to newCORSMiddleware so the preflight contract — notably
@@ -804,6 +804,7 @@ func newCORSMiddleware(corsCfg config.CORSConfig, isProduction bool) *cors.Cors 
 		// (PSY-929). Prod stays tight — see config.CORSAllowedHeaders.
 		AllowedHeaders:   config.CORSAllowedHeaders(corsCfg.AllowedHeaders, isProduction),
 		AllowCredentials: corsCfg.AllowCredentials,
+		ExposedHeaders:   config.CORSExposedHeaders(),
 		MaxAge:           300,           // Cache preflight for 5 minutes
 		Debug:            !isProduction, // Only enable debug logging in development
 	})

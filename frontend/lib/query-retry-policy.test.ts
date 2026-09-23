@@ -80,16 +80,64 @@ describe('shouldRetryQuery', () => {
 })
 
 describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
-  it('follows Retry-After when the header was readable', () => {
-    // 5s is under the ceiling, so it is honored as given.
-    expect(rateLimitDelay(0, httpError(429, 5), noJitter)).toBe(5_000)
+  /** The header-less schedule, one entry per retry the budget allows. */
+  const HEADERLESS_CURVE = [
+    RATE_LIMIT_FALLBACK_BASE_MS,
+    RATE_LIMIT_FALLBACK_BASE_MS * 2,
+    RATE_LIMIT_FALLBACK_BASE_MS * 4,
+  ]
+
+  it('backs off exponentially when Retry-After is absent', () => {
+    expect(HEADERLESS_CURVE).toHaveLength(RATE_LIMIT_MAX_RETRIES)
+    HEADERLESS_CURVE.forEach((expected, attempt) => {
+      expect(rateLimitDelay(attempt, httpError(429), noJitter)).toBe(expected)
+    })
   })
 
-  it('clamps the backend constant Retry-After to the per-attempt ceiling', () => {
-    // The backend always says 60, which is a whole limiter window rather than a
-    // computed reset. Obeying it literally would park a block on a spinner for
-    // a minute.
-    expect(rateLimitDelay(0, httpError(429, 60), noJitter)).toBe(
+  it("follows the same curve when the backend's constant Retry-After is readable", () => {
+    // The backend always says 60, a whole limiter window rather than a computed
+    // reset. It is longer than every step of the curve, so it never binds and
+    // exposing the header leaves the retry schedule unchanged.
+    HEADERLESS_CURVE.forEach((expected, attempt) => {
+      expect(rateLimitDelay(attempt, httpError(429, 60), noJitter)).toBe(
+        expected
+      )
+    })
+  })
+
+  it('lets a Retry-After shorter than a step cap that step', () => {
+    // 5s sits between the second step (4s) and the third (8s): the steps below
+    // it are untouched and the one above it is shortened to the header.
+    expect(rateLimitDelay(0, httpError(429, 5), noJitter)).toBe(
+      HEADERLESS_CURVE[0]
+    )
+    expect(rateLimitDelay(1, httpError(429, 5), noJitter)).toBe(
+      HEADERLESS_CURVE[1]
+    )
+    expect(rateLimitDelay(2, httpError(429, 5), noJitter)).toBe(5_000)
+    // A 1s header caps every step.
+    for (let attempt = 0; attempt < RATE_LIMIT_MAX_RETRIES; attempt++) {
+      expect(rateLimitDelay(attempt, httpError(429, 1), noJitter)).toBe(1_000)
+    }
+  })
+
+  it('never waits longer with a readable Retry-After than without one', () => {
+    for (const seconds of [1, 2, 3, 5, 8, 10, 60, 3600]) {
+      for (let attempt = 0; attempt < RATE_LIMIT_MAX_RETRIES; attempt++) {
+        expect(
+          rateLimitDelay(attempt, httpError(429, seconds), noJitter)
+        ).toBeLessThanOrEqual(rateLimitDelay(attempt, httpError(429), noJitter))
+      }
+    }
+  })
+
+  it('clamps the curve to the per-attempt ceiling', () => {
+    // Past the budget's attempts the curve would exceed the ceiling; the clamp
+    // bounds it with or without a header.
+    expect(rateLimitDelay(5, httpError(429), noJitter)).toBe(
+      RATE_LIMIT_MAX_BASE_DELAY_MS
+    )
+    expect(rateLimitDelay(5, httpError(429, 60), noJitter)).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS
     )
   })
@@ -98,23 +146,10 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
     // Regression guard. Clamping AFTER jitter instead would collapse every
     // saturated delay onto the same number and retry the whole page in
     // lockstep, recreating the burst that exhausted the budget.
-    const jittered = rateLimitDelay(0, httpError(429, 60), maxJitter)
+    const jittered = rateLimitDelay(5, httpError(429), maxJitter)
     expect(jittered).toBeGreaterThan(RATE_LIMIT_MAX_BASE_DELAY_MS)
     expect(jittered).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS * (1 + RATE_LIMIT_JITTER_RATIO)
-    )
-  })
-
-  it('backs off exponentially when Retry-After is absent', () => {
-    // The production path: CORS hides the header from the browser.
-    expect(rateLimitDelay(0, httpError(429), noJitter)).toBe(
-      RATE_LIMIT_FALLBACK_BASE_MS
-    )
-    expect(rateLimitDelay(1, httpError(429), noJitter)).toBe(
-      RATE_LIMIT_FALLBACK_BASE_MS * 2
-    )
-    expect(rateLimitDelay(2, httpError(429), noJitter)).toBe(
-      RATE_LIMIT_FALLBACK_BASE_MS * 4
     )
   })
 
@@ -129,10 +164,8 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
   it('never returns a delay earlier than the base, at any jitter value', () => {
     // The invariant the comments claim ("ADDITIVE ONLY, never negative") but
     // that the fixed random: 0 / random: 1 cases alone do not establish.
-    // Arriving before the server said it would answer is a guaranteed second
-    // 429, so this is the one property that must hold across the range.
     for (let r = 0; r <= 1; r += 0.05) {
-      const withHeader = rateLimitDelay(0, httpError(429, 5), () => r)
+      const withHeader = rateLimitDelay(2, httpError(429, 5), () => r)
       expect(withHeader).toBeGreaterThanOrEqual(5_000)
 
       const withoutHeader = rateLimitDelay(1, httpError(429), () => r)
@@ -156,12 +189,12 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
   })
 
   it('keeps the total wait inside one limiter window', () => {
-    // The guarantee the constants are chosen for: worst case across the whole
-    // budget, with the constant Retry-After and maximum jitter on every
-    // attempt, is exactly one limiter window.
+    // The guarantee the constants are chosen for: every attempt at the ceiling
+    // with maximum jitter totals at most one limiter window, so no schedule the
+    // clamp allows can exceed it.
     const worstCase = Array.from(
       { length: RATE_LIMIT_MAX_RETRIES },
-      (_, attempt) => rateLimitDelay(attempt, httpError(429, 60), maxJitter)
+      () => rateLimitDelay(10, httpError(429), maxJitter)
     ).reduce((total, delay) => total + delay, 0)
 
     // The message carries the WHY, so a failure explains itself instead of

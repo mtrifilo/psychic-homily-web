@@ -54,17 +54,17 @@
  *     costs a round trip and nothing else. That is what makes probing before
  *     the advertised 60s safe rather than self-defeating.
  *
- *  4. In production the browser CANNOT READ `Retry-After` at all. The frontend
- *     calls `https://api.psychichomily.com` cross-origin, the backend's CORS
- *     config sets no `Access-Control-Expose-Headers`, and `Retry-After` is not
- *     a CORS-safelisted response header, so `response.headers.get()` returns
- *     null and `ApiError.retryAfter` stays undefined. It populates only in
- *     development, where the same-origin `/api` proxy re-emits it explicitly,
- *     and on the server, which is not subject to CORS. The no-header branch
- *     below is therefore the PRODUCTION path, not the edge case.
+ *  4. The browser CAN read `Retry-After` on a cross-origin 429. It is not a
+ *     CORS-safelisted response header, so this holds only because the
+ *     backend's CORS config lists it in `Access-Control-Expose-Headers`
+ *     (`config.CORSExposedHeaders`). `ApiError.retryAfter` therefore carries
+ *     the limiter's window length wherever the header arrives, and is
+ *     undefined only when a 429 omits it.
  *
- * Taken together: treat `Retry-After` as an upper bound to clamp rather than a
- * deadline to obey, and make the header-less backoff the well-tuned one.
+ * Taken together: the exponential backoff below is the schedule, and
+ * `Retry-After` is an upper bound that can only shorten a wait, never lengthen
+ * it. With today's constant 60s the header never binds, so the schedule is the
+ * same whether or not the header is readable.
  */
 
 import type { ApiError } from './api'
@@ -112,10 +112,9 @@ export const LIMITER_WINDOW_MS = 60_000
 export const RATE_LIMIT_MAX_BASE_DELAY_MS = 10_000
 
 /**
- * Base for exponential backoff when the response carried no usable
- * `Retry-After`, which per fact (4) above is the production case. Yields 2s,
- * 4s, 8s, all comfortably under the ceiling, for a header-less worst case of
- * about 14s plus jitter.
+ * Base for the exponential backoff every 429 retry follows. Yields 2s, 4s,
+ * 8s, all comfortably under the ceiling, for a worst case of about 14s plus
+ * jitter. A readable `Retry-After` shorter than a step replaces that step.
  *
  * Deliberately eager: the window is sliding, so capacity is returning the
  * whole time, and a refused probe costs no budget.
@@ -129,8 +128,8 @@ export const RATE_LIMIT_FALLBACK_BASE_MS = 2_000
  * Without it every blocked request on the page waits the same interval and
  * then retries in the same instant, recreating the spike that exhausted the
  * budget in the first place. Jitter is ADDITIVE ONLY, never negative, so it
- * can only ever push a retry later: the server has told us when it is willing
- * to answer, and arriving early is a guaranteed second 429.
+ * can only push a retry later than the base the schedule chose, never
+ * earlier.
  *
  * FULL width, not a token 25%. The spread has to be comparable to the base
  * delay to actually de-synchronize anything: at 25% the fifteen reads of one
@@ -141,10 +140,9 @@ export const RATE_LIMIT_FALLBACK_BASE_MS = 2_000
  * spread keeps them synchronized through every subsequent retry.
  *
  * It is applied AFTER the clamp, not before. Clamping the jittered value
- * instead would squeeze the jitter back out precisely when it matters most:
- * with `Retry-After` pinned at a constant 60s, every base delay saturates the
- * ceiling, every clamped result lands on the same number, and the whole page
- * retries in lockstep.
+ * instead would squeeze the jitter back out whenever the base sits at the
+ * ceiling: every clamped result would land on the same number and the whole
+ * page would retry in lockstep.
  */
 export const RATE_LIMIT_JITTER_RATIO = 1.0
 
@@ -189,16 +187,15 @@ function rateLimitRetryDelay(
   error: MaybeApiError,
   random: () => number = Math.random
 ): number {
-  // When the header is readable it REPLACES the curve rather than capping it,
-  // so `failureCount` drops out and the three waits are flat. That is
-  // deliberate: the header is the server saying when it is willing to answer,
-  // and there is nothing to escalate away from. With today's constant 60s that
-  // means three evenly spaced probes at roughly 16s, 32s and 48s, a reasonable
-  // sweep of one window. Escalation only earns its keep on the header-less
-  // path, where we are guessing, and that is where the curve applies.
-  const requested =
-    retryAfterMs(error) ?? RATE_LIMIT_FALLBACK_BASE_MS * 2 ** failureCount
-  const base = Math.min(requested, RATE_LIMIT_MAX_BASE_DELAY_MS)
+  // The header caps the curve and never raises it: a header longer than the
+  // current step leaves the step unchanged, so a readable `Retry-After` can
+  // only make a retry earlier than the header-less schedule, never later.
+  const curve = RATE_LIMIT_FALLBACK_BASE_MS * 2 ** failureCount
+  const base = Math.min(
+    curve,
+    retryAfterMs(error) ?? Number.POSITIVE_INFINITY,
+    RATE_LIMIT_MAX_BASE_DELAY_MS
+  )
   return Math.round(base + base * RATE_LIMIT_JITTER_RATIO * random())
 }
 

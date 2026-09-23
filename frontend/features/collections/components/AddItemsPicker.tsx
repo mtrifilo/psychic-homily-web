@@ -406,8 +406,8 @@ interface QueueBatchOutcome {
  * paste large enough to split can exhaust it partway and leave its tail unfiled.
  * Saying so is what keeps those rows from reading as ordinary in-flight work.
  *
- * The countdown is dropped unless `retryAfter` is a usable number: the header is
- * unreadable across origins, and `ApiError.retryAfter` is public interface, so
+ * The countdown is dropped unless `retryAfter` is a usable number: a 429 can
+ * arrive without the header, and `ApiError.retryAfter` is public interface, so
  * the copy has to read without it.
  *
  * Every other failure returns undefined: the row already offers a Retry, and a

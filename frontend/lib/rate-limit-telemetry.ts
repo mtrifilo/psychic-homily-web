@@ -320,10 +320,10 @@ function recordRateLimitHitUnguarded(hit: RateLimitHit): void {
       error_type: 'rate_limited',
       status: 429,
       runtime,
-      // Whether the backend told us when to come back. In production it never
-      // does (CORS does not expose the header), so this doubles as the alarm
-      // that would fire if that were ever fixed, and as the filter for the
-      // development and SSR cases where the header IS readable.
+      // Whether the 429 carried a usable Retry-After. Every backend limiter
+      // sends one and CORS exposes it cross-origin, so `false` marks a 429
+      // that arrived without it: another layer's limiter, or a header form
+      // `lib/api.ts` does not parse.
       has_retry_after: hit.retryAfter != null,
     },
     extra: {
