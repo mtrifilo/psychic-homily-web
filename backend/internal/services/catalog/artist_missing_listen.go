@@ -46,8 +46,9 @@ import (
 // that reads it spell it once: a typo here is a filter that silently does
 // nothing, which reads as an unfiltered list rather than as an error.
 //
-// Honoured by artistBrowseScope, so by the two paged browse reads. GetArtists,
-// which reads the same map, does not honour it.
+// Honoured by artistBrowseScope, so by the two paged browse reads and by the
+// per-city facet artistCitiesScope hands it. GetArtists, which reads the same
+// map, does not honour it.
 const FilterMissingListenLink = "missing_listen_link"
 
 // artistCityPair is one place a browse request scopes to.
@@ -77,6 +78,11 @@ func browseSkipsActiveGate(filters map[string]interface{}) bool {
 	}
 	return missingListenLinkEngaged(filters)
 }
+
+// browsePlaceKeys is every filters-map key that names a place. A new place key
+// must be added here, or it survives artistCitiesScope's subtraction and
+// narrows a per-place breakdown to the place already picked.
+var browsePlaceKeys = []string{"cities", "city", "state"}
 
 // browseCityPairs returns the (city, state) places a browse request names, from
 // either the multi-city filter or the single city/state pair. A `state` with no

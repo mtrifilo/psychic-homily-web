@@ -3,6 +3,8 @@ package catalog
 import (
 	"time"
 
+	"gorm.io/gorm"
+
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
@@ -18,14 +20,20 @@ func (suite *SceneServiceIntegrationTestSuite) sceneWithTwoVenues() *catalogm.Ve
 	return venue
 }
 
-// setLink writes one social column directly. The link columns are not on the
-// createArtist* helpers, and going through GORM's Updates keeps the empty-string
-// case (which the gap predicate must treat as missing) reachable.
+// setArtistLink writes one social column directly. The link columns are not on
+// the createArtist* helpers, and going through GORM's Updates keeps the
+// empty-string case (which the gap predicate must treat as missing) reachable.
+//
+// A free function rather than a suite method: the gap population is read by
+// tests on more than one suite, and one spelling of "give this artist a link" is
+// what keeps them describing the same population.
+func setArtistLink(db *gorm.DB, artist *catalogm.Artist, column, value string) error {
+	return db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).
+		Update(column, value).Error
+}
+
 func (suite *SceneServiceIntegrationTestSuite) setLink(artist *catalogm.Artist, column, value string) {
-	suite.Require().NoError(
-		suite.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).
-			Update(column, value).Error,
-	)
+	suite.Require().NoError(setArtistLink(suite.db, artist, column, value))
 }
 
 // The listen-link definition pin. "Listen link" is spotify | bandcamp |

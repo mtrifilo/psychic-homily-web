@@ -55,7 +55,7 @@ export function cityCountScopeKey(
 /**
  * Appends a scope fragment to a facet's base query key, leaving the base
  * untouched when there is nothing to scope by. `extra` carries a surface's own
- * scope dimensions, which today is the /shows calendar window.
+ * scope dimensions: the /shows calendar window and the /artists gap filter.
  *
  * Both halves of the key live here so a scoped request and the entry it lands in
  * cannot drift: react-query matches by the whole key, and a fragment added to

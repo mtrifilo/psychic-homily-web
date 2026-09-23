@@ -35,18 +35,38 @@ import type {
   ArtistTimeFilter,
 } from '../types'
 
-interface UseArtistsOptions {
+/**
+ * The artists facet's scope: the shared tag half, plus the completeness gap
+ * only /artists takes.
+ */
+export interface ArtistCitiesScope extends CityCountScope {
+  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
+  missing?: ArtistMissingFilter
+}
+
+/**
+ * Appends the facet's narrowings: the shared tag params, then the gap. The list
+ * appends its narrowings through this too, so the two requests cannot spell
+ * them differently.
+ */
+function appendArtistCitiesScope(
+  params: URLSearchParams,
+  { missing, ...tagScope }: ArtistCitiesScope
+): void {
+  appendCityCountScope(params, tagScope)
+  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
+}
+
+/**
+ * The list's options: the facet's narrowings, plus the place and the page the
+ * facet deliberately does not take.
+ */
+interface UseArtistsOptions extends ArtistCitiesScope {
   cities?: CityState[]
-  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
-  tags?: string[]
-  /** Set to 'any' to switch the tag filter to OR semantics. */
-  tagMatch?: 'all' | 'any'
   /** Rows per page. Defaults to the browse page size (PSY-1774). */
   limit?: number
   /** Rows to skip. Defaults to 0 (the first page). */
   offset?: number
-  /** Restrict to one completeness gap; see ARTIST_MISSING_LISTEN. */
-  missing?: ArtistMissingFilter
 }
 
 /**
@@ -72,10 +92,9 @@ export function useArtists(options: UseArtistsOptions = {}) {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
-  // One spelling of the tag params for the list and the city facet beside it,
-  // which is scoped by exactly this half of the list's filter set.
-  appendCityCountScope(params, { tags, tagMatch })
-  if (missing) params.set(ARTIST_MISSING_PARAM, missing)
+  // The list's narrowings are the facet's, appended by the one helper so the
+  // city counts beside the list are requested under the same filters.
+  appendArtistCitiesScope(params, { tags, tagMatch, missing })
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -113,16 +132,19 @@ export function useArtists(options: UseArtistsOptions = {}) {
  * An omitted scope requests the bare endpoint and keys on the base alone. See
  * `useVenueCities` for why both halves exist.
  *
- * Scoped, the counts cover the EVERGREEN set: a tag filter drops the /artists
- * activity gate, and the facet follows it, so a city can carry a count made
- * entirely of artists with nothing booked.
+ * Scoped, the counts can cover the EVERGREEN set: a tag filter and the gap
+ * filter each drop the /artists activity gate, and the facet follows them, so a
+ * city can carry a count made entirely of artists with nothing booked. Under
+ * the gap filter a row counts the stored city string rather than the scene
+ * roster the list reads a picked city as; see the API's `missing` doc.
  */
-export function useArtistCities(scope?: CityCountScope) {
+export function useArtistCities(scope: ArtistCitiesScope = {}) {
+  const { missing, ...tagScope } = scope
   const params = new URLSearchParams()
-  appendCityCountScope(params, scope)
+  appendArtistCitiesScope(params, scope)
 
   return useQuery({
-    queryKey: cityCountQueryKey(artistQueryKeys.cities, scope),
+    queryKey: cityCountQueryKey(artistQueryKeys.cities, tagScope, { missing }),
     queryFn: async (): Promise<ArtistCitiesResponse> => {
       return apiRequest<ArtistCitiesResponse>(
         cityCountUrl(artistEndpoints.CITIES, params),

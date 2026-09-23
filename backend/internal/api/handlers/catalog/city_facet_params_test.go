@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -97,6 +98,49 @@ func TestGetArtistCitiesHandler_UnfilteredKeepsTheActivityGate(t *testing.T) {
 	if _, ok := got["skip_active_filter"]; ok {
 		t.Error("an unfiltered facet must keep the activity gate")
 	}
+	if _, ok := got[catalog.FilterMissingListenLink]; ok {
+		t.Error("an unfiltered facet must not carry the gap filter")
+	}
+}
+
+func TestGetArtistCitiesHandler_ThreadsTheMissingListenFilter(t *testing.T) {
+	var got map[string]interface{}
+	mock := &testhelpers.MockArtistService{
+		GetArtistCitiesFn: func(filters map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
+			got = filters
+			return nil, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistCitiesHandler(context.Background(), &GetArtistCitiesRequest{Missing: "listen"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if engaged, _ := got[catalog.FilterMissingListenLink].(bool); !engaged {
+		t.Fatal("the gap filter must reach the service under the key the list handler sets")
+	}
+	// The gate switch rides inside the service for this filter, so the handler
+	// must NOT restate it: a second spelling here is a second thing to keep
+	// equal to the list.
+	if _, ok := got["skip_active_filter"]; ok {
+		t.Error("the gap filter carries its own gate switch; the handler must not set one")
+	}
+}
+
+// Fails closed on a value huma's enum would have rejected on the wire, for the
+// callers that build the struct directly.
+func TestGetArtistCitiesHandler_RefusesAnUnsupportedMissingValue(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistCitiesFn: func(map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
+			t.Fatal("the service must not be reached for an unsupported missing value")
+			return nil, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistCitiesHandler(context.Background(), &GetArtistCitiesRequest{Missing: "images"})
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // A facet's shared parameters are declared twice, once per request struct,
@@ -155,6 +199,20 @@ func TestArtistTagParamsMatch(t *testing.T) {
 		reflect.TypeOf(ListArtistsRequest{}),
 		reflect.TypeOf(GetArtistCitiesRequest{}),
 		"Tags", "TagMatch")
+}
+
+// The gap filter is the second one that drops the /artists activity gate, so the
+// facet has to accept it or its counts describe the gated catalogue under a
+// filter that lists only the bands with the gap.
+//
+// Tag-for-tag like its neighbours, doc included: one doc covers both because the
+// clause about reading a named place as a scene is the half a caller needs to
+// know does NOT apply to the breakdown.
+func TestArtistMissingParamsMatch(t *testing.T) {
+	assertParamsMatch(t,
+		reflect.TypeOf(ListArtistsRequest{}),
+		reflect.TypeOf(GetArtistCitiesRequest{}),
+		"Missing")
 }
 
 func TestGetShowCitiesHandler_ThreadsTheTagFilterAndWindow(t *testing.T) {

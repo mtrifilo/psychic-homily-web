@@ -116,6 +116,48 @@ describe('artists first-screen prefetch contract', () => {
     expect(cached[0].queryHash).not.toBe(hashKey(artistQueryKeys.cities))
   })
 
+  it('the gap filter reaches the facet request and moves it off the unscoped entry', async () => {
+    mockApiRequest.mockResolvedValue({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () => useArtistCities({ tags: [], tagMatch: 'all', missing: 'listen' }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      `${artistEndpoints.CITIES}?missing=listen`,
+      { method: 'GET' }
+    )
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).not.toBe(hashKey(artistQueryKeys.cities))
+  })
+
+  it('the gap filter and a tag filter key apart from the tag filter alone', async () => {
+    mockApiRequest.mockResolvedValue({ cities: [] })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () => {
+        const tagged = useArtistCities({ tags: ['shoegaze'] })
+        const gap = useArtistCities({ tags: ['shoegaze'], missing: 'listen' })
+        return [tagged, gap]
+      },
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.every(q => q.isSuccess)).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      `${artistEndpoints.CITIES}?tags=shoegaze&missing=listen`,
+      { method: 'GET' }
+    )
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
+  })
+
   it('a city filter moves the request off the first-screen entry', async () => {
     mockApiRequest.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
     const queryClient = createTestQueryClient()
