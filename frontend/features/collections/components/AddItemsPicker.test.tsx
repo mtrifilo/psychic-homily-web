@@ -1169,8 +1169,8 @@ describe('AddItemsPicker', () => {
     expect(summary).not.toHaveTextContent('201 for review')
   }, 20000)
 
-  // Retry-After is unreadable across origins in production, so the copy has to
-  // read without it rather than printing an empty countdown.
+  // A 429 can arrive without Retry-After, so the copy has to read without it
+  // rather than printing an empty countdown.
   it('Paste mode: a 429 with no Retry-After still names the reason', async () => {
     mockApiRequest.mockImplementation(async () => {
       throw Object.assign(new Error('Rate limit exceeded'), { status: 429 })
