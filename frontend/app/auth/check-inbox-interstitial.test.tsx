@@ -447,6 +447,25 @@ describe('CheckInboxInterstitial', () => {
       })
     })
 
+    it('signs a reader with no task back in to the browse listing', async () => {
+      mockApiRequest.mockRejectedValueOnce(
+        Object.assign(new Error('unauthorized'), { status: 401 })
+      )
+      const user = userEvent.setup()
+      renderWithProviders(
+        <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+      )
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+          'href',
+          '/auth?returnTo=%2Fshows'
+        )
+      })
+    })
+
     // Verified in another tab or on another device while this card sat open.
     it('says the address is already verified rather than inviting a retry', async () => {
       mockApiRequest.mockResolvedValueOnce({
