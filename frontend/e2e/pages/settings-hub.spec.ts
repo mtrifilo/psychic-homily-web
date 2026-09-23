@@ -159,6 +159,35 @@ test.describe('/settings hub', () => {
     ).toBeVisible()
   })
 
+  test('a row link from a hub URL with a fragment does not carry it to the next page', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/settings#alerts')
+    await expect(page.locator('main section[id="alerts"]')).toBeFocused({
+      timeout: 10_000,
+    })
+
+    const rail = page.getByRole('navigation', { name: 'Settings sections' })
+    await rail.getByRole('link', { name: /^Feeds/ }).click()
+    const feeds = page.locator('main section[id="feeds"]')
+    await expect(feeds).toBeFocused()
+    await feeds.getByRole('link', { name: 'Manage in profile settings' }).click()
+    await expect(page).toHaveURL(/\/profile\?tab=settings$/)
+    await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+
+    // The profile's own alerts card shares the hub's `alerts` id; the link
+    // did not name it, so the profile must not scroll to it or focus it.
+    const profileAlerts = page.getByRole('tabpanel').locator('[id="alerts"]')
+    await expect(profileAlerts).toBeAttached()
+    await page.waitForTimeout(1_000)
+    await expect(profileAlerts).not.toBeFocused()
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(200)
+  })
+
   test('a link row lands on the control where it lives today', async ({
     authenticatedPage: page,
   }) => {

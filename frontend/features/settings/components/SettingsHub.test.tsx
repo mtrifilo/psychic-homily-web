@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Activity } from 'react'
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { ALERTS_AREA_HREF, ALERTS_HREF } from '@/components/shared/followAlertChoices'
@@ -233,6 +234,49 @@ describe('SettingsHub', () => {
     expect(scrollIntoView.mock.contexts).toEqual([privacy])
     expect(privacy).toHaveFocus()
     const rail = screen.getByRole('navigation', { name: 'Settings sections' })
+    expect(
+      within(rail).getByRole('link', { name: /^Privacy and data/ })
+    ).toHaveAttribute('aria-current', 'true')
+  })
+
+  // A native fragment navigation adds a history entry the App Router cannot
+  // restore, so a plain click on a section link must not reach the browser.
+  it('handles a plain section-link click itself', () => {
+    renderWithProviders(<SettingsHub />)
+    for (const name of ['Settings sections', 'On this page']) {
+      const nav = screen.getByRole('navigation', { name })
+      const link = within(nav).getByRole('link', { name: /^Feeds/ })
+      const reachedBrowser = fireEvent.click(link)
+      expect(reachedBrowser).toBe(false)
+    }
+  })
+
+  it('does not land again when the hub is shown again after being hidden', () => {
+    setHash('#alerts')
+    const { rerender } = renderWithProviders(
+      <Activity mode="visible">
+        <SettingsHub />
+      </Activity>
+    )
+    const rail = screen.getByRole('navigation', { name: 'Settings sections' })
+    fireEvent.click(within(rail).getByRole('link', { name: /^Privacy and data/ }))
+    expect(
+      scrollIntoView.mock.contexts.map(context => (context as HTMLElement).id)
+    ).toEqual(['alerts', 'privacy'])
+
+    rerender(
+      <Activity mode="hidden">
+        <SettingsHub />
+      </Activity>
+    )
+    rerender(
+      <Activity mode="visible">
+        <SettingsHub />
+      </Activity>
+    )
+    expect(
+      scrollIntoView.mock.contexts.map(context => (context as HTMLElement).id)
+    ).toEqual(['alerts', 'privacy'])
     expect(
       within(rail).getByRole('link', { name: /^Privacy and data/ })
     ).toHaveAttribute('aria-current', 'true')

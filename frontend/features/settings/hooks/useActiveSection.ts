@@ -105,9 +105,8 @@ function anchorAtScrollPosition(
  * The section of a one-page, fragment-anchored layout that the viewer is
  * reading, for a rail to mark.
  *
- * A fragment that names a section, on load or on history traversal, and an
- * explicit `select` both mark that section outright and hold it while the
- * reveal scroll moves; the hold ends on a timer or on the viewer's own scroll
+ * `select` marks the section a fragment belongs to outright and holds it
+ * while the reveal scroll moves; the hold ends on a timer or on the viewer's own scroll
  * input (wheel, touch, or a scrolling key outside a control), and the position
  * is measured again when it does. The chosen section
  * is remembered, for the bottom of the page where it cannot reach the reading
@@ -183,11 +182,12 @@ export function useActiveSection(
     const onKeyDown = (event: KeyboardEvent) => {
       if (isScrollKey(event)) onUserScroll()
     }
-    const onHashChange = () => select(window.location.hash.replace(/^#/, ''))
 
-    onHashChange()
+    // A hold the previous run of this effect started outlives its cleanup
+    // (a hidden route shown again, a development double run), and needs its
+    // release timer back.
+    if (holding.current) scheduleRelease()
     window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('hashchange', onHashChange)
     for (const type of USER_SCROLL_EVENTS) {
       window.addEventListener(type, onUserScroll, { passive: true })
     }
@@ -195,17 +195,14 @@ export function useActiveSection(
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame)
       cancelRelease()
-      holding.current = false
-      chosen.current = null
       measureRef.current = () => {}
       window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('hashchange', onHashChange)
       for (const type of USER_SCROLL_EVENTS) {
         window.removeEventListener(type, onUserScroll)
       }
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [anchors, rootRef, select, cancelRelease, release])
+  }, [anchors, rootRef, scheduleRelease, cancelRelease, release])
 
   return { activeAnchor, select }
 }

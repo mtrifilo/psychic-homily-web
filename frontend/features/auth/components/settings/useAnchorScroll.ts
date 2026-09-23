@@ -39,6 +39,12 @@ export function revealAnchorTarget(node: HTMLElement) {
  * a later re-render from yanking the page back after the user has scrolled
  * away.
  *
+ * The fragment counts only while the address bar still shows it when the ref
+ * fires. During a client navigation the new route renders while the address
+ * bar still shows the page being left, and that URL is replaced before refs
+ * attach; acting on the render's copy would scroll this page to a card nobody
+ * linked to.
+ *
  * Moving the VIEWPORT is only half of following a link. Without focus, a
  * keyboard or screen-reader user arriving from a deep link gets the page
  * scrolled to the card while focus stays at the document start, so their next
@@ -52,6 +58,8 @@ export function useAnchorScroll(anchorId: string) {
   return useCallback(
     (node: HTMLElement | null) => {
       if (!node || scrolled.current) return
+      // The render's fragment must still be the address bar's.
+      if (urlHash !== window.location.hash) return
       if (urlHash.replace(/^#/, '') !== anchorId) return
       scrolled.current = true
       revealAnchorTarget(node)
