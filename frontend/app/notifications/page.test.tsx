@@ -207,6 +207,85 @@ describe('NotificationInboxPage', () => {
     expect(screen.getByText('Earlier')).toBeInTheDocument()
   })
 
+  // Two empty states, told apart by whether any row exists at all.
+  describe('empty states', () => {
+    it('shows the never-received state with follow links when nothing has arrived', () => {
+      mockData([], 0)
+      render(<NotificationInboxPage />)
+
+      expect(screen.getByText('Nothing has arrived yet.')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'artists' })).toHaveAttribute(
+        'href',
+        '/artists'
+      )
+      expect(screen.getByRole('link', { name: 'venues' })).toHaveAttribute(
+        'href',
+        '/venues'
+      )
+      expect(screen.getByRole('link', { name: 'scenes' })).toHaveAttribute(
+        'href',
+        '/scenes'
+      )
+      expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
+    })
+
+    it('keeps the never-received state in the [all] view', async () => {
+      mockData([], 0)
+      const user = userEvent.setup()
+      render(<NotificationInboxPage />)
+
+      await user.click(screen.getByRole('button', { name: /show all/i }))
+
+      expect(screen.getByText('Nothing has arrived yet.')).toBeInTheDocument()
+      expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
+    })
+
+    it('keeps the caught-up line, without the follow links, when everything is read', () => {
+      mockData([commentEntry({ read_at: new Date().toISOString() })], 0)
+      render(<NotificationInboxPage />)
+
+      expect(screen.getByText(/all caught up/i)).toBeInTheDocument()
+      expect(
+        screen.queryByText('Nothing has arrived yet.')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'artists' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows neither empty state while the first load is in flight', () => {
+      mockUseUserNotifications.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      })
+      render(<NotificationInboxPage />)
+
+      expect(
+        screen.queryByText('Nothing has arrived yet.')
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
+    })
+
+    it('claims nothing about history when the load failed', () => {
+      mockUseUserNotifications.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error('boom'),
+      })
+      render(<NotificationInboxPage />)
+
+      expect(
+        screen.getByText(/couldn't load your notifications/i)
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Nothing has arrived yet.')
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('surfaces mark-read mutation errors inline', () => {
     mockData([commentEntry()], 1)
     mockUseMarkRead.mockReturnValue({

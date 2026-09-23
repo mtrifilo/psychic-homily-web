@@ -8,3 +8,4 @@ export {
   EarlierDivider,
   partitionNotificationsByRead,
 } from './NotificationList'
+export { NoNotificationsYet } from './NoNotificationsYet'
