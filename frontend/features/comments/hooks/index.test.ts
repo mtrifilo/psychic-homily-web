@@ -14,13 +14,33 @@ describe('formatCommentSubmissionError (PSY-589)', () => {
     expect(formatCommentSubmissionError(undefined)).toBeNull()
   })
 
-  it('uses Retry-After seconds for 429 countdown copy', () => {
-    const err: ApiError = Object.assign(new Error('please wait 60 seconds...'), {
+  it('uses Retry-After seconds for 429 countdown copy when there is no message', () => {
+    const err: ApiError = Object.assign(new Error(''), {
       status: 429,
       retryAfter: 60,
     })
     expect(formatCommentSubmissionError(err)).toBe(
       'Please wait 60s before commenting again.'
+    )
+  })
+
+  it('prefers the server message over a readable Retry-After', () => {
+    const err: ApiError = Object.assign(
+      new Error('please wait 60 seconds between comments on the same entity'),
+      { status: 429, retryAfter: 60 }
+    )
+    expect(formatCommentSubmissionError(err)).toBe(
+      'Please wait 60 seconds between comments on the same entity'
+    )
+  })
+
+  it('keeps the hourly cap message rather than a 3600s countdown', () => {
+    const err: ApiError = Object.assign(
+      new Error("you've reached your hourly comment limit (5/hour for new users)"),
+      { status: 429, retryAfter: 3600 }
+    )
+    expect(formatCommentSubmissionError(err)).toBe(
+      "You've reached your hourly comment limit (5/hour for new users)"
     )
   })
 
