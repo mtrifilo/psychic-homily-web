@@ -147,7 +147,7 @@ export function CheckInboxInterstitial({
           className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
         />
 
-        <SessionExpiredUntilSent>
+        <CurrentSessionExpired>
           Your session has expired.{' '}
           {/* A full page load, not a <Link>: this surface is rendered in place
               on /auth itself, and a client navigation to /auth keeps the page's
@@ -156,7 +156,7 @@ export function CheckInboxInterstitial({
             Sign in again
           </a>{' '}
           to send the email.
-        </SessionExpiredUntilSent>
+        </CurrentSessionExpired>
 
         {/* Retrying cannot help a verified address, so this surface names the
             state instead of inviting a retry. */}
@@ -178,15 +178,23 @@ export function CheckInboxInterstitial({
 }
 
 /**
- * The session-expired alert, withdrawn once a later send is confirmed (the
- * reader signed in again elsewhere), so it never sits beside "Sent again".
+ * The session-expired alert, shown only while an expired session is the latest
+ * settled outcome. Once the reader signs in again elsewhere, any answer the
+ * server gives proves the session is back, so the alert never sits beside a
+ * send, a wait, or a refusal that contradicts it. Remounted on each repeated
+ * refusal so assistive tech hears every one.
  */
-function SessionExpiredUntilSent({ children }: { children: ReactNode }) {
-  const { latestAttemptSent } = useVerificationResendState()
-  if (latestAttemptSent) {
+function CurrentSessionExpired({ children }: { children: ReactNode }) {
+  const { latestSettledSessionExpired, sessionExpiredRefusals } =
+    useVerificationResendState()
+  if (!latestSettledSessionExpired) {
     return null
   }
-  return <VerificationResendSessionExpired>{children}</VerificationResendSessionExpired>
+  return (
+    <VerificationResendSessionExpired key={sessionExpiredRefusals}>
+      {children}
+    </VerificationResendSessionExpired>
+  )
 }
 
 /**

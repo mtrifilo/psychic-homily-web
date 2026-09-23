@@ -59,6 +59,18 @@ export interface VerificationResendState {
   alreadyVerified: boolean
   /** A send was refused because the session is gone. Sticky until remount. */
   sessionExpired: boolean
+  /**
+   * The most recent settled attempt was refused because the session is gone.
+   * Held while a retry is in flight, and cleared by any other settled outcome:
+   * a send, a throttle, or a refusal all mean the server accepted the session,
+   * since the resend route authenticates before it throttles or answers.
+   */
+  latestSettledSessionExpired: boolean
+  /**
+   * Counts expired-session refusals, so a surface can remount its alert on a
+   * repeated one and have assistive tech announce it again.
+   */
+  sessionExpiredRefusals: number
   isPending: boolean
   isCoolingDown: boolean
   /** Whole seconds left on the cooldown; 0 when the control is usable. */
@@ -109,6 +121,9 @@ export function VerificationResend({
   const [failed, setFailed] = useState(false)
   const [alreadyVerified, setAlreadyVerified] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const [latestSettledSessionExpired, setLatestSettledSessionExpired] =
+    useState(false)
+  const [sessionExpiredRefusals, setSessionExpiredRefusals] = useState(0)
 
   const isPending = sendVerificationEmail.isPending
   const isCoolingDown = cooldown.isCoolingDown
@@ -122,17 +137,21 @@ export function VerificationResend({
     setAlreadyVerified(false)
     try {
       await sendVerificationEmail.mutateAsync()
+      setLatestSettledSessionExpired(false)
       setSent(true)
       setLatestAttemptSent(true)
       cooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
     } catch (error) {
+      const sessionGone = isVerificationResendUnauthorized(error)
+      setLatestSettledSessionExpired(sessionGone)
       const retryAfter = verificationResendRetryAfter(error)
       if (retryAfter !== null) {
         cooldown.start(retryAfter)
         return
       }
-      if (isVerificationResendUnauthorized(error)) {
+      if (sessionGone) {
         setSessionExpired(true)
+        setSessionExpiredRefusals(count => count + 1)
         return
       }
       setFailed(true)
@@ -156,6 +175,8 @@ export function VerificationResend({
         failed,
         alreadyVerified,
         sessionExpired,
+        latestSettledSessionExpired,
+        sessionExpiredRefusals,
         isPending,
         isCoolingDown,
         secondsRemaining: cooldown.secondsRemaining,

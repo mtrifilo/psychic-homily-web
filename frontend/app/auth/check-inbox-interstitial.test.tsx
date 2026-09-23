@@ -353,6 +353,100 @@ describe('CheckInboxInterstitial', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
+    describe('after an expired session', () => {
+      const unauthorized = () =>
+        Object.assign(new Error('unauthorized'), { status: 401 })
+
+      async function expireThen() {
+        const user = userEvent.setup()
+        renderWithProviders(
+          <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+        )
+        await user.click(resendButton())
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toHaveTextContent(
+            'Your session has expired.'
+          )
+        })
+        return user
+      }
+
+      // Signed in again elsewhere: any answer from the server proves it.
+      it('withdraws the alert when the next answer is already-verified', async () => {
+        mockApiRequest.mockRejectedValueOnce(unauthorized()).mockResolvedValueOnce({
+          success: false,
+          message: 'Email is already verified',
+          error_code: 'ALREADY_VERIFIED',
+        })
+        const user = await expireThen()
+
+        await user.click(resendButton())
+
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toHaveTextContent(
+            'Email is already verified'
+          )
+        })
+        expect(screen.getAllByRole('alert')).toHaveLength(1)
+      })
+
+      it('withdraws the alert when the next answer is a throttle', async () => {
+        mockApiRequest
+          .mockRejectedValueOnce(unauthorized())
+          .mockRejectedValueOnce(rateLimitError(30))
+        const user = await expireThen()
+
+        await user.click(resendButton())
+
+        await waitFor(() => {
+          expect(screen.getByText('Resend available in 30s')).toBeInTheDocument()
+        })
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      })
+
+      it('keeps the alert up while a retry is in flight', async () => {
+        let settle: (value: { success: boolean }) => void = () => undefined
+        mockApiRequest.mockRejectedValueOnce(unauthorized()).mockReturnValueOnce(
+          new Promise(resolve => {
+            settle = resolve
+          })
+        )
+        const user = await expireThen()
+
+        await user.click(resendButton())
+
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
+        })
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Your session has expired.'
+        )
+        await act(async () => {
+          settle({ success: true })
+        })
+        await waitFor(() => {
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        })
+      })
+
+      it('re-announces a repeated expired-session refusal', async () => {
+        mockApiRequest
+          .mockRejectedValueOnce(unauthorized())
+          .mockRejectedValueOnce(unauthorized())
+        const user = await expireThen()
+        const first = screen.getByRole('alert')
+
+        await user.click(resendButton())
+
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).not.toBe(first)
+        })
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Your session has expired.'
+        )
+      })
+    })
+
     // Verified in another tab or on another device while this card sat open.
     it('says the address is already verified rather than inviting a retry', async () => {
       mockApiRequest.mockResolvedValueOnce({
