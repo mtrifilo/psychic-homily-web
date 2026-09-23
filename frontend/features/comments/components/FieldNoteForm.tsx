@@ -24,7 +24,7 @@ interface FieldNoteFormProps {
    * PSY-608: optional inline error banner. When set, renders a
    * destructive-styled message above the textarea. Mirrors CommentForm's
    * errorMessage; reuse the same `formatCommentSubmissionError` helper for
-   * 429 countdown copy.
+   * 429 copy.
    */
   errorMessage?: string | null
   /**
