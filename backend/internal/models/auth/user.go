@@ -103,15 +103,10 @@ func (OAuthAccount) TableName() string {
 
 // UserPreferences represents user preferences
 type UserPreferences struct {
-	ID                uint             `json:"id" gorm:"primaryKey"`
-	UserID            uint             `json:"user_id" gorm:"uniqueIndex;not null"`
-	NotificationEmail bool             `json:"notification_email" gorm:"default:true"`
-	NotificationPush  bool             `json:"notification_push" gorm:"default:false"`
-	Theme             string           `json:"theme" gorm:"default:light"`
-	Timezone          string           `json:"timezone" gorm:"default:UTC"`
-	Language          string           `json:"language" gorm:"default:en"`
-	ShowReminders     bool             `json:"show_reminders" gorm:"default:false"`
-	FavoriteCities    *json.RawMessage `json:"favorite_cities" gorm:"type:jsonb;default:'[]'"`
+	ID             uint             `json:"id" gorm:"primaryKey"`
+	UserID         uint             `json:"user_id" gorm:"uniqueIndex;not null"`
+	ShowReminders  bool             `json:"show_reminders" gorm:"default:false"`
+	FavoriteCities *json.RawMessage `json:"favorite_cities" gorm:"type:jsonb;default:'[]'"`
 	// PSY-1423: saved /charts window + scene. NULL = no saved defaults.
 	ChartDefaults *json.RawMessage `json:"chart_defaults" gorm:"type:jsonb"`
 

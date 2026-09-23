@@ -630,8 +630,8 @@ ON CONFLICT (user_id, provider) DO UPDATE
       updated_at       = NOW();
 
 -- Create user_preferences for all seeded test users (regular worker users + admin + unverified + recovery + oauth)
-INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)
-SELECT id, true, false, false, 'system', 'America/Phoenix', 'en', NOW(), NOW()
+INSERT INTO user_preferences (user_id, show_reminders, created_at, updated_at)
+SELECT id, false, NOW(), NOW()
 FROM users
 WHERE email LIKE 'e2e-user%@test.local'
    OR email IN ('e2e-admin@test.local', 'e2e-unverified@test.local', 'e2e-recovery@test.local', 'e2e-oauth@test.local')

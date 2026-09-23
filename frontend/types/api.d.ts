@@ -18196,9 +18196,6 @@ export interface components {
             home_metro: string | null;
             /** Format: int64 */
             id: number;
-            language: string;
-            notification_email: boolean;
-            notification_push: boolean;
             notify_on_collection_digest: boolean;
             notify_on_comment_subscription: boolean;
             notify_on_edit_notifications: boolean;
@@ -18206,8 +18203,6 @@ export interface components {
             notify_on_scene_digest: boolean;
             notify_on_tier_notifications: boolean;
             show_reminders: boolean;
-            theme: string;
-            timezone: string;
             /** Format: date-time */
             updated_at: string;
             /** Format: int64 */

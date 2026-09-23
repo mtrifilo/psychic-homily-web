@@ -53,15 +53,14 @@ type DeletionSummary struct {
 
 // UserDataExport represents all user data in a portable format (GDPR compliance)
 type UserDataExport struct {
-	ExportedAt     time.Time              `json:"exported_at"`
-	ExportVersion  string                 `json:"export_version"`
-	Profile        UserProfileExport      `json:"profile"`
-	Preferences    *UserPreferencesExport `json:"preferences,omitempty"`
-	OAuthAccounts  []OAuthAccountExport   `json:"oauth_accounts,omitempty"`
-	Passkeys       []PasskeyExport        `json:"passkeys,omitempty"`
-	SavedShows     []SavedShowExport      `json:"saved_shows,omitempty"`
-	SavedReleases  []SavedReleaseExport   `json:"saved_releases,omitempty"`
-	SubmittedShows []SubmittedShowExport  `json:"submitted_shows,omitempty"`
+	ExportedAt     time.Time             `json:"exported_at"`
+	ExportVersion  string                `json:"export_version"`
+	Profile        UserProfileExport     `json:"profile"`
+	OAuthAccounts  []OAuthAccountExport  `json:"oauth_accounts,omitempty"`
+	Passkeys       []PasskeyExport       `json:"passkeys,omitempty"`
+	SavedShows     []SavedShowExport     `json:"saved_shows,omitempty"`
+	SavedReleases  []SavedReleaseExport  `json:"saved_releases,omitempty"`
+	SubmittedShows []SubmittedShowExport `json:"submitted_shows,omitempty"`
 }
 
 // UserProfileExport contains user profile data for export
@@ -76,15 +75,6 @@ type UserProfileExport struct {
 	EmailVerified bool      `json:"email_verified"`
 	CreatedAt     time.Time `json:"account_created_at"`
 	UpdatedAt     time.Time `json:"last_updated_at"`
-}
-
-// UserPreferencesExport contains user preferences for export
-type UserPreferencesExport struct {
-	NotificationEmail bool   `json:"notification_email"`
-	NotificationPush  bool   `json:"notification_push"`
-	Theme             string `json:"theme"`
-	Timezone          string `json:"timezone"`
-	Language          string `json:"language"`
 }
 
 // OAuthAccountExport contains OAuth account data for export (no tokens)
