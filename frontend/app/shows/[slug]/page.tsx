@@ -27,7 +27,7 @@ import type {
 } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { showPageDateLong } from '@/features/shows/showPageDate'
+import { showSnippet } from '@/lib/seo/entitySnippets'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
@@ -142,22 +142,19 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
 
   if (show) {
     const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
-    const venueName = show.venues?.[0]?.name || 'TBA'
+    const venue = show.venues?.[0]
     // `showTimingInput`, not `venues[0].state` alone: a venue-less show carries
     // its own `state`, and reading the day on the venue's absent one would name
     // a different day here than the header, the stripe and the share card do.
     // The share card mirrors this same derivation for the same reason.
-    const timing = showTimingInput(show)
-    const showDate = showPageDateLong(
-      show.event_date,
-      timing.state,
-      timing.timezone
-    )
-    const title = `${headliner} at ${venueName}`
-    const generatedDesc = `${headliner} live at ${venueName} on ${showDate}`
-    const description = show.description
-      ? show.description.slice(0, 155) + (show.description.length > 155 ? '...' : '')
-      : generatedDesc
+    const { title, description } = showSnippet({
+      headliner,
+      venue: venue?.name || 'TBA',
+      city: venue ? venue.city : show.city,
+      state: venue ? venue.state : show.state,
+      timing: showTimingInput(show),
+      authoredDescription: show.description,
+    })
 
     return {
       title,
