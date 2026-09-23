@@ -494,16 +494,21 @@ GOOGLE_VISITORS="$(jq -re '[.data[].visitors] | add // 0' "$WORK_DIR/google-dail
 # windows.
 GOOGLE_PAGEVIEWS="$(jq -re '[.data[].pageviews] | add // 0' "$WORK_DIR/google-daily.json")" \
   || die "could not read the google.com-referred pageview series"
-GOOGLE_DEPTH="$(pages_per_visit "$GOOGLE_VISITORS" "$GOOGLE_PAGEVIEWS")" \
-  || die "could not compute google.com pages per visit"
-TOTAL_DEPTH="$(pages_per_visit "$VISITORS" "$PAGEVIEWS")" \
-  || die "could not compute all-traffic pages per visit"
+
+# depth_row <label> <since> <until> <visitors> <pageviews>: one Depth table row.
+depth_row() {
+  local ratio
+  ratio="$(pages_per_visit "$4" "$5")" || return 1
+  printf '| %s | %s → %s | %s | %s | %s |' "$1" "$2" "$3" "$4" "$5" "$ratio"
+}
 
 # Depth table rows, current window first, then the prior capture's figures when
 # one is found and reads cleanly. A prior capture that is missing or unreadable
 # yields no prior rows and a note saying so; it never yields a guessed figure.
-DEPTH_GOOGLE_ROWS="| google.com | ${SINCE} → ${UNTIL} | ${GOOGLE_VISITORS} | ${GOOGLE_PAGEVIEWS} | ${GOOGLE_DEPTH} |"
-DEPTH_TOTAL_ROWS="| All traffic, raw (includes crawlers) | ${SINCE} → ${UNTIL} | ${VISITORS} | ${PAGEVIEWS} | ${TOTAL_DEPTH} |"
+DEPTH_GOOGLE_ROWS="$(depth_row "google.com" "$SINCE" "$UNTIL" "$GOOGLE_VISITORS" "$GOOGLE_PAGEVIEWS")" \
+  || die "could not compute google.com pages per visit"
+DEPTH_TOTAL_ROWS="$(depth_row "All traffic, raw (includes crawlers)" "$SINCE" "$UNTIL" "$VISITORS" "$PAGEVIEWS")" \
+  || die "could not compute all-traffic pages per visit"
 PRIOR_CAPTURE="$(find_prior_capture "$OUT_DIR" "$SINCE" "$UNTIL")" \
   || die "could not search $OUT_DIR for a prior capture"
 if [ -z "$PRIOR_CAPTURE" ]; then
@@ -512,14 +517,14 @@ else
   IFS=$'\t' read -r PRIOR_FILE PRIOR_SINCE PRIOR_UNTIL PRIOR_OVERLAP <<<"$PRIOR_CAPTURE"
   if PRIOR_COUNTS="$(read_prior_depth "$OUT_DIR/$PRIOR_FILE" "$PRIOR_SINCE" "$PRIOR_UNTIL" 2>"$WORK_DIR/prior-error")"; then
     read -r PRIOR_GOOGLE_VISITORS PRIOR_GOOGLE_PAGEVIEWS PRIOR_VISITORS PRIOR_PAGEVIEWS <<<"$PRIOR_COUNTS"
-    PRIOR_GOOGLE_DEPTH="$(pages_per_visit "$PRIOR_GOOGLE_VISITORS" "$PRIOR_GOOGLE_PAGEVIEWS")" \
+    PRIOR_GOOGLE_ROW="$(depth_row "google.com, prior capture" "$PRIOR_SINCE" "$PRIOR_UNTIL" "$PRIOR_GOOGLE_VISITORS" "$PRIOR_GOOGLE_PAGEVIEWS")" \
       || die "could not compute the prior google.com pages per visit"
-    PRIOR_TOTAL_DEPTH="$(pages_per_visit "$PRIOR_VISITORS" "$PRIOR_PAGEVIEWS")" \
+    PRIOR_TOTAL_ROW="$(depth_row "All traffic, raw (includes crawlers), prior capture" "$PRIOR_SINCE" "$PRIOR_UNTIL" "$PRIOR_VISITORS" "$PRIOR_PAGEVIEWS")" \
       || die "could not compute the prior all-traffic pages per visit"
     DEPTH_GOOGLE_ROWS="${DEPTH_GOOGLE_ROWS}
-| google.com, prior capture | ${PRIOR_SINCE} → ${PRIOR_UNTIL} | ${PRIOR_GOOGLE_VISITORS} | ${PRIOR_GOOGLE_PAGEVIEWS} | ${PRIOR_GOOGLE_DEPTH} |"
+${PRIOR_GOOGLE_ROW}"
     DEPTH_TOTAL_ROWS="${DEPTH_TOTAL_ROWS}
-| All traffic, raw (includes crawlers), prior capture | ${PRIOR_SINCE} → ${PRIOR_UNTIL} | ${PRIOR_VISITORS} | ${PRIOR_PAGEVIEWS} | ${PRIOR_TOTAL_DEPTH} |"
+${PRIOR_TOTAL_ROW}"
     DEPTH_PRIOR_NOTE="Prior capture: \`${PRIOR_FILE}\`, read from its own daily and headline tables."
     if [ "$PRIOR_OVERLAP" -gt 0 ]; then
       DEPTH_PRIOR_NOTE="${DEPTH_PRIOR_NOTE} It overlaps this window by ${PRIOR_OVERLAP} days, so the two rows share those days."

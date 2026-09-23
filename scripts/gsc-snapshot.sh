@@ -310,12 +310,11 @@ QUEUE_HEADER="$(printf 'query\tpage\timpressions\tposition')"
 # Early check so a mistaken re-run fails immediately instead of after seven
 # API calls; the publication step's `mv -n` is what actually closes the
 # overwrite race.
-if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
-  die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
-fi
-if [ -e "$OUT_DIR/$QUEUE_NAME" ] && [ "$FORCE" -ne 1 ]; then
-  die "$OUT_DIR/$QUEUE_NAME already exists; move it or pass --force to overwrite"
-fi
+for name in "$DOC_NAME" "$QUEUE_NAME"; do
+  if [ -e "$OUT_DIR/$name" ] && [ "$FORCE" -ne 1 ]; then
+    die "$OUT_DIR/$name already exists; move it or pass --force to overwrite"
+  fi
+done
 
 # --- API access -------------------------------------------------------------
 
@@ -325,6 +324,7 @@ fi
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gsc-snapshot.XXXXXX")"
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
+QUEUE_PATH="$WORK_DIR/$QUEUE_NAME"
 
 # Mint an access token from the Application Default Credential. This is the
 # single auth touchpoint; every failure mode lands here, so the error message
@@ -497,34 +497,47 @@ PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 # exactly when (s | unesc | esc) == s, which is how a queue file read back from
 # disk is validated before any of its cells are rendered.
 #
+# pos1 is the one-decimal position every table and the queue file print;
+# page_cell is the rendered Page column (property origin stripped, fenced).
+#
+# pair_key: the identity of a (query, page) pair across windows, built from the
+# escaped cells because that is the form the queue file stores.
+#
 # zero_click($min; $maxpos): the qualifying zero-click (query, page) rows of a
 # query+page response, impressions-descending with the API order as the
-# tie-break. The count, the doc table, the queue file, and the diff all read
-# this one definition, so they cannot disagree on membership or order.
-#
-# pair_key: the identity of a (query, page) row across windows, built from the
-# escaped cells because that is the form the queue file stores.
+# tie-break, first row kept per pair_key. The count, the doc table, the queue
+# file, and the diff all read this one definition, so they cannot disagree on
+# membership or order. queue_row is the doc-table row for one of them.
 JQ_DEFS='
   def esc: tostring
     | gsub("[[:cntrl:]\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ")
     | gsub("\\\\"; "\\\\")
     | gsub("\\|"; "\\|");
   def unesc: gsub("\\\\(?<c>[\\\\|])"; .c);
-  def zero_click($min; $maxpos):
-    [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)]
-    | sort_by(-.impressions);
-  def pair_key: (.keys[0] | esc) + "\t" + (.keys[1] | esc);
-  def pos1: (. * 10 | round) / 10;
   def code: esc | . as $s
     | ([ $s | match("`+"; "g").string | length ] | (max // 0) + 1) as $n
     | ("`" * $n) as $fence
     | (if $n > 1 then " " else "" end) as $pad
     | $fence + $pad + $s + $pad + $fence;
+  def pos1: (. * 10 | round) / 10;
+  def page_cell: sub($ENV.STRIP_RE; ""; "i") | code;
   def metrics(r):
     if r.clicks == 0 and r.impressions == 0
     then "0 | 0 | — | —"
-    else "\(r.clicks) | \(r.impressions) | \((r.ctr * 10000 | round) / 100)% | \((r.position * 10 | round) / 10)"
+    else "\(r.clicks) | \(r.impressions) | \((r.ctr * 10000 | round) / 100)% | \(r.position | pos1)"
     end;
+  def key_of($query; $page): $query + "\t" + $page;
+  def pair_key: key_of(.keys[0] | esc; .keys[1] | esc);
+  def first_by_pair_key:
+    reduce .[] as $row ({seen: {}, out: []};
+      ($row | pair_key) as $k
+      | if .seen[$k] then . else .seen[$k] = true | .out += [$row] end)
+    | .out;
+  def zero_click($min; $maxpos):
+    [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)]
+    | sort_by(-.impressions)
+    | first_by_pair_key;
+  def queue_row: "| \(.keys[0] | code) | \(.keys[1] | page_cell) | \(.impressions) | \(.position | pos1) |";
 '
 
 render_metric_table() {
@@ -601,6 +614,8 @@ render_zero_click_diff() {
               or (.[2] | test("^[0-9]+$") | not)
               or (.[3] | test("^[0-9]+(\\.[0-9]+)?$") | not))
           then {error: "it has a row that is not four escaped cells"}
+          elif ($rows | map(key_of(.[0]; .[1])) | unique | length) != ($rows | length)
+          then {error: "it lists a (query, page) pair twice"}
           else {rows: [$rows[] | {query: .[0], page: .[1], impressions: (.[2] | tonumber), position: (.[3] | tonumber)}]}
           end
       end
@@ -619,21 +634,16 @@ render_zero_click_diff() {
 
   jq -r --slurpfile prior "$WORK_DIR/prior-queue.json" --arg note "$prior_note" \
     --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" "$JQ_DEFS"'
-    def first_by_key:
-      reduce .[] as $entry ({seen: {}, out: []};
-        if .seen[$entry.key] then . else .seen[$entry.key] = true | .out += [$entry] end)
-      | .out;
-    def page_cell: sub($ENV.STRIP_RE; ""; "i") | code;
     def table_rows($empty; row): if length == 0 then $empty else (.[] | row) end;
-    (reduce (.rows // [])[] as $row ({}; ($row | pair_key) as $k | if has($k) then . else .[$k] = $row end)) as $fetched
-    | (zero_click($min; $maxpos) | map({key: pair_key, row: .}) | first_by_key) as $current
-    | ($prior[0].rows | map({key: (.query + "\t" + .page), row: .}) | first_by_key) as $previous
-    | ($current | map({(.key): true}) | add // {}) as $in_current
-    | ($previous | map({(.key): true}) | add // {}) as $in_previous
+    ((.rows // []) | first_by_pair_key | map({key: pair_key, value: .}) | from_entries) as $fetched
+    | (zero_click($min; $maxpos) | map({key: pair_key, row: .})) as $current
+    | ($prior[0].rows | map({key: key_of(.query; .page), row: .})) as $previous
+    | ($current | map({key, value: true}) | from_entries) as $in_current
+    | ($previous | map({key, value: true}) | from_entries) as $in_previous
     | [$current[] | select($in_previous[.key] | not)] as $new
     | [$previous[] | select(($fetched[.key].clicks // 0) > 0)] as $clicked
     | [$previous[] | select(($in_current[.key] | not) and (($fetched[.key].clicks // 0) == 0))] as $gone
-    | ([$current[] | select($in_previous[.key])] | length) as $kept
+    | (($current | length) - ($new | length)) as $kept
     | $note,
       "",
       "Prior queue \($previous | length) pairs, this queue \($current | length): \($new | length) new, \($kept) still queued, \($clicked | length) now clicked, \($gone | length) no longer qualifying.",
@@ -653,9 +663,7 @@ render_zero_click_diff() {
       "",
       "| Query | Page | Impressions | Position |",
       "| --- | --- | ---: | ---: |",
-      ([$new[] | .row]
-        | table_rows("| _none_ | | | |";
-            "| \(.keys[0] | code) | \(.keys[1] | page_cell) | \(.impressions) | \(.position | pos1) |")),
+      ([$new[] | .row] | table_rows("| _none_ | | | |"; queue_row)),
       "",
       "### No longer qualifying (\($gone | length))",
       "",
@@ -730,7 +738,7 @@ TBL_DAILY="$(render_metric_table "$WORK_DIR/daily.json" '(.keys[0] | esc)')" \
 TBL_QUERIES="$(render_metric_table "$WORK_DIR/queries.json" '(.keys[0] | code)' "$QUERY_TABLE_LIMIT" ranked)" \
   || die "failed to render the top-queries table"
 
-TBL_PAGES="$(render_metric_table "$WORK_DIR/pages.json" '(.keys[0] | sub($ENV.STRIP_RE; ""; "i") | code)' "$PAGE_TABLE_LIMIT" ranked)" \
+TBL_PAGES="$(render_metric_table "$WORK_DIR/pages.json" '(.keys[0] | page_cell)' "$PAGE_TABLE_LIMIT" ranked)" \
   || die "failed to render the top-pages table"
 
 # Zero-click demand: (query, page) pairs with impressions, no clicks, and an
@@ -758,10 +766,10 @@ case "$CAPPED_FETCHES" in
     TBL_ZERO_CLICK="$(jq -r --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" --argjson limit "$ZERO_CLICK_LIMIT" "$JQ_DEFS"'
       zero_click($min; $maxpos)
       | if length == 0 then "| _none above the impression threshold_ | | | |"
-        else (.[:$limit][] | "| \(.keys[0] | code) | \(.keys[1] | sub($ENV.STRIP_RE; ""; "i") | code) | \(.impressions) | \((.position * 10 | round) / 10) |")
+        else (.[:$limit][] | queue_row)
         end
     ' "$WORK_DIR/query-page.json")" || die "failed to render the zero-click table"
-    write_zero_click_queue "$WORK_DIR/$QUEUE_NAME" || die "failed to write the zero-click queue file"
+    write_zero_click_queue "$QUEUE_PATH" || die "failed to write the zero-click queue file"
     ZERO_CLICK_QUEUE_NOTE="Full queue: all ${ZERO_CLICK_QUALIFYING} qualifying pairs, in the order above, are in \`${QUEUE_NAME}\` alongside this file: tab-separated after a metadata line and a column header, pages as full URLs, every cell escaped as in trap 5."
     ZERO_CLICK_DIFF="$(render_zero_click_diff)" || die "failed to render the zero-click diff"
     ;;
@@ -917,25 +925,25 @@ mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
 # queue file that is absent. A capped run stages no queue file; under --force
 # any existing queue file for this window is removed so the pair cannot
 # disagree about whether the queue was captured.
-QUEUE_PATH="$WORK_DIR/$QUEUE_NAME"
-if [ -e "$QUEUE_PATH" ]; then
+publish_staged() {
+  # $1 = staged path, $2 = file name in OUT_DIR, $3 = what it is, for errors
   if [ "$FORCE" -ne 1 ]; then
-    mv -n "$QUEUE_PATH" "$OUT_DIR/$QUEUE_NAME" || die "could not write the zero-click queue to $OUT_DIR"
-    [ -e "$QUEUE_PATH" ] && die "$OUT_DIR/$QUEUE_NAME appeared during the run; refusing to overwrite it"
+    mv -n "$1" "$OUT_DIR/$2" || die "could not write $3 to $OUT_DIR"
+    [ -e "$1" ] && die "$OUT_DIR/$2 appeared during the run; refusing to overwrite it"
   else
-    mv "$QUEUE_PATH" "$OUT_DIR/$QUEUE_NAME" || die "could not write the zero-click queue to $OUT_DIR"
+    mv "$1" "$OUT_DIR/$2" || die "could not write $3 to $OUT_DIR"
   fi
+  return 0
+}
+
+if [ -e "$QUEUE_PATH" ]; then
+  publish_staged "$QUEUE_PATH" "$QUEUE_NAME" "the zero-click queue"
   echo "gsc-snapshot: wrote ${OUT_DIR}/${QUEUE_NAME}" >&2
 elif [ "$FORCE" -eq 1 ]; then
   rm -f "$OUT_DIR/$QUEUE_NAME" || die "could not remove the stale zero-click queue $OUT_DIR/$QUEUE_NAME"
 fi
 
-if [ "$FORCE" -ne 1 ]; then
-  mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
-  [ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
-else
-  mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
-fi
+publish_staged "$DOC_PATH" "$DOC_NAME" "snapshot"
 
 echo "gsc-snapshot: wrote ${OUT_DIR}/${DOC_NAME}" >&2
 echo "gsc-snapshot: to drop the ADC credential until the next run: gcloud auth application-default revoke" >&2
