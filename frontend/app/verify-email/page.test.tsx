@@ -167,8 +167,9 @@ describe('VerifyEmailPage', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
-  // The dead-link card carries its own copy of the resend handler, so the
-  // throttle and session branches are pinned here too and not only on the gate.
+  // Each surface composes the shared resend parts itself, so leaving one out
+  // silences that outcome on that surface alone. These pin the dead-link
+  // card's composition, not the shared behaviour behind it.
   it('renders a throttled fresh-link request as a cooldown', async () => {
     mockApiRequest.mockImplementation(async (path: string) => {
       if (path.includes('/auth/verify-email/send')) {
@@ -232,6 +233,41 @@ describe('VerifyEmailPage', () => {
     expect(
       screen.queryByText(/We could not send that email just now/)
     ).not.toBeInTheDocument()
+  })
+
+  it('shows generic copy on a server failure instead of the backend message', async () => {
+    mockApiRequest.mockImplementation(async (path: string) => {
+      if (path.includes('/auth/verify-email/send')) {
+        throw Object.assign(new Error('Email service is not configured'), {
+          status: 500,
+        })
+      }
+      return { success: false, message: 'token expired' }
+    })
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /Send a fresh link/i })
+      ).toBeInTheDocument()
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /Send a fresh link/i })
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'We could not send that email just now. Please try again in a moment.'
+      )
+    })
+    expect(
+      screen.queryByText(/Email service is not configured/)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Send a fresh link/i })
+    ).toBeEnabled()
   })
 
   it('routes a signed-out visitor through sign-in instead of a dead resend', () => {

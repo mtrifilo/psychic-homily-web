@@ -67,6 +67,11 @@ const AUTH_HREF_COMPOSERS = new Set(
     // A fixed destination, resolved at module scope.
     'app/shows/submit/page.tsx',
     'app/verify-email/page.tsx',
+    // A fixed destination handed in as a prop: the interstitial's primary
+    // destination (the task the signup started from, else the browse listing).
+    // The current page is /auth itself, so the hooks' current-location href
+    // would carry no returnTo at all.
+    'app/auth/_components/check-inbox-interstitial.tsx',
   ].map(f => f.split('/').join(sep))
 )
 
