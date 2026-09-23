@@ -2,7 +2,10 @@
 package errors
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/http"
 
 	"psychic-homily-backend/internal/logger"
 )
@@ -100,6 +103,86 @@ func (e *AuthError) Unwrap() error {
 // UserMessage returns the user-safe message (without internal details).
 func (e *AuthError) UserMessage() string {
 	return e.Message
+}
+
+// authCodeHTTPStatus is the HTTP status each code answers with when an
+// AuthError is returned to huma as a handler error. A code missing here
+// answers 500 (see GetStatus); the errors package tests fail when a declared
+// code is missing, so adding a code means choosing its status here.
+var authCodeHTTPStatus = map[string]int{
+	CodeInvalidCredentials: http.StatusUnauthorized,
+	// Answers as INVALID_CREDENTIALS does (ToExternalCode), so the status must
+	// match it too or the status alone tells an unknown address from a wrong
+	// password.
+	CodeUserNotFound:       http.StatusUnauthorized,
+	CodeTokenExpired:       http.StatusUnauthorized,
+	CodeTokenInvalid:       http.StatusUnauthorized,
+	CodeTokenMissing:       http.StatusUnauthorized,
+	CodeServiceUnavailable: http.StatusServiceUnavailable,
+	CodeUserExists:         http.StatusConflict,
+	CodeValidationFailed:   http.StatusBadRequest,
+	// 403, not 401: the frontend reads every 401 as "no session" and signs the
+	// viewer out, which is wrong for a caller who is signed in but refused.
+	CodeUnauthorized:               http.StatusForbidden,
+	CodeUnknown:                    http.StatusInternalServerError,
+	CodeAccountLocked:              http.StatusLocked,
+	CodeAccountInactive:            http.StatusForbidden,
+	CodeNoPasswordSet:              http.StatusConflict,
+	CodeTermsAcceptanceRequired:    http.StatusUnprocessableEntity,
+	CodeAgeConfirmationRequired:    http.StatusUnprocessableEntity,
+	CodeInvalidReplyPermission:     http.StatusBadRequest,
+	CodeUsernameTaken:              http.StatusConflict,
+	CodeOAuthLinkRefused:           http.StatusConflict,
+	CodeOAuthIdentityInUse:         http.StatusConflict,
+	CodeOAuthProviderAlreadyLinked: http.StatusConflict,
+	CodeOAuthLinkExpired:           http.StatusBadRequest,
+	CodeReauthRequired:             http.StatusForbidden,
+	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
+}
+
+// GetStatus reports the HTTP status for the error's code. It makes AuthError
+// a huma.StatusError, so a handler that returns one (directly or %w-wrapped)
+// gets this status and MarshalJSON's body instead of huma's default 500 whose
+// detail is Error(), internal chain included.
+func (e *AuthError) GetStatus() int {
+	if status, ok := authCodeHTTPStatus[e.Code]; ok {
+		return status
+	}
+	return http.StatusInternalServerError
+}
+
+// authErrorResponseBody is the wire shape of an AuthError: the same fields
+// the auth middleware's JWTErrorResponse writes, so a client parses one
+// envelope for every auth refusal. It has no field for Internal.
+type authErrorResponseBody struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"message"`
+	ErrorCode string `json:"error_code"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+// MarshalJSON renders the client-facing body: the external code and the
+// user-facing message, never Internal. A code that ToExternalCode rewrites
+// takes the rewritten code's message as well, so the body cannot say what
+// the code conceals.
+func (e *AuthError) MarshalJSON() ([]byte, error) {
+	code := ToExternalCode(e.Code)
+	message := e.UserMessage()
+	if code != e.Code {
+		message = ToExternalMessage(code)
+	}
+	return json.Marshal(authErrorResponseBody{
+		Message:   message,
+		ErrorCode: code,
+		RequestID: e.RequestID,
+	})
+}
+
+// LogValue keeps the full Error() text, internal chain included, in slog
+// output. Without it slog's JSON handler would log MarshalJSON's client body
+// for an AuthError attribute, since it prefers json.Marshaler over Error().
+func (e *AuthError) LogValue() slog.Value {
+	return slog.StringValue(e.Error())
 }
 
 // WithRequestID returns a copy of the error with the request ID set.
