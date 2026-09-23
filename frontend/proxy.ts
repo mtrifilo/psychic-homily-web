@@ -659,7 +659,7 @@ function failedProbeResponse(
   // 404 from the backend = the thing genuinely does not exist → real 404.
   //
   // Unless the caller asked for the stricter reading, in which case the
-  // content type has to agree that the API AUTHORED this 404 — "not found"
+  // content type has to agree that the API AUTHORED this 404: "not found"
   // and "I have never heard of this path" arrive as the same status and must
   // not mean the same thing. See API_ERROR_CONTENT_TYPE.
   if (res.status === 404) {
@@ -673,9 +673,9 @@ function failedProbeResponse(
     return NextResponse.next()
   }
 
-  // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
-  // page render and apply its own handling (each page's server fetch reports
-  // 5xx to Sentry, renders its own not-found on null, etc.).
+  // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN, and let
+  // the page render and apply its own handling (each page's server fetch
+  // reports 5xx to Sentry, renders its own not-found on null, etc.).
   if (!res.ok) {
     return NextResponse.next()
   }
@@ -687,13 +687,10 @@ function failedProbeResponse(
  * Probe a backend URL and turn the result into a pass-through or a real 404,
  * under `failedProbeResponse`'s policy. A network error fails open too.
  *
- * HEAD, and the STATUS is the whole answer. PSY-1756 briefly widened this with a
- * `verdict` callback, for the one probe that had to read a body because its
- * endpoint answered 200 for any venue that existed; PSY-1770 gave that probe a
- * status-bearing endpoint of its own and the callback went with it. A new caller
- * that finds itself wanting a body should get its endpoint an honest status
- * instead — the backend can answer the question in one indexed row, and a body
- * this function parses is a body every OTHER caller pays to receive.
+ * HEAD, and the STATUS is the whole answer. A new caller that finds itself
+ * wanting a body should get its endpoint an honest status instead: the backend
+ * can answer the question in one indexed row, and a body this function parses
+ * is a body every OTHER caller pays to receive.
  *
  * Two callers read a body anyway, each for a reason a status cannot carry.
  * `readShowsCalendarRange` asks about the URL SPACE rather than about a URL: one

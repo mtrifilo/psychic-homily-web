@@ -191,6 +191,17 @@ describe('proxy numeric show ids', () => {
     expect(passedThrough(await proxy(requestFor('/shows/1359')))).toBe(true)
   })
 
+  it('passes the share card under a numeric id through with no read', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+
+    const response = await proxy(requestFor('/shows/1359/opengraph-image'))
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(passedThrough(response)).toBe(true)
+  })
+
   it('leaves numeric segments under other entities on their own probe', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

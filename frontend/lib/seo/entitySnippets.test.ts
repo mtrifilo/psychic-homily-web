@@ -310,7 +310,7 @@ describe('showSnippet', () => {
 
   it('has no em dash in any output', () => {
     const { title, description } = showSnippet(NIROSTA_AT_HIDEOUT)
-    expect(title + description).not.toContain('—')
+    expect(title + description).not.toContain('\u2014')
   })
 })
 
