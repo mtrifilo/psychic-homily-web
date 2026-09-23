@@ -193,6 +193,13 @@ describe('SettingsHub', () => {
       expect(
         within(rail).getByRole('link', { name: /^Alerts and email/ })
       ).toHaveAttribute('aria-current', 'true')
+
+      // The jump index marks the rail through the same path.
+      const index = screen.getByRole('navigation', { name: 'On this page' })
+      fireEvent.click(within(index).getByRole('link', { name: /^Feeds/ }))
+      expect(
+        within(rail).getByRole('link', { name: /^Feeds/ })
+      ).toHaveAttribute('aria-current', 'true')
     } finally {
       decoy.remove()
     }

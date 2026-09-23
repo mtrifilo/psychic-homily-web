@@ -143,6 +143,79 @@ describe('useActiveSection', () => {
     expect(result.current.activeAnchor).toBe('first')
   })
 
+  it('measures again when the hold ends on its own', () => {
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('third'))
+
+    // A history traversal restored a scroll position during the hold.
+    tops = { first: -700, second: 40, third: 900 }
+    setScroll({ scrollY: 800, innerHeight: 800, scrollHeight: 3000 })
+    act(() => {
+      window.dispatchEvent(new Event('scroll'))
+      vi.advanceTimersByTime(16)
+    })
+    expect(result.current.activeAnchor).toBe('third')
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current.activeAnchor).toBe('second')
+  })
+
+  it('ends the hold as soon as the viewer scrolls on their own', () => {
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('third'))
+
+    tops = { first: -700, second: 40, third: 900 }
+    setScroll({ scrollY: 800, innerHeight: 800, scrollHeight: 3000 })
+    act(() => {
+      window.dispatchEvent(new Event('wheel'))
+    })
+    expect(result.current.activeAnchor).toBe('second')
+  })
+
+  it('keeps a chosen section marked at the bottom until the viewer scrolls', () => {
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('second'))
+
+    // The page bottomed out before the chosen section reached the line.
+    tops = { first: -1500, second: 300, third: 600 }
+    setScroll({ scrollY: 2200, innerHeight: 800, scrollHeight: 3000 })
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current.activeAnchor).toBe('second')
+    scroll()
+    expect(result.current.activeAnchor).toBe('second')
+
+    // Once the viewer scrolls on their own, the bottom marks the last section.
+    act(() => {
+      window.dispatchEvent(new Event('wheel'))
+    })
+    scroll()
+    expect(result.current.activeAnchor).toBe('third')
+  })
+
+  it('forgets a chosen section once its top leaves the screen', () => {
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('second'))
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    // A scroll with no wheel, touch or key input (a dragged scrollbar) carries
+    // the chosen section off screen, then back down to the bottom.
+    tops = { first: 80, second: 900, third: 1800 }
+    setScroll({ scrollY: 0, innerHeight: 800, scrollHeight: 3000 })
+    scroll()
+    expect(result.current.activeAnchor).toBe('first')
+
+    tops = { first: -1500, second: 300, third: 600 }
+    setScroll({ scrollY: 2200, innerHeight: 800, scrollHeight: 3000 })
+    scroll()
+    expect(result.current.activeAnchor).toBe('third')
+  })
+
   it('maps a fragment for a row inside a section to that section', () => {
     window.history.replaceState(null, '', '/settings#second-row')
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))

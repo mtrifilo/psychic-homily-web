@@ -72,8 +72,7 @@ const APPEARANCE_SETTINGS = {
 
 /**
  * A row that sends the viewer to the surface that owns these settings today.
- * `covers` names the settings the destination holds; the rail's per-section
- * count is the number of names, so it cannot drift from what the rows say.
+ * `covers` names the settings the destination holds.
  */
 export interface SettingsLinkRow {
   kind: 'link'
@@ -224,7 +223,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   },
 ]
 
-/** How many settings a section holds, as its rows name them. */
+/**
+ * How many settings a section holds, as its rows name them: each name a link
+ * row covers, plus one for each row that is a setting in itself.
+ */
 export function settingsSectionCount(section: SettingsSection): number {
   return section.rows.reduce(
     (total, row) => total + (row.kind === 'link' ? row.covers.length : 1),
