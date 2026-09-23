@@ -8,9 +8,9 @@ import { extname, join, relative, sep } from 'node:path'
  *
  * A source scan rather than a render test, because the claim has been written
  * both through a shared constant and by hand inside JSX, and a render test
- * only covers the surfaces someone remembered to render. Whitespace is
- * collapsed before matching so a sentence wrapped across JSX lines is still
- * one sentence.
+ * only covers the surfaces someone remembered to render. Each phrase matches
+ * across any whitespace, so a sentence wrapped across JSX lines is still one
+ * sentence.
  *
  * Release alerts are still pending and keep their own "still being switched
  * on" note, which is why the phrases below name venues rather than the bare
@@ -45,6 +45,17 @@ const RETIRED_PHRASES = [
   'venue alerts are still being switched on',
 ]
 
+const phrasePattern = (phrase: string): RegExp =>
+  new RegExp(phrase.split(' ').join('\\s+'), 'i')
+const RETIRED_PATTERNS = RETIRED_PHRASES.map(phrase => ({
+  phrase,
+  pattern: phrasePattern(phrase),
+}))
+
+// Every retired phrase contains one of these words, and a word cannot be split
+// across a line, so a file without either cannot hold a phrase.
+const PREFILTER = /switched|decides/i
+
 function scannedFiles(dir: string): string[] {
   const files: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -58,9 +69,6 @@ function scannedFiles(dir: string): string[] {
   }
   return files
 }
-
-const normalized = (text: string): string =>
-  text.replace(/\s+/g, ' ').toLowerCase()
 
 describe('retired venue-alerts pending note', () => {
   const files = scannedFiles(FRONTEND_ROOT).filter(
@@ -82,13 +90,14 @@ describe('retired venue-alerts pending note', () => {
     }
   })
 
-  // Reads every source file in the frontend (about 17 MB), which outlasts the
-  // 5 s default when the suite runs alongside other test files.
-  it('appears nowhere under frontend/', { timeout: 30_000 }, () => {
+  // Reads every source file in the frontend (about 17 MB). Alongside other
+  // test files that read alone has come within reach of the 5 s default.
+  it('appears nowhere under frontend/', { timeout: 15_000 }, () => {
     const offenders = files.flatMap(file => {
-      const text = normalized(readFileSync(file, 'utf8'))
-      return RETIRED_PHRASES.filter(phrase => text.includes(phrase)).map(
-        phrase => `${relative(FRONTEND_ROOT, file)}: "${phrase}"`
+      const text = readFileSync(file, 'utf8')
+      if (!PREFILTER.test(text)) return []
+      return RETIRED_PATTERNS.filter(({ pattern }) => pattern.test(text)).map(
+        ({ phrase }) => `${relative(FRONTEND_ROOT, file)}: "${phrase}"`
       )
     })
     expect(offenders).toEqual([])

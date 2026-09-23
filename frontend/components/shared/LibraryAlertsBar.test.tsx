@@ -118,17 +118,6 @@ describe('LibraryAlertsBar', () => {
     ).toHaveAttribute('href', '/settings/notification-filters')
   })
 
-  // Artist and venue show alerts both deliver, so neither tab carries an
-  // "any day now" line above its rows.
-  it.each(['artists', 'venues'])(
-    'carries no pending-delivery line on the %s tab',
-    entityType => {
-      renderWithProviders(<LibraryAlertsBar entityType={entityType} />)
-
-      expect(screen.queryByText(/still being switched on/i)).toBeNull()
-    }
-  )
-
   // FAILED is not PENDING. On a failed read the bar loses its area half AND
   // every row bracket disappears (an unknown home area makes each menu render
   // null), so without a message the tab reads as "these follows carry no
@@ -253,7 +242,6 @@ describe('LibraryAlertsBar', () => {
         screen.getByRole('link', { name: /paused.*alert settings/i })
       ).toBeInTheDocument()
       expect(screen.queryByText(/Your area/)).toBeNull()
-      expect(screen.queryByText(/still being switched on/i)).toBeNull()
     })
 
     // UNKNOWN is not "no channel". A pending read must not paint a pause over
