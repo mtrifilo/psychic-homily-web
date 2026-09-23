@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -263,6 +264,52 @@ func newHomeLayoutResponse(message string, layout *authm.HomeLayout) *HomeLayout
 	resp.Body.Message = message
 	resp.Body.Layout = layout
 	return resp
+}
+
+// ===========================================================================
+// One-time first-save hint
+// ===========================================================================
+
+// DismissFirstSaveHintRequest takes nothing: dismissal is a one-way stamp on
+// the session user's own preferences.
+type DismissFirstSaveHintRequest struct{}
+
+// DismissFirstSaveHintResponse reports the STORED dismissal time, which on a
+// repeat call is the first dismissal rather than this request's clock.
+type DismissFirstSaveHintResponse struct {
+	Body struct {
+		Success     bool      `json:"success"`
+		DismissedAt time.Time `json:"first_save_hint_dismissed_at" doc:"When the first-save hint was first dismissed"`
+	}
+}
+
+// DismissFirstSaveHintHandler handles PUT /auth/preferences/first-save-hint.
+func (h *UserPreferencesHandler) DismissFirstSaveHintHandler(ctx context.Context, _ *DismissFirstSaveHintRequest) (*DismissFirstSaveHintResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	dismissedAt, err := h.userService.DismissFirstSaveHint(user.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("dismiss_first_save_hint_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to dismiss the first-save hint")
+	}
+
+	logger.FromContext(ctx).Info("dismiss_first_save_hint_success",
+		"user_id", user.ID,
+	)
+
+	resp := &DismissFirstSaveHintResponse{}
+	resp.Body.Success = true
+	resp.Body.DismissedAt = dismissedAt
+	return resp, nil
 }
 
 // SetShowRemindersRequest represents the request to toggle show reminders

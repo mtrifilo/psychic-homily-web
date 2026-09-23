@@ -213,6 +213,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// rides in the /auth/profile preferences payload the client already loads.
 	huma.Put(rc.Protected, "/auth/preferences/home-layout", userPrefsHandler.SetHomeLayoutHandler)
 	huma.Delete(rc.Protected, "/auth/preferences/home-layout", userPrefsHandler.ClearHomeLayoutHandler)
+	// One-way stamp for the one-time first-save hint; the value rides in the
+	// /auth/profile preferences payload.
+	huma.Put(rc.Protected, "/auth/preferences/first-save-hint", userPrefsHandler.DismissFirstSaveHintHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
 	huma.Post(rc.API, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)

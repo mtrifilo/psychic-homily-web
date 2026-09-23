@@ -2798,6 +2798,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/preferences/first-save-hint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put auth preferences first save hint */
+        put: operations["put-auth-preferences-first-save-hint"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/preferences/home-layout": {
         parameters: {
             query?: never;
@@ -10819,6 +10836,20 @@ export interface components {
             };
             PropertyName: string;
         };
+        DismissFirstSaveHintResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/DismissFirstSaveHintResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description When the first-save hint was first dismissed
+             */
+            first_save_hint_dismissed_at: string;
+            success: boolean;
+        };
         DismissReportRequestBody: {
             /**
              * Format: uri
@@ -18210,6 +18241,8 @@ export interface components {
             created_at: string;
             default_reply_permission: string;
             favorite_cities: unknown;
+            /** Format: date-time */
+            first_save_hint_dismissed_at: string | null;
             home_layout: unknown;
             home_metro: string | null;
             /** Format: int64 */
@@ -24853,6 +24886,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetFavoriteCitiesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-auth-preferences-first-save-hint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DismissFirstSaveHintResponseBody"];
                 };
             };
             /** @description Error */

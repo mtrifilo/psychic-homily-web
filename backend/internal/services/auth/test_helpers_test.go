@@ -162,6 +162,10 @@ func (n *nilDBUserService) ClearHomeLayout(userID uint) error {
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) DismissFirstSaveHint(userID uint) (time.Time, error) {
+	return time.Time{}, fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) SetShowReminders(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }
