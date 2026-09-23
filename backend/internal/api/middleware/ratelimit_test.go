@@ -15,7 +15,7 @@ import (
 )
 
 // testRejection is the 429 handler for limiters these tests build by hand.
-var testRejection = rateLimitRejection("test", time.Minute, KeyByClientIP)
+var testRejection = limiterSpec{name: "test", window: time.Minute, key: KeyByClientIP}.rejection()
 
 func TestRateLimitRejection_StatusCode(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)

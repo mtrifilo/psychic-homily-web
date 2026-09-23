@@ -52,14 +52,11 @@ const (
 // it with probability 1-(1-rate)^n: 79% at n=15, 96% at n=30.
 const allowedReadSampleRate = 0.1
 
-// httprate writes these response headers on every request it meters, allowed or
-// rejected. limiterSpec.handler keeps httprate's default header names, which is
-// what lets an allowed-request sample read the bucket's state back off the
-// response.
-const (
-	rateLimitLimitHeader     = "X-RateLimit-Limit"
-	rateLimitRemainingHeader = "X-RateLimit-Remaining"
-)
+// rateLimitRemainingHeader is the response header httprate writes the bucket's
+// remaining budget to on every request it meters. limiterSpec.handler keeps
+// httprate's default header names, which is what lets an allowed-request sample
+// read the bucket's state back off the response.
+const rateLimitRemainingHeader = "X-RateLimit-Remaining"
 
 // limiterSpec is one rate limiter: its budget, the key that picks a bucket, and
 // the name its log lines carry.
@@ -70,21 +67,21 @@ type limiterSpec struct {
 	key    httprate.KeyFunc
 }
 
-// handler is the limiter as middleware. A rejected request gets
-// rateLimitRejection's 429; an allowed one reaches the next handler.
+// handler is the limiter as middleware. A rejected request gets rejection's
+// 429; an allowed one reaches the next handler.
 func (s limiterSpec) handler() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		s.limit,
 		s.window,
 		httprate.WithKeyFuncs(s.key),
-		httprate.WithLimitHandler(rateLimitRejection(s.name, s.window, s.key)),
+		httprate.WithLimitHandler(s.rejection()),
 	)
 }
 
 // sampledHandler is handler plus a log line for each allowed request sample
-// selects. The sampler sits directly inside the limiter, so the rate-limit
-// headers it reads are this limiter's and not those of a limiter nested further
-// in or out.
+// selects. The sampler sits directly inside the limiter, so the remaining
+// budget it reads is this limiter's and not that of a limiter nested further in
+// or out.
 func (s limiterSpec) sampledHandler(authState string, sample func() bool) func(http.Handler) http.Handler {
 	limit := s.handler()
 	return func(next http.Handler) http.Handler {
@@ -97,29 +94,34 @@ func (s limiterSpec) sampledHandler(authState string, sample func() bool) func(h
 	}
 }
 
-// logAllowed writes one ratelimit_allowed_sample line. The request is named by
-// path family and the bucket by fingerprint, so the line carries no client
-// address, slug, or credential. A response without both httprate headers yields
-// no line rather than one with invented numbers.
-func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authState string) {
-	limit, err := strconv.Atoi(w.Header().Get(rateLimitLimitHeader))
-	if err != nil {
-		return
+// logAttrs are the attributes every rate-limit line from this limiter carries.
+// They name the request by path family and the bucket by fingerprint, so a line
+// built on them carries no client address, slug, or credential; request_id,
+// which the context logger attaches, joins it to the request line when the raw
+// path is needed.
+func (s limiterSpec) logAttrs(event string, r *http.Request) []any {
+	return []any{
+		"event", event,
+		"limiter", s.name,
+		"window_seconds", int(s.window.Seconds()),
+		"path_family", RateLimitPathFamily(r.URL.Path),
+		"key_fingerprint", requestKeyFingerprint(s.key, r),
 	}
+}
+
+// logAllowed writes one ratelimit_allowed_sample line. A response without the
+// remaining-budget header yields no line rather than one with an invented
+// number.
+func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authState string) {
 	remaining, err := strconv.Atoi(w.Header().Get(rateLimitRemainingHeader))
 	if err != nil {
 		return
 	}
-	logger.FromContext(r.Context()).Info("rate limit sample",
-		"event", rateLimitAllowedSampleEvent,
-		"limiter", s.name,
+	logger.FromContext(r.Context()).Info("rate limit sample", append(s.logAttrs(rateLimitAllowedSampleEvent, r),
 		"auth_state", authState,
-		"window_seconds", int(s.window.Seconds()),
-		"path_family", RateLimitPathFamily(r.URL.Path),
-		"key_fingerprint", requestKeyFingerprint(s.key, r),
-		"limit", limit,
+		"limit", s.limit,
 		"remaining", remaining,
-	)
+	)...)
 }
 
 // sampleAt returns a sampler that selects each call independently with
@@ -129,31 +131,20 @@ func sampleAt(rate float64) func() bool {
 	return func() bool { return mathrand.Float64() < rate }
 }
 
-// rateLimitRejection builds the 429 handler for the limiter named limiter.
-// Retry-After and the message both name that limiter's OWN window: the header is
-// what ApiError.retryAfter carries into client countdown copy, so a limiter that
-// reports a minute on an hour bucket tells the caller to retry 59 times before
-// the budget can possibly refill.
-//
-// Every rejection writes one ratelimit_rejected line. It names the request by
-// path family and the bucket by fingerprint, so it carries no client address,
-// slug, or credential; request_id, which the context logger attaches, joins it
-// to the request line when the raw path is needed.
-func rateLimitRejection(limiter string, window time.Duration, key httprate.KeyFunc) http.HandlerFunc {
-	seconds := int(window.Seconds())
+// rejection builds this limiter's 429 handler, which writes one
+// ratelimit_rejected line per rejection. Retry-After and the message both name
+// the limiter's OWN window: the header is what ApiError.retryAfter carries into
+// client countdown copy, so a limiter that reports a minute on an hour bucket
+// tells the caller to retry 59 times before the budget can possibly refill.
+func (s limiterSpec) rejection() http.HandlerFunc {
+	seconds := int(s.window.Seconds())
 	retryAfter := strconv.Itoa(seconds)
 	body := []byte(fmt.Sprintf(
 		`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in %d seconds."}`,
 		seconds))
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.FromContext(r.Context()).Warn("rate limit exceeded",
-			"event", rateLimitRejectedEvent,
-			"limiter", limiter,
-			"window_seconds", seconds,
-			"path_family", RateLimitPathFamily(r.URL.Path),
-			"method", r.Method,
-			"key_fingerprint", requestKeyFingerprint(key, r),
-		)
+			append(s.logAttrs(rateLimitRejectedEvent, r), "method", r.Method)...)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", retryAfter)
@@ -208,7 +199,7 @@ func fingerprint(key string) string {
 func fingerprintWithSalt(salt []byte, key string) string {
 	mac := hmac.New(sha256.New, salt)
 	mac.Write([]byte(key))
-	return hex.EncodeToString(mac.Sum(nil))[:keyFingerprintHexLen]
+	return hex.EncodeToString(mac.Sum(nil)[:keyFingerprintHexLen/2])
 }
 
 // Values of the `path_family` attribute. A family names a route shape and never
@@ -222,43 +213,41 @@ const (
 	pathFamilyOther  = "other"
 )
 
-// entityPathFamilies maps a collection's path segment to the family of every
-// path under one entity of that collection, sub-resources included.
-var entityPathFamilies = map[string]string{
-	"artists": pathFamilyArtist,
-	"shows":   pathFamilyShow,
-	"venues":  pathFamilyVenue,
-	"scenes":  pathFamilyScene,
+// entityCollection is a collection whose entities have their own path family.
+type entityCollection struct {
+	// family is the family of every path under one entity of the collection,
+	// sub-resources included.
+	family string
+	// routeSegments are the second path segments that name a collection-level
+	// route rather than an entity. chi routes a static segment ahead of a
+	// parameter, so a path whose second segment is listed here never reaches an
+	// entity handler. TestRateLimitPathFamilyAgreesWithRouter walks the built
+	// router and fails on a static segment missing from this list.
+	routeSegments map[string]bool
 }
 
-// collectionRouteSegments are, per collection in entityPathFamilies, the second
-// path segments that name a collection-level route rather than an entity. chi
-// routes a static segment ahead of a parameter, so a path whose second segment
-// is listed here never reaches an entity handler. TestRateLimitPathFamilyAgreesWithRouter
-// walks the built router and fails on a static segment missing from this list.
-var collectionRouteSegments = map[string]map[string]bool{
-	"artists": {"cities": true, "listing": true, "relationships": true, "search": true},
-	"shows": {
+// entityCollections are keyed by the collection's first path segment.
+var entityCollections = map[string]entityCollection{
+	"artists": {pathFamilyArtist, map[string]bool{"cities": true, "listing": true, "relationships": true, "search": true}},
+	"shows": {pathFamilyShow, map[string]bool{
 		"ai-process": true, "calendar": true, "cities": true, "months": true,
 		"my-submissions": true, "saves": true, "search": true, "upcoming": true,
-	},
-	"venues": {"cities": true, "listing": true, "search": true},
-	"scenes": {},
+	}},
+	"venues": {pathFamilyVenue, map[string]bool{"cities": true, "listing": true, "search": true}},
+	"scenes": {pathFamilyScene, nil},
 }
 
 // RateLimitPathFamily maps a request path to a low-cardinality family for
-// rate-limit logs: the entity families in entityPathFamilies, the search family
+// rate-limit logs: the entity families in entityCollections, the search family
 // for /search and any /{collection}/search, and pathFamilyOther for the rest.
 func RateLimitPathFamily(path string) string {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	if len(segments) <= 2 && segments[len(segments)-1] == "search" {
 		return pathFamilySearch
 	}
-	if len(segments) < 2 || segments[1] == "" || collectionRouteSegments[segments[0]][segments[1]] {
+	collection, ok := entityCollections[segments[0]]
+	if !ok || len(segments) < 2 || segments[1] == "" || collection.routeSegments[segments[1]] {
 		return pathFamilyOther
 	}
-	if family, ok := entityPathFamilies[segments[0]]; ok {
-		return family
-	}
-	return pathFamilyOther
+	return collection.family
 }

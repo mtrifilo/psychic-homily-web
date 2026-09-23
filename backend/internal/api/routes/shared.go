@@ -48,11 +48,7 @@ func rateLimitUnlessValidatedAPIToken(validateAPIToken func(string) bool, reques
 // rateLimitHandler handles rate limit exceeded responses with JSON
 func rateLimitHandler(w http.ResponseWriter, r *http.Request) {
 	// Log the rate limit hit
-	log := logger.FromContext(r.Context())
-	if log == nil {
-		log = logger.Default()
-	}
-	log.Warn("rate limit exceeded",
+	logger.FromContext(r.Context()).Warn("rate limit exceeded",
 		"path", r.URL.Path,
 		"method", r.Method,
 		"key_fingerprint", middleware.ClientIPKeyFingerprint(r),

@@ -191,7 +191,7 @@ func TestRateLimitRejection_ResponseNamesTheLimiterWindow(t *testing.T) {
 	} {
 		rr := httptest.NewRecorder()
 		req := newLogCapture(t).attach(httptest.NewRequest(http.MethodGet, "/shows/x", nil))
-		rateLimitRejection("test", tc.window, KeyByClientIP)(rr, req)
+		limiterSpec{name: "test", window: tc.window, key: KeyByClientIP}.rejection()(rr, req)
 
 		if rr.Code != http.StatusTooManyRequests {
 			t.Errorf("window %s: status = %d, want 429", tc.window, rr.Code)
