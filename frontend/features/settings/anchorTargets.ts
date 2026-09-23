@@ -18,22 +18,14 @@ export function findAnchorTarget(
 }
 
 /**
- * Reveals the root's own target for `anchor` and records the fragment as a
- * history entry.
- *
- * The entry is written with `history.pushState`, never by assigning
- * `location.hash`. The App Router's patched `pushState` stamps the entry with
- * its own state, and its popstate handler ignores an entry without that state:
- * a native fragment navigation would leave Back from the next page showing
- * that page under this page's URL. `pushState` fires no `hashchange`, so the
- * caller updates anything that tracks the active fragment itself.
+ * Reveals the root's own target for `anchor` and leaves the address bar as it
+ * is. A fragment navigation would add a history entry the App Router cannot
+ * restore, and a router `pushState` would re-render the router for a change
+ * of fragment alone, so an in-page jump writes no history. The link's own
+ * href still carries the fragment, for copying or opening elsewhere.
  */
 export function jumpToAnchor(root: ParentNode | null, anchor: string): void {
   if (!root) return
   const target = findAnchorTarget(root, anchor)
-  if (!target) return
-  if (window.location.hash !== `#${anchor}`) {
-    window.history.pushState(null, '', `#${anchor}`)
-  }
-  revealAnchorTarget(target)
+  if (target) revealAnchorTarget(target)
 }

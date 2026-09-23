@@ -24,8 +24,9 @@ async function gapBelowTopBar(page: Page, sectionId: string) {
 }
 
 /**
- * The section's top settles just below the TopBar: not under it, and not
- * left further down the page. Polled, because the landing scroll is smooth.
+ * The section's top is just below the TopBar: not under it, and not left
+ * further down the page. The specs that call this emulate reduced motion, so
+ * the landing is an instant jump and the first in-range sample is final.
  */
 async function expectLandedBelowTopBar(page: Page, sectionId: string) {
   await expect
@@ -37,6 +38,10 @@ async function expectLandedBelowTopBar(page: Page, sectionId: string) {
 }
 
 test.describe('/settings hub', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+  })
+
   test('renders the rail and every section in order at 1440', async ({
     authenticatedPage: page,
   }) => {
@@ -59,12 +64,19 @@ test.describe('/settings hub', () => {
       page.locator('main').getByRole('heading', { level: 2 })
     ).toHaveText(SECTION_TITLES)
 
-    await rail.getByRole('link', { name: /^Alerts and email/ }).click()
-    await expect(page).toHaveURL(/\/settings#alerts$/)
-    await expect(
-      rail.getByRole('link', { name: /^Alerts and email/ })
-    ).toHaveAttribute('aria-current', 'true')
+    const alertsLink = rail.getByRole('link', { name: /^Alerts and email/ })
+    await alertsLink.click()
+    // An in-page jump writes no history entry.
+    await expect(page).toHaveURL(/\/settings$/)
+    await expect(alertsLink).toHaveAttribute('aria-current', 'true')
     await expectLandedBelowTopBar(page, 'alerts')
+
+    // The viewer's own wheel ends the hold and the position is measured
+    // again: the section just landed on is still the one marked.
+    await page.mouse.move(700, 500)
+    await page.mouse.wheel(0, 1)
+    await expect(alertsLink).toHaveAttribute('aria-current', 'true')
+    await expect(rail.locator('a[aria-current="true"]')).toHaveCount(1)
   })
 
   test('the 390 jump index lands each section clear of the TopBar', async ({
@@ -86,7 +98,7 @@ test.describe('/settings hub', () => {
     ] as const) {
       await page.evaluate(() => window.scrollTo(0, 0))
       await index.getByRole('link', { name: new RegExp(`^${title}`) }).click()
-      await expect(page).toHaveURL(new RegExp(`/settings#${id}$`))
+      await expect(page).toHaveURL(/\/settings$/)
       await expect(page.locator(`main section[id="${id}"]`)).toBeFocused()
       await expectLandedBelowTopBar(page, id)
     }
@@ -129,7 +141,7 @@ test.describe('/settings hub', () => {
     await page.goto('/settings')
     const rail = page.getByRole('navigation', { name: 'Settings sections' })
     await rail.getByRole('link', { name: /^Feeds/ }).click({ timeout: 10_000 })
-    await expect(page).toHaveURL(/\/settings#feeds$/)
+    await expect(page.locator('main section[id="feeds"]')).toBeFocused()
 
     await page
       .getByRole('region', { name: 'Feeds' })
@@ -141,7 +153,7 @@ test.describe('/settings hub', () => {
     ).toBeVisible()
 
     await page.goBack()
-    await expect(page).toHaveURL(/\/settings#feeds$/)
+    await expect(page).toHaveURL(/\/settings$/)
     await expect(
       page.getByRole('heading', { level: 1, name: 'Settings', exact: true })
     ).toBeVisible()
@@ -161,5 +173,10 @@ test.describe('/settings hub', () => {
       'data-state',
       'active'
     )
+    // The profile's own alerts card, not the hub's hidden section that
+    // carries the same id.
+    const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
+    await expect(alertsCard).toBeFocused()
+    await expect(alertsCard).toBeInViewport()
   })
 })

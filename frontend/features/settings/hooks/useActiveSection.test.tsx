@@ -174,6 +174,32 @@ describe('useActiveSection', () => {
     expect(result.current.activeAnchor).toBe('second')
   })
 
+  it('ends the hold on a scrolling key, but not on Tab or a key a control consumes', () => {
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    tops = { first: -700, second: 40, third: 900 }
+    setScroll({ scrollY: 800, innerHeight: 800, scrollHeight: 3000 })
+
+    act(() => result.current.select('third'))
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+    })
+    expect(result.current.activeAnchor).toBe('third')
+
+    const button = document.createElement('button')
+    root.appendChild(button)
+    act(() => {
+      button.dispatchEvent(
+        new KeyboardEvent('keydown', { key: ' ', bubbles: true })
+      )
+    })
+    expect(result.current.activeAnchor).toBe('third')
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown' }))
+    })
+    expect(result.current.activeAnchor).toBe('second')
+  })
+
   it('keeps a chosen section marked at the bottom until the viewer scrolls', () => {
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
     act(() => result.current.select('second'))

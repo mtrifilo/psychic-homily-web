@@ -35,30 +35,26 @@ describe('anchorTargets', () => {
     expect(findAnchorTarget(root, 'feeds')).toBeNull()
   })
 
-  it('jumps to, focuses, and records the root target', () => {
+  it('jumps to and focuses the root target', () => {
     jumpToAnchor(root, 'alerts')
 
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
     expect(scrollIntoView.mock.contexts[0]).toBe(target)
     expect(target).toHaveFocus()
-    expect(window.location.hash).toBe('#alerts')
   })
 
-  // The App Router restores only history entries written through its patched
-  // pushState; a native fragment navigation leaves Back from the next page
-  // stranded on that page.
-  it('records the fragment through history.pushState, not a native navigation', () => {
+  // A fragment navigation adds a history entry the App Router cannot restore,
+  // and a router pushState re-renders the router for a fragment alone.
+  it('writes no history and fires no hashchange', () => {
     const pushState = vi.spyOn(window.history, 'pushState')
     const onHashChange = vi.fn()
     window.addEventListener('hashchange', onHashChange)
+    const lengthBefore = window.history.length
     try {
       jumpToAnchor(root, 'alerts')
-      expect(pushState).toHaveBeenCalledTimes(1)
-      expect(pushState).toHaveBeenCalledWith(null, '', '#alerts')
-
-      jumpToAnchor(root, 'alerts')
-      expect(pushState).toHaveBeenCalledTimes(1)
-      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+      expect(pushState).not.toHaveBeenCalled()
+      expect(window.location.hash).toBe('')
+      expect(window.history.length).toBe(lengthBefore)
     } finally {
       pushState.mockRestore()
       window.removeEventListener('hashchange', onHashChange)

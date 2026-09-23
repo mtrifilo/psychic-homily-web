@@ -8,18 +8,16 @@ import { cn } from '@/lib/utils'
 // root-layout reachable and a `'use client'` barrel is not tree-shaken per
 // export. See features/sharedChunkBarrelGuard.test.ts.
 import { HomeLayoutSettingsList } from '@/features/auth/components/settings/home-layout'
-import {
-  SETTINGS_ANCHOR_SCROLL_MT,
-  useAnchorScroll,
-} from '@/features/auth/components/settings/useAnchorScroll'
+import { SETTINGS_ANCHOR_SCROLL_MT } from '@/features/auth/components/settings/useAnchorScroll'
 import {
   SETTINGS_SECTIONS,
-  type SettingsLinkRow as SettingsLinkRowData,
+  type SettingsLinkRow,
   type SettingsRow,
   type SettingsSection,
 } from '../sections'
 import { jumpToAnchor } from '../anchorTargets'
 import { useActiveSection } from '../hooks/useActiveSection'
+import { useFragmentLanding } from '../hooks/useFragmentLanding'
 import { SettingsJumpIndex, SettingsRail } from './SettingsNav'
 
 const SECTION_ANCHORS: readonly string[] = SETTINGS_SECTIONS.map(
@@ -29,13 +27,21 @@ const SECTION_ANCHORS: readonly string[] = SETTINGS_SECTIONS.map(
 const ROW_CLASS =
   'flex flex-col items-start gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'
 
-function SettingsLinkRowContent({ row }: { row: SettingsLinkRowData }) {
+/** Classes every fragment target carries: clear of the TopBar, and focusable
+ *  on landing without a focus ring on a whole section. */
+const ANCHOR_TARGET_CLASS = cn(SETTINGS_ANCHOR_SCROLL_MT, 'focus:outline-none')
+
+function SettingsLinkRowView({ row }: { row: SettingsLinkRow }) {
   // Several rows share an action label, so each link is described by the
   // settings its row names.
   const coversId = useId()
 
   return (
-    <>
+    <div
+      id={row.anchor}
+      tabIndex={row.anchor ? -1 : undefined}
+      className={cn(ROW_CLASS, row.anchor && ANCHOR_TARGET_CLASS)}
+    >
       <p id={coversId} className="text-sm text-foreground">
         {row.covers.join(' · ')}
       </p>
@@ -44,55 +50,26 @@ function SettingsLinkRowContent({ row }: { row: SettingsLinkRowData }) {
           {row.action}
         </Link>
       </Button>
-    </>
-  )
-}
-
-/** A link row that is itself a fragment target inside its section. */
-function AnchoredSettingsLinkRow({
-  row,
-  anchor,
-}: {
-  row: SettingsLinkRowData
-  anchor: string
-}) {
-  const anchorRef = useAnchorScroll(anchor)
-
-  return (
-    <div
-      id={anchor}
-      ref={anchorRef}
-      tabIndex={-1}
-      className={cn(ROW_CLASS, SETTINGS_ANCHOR_SCROLL_MT, 'focus:outline-none')}
-    >
-      <SettingsLinkRowContent row={row} />
     </div>
   )
 }
 
 function SettingsRowView({ row }: { row: SettingsRow }) {
   if (row.kind === 'home-layout') return <HomeLayoutSettingsList />
-  if (row.anchor) return <AnchoredSettingsLinkRow row={row} anchor={row.anchor} />
-  return (
-    <div className={ROW_CLASS}>
-      <SettingsLinkRowContent row={row} />
-    </div>
-  )
+  return <SettingsLinkRowView row={row} />
 }
 
 function SettingsSectionView({ section }: { section: SettingsSection }) {
-  const anchorRef = useAnchorScroll(section.anchor)
   const titleId = `settings-${section.anchor}-title`
 
   return (
     <section
       id={section.anchor}
-      ref={anchorRef}
       tabIndex={-1}
       aria-labelledby={titleId}
       className={cn(
-        SETTINGS_ANCHOR_SCROLL_MT,
-        'rounded-lg border border-border bg-card text-card-foreground focus:outline-none'
+        ANCHOR_TARGET_CLASS,
+        'rounded-lg border border-border bg-card text-card-foreground'
       )}
     >
       <header className="px-4 py-4">
@@ -118,6 +95,7 @@ function SettingsSectionView({ section }: { section: SettingsSection }) {
 export function SettingsHub() {
   const hubRef = useRef<HTMLDivElement>(null)
   const { activeAnchor, select } = useActiveSection(SECTION_ANCHORS, hubRef)
+  useFragmentLanding(hubRef)
   const jump = useCallback(
     (anchor: string) => {
       jumpToAnchor(hubRef.current, anchor)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { ALERTS_AREA_HREF, ALERTS_HREF } from '@/components/shared/followAlertChoices'
 import { HOME_SECTIONS } from '@/features/home/sections'
@@ -185,8 +185,7 @@ describe('SettingsHub', () => {
         )
         expect(scrollIntoView.mock.contexts[0]).toBe(alerts)
         expect(alerts).toHaveFocus()
-        expect(window.location.hash).toBe('#alerts')
-        setHash('')
+        expect(window.location.hash).toBe('')
       }
 
       const rail = screen.getByRole('navigation', { name: 'Settings sections' })
@@ -203,6 +202,40 @@ describe('SettingsHub', () => {
     } finally {
       decoy.remove()
     }
+  })
+
+  it('reveals once per jump, and never again on a later render', () => {
+    renderWithProviders(<SettingsHub />)
+    const index = screen.getByRole('navigation', { name: 'On this page' })
+
+    // Account is marked from mount, so this jump changes no marker state.
+    fireEvent.click(within(index).getByRole('link', { name: /^Account/ }))
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+
+    // The marker moving on re-renders the hub; Account must not be revealed
+    // again, and Feeds is revealed exactly once.
+    fireEvent.click(within(index).getByRole('link', { name: /^Feeds/ }))
+    const revealed = scrollIntoView.mock.contexts.map(
+      context => (context as HTMLElement).id
+    )
+    expect(revealed).toEqual(['account', 'feeds'])
+  })
+
+  it('lands on a fragment edited into the address bar', () => {
+    renderWithProviders(<SettingsHub />)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    act(() => {
+      setHash('#privacy')
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    const privacy = screen.getByRole('region', { name: 'Privacy and data' })
+    expect(scrollIntoView.mock.contexts).toEqual([privacy])
+    expect(privacy).toHaveFocus()
+    const rail = screen.getByRole('navigation', { name: 'Settings sections' })
+    expect(
+      within(rail).getByRole('link', { name: /^Privacy and data/ })
+    ).toHaveAttribute('aria-current', 'true')
   })
 
   it('leaves a modified click to the browser', () => {

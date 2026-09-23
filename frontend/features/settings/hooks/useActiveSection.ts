@@ -18,12 +18,34 @@ import { findAnchorTarget } from '../anchorTargets'
 const SELECTION_HOLD_MS = 1000
 
 /** Input that means the viewer is scrolling on their own, ending a hold. */
-const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown'] as const
+const USER_SCROLL_EVENTS = ['wheel', 'touchmove'] as const
+
+/** Keys that scroll the page when focus is not in a control. */
+const SCROLL_KEYS = new Set([
+  'ArrowDown',
+  'ArrowUp',
+  'End',
+  'Home',
+  'PageDown',
+  'PageUp',
+  ' ',
+])
+
+/** Elements that consume those keys themselves instead of scrolling. */
+const KEY_CONSUMING_TARGETS =
+  'input, textarea, select, button, [contenteditable], [role]'
+
+function isScrollKey(event: KeyboardEvent): boolean {
+  if (!SCROLL_KEYS.has(event.key)) return false
+  const target = event.target
+  return !(target instanceof Element && target.matches(KEY_CONSUMING_TARGETS))
+}
 
 /**
- * The line a section's top must pass to count as the one being read: the
- * section's own scroll margin, which is where a fragment jump parks it. A
- * section just landed on is therefore the section marked.
+ * The line a section's top must pass to count as the one being read: a
+ * section's scroll margin, which is where a jump parks it, so a section just
+ * landed on is the section marked. Read from the first section; every tracked
+ * section carries the same margin.
  */
 function readingLinePx(section: HTMLElement): number {
   return parseFloat(getComputedStyle(section).scrollMarginTop) || 0
@@ -86,7 +108,8 @@ function anchorAtScrollPosition(
  * A fragment that names a section, on load or on history traversal, and an
  * explicit `select` both mark that section outright and hold it while the
  * reveal scroll moves; the hold ends on a timer or on the viewer's own scroll
- * input, and the position is measured again when it does. The chosen section
+ * input (wheel, touch, or a scrolling key outside a control), and the position
+ * is measured again when it does. The chosen section
  * is remembered, for the bottom of the page where it cannot reach the reading
  * line, until the viewer scrolls on their own or its top leaves the screen.
  *
@@ -157,6 +180,9 @@ export function useActiveSection(
       cancelRelease()
       release()
     }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isScrollKey(event)) onUserScroll()
+    }
     const onHashChange = () => select(window.location.hash.replace(/^#/, ''))
 
     onHashChange()
@@ -165,6 +191,7 @@ export function useActiveSection(
     for (const type of USER_SCROLL_EVENTS) {
       window.addEventListener(type, onUserScroll, { passive: true })
     }
+    window.addEventListener('keydown', onKeyDown)
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame)
       cancelRelease()
@@ -176,6 +203,7 @@ export function useActiveSection(
       for (const type of USER_SCROLL_EVENTS) {
         window.removeEventListener(type, onUserScroll)
       }
+      window.removeEventListener('keydown', onKeyDown)
     }
   }, [anchors, rootRef, select, cancelRelease, release])
 
