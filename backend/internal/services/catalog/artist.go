@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
 	"net/url"
 	"strings"
 	"time"
@@ -1005,46 +1006,42 @@ func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, erro
 	return entries, nil
 }
 
-// artistCitiesScope keeps the keys of a browse filter set that a per-city
-// breakdown may be narrowed by, and drops every key that names a place.
+// artistCitiesScope is a browse filter set with the place keys removed.
 //
-// skip_active_filter rides with the tag filter because it IS the tag filter's
-// second half: the two are set together at the boundary, and a facet that kept
-// one without the other counts a different set than the list.
-//
-// The missing-listen-link filter is NOT read, and GET /artists/cities does not
-// accept it. That is a KNOWN gap rather than a neutral omission: the filter also
-// drops the activity gate (browseSkipsActiveGate), so under `?missing=` the list
-// is evergreen while this facet stays gated, and every count it reports is
-// smaller than the rows the list renders. Scoping it through is not a matter of
-// passing the key: with a place named the list narrows by the SCENE ROSTER, and
-// a per-place breakdown of a roster-scoped set is a different question from a
-// per-place breakdown of a literal-city one.
+// Every other key is handed to artistBrowseScope unread, so the list and this
+// breakdown share one reading of each narrowing. A narrowing reaches these
+// counts only once GetArtistCitiesRequest accepts it; the params tests in
+// city_facet_params_test.go hold the two request structs together.
 func artistCitiesScope(filters map[string]interface{}) map[string]interface{} {
-	scope := map[string]interface{}{}
-	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		scope["tag_filter"] = tf
-	}
-	if skip, ok := filters["skip_active_filter"].(bool); ok && skip {
-		scope["skip_active_filter"] = true
+	scope := maps.Clone(filters)
+	for _, key := range browsePlaceKeys {
+		delete(scope, key)
 	}
 	return scope
 }
 
 // GetArtistCities returns distinct cities for the artists the /artists browse
-// page lists, under the same tag filter, with artist counts.
+// page lists, under the same non-place filters, with artist counts.
 // Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
 //
 // Drawn through artistBrowseScope, the applier the page and its total already
 // share, so each city's count is the total GET /artists reports for that city
-// under the same tags. That is load-bearing rather than tidy here: a tag filter
-// drops the activity gate (PSY-495), so a facet that kept the gate would count a
-// strictly narrower set than the list it filters.
+// under the same filters. That is load-bearing rather than tidy here: both the
+// tag filter (PSY-495) and the missing-listen-link filter drop the activity
+// gate, so a facet that kept the gate would count a strictly narrower set than
+// the list it filters.
 //
-// The sum over every city equals the unplaced total EXCEPT for artists carrying
-// no city or state: they belong to the list and to no facet row, because there
-// is no place to file them under.
+// ONE filter breaks the per-city half of that equality, and only the per-city
+// half. Under missing-listen-link the list reads a named place as its SCENE, so
+// GET /artists?missing=listen&cities=City,ST answers for a metro-aware,
+// case-insensitive roster while the row here counts the stored city string. For
+// a place inside a CBSA the list total is the wider of the two. The SUM still
+// holds, because it is taken over a request that names no place.
+//
+// The sum over every city equals the unplaced total EXCEPT for artists missing a
+// city or a state: they belong to the list and to no facet row, because there is
+// no complete place to file them under.
 func (s *ArtistService) GetArtistCities(filters map[string]interface{}) ([]*contracts.ArtistCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

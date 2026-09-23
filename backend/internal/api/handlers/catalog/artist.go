@@ -143,14 +143,34 @@ type ListArtistsRequest struct {
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
-	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and takes AT MOST ONE city, which must name its state. That city is read as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string, and the default 'has an upcoming show' gate is dropped. Where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it; that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps this endpoint's own literal state matching." example:"listen"`
+	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate. GET /artists takes AT MOST ONE city with it, which must name its state, and reads that city as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string; where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it, and that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps literal state matching. GET /artists/cities has no place parameter: it breaks the same population down by the stored city string, so its counts sum to the list total for no place at all, less the bands missing a city or a state, which belong to no row." example:"listen"`
 }
 
-// artistMissingListen is the only value GET /artists' `missing` parameter takes.
-// It must stay equal to the `enum:"listen"` tag above: the tag is what an HTTP
-// caller is held to, this is what the handler reads, and the two are asserted
-// together in artist_pagination_tags_test.go.
+// artistMissingListen is the only value the `missing` parameter takes. It must
+// stay equal to the `enum:"listen"` tag above: the tag is what an HTTP caller is
+// held to, this is what the handler reads, and the two are asserted together in
+// artist_pagination_tags_test.go.
 const artistMissingListen = "listen"
+
+// applyArtistMissingFilter records the completeness gap a browse request asks
+// for. It is the only place `missing` becomes a filter key, for the list and its
+// city facet alike, so the two accept and refuse the same values.
+// ListArtistsHandler additionally gates the place shape on `missing`; that
+// guard is the list's alone, because the facet takes no place.
+//
+// It fails closed: huma's enum rejects an unrecognised value on the wire, and
+// this refuses it for callers that build the request struct directly.
+func applyArtistMissingFilter(missing string, filters map[string]interface{}) error {
+	switch missing {
+	case "":
+		return nil
+	case artistMissingListen:
+		filters[catalog.FilterMissingListenLink] = true
+		return nil
+	default:
+		return huma.Error422UnprocessableEntity("Unsupported missing filter")
+	}
+}
 
 // ListArtistsResponse represents the response for listing artists.
 //
@@ -225,15 +245,8 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 	// with a list built under a different rule is a wrong answer rather than a
 	// missing feature, and neither shape is visible to the reader once it
 	// renders.
-	//
-	// huma's enum rejects an unrecognised value on the wire before this runs,
-	// so the first guard answers for callers that build the struct directly.
-	switch req.Missing {
-	case "":
-	case artistMissingListen:
-		filters[catalog.FilterMissingListenLink] = true
-	default:
-		return nil, huma.Error422UnprocessableEntity("Unsupported missing filter")
+	if err := applyArtistMissingFilter(req.Missing, filters); err != nil {
+		return nil, err
 	}
 
 	// The second: this filter scopes a place by its SCENE, so it answers for ONE
@@ -292,16 +305,19 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 
 // GetArtistCitiesRequest represents the request for getting artist cities.
 //
-// The tag half of ListArtistsRequest, spelled identically down to the length
-// bound: the counts are drawn on the set GET /artists would list under the same
-// parameters, and a parameter the two spell differently is a request one of them
-// refuses and the other answers. TestArtistTagParamsMatch holds them together.
+// The narrowing half of ListArtistsRequest, spelled identically down to the
+// length bound: the counts are drawn on the set GET /artists would list under the
+// same parameters, and a parameter the two spell differently is a request one of
+// them refuses and the other answers. TestArtistTagParamsMatch and
+// TestArtistMissingParamsMatch hold them together.
 //
-// The PLACE half is deliberately absent — the response is the per-place
-// breakdown.
+// Only the narrowings. The PLACE half is deliberately absent because the
+// response IS the per-place breakdown, and the PAGE half (limit, offset) because
+// a breakdown is not paged.
 type GetArtistCitiesRequest struct {
 	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+	Missing  string `query:"missing" required:"false" maxLength:"16" enum:"listen" doc:"Restrict to a completeness gap. 'listen' selects the bands with none of spotify, bandcamp, youtube or soundcloud, and drops the default 'has an upcoming show' gate. GET /artists takes AT MOST ONE city with it, which must name its state, and reads that city as its SCENE, so it matches the scene's metro-aware, case-insensitive roster rather than the stored city string; where that place is a scene, the total equals the artists_missing_listen_link count GET /scenes/{slug}/gaps publishes for it, and that endpoint additionally 404s for a place with too few verified venues to be a scene, where this one still answers. A bare state= names no scene and keeps literal state matching. GET /artists/cities has no place parameter: it breaks the same population down by the stored city string, so its counts sum to the list total for no place at all, less the bands missing a city or a state, which belong to no row." example:"listen"`
 }
 
 // GetArtistCitiesResponse represents the response for the artist cities endpoint
@@ -316,12 +332,17 @@ type GetArtistCitiesResponse struct {
 // The tag filter is capped and paired with skip_active_filter exactly as
 // ListArtistsHandler does it: a tag filter engaged there drops the activity
 // gate, so a facet that read the tags without the pairing would count the gated
-// set under a filter that lists the evergreen one.
+// set under a filter that lists the evergreen one. The gap filter carries its
+// own gate switch inside the service, so it needs no pairing here.
 func (h *ArtistHandler) GetArtistCitiesHandler(ctx context.Context, req *GetArtistCitiesRequest) (*GetArtistCitiesResponse, error) {
 	filters := map[string]interface{}{}
 	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
 		filters["tag_filter"] = tf
 		filters["skip_active_filter"] = true
+	}
+
+	if err := applyArtistMissingFilter(req.Missing, filters); err != nil {
+		return nil, err
 	}
 
 	cities, err := h.artistService.GetArtistCities(filters)
