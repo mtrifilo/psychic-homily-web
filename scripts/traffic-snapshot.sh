@@ -141,6 +141,121 @@ except ValueError:
 ' "$1" || die "invalid date '$1' for $2 (expected YYYY-MM-DD)"
 }
 
+# pages_per_visit <visitors> <pageviews>
+#
+# Two decimals, rounded half-up in exact decimal arithmetic so a tie such as
+# 201/200 prints 1.01 rather than a binary-float 1.00. "n/a" for zero visitors.
+pages_per_visit() {
+  python3 -c '
+import decimal, sys
+visitors, pageviews = int(sys.argv[1]), int(sys.argv[2])
+if visitors == 0:
+    print("n/a")
+else:
+    ratio = decimal.Decimal(pageviews) / decimal.Decimal(visitors)
+    print(ratio.quantize(decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_UP))
+' "$1" "$2"
+}
+
+# find_prior_capture <dir> <since> <until>
+#
+# Prints "<file> TAB <since> TAB <until> TAB <overlap-days>" for the most recent
+# window-keyed snapshot in <dir> with the same window length as <since>..<until>
+# that ends before <until>, or nothing when there is none. Same length only: a
+# since-launch rollup beside 28-day captures is a different series.
+# Capture-date-named files do not match the pattern and are never selected.
+find_prior_capture() {
+  python3 -c '
+import datetime, os, re, sys
+directory, since, until = sys.argv[1:4]
+start = datetime.date.fromisoformat(since)
+end = datetime.date.fromisoformat(until)
+pattern = re.compile(r"traffic-snapshot-([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{4}-[0-9]{2}-[0-9]{2})\.md")
+try:
+    names = os.listdir(directory)
+except FileNotFoundError:
+    names = []
+best = None
+for name in names:
+    match = pattern.fullmatch(name)
+    if not match:
+        continue
+    try:
+        prior_start = datetime.date.fromisoformat(match.group(1))
+        prior_end = datetime.date.fromisoformat(match.group(2))
+    except ValueError:
+        continue
+    if prior_end >= end or prior_end - prior_start != end - start:
+        continue
+    if best is None or (prior_end, prior_start) > (best[2], best[1]):
+        best = (name, prior_start, prior_end)
+if best is not None:
+    overlap = max(0, (best[2] - start).days + 1)
+    print(f"{best[0]}\t{best[1]}\t{best[2]}\t{overlap}")
+' "$1" "$2" "$3"
+}
+
+# read_prior_depth <file> <since> <until>
+#
+# Prints "<google-visitors> <google-pageviews> <total-visitors> <total-pageviews>"
+# from a previous snapshot's machine-captured tables, or exits non-zero with a
+# one-line reason on stderr. The google.com figures are summed from that doc's
+# Google organic daily table and must equal its own headline count; the totals
+# come from its headline line. Any shape it does not recognise is a refusal,
+# never a partial read, so a format change degrades to "no prior figure".
+read_prior_depth() {
+  python3 -c '
+import re, sys
+
+def refuse(reason):
+    print(reason, file=sys.stderr)
+    sys.exit(1)
+
+path, since, until = sys.argv[1:4]
+try:
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().split("\n")
+except (OSError, UnicodeDecodeError) as exc:
+    refuse(f"could not read it: {type(exc).__name__}")
+
+window = [line for line in lines if line.startswith("**Window:** ")]
+if len(window) != 1 or not window[0].startswith(f"**Window:** {since} → {until} ("):
+    refuse("its Window line does not match its filename")
+
+totals = [m for m in (re.fullmatch(r"\*\*([0-9]+) visitors · ([0-9]+) pageviews\*\* \(raw, uncorrected\)\.", line) for line in lines) if m]
+if len(totals) != 1:
+    refuse("it has no single headline totals line")
+
+def index_of(heading, start):
+    try:
+        return lines.index(heading, start)
+    except ValueError:
+        refuse(f"it has no {heading} heading")
+
+section = index_of("## Google organic", 0)
+daily = index_of("### Daily", section)
+landing = index_of("### Landing pages", daily)
+headline = [m for m in (re.match(r"\*\*([0-9]+) google\.com-referred visitors\*\*", line) for line in lines[section:daily]) if m]
+if len(headline) != 1:
+    refuse("it has no single google.com headline count")
+
+visitors = pageviews = 0
+for line in lines[daily + 1:landing]:
+    if not line.startswith("|"):
+        continue
+    row = re.fullmatch(r"\| [0-9]{4}-[0-9]{2}-[0-9]{2} \| ([0-9]+) \| ([0-9]+) \|", line)
+    if row:
+        visitors += int(row.group(1))
+        pageviews += int(row.group(2))
+    elif line not in ("| Date | Visitors | Pageviews |", "| --- | ---: | ---: |", "| _no data in this window_ | | |"):
+        refuse("its google.com daily table has an unrecognised row")
+if visitors != int(headline[0].group(1)):
+    refuse("its google.com daily table does not sum to its headline count")
+
+print(visitors, pageviews, totals[0].group(1), totals[0].group(2))
+' "$1" "$2" "$3"
+}
+
 # --- Argument parsing -------------------------------------------------------
 
 while [ $# -gt 0 ]; do
@@ -374,6 +489,45 @@ PAGEVIEWS="$(jq -re '.data.pageviews' "$WORK_DIR/count.json")" \
   || die "could not read pageview total from the API response"
 GOOGLE_VISITORS="$(jq -re '[.data[].visitors] | add // 0' "$WORK_DIR/google-daily.json")" \
   || die "could not read the google.com-referred visitor series"
+# Numerator and denominator both come from the daily series: the referrer table
+# covers the wider breakdown window, so mixing the two would divide across
+# windows.
+GOOGLE_PAGEVIEWS="$(jq -re '[.data[].pageviews] | add // 0' "$WORK_DIR/google-daily.json")" \
+  || die "could not read the google.com-referred pageview series"
+GOOGLE_DEPTH="$(pages_per_visit "$GOOGLE_VISITORS" "$GOOGLE_PAGEVIEWS")" \
+  || die "could not compute google.com pages per visit"
+TOTAL_DEPTH="$(pages_per_visit "$VISITORS" "$PAGEVIEWS")" \
+  || die "could not compute all-traffic pages per visit"
+
+# Depth table rows, current window first, then the prior capture's figures when
+# one is found and reads cleanly. A prior capture that is missing or unreadable
+# yields no prior rows and a note saying so; it never yields a guessed figure.
+DEPTH_GOOGLE_ROWS="| google.com | ${SINCE} → ${UNTIL} | ${GOOGLE_VISITORS} | ${GOOGLE_PAGEVIEWS} | ${GOOGLE_DEPTH} |"
+DEPTH_TOTAL_ROWS="| All traffic, raw (includes crawlers) | ${SINCE} → ${UNTIL} | ${VISITORS} | ${PAGEVIEWS} | ${TOTAL_DEPTH} |"
+PRIOR_CAPTURE="$(find_prior_capture "$OUT_DIR" "$SINCE" "$UNTIL")" \
+  || die "could not search $OUT_DIR for a prior capture"
+if [ -z "$PRIOR_CAPTURE" ]; then
+  DEPTH_PRIOR_NOTE="Prior capture: none found alongside this file (no ${WINDOW_DAYS}-day \`traffic-snapshot-<since>_<until>.md\` ending before ${UNTIL}), so there is no prior figure."
+else
+  IFS=$'\t' read -r PRIOR_FILE PRIOR_SINCE PRIOR_UNTIL PRIOR_OVERLAP <<<"$PRIOR_CAPTURE"
+  if PRIOR_COUNTS="$(read_prior_depth "$OUT_DIR/$PRIOR_FILE" "$PRIOR_SINCE" "$PRIOR_UNTIL" 2>"$WORK_DIR/prior-error")"; then
+    read -r PRIOR_GOOGLE_VISITORS PRIOR_GOOGLE_PAGEVIEWS PRIOR_VISITORS PRIOR_PAGEVIEWS <<<"$PRIOR_COUNTS"
+    PRIOR_GOOGLE_DEPTH="$(pages_per_visit "$PRIOR_GOOGLE_VISITORS" "$PRIOR_GOOGLE_PAGEVIEWS")" \
+      || die "could not compute the prior google.com pages per visit"
+    PRIOR_TOTAL_DEPTH="$(pages_per_visit "$PRIOR_VISITORS" "$PRIOR_PAGEVIEWS")" \
+      || die "could not compute the prior all-traffic pages per visit"
+    DEPTH_GOOGLE_ROWS="${DEPTH_GOOGLE_ROWS}
+| google.com, prior capture | ${PRIOR_SINCE} → ${PRIOR_UNTIL} | ${PRIOR_GOOGLE_VISITORS} | ${PRIOR_GOOGLE_PAGEVIEWS} | ${PRIOR_GOOGLE_DEPTH} |"
+    DEPTH_TOTAL_ROWS="${DEPTH_TOTAL_ROWS}
+| All traffic, raw (includes crawlers), prior capture | ${PRIOR_SINCE} → ${PRIOR_UNTIL} | ${PRIOR_VISITORS} | ${PRIOR_PAGEVIEWS} | ${PRIOR_TOTAL_DEPTH} |"
+    DEPTH_PRIOR_NOTE="Prior capture: \`${PRIOR_FILE}\`, read from its own daily and headline tables."
+    if [ "$PRIOR_OVERLAP" -gt 0 ]; then
+      DEPTH_PRIOR_NOTE="${DEPTH_PRIOR_NOTE} It overlaps this window by ${PRIOR_OVERLAP} days, so the two rows share those days."
+    fi
+  else
+    DEPTH_PRIOR_NOTE="Prior capture: \`${PRIOR_FILE}\` was found but not read ($(head -n 1 "$WORK_DIR/prior-error")), so there is no prior figure."
+  fi
+fi
 
 WIN_COUNT="$(effective_window "$WORK_DIR/count.json")"      || die "unreadable window: count"
 WIN_REFERRERS="$(effective_window "$WORK_DIR/referrers.json")" || die "unreadable window: referrers"
@@ -451,6 +605,14 @@ month you want to keep.
    leaves them with a one-hour overhang past the window end. Each section
    records the window the API actually used; trust that line over the header
    when reconciling.
+7. **Pages per visit is ambiguous on its own.** The Depth table under Google
+   organic divides pageviews by visitors (visitor-days, per trap 1). A search
+   visitor who leaves after one page may have been answered (a successful
+   snack) or failed by the landing, and the figure cannot tell those apart,
+   so it stays ambiguous until landings are honest in the first paint
+   (\`growth-and-return-2026-09.md\`). Quote the google.com row. The
+   all-traffic row includes crawlers: quote Google organic + GSC, never raw
+   Vercel totals.
 
 ---
 
@@ -500,6 +662,20 @@ against the referrer table.
 
 Filter: \`${GOOGLE_FILTER}\`
 
+### Depth
+
+Pages per visit is pageviews divided by visitors. The google.com rows sum the
+daily series below, so numerator and denominator cover the same window; the
+all-traffic rows are the raw headline totals. Read trap 7 before quoting
+either.
+
+| Cohort | Window | Visitors | Pageviews | Pages per visit |
+| --- | --- | ---: | ---: | ---: |
+${DEPTH_GOOGLE_ROWS}
+${DEPTH_TOTAL_ROWS}
+
+${DEPTH_PRIOR_NOTE}
+
 ### Daily
 
 Effective window: \`${WIN_GDAILY}\`
@@ -546,6 +722,9 @@ _Fill this in by hand. The tables above are the durable machine-captured part;_
 _what the numbers mean is not something the script can know. Record at minimum:_
 _which segments were excluded as bots and why, which channels grew, and what_
 _changed since the previous snapshot._
+
+- **Depth:** _google.com pages per visit this window against the prior capture_
+  _(Depth table under Google organic), and what moved it or did not._
 
 ## How this was captured
 
