@@ -50,7 +50,25 @@ describe('useFragmentLanding', () => {
     expect(onLand).not.toHaveBeenCalled()
   })
 
-  it('lands again when the fragment is edited on this page', () => {
+  // The App Router reloads the document on a popstate whose state is not its
+  // own, so landing must write nothing to a history entry.
+  it('leaves a null-state history entry null after landing', () => {
+    window.history.replaceState(null, '', '/settings#alerts')
+    render(<Page />)
+    expect(landedOn()).toEqual(['alerts'])
+    expect(window.history.state).toBeNull()
+  })
+
+  it('leaves a router-owned history entry untouched after landing', () => {
+    const state = { __NA: true, tree: ['/settings'] }
+    window.history.replaceState(state, '', '/settings#alerts')
+    render(<Page />)
+    expect(window.history.state).toEqual(state)
+  })
+
+  // Fragment changes after mount are the browser's own navigation.
+  it('does not land on a later hashchange', () => {
+    window.history.replaceState(null, '', '/settings#alerts')
     render(<Page />)
     act(() => {
       const oldURL = window.location.href
@@ -59,42 +77,24 @@ describe('useFragmentLanding', () => {
         new HashChangeEvent('hashchange', { oldURL, newURL: window.location.href })
       )
     })
-    expect(landedOn()).toEqual(['privacy'])
-    expect(onLand).toHaveBeenCalledWith('privacy')
-  })
-
-  it('ignores a hashchange that arrives from another path', () => {
-    render(<Page />)
-    act(() => {
-      window.history.replaceState(null, '', '/settings#privacy')
-      window.dispatchEvent(
-        new HashChangeEvent('hashchange', {
-          oldURL: `${window.location.origin}/profile?tab=settings`,
-          newURL: window.location.href,
-        })
-      )
-    })
-    expect(scrollIntoView).not.toHaveBeenCalled()
-  })
-
-  it('does not land again when the page mounts afresh on the same entry', () => {
-    window.history.replaceState({ routerOwned: true }, '', '/settings#alerts')
-    const first = render(<Page />)
-    expect(landedOn()).toEqual(['alerts'])
-    // The router's own state on the entry survives the landing record.
-    expect(window.history.state).toMatchObject({ routerOwned: true })
-    first.unmount()
-
-    render(<Page />)
     expect(landedOn()).toEqual(['alerts'])
     expect(onLand).toHaveBeenCalledTimes(1)
   })
 
-  it('lands on a new history entry even with the same fragment', () => {
+  it('does not land on a later popstate', () => {
+    render(<Page />)
+    act(() => {
+      window.history.replaceState(null, '', '/settings#privacy')
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }))
+    })
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  // A reload or any fresh mount is a new page instance and lands again.
+  it('lands again on a fresh mount', () => {
     window.history.replaceState(null, '', '/settings#alerts')
     const first = render(<Page />)
     first.unmount()
-    window.history.pushState(null, '', '/settings#alerts')
     render(<Page />)
     expect(landedOn()).toEqual(['alerts', 'alerts'])
   })

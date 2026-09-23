@@ -222,21 +222,16 @@ describe('SettingsHub', () => {
     expect(revealed).toEqual(['account', 'feeds'])
   })
 
-  it('lands on a fragment edited into the address bar', () => {
+  // A fragment change after mount is the browser's own navigation.
+  it('stays out of a fragment edited into the address bar after mount', () => {
     renderWithProviders(<SettingsHub />)
-    expect(scrollIntoView).not.toHaveBeenCalled()
 
     act(() => {
       setHash('#privacy')
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     })
-    const privacy = screen.getByRole('region', { name: 'Privacy and data' })
-    expect(scrollIntoView.mock.contexts).toEqual([privacy])
-    expect(privacy).toHaveFocus()
-    const rail = screen.getByRole('navigation', { name: 'Settings sections' })
-    expect(
-      within(rail).getByRole('link', { name: /^Privacy and data/ })
-    ).toHaveAttribute('aria-current', 'true')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(window.history.state).toBeNull()
   })
 
   // A native fragment navigation adds a history entry the App Router cannot
