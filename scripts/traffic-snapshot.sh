@@ -164,6 +164,8 @@ else:
 # that ends before <until>, or nothing when there is none. Same length only: a
 # since-launch rollup beside 28-day captures is a different series.
 # Capture-date-named files do not match the pattern and are never selected.
+# find_prior_queue in gsc-snapshot.sh applies the same selection rule to the
+# zero-click queue files; the two change together.
 find_prior_capture() {
   python3 -c '
 import datetime, os, re, sys
@@ -195,14 +197,19 @@ if best is not None:
 ' "$1" "$2" "$3"
 }
 
-# read_prior_depth <file> <since> <until>
+# read_prior_depth <file> <since> <until> <google-filter>
 #
 # Prints "<google-visitors> <google-pageviews> <total-visitors> <total-pageviews>"
 # from a previous snapshot's machine-captured tables, or exits non-zero with a
 # one-line reason on stderr. The google.com figures are summed from that doc's
-# Google organic daily table and must equal its own headline count; the totals
-# come from its headline line. Any shape it does not recognise is a refusal,
-# never a partial read, so a format change degrades to "no prior figure".
+# Google organic daily table and the visitor sum must equal its own headline
+# count (the doc has no pageview headline, so pageviews are taken as written); the totals
+# come from its headline line; its Filter line must name <google-filter>. Each
+# anchor it reads (the Window, headline, and Filter lines, the Google organic,
+# Daily, and Landing pages headings, the daily table rows) is a line this
+# script's own doc template emits, and each must appear exactly once. Any shape
+# it does not recognise is a refusal, never a partial read, so a template
+# change degrades to "no prior figure" rather than to a wrong one.
 read_prior_depth() {
   python3 -c '
 import re, sys
@@ -211,7 +218,7 @@ def refuse(reason):
     print(reason, file=sys.stderr)
     sys.exit(1)
 
-path, since, until = sys.argv[1:4]
+path, since, until, google_filter = sys.argv[1:5]
 try:
     with open(path, encoding="utf-8") as handle:
         lines = handle.read().split("\n")
@@ -226,18 +233,22 @@ totals = [m for m in (re.fullmatch(r"\*\*([0-9]+) visitors · ([0-9]+) pageviews
 if len(totals) != 1:
     refuse("it has no single headline totals line")
 
-def index_of(heading, start):
-    try:
-        return lines.index(heading, start)
-    except ValueError:
-        refuse(f"it has no {heading} heading")
+def index_of(heading):
+    if lines.count(heading) != 1:
+        refuse(f"it does not have exactly one {heading} heading")
+    return lines.index(heading)
 
-section = index_of("## Google organic", 0)
-daily = index_of("### Daily", section)
-landing = index_of("### Landing pages", daily)
+section = index_of("## Google organic")
+daily = index_of("### Daily")
+landing = index_of("### Landing pages")
+if not section < daily < landing:
+    refuse("its Google organic headings are out of order")
 headline = [m for m in (re.match(r"\*\*([0-9]+) google\.com-referred visitors\*\*", line) for line in lines[section:daily]) if m]
 if len(headline) != 1:
     refuse("it has no single google.com headline count")
+filters = [line for line in lines[section:daily] if line.startswith("Filter: ")]
+if filters != [f"Filter: `{google_filter}`"]:
+    refuse("its google.com filter is not the current one")
 
 visitors = pageviews = 0
 for line in lines[daily + 1:landing]:
@@ -253,7 +264,14 @@ if visitors != int(headline[0].group(1)):
     refuse("its google.com daily table does not sum to its headline count")
 
 print(visitors, pageviews, totals[0].group(1), totals[0].group(2))
-' "$1" "$2" "$3"
+' "$1" "$2" "$3" "$4"
+}
+
+# depth_row <label> <since> <until> <visitors> <pageviews>: one Depth table row.
+depth_row() {
+  local ratio
+  ratio="$(pages_per_visit "$4" "$5")" || return 1
+  printf '| %s | %s → %s | %s | %s | %s |' "$1" "$2" "$3" "$4" "$5" "$ratio"
 }
 
 # --- Argument parsing -------------------------------------------------------
@@ -495,13 +513,6 @@ GOOGLE_VISITORS="$(jq -re '[.data[].visitors] | add // 0' "$WORK_DIR/google-dail
 GOOGLE_PAGEVIEWS="$(jq -re '[.data[].pageviews] | add // 0' "$WORK_DIR/google-daily.json")" \
   || die "could not read the google.com-referred pageview series"
 
-# depth_row <label> <since> <until> <visitors> <pageviews>: one Depth table row.
-depth_row() {
-  local ratio
-  ratio="$(pages_per_visit "$4" "$5")" || return 1
-  printf '| %s | %s → %s | %s | %s | %s |' "$1" "$2" "$3" "$4" "$5" "$ratio"
-}
-
 # Depth table rows, current window first, then the prior capture's figures when
 # one is found and reads cleanly. A prior capture that is missing or unreadable
 # yields no prior rows and a note saying so; it never yields a guessed figure.
@@ -515,7 +526,7 @@ if [ -z "$PRIOR_CAPTURE" ]; then
   DEPTH_PRIOR_NOTE="Prior capture: none found alongside this file (no ${WINDOW_DAYS}-day \`traffic-snapshot-<since>_<until>.md\` ending before ${UNTIL}), so there is no prior figure."
 else
   IFS=$'\t' read -r PRIOR_FILE PRIOR_SINCE PRIOR_UNTIL PRIOR_OVERLAP <<<"$PRIOR_CAPTURE"
-  if PRIOR_COUNTS="$(read_prior_depth "$OUT_DIR/$PRIOR_FILE" "$PRIOR_SINCE" "$PRIOR_UNTIL" 2>"$WORK_DIR/prior-error")"; then
+  if PRIOR_COUNTS="$(read_prior_depth "$OUT_DIR/$PRIOR_FILE" "$PRIOR_SINCE" "$PRIOR_UNTIL" "$GOOGLE_FILTER" 2>"$WORK_DIR/prior-error")"; then
     read -r PRIOR_GOOGLE_VISITORS PRIOR_GOOGLE_PAGEVIEWS PRIOR_VISITORS PRIOR_PAGEVIEWS <<<"$PRIOR_COUNTS"
     PRIOR_GOOGLE_ROW="$(depth_row "google.com, prior capture" "$PRIOR_SINCE" "$PRIOR_UNTIL" "$PRIOR_GOOGLE_VISITORS" "$PRIOR_GOOGLE_PAGEVIEWS")" \
       || die "could not compute the prior google.com pages per visit"
@@ -559,6 +570,11 @@ TBL_COUNTRIES="$(render_dimension_table "$WORK_DIR/countries.json" country)" \
   || die "failed to render the country table"
 
 DOC_PATH="$WORK_DIR/$DOC_NAME"
+
+# read_prior_depth reads these template lines back from earlier snapshots: the
+# Window, headline totals, Google organic headline and Filter lines, the Google
+# organic, Daily, and Landing pages headings, and the google.com daily table
+# rows. Editing any of them makes every earlier snapshot report "not read".
 
 {
   cat <<EOF
@@ -616,8 +632,8 @@ month you want to keep.
    snack) or failed by the landing, and the figure cannot tell those apart,
    so it stays ambiguous until landings are honest in the first paint
    (\`growth-and-return-2026-09.md\`). Quote the google.com row. The
-   all-traffic row includes crawlers: quote Google organic + GSC, never raw
-   Vercel totals.
+   all-traffic row is there as context only and includes crawlers: quote
+   Google organic + GSC, never raw Vercel totals.
 
 ---
 

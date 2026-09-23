@@ -205,12 +205,18 @@ if best is not None:
 
 # queue_meta <since> <until>
 #
-# The exact first line of the zero-click queue file for that window. A prior
-# queue file is read only when its first line equals queue_meta for the window
-# in its filename, so a renamed file or a changed filter is never diffed.
+# The first line of the zero-click queue file for that window, up to the
+# served_days field the writer appends. A prior queue file is read only when
+# its first line starts with queue_meta for the window in its filename, so a
+# renamed file, another property, or a changed filter is never diffed. The
+# version names the cell format and membership rule (esc, pos1, pair_key,
+# zero_click, the column set); a change to any of them bumps it, so older
+# files stop matching instead of producing false new or dropped pairs.
+# find_prior_capture in traffic-snapshot.sh applies the same selection rule as
+# find_prior_queue; the two change together.
 queue_meta() {
-  printf '# gsc-zero-click v1 window=%s_%s min_impressions=%s max_position=%s doc=gsc-snapshot-%s_%s.md' \
-    "$1" "$2" "$ZERO_CLICK_MIN_IMPRESSIONS" "$ZERO_CLICK_MAX_POSITION" "$1" "$2"
+  printf '# gsc-zero-click v1 window=%s_%s site=%s min_impressions=%s max_position=%s doc=gsc-snapshot-%s_%s.md' \
+    "$1" "$2" "$SITE" "$ZERO_CLICK_MIN_IMPRESSIONS" "$ZERO_CLICK_MAX_POSITION" "$1" "$2"
 }
 
 # --- Argument parsing -------------------------------------------------------
@@ -568,7 +574,7 @@ render_metric_table() {
 # so a cell can never split a row or a column.
 write_zero_click_queue() {
   jq -r --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" \
-    --arg meta "$(queue_meta "$SINCE" "$UNTIL")" --arg header "$QUEUE_HEADER" "$JQ_DEFS"'
+    --arg meta "$(queue_meta "$SINCE" "$UNTIL") served_days=${SERVED_ROWS}" --arg header "$QUEUE_HEADER" "$JQ_DEFS"'
     $meta, $header,
     (zero_click($min; $maxpos)[]
       | [(.keys[0] | esc), (.keys[1] | esc), (.impressions | tostring), (.position | pos1 | tostring)]
@@ -595,14 +601,23 @@ render_zero_click_diff() {
     printf '%s\n' "Prior capture: \`${prior_file}\` was found but is not a readable file, so there is no diff."
     return 0
   fi
+  # A queue file is a complete capture only beside its own doc: publication
+  # writes the queue first, so a queue without its doc is a run that failed.
+  if [ ! -f "$OUT_DIR/gsc-snapshot-${prior_since}_${prior_until}.md" ]; then
+    printf '%s\n' "Prior capture: \`${prior_file}\` was found without its doc \`gsc-snapshot-${prior_since}_${prior_until}.md\`, so there is no diff."
+    return 0
+  fi
 
   # Parse and validate the prior file as a whole before any of it is used:
   # the result is {rows: [...]} or {error: "<reason>"}, never a partial read.
   jq -n --rawfile tsv "$OUT_DIR/$prior_file" \
     --arg meta "$(queue_meta "$prior_since" "$prior_until")" --arg header "$QUEUE_HEADER" "$JQ_DEFS"'
     ($tsv | rtrimstr("\n") | split("\n")) as $lines
-    | if $lines[0] != $meta then
-        {error: "its first line does not name its own window and the current zero-click filter"}
+    | ($meta + " served_days=") as $meta_prefix
+    | if ($lines[0] | type) != "string"
+        or ($lines[0] | startswith($meta_prefix) | not)
+        or ($lines[0] | ltrimstr($meta_prefix) | test("^[0-9]+$") | not) then
+        {error: "its first line does not name its own window, this property, and the current zero-click filter"}
       elif $lines[1] != $header then
         {error: "its column header is missing or different"}
       else
@@ -616,7 +631,10 @@ render_zero_click_diff() {
           then {error: "it has a row that is not four escaped cells"}
           elif ($rows | map(key_of(.[0]; .[1])) | unique | length) != ($rows | length)
           then {error: "it lists a (query, page) pair twice"}
-          else {rows: [$rows[] | {query: .[0], page: .[1], impressions: (.[2] | tonumber), position: (.[3] | tonumber)}]}
+          else {
+            served_days: ($lines[0] | ltrimstr($meta_prefix) | tonumber),
+            rows: [$rows[] | {query: .[0], page: .[1], impressions: (.[2] | tonumber), position: (.[3] | tonumber)}]
+          }
           end
       end
   ' >"$WORK_DIR/prior-queue.json" || return 1
@@ -632,19 +650,24 @@ render_zero_click_diff() {
     prior_note="${prior_note} It overlaps this window by ${prior_overlap} days, so impressions from those days count on both sides."
   fi
 
+  # Served days sit beside the counts because a window short on served days
+  # (the lag tail) pushes pairs under the impressions threshold on its own.
   jq -r --slurpfile prior "$WORK_DIR/prior-queue.json" --arg note "$prior_note" \
+    --argjson served "$SERVED_ROWS" --argjson days "$WINDOW_DAYS" \
     --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" "$JQ_DEFS"'
     def table_rows($empty; row): if length == 0 then $empty else (.[] | row) end;
-    ((.rows // []) | first_by_pair_key | map({key: pair_key, value: .}) | from_entries) as $fetched
+    ((.rows // []) | sort_by(-.impressions) | first_by_pair_key | map({key: pair_key, value: .}) | from_entries) as $fetched
     | (zero_click($min; $maxpos) | map({key: pair_key, row: .})) as $current
     | ($prior[0].rows | map({key: key_of(.query; .page), row: .})) as $previous
     | ($current | map({key, value: true}) | from_entries) as $in_current
     | ($previous | map({key, value: true}) | from_entries) as $in_previous
     | [$current[] | select($in_previous[.key] | not)] as $new
-    | [$previous[] | select(($fetched[.key].clicks // 0) > 0)] as $clicked
+    | [$previous[] | select(($in_current[.key] | not) and (($fetched[.key].clicks // 0) > 0))] as $clicked
     | [$previous[] | select(($in_current[.key] | not) and (($fetched[.key].clicks // 0) == 0))] as $gone
     | (($current | length) - ($new | length)) as $kept
     | $note,
+      "",
+      "Served days: this window \($served) of \($days), prior capture \($prior[0].served_days) of \($days).",
       "",
       "Prior queue \($previous | length) pairs, this queue \($current | length): \($new | length) new, \($kept) still queued, \($clicked | length) now clicked, \($gone | length) no longer qualifying.",
       "",
@@ -770,7 +793,7 @@ case "$CAPPED_FETCHES" in
         end
     ' "$WORK_DIR/query-page.json")" || die "failed to render the zero-click table"
     write_zero_click_queue "$QUEUE_PATH" || die "failed to write the zero-click queue file"
-    ZERO_CLICK_QUEUE_NOTE="Full queue: all ${ZERO_CLICK_QUALIFYING} qualifying pairs, in the order above, are in \`${QUEUE_NAME}\` alongside this file: tab-separated after a metadata line and a column header, pages as full URLs, every cell escaped as in trap 5."
+    ZERO_CLICK_QUEUE_NOTE="Full queue: all ${ZERO_CLICK_QUALIFYING} qualifying pairs, in the order above, are in \`${QUEUE_NAME}\` alongside this file: tab-separated after a metadata line and a column header, pages as full URLs, every cell escaped as in trap 5. Its query cells are untrusted search strings that can start with =, +, - or @, so open it as plain text, not in a spreadsheet that evaluates formulas."
     ZERO_CLICK_DIFF="$(render_zero_click_diff)" || die "failed to render the zero-click diff"
     ;;
 esac
