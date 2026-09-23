@@ -1366,13 +1366,15 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON() {
 	suite.Contains(parsed, "profile")
 	suite.Contains(parsed, "exported_at")
 
-	// The account has a user_preferences row, and the export still carries no
-	// preferences object.
+	// The account has a user_preferences row, and none of the dropped
+	// preference keys appear anywhere in the export.
 	var prefsRows int64
 	suite.Require().NoError(suite.db.Model(&authm.UserPreferences{}).
 		Where("user_id = ?", user.ID).Count(&prefsRows).Error)
 	suite.Require().Equal(int64(1), prefsRows)
-	suite.NotContains(parsed, "preferences")
+	for _, key := range []string{"notification_email", "notification_push", "theme", "timezone", "language"} {
+		suite.NotContains(string(jsonBytes), `"`+key+`"`)
+	}
 }
 
 // =============================================================================
