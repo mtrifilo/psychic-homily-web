@@ -121,9 +121,9 @@ describe('useActiveSection', () => {
     expect(result.current.activeAnchor).toBe('third')
   })
 
-  it('marks a cold-loaded fragment outright and holds it while the jump settles', () => {
-    window.history.replaceState(null, '', '/settings#third')
+  it('marks a selected section outright and holds it while the jump settles', () => {
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('third'))
     expect(result.current.activeAnchor).toBe('third')
 
     // The jump cannot bring a short last-but-one section to the line; the
@@ -243,23 +243,48 @@ describe('useActiveSection', () => {
   })
 
   it('maps a fragment for a row inside a section to that section', () => {
-    window.history.replaceState(null, '', '/settings#second-row')
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('second-row'))
     expect(result.current.activeAnchor).toBe('second')
   })
 
-  it('follows a hash change and ignores fragments it does not track', () => {
+  it('ignores fragments it does not track', () => {
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => result.current.select('second'))
+    act(() => result.current.select('elsewhere'))
+    expect(result.current.activeAnchor).toBe('second')
+  })
 
+  it('does not read the address bar itself', () => {
+    window.history.replaceState(null, '', '/settings#third')
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
     act(() => {
-      window.history.replaceState(null, '', '/settings#second')
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     })
-    expect(result.current.activeAnchor).toBe('second')
+    expect(result.current.activeAnchor).toBe('first')
+  })
+
+  it('carries a hold across an effect re-run and still releases it', () => {
+    const { result, rerender } = renderHook(
+      ({ ref }) => useActiveSection(ANCHORS, ref),
+      { initialProps: { ref: rootRef } }
+    )
+    act(() => result.current.select('third'))
+
+    // A new root ref object re-runs the effect, as a hidden route shown
+    // again does: the hold must survive and its release must still fire.
+    const nextRef = { current: root as HTMLElement | null }
+    rerender({ ref: nextRef })
+    tops = { first: -700, second: 40, third: 900 }
+    setScroll({ scrollY: 800, innerHeight: 800, scrollHeight: 3000 })
+    act(() => {
+      window.dispatchEvent(new Event('scroll'))
+      vi.advanceTimersByTime(16)
+    })
+    expect(result.current.activeAnchor).toBe('third')
 
     act(() => {
-      window.history.replaceState(null, '', '/settings#elsewhere')
-      window.dispatchEvent(new HashChangeEvent('hashchange'))
+      vi.advanceTimersByTime(1000)
     })
     expect(result.current.activeAnchor).toBe('second')
   })

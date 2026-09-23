@@ -95,7 +95,7 @@ function SettingsSectionView({ section }: { section: SettingsSection }) {
 export function SettingsHub() {
   const hubRef = useRef<HTMLDivElement>(null)
   const { activeAnchor, select } = useActiveSection(SECTION_ANCHORS, hubRef)
-  useFragmentLanding(hubRef)
+  useFragmentLanding(hubRef, select)
   const jump = useCallback(
     (anchor: string) => {
       jumpToAnchor(hubRef.current, anchor)
