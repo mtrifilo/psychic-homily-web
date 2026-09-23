@@ -174,7 +174,7 @@ export function EpisodeArchiveTable({
                 role="cell"
                 className="col-start-2 row-start-1 whitespace-nowrap text-right tabular-nums text-muted-foreground max-sm:font-mono max-sm:text-xs"
               >
-                <span>{episode.play_count}</span>
+                {episode.play_count}
                 {/* The column header carries the unit at table widths; the
                     stacked row has no visible header, so the cell carries it. */}
                 <span className="sm:hidden">
@@ -197,11 +197,7 @@ export function EpisodeArchiveTable({
   )
 }
 
-/**
- * Below `sm`: a three-column grid (date, tracks, archive status) whose title
- * and played cells span the full width on their own lines, with the table's
- * cell padding dropped for the row's own. From `sm` up: a table row.
- */
+/** The stacked row's grid below `sm` (see EpisodeArchiveTable); a table row from `sm` up. */
 const mobileRowClass =
   'grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-y-1 py-2 max-sm:[&>td]:p-0 sm:table-row'
 

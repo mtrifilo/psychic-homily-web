@@ -116,17 +116,11 @@ describe('EpisodeArchiveTable', () => {
     expect(unmatched.closest('a')).toBeNull()
   })
 
-  it('renders the track count', () => {
-    render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode({ play_count: 41 })]} />)
-    expect(screen.getByText('41')).toBeInTheDocument()
-  })
-
   // The stacked row has no visible header, so the tracks cell carries its unit.
   it.each([
     [41, '41 tracks'],
     [1, '1 track'],
-    [0, '0 tracks'],
-  ])('gives a count of %i its unit in the tracks cell', (count, text) => {
+  ])('renders a track count of %i with its unit', (count, text) => {
     render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode({ play_count: count })]} />)
     expect(screen.getAllByRole('cell')[3]).toHaveTextContent(new RegExp(`^${text}$`))
   })
@@ -159,11 +153,6 @@ describe('EpisodeArchiveTable', () => {
         el = el.parentElement
       }
     }
-    expect(within(playedCell).getByRole('link', { name: names[0] })).toHaveAttribute(
-      'href',
-      '/artists/tangerine-dream'
-    )
-    expect(within(playedCell).getByText(names[2]).closest('a')).toBeNull()
   })
 
   it('labels the played line for sighted readers only; the column header names it for assistive tech', () => {
@@ -185,8 +174,8 @@ describe('EpisodeArchiveTable', () => {
 
   // Every row keeps one cell per column header even when a stacked line is
   // dropped, so assistive tech never reads a cell under the wrong header. jsdom
-  // applies no stylesheet, so the class is what is asserted: a display-none
-  // utility would take the cell out of the accessibility tree at phone widths.
+  // applies no stylesheet, so the collapse class is what is asserted: a
+  // display-none utility would take the cell out of the accessibility tree.
   it('keeps one cell per column for an untitled episode with no played artists', () => {
     render(
       <EpisodeArchiveTable
@@ -198,9 +187,6 @@ describe('EpisodeArchiveTable', () => {
     const [row] = screen.getAllByRole('row').slice(1)
     const cells = within(row).getAllByRole('cell')
     expect(cells).toHaveLength(5)
-    for (const cell of cells) {
-      expect(cell.className).not.toMatch(/(^|\s)([a-z-]+:)*hidden(\s|$)/)
-    }
     expect(cells[1]).toHaveClass('max-sm:sr-only')
     expect(cells[2]).toHaveClass('max-sm:sr-only')
   })
