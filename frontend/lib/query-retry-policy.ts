@@ -34,10 +34,12 @@
  * schedule is tuned to them and would be wrong, not merely suboptimal, if
  * (3) in particular stopped holding:
  *
- *  1. `Retry-After` is a CONSTANT, not a computed reset time. The 429 handler
- *     hardcodes `"60"` (ratelimit.go `RateLimitExceededHandler`, and the twin
- *     in `internal/api/routes/shared.go`), and httprate independently sets it
- *     to the window length. So the header says "one whole window" no matter
+ *  1. `Retry-After` is a CONSTANT, not a computed reset time. Every read
+ *     limiter's 429 names one whole window, a minute: the limiter rejection
+ *     handler in `internal/api/middleware/ratelimit_observe.go` sends its
+ *     window length, `rateLimitHandler` in `internal/api/routes/shared.go`
+ *     hardcodes `"60"`, and httprate independently sets it to the window
+ *     length. So the header says "one whole window" no matter
  *     how much of the window has already elapsed. Honoring it literally would
  *     park a page block on a spinner for a full minute for a bucket that has
  *     usually already drained.

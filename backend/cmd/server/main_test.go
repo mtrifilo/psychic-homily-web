@@ -106,16 +106,27 @@ func TestNewCORSMiddlewarePreflight(t *testing.T) {
 	})
 }
 
-// fireRateLimitedRequest drives an actual (non-preflight) cross-origin GET
-// through the constructed middleware to the backend's own limiter 429 handler.
+// fireRateLimitedRequest drives actual (non-preflight) cross-origin GETs from
+// one client through the CORS middleware into a fresh anonymous public-read
+// limiter until it rejects, and returns that rejection. The 429 therefore comes
+// from the limiter's own rejection handler, not a stand-in.
 func fireRateLimitedRequest(t *testing.T, mw *cors.Cors, origin string) *http.Response {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/artists/some-band", nil)
-	req.Header.Set("Origin", origin)
+	limited := mw.Handler(middleware.RateLimitPublicReadAnonymousEndpoints()(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	))
 
-	rec := httptest.NewRecorder()
-	mw.Handler(http.HandlerFunc(middleware.RateLimitExceededHandler)).ServeHTTP(rec, req)
-	return rec.Result()
+	var resp *http.Response
+	for range middleware.APIRequestsPerMinute + 1 {
+		req := httptest.NewRequest(http.MethodGet, "/artists/some-band", nil)
+		req.Header.Set("Origin", origin)
+		rec := httptest.NewRecorder()
+		limited.ServeHTTP(rec, req)
+		resp = rec.Result()
+	}
+	return resp
 }
 
 // TestNewCORSMiddlewareExposedHeaders pins the exact set of non-safelisted
