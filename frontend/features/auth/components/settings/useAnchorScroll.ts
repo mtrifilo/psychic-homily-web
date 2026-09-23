@@ -12,6 +12,20 @@ const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 
 /**
+ * Follows a link to `node`: scrolls it to the top of the viewport (its scroll
+ * margin keeps it clear of the TopBar) and moves focus to it, so the next Tab
+ * starts from the control the viewer was sent to. The node needs a -1
+ * tabindex unless it is focusable already.
+ */
+export function revealAnchorTarget(node: HTMLElement) {
+  node.scrollIntoView({
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    block: 'start',
+  })
+  node.focus({ preventScroll: true })
+}
+
+/**
  * A ref that scrolls its card into view when a link carrying that card's
  * fragment lands here.
  *
@@ -40,11 +54,7 @@ export function useAnchorScroll(anchorId: string) {
       if (!node || scrolled.current) return
       if (urlHash.replace(/^#/, '') !== anchorId) return
       scrolled.current = true
-      node.scrollIntoView({
-        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-        block: 'start',
-      })
-      node.focus({ preventScroll: true })
+      revealAnchorTarget(node)
     },
     [urlHash, anchorId]
   )

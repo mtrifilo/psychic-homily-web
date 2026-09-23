@@ -3,6 +3,7 @@
 import { type MouseEvent, type RefObject } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isPlainNavigationClick } from '@/components/shared/paginationChrome'
 import {
   SETTINGS_SECTIONS,
   settingsSectionCount,
@@ -42,16 +43,7 @@ function jumpOnPlainClick(
   root: HTMLElement | null,
   anchor: string
 ): boolean {
-  if (
-    event.defaultPrevented ||
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  ) {
-    return false
-  }
+  if (!isPlainNavigationClick(event)) return false
   event.preventDefault()
   jumpToAnchor(root, anchor)
   return true

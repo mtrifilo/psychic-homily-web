@@ -23,6 +23,19 @@ async function gapBelowTopBar(page: Page, sectionId: string) {
   }, sectionId)
 }
 
+/**
+ * The section's top settles just below the TopBar: not under it, and not
+ * left further down the page. Polled, because the landing scroll is smooth.
+ */
+async function expectLandedBelowTopBar(page: Page, sectionId: string) {
+  await expect
+    .poll(async () => {
+      const gap = await gapBelowTopBar(page, sectionId)
+      return gap !== null && gap >= 0 && gap < 40
+    })
+    .toBe(true)
+}
+
 test.describe('/settings hub', () => {
   test('renders the rail and every section in order at 1440', async ({
     authenticatedPage: page,
@@ -44,19 +57,14 @@ test.describe('/settings hub', () => {
     ).toBeHidden()
     await expect(
       page.locator('main').getByRole('heading', { level: 2 })
-    ).toHaveText(
-      SECTION_TITLES
-    )
+    ).toHaveText(SECTION_TITLES)
 
     await rail.getByRole('link', { name: /^Alerts and email/ }).click()
     await expect(page).toHaveURL(/\/settings#alerts$/)
     await expect(
       rail.getByRole('link', { name: /^Alerts and email/ })
     ).toHaveAttribute('aria-current', 'true')
-    const gap = await gapBelowTopBar(page, 'alerts')
-    expect(gap).not.toBeNull()
-    expect(gap as number).toBeGreaterThanOrEqual(0)
-    expect(gap as number).toBeLessThan(40)
+    await expectLandedBelowTopBar(page, 'alerts')
   })
 
   test('the 390 jump index lands each section clear of the TopBar', async ({
@@ -80,10 +88,7 @@ test.describe('/settings hub', () => {
       await index.getByRole('link', { name: new RegExp(`^${title}`) }).click()
       await expect(page).toHaveURL(new RegExp(`/settings#${id}$`))
       await expect(page.locator(`main section[id="${id}"]`)).toBeFocused()
-      const gap = await gapBelowTopBar(page, id)
-      expect(gap).not.toBeNull()
-      expect(gap as number).toBeGreaterThanOrEqual(0)
-      expect(gap as number).toBeLessThan(40)
+      await expectLandedBelowTopBar(page, id)
     }
   })
 
@@ -95,12 +100,7 @@ test.describe('/settings hub', () => {
 
     const section = page.locator('main section[id="appearance"]')
     await expect(section).toBeFocused({ timeout: 10_000 })
-    await expect
-      .poll(() => gapBelowTopBar(page, 'appearance'))
-      .toBeGreaterThanOrEqual(0)
-    expect((await gapBelowTopBar(page, 'appearance')) as number).toBeLessThan(
-      40
-    )
+    await expectLandedBelowTopBar(page, 'appearance')
   })
 
   test('a link row lands on the control where it lives today', async ({

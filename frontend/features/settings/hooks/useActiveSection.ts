@@ -7,14 +7,8 @@ import {
   useState,
   type RefObject,
 } from 'react'
+import { useDismissTimer } from '@/lib/hooks/common/useDismissTimer'
 import { findAnchorTarget } from '../anchorTargets'
-
-/**
- * How far below the sticky TopBar a section's top must reach to count as the
- * one being read. Matches the 1rem the section scroll margin adds, so the
- * section a fragment link just landed on is the section marked.
- */
-const READING_LINE_OFFSET_PX = 16
 
 /**
  * How long a chosen section stays marked while the jump it caused settles.
@@ -24,12 +18,13 @@ const READING_LINE_OFFSET_PX = 16
  */
 const SELECTION_HOLD_MS = 1000
 
-function topbarHeightPx(): number {
-  const rootStyle = getComputedStyle(document.documentElement)
-  const raw = rootStyle.getPropertyValue('--topbar-height').trim()
-  const remPx = parseFloat(rootStyle.fontSize) || 16
-  if (raw.endsWith('rem')) return parseFloat(raw) * remPx
-  return parseFloat(raw) || 3.5 * remPx
+/**
+ * The line a section's top must pass to count as the one being read: the
+ * section's own scroll margin, which is where a fragment jump parks it. A
+ * section just landed on is therefore the section marked.
+ */
+function readingLinePx(section: HTMLElement): number {
+  return parseFloat(getComputedStyle(section).scrollMarginTop) || 0
 }
 
 /**
@@ -56,11 +51,11 @@ function owningAnchor(
  * The section of a one-page, fragment-anchored layout that the viewer is
  * reading, for a rail to mark.
  *
- * The marked section is the last one whose top has passed the reading line
- * under the TopBar, except at the very bottom of a scrolled page, where it is
- * the last section: a short final section never reaches the line. A fragment
- * that names a section (a cold load or a jump) marks that section outright
- * and holds it until the jump has settled.
+ * The marked section is the last one whose top has passed the reading line,
+ * except at the very bottom of a scrolled page, where it is the last section:
+ * a short final section never reaches the line. A fragment that names a
+ * section (a cold load or a jump) marks that section outright and holds it
+ * until the jump has settled.
  *
  * Sections are looked up inside `rootRef` only: another route's tree can stay
  * mounted, hidden, in the same document and carry the same ids.
@@ -72,8 +67,13 @@ export function useActiveSection(
   rootRef: RefObject<HTMLElement | null>
 ) {
   const [activeAnchor, setActiveAnchor] = useState<string>(anchors[0] ?? '')
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const holding = useRef(false)
+  const { schedule: scheduleRelease, cancel: cancelRelease } = useDismissTimer(
+    () => {
+      holding.current = false
+    },
+    SELECTION_HOLD_MS
+  )
 
   const select = useCallback(
     (fragment: string) => {
@@ -83,13 +83,9 @@ export function useActiveSection(
       if (anchor === null) return
       setActiveAnchor(anchor)
       holding.current = true
-      if (holdTimer.current) clearTimeout(holdTimer.current)
-      holdTimer.current = setTimeout(() => {
-        holding.current = false
-        holdTimer.current = null
-      }, SELECTION_HOLD_MS)
+      scheduleRelease()
     },
-    [anchors, rootRef]
+    [anchors, rootRef, scheduleRelease]
   )
 
   useEffect(() => {
@@ -98,20 +94,23 @@ export function useActiveSection(
     const measure = () => {
       frame = 0
       const root = rootRef.current
-      if (holding.current || !root || anchors.length === 0) return
+      if (holding.current || !root) return
+      const sections = anchors
+        .map(anchor => findAnchorTarget(root, anchor))
+        .filter((section): section is HTMLElement => section !== null)
+      if (sections.length === 0) return
       const doc = document.documentElement
       const atBottom =
         window.innerHeight + window.scrollY >= doc.scrollHeight - 2
       if (atBottom && window.scrollY > 0) {
-        setActiveAnchor(anchors[anchors.length - 1])
+        setActiveAnchor(sections[sections.length - 1].id)
         return
       }
-      const readingLine = topbarHeightPx() + READING_LINE_OFFSET_PX
-      let current = anchors[0]
-      for (const anchor of anchors) {
-        const element = findAnchorTarget(root, anchor)
-        if (element && element.getBoundingClientRect().top <= readingLine) {
-          current = anchor
+      const readingLine = readingLinePx(sections[0])
+      let current = sections[0].id
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top <= readingLine) {
+          current = section.id
         }
       }
       setActiveAnchor(current)
@@ -127,15 +126,12 @@ export function useActiveSection(
     window.addEventListener('hashchange', onHashChange)
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame)
-      if (holdTimer.current) {
-        clearTimeout(holdTimer.current)
-        holdTimer.current = null
-      }
+      cancelRelease()
       holding.current = false
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('hashchange', onHashChange)
     }
-  }, [anchors, rootRef, select])
+  }, [anchors, rootRef, select, cancelRelease])
 
   return { activeAnchor, select }
 }
