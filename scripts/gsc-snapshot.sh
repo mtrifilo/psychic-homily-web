@@ -165,6 +165,54 @@ except ValueError:
 ' "$1" || die "invalid date '$1' for $2 (expected YYYY-MM-DD)"
 }
 
+# find_prior_queue <dir> <since> <until>
+#
+# Prints "<file> TAB <since> TAB <until> TAB <overlap-days>" for the most recent
+# window-keyed zero-click queue in <dir> with the same window length as
+# <since>..<until> that ends before <until>, or nothing when there is none.
+# Same length only: the impressions threshold means different things over
+# windows of different lengths.
+find_prior_queue() {
+  python3 -c '
+import datetime, os, re, sys
+directory, since, until = sys.argv[1:4]
+start = datetime.date.fromisoformat(since)
+end = datetime.date.fromisoformat(until)
+pattern = re.compile(r"gsc-zero-click-([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{4}-[0-9]{2}-[0-9]{2})\.tsv")
+try:
+    names = os.listdir(directory)
+except FileNotFoundError:
+    names = []
+best = None
+for name in names:
+    match = pattern.fullmatch(name)
+    if not match:
+        continue
+    try:
+        prior_start = datetime.date.fromisoformat(match.group(1))
+        prior_end = datetime.date.fromisoformat(match.group(2))
+    except ValueError:
+        continue
+    if prior_end >= end or prior_end - prior_start != end - start:
+        continue
+    if best is None or (prior_end, prior_start) > (best[2], best[1]):
+        best = (name, prior_start, prior_end)
+if best is not None:
+    overlap = max(0, (best[2] - start).days + 1)
+    print(f"{best[0]}\t{best[1]}\t{best[2]}\t{overlap}")
+' "$1" "$2" "$3"
+}
+
+# queue_meta <since> <until>
+#
+# The exact first line of the zero-click queue file for that window. A prior
+# queue file is read only when its first line equals queue_meta for the window
+# in its filename, so a renamed file or a changed filter is never diffed.
+queue_meta() {
+  printf '# gsc-zero-click v1 window=%s_%s min_impressions=%s max_position=%s doc=gsc-snapshot-%s_%s.md' \
+    "$1" "$2" "$ZERO_CLICK_MIN_IMPRESSIONS" "$ZERO_CLICK_MAX_POSITION" "$1" "$2"
+}
+
 # --- Argument parsing -------------------------------------------------------
 
 while [ $# -gt 0 ]; do
@@ -253,12 +301,20 @@ CAPTURED_ON="$(date -u +%Y-%m-%d)"
 # would otherwise collide on one filename — with --force then silently
 # overwriting a DIFFERENT window's snapshot and its hand-written analysis.
 DOC_NAME="gsc-snapshot-${SINCE}_${UNTIL}.md"
+# The full zero-click queue for the window, written beside the doc under the
+# same window stem. Its first line (queue_meta) names the window, the filter,
+# and this doc, so either file identifies its pair.
+QUEUE_NAME="gsc-zero-click-${SINCE}_${UNTIL}.tsv"
+QUEUE_HEADER="$(printf 'query\tpage\timpressions\tposition')"
 
 # Early check so a mistaken re-run fails immediately instead of after seven
 # API calls; the publication step's `mv -n` is what actually closes the
 # overwrite race.
 if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
   die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
+fi
+if [ -e "$OUT_DIR/$QUEUE_NAME" ] && [ "$FORCE" -ne 1 ]; then
+  die "$OUT_DIR/$QUEUE_NAME already exists; move it or pass --force to overwrite"
 fi
 
 # --- API access -------------------------------------------------------------
@@ -436,11 +492,29 @@ PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 # formatting slip here already produced nonsense CTRs once during the
 # 2026-08-26 credential verification). ONE definition on purpose: parallel
 # copies of this formula would drift on the next format fix.
+#
+# unesc inverts esc's backslash and pipe escapes. A string s is esc output
+# exactly when (s | unesc | esc) == s, which is how a queue file read back from
+# disk is validated before any of its cells are rendered.
+#
+# zero_click($min; $maxpos): the qualifying zero-click (query, page) rows of a
+# query+page response, impressions-descending with the API order as the
+# tie-break. The count, the doc table, the queue file, and the diff all read
+# this one definition, so they cannot disagree on membership or order.
+#
+# pair_key: the identity of a (query, page) row across windows, built from the
+# escaped cells because that is the form the queue file stores.
 JQ_DEFS='
   def esc: tostring
     | gsub("[[:cntrl:]\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ")
     | gsub("\\\\"; "\\\\")
     | gsub("\\|"; "\\|");
+  def unesc: gsub("\\\\(?<c>[\\\\|])"; .c);
+  def zero_click($min; $maxpos):
+    [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)]
+    | sort_by(-.impressions);
+  def pair_key: (.keys[0] | esc) + "\t" + (.keys[1] | esc);
+  def pos1: (. * 10 | round) / 10;
   def code: esc | . as $s
     | ([ $s | match("`+"; "g").string | length ] | (max // 0) + 1) as $n
     | ("`" * $n) as $fence
@@ -472,6 +546,126 @@ render_metric_table() {
       else (.[] | "| " + ('"$2"') + " | " + metrics(.) + " |")
       end
   ' "$1"
+}
+
+# write_zero_click_queue <outfile>
+#
+# Every qualifying zero-click pair, in zero_click order, as TSV under the
+# queue_meta line and the column header. esc maps tabs and newlines to spaces,
+# so a cell can never split a row or a column.
+write_zero_click_queue() {
+  jq -r --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" \
+    --arg meta "$(queue_meta "$SINCE" "$UNTIL")" --arg header "$QUEUE_HEADER" "$JQ_DEFS"'
+    $meta, $header,
+    (zero_click($min; $maxpos)[]
+      | [(.keys[0] | esc), (.keys[1] | esc), (.impressions | tostring), (.position | pos1 | tostring)]
+      | join("\t"))
+  ' "$WORK_DIR/query-page.json" >"$1"
+}
+
+# render_zero_click_diff
+#
+# Prints the body of the diff section: this window's zero-click queue against
+# the most recent same-length queue file in OUT_DIR. Every prior pair lands in
+# exactly one of still queued, now clicked (at least one click this window), or
+# no longer qualifying; every current pair is still queued or new. A missing,
+# unreadable, or malformed prior file prints a note saying so instead of a diff.
+render_zero_click_diff() {
+  local prior prior_file prior_since prior_until prior_overlap prior_note
+  prior="$(find_prior_queue "$OUT_DIR" "$SINCE" "$UNTIL")" || return 1
+  if [ -z "$prior" ]; then
+    printf '%s\n' "Prior capture: none found alongside this file (no ${WINDOW_DAYS}-day \`gsc-zero-click-<since>_<until>.tsv\` ending before ${UNTIL}), so there is no diff."
+    return 0
+  fi
+  IFS=$'\t' read -r prior_file prior_since prior_until prior_overlap <<<"$prior"
+  if [ ! -f "$OUT_DIR/$prior_file" ] || [ ! -r "$OUT_DIR/$prior_file" ]; then
+    printf '%s\n' "Prior capture: \`${prior_file}\` was found but is not a readable file, so there is no diff."
+    return 0
+  fi
+
+  # Parse and validate the prior file as a whole before any of it is used:
+  # the result is {rows: [...]} or {error: "<reason>"}, never a partial read.
+  jq -n --rawfile tsv "$OUT_DIR/$prior_file" \
+    --arg meta "$(queue_meta "$prior_since" "$prior_until")" --arg header "$QUEUE_HEADER" "$JQ_DEFS"'
+    ($tsv | rtrimstr("\n") | split("\n")) as $lines
+    | if $lines[0] != $meta then
+        {error: "its first line does not name its own window and the current zero-click filter"}
+      elif $lines[1] != $header then
+        {error: "its column header is missing or different"}
+      else
+        [$lines[2:][] | split("\t")] as $rows
+        | if any($rows[];
+              length != 4
+              or (.[0] | unesc | esc) != .[0]
+              or (.[1] | unesc | esc) != .[1]
+              or (.[2] | test("^[0-9]+$") | not)
+              or (.[3] | test("^[0-9]+(\\.[0-9]+)?$") | not))
+          then {error: "it has a row that is not four escaped cells"}
+          else {rows: [$rows[] | {query: .[0], page: .[1], impressions: (.[2] | tonumber), position: (.[3] | tonumber)}]}
+          end
+      end
+  ' >"$WORK_DIR/prior-queue.json" || return 1
+
+  if jq -e 'has("error")' "$WORK_DIR/prior-queue.json" >/dev/null; then
+    printf 'Prior capture: `%s` was found but not read (%s), so there is no diff.\n' \
+      "$prior_file" "$(jq -r '.error' "$WORK_DIR/prior-queue.json")"
+    return 0
+  fi
+
+  prior_note="Prior capture: \`${prior_file}\`."
+  if [ "$prior_overlap" -gt 0 ]; then
+    prior_note="${prior_note} It overlaps this window by ${prior_overlap} days, so impressions from those days count on both sides."
+  fi
+
+  jq -r --slurpfile prior "$WORK_DIR/prior-queue.json" --arg note "$prior_note" \
+    --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" "$JQ_DEFS"'
+    def first_by_key:
+      reduce .[] as $entry ({seen: {}, out: []};
+        if .seen[$entry.key] then . else .seen[$entry.key] = true | .out += [$entry] end)
+      | .out;
+    def page_cell: sub($ENV.STRIP_RE; ""; "i") | code;
+    def table_rows($empty; row): if length == 0 then $empty else (.[] | row) end;
+    (reduce (.rows // [])[] as $row ({}; ($row | pair_key) as $k | if has($k) then . else .[$k] = $row end)) as $fetched
+    | (zero_click($min; $maxpos) | map({key: pair_key, row: .}) | first_by_key) as $current
+    | ($prior[0].rows | map({key: (.query + "\t" + .page), row: .}) | first_by_key) as $previous
+    | ($current | map({(.key): true}) | add // {}) as $in_current
+    | ($previous | map({(.key): true}) | add // {}) as $in_previous
+    | [$current[] | select($in_previous[.key] | not)] as $new
+    | [$previous[] | select(($fetched[.key].clicks // 0) > 0)] as $clicked
+    | [$previous[] | select(($in_current[.key] | not) and (($fetched[.key].clicks // 0) == 0))] as $gone
+    | ([$current[] | select($in_previous[.key])] | length) as $kept
+    | $note,
+      "",
+      "Prior queue \($previous | length) pairs, this queue \($current | length): \($new | length) new, \($kept) still queued, \($clicked | length) now clicked, \($gone | length) no longer qualifying.",
+      "",
+      "Pairs match on their escaped query and page cells (trap 5). A pair in Now clicked got at least one click in this window, which is evidence, not proof, that a title or snippet change worked. Search Console omits anonymized (rare) queries, so a pair missing from this window did not necessarily lose all impressions.",
+      "",
+      "### Now clicked (\($clicked | length))",
+      "",
+      "| Query | Page | Clicks | Impressions | Position |",
+      "| --- | --- | ---: | ---: | ---: |",
+      ([$clicked[] | $fetched[.key]]
+        | sort_by([-.clicks, -.impressions])
+        | table_rows("| _none_ | | | | |";
+            "| \(.keys[0] | code) | \(.keys[1] | page_cell) | \(.clicks) | \(.impressions) | \(.position | pos1) |")),
+      "",
+      "### New this window (\($new | length))",
+      "",
+      "| Query | Page | Impressions | Position |",
+      "| --- | --- | ---: | ---: |",
+      ([$new[] | .row]
+        | table_rows("| _none_ | | | |";
+            "| \(.keys[0] | code) | \(.keys[1] | page_cell) | \(.impressions) | \(.position | pos1) |")),
+      "",
+      "### No longer qualifying (\($gone | length))",
+      "",
+      "| Query | Page | Prior impressions | This window |",
+      "| --- | --- | ---: | --- |",
+      ($gone
+        | table_rows("| _none_ | | | |";
+            $fetched[.key] as $now
+            | "| \(.row.query | unesc | code) | \(.row.page | unesc | page_cell) | \(.row.impressions) | \(if $now == null then "not in the fetch for this window" else "\($now.impressions) impression\(if $now.impressions == 1 then "" else "s" end), position \($now.position | pos1)" end) |"))
+  ' "$WORK_DIR/query-page.json"
 }
 
 TOTAL_CLICKS="$(jq -re '(.rows // []) | (.[0].clicks // 0)' "$WORK_DIR/totals.json")" \
@@ -545,23 +739,31 @@ TBL_PAGES="$(render_metric_table "$WORK_DIR/pages.json" '(.keys[0] | sub($ENV.ST
 # URLs appears twice. If the query+page fetch was capped, an impressions
 # ranking of the retained rows would be an alphabet artifact (the cap cuts
 # the clicks-descending tail mid-alphabet), so refuse to render one at all.
+#
+# The same refusal covers the full queue file and the diff against the prior
+# capture: a capped fetch has incomplete pair membership, so the file would
+# read as complete and the diff would report false drops and conversions.
 case "$CAPPED_FETCHES" in
   *" query+page"*)
     ZERO_CLICK_QUALIFYING="unknown"
     ZERO_CLICK_HEADING="## Zero-click queries (UNAVAILABLE — the query+page fetch hit the API row cap)"
     TBL_ZERO_CLICK="| _unavailable: the query+page fetch hit the API row cap, so an impressions ranking of zero-click rows would be an alphabet artifact — see the cap warning above_ | | | |"
+    ZERO_CLICK_QUEUE_NOTE="Full queue: not written, because the query+page fetch hit the API row cap (see the cap warning above)."
+    ZERO_CLICK_DIFF="_Unavailable: the query+page fetch hit the API row cap, so pair membership for this window is incomplete and a diff would report false drops and false conversions._"
     ;;
   *)
-    ZERO_CLICK_QUALIFYING="$(jq -re --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" '
-      [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)] | length
+    ZERO_CLICK_QUALIFYING="$(jq -re --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" "$JQ_DEFS"'
+      zero_click($min; $maxpos) | length
     ' "$WORK_DIR/query-page.json")" || die "failed to count zero-click rows"
     TBL_ZERO_CLICK="$(jq -r --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" --argjson limit "$ZERO_CLICK_LIMIT" "$JQ_DEFS"'
-      [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)]
-      | sort_by(-.impressions)
+      zero_click($min; $maxpos)
       | if length == 0 then "| _none above the impression threshold_ | | | |"
         else (.[:$limit][] | "| \(.keys[0] | code) | \(.keys[1] | sub($ENV.STRIP_RE; ""; "i") | code) | \(.impressions) | \((.position * 10 | round) / 10) |")
         end
     ' "$WORK_DIR/query-page.json")" || die "failed to render the zero-click table"
+    write_zero_click_queue "$WORK_DIR/$QUEUE_NAME" || die "failed to write the zero-click queue file"
+    ZERO_CLICK_QUEUE_NOTE="Full queue: all ${ZERO_CLICK_QUALIFYING} qualifying pairs, in the order above, are in \`${QUEUE_NAME}\` alongside this file: tab-separated after a metadata line and a column header, pages as full URLs, every cell escaped as in trap 5."
+    ZERO_CLICK_DIFF="$(render_zero_click_diff)" || die "failed to render the zero-click diff"
     ;;
 esac
 if [ "$ZERO_CLICK_QUALIFYING" != "unknown" ]; then
@@ -655,6 +857,12 @@ problem.
 | --- | --- | ---: | ---: |
 ${TBL_ZERO_CLICK}
 
+${ZERO_CLICK_QUEUE_NOTE}
+
+## Zero-click queue against the prior capture
+
+${ZERO_CLICK_DIFF}
+
 ## Top pages (by clicks, then impressions — ${PAGE_SHOWN} of ${PAGE_ROW_COUNT} fetched rows)
 
 Rows tied on both clicks and impressions at the cut are omitted arbitrarily;
@@ -704,6 +912,24 @@ mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
 # `mv -n` never overwrites, so a destination that appeared mid-run (the
 # check-then-move race the early existence test only narrows) leaves the
 # staged source behind — detected and fatal — instead of clobbering.
+#
+# The queue file is published before the doc, so a published doc never names a
+# queue file that is absent. A capped run stages no queue file; under --force
+# any existing queue file for this window is removed so the pair cannot
+# disagree about whether the queue was captured.
+QUEUE_PATH="$WORK_DIR/$QUEUE_NAME"
+if [ -e "$QUEUE_PATH" ]; then
+  if [ "$FORCE" -ne 1 ]; then
+    mv -n "$QUEUE_PATH" "$OUT_DIR/$QUEUE_NAME" || die "could not write the zero-click queue to $OUT_DIR"
+    [ -e "$QUEUE_PATH" ] && die "$OUT_DIR/$QUEUE_NAME appeared during the run; refusing to overwrite it"
+  else
+    mv "$QUEUE_PATH" "$OUT_DIR/$QUEUE_NAME" || die "could not write the zero-click queue to $OUT_DIR"
+  fi
+  echo "gsc-snapshot: wrote ${OUT_DIR}/${QUEUE_NAME}" >&2
+elif [ "$FORCE" -eq 1 ]; then
+  rm -f "$OUT_DIR/$QUEUE_NAME" || die "could not remove the stale zero-click queue $OUT_DIR/$QUEUE_NAME"
+fi
+
 if [ "$FORCE" -ne 1 ]; then
   mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
   [ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
