@@ -1,3 +1,5 @@
+import { entityHref } from '@/lib/entity-slug'
+
 /**
  * The one address a show is canonically served at.
  *
@@ -17,42 +19,40 @@ export function isNumericShowSegment(segment: string): boolean {
 }
 
 /**
- * The show's slug when a URL can address the show by it, else null.
+ * `/shows/{slug}` when a URL can address the show by its slug, else null.
  *
- * Null for an absent or empty slug, and for a slug of digits alone, which the
- * backend would read as an id and resolve to a different show.
+ * Null wherever `entityHref` refuses the slug, and for a slug of digits alone,
+ * which the backend would read as an id and resolve to a different show.
  */
-export function addressableShowSlug(
-  slug: string | null | undefined
-): string | null {
-  if (!slug || isNumericShowSegment(slug)) return null
-  return slug
+function showSlugPath(slug: string | null | undefined): string | null {
+  if (slug && isNumericShowSegment(slug.trim())) return null
+  return entityHref('/shows', slug)
 }
 
 /**
  * The site-relative path the show page declares canonical: the loaded show's
- * addressable slug, or the requested segment when the show has none.
+ * slug path, or the requested segment when the show has no usable slug.
  */
 export function showCanonicalPath(
   requestedSegment: string,
   loadedSlug: string | null | undefined
 ): string {
-  const slug = addressableShowSlug(loadedSlug)
-  return `/shows/${encodeURIComponent(slug ?? requestedSegment)}`
+  return (
+    showSlugPath(loadedSlug) ?? `/shows/${encodeURIComponent(requestedSegment)}`
+  )
 }
 
 /**
  * Where a request for `/shows/{requestedSegment}` permanently redirects, or
  * null when it is served where it is.
  *
- * Only a numeric request redirects, and only to an addressable slug. The
- * target is never numeric, so following it cannot redirect again.
+ * Only a numeric request redirects, and only to a slug path. The target is
+ * never numeric, so following it cannot redirect again.
  */
 export function showSlugRedirectPath(
   requestedSegment: string,
   loadedSlug: string | null | undefined
 ): string | null {
   if (!isNumericShowSegment(requestedSegment)) return null
-  const slug = addressableShowSlug(loadedSlug)
-  return slug ? `/shows/${encodeURIComponent(slug)}` : null
+  return showSlugPath(loadedSlug)
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addressableShowSlug,
   isNumericShowSegment,
   showCanonicalPath,
   showSlugRedirectPath,
@@ -17,21 +16,6 @@ describe('isNumericShowSegment', () => {
     expect(isNumericShowSegment('1359a')).toBe(false)
     expect(isNumericShowSegment('+1359')).toBe(false)
     expect(isNumericShowSegment('')).toBe(false)
-  })
-})
-
-describe('addressableShowSlug', () => {
-  it('returns a real slug', () => {
-    expect(addressableShowSlug('white-denim-at-moth-club')).toBe(
-      'white-denim-at-moth-club'
-    )
-  })
-
-  it('is null for an absent, empty or all-digit slug', () => {
-    expect(addressableShowSlug(null)).toBeNull()
-    expect(addressableShowSlug(undefined)).toBeNull()
-    expect(addressableShowSlug('')).toBeNull()
-    expect(addressableShowSlug('2325')).toBeNull()
   })
 })
 
@@ -55,6 +39,13 @@ describe('showCanonicalPath', () => {
 
   it('keeps the requested id when the slug is all digits', () => {
     expect(showCanonicalPath('1359', '2325')).toBe('/shows/1359')
+    expect(showCanonicalPath('1359', ' 2325 ')).toBe('/shows/1359')
+  })
+
+  it('keeps the requested id when the slug would address the index', () => {
+    expect(showCanonicalPath('1359', '.')).toBe('/shows/1359')
+    expect(showCanonicalPath('1359', '..')).toBe('/shows/1359')
+    expect(showCanonicalPath('1359', '   ')).toBe('/shows/1359')
   })
 
   it('percent-encodes the segment', () => {
@@ -85,6 +76,10 @@ describe('showSlugRedirectPath', () => {
 
   it('does not redirect to an all-digit slug, which would address another show', () => {
     expect(showSlugRedirectPath('1359', '2325')).toBeNull()
+  })
+
+  it('does not redirect to a slug that would address the index', () => {
+    expect(showSlugRedirectPath('1359', '..')).toBeNull()
   })
 
   it('percent-encodes the target segment', () => {

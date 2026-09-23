@@ -16,9 +16,10 @@ import { formatInTimezone } from '@/lib/utils/timeUtils'
  * checked one.
  *
  * WHICH RENDERS MARK is a decided list, not a property of the page: the header
- * date, both stripe registers, the meta description, the share card, the gig
- * timeline spine (`components/showTimelineCopy.timelineDateLabel`) and the
- * more-at-venue rail's date column (`showRails.railShowDate`).
+ * date, both stripe registers, the page title, the meta description, the
+ * share card, the gig timeline spine
+ * (`components/showTimelineCopy.timelineDateLabel`) and the more-at-venue
+ * rail's date column (`showRails.railShowDate`).
  *
  * It does NOT cover every date on `/shows/{slug}`. The bill-recurrence line
  * prints a MONTH, a claim the fallback can only get wrong for a set in a
@@ -76,6 +77,22 @@ export function showPageDate(
     state,
     timezone
   )
+}
+
+/**
+ * The short form the page title prints: `Sep 19`, or `~Sep 19` on a guess.
+ */
+export function showPageMonthDay(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
+  const formatted = formatInTimezone(
+    dateString,
+    resolveShowTimezone(state, timezone),
+    { month: 'short', day: 'numeric' }
+  )
+  return markGuessedShowDay(formatted, state, timezone)
 }
 
 /**

@@ -29,6 +29,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { showSnippet } from '@/lib/seo/entitySnippets'
 import { showCanonicalPath } from '@/lib/seo/showCanonical'
+import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
@@ -162,7 +163,7 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
       title,
       description,
       alternates: {
-        canonical: `https://psychichomily.com${canonicalPath}`,
+        canonical: `${SITE_URL}${canonicalPath}`,
       },
       openGraph: {
         title,
@@ -410,7 +411,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
       <JsonLd data={generateBreadcrumbSchema([
         { name: 'Home', url: 'https://psychichomily.com' },
         { name: 'Shows', url: 'https://psychichomily.com/shows' },
-        { name: showName, url: `https://psychichomily.com${showCanonicalPath(slug, showData.slug)}` },
+        { name: showName, url: `${SITE_URL}${showCanonicalPath(slug, showData.slug)}` },
       ])} />
       <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<ShowLoadingFallback />}>

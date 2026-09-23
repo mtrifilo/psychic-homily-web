@@ -1,8 +1,11 @@
-import { formatInTimezone } from '@/lib/utils/timeUtils'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
-  markGuessedShowDay,
+  hasReadableStartDate,
+  type ShowTimingInput,
+} from '@/lib/utils/showTiming'
+import {
   showPageDateLong,
+  showPageMonthDay,
 } from '@/features/shows/showPageDate'
 
 /**
@@ -47,16 +50,14 @@ function nonEmpty(value: string | null | undefined): string | null {
 /**
  * `City, ST`, or whichever half is present, or null when neither is.
  *
- * Country is not part of the snippet templates, so it is never appended here.
+ * Country is not part of the snippet templates, so it is never passed on.
  */
 export function snippetPlace(
   city: string | null | undefined,
   state: string | null | undefined
 ): string | null {
-  const parts = [nonEmpty(city), nonEmpty(state)].filter(
-    (part): part is string => part !== null
-  )
-  return parts.length > 0 ? parts.join(', ') : null
+  const place = formatLocation({ city, state })
+  return place === LOCATION_UNKNOWN ? null : place
 }
 
 /**
@@ -104,36 +105,17 @@ function sentence(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`
 }
 
-function hasInstant(eventDate: string | null | undefined): eventDate is string {
-  return typeof eventDate === 'string' && Number.isFinite(Date.parse(eventDate))
-}
-
-/**
- * Where a show sits on the calendar: the start instant plus the zone inputs
- * that decide which local day it is. Same shape as `ShowTimingInput`.
- */
-export interface SnippetTiming {
-  eventDate: string | null | undefined
-  state?: string | null
-  timezone?: string | null
-}
-
 /**
  * `Sep 19` on the show's own calendar, marked with the page's guessed-day
- * marker when the zone is a fallback. Null when the instant is unparseable.
+ * marker when the zone is a fallback. Null when the instant is unreadable.
  */
-export function snippetMonthDay(timing: SnippetTiming): string | null {
-  if (!hasInstant(timing.eventDate)) return null
-  const formatted = formatInTimezone(
-    timing.eventDate,
-    resolveShowTimezone(timing.state, timing.timezone),
-    { month: 'short', day: 'numeric' }
-  )
-  return markGuessedShowDay(formatted, timing.state, timing.timezone)
+export function snippetMonthDay(timing: ShowTimingInput): string | null {
+  if (!timing.eventDate || !hasReadableStartDate(timing.eventDate)) return null
+  return showPageMonthDay(timing.eventDate, timing.state, timing.timezone)
 }
 
-function snippetLongDate(timing: SnippetTiming): string | null {
-  if (!hasInstant(timing.eventDate)) return null
+function snippetLongDate(timing: ShowTimingInput): string | null {
+  if (!timing.eventDate || !hasReadableStartDate(timing.eventDate)) return null
   return showPageDateLong(timing.eventDate, timing.state, timing.timezone)
 }
 
@@ -142,7 +124,7 @@ export interface ShowSnippetInput {
   venue: string
   city?: string | null
   state?: string | null
-  timing: SnippetTiming
+  timing: ShowTimingInput
   /** The show's own prose. Follows the generated sentence, never replaces it. */
   authoredDescription?: string | null
 }
@@ -203,7 +185,7 @@ export function artistSnippet(input: ArtistSnippetInput): EntitySnippet {
 
 export interface VenueNextShow {
   headliner: string
-  timing: SnippetTiming
+  timing: ShowTimingInput
 }
 
 /** The fields of an upcoming venue show row the `Next` clause reads. */
@@ -226,7 +208,7 @@ export function venueNextShowFrom(
   venue: { state?: string | null; timezone?: string | null }
 ): VenueNextShow | null {
   for (const row of rows) {
-    if (row.is_cancelled || !hasInstant(row.event_date)) continue
+    if (row.is_cancelled || !hasReadableStartDate(row.event_date)) continue
     const headliner = nonEmpty(
       row.artists?.find(artist => artist.is_headliner)?.name ||
         row.artists?.[0]?.name ||
