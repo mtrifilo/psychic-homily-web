@@ -13,6 +13,7 @@ import {
 } from '@/features/radio'
 import type { RadioEpisodeListItem } from '@/features/radio'
 import { unanchoredLinkHref } from '@/lib/socialLinks'
+import { cn } from '@/lib/utils'
 
 interface EpisodeArchiveTableProps {
   episodes: RadioEpisodeListItem[]
@@ -26,6 +27,13 @@ interface EpisodeArchiveTableProps {
  * page IS its archive (WFMU model, locked PSY-1049 decision 4); there is no
  * separate episodes sub-page. Episode previews come from the PSY-1048
  * artist_preview extension on the episodes list — no per-row detail fetch.
+ *
+ * ONE element tree across the breakpoint, reflowed by CSS rather than swapped,
+ * so no row's text is in the document twice. From `sm` up it is the
+ * five-column table. Below `sm` the header row is visually hidden (it stays
+ * for assistive tech) and each row is a three-line grid: date with tracks and
+ * archive, then the title, then the played artists at full width, wrapping.
+ * A line with nothing to say (no title, no played artists) is dropped there.
  */
 export function EpisodeArchiveTable({
   episodes,
@@ -33,19 +41,29 @@ export function EpisodeArchiveTable({
   showSlug,
 }: EpisodeArchiveTableProps) {
   return (
-    <DenseTable>
-      <thead>
-        <tr>
-          <th className="w-28">Date</th>
-          <th className="w-48">Episode</th>
-          <th>Played</th>
-          <th className="w-16 text-right">Tracks</th>
-          <th className="w-20 text-right">
+    // Explicit roles: below `sm` the display of the table, its groups, rows and
+    // cells is overridden, which strips the implicit table semantics with it.
+    <DenseTable role="table" className="block sm:table">
+      <thead role="rowgroup" className="max-sm:sr-only">
+        <tr role="row">
+          <th role="columnheader" scope="col" className="w-28">
+            Date
+          </th>
+          <th role="columnheader" scope="col" className="w-48">
+            Episode
+          </th>
+          <th role="columnheader" scope="col">
+            Played
+          </th>
+          <th role="columnheader" scope="col" className="w-16 text-right">
+            Tracks
+          </th>
+          <th role="columnheader" scope="col" className="w-20 text-right">
             <span className="sr-only">Archive</span>
           </th>
         </tr>
       </thead>
-      <tbody>
+      <tbody role="rowgroup" className="block sm:table-row-group">
         {episodes.map(episode => {
           // Upcoming rows aren't linkable — there's no playlist yet, so a link
           // would lead to an empty, not-yet-aired page (PSY-1205).
@@ -65,13 +83,34 @@ export function EpisodeArchiveTable({
             withYear: true,
           }).dateLine
           const hops = previewToHops(episode.artist_preview)
+          const archiveStatus = episode.is_upcoming ? (
+            // Not yet aired: labelled rather than linked to an empty,
+            // aired-looking [mp3] archive page.
+            <span className="text-muted-foreground">upcoming</span>
+          ) : isLive ? (
+            <span className="text-primary">
+              <span aria-hidden="true">●</span> live
+            </span>
+          ) : archiveHref ? (
+            <BracketLink
+              label="mp3"
+              href={archiveHref}
+              external
+              // text-xs beats BracketLink's text-sm base; the enclosing
+              // <td> already supplies font-mono.
+              className="text-xs text-primary hover:text-primary/80"
+              // Dates the row, because every row's bracket reads "mp3";
+              // the new-tab half is BracketLink's to append.
+              ariaLabel={`Listen to the ${cellDate} archive`}
+            />
+          ) : null
 
           return (
-            <tr key={episode.id} className="group">
+            <tr key={episode.id} role="row" className={mobileRowClass}>
               {/* PSY-1306: viewer-local date (+ air-time block) — the same
                   AirDateCellContent treatment as the playlists feeds, with the
                   year (archives span years). */}
-              <td className="whitespace-nowrap align-top">
+              <td role="cell" className="col-start-1 row-start-1 whitespace-nowrap">
                 <MaybeLink
                   href={episodeUrl}
                   linkedClassName="font-mono text-xs uppercase text-primary hover:text-primary/80 transition-colors"
@@ -85,7 +124,10 @@ export function EpisodeArchiveTable({
                   />
                 </MaybeLink>
               </td>
-              <td>
+              <td
+                role="cell"
+                className={cn('col-span-full wrap-anywhere', !episode.title && collapsedLineClass)}
+              >
                 {episode.title ? (
                   <MaybeLink
                     href={episodeUrl}
@@ -100,44 +142,51 @@ export function EpisodeArchiveTable({
                   </span>
                 )}
               </td>
-              <td className="max-w-0">
-                <div className="truncate">
-                  {hops.length > 0 ? (
+              {/* Wraps at every width: the played names are the row's bridge
+                  into the artist graph, so they are never clipped.
+                  `wrap-anywhere` keeps one unbreakable name from widening the
+                  table past its container. */}
+              <td
+                role="cell"
+                className={cn('col-span-full wrap-anywhere', hops.length === 0 && collapsedLineClass)}
+              >
+                {hops.length > 0 ? (
+                  <>
+                    {/* The column header is not visible in the stacked row, so
+                        the line labels itself; assistive tech has the header. */}
+                    <span
+                      aria-hidden="true"
+                      className="mr-2 font-mono text-[10px] uppercase text-muted-foreground sm:hidden"
+                    >
+                      Played
+                    </span>
                     <ArtistHops
                       hops={hops}
                       className="text-muted-foreground [&_a]:hover:text-primary"
                     />
-                  ) : (
-                    <span className="text-muted-foreground/50">&nbsp;</span>
-                  )}
-                </div>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground/50">&nbsp;</span>
+                )}
               </td>
-              <td className="text-right tabular-nums text-muted-foreground">
+              <td
+                role="cell"
+                className="col-start-2 row-start-1 whitespace-nowrap text-right tabular-nums text-muted-foreground max-sm:font-mono max-sm:text-xs"
+              >
                 {episode.play_count}
+                {/* The column header carries the unit at table widths; the
+                    stacked row has no visible header, so the cell carries it. */}
+                <span className="sm:hidden">
+                  {episode.play_count === 1 ? ' track' : ' tracks'}
+                </span>
               </td>
-              <td className="text-right whitespace-nowrap font-mono text-xs">
-                {episode.is_upcoming ? (
-                  // Not yet aired (PSY-1205): label it rather than linking to an
-                  // empty, aired-looking [mp3] archive page.
-                  <span className="text-muted-foreground">upcoming</span>
-                ) : isLive ? (
-                  <span className="text-primary">
-                    <span aria-hidden="true">●</span> live
-                  </span>
-                ) : archiveHref ? (
-                  <BracketLink
-                    label="mp3"
-                    href={archiveHref}
-                    external
-                    // text-xs beats BracketLink's text-sm base; the enclosing
-                    // <td> already supplies font-mono. Adopts the primitive's
-                    // tight [mp3], replacing the old padded [ mp3 ].
-                    className="text-xs text-primary hover:text-primary/80"
-                    // Dates the row, because every row's bracket reads "mp3";
-                    // the new-tab half is BracketLink's to append.
-                    ariaLabel={`Listen to the ${cellDate} archive`}
-                  />
-                ) : null}
+              <td
+                role="cell"
+                className="col-start-3 row-start-1 text-right whitespace-nowrap font-mono text-xs"
+              >
+                {/* The gap before the archive status lives on the status, not
+                    the grid, so a row without one keeps its tracks flush right. */}
+                {archiveStatus && <span className="max-sm:pl-3">{archiveStatus}</span>}
               </td>
             </tr>
           )
@@ -146,6 +195,23 @@ export function EpisodeArchiveTable({
     </DenseTable>
   )
 }
+
+/**
+ * The stacked row's grid below `sm` (see EpisodeArchiveTable); a table row
+ * from `sm` up. `[&>td]:p-0` cancels DenseTable's `[&_td]` cell padding: both
+ * selectors have the same specificity and this one wins on source order, so
+ * the row's `py-2` is the stacked row's only vertical padding.
+ */
+const mobileRowClass =
+  'grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-y-1 py-2 max-sm:[&>td]:p-0 sm:table-row'
+
+/**
+ * Drops an empty cell's line from the stacked row while keeping the cell in
+ * the table, so every row still has one cell per column header for assistive
+ * tech. `display: none` would remove the cell and shift the rest under the
+ * wrong headers.
+ */
+const collapsedLineClass = 'max-sm:sr-only'
 
 /**
  * Renders children inside a Link when `href` is set, else as a plain span. Lets
