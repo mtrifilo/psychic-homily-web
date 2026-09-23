@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
   EarlierDivider,
+  NoNotificationsYet,
   NotificationList,
   partitionNotificationsByRead,
   useMarkNotificationsRead,
@@ -48,6 +49,9 @@ export default function NotificationInboxPage() {
   const unreadCount = data?.unread_count ?? 0
   const entries = data?.notifications ?? []
   const { unread, read } = partitionNotificationsByRead(entries)
+  // An empty loaded list means nothing has ever arrived, which is a different
+  // empty state from everything-read (rows exist, none unread).
+  const neverReceived = data != null && entries.length === 0
 
   // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
   if (gate !== 'ready') {
@@ -137,6 +141,8 @@ export default function NotificationInboxPage() {
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : neverReceived ? (
+        <NoNotificationsYet variant="page" />
       ) : view === 'all' ? (
         <div className="overflow-hidden rounded-lg border border-border/50 bg-card">
           <NotificationList

@@ -210,12 +210,34 @@ afterEach(() => {
 })
 
 describe('generateMetadata', () => {
-  it('uses "{headliner} at {venue}" as the title when the show is found', async () => {
+  it('uses "{headliner} at {venue}, {city} · {Mon D}" as the title when it fits', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          venues: [
+            { id: 77, name: 'Hideout', slug: 'hideout', city: 'Chicago', state: 'IL', timezone: 'America/Chicago' },
+          ],
+          artists: [{ name: 'Nirosta Steel', slug: 'nirosta-steel', is_headliner: true, socials: {} }],
+          event_date: '2026-09-20T01:00:00Z',
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.title).toBe('Nirosta Steel at Hideout, Chicago · Sep 19')
+    expect(meta.description).toBe(
+      'Nirosta Steel live at Hideout in Chicago, IL on Saturday, September 19, 2026.'
+    )
+  })
+
+  it('drops the date from a title that would pass the budget with it', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
 
-    expect(meta.title).toBe('Headliner Band at The Rebel Lounge')
+    // With the date the full <title> would be 69 characters; without it, 60.
+    expect(meta.title).toBe('Headliner Band at The Rebel Lounge, Phoenix')
   })
 
   it('prefers the headliner over the first artist for the title', async () => {
@@ -232,7 +254,7 @@ describe('generateMetadata', () => {
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
 
-    expect(meta.title).toBe('Real Headliner at The Rebel Lounge')
+    expect(meta.title).toBe('Real Headliner at The Rebel Lounge, Phoenix')
   })
 
   it('falls back to the "Show" title when the show is missing', async () => {
@@ -246,23 +268,30 @@ describe('generateMetadata', () => {
     expect(meta.alternates).toBeUndefined()
   })
 
-  it('truncates a long description at 155 chars and appends "..."', async () => {
-    const longDescription = 'x'.repeat(300)
-    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ description: longDescription })))
+  it('prefixes an authored description with the generated sentence', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ description: 'Doors at 7.' }))
+    )
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
 
-    expect(meta.description).toBe('x'.repeat(155) + '...')
-    expect(meta.description).toHaveLength(158)
+    expect(meta.description).toBe(
+      'Headliner Band live at The Rebel Lounge in Phoenix, AZ on Sunday, March 15, 2026. Doors at 7.'
+    )
   })
 
-  it('does not append "..." when the description is exactly 155 chars', async () => {
-    const exactDescription = 'y'.repeat(155)
-    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ description: exactDescription })))
+  it('cuts a long authored description to 155 characters including the ellipsis', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ description: 'x'.repeat(300) }))
+    )
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
 
-    expect(meta.description).toBe(exactDescription)
+    const generated =
+      'Headliner Band live at The Rebel Lounge in Phoenix, AZ on Sunday, March 15, 2026. '
+    expect(meta.description).toBe(
+      generated + 'x'.repeat(155 - 3 - generated.length) + '...'
+    )
     expect(meta.description).toHaveLength(155)
   })
 
@@ -271,8 +300,26 @@ describe('generateMetadata', () => {
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
 
-    // Generated form: "{headliner} live at {venue} on {date}".
-    expect(meta.description).toContain('Headliner Band live at The Rebel Lounge on')
+    expect(meta.description).toBe(
+      'Headliner Band live at The Rebel Lounge in Phoenix, AZ on Sunday, March 15, 2026.'
+    )
+  })
+
+  it('leaves support acts out of the generated description', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          artists: [
+            { name: 'Headliner Band', slug: 'headliner-band', is_headliner: true, socials: {} },
+            { name: 'Mei Jun', slug: 'mei-jun', is_headliner: false, socials: {} },
+          ],
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.description).not.toContain('Mei Jun')
   })
 
   it('dates the generated description on the venue calendar', async () => {
@@ -329,6 +376,26 @@ describe('generateMetadata', () => {
     expect(meta.description).not.toContain('~')
   })
 
+  it('places a venue-less show on its OWN city and state', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          venues: [],
+          city: 'Brooklyn',
+          state: 'NY',
+          event_date: '2026-11-13T06:30:00Z',
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.title).toBe('Headliner Band at TBA, Brooklyn · Nov 13')
+    expect(meta.description).toBe(
+      'Headliner Band live at TBA in Brooklyn, NY on Friday, November 13, 2026.'
+    )
+  })
+
   it('sets the canonical URL to https://psychichomily.com/shows/{slug}', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
@@ -338,6 +405,24 @@ describe('generateMetadata', () => {
     expect(meta.openGraph?.url).toBe('/shows/test-show')
   })
 
+  it('canonicalises a numeric request to the loaded show slug', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ id: 1359 })))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: '1359' }) })
+
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/shows/test-show')
+    expect(meta.openGraph?.url).toBe('/shows/test-show')
+  })
+
+  it('keeps a slug-less show canonical at its numeric URL, never the /shows root', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ id: 1359, slug: '' })))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: '1359' }) })
+
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/shows/1359')
+    expect(meta.openGraph?.url).toBe('/shows/1359')
+  })
+
   it('declares a large-image Twitter card mirroring the OG title/description', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
@@ -345,7 +430,7 @@ describe('generateMetadata', () => {
 
     expect(meta.twitter).toMatchObject({
       card: 'summary_large_image',
-      title: 'Headliner Band at The Rebel Lounge',
+      title: 'Headliner Band at The Rebel Lounge, Phoenix',
     })
     expect(meta.twitter?.description).toBe(meta.openGraph?.description)
     expect(meta.twitter?.title).toBe(meta.openGraph?.title)
@@ -515,6 +600,24 @@ describe('ShowPage', () => {
 
     expect(notFoundMock).not.toHaveBeenCalled()
     expect(result).toBeTruthy()
+  })
+
+  it('points the breadcrumb at the slug URL when the request was a numeric id', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ id: 1359 })))
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: '1359' }) })
+
+    const breadcrumb = Children.toArray(
+      (result.props as { children?: React.ReactNode }).children
+    )
+      .filter(isValidElement)
+      .map(child => (child.props as { data?: Record<string, unknown> }).data)
+      .find(data => data?.['@type'] === 'BreadcrumbList') as
+      | { itemListElement: Array<{ item: string }> }
+      | undefined
+    expect(breadcrumb?.itemListElement.at(-1)?.item).toBe(
+      'https://psychichomily.com/shows/test-show'
+    )
   })
 })
 

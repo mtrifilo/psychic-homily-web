@@ -1067,22 +1067,36 @@ describe('useAuth hooks', () => {
   })
 
   describe('useExportData', () => {
-    it('calls export-data and returns the export payload', async () => {
-      const exportPayload = {
-        success: true,
-        message: 'Export ready',
-        exported_at: '2025-03-15T00:00:00Z',
-        export_version: '1.0',
-        profile: {
-          id: 1,
-          email: 'a@b.c',
-          is_admin: false,
-          email_verified: true,
-          created_at: '2024-01-01T00:00:00Z',
-          updated_at: '2025-01-01T00:00:00Z',
+    // The export document exactly as GET /auth/account/export serves it for a
+    // seeded user: the raw document with no response envelope.
+    const capturedExportDocument = {
+      exported_at: '2026-09-23T19:59:29.50212Z',
+      export_version: '1.0',
+      profile: {
+        id: 2,
+        email: 'e2e-user-1@test.local',
+        first_name: 'Test',
+        last_name: 'User 1',
+        email_verified: true,
+        account_created_at: '2026-09-23T14:59:05.622876-05:00',
+        last_updated_at: '2026-09-23T14:59:29.423923-05:00',
+      },
+      submitted_shows: [
+        {
+          show_id: 65,
+          title: 'E2E My Submitted Show (e2e-user-1@test.local)',
+          event_date: '2026-12-17T14:01:06.08237-06:00',
+          status: 'approved',
+          submitted_at: '2026-09-23T14:59:06.08237-05:00',
+          venue: 'The Rebel Lounge',
+          city: 'Phoenix',
+          artists: ['Calexico'],
         },
-      }
-      mockApiRequest.mockResolvedValueOnce(exportPayload)
+      ],
+    }
+
+    it('resolves with the export document, which carries no success field', async () => {
+      mockApiRequest.mockResolvedValueOnce(capturedExportDocument)
 
       const { result } = renderHook(() => useExportData(), {
         wrapper: createWrapper(),
@@ -1097,14 +1111,28 @@ describe('useAuth hooks', () => {
         '/auth/account/export',
         expect.objectContaining({ method: 'GET' })
       )
-      expect(returned).toEqual(exportPayload)
+      expect(returned).toEqual(capturedExportDocument)
+      expect(returned).not.toHaveProperty('success')
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
     })
 
-    it('throws AuthError when export fails', async () => {
-      mockApiRequest.mockResolvedValueOnce({
-        success: false,
-        message: 'Export disabled',
-      })
+    it.each([
+      [
+        // The handler's inline sad-path body, byte for byte: an HTTP 200
+        // that carries an error instead of the document.
+        'the handler inline error body',
+        { success: false, error: 'unauthorized', message: 'User not found in context' },
+        'User not found in context',
+      ],
+      [
+        'a success envelope without the document',
+        { success: true, message: 'Export ready' },
+        'Failed to export data',
+      ],
+      ['a JSON null body', null, 'Failed to export data'],
+      ['a 204 with no body', undefined, 'Failed to export data'],
+    ])('throws AuthError on %s', async (_label, body, expectedMessage) => {
+      mockApiRequest.mockResolvedValueOnce(body)
 
       const { result } = renderHook(() => useExportData(), {
         wrapper: createWrapper(),
@@ -1115,7 +1143,28 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isError).toBe(true))
-      expect((result.current.error as Error).name).toBe('AuthError')
+      const error = result.current.error as AuthError
+      expect(error).toBeInstanceOf(AuthError)
+      expect(error.message).toBe(expectedMessage)
+      expect(error.code).toBe(AuthErrorCode.UNKNOWN)
+    })
+
+    it('propagates the request error when the export fails with a 5xx', async () => {
+      const serviceError = Object.assign(new Error('Service unavailable'), {
+        status: 503,
+      })
+      mockApiRequest.mockRejectedValueOnce(serviceError)
+
+      const { result } = renderHook(() => useExportData(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.error).toBe(serviceError)
     })
   })
 

@@ -3,6 +3,7 @@ import {
   markGuessedShowDay,
   showPageDate,
   showPageDateLong,
+  showPageMonthDay,
 } from './showPageDate'
 
 /**
@@ -49,6 +50,17 @@ describe('showPageDate', () => {
   it('marks the day when the zone is a guess', () => {
     expect(showPageDate(UTC_DATE, '')).toBe('~Fri, Nov 13')
     expect(showPageDate(UTC_DATE, 'England')).toBe('~Fri, Nov 13')
+  })
+})
+
+describe('showPageMonthDay', () => {
+  it('prints the short month and day in the venue zone', () => {
+    expect(showPageMonthDay(UTC_DATE, 'AZ')).toBe('Nov 13')
+    expect(showPageMonthDay(UTC_DATE, 'AZ', 'Europe/Berlin')).toBe('Nov 14')
+  })
+
+  it('marks the day when the zone is a guess', () => {
+    expect(showPageMonthDay(UTC_DATE, 'England')).toBe('~Nov 13')
   })
 })
 

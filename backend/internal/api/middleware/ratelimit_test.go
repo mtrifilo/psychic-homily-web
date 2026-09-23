@@ -14,44 +14,47 @@ import (
 	"psychic-homily-backend/internal/services/auth"
 )
 
-func TestRateLimitExceededHandler_StatusCode(t *testing.T) {
+// testRejection is the 429 handler for limiters these tests build by hand.
+var testRejection = limiterSpec{name: "test", window: time.Minute, key: KeyByClientIP}.rejection()
+
+func TestRateLimitRejection_StatusCode(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	rr := httptest.NewRecorder()
 
-	RateLimitExceededHandler(rr, req)
+	testRejection(rr, req)
 
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("status code = %d, want %d", rr.Code, http.StatusTooManyRequests)
 	}
 }
 
-func TestRateLimitExceededHandler_ContentType(t *testing.T) {
+func TestRateLimitRejection_ContentType(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	rr := httptest.NewRecorder()
 
-	RateLimitExceededHandler(rr, req)
+	testRejection(rr, req)
 
 	if got := rr.Header().Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", got)
 	}
 }
 
-func TestRateLimitExceededHandler_RetryAfter(t *testing.T) {
+func TestRateLimitRejection_RetryAfter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	rr := httptest.NewRecorder()
 
-	RateLimitExceededHandler(rr, req)
+	testRejection(rr, req)
 
 	if got := rr.Header().Get("Retry-After"); got != "60" {
 		t.Errorf("Retry-After = %q, want 60", got)
 	}
 }
 
-func TestRateLimitExceededHandler_Body(t *testing.T) {
+func TestRateLimitRejection_Body(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	rr := httptest.NewRecorder()
 
-	RateLimitExceededHandler(rr, req)
+	testRejection(rr, req)
 
 	var body map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
@@ -70,38 +73,10 @@ func TestRateLimitExceededHandler_Body(t *testing.T) {
 	}
 }
 
-func TestRateLimitAuthEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitAuthEndpoints()
+func TestRateLimitPublicReadAnonymousEndpoints_ReturnsMiddleware(t *testing.T) {
+	mw := RateLimitPublicReadAnonymousEndpoints()
 	if mw == nil {
-		t.Fatal("RateLimitAuthEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitPasskeyEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitPasskeyEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitPasskeyEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitAPIEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitAPIEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitAPIEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitTagCreateEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitTagCreateEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitTagCreateEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitTagVoteEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitTagVoteEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitTagVoteEndpoints() returned nil")
+		t.Fatal("RateLimitPublicReadAnonymousEndpoints() returned nil")
 	}
 }
 
@@ -268,7 +243,7 @@ func skipAdminMW(t *testing.T, jwtService *auth.JWTService, validate func(string
 	t.Helper()
 	base := httprate.Limit(1, time.Minute,
 		httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	hits := 0
 	handler := SkipRateLimitForAdmin(jwtService, validate, base)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -383,11 +358,11 @@ func authStateMW(jwtService *auth.JWTService) func(http.Handler) http.Handler {
 
 func authStateMWValidate(jwtService *auth.JWTService, validateAPIToken func(string) bool) func(http.Handler) http.Handler {
 	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	perUser := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	return RateLimitPublicReadsByAuthState(jwtService, validateAPIToken, anon, perUser, ipCeiling)
 }
 
@@ -397,11 +372,11 @@ func authStateMWValidate(jwtService *auth.JWTService, validateAPIToken func(stri
 // test. anon stays at 1 (unused on the authenticated path).
 func authStateMWWithCeiling(jwtService *auth.JWTService, ceiling int) func(http.Handler) http.Handler {
 	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	perUser := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(ceiling, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	return RateLimitPublicReadsByAuthState(jwtService, nil, anon, perUser, ipCeiling)
 }
 
@@ -670,11 +645,11 @@ func TestRateLimitPublicReadsByAuthState_OwnCapRejectionsDoNotDrainSharedCeiling
 	}
 	// Tight per-user cap (1), small ceiling (2). Per-user is OUTER, ceiling INNER.
 	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	perUser := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(2, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
+		httprate.WithLimitHandler(testRejection))
 	handler := RateLimitPublicReadsByAuthState(jwtService, nil, anon, perUser, ipCeiling)(okHandler())
 
 	const sharedIP = "3.3.3.3:400"

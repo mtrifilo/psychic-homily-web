@@ -37,22 +37,43 @@ afterEach(() => {
 })
 
 describe('artists/[slug] generateMetadata', () => {
-  it('uses the artist name as the title when the artist is found', async () => {
+  it('puts the location in the title when the artist has one', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
 
-    expect(meta.title).toBe('Headliner Band')
+    expect(meta.title).toBe('Headliner Band · Phoenix, AZ')
   })
 
-  it('builds the description from the artist name', async () => {
+  it('puts the location in the description when the artist has one', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
 
     expect(meta.description).toBe(
-      'Headliner Band - upcoming shows and artist details on Psychic Homily'
+      'Headliner Band from Phoenix, AZ: shows, similar artists and connections on Psychic Homily'
     )
+  })
+
+  it('uses the bare name and no from clause when the artist has no location', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildArtist({ name: 'Cape Fury', slug: 'cape-fury', city: null, state: null }))
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'cape-fury' }) })
+
+    expect(meta.title).toBe('Cape Fury')
+    expect(meta.description).toBe(
+      'Cape Fury: shows, similar artists and connections on Psychic Homily'
+    )
+  })
+
+  it('makes no request beyond the artist read', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('sets the canonical URL to https://psychichomily.com/artists/{slug}', async () => {
@@ -65,13 +86,13 @@ describe('artists/[slug] generateMetadata', () => {
     )
   })
 
-  it('sets openGraph title/description/url/type', async () => {
+  it('mirrors the title and description into openGraph and sets url/type', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
 
-    expect(meta.openGraph?.title).toBe('Headliner Band')
-    expect(meta.openGraph?.description).toBe('View upcoming shows featuring Headliner Band')
+    expect(meta.openGraph?.title).toBe(meta.title)
+    expect(meta.openGraph?.description).toBe(meta.description)
     expect(meta.openGraph?.url).toBe('/artists/headliner-band')
     expect((meta.openGraph as { type?: string })?.type).toBe('website')
   })

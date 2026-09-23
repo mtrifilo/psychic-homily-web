@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { EpisodeArchiveTable } from './EpisodeArchiveTable'
 import type { RadioEpisodeListItem } from '@/features/radio'
 import { localIso } from '@/features/radio/lib/localIso.testutil'
@@ -116,9 +116,99 @@ describe('EpisodeArchiveTable', () => {
     expect(unmatched.closest('a')).toBeNull()
   })
 
-  it('renders the track count', () => {
-    render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode({ play_count: 41 })]} />)
-    expect(screen.getByText('41')).toBeInTheDocument()
+  // The stacked row has no visible header, so the tracks cell carries its unit.
+  it.each([
+    [41, '41 tracks'],
+    [1, '1 track'],
+  ])('renders a track count of %i with its unit', (count, text) => {
+    render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode({ play_count: count })]} />)
+    expect(screen.getAllByRole('cell')[3]).toHaveTextContent(new RegExp(`^${text}$`))
+  })
+
+  // jsdom has no layout, so this pins the markup that decides clipping: no
+  // element from a name up to its cell carries a utility that truncates,
+  // suppresses wrapping, caps the width, or hides overflow. The 390px layout
+  // itself is covered by the radio e2e spec.
+  it('renders every played name in full, with no truncating wrapper', () => {
+    const names = ['Tangerine Dream', 'Popol Vuh', 'Ash Ra Tempel']
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            artist_preview: [
+              { artist_name: names[0], artist_id: 1, artist_slug: 'tangerine-dream' },
+              { artist_name: names[1], artist_id: 2, artist_slug: 'popol-vuh' },
+              { artist_name: names[2], artist_id: null, artist_slug: null },
+            ],
+          }),
+        ]}
+      />
+    )
+    const playedCell = screen.getAllByRole('cell')[2]
+    for (const name of names) {
+      let el: HTMLElement | null = within(playedCell).getByText(name)
+      while (el) {
+        expect(el.className).not.toMatch(
+          /(^|[\s:])(truncate|text-ellipsis|whitespace-nowrap|text-nowrap|overflow-(x-)?(hidden|clip)|max-w-|line-clamp-)/
+        )
+        if (el === playedCell) break
+        el = el.parentElement
+      }
+    }
+  })
+
+  it('labels the played line for sighted readers only; the column header names it for assistive tech', () => {
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            artist_preview: [{ artist_name: 'CAN', artist_id: 5, artist_slug: 'can' }],
+          }),
+        ]}
+      />
+    )
+    const playedCell = screen.getAllByRole('cell')[2]
+    expect(within(playedCell).getByText('Played')).toHaveAttribute('aria-hidden', 'true')
+    expect(playedCell).toHaveAccessibleName('CAN')
+    expect(screen.getByRole('columnheader', { name: 'Played' })).toBeInTheDocument()
+  })
+
+  // Every row keeps one cell per column header even when a stacked line is
+  // dropped, so assistive tech never reads a cell under the wrong header. jsdom
+  // applies no stylesheet, so the collapse class is what is asserted: a
+  // display-none utility would take the cell out of the accessibility tree.
+  it('keeps one cell per column for an untitled episode with no played artists', () => {
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[makeEpisode({ title: null, artist_preview: [] })]}
+      />
+    )
+    expect(screen.getAllByRole('columnheader')).toHaveLength(5)
+    const [row] = screen.getAllByRole('row').slice(1)
+    const cells = within(row).getAllByRole('cell')
+    expect(cells).toHaveLength(5)
+    expect(cells[1]).toHaveClass('max-sm:sr-only')
+    expect(cells[2]).toHaveClass('max-sm:sr-only')
+  })
+
+  it('keeps the title and played lines visible when the episode has them', () => {
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            title: 'Kosmische special',
+            artist_preview: [{ artist_name: 'CAN', artist_id: 5, artist_slug: 'can' }],
+          }),
+        ]}
+      />
+    )
+    const cells = screen.getAllByRole('cell')
+    expect(cells[1]).not.toHaveClass('max-sm:sr-only')
+    expect(cells[2]).not.toHaveClass('max-sm:sr-only')
   })
 
   it('renders an [mp3] link when the episode has an archive_url', () => {

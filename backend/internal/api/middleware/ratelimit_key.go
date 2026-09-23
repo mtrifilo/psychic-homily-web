@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"log/slog"
 	"net"
 	"net/http"
@@ -175,9 +173,10 @@ var proxyTrustOnce sync.Once
 // Logged once (sync.Once) rather than per request: this is a topology fact, not
 // an event, so repeating it would be noise on a hot path.
 //
-// The key is the canonical one the limiter meters on, hashed and truncated: the
-// line identifies the bucket one sample landed in without writing a client IP
-// address into logs.
+// The key is the canonical one the limiter meters on, reduced to its
+// fingerprint: the line identifies the bucket one sample landed in without
+// writing a client IP address into logs, and it matches the key_fingerprint on
+// this process's other rate-limit lines.
 func observeProxyTrust(r *http.Request, xff string, hops int, source, key string) {
 	proxyTrustOnce.Do(func() {
 		chain := 0
@@ -193,14 +192,9 @@ func observeProxyTrust(r *http.Request, xff string, hops int, source, key string
 			"has_true_client_ip", r.Header.Get("True-Client-IP") != "",
 			"has_envoy_external", r.Header.Get("X-Envoy-External-Address") != "",
 			"key_fingerprint", fingerprint(key),
+			"fingerprint_epoch", fingerprintEpoch,
 		)
 	})
-}
-
-// fingerprint reduces a bucket key to a short, non-reversible tag.
-func fingerprint(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:4])
 }
 
 // clientIPFromForwardedFor returns the address the trusted proxy observed, or
