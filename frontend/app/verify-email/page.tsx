@@ -1,22 +1,18 @@
 'use client'
 
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
-import { useConfirmVerification, useSendVerificationEmail } from '@/features/auth'
-// Imported by module path, not through the `@/features/auth` barrel: the barrel
-// is mocked wholesale in several suites, and the countdown is worth exercising
-// for real wherever these surfaces are tested.
+import { useConfirmVerification } from '@/features/auth'
 import {
-  VERIFICATION_RESEND_COOLDOWN_SECONDS,
-  formatResendStatus,
-  isVerificationResendUnauthorized,
-  resendStatusAnnouncement,
-  useVerificationResendCooldown,
-  verificationResendRetryAfter,
-} from '@/features/auth/hooks/useVerificationResendCooldown'
+  VerificationResend,
+  VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
+  VerificationResendStatus,
+  useVerificationResendState,
+} from '@/features/auth/components/verification-resend'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { buildAuthHref } from '@/lib/auth-href'
 import type { ApiError } from '@/lib/api'
@@ -164,47 +160,6 @@ function VerifiedLanding() {
  * dressed as a diagnosis.
  */
 function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
-  const { isAuthenticated } = useAuthContext()
-  const sendVerificationEmail = useSendVerificationEmail()
-  const cooldown = useVerificationResendCooldown()
-  const [sent, setSent] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const [sessionExpired, setSessionExpired] = useState(false)
-  const status = formatResendStatus(sent, cooldown.secondsRemaining)
-  const announcement = resendStatusAnnouncement(sent, cooldown.isCoolingDown)
-  const canResend = isAuthenticated && !sessionExpired
-
-  const handleSendFreshLink = async () => {
-    if (sendVerificationEmail.isPending || cooldown.isCoolingDown) {
-      return
-    }
-    setFailed(false)
-    try {
-      await sendVerificationEmail.mutateAsync()
-      setSent(true)
-      cooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
-    } catch (error) {
-      const retryAfter = verificationResendRetryAfter(error)
-      if (retryAfter !== null) {
-        // Throttled, not broken. Park the control instead of alarming anyone.
-        cooldown.start(retryAfter)
-        return
-      }
-      if (isVerificationResendUnauthorized(error)) {
-        // The cookie died while this card sat open. Swap in the sign-in route
-        // this component already knows how to render, and do not page on-call
-        // for an expected session expiry.
-        setSessionExpired(true)
-        return
-      }
-      setFailed(true)
-      Sentry.captureException(error, {
-        level: 'error',
-        tags: { service: 'verify_email', error_type: 'verification_email' },
-      })
-    }
-  }
-
   return (
     <LandingCard tone="destructive">
       <p className={`${KICKER} text-destructive`}>
@@ -223,52 +178,38 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
         newest email in your inbox.
       </p>
 
-      {canResend ? (
-        <Button
-          onClick={handleSendFreshLink}
-          disabled={sendVerificationEmail.isPending || cooldown.isCoolingDown}
-        >
-          {sendVerificationEmail.isPending ? (
-            <Loader2 className="animate-spin" />
-          ) : null}
-          Send a fresh link
-        </Button>
-      ) : (
-        // A dead link is often opened in a browser with no session, where the
-        // resend endpoint would only 401. Route through sign-in instead of
-        // offering a button that cannot work.
-        <Button asChild>
-          <Link href={SIGN_IN_HREF}>Sign in to send a fresh link</Link>
-        </Button>
-      )}
-
-      {/* Mounted unconditionally: assistive tech announces changes WITHIN a
-          live region that is already on the page, so a region inserted together
-          with its text is announced unreliably. The visible line ticks once a
-          second and is hidden from the region for the reason in
-          resendStatusAnnouncement. */}
-      <p className="sr-only" role="status">
-        {announcement ?? ''}
-      </p>
-
-      {status && (
-        <p className={`${KICKER} text-primary`} aria-hidden="true">
-          {status}
-        </p>
-      )}
-
-      {failed && (
-        <p className="text-sm text-destructive" role="alert">
-          We could not send that email just now. Please try again in a moment.
-        </p>
-      )}
-
-      {sessionExpired && (
-        <p className="text-sm text-destructive" role="alert">
+      <VerificationResend service="verify_email">
+        <FreshLinkAction />
+        <VerificationResendStatus className={`${KICKER} text-primary`} />
+        <VerificationResendFailed />
+        <VerificationResendSessionExpired>
           Your session has expired. Sign in again to send a fresh link.
-        </p>
-      )}
+        </VerificationResendSessionExpired>
+      </VerificationResend>
     </LandingCard>
+  )
+}
+
+/**
+ * The dead-link card's one action: send a fresh link, or sign in first when
+ * there is no session to send it from.
+ *
+ * A dead link is often opened in a browser with no session, and a session can
+ * also die while the card sits open. Either way the resend endpoint would only
+ * 401, so the card routes through sign-in instead of offering a button that
+ * cannot work.
+ */
+function FreshLinkAction() {
+  const { isAuthenticated } = useAuthContext()
+  const { sessionExpired } = useVerificationResendState()
+
+  if (isAuthenticated && !sessionExpired) {
+    return <VerificationResendButton>Send a fresh link</VerificationResendButton>
+  }
+  return (
+    <Button asChild>
+      <Link href={SIGN_IN_HREF}>Sign in to send a fresh link</Link>
+    </Button>
   )
 }
 
