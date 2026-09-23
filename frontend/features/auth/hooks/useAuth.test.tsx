@@ -1067,22 +1067,51 @@ describe('useAuth hooks', () => {
   })
 
   describe('useExportData', () => {
-    it('calls export-data and returns the export payload', async () => {
-      const exportPayload = {
-        success: true,
-        message: 'Export ready',
-        exported_at: '2025-03-15T00:00:00Z',
-        export_version: '1.0',
-        profile: {
-          id: 1,
-          email: 'a@b.c',
-          is_admin: false,
-          email_verified: true,
-          created_at: '2024-01-01T00:00:00Z',
-          updated_at: '2025-01-01T00:00:00Z',
+    // The export document exactly as GET /auth/account/export serves it for a
+    // seeded user: the raw document with no response envelope.
+    const capturedExportDocument = {
+      exported_at: '2026-09-23T19:40:43.656208Z',
+      export_version: '1.0',
+      profile: {
+        id: 2,
+        email: 'e2e-user-1@test.local',
+        first_name: 'Test',
+        last_name: 'User 1',
+        email_verified: true,
+        account_created_at: '2026-09-23T14:40:21.673677-05:00',
+        last_updated_at: '2026-09-23T14:40:43.633803-05:00',
+      },
+      preferences: {
+        notification_email: true,
+        notification_push: false,
+        theme: 'system',
+        timezone: 'America/Phoenix',
+        language: 'en',
+      },
+      submitted_shows: [
+        {
+          show_id: 65,
+          title: 'E2E My Submitted Show (e2e-user-1@test.local)',
+          event_date: '2026-12-17T13:42:22.305052-06:00',
+          status: 'approved',
+          submitted_at: '2026-09-23T14:40:22.305052-05:00',
+          venue: 'The Rebel Lounge',
+          city: 'Phoenix',
+          artists: ['Calexico'],
         },
-      }
-      mockApiRequest.mockResolvedValueOnce(exportPayload)
+      ],
+    }
+
+    // The handler's inline sad-path body, byte for byte: an HTTP 200 that
+    // carries an error instead of the document.
+    const handlerInlineErrorBody = {
+      success: false,
+      error: 'unauthorized',
+      message: 'User not found in context',
+    }
+
+    it('resolves with the export document the endpoint serves', async () => {
+      mockApiRequest.mockResolvedValueOnce(capturedExportDocument)
 
       const { result } = renderHook(() => useExportData(), {
         wrapper: createWrapper(),
@@ -1097,13 +1126,30 @@ describe('useAuth hooks', () => {
         '/auth/account/export',
         expect.objectContaining({ method: 'GET' })
       )
-      expect(returned).toEqual(exportPayload)
+      expect(returned).toEqual(capturedExportDocument)
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
     })
 
-    it('throws AuthError when export fails', async () => {
+    it('does not require a success field on the document', async () => {
+      expect(capturedExportDocument).not.toHaveProperty('success')
+      mockApiRequest.mockResolvedValueOnce(capturedExportDocument)
+
+      const { result } = renderHook(() => useExportData(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.error).toBeNull()
+    })
+
+    it('rejects a success envelope that carries no export document', async () => {
       mockApiRequest.mockResolvedValueOnce({
-        success: false,
-        message: 'Export disabled',
+        success: true,
+        message: 'Export ready',
       })
 
       const { result } = renderHook(() => useExportData(), {
@@ -1115,7 +1161,63 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isError).toBe(true))
-      expect((result.current.error as Error).name).toBe('AuthError')
+      const error = result.current.error as AuthError
+      expect(error).toBeInstanceOf(AuthError)
+      expect(error.message).toBe('Export ready')
+    })
+
+    it('throws AuthError carrying the handler message on the inline error body', async () => {
+      mockApiRequest.mockResolvedValueOnce(handlerInlineErrorBody)
+
+      const { result } = renderHook(() => useExportData(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      const error = result.current.error as AuthError
+      expect(error).toBeInstanceOf(AuthError)
+      expect(error.message).toBe('User not found in context')
+      expect(error.code).toBe(AuthErrorCode.UNKNOWN)
+      expect(error.status).toBe(400)
+    })
+
+    it('falls back to a generic message when the body is empty', async () => {
+      mockApiRequest.mockResolvedValueOnce(null)
+
+      const { result } = renderHook(() => useExportData(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      const error = result.current.error as AuthError
+      expect(error).toBeInstanceOf(AuthError)
+      expect(error.message).toBe('Failed to export data')
+    })
+
+    it('propagates the request error when the export fails with a 5xx', async () => {
+      const serviceError = Object.assign(new Error('Service unavailable'), {
+        status: 503,
+      })
+      mockApiRequest.mockRejectedValueOnce(serviceError)
+
+      const { result } = renderHook(() => useExportData(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.error).toBe(serviceError)
     })
   })
 

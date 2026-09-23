@@ -864,8 +864,6 @@ export const useDeleteAccount = () => {
 
 // Data export types (GDPR Right to Portability)
 interface ExportDataResponse {
-  success: boolean
-  message: string
   exported_at: string
   export_version: string
   profile: {
@@ -899,8 +897,27 @@ interface ExportDataResponse {
     created_at: string
     updated_at: string
   }>
-  error_code?: string
-  request_id?: string
+}
+
+// The export endpoint answers HTTP 200 either with the export document itself
+// (no envelope) or, when the request reaches it without an authenticated
+// user, with this inline error body instead of the document.
+interface ExportDataErrorBody {
+  success: false
+  error: string
+  message: string
+}
+
+// Only the export document carries `exported_at`; the inline error body never
+// does. Anything else, including an unexpected shape, is not a document.
+function isExportDocument(
+  body: ExportDataResponse | ExportDataErrorBody | null
+): body is ExportDataResponse {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    typeof (body as Partial<ExportDataResponse>).exported_at === 'string'
+  )
 }
 
 // Export user data mutation (GDPR Right to Portability)
@@ -909,7 +926,7 @@ export const useExportData = () => {
     mutationFn: async (): Promise<ExportDataResponse> => {
       authLogger.debug('Exporting user data')
 
-      const response = await apiRequest<ExportDataResponse>(
+      const body = await apiRequest<ExportDataResponse | ExportDataErrorBody | null>(
         API_ENDPOINTS.AUTH.EXPORT_DATA,
         {
           method: 'GET',
@@ -917,25 +934,18 @@ export const useExportData = () => {
         }
       )
 
-      if (!response.success) {
+      if (!isExportDocument(body)) {
         throw new AuthError(
-          response.message || 'Failed to export data',
-          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
-          {
-            requestId: response.request_id,
-            status: 400,
-          }
+          body?.message || 'Failed to export data',
+          AuthErrorCode.UNKNOWN,
+          { status: 400 }
         )
       }
 
-      return response
+      return body
     },
     onSuccess: data => {
-      authLogger.info(
-        'Data export successful',
-        { exportedAt: data.exported_at },
-        data.request_id
-      )
+      authLogger.info('Data export successful', { exportedAt: data.exported_at })
     },
   })
 }
