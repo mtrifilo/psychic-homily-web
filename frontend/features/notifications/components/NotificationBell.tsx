@@ -54,7 +54,8 @@ export function NotificationBell() {
   const { unread, read } = partitionNotificationsByRead(entries)
   // Only a list that actually loaded can say the viewer has never received
   // anything. Without one (a failed first fetch) the popover falls through to
-  // NotificationList's generic empty line instead.
+  // NotificationList's "You're all caught up" line: this surface reads no
+  // error state, so that line is not evidence that anything was loaded.
   const neverReceived = data != null && entries.length === 0
 
   if (!isAuthenticated) return null
