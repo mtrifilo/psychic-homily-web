@@ -84,6 +84,16 @@ describe('useActiveSection', () => {
     document.body.innerHTML = ''
   })
 
+  it('measures on mount, for a page that is already scrolled', () => {
+    tops = { first: -700, second: 40, third: 900 }
+    setScroll({ scrollY: 800, innerHeight: 800, scrollHeight: 3000 })
+    const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
+    act(() => {
+      vi.advanceTimersByTime(16)
+    })
+    expect(result.current.activeAnchor).toBe('second')
+  })
+
   it('starts on the first section', () => {
     const { result } = renderHook(() => useActiveSection(ANCHORS, rootRef))
     expect(result.current.activeAnchor).toBe('first')
@@ -98,7 +108,12 @@ describe('useActiveSection', () => {
     scroll()
     expect(result.current.activeAnchor).toBe('second')
 
-    tops = { first: -700, second: 73, third: 900 }
+    // A landing resting a fraction past the margin still counts.
+    tops = { first: -700, second: 72.5, third: 900 }
+    scroll()
+    expect(result.current.activeAnchor).toBe('second')
+
+    tops = { first: -700, second: 74, third: 900 }
     scroll()
     expect(result.current.activeAnchor).toBe('first')
   })

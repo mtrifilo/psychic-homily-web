@@ -93,7 +93,9 @@ function anchorAtScrollPosition(
     window.scrollY > 0 &&
     window.innerHeight + window.scrollY >= doc.scrollHeight - 2
   if (atBottom) return (chosen ?? sections[sections.length - 1]).id
-  const readingLine = readingLinePx(sections[0])
+  // A landing can rest a fraction of a pixel past the margin on fractional
+  // layouts, so the line allows one pixel.
+  const readingLine = readingLinePx(sections[0]) + 1
   let current = sections[0].id
   for (const section of sections) {
     if (section.getBoundingClientRect().top <= readingLine) current = section.id
@@ -185,8 +187,11 @@ export function useActiveSection(
 
     // A hold the previous run of this effect started outlives its cleanup
     // (a hidden route shown again, a development double run), and needs its
-    // release timer back.
+    // release timer back. Otherwise the page can already be scrolled (a
+    // restored position, or a scroll before this listener existed), so the
+    // marker is measured now rather than on the next scroll.
     if (holding.current) scheduleRelease()
+    else onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     for (const type of USER_SCROLL_EVENTS) {
       window.addEventListener(type, onUserScroll, { passive: true })
