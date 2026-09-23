@@ -20,7 +20,7 @@ func TestVerificationResendBudget_ThrottlesAfterBudget(t *testing.T) {
 		served++
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := authScopedRateLimiter(VerificationResendPerMinute)(next)
+	wrapped := authScopedRateLimiter(limiterVerificationResend, VerificationResendPerMinute)(next)
 
 	for i := 0; i < VerificationResendPerMinute; i++ {
 		w := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestVerificationResendBudget_HonorsDisableFlag(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := authScopedRateLimiter(VerificationResendPerMinute)(next)
+	wrapped := authScopedRateLimiter(limiterVerificationResend, VerificationResendPerMinute)(next)
 
 	for i := 0; i < VerificationResendPerMinute*3; i++ {
 		w := httptest.NewRecorder()

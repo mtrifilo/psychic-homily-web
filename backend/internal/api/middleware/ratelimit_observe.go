@@ -26,12 +26,9 @@ const (
 	rateLimitAllowedSampleEvent = "ratelimit_allowed_sample"
 )
 
-// Values of the `limiter` attribute: which limiter wrote the line.
+// Values of the `limiter` attribute for the limiters built in this package:
+// which limiter wrote the line.
 const (
-	limiterAuth                        = "auth"
-	limiterPasskey                     = "passkey"
-	limiterTagCreate                   = "tag_create"
-	limiterTagVote                     = "tag_vote"
 	limiterPublicReadAnonymous         = "public_read_anonymous"
 	limiterPublicReadUser              = "public_read_user"
 	limiterPublicReadIPCeiling         = "public_read_ip_ceiling"
@@ -96,9 +93,9 @@ func (s limiterSpec) sampledHandler(authState string, sample func() bool) func(h
 
 // logAttrs are the attributes every rate-limit line from this limiter carries.
 // They name the request by path family and the bucket by fingerprint, so a line
-// built on them carries no client address, slug, or credential; request_id,
-// which the context logger attaches, joins it to the request line when the raw
-// path is needed.
+// built on them carries no client address, slug, or credential.
+// origin_present records only whether an Origin header arrived: a browser sends
+// one on a cross-origin fetch, and a server-side fetch sends none.
 func (s limiterSpec) logAttrs(event string, r *http.Request) []any {
 	return []any{
 		"event", event,
@@ -106,7 +103,22 @@ func (s limiterSpec) logAttrs(event string, r *http.Request) []any {
 		"window_seconds", int(s.window.Seconds()),
 		"path_family", RateLimitPathFamily(r.URL.Path),
 		"key_fingerprint", requestKeyFingerprint(s.key, r),
+		"fingerprint_epoch", fingerprintEpoch,
+		"origin_present", r.Header.Get("Origin") != "",
 	}
+}
+
+// logRejected writes one ratelimit_rejected line.
+func (s limiterSpec) logRejected(r *http.Request) {
+	logger.FromContext(r.Context()).Warn("rate limit exceeded",
+		append(s.logAttrs(rateLimitRejectedEvent, r), "method", r.Method)...)
+}
+
+// LogClientIPRateLimitRejection writes the ratelimit_rejected line for a
+// KeyByClientIP limiter whose 429 response is built outside this package, so
+// every rejection in the process shares one log schema.
+func LogClientIPRateLimitRejection(r *http.Request, limiter string, window time.Duration) {
+	limiterSpec{name: limiter, window: window, key: KeyByClientIP}.logRejected(r)
 }
 
 // logAllowed writes one ratelimit_allowed_sample line. A response without the
@@ -143,8 +155,7 @@ func (s limiterSpec) rejection() http.HandlerFunc {
 		`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in %d seconds."}`,
 		seconds))
 	return func(w http.ResponseWriter, r *http.Request) {
-		logger.FromContext(r.Context()).Warn("rate limit exceeded",
-			append(s.logAttrs(rateLimitRejectedEvent, r), "method", r.Method)...)
+		s.logRejected(r)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", retryAfter)
@@ -165,12 +176,6 @@ func requestKeyFingerprint(key httprate.KeyFunc, r *http.Request) string {
 	return fingerprint(k)
 }
 
-// ClientIPKeyFingerprint is the fingerprint of the KeyByClientIP bucket r lands
-// in, for 429 handlers outside this package that log which bucket fired.
-func ClientIPKeyFingerprint(r *http.Request) string {
-	return requestKeyFingerprint(KeyByClientIP, r)
-}
-
 // keyFingerprintHexLen is the fingerprint length in hex characters: 48 bits,
 // which keeps the chance that two of 100,000 distinct buckets share a
 // fingerprint below 1 in 10,000.
@@ -179,15 +184,21 @@ const keyFingerprintHexLen = 12
 // fingerprintSalt keys every fingerprint this process writes. It is drawn once
 // per process and never logged. An unkeyed hash of an IPv4 address is reversed
 // by hashing all 2^32 candidates; a keyed one cannot be without the key. The
-// cost is that fingerprints compare only between lines from one process.
-var fingerprintSalt = newFingerprintSalt()
+// cost is that fingerprints compare only between lines that share a
+// fingerprint_epoch.
+var fingerprintSalt = randomBytes(sha256.Size)
 
-func newFingerprintSalt() []byte {
-	salt := make([]byte, sha256.Size)
-	if _, err := rand.Read(salt); err != nil {
-		panic("rate-limit fingerprint salt: " + err.Error())
+// fingerprintEpoch names this process's salt on every line that carries a
+// fingerprint, so a query counting distinct fingerprints can group by it. It is
+// drawn independently of the salt and reveals nothing about it.
+var fingerprintEpoch = hex.EncodeToString(randomBytes(4))
+
+func randomBytes(n int) []byte {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic("rate-limit fingerprint randomness: " + err.Error())
 	}
-	return salt
+	return b
 }
 
 // fingerprint reduces a bucket key to a short tag that is stable within this
@@ -210,7 +221,7 @@ const (
 	pathFamilyVenue  = "/venues/{slug}"
 	pathFamilyScene  = "/scenes/{slug}"
 	pathFamilySearch = "/search"
-	pathFamilyOther  = "other"
+	PathFamilyOther  = "other"
 )
 
 // entityCollection is a collection whose entities have their own path family.
@@ -239,15 +250,16 @@ var entityCollections = map[string]entityCollection{
 
 // RateLimitPathFamily maps a request path to a low-cardinality family for
 // rate-limit logs: the entity families in entityCollections, the search family
-// for /search and any /{collection}/search, and pathFamilyOther for the rest.
+// for /search and any /{collection}/search, and PathFamilyOther for the rest.
+// Only the first two segments decide the family, so the split stops there.
 func RateLimitPathFamily(path string) string {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
+	segments := strings.SplitN(strings.Trim(path, "/"), "/", 3)
 	if len(segments) <= 2 && segments[len(segments)-1] == "search" {
 		return pathFamilySearch
 	}
 	collection, ok := entityCollections[segments[0]]
 	if !ok || len(segments) < 2 || segments[1] == "" || collection.routeSegments[segments[1]] {
-		return pathFamilyOther
+		return PathFamilyOther
 	}
 	return collection.family
 }

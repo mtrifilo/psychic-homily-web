@@ -192,6 +192,7 @@ func observeProxyTrust(r *http.Request, xff string, hops int, source, key string
 			"has_true_client_ip", r.Header.Get("True-Client-IP") != "",
 			"has_envoy_external", r.Header.Get("X-Envoy-External-Address") != "",
 			"key_fingerprint", fingerprint(key),
+			"fingerprint_epoch", fingerprintEpoch,
 		)
 	})
 }

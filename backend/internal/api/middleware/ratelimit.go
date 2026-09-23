@@ -75,44 +75,20 @@ const (
 	PublicReadAuthenticatedIPCeilingPerMinute = 1000
 )
 
-// RateLimitAuthEndpoints creates a strict rate limiter for authentication endpoints
-// 10 requests per minute per IP - helps prevent:
-// - Brute force attacks
-// - Credential stuffing
-// - Email bombing via magic links
-// - Spam account creation
-func RateLimitAuthEndpoints() func(http.Handler) http.Handler {
-	return limiterSpec{name: limiterAuth, limit: AuthRequestsPerMinute, window: time.Minute, key: KeyByClientIP}.handler()
-}
-
-// RateLimitPasskeyEndpoints creates a rate limiter for passkey/WebAuthn endpoints
-// 20 requests per minute per IP - slightly more lenient for multi-step flows
-func RateLimitPasskeyEndpoints() func(http.Handler) http.Handler {
-	return limiterSpec{name: limiterPasskey, limit: PasskeyRequestsPerMinute, window: time.Minute, key: KeyByClientIP}.handler()
-}
-
 // RateLimitPublicReadAnonymousEndpoints is the per-IP limiter for anonymous
 // public reads: APIRequestsPerMinute per KeyByClientIP bucket. It logs a sample
 // of the requests it allows (allowedReadSampleRate) with auth_state=anonymous.
 func RateLimitPublicReadAnonymousEndpoints() func(http.Handler) http.Handler {
+	return publicReadAnonymousLimiter(sampleAt(allowedReadSampleRate))
+}
+
+func publicReadAnonymousLimiter(sample func() bool) func(http.Handler) http.Handler {
 	return limiterSpec{
 		name:   limiterPublicReadAnonymous,
 		limit:  APIRequestsPerMinute,
 		window: time.Minute,
 		key:    KeyByClientIP,
-	}.sampledHandler(authStateAnonymous, sampleAt(allowedReadSampleRate))
-}
-
-// RateLimitTagCreateEndpoints creates a rate limiter for tag creation endpoints
-// 20 requests per hour per IP - prevents tag spam on entities
-func RateLimitTagCreateEndpoints() func(http.Handler) http.Handler {
-	return limiterSpec{name: limiterTagCreate, limit: TagCreateRequestsPerHour, window: time.Hour, key: KeyByClientIP}.handler()
-}
-
-// RateLimitTagVoteEndpoints creates a rate limiter for tag voting endpoints
-// 30 requests per minute per IP - prevents rapid vote manipulation
-func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
-	return limiterSpec{name: limiterTagVote, limit: TagVoteRequestsPerMinute, window: time.Minute, key: KeyByClientIP}.handler()
+	}.sampledHandler(authStateAnonymous, sample)
 }
 
 // SkipRateLimitForAdmin wraps a rate-limit middleware with two hatches: a
@@ -288,12 +264,16 @@ func RateLimitPublicReadUserEndpoints() func(http.Handler) http.Handler {
 // (RateLimitPublicReadAnonymousEndpoints). It logs a sample of the requests it
 // allows (allowedReadSampleRate) with auth_state=authenticated.
 func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler {
+	return publicReadIPCeilingLimiter(sampleAt(allowedReadSampleRate))
+}
+
+func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Handler {
 	return limiterSpec{
 		name:   limiterPublicReadIPCeiling,
 		limit:  PublicReadAuthenticatedIPCeilingPerMinute,
 		window: time.Minute,
 		key:    KeyByClientIP,
-	}.sampledHandler(authStateAuthenticated, sampleAt(allowedReadSampleRate))
+	}.sampledHandler(authStateAuthenticated, sample)
 }
 
 // RateLimitPublicReadsByAuthState routes each request to the right limiter:

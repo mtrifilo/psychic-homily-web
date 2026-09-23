@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/go-chi/httprate"
 
 	communityh "psychic-homily-backend/internal/api/handlers/community"
 	"psychic-homily-backend/internal/api/middleware"
@@ -29,12 +28,7 @@ func setupShowReportRoutes(rc RouteContext) {
 	// and a Huma group inherits its parent's middleware. See the note on the
 	// entity-report group below for why re-applying it is not merely redundant.
 	reportSubmitGroup := huma.NewGroup(rc.API, "")
-	reportSubmitGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
-		middleware.ReportRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(middleware.KeyByClientIP),
-		httprate.WithLimitHandler(rateLimitHandler),
-	)))
+	reportSubmitGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(limiterShowReport, middleware.ReportRequestsPerMinute, time.Minute)))
 	reportSubmitGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(reportSubmitGroup, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
 
@@ -98,12 +92,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 	// correlate. The groups converted in shows.go, tags.go and auth.go still carry
 	// the redundant copy; removing it there is a follow-up.
 	entityReportGroup := huma.NewGroup(rc.API, "")
-	entityReportGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
-		middleware.ReportRequestsPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(middleware.KeyByClientIP),
-		httprate.WithLimitHandler(rateLimitHandler),
-	)))
+	entityReportGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(limiterEntityReport, middleware.ReportRequestsPerMinute, time.Minute)))
 	entityReportGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 
 	huma.Post(entityReportGroup, "/artists/{entity_id}/report", entityReportHandler.ReportArtistHandler)

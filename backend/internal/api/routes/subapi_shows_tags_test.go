@@ -181,7 +181,7 @@ func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 // partway.
 func TestRateLimitUnlessValidatedAPIToken_ValidatedTokenBypasses(t *testing.T) {
 	const live = "phk_live"
-	mw := rateLimitUnlessValidatedAPIToken(func(token string) bool { return token == live }, 1, time.Hour)
+	mw := rateLimitUnlessValidatedAPIToken(func(token string) bool { return token == live }, "test", 1, time.Hour)
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < 5; i++ {

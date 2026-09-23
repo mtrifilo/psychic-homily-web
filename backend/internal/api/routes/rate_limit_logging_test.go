@@ -9,39 +9,62 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 )
 
-// The 429 line of the per-IP write limiters identifies the bucket by
-// fingerprint, never by the connection's address.
-func TestRateLimitHandler_LogsFingerprintNotAddress(t *testing.T) {
+// The per-IP limiters built in this package log the same ratelimit_rejected
+// line as middleware's limiters, named and with their real window, and never
+// the connection's address or raw path; their response keeps Retry-After: 60.
+func TestIPRateLimiter_LogsNamedRejectionWithoutAddress(t *testing.T) {
 	const address = "192.0.2.123"
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
-	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
-	req.RemoteAddr = address + ":5555"
-	req = req.WithContext(logger.NewContext(req.Context(), log))
-	rr := httptest.NewRecorder()
+	limited := ipRateLimiter(limiterTagCreate, 1, time.Hour)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
 
-	rateLimitHandler(rr, req)
+	var rr *httptest.ResponseRecorder
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/entities/artist/secret-slug-xyz/tags", nil)
+		req.RemoteAddr = address + ":5555"
+		rr = httptest.NewRecorder()
+		limited.ServeHTTP(rr, req.WithContext(logger.NewContext(req.Context(), log)))
+	}
 
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429", rr.Code)
 	}
-	if strings.Contains(buf.String(), address) {
-		t.Fatalf("429 log line carries the client address:\n%s", buf.String())
+	if got := rr.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Retry-After = %q, want 60", got)
+	}
+	for _, raw := range []string{address, "secret-slug-xyz"} {
+		if strings.Contains(buf.String(), raw) {
+			t.Fatalf("429 log line carries %q:\n%s", raw, buf.String())
+		}
 	}
 	var line map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
 		t.Fatalf("429 log line is not one JSON record: %v: %s", err, buf.String())
 	}
-	if _, ok := line["remote_addr"]; ok {
-		t.Errorf("429 log line carries remote_addr: %v", line["remote_addr"])
+	for field, want := range map[string]any{
+		"event":          "ratelimit_rejected",
+		"limiter":        limiterTagCreate,
+		"window_seconds": float64(3600),
+		"path_family":    middleware.PathFamilyOther,
+		"method":         http.MethodPost,
+	} {
+		if line[field] != want {
+			t.Errorf("%s = %v, want %v", field, line[field], want)
+		}
 	}
-	if got, want := line["key_fingerprint"], middleware.ClientIPKeyFingerprint(req); got != want {
-		t.Errorf("key_fingerprint = %v, want %v", got, want)
+	for _, field := range []string{"remote_addr", "path", "key_fingerprint", "fingerprint_epoch"} {
+		_, present := line[field]
+		if wantPresent := field == "key_fingerprint" || field == "fingerprint_epoch"; present != wantPresent {
+			t.Errorf("429 line %q present = %v, want %v", field, present, wantPresent)
+		}
 	}
 }
 
@@ -63,9 +86,9 @@ func TestRateLimitPathFamilyAgreesWithRouter(t *testing.T) {
 				continue
 			}
 			entityFamily := middleware.RateLimitPathFamily("/" + segments[0] + "/some-entity-slug")
-			if entityFamily == middleware.RateLimitPathFamily("/labels/some-entity-slug") {
-				// Collections without an entity family fold into the same value
-				// as /labels, so there is nothing to disagree with.
+			if entityFamily == middleware.PathFamilyOther {
+				// A collection without an entity family has nothing to disagree
+				// with.
 				continue
 			}
 

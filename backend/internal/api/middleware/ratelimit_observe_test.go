@@ -148,13 +148,15 @@ func TestRateLimitRejection_LogLineCarriesNoRawAddress(t *testing.T) {
 	}
 	line := lines[0]
 	for field, want := range map[string]any{
-		"msg":             "rate limit exceeded",
-		"level":           "WARN",
-		"limiter":         limiterPublicReadAnonymous,
-		"window_seconds":  float64(60),
-		"path_family":     pathFamilyArtist,
-		"method":          http.MethodGet,
-		"key_fingerprint": fingerprint(observedClientIP),
+		"msg":               "rate limit exceeded",
+		"level":             "WARN",
+		"limiter":           limiterPublicReadAnonymous,
+		"window_seconds":    float64(60),
+		"path_family":       pathFamilyArtist,
+		"method":            http.MethodGet,
+		"key_fingerprint":   fingerprint(observedClientIP),
+		"fingerprint_epoch": fingerprintEpoch,
+		"origin_present":    false,
 	} {
 		if line[field] != want {
 			t.Errorf("%s = %v, want %v", field, line[field], want)
@@ -319,7 +321,7 @@ func TestSampleAt_HonoursRate(t *testing.T) {
 	}
 }
 
-// The production limiters carry their own names and windows on the 429 line.
+// The public-read limiters carry their own names and windows on the 429 line.
 func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -328,10 +330,6 @@ func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 		limiter string
 		window  float64
 	}{
-		{"auth", RateLimitAuthEndpoints(), AuthRequestsPerMinute, limiterAuth, 60},
-		{"passkey", RateLimitPasskeyEndpoints(), PasskeyRequestsPerMinute, limiterPasskey, 60},
-		{"tag create", RateLimitTagCreateEndpoints(), TagCreateRequestsPerHour, limiterTagCreate, 3600},
-		{"tag vote", RateLimitTagVoteEndpoints(), TagVoteRequestsPerMinute, limiterTagVote, 60},
 		{"anonymous public read", RateLimitPublicReadAnonymousEndpoints(), APIRequestsPerMinute, limiterPublicReadAnonymous, 60},
 		{"authenticated ip ceiling", RateLimitPublicReadAuthenticatedIPCeiling(), PublicReadAuthenticatedIPCeilingPerMinute, limiterPublicReadIPCeiling, 60},
 	} {
@@ -376,21 +374,19 @@ func TestPublicReadLimiters_SampleWithTheirAuthState(t *testing.T) {
 		mw        func(http.Handler) http.Handler
 		authState string
 	}{
-		{limiterPublicReadAnonymous, RateLimitPublicReadAnonymousEndpoints(), authStateAnonymous},
-		{limiterPublicReadIPCeiling, RateLimitPublicReadAuthenticatedIPCeiling(), authStateAuthenticated},
+		{limiterPublicReadAnonymous, publicReadAnonymousLimiter(always), authStateAnonymous},
+		{limiterPublicReadIPCeiling, publicReadIPCeilingLimiter(always), authStateAuthenticated},
 	} {
 		logs := newLogCapture(t)
 		handler := tc.mw(okHandler())
-		// 100 allowed requests at p=0.1 all go unsampled with probability
-		// 0.9^100, about 1 in 37,000.
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 3; i++ {
 			req := httptest.NewRequest(http.MethodGet, "/shows/some-show", nil)
 			req.RemoteAddr = "192.0.2.55:1234"
 			handler.ServeHTTP(httptest.NewRecorder(), logs.attach(req))
 		}
 		samples := logs.events(rateLimitAllowedSampleEvent)
-		if len(samples) == 0 {
-			t.Fatalf("%s: no sampled lines across 100 allowed requests", tc.limiter)
+		if len(samples) != 3 {
+			t.Fatalf("%s: got %d sampled lines from 3 allowed requests, want 3", tc.limiter, len(samples))
 		}
 		for _, s := range samples {
 			if s["limiter"] != tc.limiter || s["auth_state"] != tc.authState {
@@ -418,23 +414,57 @@ func TestRateLimitPathFamily(t *testing.T) {
 		{"/artists/search", pathFamilySearch},
 		{"/shows/search", pathFamilySearch},
 		{"/labels/search", pathFamilySearch},
-		{"/artists", pathFamilyOther},
-		{"/shows/", pathFamilyOther},
-		{"/artists/cities", pathFamilyOther},
-		{"/artists/relationships/1/2/vote", pathFamilyOther},
-		{"/shows/upcoming", pathFamilyOther},
-		{"/shows/calendar/range", pathFamilyOther},
-		{"/shows/saves/batch", pathFamilyOther},
-		{"/venues/listing", pathFamilyOther},
-		{"/artists//shows", pathFamilyOther},
-		{"/labels/sub-pop", pathFamilyOther},
-		{"/search/radiohead", pathFamilyOther},
-		{"/", pathFamilyOther},
-		{"", pathFamilyOther},
-		{"/health", pathFamilyOther},
+		{"/artists", PathFamilyOther},
+		{"/shows/", PathFamilyOther},
+		{"/artists/cities", PathFamilyOther},
+		{"/artists/relationships/1/2/vote", PathFamilyOther},
+		{"/shows/upcoming", PathFamilyOther},
+		{"/shows/calendar/range", PathFamilyOther},
+		{"/shows/saves/batch", PathFamilyOther},
+		{"/venues/listing", PathFamilyOther},
+		{"/artists//shows", PathFamilyOther},
+		{"/labels/sub-pop", PathFamilyOther},
+		{"/search/radiohead", PathFamilyOther},
+		{"/", PathFamilyOther},
+		{"", PathFamilyOther},
+		{"/health", PathFamilyOther},
 	} {
 		if got := RateLimitPathFamily(tc.path); got != tc.want {
 			t.Errorf("RateLimitPathFamily(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+// origin_present reports whether the request carried an Origin header, and
+// nothing about its value.
+func TestLogAttrs_OriginPresentCarriesNoOriginValue(t *testing.T) {
+	const origin = "https://secret-origin.example"
+	spec := limiterSpec{name: "test", limit: 1, window: time.Minute, key: KeyByClientIP}
+	for _, tc := range []struct {
+		origin string
+		want   bool
+	}{{"", false}, {origin, true}} {
+		logs := newLogCapture(t)
+		handler := spec.sampledHandler(authStateAnonymous, always)(okHandler())
+		for i := 0; i < 2; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/artists/x", nil)
+			req.RemoteAddr = "192.0.2.66:1234"
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			handler.ServeHTTP(httptest.NewRecorder(), logs.attach(req))
+		}
+		if strings.Contains(logs.buf.String(), "secret-origin") {
+			t.Errorf("log output carries the Origin value:\n%s", logs.buf.String())
+		}
+		for _, event := range []string{rateLimitAllowedSampleEvent, rateLimitRejectedEvent} {
+			lines := logs.events(event)
+			if len(lines) != 1 {
+				t.Fatalf("origin %q: got %d %s lines, want 1", tc.origin, len(lines), event)
+			}
+			if lines[0]["origin_present"] != tc.want {
+				t.Errorf("origin %q: %s origin_present = %v, want %v", tc.origin, event, lines[0]["origin_present"], tc.want)
+			}
 		}
 	}
 }

@@ -73,38 +73,10 @@ func TestRateLimitRejection_Body(t *testing.T) {
 	}
 }
 
-func TestRateLimitAuthEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitAuthEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitAuthEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitPasskeyEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitPasskeyEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitPasskeyEndpoints() returned nil")
-	}
-}
-
 func TestRateLimitPublicReadAnonymousEndpoints_ReturnsMiddleware(t *testing.T) {
 	mw := RateLimitPublicReadAnonymousEndpoints()
 	if mw == nil {
 		t.Fatal("RateLimitPublicReadAnonymousEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitTagCreateEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitTagCreateEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitTagCreateEndpoints() returned nil")
-	}
-}
-
-func TestRateLimitTagVoteEndpoints_ReturnsMiddleware(t *testing.T) {
-	mw := RateLimitTagVoteEndpoints()
-	if mw == nil {
-		t.Fatal("RateLimitTagVoteEndpoints() returned nil")
 	}
 }
 
