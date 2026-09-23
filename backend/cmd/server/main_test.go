@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 
@@ -120,9 +119,11 @@ func fireRateLimitedRequest(t *testing.T, mw *cors.Cors, origin string) *http.Re
 }
 
 // TestNewCORSMiddlewareExposedHeaders pins the exact set of non-safelisted
-// response headers a cross-origin browser may read. The expected value is a
-// literal rather than config.CORSExposedHeaders() so that widening the list is
-// a deliberate edit to this test, not a silent change to the CORS posture.
+// response headers a cross-origin browser may read. go-chi/cors writes the list
+// as ONE header value joined with ", ", so a widened list is compared as that
+// joined string. The expected value is a literal rather than
+// config.CORSExposedHeaders() so that widening the list is a deliberate edit to
+// this test, not a silent change to the CORS posture.
 func TestNewCORSMiddlewareExposedHeaders(t *testing.T) {
 	const wantExposed = "Retry-After"
 
@@ -131,12 +132,12 @@ func TestNewCORSMiddlewareExposedHeaders(t *testing.T) {
 		isProduction    bool
 		origin          string
 		wantAllowOrigin string
-		wantExposed     []string
+		wantExposed     string
 	}{
-		{"prod allowed origin", true, testAllowedOrigin, testAllowedOrigin, []string{wantExposed}},
-		{"non-prod allowed origin", false, testAllowedOrigin, testAllowedOrigin, []string{wantExposed}},
-		{"non-prod preview origin", false, testPreviewOrigin, testPreviewOrigin, []string{wantExposed}},
-		{"prod disallowed origin gets no CORS headers", true, testPreviewOrigin, "", nil},
+		{"prod allowed origin", true, testAllowedOrigin, testAllowedOrigin, wantExposed},
+		{"non-prod allowed origin", false, testAllowedOrigin, testAllowedOrigin, wantExposed},
+		{"non-prod preview origin", false, testPreviewOrigin, testPreviewOrigin, wantExposed},
+		{"prod disallowed origin gets no CORS headers", true, testPreviewOrigin, "", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,8 +152,8 @@ func TestNewCORSMiddlewareExposedHeaders(t *testing.T) {
 			if got := resp.Header.Get("Access-Control-Allow-Origin"); got != tc.wantAllowOrigin {
 				t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, tc.wantAllowOrigin)
 			}
-			if got := resp.Header.Values("Access-Control-Expose-Headers"); !slices.Equal(got, tc.wantExposed) {
-				t.Errorf("Access-Control-Expose-Headers = %q, want %q", got, tc.wantExposed)
+			if got := resp.Header.Values("Access-Control-Expose-Headers"); strings.Join(got, "|") != tc.wantExposed {
+				t.Errorf("Access-Control-Expose-Headers = %q, want exactly %q", got, tc.wantExposed)
 			}
 		})
 	}

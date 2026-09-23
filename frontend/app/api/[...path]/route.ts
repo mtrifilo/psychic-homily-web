@@ -94,11 +94,12 @@ async function proxyRequest(request: NextRequest) {
     }
 
     // Forward Retry-After (PSY-1542). Every rate limiter in the backend answers
-    // 429 with this header, and `ApiError.retryAfter` — the convention every
-    // rate-limit-aware surface renders from — is parsed from it. Because ALL
-    // browser traffic goes through this proxy, dropping the header here made
-    // that field permanently undefined: the throttled user was told "try again
-    // in a minute" instead of the real wait, on every such surface.
+    // 429 with this header, and `ApiError.retryAfter`, which every
+    // rate-limit-aware surface renders from, is parsed from it. Browser
+    // traffic that goes through this proxy (development) sees only the headers
+    // re-emitted here, so dropping it would leave that field undefined.
+    // Deployed browsers call the backend cross-origin and read the header
+    // through its CORS exposure (`config.CORSExposedHeaders` in the backend).
     const retryAfter = backendResponse.headers.get('retry-after')
     if (retryAfter) {
       response.headers.set('Retry-After', retryAfter)
