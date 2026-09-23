@@ -207,8 +207,8 @@ describe('CommentVoteControls', () => {
 
       const banner = screen.getByTestId('vote-error-banner')
       expect(banner).toBeInTheDocument()
-      // Reuses formatCommentSubmissionError → 429 countdown copy.
-      expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
+      // Reuses formatCommentSubmissionError → the server 429 message.
+      expect(banner).toHaveTextContent('Rate limited')
     })
   })
 

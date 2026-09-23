@@ -1169,6 +1169,24 @@ describe('AddItemsPicker', () => {
     expect(summary).not.toHaveTextContent('201 for review')
   }, 20000)
 
+  it('Paste mode: an hour-window 429 names its raw seconds', async () => {
+    mockApiRequest.mockImplementation(async () => {
+      throw Object.assign(new Error('Rate limit exceeded'), {
+        status: 429,
+        retryAfter: 3600,
+      })
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Junk Line')
+
+    const error = await screen.findByTestId(
+      'add-items-picker-paste-row-queue-error'
+    )
+    expect(error).toHaveTextContent('retry in 3600s')
+  })
+
   // A 429 can arrive without Retry-After, so the copy has to read without it
   // rather than printing an empty countdown.
   it('Paste mode: a 429 with no Retry-After still names the reason', async () => {

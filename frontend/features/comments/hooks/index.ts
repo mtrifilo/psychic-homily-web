@@ -42,22 +42,24 @@ function capitalizeFirst(s: string): string {
 }
 
 /**
- * Format a submission error into a user-facing inline-banner string. 429
- * gets countdown copy populated from the `Retry-After` header (or the
- * service message body as a fallback). Any other status falls back to the
- * raw message. Returns null if there is no error.
+ * Format a submission error into a user-facing inline-banner string. A 429
+ * shows the server's message whenever it carries one, and countdown copy from
+ * `Retry-After` only when it does not. Any other status shows the raw message.
+ * Returns null if there is no error.
  *
- * Exported for unit testing — the hook test asserts that 429 with a
- * Retry-After header produces "Please wait Ns before commenting again."
+ * The message outranks the header because it names the cap that fired (the
+ * per-entity pause or the viewer's hourly tier limit), while `Retry-After` is
+ * the limiter's whole window: 3600 on the hourly cap, which the message states
+ * more usefully than "3600s".
  */
 export function formatCommentSubmissionError(error: unknown): string | null {
   if (!error) return null
   const apiErr = error as ApiError
   if (apiErr.status === 429) {
+    if (apiErr.message) return capitalizeFirst(apiErr.message)
     if (apiErr.retryAfter && Number.isFinite(apiErr.retryAfter)) {
       return `Please wait ${apiErr.retryAfter}s before commenting again.`
     }
-    if (apiErr.message) return capitalizeFirst(apiErr.message)
     return 'Please wait a minute before commenting again.'
   }
   if (apiErr.message) return capitalizeFirst(apiErr.message)

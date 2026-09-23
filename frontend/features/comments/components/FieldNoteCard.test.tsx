@@ -358,7 +358,7 @@ describe('FieldNoteCard', () => {
       })
     }
 
-    it('renders inline 429 banner with countdown copy when reply mutation rate-limits', () => {
+    it('renders inline 429 banner with the server message when reply mutation rate-limits', () => {
       authedUser()
       const err = Object.assign(
         new Error('please wait 60 seconds between comments on the same entity'),
@@ -377,7 +377,7 @@ describe('FieldNoteCard', () => {
 
       const banner = screen.getByTestId('comment-form-error')
       expect(banner).toBeInTheDocument()
-      expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
+      expect(banner).toHaveTextContent('Please wait 60 seconds between comments on the same entity')
     })
 
     it('renders the auto-dismiss vote-error banner when useVoteComment rejects', () => {
@@ -434,7 +434,7 @@ describe('FieldNoteCard', () => {
       const banner = screen.getByTestId('vote-error-banner')
       expect(banner).toBeInTheDocument()
       expect(banner).toHaveTextContent(
-        'Please wait 60s before commenting again.'
+        'Rate limited'
       )
     })
   })
