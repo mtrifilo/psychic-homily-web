@@ -187,9 +187,7 @@ function rateLimitRetryDelay(
   error: MaybeApiError,
   random: () => number = Math.random
 ): number {
-  // The header caps the curve and never raises it: a header longer than the
-  // current step leaves the step unchanged, so a readable `Retry-After` can
-  // only make a retry earlier than the header-less schedule, never later.
+  // The header is an upper bound on the curve's step, never a replacement.
   const curve = RATE_LIMIT_FALLBACK_BASE_MS * 2 ** failureCount
   const base = Math.min(
     curve,

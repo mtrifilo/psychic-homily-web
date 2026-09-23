@@ -321,9 +321,9 @@ function recordRateLimitHitUnguarded(hit: RateLimitHit): void {
       status: 429,
       runtime,
       // Whether the 429 carried a usable Retry-After. Every backend limiter
-      // sends one and CORS exposes it cross-origin, so `false` marks a 429
-      // that arrived without it: another layer's limiter, or a header form
-      // `lib/api.ts` does not parse.
+      // sends one (readable per fact (4) in ./query-retry-policy), so `false`
+      // marks another layer's limiter or a header form `lib/api.ts` does not
+      // parse.
       has_retry_after: hit.retryAfter != null,
     },
     extra: {
