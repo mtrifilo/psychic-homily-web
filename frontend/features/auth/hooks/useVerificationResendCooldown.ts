@@ -80,8 +80,8 @@ export function isVerificationResendUnauthorized(error: unknown): boolean {
  * verified. `useSendVerificationEmail` raises that 200 `success: false` body as
  * an error carrying the backend's `error_code` as `code`.
  *
- * It is the reader's own verification landing elsewhere (another tab, another
- * device), not a broken send, so it must not page on-call as a Sentry error.
+ * Separated so a surface can name the state rather than invite a retry that
+ * can never succeed.
  */
 export function isVerificationResendAlreadyVerified(error: unknown): boolean {
   if (!error || typeof error !== 'object') {

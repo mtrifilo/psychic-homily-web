@@ -248,8 +248,7 @@ describe('VerificationResend', () => {
       error_code: 'ALREADY_VERIFIED',
     }
 
-    // The reader verified elsewhere; nothing is broken, so nobody is paged.
-    it('is not reported, and keeps the generic line by default', async () => {
+    it('is reported and keeps the generic line by default', async () => {
       mockApiRequest.mockResolvedValueOnce(alreadyVerified)
       const user = userEvent.setup()
       renderControl()
@@ -260,6 +259,29 @@ describe('VerificationResend', () => {
         expect(screen.getByRole('alert')).toHaveTextContent(
           'We could not send that email just now. Please try again in a moment.'
         )
+      })
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: { service: 'test_surface', error_type: 'verification_email' },
+        })
+      )
+    })
+
+    it('is not reported by a surface that opts out', async () => {
+      mockApiRequest.mockResolvedValueOnce(alreadyVerified)
+      const user = userEvent.setup()
+      renderWithProviders(
+        <VerificationResend service="test_surface" reportAlreadyVerified={false}>
+          <VerificationResendButton>Send it again</VerificationResendButton>
+          <VerificationResendFailed />
+        </VerificationResend>
+      )
+
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument()
       })
       expect(Sentry.captureException).not.toHaveBeenCalled()
     })

@@ -130,7 +130,7 @@ export function CheckInboxInterstitial({
         </p>
       </div>
 
-      <VerificationResend service="auth_check_inbox">
+      <VerificationResend service="auth_check_inbox" reportAlreadyVerified={false}>
         <div className="flex flex-wrap items-center gap-3">
           <Button asChild>
             <Link href={primaryHref}>{primaryLabel}</Link>

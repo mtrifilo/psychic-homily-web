@@ -87,10 +87,21 @@ interface VerificationResendProps {
    * attributable to the screen it happened on.
    */
   service: string
+  /**
+   * Whether an already-verified refusal is reported to Sentry like any other
+   * failure. Defaults to true; a surface that names the state to the reader
+   * (`VerificationResendFailed`'s `alreadyVerifiedMessage`) treats it as an
+   * outcome rather than a fault and passes false.
+   */
+  reportAlreadyVerified?: boolean
   children: ReactNode
 }
 
-export function VerificationResend({ service, children }: VerificationResendProps) {
+export function VerificationResend({
+  service,
+  reportAlreadyVerified = true,
+  children,
+}: VerificationResendProps) {
   const sendVerificationEmail = useSendVerificationEmail()
   const cooldown = useVerificationResendCooldown()
   const [sent, setSent] = useState(false)
@@ -125,8 +136,9 @@ export function VerificationResend({ service, children }: VerificationResendProp
         return
       }
       setFailed(true)
-      if (isVerificationResendAlreadyVerified(error)) {
-        setAlreadyVerified(true)
+      const alreadyVerifiedRefusal = isVerificationResendAlreadyVerified(error)
+      setAlreadyVerified(alreadyVerifiedRefusal)
+      if (alreadyVerifiedRefusal && !reportAlreadyVerified) {
         return
       }
       Sentry.captureException(error, {
