@@ -126,8 +126,9 @@ describe('EpisodeArchiveTable', () => {
   })
 
   // jsdom has no layout, so this pins the markup that decides clipping: no
-  // ancestor of the names inside the cell truncates, bounds the width, or
-  // hides overflow. The 390px layout itself is covered by the radio e2e spec.
+  // element from a name up to its cell carries a utility that truncates,
+  // suppresses wrapping, caps the width, or hides overflow. The 390px layout
+  // itself is covered by the radio e2e spec.
   it('renders every played name in full, with no truncating wrapper', () => {
     const names = ['Tangerine Dream', 'Popol Vuh', 'Ash Ra Tempel']
     render(
@@ -148,7 +149,9 @@ describe('EpisodeArchiveTable', () => {
     for (const name of names) {
       let el: HTMLElement | null = within(playedCell).getByText(name)
       while (el) {
-        expect(el.className).not.toMatch(/\b(truncate|max-w-0|overflow-hidden|line-clamp-\d)\b/)
+        expect(el.className).not.toMatch(
+          /(^|[\s:])(truncate|text-ellipsis|whitespace-nowrap|text-nowrap|overflow-(x-)?(hidden|clip)|max-w-|line-clamp-)/
+        )
         if (el === playedCell) break
         el = el.parentElement
       }
@@ -189,6 +192,23 @@ describe('EpisodeArchiveTable', () => {
     expect(cells).toHaveLength(5)
     expect(cells[1]).toHaveClass('max-sm:sr-only')
     expect(cells[2]).toHaveClass('max-sm:sr-only')
+  })
+
+  it('keeps the title and played lines visible when the episode has them', () => {
+    render(
+      <EpisodeArchiveTable
+        {...defaultProps}
+        episodes={[
+          makeEpisode({
+            title: 'Kosmische special',
+            artist_preview: [{ artist_name: 'CAN', artist_id: 5, artist_slug: 'can' }],
+          }),
+        ]}
+      />
+    )
+    const cells = screen.getAllByRole('cell')
+    expect(cells[1]).not.toHaveClass('max-sm:sr-only')
+    expect(cells[2]).not.toHaveClass('max-sm:sr-only')
   })
 
   it('renders an [mp3] link when the episode has an archive_url', () => {

@@ -84,8 +84,8 @@ export function EpisodeArchiveTable({
           }).dateLine
           const hops = previewToHops(episode.artist_preview)
           const archiveStatus = episode.is_upcoming ? (
-            // Not yet aired (PSY-1205): label it rather than linking to an
-            // empty, aired-looking [mp3] archive page.
+            // Not yet aired: labelled rather than linked to an empty,
+            // aired-looking [mp3] archive page.
             <span className="text-muted-foreground">upcoming</span>
           ) : isLive ? (
             <span className="text-primary">
@@ -97,8 +97,7 @@ export function EpisodeArchiveTable({
               href={archiveHref}
               external
               // text-xs beats BracketLink's text-sm base; the enclosing
-              // <td> already supplies font-mono. Adopts the primitive's
-              // tight [mp3], replacing the old padded [ mp3 ].
+              // <td> already supplies font-mono.
               className="text-xs text-primary hover:text-primary/80"
               // Dates the row, because every row's bracket reads "mp3";
               // the new-tab half is BracketLink's to append.
@@ -111,7 +110,7 @@ export function EpisodeArchiveTable({
               {/* PSY-1306: viewer-local date (+ air-time block) — the same
                   AirDateCellContent treatment as the playlists feeds, with the
                   year (archives span years). */}
-              <td role="cell" className="col-start-1 row-start-1 whitespace-nowrap align-top">
+              <td role="cell" className="col-start-1 row-start-1 whitespace-nowrap">
                 <MaybeLink
                   href={episodeUrl}
                   linkedClassName="font-mono text-xs uppercase text-primary hover:text-primary/80 transition-colors"
@@ -197,7 +196,12 @@ export function EpisodeArchiveTable({
   )
 }
 
-/** The stacked row's grid below `sm` (see EpisodeArchiveTable); a table row from `sm` up. */
+/**
+ * The stacked row's grid below `sm` (see EpisodeArchiveTable); a table row
+ * from `sm` up. `[&>td]:p-0` cancels DenseTable's `[&_td]` cell padding: both
+ * selectors have the same specificity and this one wins on source order, so
+ * the row's `py-2` is the stacked row's only vertical padding.
+ */
 const mobileRowClass =
   'grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-y-1 py-2 max-sm:[&>td]:p-0 sm:table-row'
 
