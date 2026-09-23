@@ -375,6 +375,19 @@ describe('venueSnippet', () => {
     )
   })
 
+  it('marks the Next date when the venue zone is a guess', () => {
+    const { description } = venueSnippet({
+      name: 'Room',
+      city: 'Toronto',
+      state: 'ON',
+      nextShow: {
+        headliner: 'Band',
+        timing: { eventDate: '2026-09-12T03:00:00Z', state: 'ON' },
+      },
+    })
+    expect(description).toBe('Upcoming shows at Room in Toronto, ON. Next: Band, ~Sep 11.')
+  })
+
   it('omits the Next clause when there is no next show', () => {
     const { description } = venueSnippet({ ...LOST_BAG, nextShow: null })
     expect(description).toBe('Upcoming shows at Lost Bag in Providence, RI.')

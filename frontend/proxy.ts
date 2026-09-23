@@ -576,7 +576,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next()
   }
 
-  if (entityType === 'shows' && isNumericShowSegment(slug)) {
+  // A year-shaped id is left to the existence probe: `/shows/{year}` is the
+  // parent shape of the calendar routes, and a cached permanent redirect there
+  // would bind that address to one show.
+  if (
+    entityType === 'shows' &&
+    isNumericShowSegment(slug) &&
+    !isAddressableShowsYear(slug)
+  ) {
     return numericShowRedirect(request, slug)
   }
 
@@ -618,29 +625,15 @@ const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
 const API_ERROR_CONTENT_TYPE = 'application/problem+json'
 
 /**
- * Probe a backend URL and turn the result into a pass-through or a real 404.
+ * The ONE fail-open policy, for a probe that did not answer 2xx: the response
+ * the proxy sends instead, or null when the probe succeeded and the caller
+ * decides.
  *
- * ONE fail-open policy, for every branch above. Extracted originally so the
- * scene-week routes could reuse the generic `/<entity>/<slug>` semantics rather
- * than restate them — a second copy would drift.
- *
- * HEAD, and the STATUS is the whole answer. PSY-1756 briefly widened this with a
- * `verdict` callback, for the one probe that had to read a body because its
- * endpoint answered 200 for any venue that existed; PSY-1770 gave that probe a
- * status-bearing endpoint of its own and the callback went with it. A new caller
- * that finds itself wanting a body should get its endpoint an honest status
- * instead — the backend can answer the question in one indexed row, and a body
- * this function parses is a body every OTHER caller pays to receive.
- *
- * `readShowsCalendarRange` below is the ONE exception, and what makes it one is
- * that it asks about the URL SPACE rather than about a URL: one span bounds
- * every dated shows window, so it is read once per instance and compared here
- * in memory, where a status-bearing probe would be a backend call per dated URL
- * a crawler walks. A probe that answers about ONE address belongs in this
- * function.
+ * Shared by `existenceCheck` and `numericShowRedirect`, the two callers that
+ * probe one address, so the rules below have one copy.
  *
  * The fail-open rules are the load-bearing part: a backend 404 is the only
- * "missing", and anything else (5xx, 403, 429, a network error) lets the page
+ * "missing", and anything else (5xx, 403, 429, opaqueredirect) lets the page
  * render. Producing a 404 on a transient blip would mask a real outage as
  * "not found".
  *
@@ -657,6 +650,58 @@ const API_ERROR_CONTENT_TYPE = 'application/problem+json'
  * turning the guard on for them changes 404 semantics site-wide — worth doing,
  * but as its own change with its own verification across every entity type, not
  * as a side effect of a performance ticket.
+ */
+function failedProbeResponse(
+  request: NextRequest,
+  res: Response,
+  options: { requireApiAuthoredNotFound: boolean }
+): NextResponse | null {
+  // 404 from the backend = the thing genuinely does not exist → real 404.
+  //
+  // Unless the caller asked for the stricter reading, in which case the
+  // content type has to agree that the API AUTHORED this 404 — "not found"
+  // and "I have never heard of this path" arrive as the same status and must
+  // not mean the same thing. See API_ERROR_CONTENT_TYPE.
+  if (res.status === 404) {
+    if (!options.requireApiAuthoredNotFound) {
+      return notFoundResponse(request)
+    }
+    const contentType = res.headers.get('content-type') ?? ''
+    if (contentType.includes(API_ERROR_CONTENT_TYPE)) {
+      return notFoundResponse(request)
+    }
+    return NextResponse.next()
+  }
+
+  // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
+  // page render and apply its own handling (each page's server fetch reports
+  // 5xx to Sentry, renders its own not-found on null, etc.).
+  if (!res.ok) {
+    return NextResponse.next()
+  }
+
+  return null
+}
+
+/**
+ * Probe a backend URL and turn the result into a pass-through or a real 404,
+ * under `failedProbeResponse`'s policy. A network error fails open too.
+ *
+ * HEAD, and the STATUS is the whole answer. PSY-1756 briefly widened this with a
+ * `verdict` callback, for the one probe that had to read a body because its
+ * endpoint answered 200 for any venue that existed; PSY-1770 gave that probe a
+ * status-bearing endpoint of its own and the callback went with it. A new caller
+ * that finds itself wanting a body should get its endpoint an honest status
+ * instead — the backend can answer the question in one indexed row, and a body
+ * this function parses is a body every OTHER caller pays to receive.
+ *
+ * Two callers read a body anyway, each for a reason a status cannot carry.
+ * `readShowsCalendarRange` asks about the URL SPACE rather than about a URL: one
+ * span bounds every dated shows window, so it is read once per instance and
+ * compared in memory, where a status-bearing probe would be a backend call per
+ * dated URL a crawler walks. `numericShowRedirect` needs the show's slug, a
+ * value rather than a yes or no, and no status-bearing endpoint returns it.
+ * Any other probe that answers about ONE address belongs in this function.
  */
 async function existenceCheck(
   request: NextRequest,
@@ -678,38 +723,24 @@ async function existenceCheck(
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
 
-    // 404 from the backend = the thing genuinely does not exist → real 404.
-    //
-    // Unless the caller asked for the stricter reading, in which case the
-    // content type has to agree that the API AUTHORED this 404 — "not found"
-    // and "I have never heard of this path" arrive as the same status and must
-    // not mean the same thing. See API_ERROR_CONTENT_TYPE.
-    if (res.status === 404) {
-      if (!options.requireApiAuthoredNotFound) {
-        return notFoundResponse(request)
-      }
-      const contentType = res.headers.get('content-type') ?? ''
-      if (contentType.includes(API_ERROR_CONTENT_TYPE)) {
-        return notFoundResponse(request)
-      }
-      return NextResponse.next()
-    }
-
-    // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
-    // page render and apply its own handling (each page's server fetch reports
-    // 5xx to Sentry, renders its own not-found on null, etc.).
-    if (!res.ok) {
-      return NextResponse.next()
-    }
-
-    // Backend reachable and the slug resolves.
-    return NextResponse.next()
+    // Backend reachable and the slug resolves when nothing failed.
+    return failedProbeResponse(request, res, options) ?? NextResponse.next()
   } catch {
     // Network error reaching the backend: fail OPEN. The proxy must never take
     // a route down when the check itself fails.
     return NextResponse.next()
   }
 }
+
+/**
+ * How long a browser may reuse a numeric-id redirect before asking again.
+ *
+ * Bounded because a show's slug is not permanent: the backend can rewrite one
+ * in place, and a 308 sent without a lifetime is cached by browsers
+ * indefinitely, which would pin the id to a slug that no longer resolves. The
+ * status stays permanent, which is what tells a crawler the slug is canonical.
+ */
+const NUMERIC_SHOW_REDIRECT_CACHE_CONTROL = 'private, max-age=3600'
 
 /**
  * A show addressed by its numeric id, permanently redirected to its slug URL,
@@ -720,13 +751,15 @@ async function existenceCheck(
  * so a `permanentRedirect()` there arrives as a client-side meta refresh.
  *
  * A GET of the show rather than the HEAD existence probe, because the answer
- * needed is the slug and only the detail read carries it. It stands in for the
- * probe on this path, so a numeric request still costs one backend call here.
+ * needed is the slug and only the detail read carries it. That is the full
+ * content read the Next guidance quoted at the top of this file advises
+ * against, uncached, so it runs only for a numeric-id request. It stands in for
+ * the probe on that path, so the request still costs one backend call here.
  *
- * The same fail-open rules as `existenceCheck`: a backend 404 is a real 404,
- * and any other failure lets the page render. So does a show with no
- * addressable slug, whose page stays at the numeric URL. Query parameters
- * survive the redirect.
+ * `failedProbeResponse` decides every non-2xx answer, with the same 404 reading
+ * the shows existence probe uses, and a network error fails open. A show with
+ * no addressable slug renders at the numeric URL. Query parameters survive the
+ * redirect.
  */
 async function numericShowRedirect(
   request: NextRequest,
@@ -737,11 +770,13 @@ async function numericShowRedirect(
       redirect: 'manual',
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
-    if (res.status === 404) {
-      return notFoundResponse(request)
-    }
-    if (!res.ok) {
-      return NextResponse.next()
+    const failed = failedProbeResponse(request, res, {
+      requireApiAuthoredNotFound: false,
+    })
+    if (failed) {
+      // A GET carries an error body; releasing it frees the connection now.
+      await res.body?.cancel().catch(() => {})
+      return failed
     }
     const body: unknown = await res.json()
     const loadedSlug =
@@ -757,7 +792,9 @@ async function numericShowRedirect(
     }
     const url = new URL(target, request.url)
     url.search = request.nextUrl.search
-    return NextResponse.redirect(url, 308)
+    const redirect = NextResponse.redirect(url, 308)
+    redirect.headers.set('Cache-Control', NUMERIC_SHOW_REDIRECT_CACHE_CONTROL)
+    return redirect
   } catch {
     return NextResponse.next()
   }

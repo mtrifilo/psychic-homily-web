@@ -376,6 +376,26 @@ describe('generateMetadata', () => {
     expect(meta.description).not.toContain('~')
   })
 
+  it('places a venue-less show on its OWN city and state', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          venues: [],
+          city: 'Brooklyn',
+          state: 'NY',
+          event_date: '2026-11-13T06:30:00Z',
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.title).toBe('Headliner Band at TBA, Brooklyn · Nov 13')
+    expect(meta.description).toBe(
+      'Headliner Band live at TBA in Brooklyn, NY on Friday, November 13, 2026.'
+    )
+  })
+
   it('sets the canonical URL to https://psychichomily.com/shows/{slug}', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 

@@ -18,8 +18,10 @@ import { formatInTimezone } from '@/lib/utils/timeUtils'
  * WHICH RENDERS MARK is a decided list, not a property of the page: the header
  * date, both stripe registers, the page title, the meta description, the
  * share card, the gig timeline spine
- * (`components/showTimelineCopy.timelineDateLabel`) and the more-at-venue
- * rail's date column (`showRails.railShowDate`).
+ * (`components/showTimelineCopy.timelineDateLabel`), the more-at-venue rail's
+ * date column (`showRails.railShowDate`), and one render off this page: the
+ * `Next:` date in a venue page's meta description (`lib/seo/entitySnippets`),
+ * which travels into a search snippet the way this page's description does.
  *
  * It does NOT cover every date on `/shows/{slug}`. The bill-recurrence line
  * prints a MONTH, a claim the fallback can only get wrong for a set in a

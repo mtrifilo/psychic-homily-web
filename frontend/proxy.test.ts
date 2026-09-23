@@ -100,6 +100,50 @@ describe('proxy numeric show ids', () => {
     )
   })
 
+  it('bounds how long a browser may reuse the redirect', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      showBody('white-denim-at-moth-club')
+    )
+
+    const response = await proxy(requestFor('/shows/1359'))
+
+    expect(response.headers.get('cache-control')).toBe('private, max-age=3600')
+  })
+
+  it('leaves a year-shaped id on the HEAD probe with no redirect', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+
+    const response = await proxy(requestFor('/shows/2026'))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/entities/shows/2026/exists',
+      expect.objectContaining({ method: 'HEAD' })
+    )
+    expect(passedThrough(response)).toBe(true)
+  })
+
+  it('redirects an id just outside the calendar year window', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      showBody('white-denim-at-moth-club')
+    )
+
+    expect((await proxy(requestFor('/shows/1999'))).status).toBe(308)
+    expect((await proxy(requestFor('/shows/2101'))).status).toBe(308)
+  })
+
+  it('releases the error body before answering', async () => {
+    const errorBody = new Response('{"title":"Not Found"}', { status: 404 })
+    const cancel = vi.spyOn(errorBody.body!, 'cancel')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorBody)
+
+    const response = await proxy(requestFor('/shows/999999'))
+
+    expect(response.status).toBe(404)
+    expect(cancel).toHaveBeenCalled()
+  })
+
   it('leaves a slug request on the HEAD probe with no redirect', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

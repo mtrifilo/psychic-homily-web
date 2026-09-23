@@ -65,9 +65,9 @@ export function snippetPlace(
  * appended.
  *
  * `optionalSegments` are appended to `base` in the order given and dropped from
- * the END first, so the caller lists them in reverse order of importance. The
- * base is never dropped or cut: a title whose base alone is over budget is
- * returned as the bare base.
+ * the END first, so the caller lists them most important first. The base is
+ * never dropped or cut: a title whose base alone is over budget is returned as
+ * the bare base.
  */
 export function fitTitle(
   base: string,
