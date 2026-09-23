@@ -1070,7 +1070,7 @@ describe('useAuth hooks', () => {
     // The export document exactly as GET /auth/account/export serves it for a
     // seeded user: the raw document with no response envelope.
     const capturedExportDocument = {
-      exported_at: '2026-09-23T19:40:43.656208Z',
+      exported_at: '2026-09-23T19:59:29.50212Z',
       export_version: '1.0',
       profile: {
         id: 2,
@@ -1078,23 +1078,16 @@ describe('useAuth hooks', () => {
         first_name: 'Test',
         last_name: 'User 1',
         email_verified: true,
-        account_created_at: '2026-09-23T14:40:21.673677-05:00',
-        last_updated_at: '2026-09-23T14:40:43.633803-05:00',
-      },
-      preferences: {
-        notification_email: true,
-        notification_push: false,
-        theme: 'system',
-        timezone: 'America/Phoenix',
-        language: 'en',
+        account_created_at: '2026-09-23T14:59:05.622876-05:00',
+        last_updated_at: '2026-09-23T14:59:29.423923-05:00',
       },
       submitted_shows: [
         {
           show_id: 65,
           title: 'E2E My Submitted Show (e2e-user-1@test.local)',
-          event_date: '2026-12-17T13:42:22.305052-06:00',
+          event_date: '2026-12-17T14:01:06.08237-06:00',
           status: 'approved',
-          submitted_at: '2026-09-23T14:40:22.305052-05:00',
+          submitted_at: '2026-09-23T14:59:06.08237-05:00',
           venue: 'The Rebel Lounge',
           city: 'Phoenix',
           artists: ['Calexico'],
