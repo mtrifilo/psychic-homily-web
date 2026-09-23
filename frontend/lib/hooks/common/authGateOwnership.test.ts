@@ -22,6 +22,10 @@ import { join, relative, sep } from 'node:path'
  *     the query-string loss this family exists to fix, and it names neither
  *     forbidden string.
  *
+ * The intent that opens Create account has a stricter rule still: it is set
+ * by `useAuthGatedAction` and nowhere else, owners included, because a link a
+ * reader follows on purpose to sign in must keep opening Sign in.
+ *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
  * pinned by `useAuthGatedAction.test.tsx` and `useAuthRouteGuard.test.tsx`
@@ -103,19 +107,28 @@ function sourceFiles(dir: string): string[] {
   return out
 }
 
-function offenders(pattern: RegExp): string[] {
+function filesMatching(pattern: RegExp): string[] {
   const found: string[] = []
   for (const dir of SCANNED_DIRS) {
     for (const file of sourceFiles(join(ROOT, dir))) {
-      const rel = relative(ROOT, file)
-      if (OWNERS.has(rel)) continue
       if (pattern.test(stripComments(readFileSync(file, 'utf8')))) {
-        found.push(rel)
+        found.push(relative(ROOT, file))
       }
     }
   }
   return found.sort()
 }
+
+function offenders(pattern: RegExp): string[] {
+  return filesMatching(pattern).filter(rel => !OWNERS.has(rel))
+}
+
+// The only files that may name the gated-arrival builder: its definition and
+// its one caller.
+const GATED_INTENT_SETTERS = [
+  'lib/auth-href.ts',
+  'lib/hooks/common/useAuthGatedAction.ts',
+].map(p => p.split('/').join(sep))
 
 describe('auth gate ownership', () => {
   it('has exactly one builder for the /auth?returnTo= href', () => {
@@ -139,5 +152,17 @@ describe('auth gate ownership', () => {
       rel => !AUTH_HREF_COMPOSERS.has(rel)
     )
     expect(composers).toEqual([])
+  })
+
+  it('lets only the gated-action hook name the intent that opens Create account', () => {
+    expect(filesMatching(/\bbuildGatedAuthHref\b/)).toEqual(
+      GATED_INTENT_SETTERS
+    )
+  })
+
+  it('has no hand-built intent parameter on any href', () => {
+    // `buildGatedAuthHref` composes it from `AUTH_INTENT_PARAM`, so no source
+    // file spells the parameter out.
+    expect(filesMatching(/[?&]intent=/)).toEqual([])
   })
 })

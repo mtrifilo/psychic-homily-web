@@ -835,7 +835,7 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
     )
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Freleases%2Ftest-release'
+      '/auth?returnTo=%2Freleases%2Ftest-release&intent=collect'
     )
     // No popover should open for unauth viewers.
     expect(screen.queryByText('My Favorites')).not.toBeInTheDocument()

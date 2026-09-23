@@ -58,6 +58,7 @@ export function ReportShowButton({
   // whose profile has not arrived, and offering them a sign-in dialog is the
   // same misread the redirect makes elsewhere.
   const { onClick: handleClick } = useAuthGatedAction(
+    'report',
     () => setIsReportDialogOpen(true),
     authHref => {
       setLoginPromptAuthHref(authHref)

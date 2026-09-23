@@ -114,7 +114,66 @@ export function isReauthReason(reason: string | null): boolean {
  * would discard is dropped the same way it is everywhere else.
  */
 export function buildReauthHref(returnTo: string): string {
-  const base = buildAuthHref(returnTo)
+  return appendAuthParam(
+    buildAuthHref(returnTo),
+    'reason',
+    REAUTH_REASON_CREDENTIAL_MINT
+  )
+}
+
+/**
+ * The query parameter that names the action an anonymous viewer tried to take
+ * when a gated control sent them to sign in.
+ *
+ * The auth page opens on Create account when it carries a listed value. Every
+ * other route into the page (the header link, the mobile Account tab, a route
+ * guard, a sign-in prompt) names no intent and opens on Sign in.
+ */
+export const AUTH_INTENT_PARAM = 'intent'
+
+/**
+ * Every action a gated control can name, and so every value the auth page
+ * accepts. Anything outside this list is ignored, so the parameter carries
+ * nothing the page does not already expect.
+ */
+export const AUTH_INTENTS = [
+  'save',
+  'follow',
+  'collect',
+  'like',
+  'notify',
+  'confirm',
+  'report',
+] as const
+
+export type AuthIntent = (typeof AUTH_INTENTS)[number]
+
+/** Reads the intent back off an auth-page URL; an unlisted value is null. */
+export function parseAuthIntent(raw: string | null): AuthIntent | null {
+  return AUTH_INTENTS.find(intent => intent === raw) ?? null
+}
+
+/**
+ * The auth-page href for an anonymous viewer a gated control turned away:
+ * `buildAuthHref`'s destination plus the intent that opens Create account.
+ *
+ * `useAuthGatedAction` is the only caller, which `authGateOwnership.test.ts`
+ * enforces. A link a reader follows on purpose to sign in names no intent,
+ * because nothing about it says they lack an account.
+ */
+export function buildGatedAuthHref(
+  returnTo: string,
+  intent: AuthIntent
+): string {
+  return appendAuthParam(buildAuthHref(returnTo), AUTH_INTENT_PARAM, intent)
+}
+
+/**
+ * Adds one parameter to an href `buildAuthHref` produced, which may or may not
+ * already carry a query string. Every value passed here is a fixed token from
+ * this module, so none needs encoding.
+ */
+function appendAuthParam(base: string, name: string, value: string): string {
   const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}reason=${REAUTH_REASON_CREDENTIAL_MINT}`
+  return `${base}${separator}${name}=${value}`
 }

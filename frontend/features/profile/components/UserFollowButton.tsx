@@ -63,7 +63,7 @@ export function UserFollowButton({
   // AuthStatus in lib/context/AuthContext.
   const isDisabled = isMutating || authStatus === 'pending'
 
-  const { onClick: handleClick } = useAuthGatedAction(() => {
+  const { onClick: handleClick } = useAuthGatedAction('follow', () => {
     if (isDisabled) return
 
     clearErrorAction()

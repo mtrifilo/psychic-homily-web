@@ -146,7 +146,7 @@ describe('SaveButton', () => {
 
     await user.click(screen.getByRole('button'))
     expect(mockRouterPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fshows%2F1%3Fwindow%3Dmonth'
+      '/auth?returnTo=%2Fshows%2F1%3Fwindow%3Dmonth&intent=save'
     )
     expect(mockToggle).not.toHaveBeenCalled()
   })

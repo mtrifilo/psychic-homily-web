@@ -104,7 +104,7 @@ describe('NotifyMeButton', () => {
       />
     )
     await user.click(screen.getByText('Notify me'))
-    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fartists%2Ftest-artist')
+    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fartists%2Ftest-artist&intent=notify')
   })
 
   it('calls quickCreate.mutate when clicking notify without filter', async () => {
@@ -365,7 +365,7 @@ describe('NotifyMeButton — bracket variant (PSY-641)', () => {
     expect(bracket).toBeEnabled()
     await user.click(bracket)
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fartists%2Ftest-artist'
+      '/auth?returnTo=%2Fartists%2Ftest-artist&intent=notify'
     )
   })
 })

@@ -29,7 +29,11 @@ import {
   SignupIntentPanel,
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
-import { isReauthReason } from '@/lib/auth-href'
+import {
+  AUTH_INTENT_PARAM,
+  isReauthReason,
+  parseAuthIntent,
+} from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -624,9 +628,6 @@ function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { authStatus, isLoading } = useAuthContext()
-  const [activeTab, setActiveTab] = useState('login')
-  const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
-  const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // Get error from URL query params (e.g., OAuth errors)
   const urlError = safeDecodeQueryParam(searchParams.get('error'))
@@ -641,6 +642,19 @@ function AuthPageContent() {
   // because bouncing them straight to returnTo would return them to the control
   // that just refused them, with nothing changed and no way to tell why.
   const isReauth = isReauthReason(searchParams.get('reason'))
+
+  // A gated control names the action it refused an anonymous viewer, and only
+  // that arrival opens on Create account; every other route in opens on Sign
+  // in. Re-auth wins: it hides that tab, and a selected tab that does not
+  // render would leave the card empty. The URL only seeds the first render;
+  // tab changes after that are local state and never written back.
+  const arrivedFromGatedAction =
+    parseAuthIntent(searchParams.get(AUTH_INTENT_PARAM)) !== null
+  const [activeTab, setActiveTab] = useState(
+    arrivedFromGatedAction && !isReauth ? 'signup' : 'login'
+  )
+  const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // Redirect if already authenticated.
   //

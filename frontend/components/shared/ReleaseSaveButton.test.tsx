@@ -115,7 +115,7 @@ describe('ReleaseSaveButton', () => {
 
     await user.click(screen.getByRole('button'))
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Freleases%2Fthe-record'
+      '/auth?returnTo=%2Freleases%2Fthe-record&intent=save'
     )
     expect(mockToggle).not.toHaveBeenCalled()
   })
@@ -133,7 +133,7 @@ describe('ReleaseSaveButton', () => {
 
     await user.click(screen.getByRole('button'))
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Freleases%2Fthe-record%3Fwindow%3Dall_time'
+      '/auth?returnTo=%2Freleases%2Fthe-record%3Fwindow%3Dall_time&intent=save'
     )
   })
 

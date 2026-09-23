@@ -80,7 +80,7 @@ export function ReleaseSaveButton({
   const isDisabled =
     disabled || statusLoading || isLoading || authStatus === 'pending'
 
-  const { onClick: handleClick } = useAuthGatedAction(async () => {
+  const { onClick: handleClick } = useAuthGatedAction('save', async () => {
     if (isDisabled) return
     try {
       clearSaveError()

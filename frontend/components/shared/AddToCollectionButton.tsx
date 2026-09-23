@@ -106,7 +106,7 @@ export function AddToCollectionButton({
   // settled-authenticated, so the hook's authenticated branch is unreachable
   // through it; opening the popover is what that branch would do, and what the
   // authenticated render at the foot of this component does.
-  const { onClick: handlePublicBracketClick } = useAuthGatedAction(() =>
+  const { onClick: handlePublicBracketClick } = useAuthGatedAction('collect', () =>
     setOpen(true)
   )
 

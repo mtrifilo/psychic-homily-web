@@ -158,7 +158,7 @@ describe('UserFollowButton', () => {
     await user.click(screen.getByRole('button', { name: /sign in to follow/i }))
 
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fusers%2Falice%3Ftab%3Dbio'
+      '/auth?returnTo=%2Fusers%2Falice%3Ftab%3Dbio&intent=follow'
     )
     expect(mockFollowMutate).not.toHaveBeenCalled()
   })

@@ -176,7 +176,7 @@ describe('FollowButton', () => {
 
     await user.click(screen.getByRole('button'))
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fartists%2Ftest-artist%3Fwindow%3Dall_time'
+      '/auth?returnTo=%2Fartists%2Ftest-artist%3Fwindow%3Dall_time&intent=follow'
     )
     expect(mockFollowMutate).not.toHaveBeenCalled()
   })
@@ -476,7 +476,7 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
 
     await user.click(bracket)
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fartists%2Ftest-artist'
+      '/auth?returnTo=%2Fartists%2Ftest-artist&intent=follow'
     )
     expect(mockFollowMutate).not.toHaveBeenCalled()
   })

@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import {
+  AUTH_INTENT_PARAM,
+  AUTH_INTENTS,
   AUTH_PATH,
   buildAuthHref,
+  buildGatedAuthHref,
   buildReauthHref,
   currentLocationReturnTo,
   isReauthReason,
+  parseAuthIntent,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
 } from './auth-href'
@@ -111,5 +115,52 @@ describe('isReauthReason', () => {
   it('rejects an absent or unknown reason, which must not suppress the bounce', () => {
     expect(isReauthReason(null)).toBe(false)
     expect(isReauthReason('SOMETHING_ELSE')).toBe(false)
+  })
+})
+
+// A gated control turned an anonymous viewer away. The page reads the intent
+// back with parseAuthIntent, so every href built here has to parse to the
+// intent it was built with, alongside the returnTo the viewer came from.
+describe('buildGatedAuthHref', () => {
+  it('carries the returnTo and the intent together', () => {
+    const params = new URL(
+      buildGatedAuthHref('/shows?city=phoenix', 'save'),
+      'https://x'
+    ).searchParams
+    expect(sanitizeReturnTo(params.get('returnTo'))).toBe('/shows?city=phoenix')
+    expect(parseAuthIntent(params.get(AUTH_INTENT_PARAM))).toBe('save')
+  })
+
+  it('carries the intent alone when there is no destination worth keeping', () => {
+    expect(buildGatedAuthHref('/', 'follow')).toBe('/auth?intent=follow')
+  })
+
+  it('round-trips every intent through the parser', () => {
+    for (const intent of AUTH_INTENTS) {
+      const href = buildGatedAuthHref('/artists/calexico', intent)
+      const raw = new URL(href, 'https://x').searchParams.get(AUTH_INTENT_PARAM)
+      expect(parseAuthIntent(raw)).toBe(intent)
+    }
+  })
+
+  it('is not what the plain sign-in href builds', () => {
+    expect(buildAuthHref('/artists/calexico')).not.toContain(AUTH_INTENT_PARAM)
+  })
+})
+
+describe('parseAuthIntent', () => {
+  it('accepts a listed intent', () => {
+    expect(parseAuthIntent('save')).toBe('save')
+  })
+
+  it('treats an absent, unlisted, or near-miss value as no intent', () => {
+    expect(parseAuthIntent(null)).toBeNull()
+    expect(parseAuthIntent('')).toBeNull()
+    expect(parseAuthIntent('signup')).toBeNull()
+    expect(parseAuthIntent('SAVE')).toBeNull()
+    expect(parseAuthIntent(' save')).toBeNull()
+    expect(parseAuthIntent('save,follow')).toBeNull()
+    expect(parseAuthIntent('https://evil.example')).toBeNull()
+    expect(parseAuthIntent('<script>')).toBeNull()
   })
 })

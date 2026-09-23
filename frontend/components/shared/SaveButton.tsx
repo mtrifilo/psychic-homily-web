@@ -93,7 +93,7 @@ export function SaveButton({
 
   // Rendered for anonymous visitors so the public save count stays visible,
   // which is why the hook's anonymous branch is reachable here at all.
-  const { onClick: handleClick } = useAuthGatedAction(async () => {
+  const { onClick: handleClick } = useAuthGatedAction('save', async () => {
     if (isDisabled) return
 
     try {

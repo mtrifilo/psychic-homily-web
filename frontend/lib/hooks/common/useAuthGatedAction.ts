@@ -3,12 +3,18 @@
 import { useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { buildAuthHref, currentLocationReturnTo } from '@/lib/auth-href'
+import {
+  buildAuthHref,
+  buildGatedAuthHref,
+  currentLocationReturnTo,
+  type AuthIntent,
+} from '@/lib/auth-href'
 
 export interface AuthGatedAction {
   /**
-   * The sign-in href for the viewer's current location. Event-time only, for
-   * the reason `currentLocationReturnTo` gives.
+   * The sign-in href for the viewer's current location, naming no intent, so
+   * it opens on Sign in. Event-time only, for the reason
+   * `currentLocationReturnTo` gives.
    */
   buildAuthHrefForHere: () => string
   /** The gated handler. Assignable straight to `onClick`. */
@@ -25,7 +31,8 @@ export interface AuthGatedAction {
  *                 sign-in redirect cannot tell "no session" from "profile in
  *                 flight", so acting on it sends a signed-in viewer to the
  *                 sign-in form
- *   anonymous     route to `/auth` with the canonical returnTo
+ *   anonymous     route to `/auth` with the canonical returnTo and `intent`,
+ *                 which opens the page on Create account
  *   authenticated run `action`
  *
  * The handler is half the rule. A control that only guards the click still
@@ -37,10 +44,13 @@ export interface AuthGatedAction {
  * card that would otherwise navigate underneath it.
  *
  * `onAnonymous` is for a control that surfaces sign-in as a dialog rather than
- * a navigation. It receives the same href the default push would use, so the
- * destination stays one formula no matter which shape the affordance takes.
+ * a navigation. It receives `buildAuthHrefForHere()`: the same returnTo the
+ * default push carries, without the intent, because a dialog offers Sign in
+ * and Create account as separate choices and the intent would open Create
+ * account under the one labelled Sign in.
  */
 export function useAuthGatedAction(
+  intent: AuthIntent,
   action: () => void,
   onAnonymous?: (authHref: string) => void
 ): AuthGatedAction {
@@ -66,11 +76,12 @@ export function useAuthGatedAction(
     if (authStatus === 'pending') return
 
     if (authStatus === 'anonymous') {
-      const href = buildAuthHrefForHere()
       if (onAnonymous) {
-        onAnonymous(href)
+        onAnonymous(buildAuthHrefForHere())
       } else {
-        router.push(href)
+        router.push(
+          buildGatedAuthHref(currentLocationReturnTo(pathname), intent)
+        )
       }
       return
     }

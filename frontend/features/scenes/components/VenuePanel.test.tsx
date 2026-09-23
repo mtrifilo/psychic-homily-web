@@ -232,7 +232,7 @@ describe('VenuePanel', () => {
     fireEvent.click(screen.getByTestId('venue-panel-confirm'))
     expect(mockConfirmMutate).not.toHaveBeenCalled()
     expect(mockPush).toHaveBeenCalledWith(
-      expect.stringContaining('/auth?returnTo='),
+      expect.stringMatching(/^\/auth\?returnTo=.*&intent=confirm$/),
     )
   })
 
