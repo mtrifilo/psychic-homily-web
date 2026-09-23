@@ -1,12 +1,24 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
-import { Loader2 } from 'lucide-react'
-import { useSendVerificationEmail } from '@/features/auth'
+import {
+  VerificationResend,
+  VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
+  VerificationResendStatus,
+  useVerificationResendState,
+  type ResendAnnouncement,
+  type ResendStatusFormat,
+} from '@/features/auth/components/verification-resend'
+import {
+  formatResendStatus,
+  resendStatusAnnouncement,
+} from '@/features/auth/hooks/useVerificationResendCooldown'
+import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import type { ApiError } from '@/lib/api'
 
 /**
  * Post-signup interstitial: signup already sent a verification link (PSY-1871),
@@ -17,10 +29,8 @@ import type { ApiError } from '@/lib/api'
  * never travels through a URL, and so a reload cannot strand anyone on a page
  * with no context.
  *
- * Deliberately local to `app/auth`. PSY-1901 adds a resend control to the
- * verify-email landing; the two are the same three lines of logic but sit on
- * surfaces whose copy is still moving, so they stay separate until one of them
- * settles.
+ * The resend button is the shared `<VerificationResend>` control, so a throttle
+ * here is the same parked wait it is on every other resend surface.
  */
 
 /** Matches the verification token TTL in backend `jwt.go: CreateVerificationToken`. */
@@ -33,27 +43,21 @@ const BROWSE_HREF = '/shows'
 const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
 
 /**
- * Turns a failed resend into something actionable. A raw 429 body reads as
- * "the button is broken"; `Retry-After` is the only part of it a user can act
- * on, so it becomes the message.
+ * The wait alone. This surface confirms a send in its own words
+ * (`ResendConfirmation`), so the shared line must not say it a second time.
  */
-function resendFailureMessage(error: unknown): string {
-  const apiError = error as ApiError | null
+const formatWaitOnly: ResendStatusFormat = (_sent, secondsRemaining) =>
+  formatResendStatus(false, secondsRemaining)
 
-  if (apiError?.status === 429) {
-    const seconds = apiError.retryAfter
-    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
-      return `That is a lot of resends. Try again in ${seconds}s.`
-    }
-    return 'That is a lot of resends. Try again in a minute.'
-  }
+const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
 
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  return 'Could not send the email. Try again in a moment.'
-}
+/**
+ * This surface announces a confirmed send in the same words it shows, and only
+ * while that send is the latest outcome, matching `ResendConfirmation`. The
+ * region empties when the next attempt starts, so every success is announced.
+ */
+const announceSentAgain: ResendAnnouncement = ({ latestAttemptSent, isCoolingDown }) =>
+  latestAttemptSent ? SENT_AGAIN : resendStatusAnnouncement(false, isCoolingDown)
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -69,7 +73,6 @@ export function CheckInboxInterstitial({
   email,
   returnTo,
 }: CheckInboxInterstitialProps) {
-  const resend = useSendVerificationEmail()
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   // This surface replaces the signup card in place rather than navigating, so
@@ -127,42 +130,38 @@ export function CheckInboxInterstitial({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button asChild>
-          <Link href={primaryHref}>{primaryLabel}</Link>
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => resend.mutate()}
-          disabled={resend.isPending}
-        >
-          {resend.isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Sending...
-            </>
-          ) : (
-            'Resend email'
-          )}
-        </Button>
-      </div>
+      <VerificationResend service="auth_check_inbox" reportAlreadyVerified={false}>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button asChild>
+            <Link href={primaryHref}>{primaryLabel}</Link>
+          </Button>
+          <VerificationResendButton variant="outline" pendingLabel="Sending...">
+            Resend email
+          </VerificationResendButton>
+        </div>
 
-      {/*
-        The failure branch announces itself through `role="alert"`, so the
-        success branch needs a live region too. Without one a screen-reader
-        user gets silence on the happy path and only hears about the sad one.
-      */}
-      {resend.isSuccess && (
-        <p role="status" className="text-sm text-success-foreground">
-          Sent again. Give it a minute to arrive.
-        </p>
-      )}
-      {resend.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {resendFailureMessage(resend.error)}
-        </p>
-      )}
+        <ResendConfirmation />
+        <VerificationResendStatus
+          format={formatWaitOnly}
+          announce={announceSentAgain}
+          className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
+        />
+
+        <CurrentSessionExpired>
+          Your session has expired.{' '}
+          {/* A full page load, not a <Link>: this surface is rendered in place
+              on /auth itself, and a client navigation to /auth keeps the page's
+              signup state, so the interstitial would simply stay up. */}
+          <a href={buildAuthHref(primaryHref)} className="underline">
+            Sign in again
+          </a>{' '}
+          to send the email.
+        </CurrentSessionExpired>
+
+        {/* Retrying cannot help a verified address, so this surface names the
+            state instead of inviting a retry. */}
+        <VerificationResendFailed alreadyVerifiedMessage="Email is already verified" />
+      </VerificationResend>
 
       <p className="text-xs text-muted-foreground">
         Wrong address? Check it in{' '}
@@ -175,5 +174,45 @@ export function CheckInboxInterstitial({
         .
       </p>
     </Card>
+  )
+}
+
+/**
+ * The session-expired alert, shown only while an expired session is the latest
+ * settled outcome. Once the reader signs in again elsewhere, any answer the
+ * server gives proves the session is back, so the alert never sits beside a
+ * send, a wait, or a refusal that contradicts it. Remounted on each repeated
+ * refusal so assistive tech hears every one.
+ */
+function CurrentSessionExpired({ children }: { children: ReactNode }) {
+  const { latestSettledSessionExpired, sessionExpiredRefusals } =
+    useVerificationResendState()
+  if (!latestSettledSessionExpired) {
+    return null
+  }
+  return (
+    <VerificationResendSessionExpired key={sessionExpiredRefusals}>
+      {children}
+    </VerificationResendSessionExpired>
+  )
+}
+
+/**
+ * This surface's own words for a confirmed send, shown only while that send is
+ * the latest outcome: a later attempt in flight, throttled, or refused takes it
+ * down, so it never claims a send that did not happen.
+ *
+ * Hidden from assistive tech because the live region speaks the same sentence
+ * under the same condition (`announceSentAgain`).
+ */
+function ResendConfirmation() {
+  const { latestAttemptSent } = useVerificationResendState()
+  if (!latestAttemptSent) {
+    return null
+  }
+  return (
+    <p aria-hidden="true" className="text-sm text-success-foreground">
+      {SENT_AGAIN}
+    </p>
   )
 }

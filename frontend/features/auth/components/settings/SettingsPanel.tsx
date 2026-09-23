@@ -3,16 +3,15 @@
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useSendVerificationEmail, useExportData, useGenerateCLIToken } from '@/features/auth'
-// Relative import rather than the feature barrel: the barrel is mocked wholesale
-// by this component's own suite, and the countdown is worth exercising for real.
+import { useExportData, useGenerateCLIToken } from '@/features/auth'
 import {
-  VERIFICATION_RESEND_COOLDOWN_SECONDS,
-  isVerificationResendUnauthorized,
-  resendStatusAnnouncement,
-  useVerificationResendCooldown,
-  verificationResendRetryAfter,
-} from '../../hooks/useVerificationResendCooldown'
+  VerificationResend,
+  VerificationResendButton,
+  VerificationResendFailed,
+  VerificationResendSessionExpired,
+  VerificationResendStatus,
+  type ResendStatusFormat,
+} from '../verification-resend'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -43,6 +42,13 @@ import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessa
 // How long the "copied ✓" confirmation stays up after copying the CLI token.
 const TOKEN_COPIED_DISMISS_MS = 2000
 
+// Terser than the landing surfaces' status line by design: this row sits in a
+// dense settings column, not on a dedicated landing surface.
+const formatSettingsResendStatus: ResendStatusFormat = (sent, secondsRemaining) =>
+  [sent ? 'Sent' : null, secondsRemaining > 0 ? `Again in ${secondsRemaining}s` : null]
+    .filter(Boolean)
+    .join(' · ') || null
+
 /**
  * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
  * Your area inserted by PSY-1905 and Home page by PSY-2104:
@@ -53,13 +59,8 @@ const TOKEN_COPIED_DISMISS_MS = 2000
  */
 export function SettingsPanel() {
   const { user } = useAuthContext()
-  const sendVerificationEmail = useSendVerificationEmail()
   const exportData = useExportData()
   const generateCLIToken = useGenerateCLIToken()
-  const [emailSent, setEmailSent] = useState(false)
-  const [resendFailed, setResendFailed] = useState(false)
-  const [resendSessionExpired, setResendSessionExpired] = useState(false)
-  const resendCooldown = useVerificationResendCooldown()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cliToken, setCLIToken] = useState<string | null>(null)
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
@@ -69,47 +70,6 @@ export function SettingsPanel() {
     show: showTokenCopied,
     clear: clearTokenCopied,
   } = useAutoDismissBanner<true>(TOKEN_COPIED_DISMISS_MS)
-
-  // Terser than the /shows/submit gate's status line by design: this row sits in
-  // a dense settings column, not on a dedicated landing surface.
-  const resendStatus =
-    [
-      emailSent ? 'Sent' : null,
-      resendCooldown.isCoolingDown
-        ? `Again in ${resendCooldown.secondsRemaining}s`
-        : null,
-    ]
-      .filter(Boolean)
-      .join(' · ') || null
-
-  const handleSendVerification = async () => {
-    if (sendVerificationEmail.isPending || resendCooldown.isCoolingDown) {
-      return
-    }
-    setResendFailed(false)
-    try {
-      await sendVerificationEmail.mutateAsync()
-      setEmailSent(true)
-      resendCooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
-    } catch (error) {
-      const retryAfter = verificationResendRetryAfter(error)
-      if (retryAfter !== null) {
-        // Throttled, not broken: park the control rather than raise an alert.
-        resendCooldown.start(retryAfter)
-        return
-      }
-      if (isVerificationResendUnauthorized(error)) {
-        // Session gone, not a broken send. Say so, and keep it out of Sentry.
-        setResendSessionExpired(true)
-        return
-      }
-      setResendFailed(true)
-      Sentry.captureException(error, {
-        level: 'error',
-        tags: { service: 'settings', error_type: 'verification_email' },
-      })
-    }
-  }
 
   const handleExportData = async () => {
     try {
@@ -179,54 +139,24 @@ export function SettingsPanel() {
           </div>
 
           {!isEmailVerified && (
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Button
-                onClick={handleSendVerification}
-                disabled={
-                  sendVerificationEmail.isPending || resendCooldown.isCoolingDown
-                }
-                variant="outline"
-                size="sm"
-              >
-                {sendVerificationEmail.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                Resend verification
-              </Button>
+            <VerificationResend service="settings">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <VerificationResendButton variant="outline" size="sm">
+                  Resend verification
+                </VerificationResendButton>
 
-              {/* Mounted unconditionally: assistive tech announces changes
-                  WITHIN a live region already on the page, so a region inserted
-                  together with its text is announced unreliably. The seconds
-                  stay out of it so it does not speak once a second. */}
-              <span className="sr-only" role="status">
-                {resendStatusAnnouncement(
-                  emailSent,
-                  resendCooldown.isCoolingDown
-                ) ?? ''}
-              </span>
-
-              {resendStatus && (
-                <span
-                  aria-hidden="true"
+                <VerificationResendStatus
+                  format={formatSettingsResendStatus}
                   className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
-                >
-                  {resendStatus}
-                </span>
-              )}
+                />
 
-              {resendSessionExpired && (
-                <span role="alert" className="text-sm text-destructive">
+                <VerificationResendSessionExpired>
                   Your session has expired. Sign in again to resend.
-                </span>
-              )}
+                </VerificationResendSessionExpired>
 
-              {resendFailed && (
-                <span role="alert" className="text-sm text-destructive">
-                  We could not send that email just now. Please try again in a
-                  moment.
-                </span>
-              )}
-            </div>
+                <VerificationResendFailed />
+              </div>
+            </VerificationResend>
           )}
 
           {user?.is_admin && (

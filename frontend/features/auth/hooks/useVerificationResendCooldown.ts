@@ -76,6 +76,21 @@ export function isVerificationResendUnauthorized(error: unknown): boolean {
 }
 
 /**
+ * True when the backend refused a resend because the address is already
+ * verified. `useSendVerificationEmail` raises that 200 `success: false` body as
+ * an error carrying the backend's `error_code` as `code`.
+ *
+ * Separated so a surface can name the state rather than invite a retry that
+ * can never succeed.
+ */
+export function isVerificationResendAlreadyVerified(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  return (error as { code?: unknown }).code === 'ALREADY_VERIFIED'
+}
+
+/**
  * What a screen reader should hear, or `null` when there is nothing to say.
  *
  * Deliberately carries no second count and does NOT vary with the cooldown.
@@ -109,12 +124,9 @@ interface VerificationResendCooldown {
 /**
  * Countdown state for a verification-resend control.
  *
- * Deliberately owns only the wait, not the mutation: the surfaces that use it
- * (the /verify-email expired card, the /shows/submit gate, the Settings account
- * row) render the wait differently and already hold the mutation themselves.
- * Keeping the mutation out also means a test that mocks the `@/features/auth`
- * barrel still exercises this countdown for real, since it is imported by
- * module path rather than through that barrel.
+ * Deliberately owns only the wait, not the mutation: `<VerificationResend>`
+ * pairs the two, and keeping them apart lets the countdown be tested on its
+ * own.
  *
  * The countdown is driven off an absolute deadline rather than a decrementing
  * counter, so a backgrounded tab that stops firing timers resumes with the

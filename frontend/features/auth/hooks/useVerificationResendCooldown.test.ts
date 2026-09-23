@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
   formatResendStatus,
+  isVerificationResendAlreadyVerified,
   isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
@@ -40,6 +41,21 @@ describe('isVerificationResendUnauthorized', () => {
     expect(isVerificationResendUnauthorized({ status: 429 })).toBe(false)
     expect(isVerificationResendUnauthorized({ status: 500 })).toBe(false)
     expect(isVerificationResendUnauthorized(null)).toBe(false)
+  })
+})
+
+describe('isVerificationResendAlreadyVerified', () => {
+  it('recognises the backend refusal for an already-verified address', () => {
+    expect(
+      isVerificationResendAlreadyVerified({ code: 'ALREADY_VERIFIED', status: 400 })
+    ).toBe(true)
+  })
+
+  it('does not mistake other refusals or failures for it', () => {
+    expect(isVerificationResendAlreadyVerified({ code: 'NO_EMAIL' })).toBe(false)
+    expect(isVerificationResendAlreadyVerified({ status: 500 })).toBe(false)
+    expect(isVerificationResendAlreadyVerified(null)).toBe(false)
+    expect(isVerificationResendAlreadyVerified('ALREADY_VERIFIED')).toBe(false)
   })
 })
 

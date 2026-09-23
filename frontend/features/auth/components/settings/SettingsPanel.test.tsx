@@ -368,6 +368,25 @@ describe('SettingsPanel', () => {
     ).toBeEnabled()
   })
 
+  it('tells a reader whose session died to sign in again', async () => {
+    mockSendVerificationMutateAsync.mockRejectedValueOnce(
+      Object.assign(new Error('unauthorized'), { status: 401 })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SettingsPanel />)
+
+    await user.click(screen.getByRole('button', { name: /Resend verification/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Your session has expired. Sign in again to resend.'
+      )
+    })
+    expect(
+      screen.queryByText(/We could not send that email just now/)
+    ).not.toBeInTheDocument()
+  })
+
   it('renders a throttled resend as a cooldown, not an error', async () => {
     mockSendVerificationMutateAsync.mockRejectedValueOnce(
       Object.assign(new Error('Rate limit exceeded.'), {
