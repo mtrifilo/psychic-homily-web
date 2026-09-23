@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -13,6 +14,8 @@ import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
+import { useShouldOpenFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
+import { FirstSaveHint } from './FirstSaveHint'
 
 // How long a save failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000
@@ -41,6 +44,12 @@ interface SaveButtonProps {
   showCount?: boolean
   className?: string
   disabled?: boolean
+  /**
+   * Which edge of this control the one-time first-save hint lines up with.
+   * `end` suits a control at the trailing edge of a row; `start` suits one
+   * inline among other verbs, where the hint reads left to right from it.
+   */
+  hintAlign?: 'start' | 'end'
 }
 
 export function SaveButton({
@@ -52,8 +61,11 @@ export function SaveButton({
   showCount = true,
   className,
   disabled = false,
+  hintAlign = 'end',
 }: SaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
+  const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
+  const [isHintOpen, setIsHintOpen] = useState(false)
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own. While a batch is in
@@ -96,13 +108,30 @@ export function SaveButton({
   const { onClick: handleClick } = useAuthGatedAction('save', async () => {
     if (isDisabled) return
 
+    const isSaving = !isSaved
+    if (!isSaving) setIsHintOpen(false)
     try {
       clearSaveError()
       await toggle()
     } catch {
       showSaveError(true)
+      return
     }
+    if (!isSaving) return
+
+    // The hint is an extra, never part of the save: a failed check shows
+    // nothing and must not read as a failed save.
+    try {
+      if (await shouldOpenFirstSaveHint()) setIsHintOpen(true)
+    } catch {}
   })
+
+  // Gated on `isSaved` as well: the hint opens with "Saved.", which stops
+  // being true the moment the show is unsaved.
+  const firstSaveHint =
+    isHintOpen && isSaved ? (
+      <FirstSaveHint align={hintAlign} onClose={() => setIsHintOpen(false)} />
+    ) : null
 
   // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
   // is a claim about the viewer, and the unsettled window is not yet entitled
@@ -142,6 +171,7 @@ export function SaveButton({
             Failed to {isSaved ? 'remove' : 'save'} show
           </div>
         ) : null}
+        {firstSaveHint}
       </div>
     )
   }
@@ -198,6 +228,7 @@ export function SaveButton({
           Failed to {isSaved ? 'remove' : 'save'} show
         </div>
       )}
+      {firstSaveHint}
     </div>
   )
 }

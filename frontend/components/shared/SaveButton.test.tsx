@@ -30,6 +30,15 @@ vi.mock('@/features/shows', () => ({
 }))
 
 const mockRouterPush = vi.fn()
+// The first-save hint reads the query client, which this render-only test
+// does not mount; the hint's own behaviour is covered in
+// SaveButton.firstSaveHint.test and useFirstSaveHint.test.
+vi.mock('@/features/shows/hooks/useFirstSaveHint', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/shows/hooks/useFirstSaveHint')>()),
+  useShouldOpenFirstSaveHint: () => async () => false,
+  useDismissFirstSaveHint: () => ({ mutate: vi.fn() }),
+}))
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockRouterPush }),
   usePathname: () => '/shows/1',
