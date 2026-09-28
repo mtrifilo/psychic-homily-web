@@ -30,7 +30,7 @@ export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
  *
  * Release alerts have a stored, resolved subscription and no notifier behind
  * it. Their controls may say what the alerts WILL cover; they may not imply
- * anything is already flowing. Delete this note when release delivery lands.
+ * anything is already flowing.
  */
 export const RELEASE_ALERTS_PENDING_NOTE =
   'Release alerts are still being switched on. These settings decide where they will reach you once they are.'

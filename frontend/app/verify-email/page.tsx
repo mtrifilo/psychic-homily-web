@@ -110,8 +110,8 @@ function RadarRow({
  * does not depend on verification: no alert send path reads `email_verified`.
  * Submitting is the one thing verification genuinely opens, and it is enforced
  * server-side (`catalog/show.go` blocks unverified non-admins with a 403), so
- * that is what the page claims. The ALERTS rung stays highlighted as the next step to take,
- * not as a switch that just flipped.
+ * that is what the page claims. The ALERTS rung stays highlighted as the next
+ * step to take, not as a switch that just flipped.
  */
 function VerifiedLanding() {
   return (

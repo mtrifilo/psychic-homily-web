@@ -303,7 +303,7 @@ export function AlertSettings() {
       id: 'shows',
       title: 'An artist or venue you follow announces a show',
       // One row because the account matrix has ONE `shows` key covering both,
-      // which is also what PSY-1896's unsubscribe writes. Their delivery
+      // which is also what the show-alert unsubscribe writes. Their delivery
       // UNIT differs: an artist alert is per show, a venue alert coalesces a
       // venue's new shows into one per venue per day, so the copy names it.
       // "In-app" is the only channel this row names as live. Email is
