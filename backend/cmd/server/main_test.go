@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -156,6 +157,11 @@ func TestNewCORSMiddlewareExposedHeaders(t *testing.T) {
 
 			if resp.StatusCode != http.StatusTooManyRequests {
 				t.Fatalf("status = %d, want 429", resp.StatusCode)
+			}
+			// httprate's default 429 also sets Retry-After; the body code is
+			// what shows the limiter's own rejection handler answered.
+			if body, _ := io.ReadAll(resp.Body); !strings.Contains(string(body), `"too_many_requests"`) {
+				t.Fatalf("429 body = %s, want the limiter rejection handler's too_many_requests body", body)
 			}
 			if resp.Header.Get("Retry-After") == "" {
 				t.Fatal("the limiter's 429 must carry Retry-After for exposure to matter")
