@@ -23,16 +23,16 @@ import { join, relative, sep } from 'node:path'
  *     forbidden string.
  *
  * The intent that opens Create account has a stricter rule, because a link a
- * reader follows on purpose to sign in must keep opening Sign in. Three
- * spellings of it are refused outside their owner, owners of the rules above
- * included:
- *   - `buildGatedAuthHref`, named anywhere but `lib/auth-href.ts` and
- *     `useAuthGatedAction`
- *   - `AUTH_INTENT_PARAM`, named anywhere but `lib/auth-href.ts` (it is also
- *     unexported, so this holds even for a file the scan skips)
- *   - an `intent=` parameter written out on an `/auth` or `AUTH_PATH` href
- * An intent assembled some other way (a `URLSearchParams` built from a bare
- * `'intent'` key, say) is not caught here.
+ * reader follows on purpose to sign in must keep opening Sign in. Each of
+ * these is pinned to an exact set of files, owners of the rules above
+ * included, so a new file naming one fails and so does an owner that stops:
+ *   - `buildGatedAuthHref`: `lib/auth-href.ts` and `useAuthGatedAction`
+ *   - `AUTH_INTENT_PARAM`: `lib/auth-href.ts` (it is also unexported)
+ *   - the parameter spelled out, as `?intent=` / `&intent=` or as a quoted
+ *     `'intent'`: `lib/auth-href.ts`
+ * The last rule covers every route, not only `/auth`: a route that needs an
+ * `intent` parameter of its own is added to it deliberately. A helper added
+ * inside `lib/auth-href.ts` that wraps `buildGatedAuthHref` is not caught.
  *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
@@ -177,11 +177,11 @@ describe('auth gate ownership', () => {
     ])
   })
 
-  it('has no written-out intent parameter on an /auth href', () => {
-    // Matches `/auth?intent=`, `/auth?returnTo=...&intent=` and the same after
-    // an interpolated `AUTH_PATH`.
-    expect(
-      filesMatching(/(\/auth|AUTH_PATH\})[^'"`\s]*[?&]intent=/)
-    ).toEqual([])
+  it('spells the intent parameter nowhere but the module that owns it', () => {
+    // A written-out `?intent=` / `&intent=`, or `'intent'` as a quoted string
+    // (a URLSearchParams key, a query object key), in any scanned file.
+    expect(filesMatching(/[?&]intent=|['"`]intent['"`]/)).toEqual([
+      ['lib', 'auth-href.ts'].join(sep),
+    ])
   })
 })

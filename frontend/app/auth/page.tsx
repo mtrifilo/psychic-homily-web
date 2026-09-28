@@ -646,21 +646,27 @@ function AuthPageContent() {
   // that arrival opens on Create account; every other route in opens on Sign
   // in. Re-auth always opens on Sign in, the only tab it renders.
   //
-  // The default belongs to the arrival, not to the mount: a navigation that
-  // only changes the query string does not remount this page, so a tab the
-  // viewer picked is kept only while the query string it was picked under
-  // is still the one in the URL. Tab changes are never written back to it.
+  // The default belongs to the arrival, not to the mount. Neither a
+  // navigation that only changes the query string nor leaving and coming back
+  // remounts this page, so a tab the viewer picks lasts only while both hold:
+  // the query string it was picked under is still the one in the URL (any
+  // change to it, including one this page makes, drops the pick), and the
+  // page has not been hidden since (the effect below drops it on hide). Tab
+  // changes are never written back to the URL.
   const arrival = searchParams.toString()
   const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
   const [pickedTab, setPickedTab] = useState<{
     arrival: string
     tab: string
   } | null>(null)
-  const activeTab =
-    pickedTab?.arrival === arrival && !isReauth ? pickedTab.tab : arrivalTab
+  const activeTab = pickedTab?.arrival === arrival ? pickedTab.tab : arrivalTab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)
+
+  // A hidden page runs its effect cleanups, and a shown one reruns the
+  // effects, so this cleanup is the page's "hidden" signal.
+  useEffect(() => () => setPickedTab(null), [])
 
   // Redirect if already authenticated.
   //

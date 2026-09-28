@@ -126,7 +126,8 @@ export function buildReauthHref(returnTo: string): string {
  * to take when a gated control turned them away.
  *
  * Unexported: `buildGatedAuthHref` writes it and `hasGatedIntent` reads it, so
- * nothing else can spell it. The auth page opens on Create account when it
+ * no other module can import it, and `authGateOwnership.test.ts` refuses the
+ * parameter spelled out anywhere else. The auth page opens on Create account when it
  * carries a listed value, unless the arrival is a re-authentication. Every
  * other route into the page (the header link, the mobile Account tab, a route
  * guard, `SignInPrompt`, a re-auth link) names no intent and opens on Sign in.
@@ -165,9 +166,10 @@ export function hasGatedIntent(searchParams: {
  * The auth-page href for an anonymous viewer a gated control turned away:
  * `buildAuthHref`'s destination plus the intent that opens Create account.
  *
- * `useAuthGatedAction` is the only caller, which `authGateOwnership.test.ts`
- * enforces. A link a reader follows on purpose to sign in names no intent,
- * because nothing about it says they lack an account.
+ * `useAuthGatedAction` is the only module outside this one that names it,
+ * which `authGateOwnership.test.ts` pins. A link a reader follows on purpose
+ * to sign in names no intent, because nothing about it says they lack an
+ * account.
  */
 export function buildGatedAuthHref(
   returnTo: string,

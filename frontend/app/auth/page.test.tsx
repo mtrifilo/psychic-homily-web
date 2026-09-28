@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -278,6 +279,58 @@ describe('AuthPage', () => {
         rerender(<AuthPage />)
 
         expectSelected('Sign in')
+      })
+
+      // Leaving /auth and coming back to the same URL hides and re-shows this
+      // instance rather than remounting it. The return is a new arrival.
+      it('opens the header link on Sign in again after the page was hidden', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows')
+        const { rerender } = renderWithProviders(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expectSelected('Create account')
+
+        rerender(
+          <Activity mode="hidden">
+            <AuthPage />
+          </Activity>
+        )
+        rerender(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+
+        expectSelected('Sign in')
+      })
+
+      it('opens a gated click on Create account again after the page was hidden', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows&intent=save')
+        const { rerender } = renderWithProviders(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+        expectSelected('Sign in')
+
+        rerender(
+          <Activity mode="hidden">
+            <AuthPage />
+          </Activity>
+        )
+        rerender(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+
+        expectSelected('Create account')
       })
 
       it('shows no Create account content on a re-auth after a gated arrival', async () => {
