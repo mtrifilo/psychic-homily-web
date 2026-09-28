@@ -45,6 +45,17 @@ test.describe('Protected route redirects', () => {
     })
   })
 
+  test('unauthenticated user is redirected from /settings to /auth', async ({
+    page,
+  }) => {
+    await page.goto('/settings')
+
+    await page.waitForURL(/\/auth\?returnTo=%2Fsettings$/, { timeout: 10_000 })
+    await expect(
+      page.getByText('Sign in to your account')
+    ).toBeVisible({ timeout: 5_000 })
+  })
+
   test('unauthenticated user is redirected from /settings/appearance to /auth', async ({
     page,
   }) => {
