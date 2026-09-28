@@ -529,9 +529,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHolds
 // bookings, and verifying it brings every one of them back, which is the half
 // that says the shows are withheld rather than lost.
 //
-// The pulse's active-room figure is owned by the test below: it counts a UTC
-// calendar month, and a Phoenix night at 20:00 is stored at 03:00 UTC the next
-// day, so these rows can sit in the month after the one counted.
+// The pulse's active-room figure is owned by
+// TestGetSceneDetail_PulseActiveVenuesSkipUnverifiedRooms: it counts a UTC
+// calendar month, and these rows are nights up to four days out, each stored at
+// 20:00 Phoenix (03:00 UTC the next day), so near a month's end they sit in the
+// month after the one counted.
 func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNoPublishedNumber() {
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
@@ -605,18 +607,27 @@ func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNo
 // room brings it into the figure.
 //
 // The figure counts the UTC calendar month of GetSceneDetail's own clock, and
-// the service takes no clock, so every row sits at this test's clock read. The
-// test skips when the UTC month turns over before both reads finish.
+// the service takes no clock, so every in-month row sits at this test's clock
+// read and every out-of-month row is placed off the month that read falls in.
+// The test skips when the UTC month turns over before both reads finish.
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseActiveVenuesSkipUnverifiedRooms() {
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
 	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	offMonth := suite.createVerifiedVenue("Off Month Room", "Phoenix", "AZ")
 	back := suite.createUnverifiedVenue("Back Room", "Phoenix", "AZ")
 	band := suite.createArtist("Listed Band")
+	secondBand := suite.createArtist("Second Band")
 
 	clockRead := time.Now().UTC()
+	monthStart := time.Date(clockRead.Year(), clockRead.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// Two rows in one room: the figure counts rooms, not shows.
 	suite.createApprovedShow("Verified One", v1.ID, band.ID, user.ID, clockRead)
+	suite.createApprovedShow("Verified One Again", v1.ID, secondBand.ID, user.ID, clockRead)
 	suite.createApprovedShow("Verified Two", v2.ID, band.ID, user.ID, clockRead)
+	// A tracked room booked only in the months either side of the counted one.
+	suite.createApprovedShow("Last Month", offMonth.ID, band.ID, user.ID, monthStart.Add(-12*time.Hour))
+	suite.createApprovedShow("Next Month", offMonth.ID, band.ID, user.ID, monthStart.AddDate(0, 1, 0).Add(12*time.Hour))
 	suite.createApprovedShow("Back Room", back.ID, band.ID, user.ID, clockRead)
 
 	unverified, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
@@ -629,11 +640,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseActiveVen
 		suite.T().Skip("the UTC month turned over between the fixture and the pulse reads")
 	}
 
-	suite.Require().Len(unverified.Venues, 2, "the leaderboard ranks the tracked rooms only")
+	suite.Require().Len(unverified.Venues, 3, "the leaderboard ranks the tracked rooms only")
 	suite.Equal(2, unverified.Pulse.ActiveVenuesThisMonth,
-		"the pulse counts rooms out of the same set the leaderboard ranks")
-	suite.Require().Len(verified.Venues, 3)
-	suite.Equal(3, verified.Pulse.ActiveVenuesThisMonth, "and the room joins the pulse")
+		"the pulse counts the tracked rooms booked inside the month")
+	suite.Require().Len(verified.Venues, 4)
+	suite.Equal(3, verified.Pulse.ActiveVenuesThisMonth, "and the verified room joins the pulse")
 }
 
 // The FAR edge: the night in progress and the six after it are in, the seventh
