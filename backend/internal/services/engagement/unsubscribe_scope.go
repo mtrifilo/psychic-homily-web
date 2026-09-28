@@ -19,8 +19,11 @@ const (
 	UnsubscribeScopeCollectionDigest  = "collection-digest"
 	UnsubscribeScopeSceneDigest       = "scene-digest"
 
-	// UnsubscribeScopeArtistShowAlerts opts a recipient out of the emails sent
-	// when an artist they follow announces a show (PSY-1896).
+	// UnsubscribeScopeArtistShowAlerts opts a recipient out of every NEW-SHOW
+	// ALERT EMAIL: artist, venue and scene follows alike, because one account
+	// `shows` email setting governs all three and this scope's handler clears it.
+	// The name is narrower than the scope, and the value is frozen by the links
+	// already in recipients' inboxes.
 	//
 	// Signed on the USER, not on one follow, and that is deliberate. A per-follow
 	// link would be the tighter mirror of the per-filter scheme, but "unsubscribe"

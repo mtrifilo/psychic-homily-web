@@ -53,10 +53,18 @@ import (
 // followAlertsKey is the settings JSONB key holding the alerts object.
 const followAlertsKey = "alerts"
 
-// followAlertEntityTypes lists the follow targets that carry an alert
-// subscription today. Scenes keep their own scene_notify_mode (PSY-1341); tag
-// follows are display-only (PSY-1903 owns that gap); labels, festivals and
-// radio shows have no alert trigger.
+// followAlertEntityTypes lists the follow targets that carry a per-follow alert
+// subscription: the per-follow alert endpoints and the Library rows' `alerts`
+// payload read it, and DisableFollowAlertEmailChannel validates against it (the
+// unsubscribe sweep's own list of types lives in
+// user.UnsubscribeArtistShowAlertEmails). Tag follows are display-only; labels,
+// festivals and radio shows have no alert trigger.
+//
+// Scenes are absent, and the scene notifier depends on it. A scene follow's
+// scene_notify_mode picks which shows qualify, and its new-show email reads the
+// account matrix's `shows` channel alone, which is only sound while no scene
+// follow can store an override. Registering scenes here would also serve Library
+// scene rows an `alerts` object the frontend renders as the artist control.
 var followAlertEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityArtist): true,
 	string(engagementm.BookmarkEntityVenue):  true,

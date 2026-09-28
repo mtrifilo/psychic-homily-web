@@ -637,19 +637,6 @@ func buildArtistShowAlertEmailHTML(
 	c showEmailContentParts,
 	unsubscribeURL, manageURL string,
 ) string {
-	details := []string{
-		fmt.Sprintf("WHEN .... %s", c.date),
-	}
-	if c.venueText != "" {
-		details = append(details, fmt.Sprintf("WHERE ... %s", c.venueText))
-	}
-	if c.artistText != "" {
-		details = append(details, fmt.Sprintf("WITH .... %s", c.artistText))
-	}
-	if c.priceText != "" {
-		details = append(details, fmt.Sprintf("PRICE ... %s", c.priceText))
-	}
-
 	// The scope sentence is the answer to "why this show and not the rest of the
 	// tour", which is the question a scoped alert invites and which no other
 	// surface answers at the moment the user is asking it.
@@ -661,7 +648,7 @@ func buildArtistShowAlertEmailHTML(
 	}
 
 	body := emailHeadline(fmt.Sprintf("%s announced a show.", artistName)) +
-		emailMonoDetails(details) +
+		emailMonoDetails(c.detailLines()) +
 		emailParagraph(why) +
 		emailButton(c.showURL, "View show") +
 		emailFineprintWithLinks(

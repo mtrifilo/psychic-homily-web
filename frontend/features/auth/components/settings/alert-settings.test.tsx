@@ -101,7 +101,7 @@ const preferences = (
   ...overrides,
 })
 
-const SHOWS_ROW = 'An artist or venue you follow announces a show'
+const SHOWS_ROW = 'An artist, venue or scene you follow announces a show'
 const RELEASES_ROW = 'An artist you follow puts out a release'
 const REMINDER_ROW = 'Day-before reminder for a show you saved'
 const SCENE_ROW = 'Weekly digest for scenes you follow'
@@ -498,7 +498,7 @@ describe('AlertSettings', () => {
       renderWithProviders(<AlertSettings />)
 
       expect(
-        screen.getAllByText(/In-app: An artist or venue you follow announces a show is still loading/i)
+        screen.getAllByText(new RegExp(`In-app: ${SHOWS_ROW} is still loading`, 'i'))
       ).not.toHaveLength(0)
       expect(screen.queryByText(/could not be loaded/i)).toBeNull()
       expect(screen.queryByText(/^unknown$/i)).toBeNull()
@@ -560,10 +560,9 @@ describe('AlertSettings', () => {
   // (saying every unsubscribe "flips the same box you see here", which is
   // false for the custom-alerts row, whose link pauses one filter and whose
   // cell is deliberately not a box).
-  // Scoped to the TABLE, not to "this card". The wider phrasing was read as a
-  // claim about every email the index sends, and scene follows falsify that:
-  // they email immediately on each new show with no opt-in anywhere and are
-  // not a row here. The claim now covers exactly the rows it can keep.
+  // Scoped to the TABLE, not to "this card": the wider phrasing reads as a
+  // claim about every email the index sends. The claim covers exactly the rows
+  // it can keep.
   it('scopes the opt-in promise to the rows in the table', () => {
     renderWithProviders(<AlertSettings />)
 
@@ -585,17 +584,29 @@ describe('AlertSettings', () => {
     expect(screen.queryByText(/one-click unsubscribe/i)).not.toBeInTheDocument()
   })
 
-  // A settings card that lists what reaches you cannot omit the one stream
-  // that arrives without being switched on.
-  it('names the scene-follow email it does not govern, and where it is set', () => {
+  // Scene emails are governed by the shows row, so the footnote's promise holds
+  // for them. Pinned both ways: the old exception must not return, and the row
+  // must name scenes or the card stops listing a stream it sends.
+  it('folds scene emails into the shows row instead of excepting them', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(screen.getByText(SHOWS_ROW)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/One email is not in the table/i)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /scenes you follow/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // The in-app box does not reach scenes, and the row has to say so or the two
+  // boxes read as symmetric.
+  it('says a scene keeps its in-app alerts whatever the in-app box says', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
-      screen.getByText(/One email is not in the table/i)
+      screen.getByText(/its in-app alerts stay on whatever this row says/i)
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /scenes you follow/i })
-    ).toHaveAttribute('href', '/library?tab=scenes')
   })
 
   // The custom-alerts row breaks BOTH halves of the footnote, and only the
