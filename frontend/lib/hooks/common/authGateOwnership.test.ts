@@ -22,6 +22,18 @@ import { join, relative, sep } from 'node:path'
  *     the query-string loss this family exists to fix, and it names neither
  *     forbidden string.
  *
+ * The intent that opens Create account has a stricter rule, because a link a
+ * reader follows on purpose to sign in must keep opening Sign in. Each of
+ * these is pinned to an exact set of files, owners of the rules above
+ * included, so a new file naming one fails and so does an owner that stops:
+ *   - `buildGatedAuthHref`: `lib/auth-href.ts` and `useAuthGatedAction`
+ *   - `AUTH_INTENT_PARAM`: `lib/auth-href.ts` (it is also unexported)
+ *   - the parameter spelled out, as `?intent=` / `&intent=` or as a quoted
+ *     `'intent'`: `lib/auth-href.ts` (an unquoted object key is not caught)
+ * The last rule covers every route, not only `/auth`: a route that needs an
+ * `intent` parameter of its own is added to it deliberately. A helper added
+ * inside `lib/auth-href.ts` that wraps `buildGatedAuthHref` is not caught.
+ *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
  * pinned by `useAuthGatedAction.test.tsx` and `useAuthRouteGuard.test.tsx`
@@ -103,19 +115,31 @@ function sourceFiles(dir: string): string[] {
   return out
 }
 
-function offenders(pattern: RegExp): string[] {
-  const found: string[] = []
-  for (const dir of SCANNED_DIRS) {
-    for (const file of sourceFiles(join(ROOT, dir))) {
-      const rel = relative(ROOT, file)
-      if (OWNERS.has(rel)) continue
-      if (pattern.test(stripComments(readFileSync(file, 'utf8')))) {
-        found.push(rel)
-      }
-    }
-  }
-  return found.sort()
+// Read once for the whole file: every assertion below is a pattern over the
+// same comment-stripped sources.
+const SOURCES = SCANNED_DIRS.flatMap(dir => sourceFiles(join(ROOT, dir))).map(
+  file => ({
+    rel: relative(ROOT, file),
+    code: stripComments(readFileSync(file, 'utf8')),
+  })
+)
+
+function filesMatching(pattern: RegExp): string[] {
+  return SOURCES.filter(source => pattern.test(source.code))
+    .map(source => source.rel)
+    .sort()
 }
+
+function offenders(pattern: RegExp): string[] {
+  return filesMatching(pattern).filter(rel => !OWNERS.has(rel))
+}
+
+// The only files that may name the gated-arrival builder: its definition and
+// its one caller.
+const GATED_INTENT_SETTERS = [
+  'lib/auth-href.ts',
+  'lib/hooks/common/useAuthGatedAction.ts',
+].map(p => p.split('/').join(sep))
 
 describe('auth gate ownership', () => {
   it('has exactly one builder for the /auth?returnTo= href', () => {
@@ -139,5 +163,26 @@ describe('auth gate ownership', () => {
       rel => !AUTH_HREF_COMPOSERS.has(rel)
     )
     expect(composers).toEqual([])
+  })
+
+  it('builds the gated href in the gated-action hook and nowhere else', () => {
+    expect(filesMatching(/\bbuildGatedAuthHref\b/)).toEqual(
+      GATED_INTENT_SETTERS
+    )
+  })
+
+  it('keeps the intent parameter name inside the module that owns it', () => {
+    expect(filesMatching(/\bAUTH_INTENT_PARAM\b/)).toEqual([
+      ['lib', 'auth-href.ts'].join(sep),
+    ])
+  })
+
+  it('spells the intent parameter nowhere but the module that owns it', () => {
+    // A written-out `?intent=` / `&intent=`, or `'intent'` as a quoted string
+    // (a quoted URLSearchParams or object key), in any scanned file. An
+    // unquoted object key (`{ intent: 'save' }`, `{ intent }`) is not caught.
+    expect(filesMatching(/[?&]intent=|['"`]intent['"`]/)).toEqual([
+      ['lib', 'auth-href.ts'].join(sep),
+    ])
   })
 })

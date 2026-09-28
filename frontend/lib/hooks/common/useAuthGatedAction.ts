@@ -3,14 +3,30 @@
 import { useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { buildAuthHref, currentLocationReturnTo } from '@/lib/auth-href'
+import {
+  buildAuthHref,
+  buildGatedAuthHref,
+  currentLocationReturnTo,
+  type AuthIntent,
+} from '@/lib/auth-href'
+
+/**
+ * The two ways into `/auth` a turned-away viewer can be offered. Both return
+ * them to the same place; only `createAccountHref` names the intent, so only
+ * it opens on Create account.
+ */
+export interface AuthGateHrefs {
+  signInHref: string
+  createAccountHref: string
+}
 
 export interface AuthGatedAction {
   /**
-   * The sign-in href for the viewer's current location. Event-time only, for
-   * the reason `currentLocationReturnTo` gives.
+   * The sign-in href for the viewer's current location, naming no intent, so
+   * it opens on Sign in. Event-time only, for the reason
+   * `currentLocationReturnTo` gives.
    */
-  buildAuthHrefForHere: () => string
+  buildSignInHrefForHere: () => string
   /** The gated handler. Assignable straight to `onClick`. */
   onClick: (event?: {
     preventDefault: () => void
@@ -25,7 +41,8 @@ export interface AuthGatedAction {
  *                 sign-in redirect cannot tell "no session" from "profile in
  *                 flight", so acting on it sends a signed-in viewer to the
  *                 sign-in form
- *   anonymous     route to `/auth` with the canonical returnTo
+ *   anonymous     route to `/auth` with the canonical returnTo and `intent`,
+ *                 which opens the page on Create account
  *   authenticated run `action`
  *
  * The handler is half the rule. A control that only guards the click still
@@ -37,18 +54,20 @@ export interface AuthGatedAction {
  * card that would otherwise navigate underneath it.
  *
  * `onAnonymous` is for a control that surfaces sign-in as a dialog rather than
- * a navigation. It receives the same href the default push would use, so the
- * destination stays one formula no matter which shape the affordance takes.
+ * a navigation. It receives both hrefs, built from the same returnTo the
+ * default push carries, so a dialog that offers Sign in and Create account as
+ * separate choices can put each on its own button.
  */
 export function useAuthGatedAction(
+  intent: AuthIntent,
   action: () => void,
-  onAnonymous?: (authHref: string) => void
+  onAnonymous?: (hrefs: AuthGateHrefs) => void
 ): AuthGatedAction {
   const router = useRouter()
   const pathname = usePathname()
   const { authStatus } = useAuthContext()
 
-  const buildAuthHrefForHere = useCallback(
+  const buildSignInHrefForHere = useCallback(
     () => buildAuthHref(currentLocationReturnTo(pathname)),
     [pathname]
   )
@@ -66,11 +85,15 @@ export function useAuthGatedAction(
     if (authStatus === 'pending') return
 
     if (authStatus === 'anonymous') {
-      const href = buildAuthHrefForHere()
+      const returnTo = currentLocationReturnTo(pathname)
+      const createAccountHref = buildGatedAuthHref(returnTo, intent)
       if (onAnonymous) {
-        onAnonymous(href)
+        onAnonymous({
+          signInHref: buildAuthHref(returnTo),
+          createAccountHref,
+        })
       } else {
-        router.push(href)
+        router.push(createAccountHref)
       }
       return
     }
@@ -78,5 +101,5 @@ export function useAuthGatedAction(
     action()
   }
 
-  return { buildAuthHrefForHere, onClick }
+  return { buildSignInHrefForHere, onClick }
 }

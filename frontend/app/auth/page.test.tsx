@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -135,9 +136,8 @@ describe('AuthPage', () => {
     })
 
     it('does not push a URL update when switching tabs (Radix-local state)', async () => {
-      // Documents current behavior: the tab control is uncontrolled Radix
-      // state and is NOT synced to the URL. Guards against an accidental
-      // navigation side effect being introduced on tab change.
+      // The selected tab is page-local state and is NOT written to the URL.
+      // Guards against an accidental navigation side effect on tab change.
       const user = userEvent.setup()
       renderWithProviders(<AuthPage />)
 
@@ -148,9 +148,8 @@ describe('AuthPage', () => {
     })
 
     it('does not honor ?tab=signup as an initial-tab hint (param is inert)', () => {
-      // The page hardcodes defaultValue="login" and never reads ?tab, so
-      // ?tab=signup has no effect. If deep-linking to the signup tab is later
-      // implemented, this expectation should flip.
+      // The page never reads ?tab, so ?tab=signup has no effect; the only
+      // arrival that opens Create account is a gated control's intent.
       setSearchParams('tab=signup')
       renderWithProviders(<AuthPage />)
 
@@ -159,6 +158,268 @@ describe('AuthPage', () => {
         'true'
       )
       expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    })
+  })
+
+  // A gated control names the action it refused. That arrival, and only that
+  // one, opens on Create account; every other route in opens on Sign in.
+  describe('gated arrival', () => {
+    function expectSelected(tab: 'Sign in' | 'Create account') {
+      const other = tab === 'Sign in' ? 'Create account' : 'Sign in'
+      expect(screen.getByRole('tab', { name: tab })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByRole('tab', { name: other })).toHaveAttribute(
+        'aria-selected',
+        'false'
+      )
+    }
+
+    it('opens on Create account, with its account ledger, when a gated control sent the visitor', () => {
+      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+      renderWithProviders(<AuthPage />)
+
+      expectSelected('Create account')
+      expect(
+        screen.getByRole('heading', { name: 'Never miss a show.' })
+      ).toBeInTheDocument()
+      expect(screen.getByText('shows you plan to catch')).toBeInTheDocument()
+      expect(screen.getByTestId('passkey-signup')).toHaveAttribute(
+        'data-return-to',
+        '/shows/example'
+      )
+      expect(screen.queryByTestId('passkey-login')).not.toBeInTheDocument()
+    })
+
+    it('opens on Create account from a gated click on a page with no returnTo', () => {
+      setSearchParams('intent=follow')
+      renderWithProviders(<AuthPage />)
+
+      expectSelected('Create account')
+    })
+
+    // The header link and the mobile Account tab both build a returnTo with no
+    // intent. A returnTo alone says nothing about whether the reader has an
+    // account.
+    it('opens on Sign in for a returnTo that names no intent', () => {
+      setSearchParams('returnTo=%2Fartists%2Fcalexico')
+      renderWithProviders(<AuthPage />)
+
+      expectSelected('Sign in')
+      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    })
+
+    // The value edge cases are pinned on `hasGatedIntent` itself; this proves
+    // the page goes through it.
+    it('ignores an unlisted intent and opens on Sign in', () => {
+      setSearchParams('returnTo=%2Fshows&intent=signup')
+      renderWithProviders(<AuthPage />)
+
+      expectSelected('Sign in')
+    })
+
+    it('keeps Sign in one click away after a gated arrival, without navigating', async () => {
+      const user = userEvent.setup()
+      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+
+      expectSelected('Sign in')
+      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(mockReplace).not.toHaveBeenCalled()
+    })
+
+    // A query-string-only navigation keeps this page mounted, so each of these
+    // re-renders the same instance under a new URL, the way the router does.
+    describe('a new arrival on the mounted page', () => {
+      it('opens on Create account for a gated arrival after a plain one', () => {
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        expectSelected('Sign in')
+
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        rerender(<AuthPage />)
+
+        expectSelected('Create account')
+      })
+
+      it('opens on Sign in for a plain arrival after a gated one', () => {
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        expectSelected('Create account')
+
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      it('drops a tab the viewer picked once the arrival changes', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expectSelected('Create account')
+
+        setSearchParams('')
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      // Back to the first query string is a new arrival too, not a return to
+      // the pick made under it.
+      it('does not bring a dropped pick back when the first arrival returns', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expectSelected('Create account')
+
+        setSearchParams('')
+        rerender(<AuthPage />)
+        expectSelected('Sign in')
+
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      it('keeps a tab the viewer picked while the arrival is unchanged', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      // Leaving /auth and coming back to the same URL hides and re-shows this
+      // instance rather than remounting it. The return is a new arrival.
+      it('opens the header link on Sign in again after the page was hidden', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows')
+        const { rerender } = renderWithProviders(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expectSelected('Create account')
+
+        rerender(
+          <Activity mode="hidden">
+            <AuthPage />
+          </Activity>
+        )
+        rerender(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+
+        expectSelected('Sign in')
+      })
+
+      it('opens a gated click on Create account again after the page was hidden', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows&intent=save')
+        const { rerender } = renderWithProviders(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+        expectSelected('Sign in')
+
+        rerender(
+          <Activity mode="hidden">
+            <AuthPage />
+          </Activity>
+        )
+        rerender(
+          <Activity mode="visible">
+            <AuthPage />
+          </Activity>
+        )
+
+        expectSelected('Create account')
+      })
+
+      it('shows no Create account content on a re-auth after a gated arrival', async () => {
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        expectSelected('Create account')
+
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        setSearchParams('returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED')
+        rerender(<AuthPage />)
+
+        await screen.findByText("Confirm it's you")
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(
+          screen.queryByRole('heading', { name: 'Never miss a show.' })
+        ).not.toBeInTheDocument()
+        expect(screen.queryByTestId('passkey-signup')).not.toBeInTheDocument()
+      })
+    })
+
+    it('moves to Sign in, focus included, from the footer link on a gated arrival', async () => {
+      const user = userEvent.setup()
+      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+      renderWithProviders(<AuthPage />)
+      expectSelected('Create account')
+
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+      expectSelected('Sign in')
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveFocus()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('opens a signed-out re-auth link with an intent on Sign in only', () => {
+      setSearchParams(
+        'returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&intent=save'
+      )
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(
+        screen.queryByRole('tab', { name: /create account/i })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', { name: 'Never miss a show.' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('opens on Sign in for a re-authentication even when an intent is present', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      setSearchParams(
+        'returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&intent=save'
+      )
+      renderWithProviders(<AuthPage />)
+
+      await screen.findByText("Confirm it's you")
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(
+        screen.queryByRole('tab', { name: /create account/i })
+      ).not.toBeInTheDocument()
+      expect(screen.getByTestId('passkey-login')).toBeInTheDocument()
     })
   })
 

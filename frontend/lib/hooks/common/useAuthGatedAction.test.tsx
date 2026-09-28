@@ -33,7 +33,7 @@ describe('useAuthGatedAction', () => {
 
   it('runs the action for a settled authenticated viewer', () => {
     const action = vi.fn()
-    const { result } = renderHook(() => useAuthGatedAction(action))
+    const { result } = renderHook(() => useAuthGatedAction('save', action))
 
     act(() => result.current.onClick())
 
@@ -41,17 +41,29 @@ describe('useAuthGatedAction', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('routes a settled-anonymous viewer to sign-in instead of acting', () => {
+  it('routes a settled-anonymous viewer to sign-in, naming the intent, instead of acting', () => {
     mockAuthStatus = 'anonymous'
     const action = vi.fn()
-    const { result } = renderHook(() => useAuthGatedAction(action))
+    const { result } = renderHook(() => useAuthGatedAction('save', action))
 
     act(() => result.current.onClick())
 
     expect(action).not.toHaveBeenCalled()
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fartists%2Fcalexico'
+      '/auth?returnTo=%2Fartists%2Fcalexico&intent=save'
     )
+  })
+
+  // The home page is a destination `buildAuthHref` drops, so the intent is the
+  // only parameter left and still has to arrive.
+  it('keeps the intent when there is no returnTo to carry', () => {
+    mockAuthStatus = 'anonymous'
+    mockPathname = '/'
+    const { result } = renderHook(() => useAuthGatedAction('save', vi.fn()))
+
+    act(() => result.current.onClick())
+
+    expect(mockPush).toHaveBeenCalledWith('/auth?intent=save')
   })
 
   // The defect this hook exists to make unrepeatable: the redirect cannot tell
@@ -60,7 +72,7 @@ describe('useAuthGatedAction', () => {
   it('neither acts nor redirects while auth is unsettled', () => {
     mockAuthStatus = 'pending'
     const action = vi.fn()
-    const { result } = renderHook(() => useAuthGatedAction(action))
+    const { result } = renderHook(() => useAuthGatedAction('save', action))
 
     act(() => result.current.onClick())
 
@@ -75,19 +87,19 @@ describe('useAuthGatedAction', () => {
     mockAuthStatus = 'anonymous'
     mockPathname = '/shows'
     setLocation('/shows?city=phoenix&when=weekend')
-    const { result } = renderHook(() => useAuthGatedAction(vi.fn()))
+    const { result } = renderHook(() => useAuthGatedAction('save', vi.fn()))
 
     act(() => result.current.onClick())
 
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fshows%3Fcity%3Dphoenix%26when%3Dweekend'
+      '/auth?returnTo=%2Fshows%3Fcity%3Dphoenix%26when%3Dweekend&intent=save'
     )
   })
 
   it('suppresses the event default and propagation before it branches', () => {
     const preventDefault = vi.fn()
     const stopPropagation = vi.fn()
-    const { result } = renderHook(() => useAuthGatedAction(vi.fn()))
+    const { result } = renderHook(() => useAuthGatedAction('save', vi.fn()))
 
     act(() => result.current.onClick({ preventDefault, stopPropagation }))
 
@@ -95,20 +107,24 @@ describe('useAuthGatedAction', () => {
     expect(stopPropagation).toHaveBeenCalledTimes(1)
   })
 
-  it('hands an anonymous override the same href the default push would use', () => {
+  // A dialog offers Sign in and Create account as separate buttons: both carry
+  // the same returnTo, and only the Create account one names the intent.
+  it('hands an anonymous override both hrefs, the intent on Create account only', () => {
     mockAuthStatus = 'anonymous'
     mockPathname = '/shows/example'
     setLocation('/shows/example?tab=bill')
     const onAnonymous = vi.fn()
     const { result } = renderHook(() =>
-      useAuthGatedAction(vi.fn(), onAnonymous)
+      useAuthGatedAction('report', vi.fn(), onAnonymous)
     )
 
     act(() => result.current.onClick())
 
-    expect(onAnonymous).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fshows%2Fexample%3Ftab%3Dbill'
-    )
+    expect(onAnonymous).toHaveBeenCalledWith({
+      signInHref: '/auth?returnTo=%2Fshows%2Fexample%3Ftab%3Dbill',
+      createAccountHref:
+        '/auth?returnTo=%2Fshows%2Fexample%3Ftab%3Dbill&intent=report',
+    })
     expect(mockPush).not.toHaveBeenCalled()
   })
 
@@ -116,7 +132,7 @@ describe('useAuthGatedAction', () => {
     mockAuthStatus = 'pending'
     const onAnonymous = vi.fn()
     const { result } = renderHook(() =>
-      useAuthGatedAction(vi.fn(), onAnonymous)
+      useAuthGatedAction('report', vi.fn(), onAnonymous)
     )
 
     act(() => result.current.onClick())
@@ -124,4 +140,15 @@ describe('useAuthGatedAction', () => {
     expect(onAnonymous).not.toHaveBeenCalled()
   })
 
+  // The render-time recovery link a control shows after a 401 is for a viewer
+  // who had a session, so it opens on Sign in.
+  it('builds a sign-in href for here that names no intent', () => {
+    mockPathname = '/venues/rebel-lounge'
+    setLocation('/venues/rebel-lounge')
+    const { result } = renderHook(() => useAuthGatedAction('confirm', vi.fn()))
+
+    expect(result.current.buildSignInHrefForHere()).toBe(
+      '/auth?returnTo=%2Fvenues%2Frebel-lounge'
+    )
+  })
 })

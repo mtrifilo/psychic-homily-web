@@ -903,7 +903,7 @@ describe('CollectionDetail', () => {
       // Same returnTo redirect as FollowButton / SaveButton so the
       // viewer lands back on this collection after signing in.
       expect(mockPush).toHaveBeenCalledWith(
-        '/auth?returnTo=%2Fcollections%2Ftest-collection'
+        '/auth?returnTo=%2Fcollections%2Ftest-collection&intent=like'
       )
       expect(mockLikeMutate).not.toHaveBeenCalled()
       expect(mockUnlikeMutate).not.toHaveBeenCalled()

@@ -100,3 +100,34 @@ test.describe('Registration', () => {
     expect(page.url()).toContain('/auth')
   })
 })
+
+// A gated control names the action it refused; that arrival opens on Create
+// account. A returnTo alone (the header link, the mobile Account tab) and an
+// unlisted intent both open on Sign in.
+test.describe('Initial tab', () => {
+  test('a gated arrival opens on Create account with its account ledger', async ({ page }) => {
+    await page.goto('/auth?returnTo=%2Fshows&intent=save')
+
+    await expect(
+      page.getByRole('tab', { name: 'Create account' })
+    ).toHaveAttribute('aria-selected', 'true')
+    await expect(
+      page.getByRole('heading', { name: 'Never miss a show.' })
+    ).toBeVisible()
+    await expect(page.locator('#signup-email')).toBeVisible()
+  })
+
+  for (const [label, query] of [
+    ['a returnTo that names no intent', 'returnTo=%2Fshows'],
+    ['an unlisted intent', 'returnTo=%2Fshows&intent=bogus'],
+  ] as const) {
+    test(`${label} opens on Sign in`, async ({ page }) => {
+      await page.goto(`/auth?${query}`)
+
+      await expect(
+        page.getByRole('tab', { name: 'Sign in' })
+      ).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('Sign in to your account')).toBeVisible()
+    })
+  }
+})

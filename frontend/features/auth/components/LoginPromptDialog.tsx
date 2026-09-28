@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import type { AuthGateHrefs } from '@/lib/hooks/common/useAuthGatedAction'
 
 interface LoginPromptDialogProps {
   open: boolean
@@ -17,13 +18,13 @@ interface LoginPromptDialogProps {
   title?: string
   description?: string
   /**
-   * The sign-in destination, already built. Required, and an href rather than
-   * a bare `returnTo`, because the caller resolves it at click time from the
-   * browser's own location (`useAuthGatedAction`). A default here could only
-   * be a destination that discards where the reader was, which is the bug the
-   * required prop exists to make unwritable.
+   * The Sign in and Create account destinations, already built. Required, and
+   * hrefs rather than a bare `returnTo`, because the caller resolves them at
+   * click time from the browser's own location (`useAuthGatedAction`). A
+   * default here could only be a destination that discards where the reader
+   * was, which is the bug the required prop exists to make unwritable.
    */
-  authHref: string
+  hrefs: AuthGateHrefs
 }
 
 export function LoginPromptDialog({
@@ -31,7 +32,7 @@ export function LoginPromptDialog({
   onOpenChange,
   title = 'Sign in required',
   description = 'You need to be signed in to perform this action.',
-  authHref,
+  hrefs,
 }: LoginPromptDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -43,14 +44,14 @@ export function LoginPromptDialog({
 
         <div className="flex flex-col gap-3 pt-4">
           <Button asChild>
-            <Link href={authHref}>
+            <Link href={hrefs.signInHref}>
               <LogIn className="h-4 w-4 mr-2" />
               Sign in
             </Link>
           </Button>
 
           <Button variant="outline" asChild>
-            <Link href={`${authHref}#signup`}>
+            <Link href={hrefs.createAccountHref}>
               <UserPlus className="h-4 w-4 mr-2" />
               Create account
             </Link>

@@ -32,7 +32,9 @@ interface SignInPromptProps {
  * gap but forces a Suspense boundary on every consumer. None of the surfaces
  * using this prompt today carry state in the query string, so the pathname is
  * the whole destination; a surface that does carry such state needs a
- * click-time href instead of this component.
+ * click-time href instead of this component. For a link that opens Sign in,
+ * that is `buildSignInHrefForHere` from `useAuthGatedAction`, not the hook's
+ * redirect: the redirect names an intent and opens Create account.
  */
 export function SignInPrompt({
   children,

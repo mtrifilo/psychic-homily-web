@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useMyShowReport } from '../hooks/useShowReports'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
+import {
+  useAuthGatedAction,
+  type AuthGateHrefs,
+} from '@/lib/hooks/common/useAuthGatedAction'
 import { ReportShowDialog } from './ReportShowDialog'
 import { LoginPromptDialog } from '@/features/auth'
 
@@ -41,9 +44,8 @@ export function ReportShowButton({
   // canonical destination reads `window.location.search`, which a render can
   // be produced without. Null until the first anonymous click, which is also
   // what holds the dialog out of the tree below.
-  const [loginPromptAuthHref, setLoginPromptAuthHref] = useState<string | null>(
-    null
-  )
+  const [loginPromptHrefs, setLoginPromptHrefs] =
+    useState<AuthGateHrefs | null>(null)
 
   // PSY-476: `myReport?.report !== null` is true when the query is still
   // loading (`myReport` undefined → `undefined !== null` → true), which
@@ -53,14 +55,15 @@ export function ReportShowButton({
   const hasReported = !isLoading && myReport?.report != null
 
   // The sign-in affordance here is a dialog rather than a navigation, so the
-  // hook hands over the href instead of pushing it. The pending bail is the
+  // hook hands over the hrefs instead of pushing one. The pending bail is the
   // part that matters: `!isAuthenticated` reads true for a signed-in viewer
   // whose profile has not arrived, and offering them a sign-in dialog is the
   // same misread the redirect makes elsewhere.
   const { onClick: handleClick } = useAuthGatedAction(
+    'report',
     () => setIsReportDialogOpen(true),
-    authHref => {
-      setLoginPromptAuthHref(authHref)
+    hrefs => {
+      setLoginPromptHrefs(hrefs)
       setIsLoginPromptOpen(true)
     }
   )
@@ -120,13 +123,13 @@ export function ReportShowButton({
         />
       )}
 
-      {!isAuthenticated && loginPromptAuthHref && (
+      {!isAuthenticated && loginPromptHrefs && (
         <LoginPromptDialog
           open={isLoginPromptOpen}
           onOpenChange={setIsLoginPromptOpen}
           title="Sign in to report"
           description="You need to be signed in to report an issue with this show. This helps us prevent abuse and keep our community safe."
-          authHref={loginPromptAuthHref}
+          hrefs={loginPromptHrefs}
         />
       )}
     </>

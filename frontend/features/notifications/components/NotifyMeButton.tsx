@@ -59,7 +59,7 @@ export function NotifyMeButton({
 
   // Both renders below route through this one handler, so the sign-in
   // affordance and the toggle cannot drift into two destinations.
-  const { onClick: handleClick } = useAuthGatedAction(() => {
+  const { onClick: handleClick } = useAuthGatedAction('notify', () => {
     if (isMutating) return
 
     if (hasFilter && matchingFilter) {

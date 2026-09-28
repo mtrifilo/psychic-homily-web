@@ -100,7 +100,7 @@ export function FollowButton({
   //                 to /auth. Intended: that is what Follow does for them.
   //   pending    -> disabled (see `isDisabled`).
 
-  const { onClick: handleClick } = useAuthGatedAction(() => {
+  const { onClick: handleClick } = useAuthGatedAction('follow', () => {
     if (isDisabled) return
 
     if (isFollowing) {

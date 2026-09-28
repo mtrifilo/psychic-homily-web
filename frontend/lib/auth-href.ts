@@ -114,7 +114,76 @@ export function isReauthReason(reason: string | null): boolean {
  * would discard is dropped the same way it is everywhere else.
  */
 export function buildReauthHref(returnTo: string): string {
-  const base = buildAuthHref(returnTo)
+  return appendAuthParam(
+    buildAuthHref(returnTo),
+    'reason',
+    REAUTH_REASON_CREDENTIAL_MINT
+  )
+}
+
+/**
+ * The query parameter that names the kind of action an anonymous viewer tried
+ * to take when a gated control turned them away.
+ *
+ * Unexported: `buildGatedAuthHref` writes it and `hasGatedIntent` reads it, so
+ * no other module can import it, and `authGateOwnership.test.ts` refuses the
+ * parameter spelled out anywhere else. The auth page opens on Create account when it
+ * carries a listed value, unless the arrival is a re-authentication. Every
+ * other route into the page (the header link, the mobile Account tab, a route
+ * guard, `SignInPrompt`, a re-auth link) names no intent and opens on Sign in.
+ *
+ * The value names a kind of action, never its target, so it is enough to
+ * choose a tab and not enough to repeat the action.
+ */
+const AUTH_INTENT_PARAM = 'intent'
+
+/**
+ * Every action a gated control can name, and so every value the auth page
+ * accepts. Anything outside this list is ignored, so the parameter carries
+ * nothing the page does not already expect.
+ */
+export const AUTH_INTENTS = [
+  'save',
+  'follow',
+  'collect',
+  'like',
+  'notify',
+  'confirm',
+  'report',
+] as const
+
+export type AuthIntent = (typeof AUTH_INTENTS)[number]
+
+/** Does this auth-page URL name an intent a gated control can set? */
+export function hasGatedIntent(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  const raw = searchParams.get(AUTH_INTENT_PARAM)
+  return raw !== null && (AUTH_INTENTS as readonly string[]).includes(raw)
+}
+
+/**
+ * The auth-page href for an anonymous viewer a gated control turned away:
+ * `buildAuthHref`'s destination plus the intent that opens Create account.
+ *
+ * `useAuthGatedAction` is the only module outside this one that names it,
+ * which `authGateOwnership.test.ts` pins. A link a reader follows on purpose
+ * to sign in names no intent, because nothing about it says they lack an
+ * account.
+ */
+export function buildGatedAuthHref(
+  returnTo: string,
+  intent: AuthIntent
+): string {
+  return appendAuthParam(buildAuthHref(returnTo), AUTH_INTENT_PARAM, intent)
+}
+
+/**
+ * Adds one parameter to an href `buildAuthHref` produced, which may or may not
+ * already carry a query string. Every value passed here is a fixed token from
+ * this module, so none needs encoding.
+ */
+function appendAuthParam(base: string, name: string, value: string): string {
   const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}reason=${REAUTH_REASON_CREDENTIAL_MINT}`
+  return `${base}${separator}${name}=${value}`
 }

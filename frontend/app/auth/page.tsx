@@ -29,7 +29,10 @@ import {
   SignupIntentPanel,
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
-import { isReauthReason } from '@/lib/auth-href'
+import {
+  hasGatedIntent,
+  isReauthReason,
+} from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -624,9 +627,6 @@ function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { authStatus, isLoading } = useAuthContext()
-  const [activeTab, setActiveTab] = useState('login')
-  const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
-  const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // Get error from URL query params (e.g., OAuth errors)
   const urlError = safeDecodeQueryParam(searchParams.get('error'))
@@ -641,6 +641,35 @@ function AuthPageContent() {
   // because bouncing them straight to returnTo would return them to the control
   // that just refused them, with nothing changed and no way to tell why.
   const isReauth = isReauthReason(searchParams.get('reason'))
+
+  // A gated control names the action it refused an anonymous viewer, and only
+  // that arrival opens on Create account; every other route in opens on Sign
+  // in. Re-auth always opens on Sign in, the only tab it renders.
+  //
+  // The default belongs to the arrival, not to the mount. Neither a
+  // navigation that only changes the query string nor leaving and coming back
+  // remounts this page, so a tab the viewer picks lasts only while both hold:
+  // the query string it was picked under is still the one in the URL (any
+  // change to it, including one this page makes, drops the pick), and the
+  // page has not been hidden since (the effect below drops it on hide). Tab
+  // changes are never written back to the URL.
+  const arrival = searchParams.toString()
+  const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
+  const [pickedTab, setPickedTab] = useState<{
+    arrival: string
+    tab: string
+  } | null>(null)
+  if (pickedTab !== null && pickedTab.arrival !== arrival) {
+    setPickedTab(null)
+  }
+  const activeTab = pickedTab?.arrival === arrival ? pickedTab.tab : arrivalTab
+  const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
+  const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  const signInTabRef = useRef<HTMLButtonElement>(null)
+
+  // A hidden page runs its effect cleanups, and a shown one reruns the
+  // effects, so this cleanup is the page's "hidden" signal.
+  useEffect(() => () => setPickedTab(null), [])
 
   // Redirect if already authenticated.
   //

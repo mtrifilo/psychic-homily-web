@@ -130,7 +130,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // sits after. The optional read is what makes that placement legal rather
   // than merely safe: the closure is built on every render, including the ones
   // that return before `collection` exists.
-  const { onClick: handleToggleLike } = useAuthGatedAction(() => {
+  const { onClick: handleToggleLike } = useAuthGatedAction('like', () => {
     if (collection?.user_likes_this) {
       unlikeMutation.mutate({ slug })
     } else {
