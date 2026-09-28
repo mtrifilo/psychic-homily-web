@@ -148,8 +148,8 @@ func venueSceneLink(database *gorm.DB, g geo.Geocoder, entity string, id uint, v
 	return sceneLinkOrNil(entity, id, link, err)
 }
 
-// latestShowVenuePlace is the primary venue of the show an artist whose own
-// location names no place takes its scene from, and false when there is none.
+// latestShowVenuePlace is the primary venue of the show an artist falls back
+// to (see artistSceneLink), and false when there is none.
 // Only approved, non-cancelled shows with a venue count. The most recent one
 // dated up to today on its venue's own calendar wins; only when there is none
 // does the nearest upcoming one.
@@ -194,8 +194,8 @@ func artistOwnPlace(artist *catalogm.Artist) sceneLinkPlace {
 
 // isKnownNonUSPlace reports whether a location names somewhere outside the
 // US: its country resolves to another country, its state is itself another
-// country's name, or the geocoder places it outside the US. A location it
-// cannot place anywhere is not known to be non-US.
+// country's name, or the geocoder places it outside the US. A location the
+// geocoder misses, or places in the US, is not known to be non-US.
 func isKnownNonUSPlace(g geo.Geocoder, p sceneLinkPlace) bool {
 	if country := strings.TrimSpace(derefString(p.Country)); country != "" {
 		if iso, ok := geo.CountryToISO(country); ok {
@@ -219,11 +219,14 @@ func isKnownNonUSPlace(g geo.Geocoder, p sceneLinkPlace) bool {
 
 // artistSceneLink is the scene link on an artist's detail page.
 //
-//   - A US location, after state normalisation, links its own scene, or
-//     nothing when no scene serves it.
-//   - A location outside the US links nothing.
-//   - No location at all, or one that places the artist in no country, takes
-//     the venue of the show latestShowVenuePlace picks.
+//   - A city with a US state (a spelled-out state normalised to its code)
+//     links its own scene, or nothing when no scene serves it.
+//   - Otherwise, a location isKnownNonUSPlace places outside the US links
+//     nothing.
+//   - Everything else falls back to the venue of the show latestShowVenuePlace
+//     picks: no location at all, a state the state map does not know
+//     ("Phoenix, Arizonaa"), a city or state alone, a country alone that is
+//     the US, and a place the geocoder misses.
 func artistSceneLink(database *gorm.DB, g geo.Geocoder, artist *catalogm.Artist) (*contracts.SceneLinkResponse, error) {
 	if artistHasAnyLocation(artist) {
 		place := artistOwnPlace(artist)

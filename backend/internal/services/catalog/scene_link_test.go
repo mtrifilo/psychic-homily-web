@@ -66,6 +66,7 @@ func TestIsKnownNonUSPlace(t *testing.T) {
 		{"a state that is another country's name", sceneLinkPlace{State: "Japan"}, true},
 		{"a US city with a misspelled state", sceneLinkPlace{City: "Phoenix", State: "Arizonaa"}, false},
 		{"nothing to place", sceneLinkPlace{State: "Nowhere"}, false},
+		{"a city the geocoder misses, with a non-US country", sceneLinkPlace{City: "Kiev", Country: stringPtr("Ukraine")}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,6 +167,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_OwnLocation()
 	resp, err := NewArtistService(suite.db).GetArtist(artist.ID)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Scene)
+	suite.requireLinkServes(resp.Scene)
 	suite.Equal("phoenix-az", resp.Scene.Slug)
 }
 
@@ -205,6 +207,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_NoLocationIgn
 	resp, err := NewArtistService(suite.db).GetArtist(artist.ID)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Scene)
+	suite.requireLinkServes(resp.Scene)
 	suite.Equal("phoenix-az", resp.Scene.Slug)
 }
 
@@ -318,6 +321,28 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_UnknownStateF
 	suite.Equal("kansas-city-mo", suite.artistSceneSlug(artist))
 }
 
+// A city with no state names no scene slug and is not known to be outside
+// the US, so it takes the fallback rather than a population-guessed state.
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_CityAloneFallsBackToTheLatestShow() {
+	user := suite.createUser()
+	_, kansasCity := suite.seedTwoScenes()
+	artist := &catalogm.Artist{Name: "City Only", City: stringPtr("Phoenix")}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+	suite.createApprovedShow("Tour", kansasCity.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+
+	suite.Equal("kansas-city-mo", suite.artistSceneSlug(artist))
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_NonUSCountryNeverBorrowsAShow() {
+	user := suite.createUser()
+	phoenix, _ := suite.seedTwoScenes()
+	artist := &catalogm.Artist{Name: "Kyiv Band", City: stringPtr("Kiev"), Country: stringPtr("Ukraine")}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+	suite.createApprovedShow("US tour", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+
+	suite.Equal("", suite.artistSceneSlug(artist))
+}
+
 func (suite *SceneServiceIntegrationTestSuite) TestVenueAndShowDetailCarryTheScene() {
 	user := suite.createUser()
 	valleyBar := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
@@ -328,11 +353,13 @@ func (suite *SceneServiceIntegrationTestSuite) TestVenueAndShowDetailCarryTheSce
 	venueResp, err := NewVenueService(suite.db).GetVenueDetail(suite.venueSlugOf(valleyBar))
 	suite.Require().NoError(err)
 	suite.Require().NotNil(venueResp.Scene)
+	suite.requireLinkServes(venueResp.Scene)
 	suite.Equal("phoenix-az", venueResp.Scene.Slug)
 
 	showResp, err := NewShowService(suite.db).GetShow(show.ID)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(showResp.Scene)
+	suite.requireLinkServes(showResp.Scene)
 	suite.Equal("phoenix-az", showResp.Scene.Slug)
 }
 
