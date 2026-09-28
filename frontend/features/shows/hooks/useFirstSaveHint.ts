@@ -11,6 +11,7 @@ import { queryKeys } from '@/lib/queryClient'
 import {
   readProfilePreference,
   readProfileViewerId,
+  settleProfilePreference,
   withProfilePreference,
 } from '@/features/auth/hooks/profilePreferenceCache'
 import type { components } from '@/types/api'
@@ -34,26 +35,47 @@ function isHintUndismissed(cached: unknown): boolean {
 }
 
 /**
+ * Viewers whose first-save question is already answered for the lifetime of a
+ * query client (one browser session): the hint opened for them, or a save
+ * found them past their first. Keyed per client so a new client, including
+ * each test's, starts empty.
+ */
+const answeredViewers = new WeakMap<QueryClient, Set<unknown>>()
+
+/**
  * Called after a save SUCCEEDS: whether that save should open the first-save
- * hint. True only when the viewer has not dismissed the hint and the save
- * took them from zero saved shows to exactly one.
+ * hint. True only when the viewer has not dismissed the hint, has not had the
+ * question answered this session, and the save took them from zero saved
+ * shows to exactly one.
  *
  * The flag is read from the profile cache at call time rather than through a
  * subscription, so the dozens of Save controls on a list page do not each
- * re-render on every profile change. The count is asked only while the flag
- * is unset, so a viewer who has dismissed the hint never pays for the request.
+ * re-render on every profile change.
+ *
+ * Cost: while the flag is unset, the FIRST save of each session reads the
+ * saved-show count once. That includes every viewer who saved shows before
+ * the flag existed or never dismissed the hint, since their flag stays unset.
+ * Any answer of one or more ends the question for the session, so the read
+ * never repeats per save, and the hint cannot reopen in the same session.
  */
 export async function shouldOpenFirstSaveHint(
   queryClient: QueryClient
 ): Promise<boolean> {
-  if (!isHintUndismissed(queryClient.getQueryData(queryKeys.auth.profile))) {
-    return false
-  }
+  const cached = queryClient.getQueryData(queryKeys.auth.profile)
+  const viewerId = readProfileViewerId(cached)
+  if (!isHintUndismissed(cached)) return false
+  const answered = answeredViewers.get(queryClient) ?? new Set<unknown>()
+  answeredViewers.set(queryClient, answered)
+  if (answered.has(viewerId)) return false
+
   const params = new URLSearchParams({ limit: '1', offset: '0' })
   const page = await apiRequest<SavedShowsListResponse>(
     `${API_ENDPOINTS.SAVED_SHOWS.LIST}?${params.toString()}`,
     { method: 'GET' }
   )
+  // Zero means the save this follows did not land in the count yet (a lost
+  // race with an unsave); the question stays open for the next save.
+  if (page.total >= 1) answered.add(viewerId)
   return page.total === 1
 }
 
@@ -106,9 +128,12 @@ export function useDismissFirstSaveHint() {
     onError: (_error, _vars, context) => {
       if (!context) return
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        readProfileViewerId(old) === context.viewerId
-          ? withProfilePreference(old, DISMISSED_AT, context.previous)
-          : old
+        settleProfilePreference(
+          old,
+          context.viewerId,
+          DISMISSED_AT,
+          context.previous
+        )
       )
     },
   })

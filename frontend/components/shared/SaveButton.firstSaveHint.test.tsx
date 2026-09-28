@@ -88,9 +88,14 @@ function countReads(): number {
   ).length
 }
 
-function renderSave(client: QueryClient, showId = 1, hintAlign?: 'start' | 'end') {
+function renderSave(
+  client: QueryClient,
+  showId = 1,
+  hintAlign?: 'start' | 'end',
+  variant: 'bracket' | 'ghost' = 'bracket'
+) {
   return render(
-    <SaveButton showId={showId} variant="bracket" hintAlign={hintAlign} />,
+    <SaveButton showId={showId} variant={variant} hintAlign={hintAlign} />,
     { wrapper: createWrapperWithClient(client) }
   )
 }
@@ -280,6 +285,44 @@ describe('SaveButton first-save hint', () => {
     expect(readFlag(client)).toBeNull()
   })
 
+  // Unsave, then re-save the same show after a save elsewhere made it a
+  // second save: the hint must not come back without being re-checked.
+  it('does not reopen when the same show is unsaved and saved again', async () => {
+    const user = userEvent.setup()
+    renderSave(createClient(null))
+
+    await clickSave(user)
+    await screen.findByRole('status')
+    savedTotal += 1
+    await user.click(
+      screen.getByRole('button', { name: /Remove from saved shows/ })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    )
+    await clickSave(user)
+
+    await waitFor(() => expect(saved.has(1)).toBe(true))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  // Once the question is answered in a session, later saves do not re-ask:
+  // the count read happens at most once per viewer per session.
+  it('reads the count at most once per session', async () => {
+    const user = userEvent.setup()
+    const client = createClient(null)
+    savedTotal = 3
+    const first = renderSave(client, 1)
+    await clickSave(user, 1)
+    await waitFor(() => expect(countReads()).toBe(1))
+    first.unmount()
+
+    renderSave(client, 2)
+    await clickSave(user, 2)
+    await waitFor(() => expect(saved.has(2)).toBe(true))
+    expect(countReads()).toBe(1)
+  })
+
   // The hint is an extra: a failed count read shows nothing, and in
   // particular not the save-failure message.
   it('shows nothing when the count read fails', async () => {
@@ -294,19 +337,25 @@ describe('SaveButton first-save hint', () => {
     expect(screen.queryByText(/Failed to/)).not.toBeInTheDocument()
   })
 
-  // No layout shift: the hint overlays what follows rather than taking space,
-  // anchored inside the control's own positioned wrapper.
+  // No layout shift and no clipping: the hint is portalled out of the row
+  // (so an overflow-hidden or scrolling ancestor cannot cut it off, and it
+  // takes no space there) and anchored to the control's requested edge.
   it.each([
-    ['start', 'left-0'],
-    ['end', 'right-0'],
-  ] as const)('overlays from the control, aligned %s', async (align, edge) => {
-    const user = userEvent.setup()
-    renderSave(createClient(null), 1, align)
+    ['bracket', 'start'],
+    ['bracket', 'end'],
+    ['ghost', 'end'],
+  ] as const)(
+    'portals out of the %s control, aligned %s',
+    async (variant, align) => {
+      const user = userEvent.setup()
+      const { container } = renderSave(createClient(null), 1, align, variant)
 
-    await clickSave(user)
+      await clickSave(user)
 
-    const hint = await screen.findByRole('status')
-    expect(hint).toHaveClass('absolute', 'top-full', edge)
-    expect(hint.parentElement).toHaveClass('relative')
-  })
+      const hint = await screen.findByRole('status')
+      expect(container).not.toContainElement(hint)
+      expect(hint).toHaveAttribute('data-align', align)
+      expect(hint).toHaveAttribute('data-side', 'bottom')
+    }
+  )
 })

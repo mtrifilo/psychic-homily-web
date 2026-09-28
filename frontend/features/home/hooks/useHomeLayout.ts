@@ -15,6 +15,7 @@ import { useProfile } from '@/features/auth/hooks/useAuth'
 import {
   readProfilePreference,
   readProfileViewerId,
+  settleProfilePreference,
   withProfilePreference,
 } from '@/features/auth/hooks/profilePreferenceCache'
 import {
@@ -170,7 +171,7 @@ export function useWriteHomeLayout() {
         // snapshot would put a signed-out viewer's identity back into a cache
         // that a logout had already cleared.
         previousDocument: readStoredLayout(cached),
-        viewerId: readViewerId(cached),
+        viewerId: readProfileViewerId(cached),
       }
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
         withHomeLayout(old, document)
@@ -182,25 +183,24 @@ export function useWriteHomeLayout() {
       // from the response instead of refetching the whole profile after every
       // click. Only the last-issued write may do so.
       if (!context || context.issue !== issuedWrites) return
-      // Same viewer guard as the rollback: a write can outlive its session,
-      // and the next account's profile must not inherit this one's layout.
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        readViewerId(old) === context.viewerId
-          ? withHomeLayout(old, response.home_layout ?? null)
-          : old
+        settleProfilePreference(
+          old,
+          context.viewerId,
+          HOME_LAYOUT_KEY,
+          response.home_layout ?? null
+        )
       )
     },
     onError: (_error: Error, _document, context) => {
       if (!context || context.issue !== issuedWrites) return
-      // Guarded on the viewer still being the one whose layout this was. A
-      // write can outlive its session: `logout()` clears the cache without
-      // cancelling in-flight requests, and an unguarded restore would rebuild
-      // the viewer-less profile entry and repaint the signed-out viewer as
-      // signed in.
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        readViewerId(old) === context.viewerId
-          ? withHomeLayout(old, context.previousDocument)
-          : old
+        settleProfilePreference(
+          old,
+          context.viewerId,
+          HOME_LAYOUT_KEY,
+          context.previousDocument
+        )
       )
     },
     onSettled: () => {
@@ -231,17 +231,17 @@ export function useHomeLayoutWriteFailed(): boolean {
   return statuses.at(-1) === 'error'
 }
 
-const readViewerId = readProfileViewerId
+const HOME_LAYOUT_KEY = 'home_layout'
 
 function readStoredLayout(cached: unknown): HomeLayoutDocument | null {
-  return readProfilePreference<HomeLayoutDocument>(cached, 'home_layout')
+  return readProfilePreference<HomeLayoutDocument>(cached, HOME_LAYOUT_KEY)
 }
 
 function withHomeLayout(
   cached: unknown,
   document: HomeLayoutDocument | null
 ): unknown {
-  return withProfilePreference(cached, 'home_layout', document)
+  return withProfilePreference(cached, HOME_LAYOUT_KEY, document)
 }
 
 /**

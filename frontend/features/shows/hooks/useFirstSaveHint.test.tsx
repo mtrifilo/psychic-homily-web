@@ -98,6 +98,35 @@ describe('shouldOpenFirstSaveHint', () => {
     expect(apiRequest).not.toHaveBeenCalled()
   })
 
+  // One read per viewer per session: after an answer of one or more, the
+  // same client does not ask again, whatever the next answer would be.
+  it('asks the count at most once per viewer per client', async () => {
+    const client = createClient()
+    client.setQueryData(queryKeys.auth.profile, profilePayload(null))
+    apiRequest.mockResolvedValue(savedTotal(2))
+
+    await expect(shouldOpenFirstSaveHint(client)).resolves.toBe(false)
+    apiRequest.mockResolvedValue(savedTotal(1))
+    await expect(shouldOpenFirstSaveHint(client)).resolves.toBe(false)
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+
+    // A different viewer on the same client still gets asked.
+    client.setQueryData(queryKeys.auth.profile, profilePayload(null, 8))
+    await expect(shouldOpenFirstSaveHint(client)).resolves.toBe(true)
+    expect(apiRequest).toHaveBeenCalledTimes(2)
+  })
+
+  // Zero means the save had not landed in the count; the question stays open.
+  it('keeps asking after an answer of zero', async () => {
+    const client = createClient()
+    client.setQueryData(queryKeys.auth.profile, profilePayload(null))
+    apiRequest.mockResolvedValue(savedTotal(0))
+
+    await expect(shouldOpenFirstSaveHint(client)).resolves.toBe(false)
+    apiRequest.mockResolvedValue(savedTotal(1))
+    await expect(shouldOpenFirstSaveHint(client)).resolves.toBe(true)
+  })
+
   it('stays closed when no viewer is known', async () => {
     const client = createClient()
 
