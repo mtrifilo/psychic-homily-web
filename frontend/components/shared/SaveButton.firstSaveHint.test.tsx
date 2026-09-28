@@ -501,6 +501,20 @@ describe('SaveButton first-save hint', () => {
     expect(countReads()).toBe(1)
   })
 
+  // A save that fails is not a first save: the save-failure message shows,
+  // and the count is never read.
+  it('does not ask for the count when the save fails', async () => {
+    const user = userEvent.setup()
+    mockToggle.mockRejectedValueOnce(new Error('500'))
+    renderSave(createClient(null))
+
+    await clickSave(user)
+
+    await waitFor(() => expect(mockToggle).toHaveBeenCalledTimes(1))
+    expect(countReads()).toBe(0)
+    expect(hintElement()).not.toBeInTheDocument()
+  })
+
   // The hint is an extra: a failed count read shows nothing, and in
   // particular not the save-failure message.
   it('shows nothing when the count read fails', async () => {
@@ -535,7 +549,7 @@ describe('SaveButton first-save hint', () => {
       const save = screen.getByRole('button', {
         name: /Remove from saved shows/,
       })
-      // Inside the control's own wrapper, after it: not portalled away.
+      // Renders inside the control's wrapper, after the control.
       expect(save.parentElement).toContainElement(hint)
       expect(save.compareDocumentPosition(hint)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING

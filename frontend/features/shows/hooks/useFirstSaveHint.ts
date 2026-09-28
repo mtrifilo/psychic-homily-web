@@ -53,8 +53,8 @@ const answeredViewers = new WeakMap<QueryClient, Set<unknown>>()
  * re-render on every profile change.
  *
  * Cost: while the flag is unset, the FIRST save of each session reads the
- * saved-show count once. That includes every viewer who saved shows before
- * the flag existed or never dismissed the hint, since their flag stays unset.
+ * saved-show count once. That includes every account that already has saves
+ * and every viewer who never dismissed the hint, since their flag stays unset.
  * Any answer of one or more ends the question for the session, so the read
  * never repeats per save, and the hint cannot reopen in the same session.
  */
