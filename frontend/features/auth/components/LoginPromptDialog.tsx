@@ -18,9 +18,10 @@ interface LoginPromptDialogProps {
   title?: string
   description?: string
   /**
-   * Both sign-in destinations, already built. Required, and hrefs rather than
-   * a bare `returnTo`, because the caller resolves them at click time from the
-   * browser's own location (`useAuthGatedAction`). A default here could only
+   * The Sign in and Create account destinations, already built. Required, and
+   * hrefs rather than a bare `returnTo`, because the caller resolves them at
+   * click time from the browser's own location (`useAuthGatedAction`). A
+   * default here could only
    * be a destination that discards where the reader was, which is the bug the
    * required prop exists to make unwritable.
    */

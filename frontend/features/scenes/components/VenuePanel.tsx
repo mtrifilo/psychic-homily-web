@@ -197,7 +197,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   // issues, and the expired-session link under the error below. Only the
   // redirect names the intent that opens Create account; the expired-session
   // link opens Sign in, since a 401 there means the viewer had a session.
-  const { onClick: gatedConfirm, buildAuthHrefForHere: signInHref } =
+  const { onClick: gatedConfirm, buildSignInHrefForHere: signInHref } =
     useAuthGatedAction('confirm', () => confirm.mutate(venue.id))
 
   // Inert outranks the auth branch, and the order is load-bearing HERE and
@@ -318,7 +318,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
               {confirm.error?.status === 401 && (
                 <>
                   {' '}
-                  {/* Called during render, which `buildAuthHrefForHere`
+                  {/* Called during render, which `buildSignInHrefForHere`
                       documents as event-time only. Legal here and nowhere
                       else in this file: the branch paints only after a client
                       mutation returned 401, so there is no render without a

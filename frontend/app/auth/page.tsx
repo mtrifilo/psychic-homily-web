@@ -30,8 +30,7 @@ import {
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import {
-  AUTH_INTENT_PARAM,
-  isAuthIntent,
+  hasGatedIntent,
   isReauthReason,
 } from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
@@ -645,14 +644,21 @@ function AuthPageContent() {
 
   // A gated control names the action it refused an anonymous viewer, and only
   // that arrival opens on Create account; every other route in opens on Sign
-  // in. Re-auth wins: it hides that tab, and a selected tab that does not
-  // render would leave the card empty. The URL only seeds the first render;
-  // tab changes after that are local state and never written back.
-  const [activeTab, setActiveTab] = useState(() =>
-    isAuthIntent(searchParams.get(AUTH_INTENT_PARAM)) && !isReauth
-      ? 'signup'
-      : 'login'
-  )
+  // in. Re-auth always opens on Sign in, the only tab it renders.
+  //
+  // The default belongs to the arrival, not to the mount: a navigation that
+  // only changes the query string does not remount this page, so a tab the
+  // viewer picked is kept only while the query string it was picked under
+  // is still the one in the URL. Tab changes are never written back to it.
+  const arrival = searchParams.toString()
+  const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
+  const [pickedTab, setPickedTab] = useState<{
+    arrival: string
+    tab: string
+  } | null>(null)
+  const activeTab =
+    pickedTab?.arrival === arrival && !isReauth ? pickedTab.tab : arrivalTab
+  const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)
 

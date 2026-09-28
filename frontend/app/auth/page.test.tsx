@@ -135,9 +135,8 @@ describe('AuthPage', () => {
     })
 
     it('does not push a URL update when switching tabs (Radix-local state)', async () => {
-      // Documents current behavior: the tab control is uncontrolled Radix
-      // state and is NOT synced to the URL. Guards against an accidental
-      // navigation side effect being introduced on tab change.
+      // The selected tab is page-local state and is NOT written to the URL.
+      // Guards against an accidental navigation side effect on tab change.
       const user = userEvent.setup()
       renderWithProviders(<AuthPage />)
 
@@ -149,9 +148,7 @@ describe('AuthPage', () => {
 
     it('does not honor ?tab=signup as an initial-tab hint (param is inert)', () => {
       // The page never reads ?tab, so ?tab=signup has no effect; the only
-      // arrival that opens Create account is a gated control's intent. If
-      // deep-linking to the signup tab is later implemented, this expectation
-      // should flip.
+      // arrival that opens Create account is a gated control's intent.
       setSearchParams('tab=signup')
       renderWithProviders(<AuthPage />)
 
@@ -178,7 +175,7 @@ describe('AuthPage', () => {
       )
     }
 
-    it('opens on Create account, with the intent panel, when a gated control sent the visitor', () => {
+    it('opens on Create account, with its account ledger, when a gated control sent the visitor', () => {
       setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
       renderWithProviders(<AuthPage />)
 
@@ -212,7 +209,7 @@ describe('AuthPage', () => {
       expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
     })
 
-    // The value edge cases are pinned on `isAuthIntent` itself; this proves
+    // The value edge cases are pinned on `hasGatedIntent` itself; this proves
     // the page goes through it.
     it('ignores an unlisted intent and opens on Sign in', () => {
       setSearchParams('returnTo=%2Fshows&intent=signup')
@@ -234,12 +231,74 @@ describe('AuthPage', () => {
       expect(mockReplace).not.toHaveBeenCalled()
     })
 
-    it('still shows an OAuth error banner on a gated arrival', () => {
-      setSearchParams('error=Email%20already%20exists&intent=save')
-      renderWithProviders(<AuthPage />)
+    // A query-string-only navigation keeps this page mounted, so each of these
+    // re-renders the same instance under a new URL, the way the router does.
+    describe('a new arrival on the mounted page', () => {
+      it('opens on Create account for a gated arrival after a plain one', () => {
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        expectSelected('Sign in')
 
-      expect(screen.getByText('Email already exists')).toBeInTheDocument()
-      expectSelected('Create account')
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        rerender(<AuthPage />)
+
+        expectSelected('Create account')
+      })
+
+      it('opens on Sign in for a plain arrival after a gated one', () => {
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        expectSelected('Create account')
+
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      it('drops a tab the viewer picked once the arrival changes', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expectSelected('Create account')
+
+        setSearchParams('')
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      it('keeps a tab the viewer picked while the arrival is unchanged', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
+      it('shows no Create account content on a re-auth after a gated arrival', async () => {
+        setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        expectSelected('Create account')
+
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        setSearchParams('returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED')
+        rerender(<AuthPage />)
+
+        await screen.findByText("Confirm it's you")
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(
+          screen.queryByRole('heading', { name: 'Never miss a show.' })
+        ).not.toBeInTheDocument()
+        expect(screen.queryByTestId('passkey-signup')).not.toBeInTheDocument()
+      })
     })
 
     it('opens on Sign in for a re-authentication even when an intent is present', async () => {

@@ -122,14 +122,19 @@ export function buildReauthHref(returnTo: string): string {
 }
 
 /**
- * The query parameter that names the action an anonymous viewer tried to take
- * when a gated control sent them to sign in.
+ * The query parameter that names the kind of action an anonymous viewer tried
+ * to take when a gated control turned them away.
  *
- * The auth page opens on Create account when it carries a listed value. Every
+ * Unexported: `buildGatedAuthHref` writes it and `hasGatedIntent` reads it, so
+ * nothing else can spell it. The auth page opens on Create account when it
+ * carries a listed value, unless the arrival is a re-authentication. Every
  * other route into the page (the header link, the mobile Account tab, a route
- * guard, a sign-in prompt) names no intent and opens on Sign in.
+ * guard, `SignInPrompt`, a re-auth link) names no intent and opens on Sign in.
+ *
+ * The value names a kind of action, never its target, so it is enough to
+ * choose a tab and not enough to repeat the action.
  */
-export const AUTH_INTENT_PARAM = 'intent'
+const AUTH_INTENT_PARAM = 'intent'
 
 /**
  * Every action a gated control can name, and so every value the auth page
@@ -148,8 +153,11 @@ export const AUTH_INTENTS = [
 
 export type AuthIntent = (typeof AUTH_INTENTS)[number]
 
-/** Is this intent-parameter value one a gated control can name? */
-export function isAuthIntent(raw: string | null): raw is AuthIntent {
+/** Does this auth-page URL name an intent a gated control can set? */
+export function hasGatedIntent(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  const raw = searchParams.get(AUTH_INTENT_PARAM)
   return raw !== null && (AUTH_INTENTS as readonly string[]).includes(raw)
 }
 

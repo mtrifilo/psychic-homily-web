@@ -26,7 +26,7 @@ export interface AuthGatedAction {
    * it opens on Sign in. Event-time only, for the reason
    * `currentLocationReturnTo` gives.
    */
-  buildAuthHrefForHere: () => string
+  buildSignInHrefForHere: () => string
   /** The gated handler. Assignable straight to `onClick`. */
   onClick: (event?: {
     preventDefault: () => void
@@ -67,7 +67,7 @@ export function useAuthGatedAction(
   const pathname = usePathname()
   const { authStatus } = useAuthContext()
 
-  const buildAuthHrefForHere = useCallback(
+  const buildSignInHrefForHere = useCallback(
     () => buildAuthHref(currentLocationReturnTo(pathname)),
     [pathname]
   )
@@ -101,5 +101,5 @@ export function useAuthGatedAction(
     action()
   }
 
-  return { buildAuthHrefForHere, onClick }
+  return { buildSignInHrefForHere, onClick }
 }

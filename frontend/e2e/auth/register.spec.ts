@@ -105,7 +105,7 @@ test.describe('Registration', () => {
 // account. A returnTo alone (the header link, the mobile Account tab) and an
 // unlisted intent both open on Sign in.
 test.describe('Initial tab', () => {
-  test('a gated arrival opens on Create account with the intent panel', async ({ page }) => {
+  test('a gated arrival opens on Create account with its account ledger', async ({ page }) => {
     await page.goto('/auth?returnTo=%2Fshows&intent=save')
 
     await expect(

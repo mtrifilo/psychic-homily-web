@@ -22,9 +22,17 @@ import { join, relative, sep } from 'node:path'
  *     the query-string loss this family exists to fix, and it names neither
  *     forbidden string.
  *
- * The intent that opens Create account has a stricter rule still: it is set
- * by `useAuthGatedAction` and nowhere else, owners included, because a link a
- * reader follows on purpose to sign in must keep opening Sign in.
+ * The intent that opens Create account has a stricter rule, because a link a
+ * reader follows on purpose to sign in must keep opening Sign in. Three
+ * spellings of it are refused outside their owner, owners of the rules above
+ * included:
+ *   - `buildGatedAuthHref`, named anywhere but `lib/auth-href.ts` and
+ *     `useAuthGatedAction`
+ *   - `AUTH_INTENT_PARAM`, named anywhere but `lib/auth-href.ts` (it is also
+ *     unexported, so this holds even for a file the scan skips)
+ *   - an `intent=` parameter written out on an `/auth` or `AUTH_PATH` href
+ * An intent assembled some other way (a `URLSearchParams` built from a bare
+ * `'intent'` key, say) is not caught here.
  *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
@@ -157,15 +165,23 @@ describe('auth gate ownership', () => {
     expect(composers).toEqual([])
   })
 
-  it('lets only the gated-action hook name the intent that opens Create account', () => {
+  it('builds the gated href in the gated-action hook and nowhere else', () => {
     expect(filesMatching(/\bbuildGatedAuthHref\b/)).toEqual(
       GATED_INTENT_SETTERS
     )
   })
 
-  it('has no hand-built intent parameter on any href', () => {
-    // `buildGatedAuthHref` composes it from `AUTH_INTENT_PARAM`, so no source
-    // file spells the parameter out.
-    expect(filesMatching(/[?&]intent=/)).toEqual([])
+  it('keeps the intent parameter name inside the module that owns it', () => {
+    expect(filesMatching(/\bAUTH_INTENT_PARAM\b/)).toEqual([
+      ['lib', 'auth-href.ts'].join(sep),
+    ])
+  })
+
+  it('has no written-out intent parameter on an /auth href', () => {
+    // Matches `/auth?intent=`, `/auth?returnTo=...&intent=` and the same after
+    // an interpolated `AUTH_PATH`.
+    expect(
+      filesMatching(/(\/auth|AUTH_PATH\})[^'"`\s]*[?&]intent=/)
+    ).toEqual([])
   })
 })

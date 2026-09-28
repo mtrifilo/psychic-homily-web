@@ -147,7 +147,7 @@ describe('useAuthGatedAction', () => {
     setLocation('/venues/rebel-lounge')
     const { result } = renderHook(() => useAuthGatedAction('confirm', vi.fn()))
 
-    expect(result.current.buildAuthHrefForHere()).toBe(
+    expect(result.current.buildSignInHrefForHere()).toBe(
       '/auth?returnTo=%2Fvenues%2Frebel-lounge'
     )
   })
