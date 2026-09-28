@@ -59,7 +59,8 @@ const answeredViewers = new WeakMap<QueryClient, Set<unknown>>()
  * never repeats per save, and the hint cannot reopen in the same session.
  */
 export async function shouldOpenFirstSaveHint(
-  queryClient: QueryClient
+  queryClient: QueryClient,
+  isStillCurrent: () => boolean = () => true
 ): Promise<boolean> {
   const cached = queryClient.getQueryData(queryKeys.auth.profile)
   const viewerId = readProfileViewerId(cached)
@@ -73,16 +74,25 @@ export async function shouldOpenFirstSaveHint(
     `${API_ENDPOINTS.SAVED_SHOWS.LIST}?${params.toString()}`,
     { method: 'GET' }
   )
-  // Zero means the save this follows did not land in the count yet (a lost
-  // race with an unsave); the question stays open for the next save.
+  // An answer to a question that no longer stands (the viewer unsaved or
+  // saved again while the read was in flight) settles nothing: the newer
+  // click asks for itself. Zero likewise means the save had not landed in
+  // the count yet, so the question stays open.
+  if (!isStillCurrent()) return false
   if (page.total >= 1) answered.add(viewerId)
   return page.total === 1
 }
 
 /** `shouldOpenFirstSaveHint` bound to this tree's query client. */
-export function useShouldOpenFirstSaveHint(): () => Promise<boolean> {
+export function useShouldOpenFirstSaveHint(): (
+  isStillCurrent: () => boolean
+) => Promise<boolean> {
   const queryClient = useQueryClient()
-  return useCallback(() => shouldOpenFirstSaveHint(queryClient), [queryClient])
+  return useCallback(
+    (isStillCurrent: () => boolean) =>
+      shouldOpenFirstSaveHint(queryClient, isStillCurrent),
+    [queryClient]
+  )
 }
 
 /**

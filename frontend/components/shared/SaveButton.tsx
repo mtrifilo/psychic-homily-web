@@ -90,6 +90,10 @@ export function SaveButton({
   const data = batched ?? single
 
   const isSaved = data?.is_saved ?? false
+  // Any settled unsave closes the hint, including one made through another
+  // Save control for the same show (home can render two). Keyed on a settled
+  // `false`, not a pending `undefined`, so a batch refetch does not close it.
+  if (isHintOpen && data?.is_saved === false) setIsHintOpen(false)
   const saveCount = data?.save_count ?? 0
 
   const { isLoading, toggle, error } = useSaveShowToggle(
@@ -117,8 +121,6 @@ export function SaveButton({
 
     const click = ++latestClick.current
     const isSaving = !isSaved
-    // Closed here, not only hidden by the render gate below: a hint left open
-    // under an unsave would reappear on a re-save without being re-checked.
     if (!isSaving) setIsHintOpen(false)
     try {
       clearSaveError()
@@ -132,8 +134,8 @@ export function SaveButton({
     // The hint is an extra, never part of the save: a failed check shows
     // nothing and must not read as a failed save.
     try {
-      const shouldOpen = await shouldOpenFirstSaveHint()
-      if (shouldOpen && click === latestClick.current) setIsHintOpen(true)
+      const isStillCurrent = () => click === latestClick.current
+      if (await shouldOpenFirstSaveHint(isStillCurrent)) setIsHintOpen(true)
     } catch {}
   })
 

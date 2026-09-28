@@ -116,6 +116,20 @@ describe('shouldOpenFirstSaveHint', () => {
     expect(apiRequest).toHaveBeenCalledTimes(2)
   })
 
+  // An answer to a question that no longer stands settles nothing: the viewer
+  // stays unanswered, so their next save is asked about for itself.
+  it('ignores a stale answer and leaves the question open', async () => {
+    const client = createClient()
+    client.setQueryData(queryKeys.auth.profile, profilePayload(null))
+    apiRequest.mockResolvedValue(savedTotal(1))
+
+    await expect(shouldOpenFirstSaveHint(client, () => false)).resolves.toBe(
+      false
+    )
+    await expect(shouldOpenFirstSaveHint(client)).resolves.toBe(true)
+    expect(apiRequest).toHaveBeenCalledTimes(2)
+  })
+
   // Zero means the save had not landed in the count; the question stays open.
   it('keeps asking after an answer of zero', async () => {
     const client = createClient()

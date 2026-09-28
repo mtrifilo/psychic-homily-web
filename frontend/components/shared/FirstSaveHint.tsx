@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, type RefObject } from 'react'
 import Link from 'next/link'
 import { X } from 'lucide-react'
-import { autoUpdate, offset, shift, useFloating } from '@floating-ui/react-dom'
+import {
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  useFloating,
+} from '@floating-ui/react-dom'
 import { useDismissFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
 
 // Minimum distance between the hint and either edge of the viewport. The
@@ -11,13 +17,13 @@ import { useDismissFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint
 const VIEWPORT_GUTTER_PX = 16
 
 interface FirstSaveHintProps {
-  /** The Save control's wrapper. The hint positions against it, and focus
-   *  returns to the first control inside it when the hint closes from the
-   *  keyboard. */
+  /** The Save control's wrapper. The hint positions against it; when focus
+   *  is inside the hint as it closes, focus moves to the first button or link
+   *  in this wrapper, which is the Save control. */
   anchorRef: RefObject<HTMLElement | null>
   /** Which edge of the Save control the hint lines up with. */
   align: 'start' | 'end'
-  /** Close the hint locally. Dismissal on the account happens here. */
+  /** Close the hint locally. The hint stamps the account itself. */
   onClose: () => void
 }
 
@@ -30,19 +36,28 @@ interface FirstSaveHintProps {
  * lets it overlay what follows without pushing a dense row apart and without
  * being cut off by an `overflow-hidden` or scrolling ancestor. It is not a
  * dismissable layer: a menu or popover opened near it keeps its own Escape and
- * outside clicks. Every way of closing it (the dismiss control, either link,
- * Escape) stamps the account, so it never opens again on any device.
+ * outside clicks. Each of its own controls (Dismiss, either link, Escape)
+ * stamps the account. Unsaving the show, or the control unmounting, closes it
+ * without stamping.
  */
 export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps) {
   const { mutate: dismissOnAccount } = useDismissFirstSaveHint()
   const {
     floatingStyles,
     isPositioned,
+    placement,
     refs: { setReference, setFloating, floating: hintRef },
   } = useFloating({
     strategy: 'fixed',
     placement: align === 'start' ? 'bottom-start' : 'bottom-end',
-    middleware: [offset(8), shift({ padding: VIEWPORT_GUTTER_PX })],
+    // flip moves it above the control when there is no room below (a row at
+    // the bottom of the viewport, or above the mobile tab bar); it keeps the
+    // requested edge. shift keeps it inside the viewport gutter.
+    middleware: [
+      offset(8),
+      flip({ padding: VIEWPORT_GUTTER_PX, flipAlignment: false }),
+      shift({ padding: VIEWPORT_GUTTER_PX }),
+    ],
     whileElementsMounted: autoUpdate,
   })
 
@@ -78,7 +93,7 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
       ref={setFloating}
       role="status"
       data-testid="first-save-hint"
-      data-align={align}
+      data-placement={placement}
       style={{
         ...floatingStyles,
         // Hidden until placed, so it never flashes at the viewport origin.

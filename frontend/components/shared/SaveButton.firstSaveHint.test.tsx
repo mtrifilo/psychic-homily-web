@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapperWithClient } from '@/test/utils'
@@ -257,9 +257,11 @@ describe('SaveButton first-save hint', () => {
 
   // A real Radix popover open beside the hint (the show page's Add to
   // collection) owns its Escape: it closes, and the hint neither dismisses
-  // nor stamps the account. Covered in both mount orders, because mount order
-  // decides Radix's own layer stack: opened while the count read is still in
-  // flight (the hint mounts after it), and opened over an open hint.
+  // nor stamps the account. Both orders of registering the two document
+  // keydown listeners are covered: the popover's first (it opens while the
+  // count read is in flight) fails if the hint stops ignoring
+  // defaultPrevented events; the hint's first (the popover opens over it)
+  // fails if the hint's listener moves to the capture phase.
   it.each(['while the read is in flight', 'over the open hint'] as const)(
     'leaves Escape to a popover opened %s',
     async when => {
@@ -315,26 +317,60 @@ describe('SaveButton first-save hint', () => {
     }
   )
 
-  // Keyboard users reach the hint as the next tab stop after Save, and
-  // closing it from the keyboard puts focus back on Save instead of <body>.
-  it('is the next tab stop, and returns focus to Save when dismissed', async () => {
+  // Keyboard users reach the hint as the next tab stop after Save, before any
+  // control that follows Save on the page, and closing it from inside puts
+  // focus back on Save instead of <body>.
+  it.each(['bracket', 'ghost'] as const)(
+    'is the next tab stop after the %s control, and returns focus to Save',
+    async variant => {
+      const user = userEvent.setup()
+      render(
+        <>
+          <SaveButton showId={1} variant={variant} />
+          <button type="button">next control</button>
+        </>,
+        { wrapper: createWrapperWithClient(createClient(null)) }
+      )
+
+      await clickSave(user)
+      await screen.findByRole('status')
+      const save = screen.getByRole('button', {
+        name: /Remove from saved shows/,
+      })
+      save.focus()
+
+      await user.tab()
+      expect(screen.getByRole('link', { name: 'home page' })).toHaveFocus()
+      await user.tab()
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveFocus()
+
+      await user.keyboard('{Enter}')
+      expect(hintElement()).not.toBeInTheDocument()
+      expect(save).toHaveFocus()
+    }
+  )
+
+  // Focus returns only when it was inside the hint: an Escape pressed while
+  // the viewer is typing elsewhere closes the hint and leaves them there.
+  it('leaves focus where it was when closed from outside the hint', async () => {
     const user = userEvent.setup()
-    renderSave(createClient(null))
+    render(
+      <>
+        <SaveButton showId={1} variant="bracket" />
+        <input aria-label="search" />
+      </>,
+      { wrapper: createWrapperWithClient(createClient(null)) }
+    )
 
     await clickSave(user)
     await screen.findByRole('status')
-    const save = screen.getByRole('button', { name: /Remove from saved shows/ })
-    save.focus()
+    const input = screen.getByRole('textbox', { name: 'search' })
+    input.focus()
+    await user.keyboard('{Escape}')
 
-    await user.tab()
-    expect(screen.getByRole('link', { name: 'home page' })).toHaveFocus()
-    await user.tab()
-    await user.tab()
-    expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveFocus()
-
-    await user.keyboard('{Enter}')
     expect(hintElement()).not.toBeInTheDocument()
-    expect(save).toHaveFocus()
+    expect(input).toHaveFocus()
   })
 
   // Unsaving closes it without stamping: the hint's "Saved." is no longer
@@ -375,9 +411,43 @@ describe('SaveButton first-save hint', () => {
     expect(hintElement()).not.toBeInTheDocument()
   })
 
+  // Home can render two Save controls for one show. An unsave through the
+  // other one closes this control's hint too, so a later re-save here (now a
+  // second save) does not bring it back.
+  it('closes when another control for the same show unsaves it', async () => {
+    const user = userEvent.setup()
+    const client = createClient(null)
+    const ui = () => (
+      <>
+        <SaveButton showId={1} variant="bracket" />
+        <SaveButton showId={1} variant="ghost" />
+      </>
+    )
+    const { rerender } = render(ui(), {
+      wrapper: createWrapperWithClient(client),
+    })
+
+    await user.click(screen.getAllByRole('button', { name: /^Save show/ })[0])
+    await screen.findByRole('status')
+    savedTotal += 1
+    rerender(ui())
+    const removes = screen.getAllByRole('button', {
+      name: /Remove from saved shows/,
+    })
+    await user.click(removes[1])
+    await waitFor(() => expect(saved.has(1)).toBe(false))
+    rerender(ui())
+    expect(hintElement()).not.toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: /^Save show/ })[0])
+    await waitFor(() => expect(saved.has(1)).toBe(true))
+    rerender(ui())
+    expect(hintElement()).not.toBeInTheDocument()
+  })
+
   // A count read that resolves after the viewer already unsaved answered a
-  // question that no longer stands: it must not arm the hint for a later
-  // re-save.
+  // question that no longer stands: it neither opens the hint nor settles the
+  // question, so the re-save (a genuine zero-to-one save) asks for itself.
   it('ignores a count read that resolves after a later click', async () => {
     const user = userEvent.setup()
     let resolveRead!: () => void
@@ -403,16 +473,15 @@ describe('SaveButton first-save hint', () => {
       screen.getByRole('button', { name: /Remove from saved shows/ })
     )
     await waitFor(() => expect(saved.has(1)).toBe(false))
-    resolveRead()
+    await act(async () => {
+      resolveRead()
+    })
     rerender(ui())
-    await clickSave(user)
-    await waitFor(() => expect(saved.has(1)).toBe(true))
-    rerender(ui())
-
-    expect(
-      screen.getByRole('button', { name: /Remove from saved shows/ })
-    ).toBeInTheDocument()
     expect(hintElement()).not.toBeInTheDocument()
+
+    await clickSave(user)
+    await waitFor(() => expect(countReads()).toBe(2))
+    await screen.findByRole('status')
   })
 
   // Once the question is answered in a session, later saves do not re-ask:
@@ -466,11 +535,16 @@ describe('SaveButton first-save hint', () => {
       const save = screen.getByRole('button', {
         name: /Remove from saved shows/,
       })
+      // Inside the control's own wrapper, after it: not portalled away.
+      expect(save.parentElement).toContainElement(hint)
       expect(save.compareDocumentPosition(hint)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING
       )
       expect(hint.style.position).toBe('fixed')
-      expect(hint).toHaveAttribute('data-align', align)
+      // The placement floating-ui actually used keeps the requested edge.
+      expect(hint.getAttribute('data-placement')).toMatch(
+        new RegExp(`-${align}$`)
+      )
     }
   )
 })
