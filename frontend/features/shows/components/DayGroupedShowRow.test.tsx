@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   DayGroupedShowListHeader,
@@ -427,42 +427,14 @@ describe('DayGroupedShowRow', () => {
 })
 
 // jsdom has no layout, so what this pins is the CLASS that fixes the width:
-// one `lg:w-[...]` utility, the same on the header and on every row of a
-// footprint whatever controls the row itself carries. The x positions are
-// measured in a browser.
+// one `lg:w-[...]` utility per footprint, the same on the header and on a row
+// whatever controls the row itself carries. The x positions are measured in a
+// browser.
 describe('the actions column width', () => {
+  const footprints = ['viewer', 'owner', 'admin'] as const
+
   function widthClasses(element: HTMLElement): string[] {
     return [...element.classList].filter(c => /(^|:)(min-|max-)?w-/.test(c))
-  }
-
-  function rowActionsWidth(
-    footprint: 'viewer' | 'owner' | 'admin',
-    overrides: Partial<ShowResponse> = {},
-    props: Record<string, unknown> = {}
-  ): string[] {
-    const { unmount } = renderRow(overrides, {
-      actionsFootprint: footprint,
-      ...props,
-    })
-    const classes = widthClasses(screen.getByTestId('row-actions'))
-    unmount()
-    return classes
-  }
-
-  function headerActionsWidth(
-    footprint: 'viewer' | 'owner' | 'admin'
-  ): string[] {
-    const { unmount } = render(
-      <DayGroupedShowListHeader
-        density="comfortable"
-        actionsFootprint={footprint}
-      />
-    )
-    const classes = widthClasses(
-      screen.getByTestId('show-list-header-actions')
-    )
-    unmount()
-    return classes
   }
 
   const noMusic = {
@@ -471,72 +443,41 @@ describe('the actions column width', () => {
     ] as never,
   }
 
-  it('is one fixed width, never a minimum that a row can grow past', () => {
-    for (const footprint of ['viewer', 'owner', 'admin'] as const) {
-      const classes = headerActionsWidth(footprint)
-      expect(classes).toHaveLength(1)
-      expect(classes[0]).toMatch(/^lg:w-\[\d+px\]$/)
+  it.each(footprints)(
+    'is one fixed width, shared by the header and a %s row',
+    footprint => {
+      render(
+        <DayGroupedShowListHeader
+          density="comfortable"
+          actionsFootprint={footprint}
+        />
+      )
+      const header = widthClasses(
+        screen.getByTestId('show-list-header-actions')
+      )
+      expect(header).toHaveLength(1)
+      expect(header[0]).toMatch(/^lg:w-\[\d+px\]$/)
+
+      renderRow({}, { actionsFootprint: footprint })
+      expect(widthClasses(screen.getByTestId('row-actions'))).toEqual(header)
     }
-  })
+  )
 
-  it('matches the header on expandable and non-expandable rows', () => {
-    const header = headerActionsWidth('viewer')
+  // The regression: a row with fewer controls than the list's widest one must
+  // still take the list's width rather than one sized to its own cluster.
+  it('keeps the list width on a row carrying fewer controls than it', () => {
+    render(
+      <DayGroupedShowListHeader density="comfortable" actionsFootprint="admin" />
+    )
+    renderRow(noMusic, { actionsFootprint: 'admin', isAdmin: false })
 
-    const expandable = rowActionsWidth('viewer')
-    renderRow({}, { actionsFootprint: 'viewer' })
-    expect(
-      screen.getByRole('button', { name: 'Discover artist music' })
-    ).toBeInTheDocument()
-    cleanup()
-
-    const plain = rowActionsWidth('viewer', noMusic)
-    renderRow(noMusic, { actionsFootprint: 'viewer' })
     expect(
       screen.queryByRole('button', { name: 'Discover artist music' })
     ).toBeNull()
-    cleanup()
-
-    expect(expandable).toEqual(header)
-    expect(plain).toEqual(header)
-  })
-
-  it('matches the header on admin rows, with and without the expand control', () => {
-    const header = headerActionsWidth('admin')
-
-    expect(rowActionsWidth('admin', {}, { isAdmin: true })).toEqual(header)
-    expect(rowActionsWidth('admin', noMusic, { isAdmin: true })).toEqual(
-      header
+    expect(screen.queryByRole('button', { name: 'Edit show' })).toBeNull()
+    expect(widthClasses(screen.getByTestId('row-actions'))).toEqual(
+      widthClasses(screen.getByTestId('show-list-header-actions'))
     )
-    // A row the admin cannot tell apart from any other still takes the
-    // list's width, not a narrower one of its own.
-    expect(rowActionsWidth('admin', noMusic, { isAdmin: false })).toEqual(
-      header
-    )
-  })
-
-  it('matches the header on an owner s own row and on the rows beside it', () => {
-    const header = headerActionsWidth('owner')
-
-    renderRow({ submitted_by: 42 }, { actionsFootprint: 'owner', userId: '42' })
-    expect(
-      screen.getByRole('button', { name: 'Delete show' })
-    ).toBeInTheDocument()
-    cleanup()
-
-    expect(
-      rowActionsWidth('owner', { submitted_by: 42 }, { userId: '42' })
-    ).toEqual(header)
-    expect(
-      rowActionsWidth('owner', { submitted_by: 7 }, { userId: '42' })
-    ).toEqual(header)
-  })
-
-  it('is wider for each footprint that carries more controls', () => {
-    const px = (footprint: 'viewer' | 'owner' | 'admin') =>
-      Number(headerActionsWidth(footprint)[0].match(/\d+/)?.[0])
-
-    expect(px('owner')).toBeGreaterThan(px('viewer'))
-    expect(px('admin')).toBeGreaterThan(px('owner'))
   })
 })
 

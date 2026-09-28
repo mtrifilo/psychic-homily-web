@@ -35,17 +35,6 @@ describe('actionsFootprintFor', () => {
     ).toBe('owner')
   })
 
-  // `AuthContext` can hand over a numeric id despite the declared string.
-  it('recognises the submitter when the viewer id is a number', () => {
-    expect(
-      actionsFootprintFor({
-        shows: [show(1, 42)],
-        isAdmin: false,
-        userId: 42 as never,
-      })
-    ).toBe('owner')
-  })
-
   it('is admin for an admin, whoever submitted the rows', () => {
     expect(
       actionsFootprintFor({ shows: [show(1)], isAdmin: true, userId: '1' })

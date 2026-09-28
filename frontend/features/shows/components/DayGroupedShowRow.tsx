@@ -71,8 +71,8 @@ export interface DayGroupedShowRowProps {
    */
   showCity: boolean
   /**
-   * Sizes the actions column. One value for the whole list (see
-   * `actionsFootprintFor`), so every row and the header share one width.
+   * Sizes the actions column: one value for the whole list, computed from the
+   * same `userId` this row receives.
    */
   actionsFootprint: ActionsFootprint
 }
@@ -100,8 +100,7 @@ const COLUMN = {
  *
  * `viewer` holds the expand control (28px), save with a two-digit count (62px)
  * and outbound (28px), plus the 2px gaps between them. Every further control
- * is 28px plus a 2px gap: `owner` adds delete, `admin` adds edit and delete,
- * and export where `ExportShowButton` renders. A longer save count spills
+ * the footprint adds is 28px plus a 2px gap. A longer save count spills
  * leftward out of the cell (it is `justify-end` and never wraps) instead of
  * widening it, so it still moves no other column.
  */
@@ -309,11 +308,8 @@ export function DayGroupedShowRow({
             )}
           </span>
 
-          {/* The width comes from the LIST's footprint, never from this
-              row's own controls, and `justify-end` puts a shorter cluster
-              against the right edge. No `flex-wrap`: a cluster that outgrows
-              the box spills left in one line rather than making this row
-              taller than the rest. */}
+          {/* No `flex-wrap`, so this row never grows taller than the rest;
+              the width and the overflow are `ACTIONS_WIDTH`'s. */}
           <span
             className={cn(
               'flex shrink-0 items-center justify-end gap-0.5 lg:order-6',
@@ -510,8 +506,7 @@ export function DayGroupedShowRow({
  *
  * Takes the density because the row does: a compact list renders no age, and a
  * label over fifty empty cells is a column that is not there. Takes the
- * footprint because the rows do: its actions cell must be exactly as wide as
- * theirs for the labels to sit over their columns.
+ * footprint because the rows do.
  */
 export function DayGroupedShowListHeader({
   density,

@@ -1,3 +1,4 @@
+import type { UserIdLike } from '@/features/auth/authUser'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { canModerateShow } from '../utils'
 import type { ShowResponse } from '../types'
@@ -11,8 +12,10 @@ export type ActionsFootprint = 'viewer' | 'owner' | 'admin'
 
 /**
  * The footprint for a whole list: the widest set of controls the viewer can see
- * on any of its rows. Taken over the LIST rather than per row, so that every
- * row and the header can be given one actions width.
+ * on any of its rows, so every row and the header can share one actions width.
+ *
+ * `userId` must be the same id the list hands each row, which is what the row
+ * checks for its delete control.
  */
 export function actionsFootprintFor({
   shows,
@@ -21,12 +24,11 @@ export function actionsFootprintFor({
 }: {
   shows: readonly ShowResponse[]
   isAdmin: boolean
-  userId?: string
+  userId?: UserIdLike
 }): ActionsFootprint {
   const { showAdminActions, showOwnerActions } =
     SHOW_LIST_FEATURE_POLICY.discovery
   if (isAdmin && showAdminActions) return 'admin'
-  // The same predicate the row gates its delete control on.
   const canDeleteARow =
     showOwnerActions &&
     shows.some(show =>
