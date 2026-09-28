@@ -24,7 +24,9 @@ export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
  *
  * ARTIST and VENUE show alerts deliver. The artist matcher sends per show; a
  * venue's new shows are accrued and flushed as one alert per user per venue
- * per venue-local day. Nothing here may call either "coming soon".
+ * per venue-local day. Nothing here may call either "coming soon". The venue
+ * copy holds only while the backend's DISABLE_VENUE_SHOW_ALERTS is unset, since
+ * that flag stops accrual and delivery alike.
  *
  * Release alerts have a stored, resolved subscription and no notifier behind
  * it. Their controls may say what the alerts WILL cover; they may not imply

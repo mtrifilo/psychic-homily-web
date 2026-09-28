@@ -44,7 +44,7 @@ const ARTIST_TOOLTIP = `Chooses which of this artist's new shows you get alerted
 // Venue show alerts deliver, coalesced to one alert per venue per venue-local
 // day, so the copy names that unit and promises no clock. Email is named only
 // as something the person switches on, because the email lane defaults off.
-const VENUE_TOOLTIP = `Sets whether you are alerted about new shows this venue adds. A venue sits in one place, so there is nothing to scope. A venue's new shows arrive together, as one alert per venue per day, in your inbox, and by email too if you switch email on in your alert settings.`
+const VENUE_TOOLTIP = `Sets whether you are alerted about new shows this venue adds. A venue sits in one place, so there is nothing to scope. A venue’s new shows arrive together, as one alert per venue per day, in your inbox, and by email too if you switch email on in your alert settings.`
 
 interface FollowAlertsRevealProps {
   /** PLURAL follow path segment: "artists" or "venues". */

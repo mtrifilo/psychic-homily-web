@@ -119,10 +119,10 @@ export function CheckInboxInterstitial({
           Meanwhile, everything else is open
         </p>
         {/*
-          Kept to what the code actually does today: browsing, saving, and
-          following are authenticated-only, and email verification gates show
-          submission. Follow-driven alert delivery is PSY-1896 and is still in
-          the backlog, so this does not promise that verifying switches alerts on.
+          Kept to what the code does: browsing, saving, and following are
+          authenticated-only, and email verification gates show submission.
+          No alert send path reads verification, so this does not promise that
+          verifying switches alerts on.
         */}
         <p className="text-[13px] leading-5 text-foreground">
           Browse shows, save what you like, follow artists and venues: all of

@@ -444,7 +444,7 @@ describe('FollowAlertsReveal', () => {
 
       expect(
         await screen.findAllByText(
-          /Sets whether you are alerted about new shows this venue adds\..*one alert per venue per day, in your inbox, and by email too if you switch email on in your alert settings\./i
+          'Sets whether you are alerted about new shows this venue adds. A venue sits in one place, so there is nothing to scope. A venue’s new shows arrive together, as one alert per venue per day, in your inbox, and by email too if you switch email on in your alert settings.'
         )
       ).not.toHaveLength(0)
       expect(screen.queryByText(/still being switched on/i)).toBeNull()
