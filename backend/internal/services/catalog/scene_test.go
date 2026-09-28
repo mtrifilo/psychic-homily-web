@@ -529,10 +529,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_UpcomingCountHolds
 // bookings, and verifying it brings every one of them back, which is the half
 // that says the shows are withheld rather than lost.
 //
-// The pulse's active-room figure is the one number not asserted here. It counts
-// a UTC calendar month, and these rows are nights: 20:00 in Phoenix is 03:00 UTC
-// the next day, so near a month's end some of them are stored in the month after
-// the one counted. The test below owns that figure.
+// The pulse's active-room figure is owned by the test below: it counts a UTC
+// calendar month, and a Phoenix night at 20:00 is stored at 03:00 UTC the next
+// day, so these rows can sit in the month after the one counted.
 func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNoPublishedNumber() {
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
@@ -605,13 +604,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestScene_UnverifiedRoomReachesNo
 // ranks: an unverified room's booking makes no room active, and verifying the
 // room brings it into the figure.
 //
-// The figure counts the UTC calendar month GetSceneDetail reads off its own
-// clock, and the service takes no clock, so every row sits at the instant this
-// test reads that clock. That instant is inside the counted month on any day
-// the suite runs. Both calls read the clock after clockRead and before the
-// check that follows them, so one month on both sides of the calls is the month
-// the pulse counted, and a month that turns over mid-test skips rather than
-// asserting against the wrong one.
+// The figure counts the UTC calendar month of GetSceneDetail's own clock, and
+// the service takes no clock, so every row sits at this test's clock read. The
+// test skips when the UTC month turns over before both reads finish.
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseActiveVenuesSkipUnverifiedRooms() {
 	user := suite.createUser()
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
