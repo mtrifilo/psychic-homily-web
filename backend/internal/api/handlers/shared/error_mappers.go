@@ -464,9 +464,10 @@ func MapProfileError(err error) error {
 //     (60 / 3600 respectively, RFC 7231 §7.1.3)
 //   - Internal                                         → 500
 //
-// 429 responses MUST carry a Retry-After header so the inline comment /
-// reply / field-note rate-limit banners can populate countdown copy
-// without parsing the body.
+// 429 responses MUST carry a Retry-After header (RFC 7231 §7.1.3). The
+// inline comment / reply / field-note banners render the error detail,
+// which names the cap that fired; the header is for clients and telemetry
+// that read the wait without parsing the body.
 func MapCommentError(err error) error {
 	var commentErr *apperrors.CommentError
 	if errors.As(err, &commentErr) {

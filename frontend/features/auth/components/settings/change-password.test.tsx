@@ -302,7 +302,7 @@ describe('ChangePassword', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders throttle copy naming the window when Retry-After is unreadable, the deployed path', () => {
+  it('renders throttle copy naming the window when Retry-After is absent', () => {
     const error = Object.assign(new Error('Rate limit exceeded.'), { status: 429 })
     mockMutationState = { isPending: false, isError: true, error }
     renderForm()
