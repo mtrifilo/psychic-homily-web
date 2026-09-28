@@ -55,9 +55,10 @@ type sceneLinkPlace struct {
 }
 
 // isUSPlace reports whether the place can carry a scene link at all: a city,
-// a US state code, and no country naming anywhere else. A US state code with
-// a non-US country ("Perth", "WA", "Australia") is not a US place, which is
-// stricter than the geocoder's own reading, where the state wins.
+// a US state code, and a country that is blank or resolves to the US. A US
+// state code with any other country, recognised ("Perth", "WA", "Australia")
+// or not, is not a US place, which is stricter than the geocoder's own
+// reading, where the state wins.
 func (p sceneLinkPlace) isUSPlace() bool {
 	if strings.TrimSpace(p.City) == "" || !geo.IsUSStateCode(p.State) {
 		return false

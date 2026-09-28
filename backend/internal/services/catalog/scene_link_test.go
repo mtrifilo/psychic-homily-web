@@ -67,6 +67,8 @@ func TestIsKnownNonUSPlace(t *testing.T) {
 		{"a US city with a misspelled state", sceneLinkPlace{City: "Phoenix", State: "Arizonaa"}, false},
 		{"nothing to place", sceneLinkPlace{State: "Nowhere"}, false},
 		{"a city the geocoder misses, with a non-US country", sceneLinkPlace{City: "Kiev", Country: stringPtr("Ukraine")}, true},
+		{"the geocoder places a city and province in Canada", sceneLinkPlace{City: "Toronto", State: "ON"}, true},
+		{"the geocoder places a bare city abroad", sceneLinkPlace{City: "Paris"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -338,6 +340,17 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_NonUSCountryN
 	phoenix, _ := suite.seedTwoScenes()
 	artist := &catalogm.Artist{Name: "Kyiv Band", City: stringPtr("Kiev"), Country: stringPtr("Ukraine")}
 	suite.Require().NoError(suite.db.Create(artist).Error)
+	suite.createApprovedShow("US tour", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+
+	suite.Equal("", suite.artistSceneSlug(artist))
+}
+
+// Decided by the geocoder alone: no country field, a province code rather
+// than a country name.
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_GeocodedAbroadNeverBorrowsAShow() {
+	user := suite.createUser()
+	phoenix, _ := suite.seedTwoScenes()
+	artist := suite.createArtistInNullMetro("Toronto Band", "Toronto", "ON")
 	suite.createApprovedShow("US tour", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
 
 	suite.Equal("", suite.artistSceneSlug(artist))

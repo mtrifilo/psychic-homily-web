@@ -1461,7 +1461,8 @@ type ArtistDetailResponse struct {
 	// lookups as Stats (GetArtist / GetArtistBySlug), so every caller of those
 	// pays for it, including the mutations that return one. It comes from the
 	// artist's own city and US state (a spelled-out state is normalised); a
-	// location outside the US yields none; any other location, or none, takes
+	// location known to be outside the US (by its country, its state, or the
+	// geocoder) yields none; any other location, or none, takes
 	// the venue of its most recent non-cancelled approved show dated up to
 	// today, else its nearest upcoming one. catalog.artistSceneLink holds the
 	// full rule. See SceneLinkResponse for when it is present.
