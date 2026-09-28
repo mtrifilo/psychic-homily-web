@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -66,6 +66,7 @@ export function SaveButton({
   const { isAuthenticated, authStatus, user } = useAuthContext()
   const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
   const [isHintOpen, setIsHintOpen] = useState(false)
+  const closeHint = useCallback(() => setIsHintOpen(false), [])
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own. While a batch is in
@@ -109,6 +110,8 @@ export function SaveButton({
     if (isDisabled) return
 
     const isSaving = !isSaved
+    // Closed here, not only hidden by the render gate below: a hint left open
+    // under an unsave would reappear on a re-save without being re-checked.
     if (!isSaving) setIsHintOpen(false)
     try {
       clearSaveError()
@@ -130,7 +133,7 @@ export function SaveButton({
   // being true the moment the show is unsaved.
   const firstSaveHint =
     isHintOpen && isSaved ? (
-      <FirstSaveHint align={hintAlign} onClose={() => setIsHintOpen(false)} />
+      <FirstSaveHint align={hintAlign} onClose={closeHint} />
     ) : null
 
   // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording

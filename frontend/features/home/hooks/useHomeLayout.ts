@@ -13,6 +13,11 @@ import { queryKeys } from '@/lib/queryClient'
 // whole auth surface into the home chunk. See sharedChunkBarrelGuard.test.ts.
 import { useProfile } from '@/features/auth/hooks/useAuth'
 import {
+  readProfilePreference,
+  readProfileViewerId,
+  withProfilePreference,
+} from '@/features/auth/hooks/profilePreferenceCache'
+import {
   resolveHomeLayout,
   type HomeLayoutDocument,
   type ResolvedHomeSection,
@@ -226,31 +231,17 @@ export function useHomeLayoutWriteFailed(): boolean {
   return statuses.at(-1) === 'error'
 }
 
-function readViewerId(cached: unknown): unknown {
-  return (cached as ProfileWithHomeLayout | undefined)?.user?.id
-}
+const readViewerId = readProfileViewerId
 
 function readStoredLayout(cached: unknown): HomeLayoutDocument | null {
-  const profile = cached as ProfileWithHomeLayout | undefined
-  return profile?.user?.preferences?.home_layout ?? null
+  return readProfilePreference<HomeLayoutDocument>(cached, 'home_layout')
 }
 
-/** Write `home_layout` into a cached profile payload without disturbing the
- *  rest of it. A cache entry that names no user is left alone: there is no
- *  viewer to hold a layout. */
 function withHomeLayout(
   cached: unknown,
   document: HomeLayoutDocument | null
 ): unknown {
-  const profile = cached as ProfileWithHomeLayout | undefined
-  if (!profile?.user) return cached
-  return {
-    ...profile,
-    user: {
-      ...profile.user,
-      preferences: { ...profile.user.preferences, home_layout: document },
-    },
-  }
+  return withProfilePreference(cached, 'home_layout', document)
 }
 
 /**

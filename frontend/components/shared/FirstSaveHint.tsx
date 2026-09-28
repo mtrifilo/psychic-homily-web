@@ -31,8 +31,10 @@ export function FirstSaveHint({ align, onClose }: FirstSaveHintProps) {
   }, [dismissOnAccount, onClose])
 
   useEffect(() => {
+    // An Escape a Radix layer above the hint already consumed (it calls
+    // preventDefault in the capture phase) closed that layer, not this hint.
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') dismiss()
+      if (event.key === 'Escape' && !event.defaultPrevented) dismiss()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)

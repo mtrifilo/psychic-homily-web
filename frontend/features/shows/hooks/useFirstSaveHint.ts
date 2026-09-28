@@ -8,25 +8,18 @@ import {
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import {
+  readProfilePreference,
+  readProfileViewerId,
+  withProfilePreference,
+} from '@/features/auth/hooks/profilePreferenceCache'
 import type { components } from '@/types/api'
 import type { SavedShowsListResponse } from '../types'
 
 type DismissFirstSaveHintResponse =
   components['schemas']['DismissFirstSaveHintResponseBody']
 
-/**
- * The subset of the cached profile payload the hint reads and writes. The
- * flag hangs off `user.preferences`, not the user: one level too high resolves
- * to `undefined` for every viewer, which reads as "never dismissed".
- */
-interface ProfileWithFirstSaveHint {
-  user?: {
-    id?: string | number
-    preferences?: { first_save_hint_dismissed_at?: string | null } | null
-  } | null
-}
-
-const FIRST_SAVE_HINT_MUTATION_KEY = ['auth', 'first-save-hint'] as const
+const DISMISSED_AT = 'first_save_hint_dismissed_at'
 
 /**
  * Whether the viewer the cached profile names has NOT dismissed the hint. A
@@ -34,9 +27,10 @@ const FIRST_SAVE_HINT_MUTATION_KEY = ['auth', 'first-save-hint'] as const
  * to, and an unknown answer must not render a once-ever message.
  */
 function isHintUndismissed(cached: unknown): boolean {
-  const profile = cached as ProfileWithFirstSaveHint | undefined
-  if (!profile?.user) return false
-  return profile.user.preferences?.first_save_hint_dismissed_at == null
+  return (
+    readProfileViewerId(cached) != null &&
+    readProfilePreference<string>(cached, DISMISSED_AT) == null
+  )
 }
 
 /**
@@ -72,7 +66,8 @@ export function useShouldOpenFirstSaveHint(): () => Promise<boolean> {
 /**
  * Stamp the hint dismissed on the account, optimistically: the profile cache
  * carries the flag at once, so no other Save control can open the hint again
- * while the request is in flight.
+ * while the request is in flight. Only null versus set is ever read, so the
+ * server's stored time is not reconciled into the cache.
  *
  * A failed write restores the flag and is not surfaced. The hint has already
  * closed at the viewer's request, and the only cost of the failure is that the
@@ -87,7 +82,6 @@ export function useDismissFirstSaveHint() {
     void,
     { viewerId: unknown; previous: string | null }
   >({
-    mutationKey: FIRST_SAVE_HINT_MUTATION_KEY,
     mutationFn: () =>
       apiRequest<DismissFirstSaveHintResponse>(
         API_ENDPOINTS.AUTH.FIRST_SAVE_HINT,
@@ -97,57 +91,25 @@ export function useDismissFirstSaveHint() {
       await queryClient.cancelQueries({ queryKey: queryKeys.auth.profile })
       const cached = queryClient.getQueryData(queryKeys.auth.profile)
       const context = {
-        viewerId: readViewerId(cached),
-        previous: readDismissedAt(cached),
+        viewerId: readProfileViewerId(cached),
+        previous: readProfilePreference<string>(cached, DISMISSED_AT),
       }
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        withDismissedAt(old, context.previous ?? new Date().toISOString())
+        withProfilePreference(
+          old,
+          DISMISSED_AT,
+          context.previous ?? new Date().toISOString()
+        )
       )
       return context
-    },
-    onSuccess: (response, _vars, context) => {
-      // The server keeps the FIRST dismissal, so its answer can differ from
-      // the optimistic stamp. Guarded on the viewer: a write can outlive its
-      // session, and the next account's profile must not inherit this flag.
-      queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        readViewerId(old) === context?.viewerId
-          ? withDismissedAt(old, response.first_save_hint_dismissed_at)
-          : old
-      )
     },
     onError: (_error, _vars, context) => {
       if (!context) return
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
-        readViewerId(old) === context.viewerId
-          ? withDismissedAt(old, context.previous)
+        readProfileViewerId(old) === context.viewerId
+          ? withProfilePreference(old, DISMISSED_AT, context.previous)
           : old
       )
     },
   })
-}
-
-function readViewerId(cached: unknown): unknown {
-  return (cached as ProfileWithFirstSaveHint | undefined)?.user?.id
-}
-
-function readDismissedAt(cached: unknown): string | null {
-  const profile = cached as ProfileWithFirstSaveHint | undefined
-  return profile?.user?.preferences?.first_save_hint_dismissed_at ?? null
-}
-
-/** Write the flag into a cached profile payload without disturbing the rest
- *  of it. An entry that names no user is left alone. */
-function withDismissedAt(cached: unknown, value: string | null): unknown {
-  const profile = cached as ProfileWithFirstSaveHint | undefined
-  if (!profile?.user) return cached
-  return {
-    ...profile,
-    user: {
-      ...profile.user,
-      preferences: {
-        ...profile.user.preferences,
-        first_save_hint_dismissed_at: value,
-      },
-    },
-  }
 }

@@ -74,6 +74,14 @@ function readFlag(client: QueryClient): unknown {
   return cached.user.preferences.first_save_hint_dismissed_at
 }
 
+function putCount(): number {
+  return apiRequest.mock.calls.filter(
+    ([endpoint, options]) =>
+      String(endpoint).endsWith('/auth/preferences/first-save-hint') &&
+      (options as { method?: string } | undefined)?.method === 'PUT'
+  ).length
+}
+
 function countReads(): number {
   return apiRequest.mock.calls.filter(([endpoint]) =>
     String(endpoint).includes('/saved-shows?')
@@ -156,7 +164,8 @@ describe('SaveButton first-save hint', () => {
     await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    await waitFor(() => expect(readFlag(client)).toBe('2026-09-01T12:00:00Z'))
+    await waitFor(() => expect(putCount()).toBe(1))
+    expect(readFlag(client)).toEqual(expect.any(String))
     expect(apiRequest).toHaveBeenCalledWith(
       expect.stringMatching(/\/auth\/preferences\/first-save-hint$/),
       { method: 'PUT' }
@@ -229,7 +238,29 @@ describe('SaveButton first-save hint', () => {
     await close(user)
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    await waitFor(() => expect(readFlag(client)).toBe('2026-09-01T12:00:00Z'))
+    await waitFor(() => expect(putCount()).toBe(1))
+    expect(readFlag(client)).toEqual(expect.any(String))
+  })
+
+  // An Escape a Radix layer above the hint already consumed closed that
+  // layer; it is not the viewer dismissing the hint.
+  it('ignores an Escape another layer already handled', async () => {
+    const user = userEvent.setup()
+    const client = createClient(null)
+    renderSave(client)
+
+    await clickSave(user)
+    await screen.findByRole('status')
+    const consumed = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    })
+    consumed.preventDefault()
+    document.dispatchEvent(consumed)
+
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(readFlag(client)).toBeNull()
   })
 
   // Unsaving closes it without stamping: the hint's "Saved." is no longer

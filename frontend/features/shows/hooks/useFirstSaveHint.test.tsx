@@ -107,7 +107,7 @@ describe('shouldOpenFirstSaveHint', () => {
 })
 
 describe('useDismissFirstSaveHint', () => {
-  it('stamps the cache at once and reconciles to the stored time', async () => {
+  it('stamps the cache at once and keeps it set when the write lands', async () => {
     const client = createClient()
     client.setQueryData(queryKeys.auth.profile, profilePayload(null))
     let resolve!: (value: unknown) => void
@@ -128,13 +128,15 @@ describe('useDismissFirstSaveHint', () => {
       { method: 'PUT' }
     )
 
+    const stamped = readFlag(client)
     await act(async () => {
       resolve({
         success: true,
         first_save_hint_dismissed_at: '2026-09-01T12:00:00Z',
       })
     })
-    await waitFor(() => expect(readFlag(client)).toBe('2026-09-01T12:00:00Z'))
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(readFlag(client)).toBe(stamped)
     // The rest of the payload is untouched.
     expect(
       (client.getQueryData(queryKeys.auth.profile) as ReturnType<
@@ -159,12 +161,12 @@ describe('useDismissFirstSaveHint', () => {
 
   // A write can outlive its session: the next account's profile must not
   // inherit this viewer's dismissal.
-  it("leaves a different viewer's profile alone when it settles", async () => {
+  it("leaves a different viewer's profile alone when it fails", async () => {
     const client = createClient()
     client.setQueryData(queryKeys.auth.profile, profilePayload(null, 7))
-    let resolve!: (value: unknown) => void
+    let reject!: (error: Error) => void
     apiRequest.mockImplementation(
-      () => new Promise(r => (resolve = r))
+      () => new Promise((_resolve, r) => (reject = r))
     )
 
     const { result } = renderHook(() => useDismissFirstSaveHint(), {
@@ -173,14 +175,15 @@ describe('useDismissFirstSaveHint', () => {
     act(() => result.current.mutate())
     await waitFor(() => expect(readFlag(client)).toEqual(expect.any(String)))
 
-    client.setQueryData(queryKeys.auth.profile, profilePayload(null, 8))
+    client.setQueryData(
+      queryKeys.auth.profile,
+      profilePayload('2026-08-01T00:00:00Z', 8)
+    )
     await act(async () => {
-      resolve({
-        success: true,
-        first_save_hint_dismissed_at: '2026-09-01T12:00:00Z',
-      })
+      reject(new Error('500'))
     })
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(readFlag(client)).toBeNull()
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    // The rollback is this viewer's; the next account keeps its own value.
+    expect(readFlag(client)).toBe('2026-08-01T00:00:00Z')
   })
 })
