@@ -2,13 +2,15 @@
  * The two treatments an internal entity link takes on the artist and show
  * pages.
  *
- * - `accent`: the link IS the next thing to read. Discovery lists (similar
- *   artists, a show's support acts) and the scene link under an artist's name.
- *   Accent colour at rest, full accent on hover, medium weight.
+ * - `accent`: the link IS the next thing to read. Used by the similar-artists
+ *   list, a show page's support acts, the scene link under an artist's name,
+ *   and the venue name in the show venue module. Accent colour at rest, full
+ *   accent on hover, medium weight.
  * - `restrained`: a name inside a dense table, where accent on every row
- *   would turn the table orange. Colour and weight at rest come from the
- *   surrounding text, so a bill's headliner/support hierarchy survives;
- *   accent and underline arrive on hover.
+ *   would turn the table orange. Used by the artist page's shows tables
+ *   (upcoming and past) through ShowBill's opt-in. Colour and weight at rest
+ *   come from the surrounding text, so a bill's headliner/support hierarchy
+ *   survives; accent and underline arrive on hover.
  *
  * Opt-in per call site: a surface not listed above keeps its own styling
  * until it is migrated deliberately.

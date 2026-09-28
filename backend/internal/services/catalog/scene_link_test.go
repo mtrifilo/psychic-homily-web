@@ -48,10 +48,30 @@ func TestArtistHasAnyLocation(t *testing.T) {
 // and fixtures)
 // =============================================================================
 
+// sceneLink resolves a place's link and, whenever one comes back, proves the
+// invariant every link carries: its slug passes the /scenes soft-404 gate and
+// GET /scenes/{slug} renders a page whose own slug is the link's.
 func (suite *SceneServiceIntegrationTestSuite) sceneLink(city, state string, country *string) *contracts.SceneLinkResponse {
 	link, err := servedSceneLink(suite.db, geo.Default(), sceneLinkPlace{City: city, State: state, Country: country})
 	suite.Require().NoError(err)
+	if link != nil {
+		suite.requireLinkServes(link)
+	}
 	return link
+}
+
+func (suite *SceneServiceIntegrationTestSuite) requireLinkServes(link *contracts.SceneLinkResponse) {
+	exists, err := NewEntityExistenceService(suite.db, suite.sceneService).sceneExists(link.Slug)
+	suite.Require().NoError(err)
+	suite.Require().True(exists, "the soft-404 gate must pass %q", link.Slug)
+
+	pageCity, pageState, err := suite.sceneService.ParseSceneSlug(link.Slug)
+	suite.Require().NoError(err)
+	page, err := suite.sceneService.GetSceneDetail(pageCity, pageState)
+	suite.Require().NoError(err, "GET /scenes/%s must render", link.Slug)
+	suite.Equal(link.Slug, page.Slug)
+	suite.Equal(link.City, page.City)
+	suite.Equal(link.State, page.State)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestServedSceneLink_USMetroPrincipal() {
@@ -133,6 +153,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_NoLocationTak
 	resp, err := NewArtistService(suite.db).GetArtistBySlug(suite.slugOf(artist))
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Scene)
+	suite.requireLinkServes(resp.Scene)
 	suite.Equal("kansas-city-mo", resp.Scene.Slug)
 	suite.Equal("Kansas City", resp.Scene.City)
 }

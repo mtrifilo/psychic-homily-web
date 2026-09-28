@@ -1035,7 +1035,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const [isReportOpen, setIsReportOpen] = useState(false)
   const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   // Graph Dialog open state — reactive to the `#graph` URL hash (PSY-361
-  // shareable graph URLs still work) AND user toggles (header [Graph] link,
+  // shareable graph URLs still work) AND user toggles (action-row [Graph] link,
   // sidebar [Explore graph], close button). User intent sticks once set.
   const hash = useUrlHash()
   const [graphDialogUserToggle, setGraphDialogUserToggle] = useState<
@@ -1138,7 +1138,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const labels = labelsData?.labels ?? []
 
-  // The only thing under the name. With a scene the subtitle IS the link to
+  // The subtitle under the name. With a scene the subtitle IS the link to
   // it, named for the scene it opens rather than for the artist's own city (a
   // metro suburb links to its principal city's scene). Without one it is the
   // artist's plain location, and with neither it is absent.
@@ -1163,8 +1163,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // pair (Follow / Add to collection) render their own bracket variant; they
   // each handle the unauthenticated → /auth redirect internally.
   //
-  // It sits directly under the shows, not in the header: the header holds the
-  // name and the scene link only.
+  // It sits directly under the shows, not in the header.
   //
   // There is no separate Notify-me bracket: following an artist IS subscribing
   // to its alerts (PSY-1893), so the scope reveal below replaces it rather
@@ -1261,7 +1260,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           {/* Inline Connections ego map — reuses the sidebar's cached
               useArtistGraph payload; [Expand] opens the same Dialog as the
-              header [Graph] and sidebar [Explore graph] links. */}
+              action-row [Graph] and sidebar [Explore graph] links. */}
           <ArtistConnectionsSection
             artistId={artist.id}
             artistName={artist.name}
@@ -1336,7 +1335,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         </div>
       </EntityDetailLayout>
 
-      {/* Graph Dialog — opened by the header [Graph] link, the sidebar
+      {/* Graph Dialog — opened by the action-row [Graph] link, the sidebar
           [Explore graph] link, or the #graph URL hash (PSY-361 shareable
           graph URLs preserved). Hosts the full re-centering graph. */}
       <ArtistGraphDialog

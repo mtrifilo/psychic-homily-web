@@ -427,7 +427,6 @@ export function ShowHeader({
                     <Link
                       href={`/artists/${artist.slug}`}
                       className={ENTITY_LINK_CLASS.accent}
-                      data-testid="support-act-link"
                     >
                       {artist.name}
                     </Link>

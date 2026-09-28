@@ -8409,6 +8409,7 @@ export interface components {
             image_source_url: string | null;
             image_url: string | null;
             name: string;
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             slug: string;
             social: components["schemas"]["SocialResponse"];
@@ -8694,6 +8695,7 @@ export interface components {
             /** Format: date-time */
             last_show_date?: string;
             name: string;
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             slug: string;
             social: components["schemas"]["SocialResponse"];
@@ -15853,6 +15855,7 @@ export interface components {
             rejection_reason?: string;
             /** Format: date-time */
             saved_at: string;
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             /** Format: date-time */
             scraped_at?: string;
@@ -16920,6 +16923,7 @@ export interface components {
             price: number | null;
             rejection_category?: string;
             rejection_reason?: string;
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             /** Format: date-time */
             scraped_at?: string;
@@ -18018,6 +18022,7 @@ export interface components {
             price: number | null;
             rejection_category?: string;
             rejection_reason?: string;
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             /** Format: date-time */
             scraped_at?: string;
@@ -18387,6 +18392,7 @@ export interface components {
             longitude?: number;
             name: string;
             provenance?: components["schemas"]["VenueProvenance"];
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             slug: string;
             social: components["schemas"]["SocialResponse"];
@@ -18620,6 +18626,7 @@ export interface components {
             next_show_date?: string;
             next_show_title?: string;
             provenance?: components["schemas"]["VenueProvenance"];
+            /** @description The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads. */
             scene?: components["schemas"]["SceneLinkResponse"];
             /** Format: int64 */
             shows_this_week: number;

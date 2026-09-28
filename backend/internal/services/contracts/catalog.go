@@ -215,10 +215,11 @@ type ShowResponse struct {
 	// Duplicate detection context
 	DuplicateOfShowID *uint `json:"duplicate_of_show_id,omitempty"` // ID of show this may duplicate
 
-	// Scene is the scene page of the venue listed first in Venues. DETAIL
-	// READS ONLY (GetShow / GetShowBySlug); see SceneLinkResponse for when it
-	// is present.
-	Scene *SceneLinkResponse `json:"scene,omitempty"`
+	// Scene is the scene page of the venue listed first in Venues. Filled on
+	// responses built by GetShow / GetShowBySlug, including the mutations that
+	// return one; every list payload omits it. See SceneLinkResponse for when
+	// it is present.
+	Scene *SceneLinkResponse `json:"scene,omitempty" doc:"The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads."`
 }
 
 // SceneLinkResponse names the scene page a detail page links to.
@@ -945,7 +946,7 @@ type VenueDetailResponse struct {
 	Provenance *VenueProvenance `json:"provenance,omitempty"`
 	// Scene is this venue's scene page. Filled by GetVenueDetail only; see
 	// SceneLinkResponse for when it is present.
-	Scene *SceneLinkResponse `json:"scene,omitempty"`
+	Scene *SceneLinkResponse `json:"scene,omitempty" doc:"The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads."`
 }
 
 // Venue provenance source keys. The set is deliberately small and each member
@@ -1457,11 +1458,12 @@ type ArtistDetailResponse struct {
 	// it nil so the omitempty tag drops it from the wire.
 	Stats *ArtistStatsResponse `json:"stats,omitempty"`
 	// Scene is the artist's scene page, populated by the same two detail
-	// lookups as Stats. It comes from the artist's own city and state; an
-	// artist with no location at all (no city, state or country) takes the
-	// venue of its latest approved show instead. See SceneLinkResponse for
-	// when it is present.
-	Scene *SceneLinkResponse `json:"scene,omitempty"`
+	// lookups as Stats (GetArtist / GetArtistBySlug), so every caller of those
+	// pays for it, including the mutations that return one. It comes from the
+	// artist's own city and state; an artist with no location at all (no city,
+	// state or country) takes the venue of its latest approved show instead.
+	// See SceneLinkResponse for when it is present.
+	Scene *SceneLinkResponse `json:"scene,omitempty" doc:"The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads."`
 }
 
 // ArtistStatsResponse carries the at-a-glance counts surfaced on the artist

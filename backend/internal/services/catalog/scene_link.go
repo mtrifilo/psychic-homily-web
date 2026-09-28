@@ -14,20 +14,36 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// sceneServesPage is GetSceneDetail's existence rule for a scene addressed by
-// its display identity: the scope its rooms form clears the verified-venue
-// floor. The /scenes/{slug} soft-404 gate and the detail-page scene links both
-// ask it, so neither can disagree with the page.
-func (s *SceneService) sceneServesPage(city, state string) (bool, error) {
+// sceneServingScope is the one existence rule for a scene addressed by its
+// display identity: the scope its rooms form, their verified-venue count, and
+// whether that count clears the floor. GetSceneDetail, the /scenes soft-404
+// gate (sceneExists) and the detail-page scene links all decide through it.
+func (s *SceneService) sceneServingScope(city, state string) (sceneScope, int64, bool, error) {
 	scope, err := s.scopeFor(city, state)
 	if err != nil {
-		return false, err
+		return sceneScope{}, 0, false, err
 	}
 	n, err := s.verifiedVenueCount(scope)
 	if err != nil {
-		return false, fmt.Errorf("failed to count the verified venues of scene %s, %s: %w", city, state, err)
+		return sceneScope{}, 0, false, fmt.Errorf("failed to count the verified venues of scene %s, %s: %w", city, state, err)
 	}
-	return n >= sceneMinVenues, nil
+	return scope, n, n >= sceneMinVenues, nil
+}
+
+// sceneServesPage is sceneServingScope's verdict alone.
+func (s *SceneService) sceneServesPage(city, state string) (bool, error) {
+	_, _, serves, err := s.sceneServingScope(city, state)
+	return serves, err
+}
+
+// newUncachedSceneService is a SceneService with no slug-miss cache, for a
+// caller whose lookups must neither read nor write the cache the scene routes
+// share.
+func newUncachedSceneService(database *gorm.DB, g geo.Geocoder) *SceneService {
+	if g == nil {
+		g = geo.Default()
+	}
+	return &SceneService{db: database, geocoder: g}
 }
 
 // sceneLinkPlace is the place a detail page links to its scene from.
@@ -74,8 +90,8 @@ func artistHasAnyLocation(artist *catalogm.Artist) bool {
 // the resulting display identity is rebuilt into the canonical slug, that slug
 // is resolved again as the page resolves it, and sceneServesPage decides.
 //
-// The SceneService built here has no slug-miss cache, so a lookup never
-// poisons, or is answered from, the cache the scene routes share.
+// The lookup runs on an uncached SceneService, so it never poisons, or is
+// answered from, the slug-miss cache the scene routes share.
 //
 // A not-found anywhere on that path is nil with no error. Any other failure is
 // returned, and callers log it and leave the link out: the link is optional,
@@ -84,10 +100,7 @@ func servedSceneLink(database *gorm.DB, g geo.Geocoder, place sceneLinkPlace) (*
 	if !place.isUSPlace() {
 		return nil, nil
 	}
-	if g == nil {
-		g = geo.Default()
-	}
-	sc := &SceneService{db: database, geocoder: g}
+	sc := newUncachedSceneService(database, g)
 
 	placeSlug := buildSceneSlug(strings.TrimSpace(place.City), strings.TrimSpace(place.State))
 	city, state, err := sc.ParseSceneSlug(placeSlug)

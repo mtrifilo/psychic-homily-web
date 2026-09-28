@@ -1380,7 +1380,6 @@ function RelatedArtistRow({
           'flex-1 min-w-[7rem] flex items-center gap-2',
           ENTITY_LINK_CLASS.accent
         )}
-        data-testid="similar-artist-link"
       >
         <span className="text-sm truncate">{node.name}</span>
       </Link>

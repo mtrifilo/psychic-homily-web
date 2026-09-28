@@ -1004,24 +1004,20 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 	}
 
 	now := time.Now().UTC()
-	scope, err := s.scopeFor(city, state)
+	// sceneServingScope is the existence rule, shared with the /scenes soft-404
+	// gate and the detail-page scene links.
+	scope, venueCount, serves, err := s.sceneServingScope(city, state)
 	if err != nil {
 		return nil, err
+	}
+	if !serves {
+		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 	vp, vargs := trackedVenuePredicate(scope, "v")
 	ap, aargs := s.artistPredicate(scope, "a2")
 	// venueArgs returns the venue-predicate args (copied to avoid append aliasing
 	// across queries) followed by extra args, in placeholder order.
 	venueArgs := func(extra ...any) []any { return append(append([]any{}, vargs...), extra...) }
-
-	// Venue count (verified only) — gates scene existence.
-	venueCount, err := s.verifiedVenueCount(scope)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count venues: %w", err)
-	}
-	if venueCount < sceneMinVenues {
-		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
-	}
 
 	// Upcoming show count, bounded at the NIGHT in progress rather than at the
 	// request instant. The status band prints this figure beside a count of the

@@ -144,7 +144,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
             href={`/venues/${venue.slug}`}
             className={ONWARD_LINK_CLASS}
           >
-            More at {venue.name} &rarr;
+            More at {venue.name} <span aria-hidden="true">&rarr;</span>
           </Link>
         )}
         {/* The venue's own scene, at the same treatment as `More at` so the
@@ -154,9 +154,9 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
           <Link
             href={sceneHref}
             className={ONWARD_LINK_CLASS}
-            data-testid="venue-scene-link"
           >
-            More shows in {show.scene.city} &rarr;
+            More shows in {show.scene.city}{' '}
+            <span aria-hidden="true">&rarr;</span>
           </Link>
         )}
       </div>
