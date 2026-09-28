@@ -373,6 +373,37 @@ describe('AuthPage', () => {
       })
     })
 
+    it('moves to Sign in, focus included, from the footer link on a gated arrival', async () => {
+      const user = userEvent.setup()
+      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+      renderWithProviders(<AuthPage />)
+      expectSelected('Create account')
+
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+      expectSelected('Sign in')
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveFocus()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('opens a signed-out re-auth link with an intent on Sign in only', () => {
+      setSearchParams(
+        'returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&intent=save'
+      )
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(
+        screen.queryByRole('tab', { name: /create account/i })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', { name: 'Never miss a show.' })
+      ).not.toBeInTheDocument()
+    })
+
     it('opens on Sign in for a re-authentication even when an intent is present', async () => {
       mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
       setSearchParams(
