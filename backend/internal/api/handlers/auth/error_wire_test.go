@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/humatest"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/humaerr"
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -22,9 +23,16 @@ var errWireDriver = fmt.Errorf(`ERROR: relation "user_bookmarks" does not exist 
 
 // Handler unit tests call handlers directly, so they never see what huma puts
 // on the wire for a returned error. These register the real handlers on a
-// huma API and read the response.
+// huma API configured as routes.SetupRoutes configures it, and read the
+// response.
 func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
 	t.Helper()
+	prevNewError, prevNewErrorWithContext := huma.NewError, huma.NewErrorWithContext
+	t.Cleanup(func() {
+		huma.NewError = prevNewError
+		huma.NewErrorWithContext = prevNewErrorWithContext
+	})
+	humaerr.Install()
 	_, api := humatest.New(t, huma.DefaultConfig("auth-error-wire", "1.0.0"))
 
 	withUser := huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {

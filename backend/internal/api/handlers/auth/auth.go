@@ -306,9 +306,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Success = false
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-				// Wrapped rather than returned: huma answers with the
-				// outermost AuthError's status, and the unrouted code's own
-				// status may be a 4xx.
+				// Wrapped so the response is a 5xx: an AuthError answers with
+				// its code's status, and the unrouted code's may be a 4xx.
 				return resp, autherrors.ErrServiceUnavailable("login_unhandled_authcode", authErr)
 			}
 		}
@@ -514,8 +513,6 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 			resp.Body.Success = false
 			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeUnauthorized)
 			resp.Body.ErrorCode = autherrors.CodeUnauthorized
-			// No error detail: huma writes each detail's Error() into the
-			// body, and authErr's carries the internal chain.
 			return resp, huma.Error401Unauthorized(
 				autherrors.ToExternalMessage(autherrors.CodeUnauthorized),
 			)
@@ -625,8 +622,6 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 			resp.Body.Success = false
 			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeUnauthorized)
 			resp.Body.ErrorCode = autherrors.CodeUnauthorized
-			// No error detail: huma writes each detail's Error() into the
-			// body, and authErr's carries the internal chain.
 			return resp, huma.Error401Unauthorized(
 				autherrors.ToExternalMessage(autherrors.CodeUnauthorized),
 			)
@@ -1465,7 +1460,8 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 				resp.Body.Success = false
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-				// Wrapped for the reason the login default branch states.
+				// Wrapped so the response is a 5xx: an AuthError answers with
+				// its code's status, and the unrouted code's may be a 4xx.
 				return resp, autherrors.ErrServiceUnavailable("change_password_unhandled_authcode", authErr)
 			}
 		}
@@ -2484,7 +2480,8 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 				resp.Body.Success = false
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-				// Wrapped for the reason the login default branch states.
+				// Wrapped so the response is a 5xx: an AuthError answers with
+				// its code's status, and the unrouted code's may be a 4xx.
 				return resp, autherrors.ErrServiceUnavailable("update_profile_unhandled_authcode", authErr)
 			}
 		}

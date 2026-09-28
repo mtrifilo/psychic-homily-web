@@ -2,9 +2,7 @@
 package errors
 
 import (
-	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"psychic-homily-backend/internal/logger"
@@ -106,9 +104,9 @@ func (e *AuthError) UserMessage() string {
 }
 
 // authCodeHTTPStatus is the HTTP status each code answers with when an
-// AuthError is returned to huma as a handler error. A code missing here
-// answers 500 (see GetStatus); the errors package tests fail when a declared
-// code is missing, so adding a code means choosing its status here.
+// AuthError reaches the client as a handler error. A code missing here answers
+// 500 (see HTTPStatus); the errors package tests fail when a declared code is
+// missing, so adding a code means choosing its status here.
 var authCodeHTTPStatus = map[string]int{
 	CodeInvalidCredentials: http.StatusUnauthorized,
 	// Answers as INVALID_CREDENTIALS does (ToExternalCode), so the status must
@@ -140,49 +138,27 @@ var authCodeHTTPStatus = map[string]int{
 	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
 }
 
-// GetStatus reports the HTTP status for the error's code. It makes AuthError
-// a huma.StatusError, so a handler that returns one (directly or %w-wrapped)
-// gets this status and MarshalJSON's body instead of huma's default 500 whose
-// detail is Error(), internal chain included.
-func (e *AuthError) GetStatus() int {
+// HTTPStatus reports the HTTP status for the error's code.
+//
+// Deliberately not named GetStatus: that would make AuthError a
+// huma.StatusError, and huma marshals a returned StatusError as the response
+// body, so every exported field, Internal included, would reach the client.
+// The API layer reads this status when it builds the response instead.
+func (e *AuthError) HTTPStatus() int {
 	if status, ok := authCodeHTTPStatus[e.Code]; ok {
 		return status
 	}
 	return http.StatusInternalServerError
 }
 
-// authErrorResponseBody is the wire shape of an AuthError: the same fields
-// the auth middleware's JWTErrorResponse writes, so a client parses one
-// envelope for every auth refusal. It has no field for Internal.
-type authErrorResponseBody struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	ErrorCode string `json:"error_code"`
-	RequestID string `json:"request_id,omitempty"`
-}
-
-// MarshalJSON renders the client-facing body: the external code and the
-// user-facing message, never Internal. A code that ToExternalCode rewrites
-// takes the rewritten code's message as well, so the body cannot say what
-// the code conceals.
-func (e *AuthError) MarshalJSON() ([]byte, error) {
-	code := ToExternalCode(e.Code)
-	message := e.UserMessage()
-	if code != e.Code {
-		message = ToExternalMessage(code)
+// ExternalMessage is the message a client may see: UserMessage, unless
+// ToExternalCode rewrites the code, in which case the rewritten code's message,
+// so the message cannot say what the rewritten code conceals.
+func (e *AuthError) ExternalMessage() string {
+	if code := ToExternalCode(e.Code); code != e.Code {
+		return ToExternalMessage(code)
 	}
-	return json.Marshal(authErrorResponseBody{
-		Message:   message,
-		ErrorCode: code,
-		RequestID: e.RequestID,
-	})
-}
-
-// LogValue keeps the full Error() text, internal chain included, in slog
-// output. Without it slog's JSON handler would log MarshalJSON's client body
-// for an AuthError attribute, since it prefers json.Marshaler over Error().
-func (e *AuthError) LogValue() slog.Value {
-	return slog.StringValue(e.Error())
+	return e.UserMessage()
 }
 
 // WithRequestID returns a copy of the error with the request ID set.

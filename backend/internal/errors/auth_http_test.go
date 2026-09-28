@@ -1,21 +1,14 @@
 package errors
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/humatest"
 )
 
 // driverText stands in for what a wrapped database error carries. None of it
@@ -100,9 +93,9 @@ func TestAuthErrorEveryCodeHasADeliberateStatus(t *testing.T) {
 		if _, ok := authCodeHTTPStatus[code]; !ok {
 			t.Errorf("code %s has no entry in authCodeHTTPStatus and would answer 500 by default", code)
 		}
-		got := (&AuthError{Code: code}).GetStatus()
+		got := (&AuthError{Code: code}).HTTPStatus()
 		if got != want {
-			t.Errorf("GetStatus(%s) = %d, want %d", code, got, want)
+			t.Errorf("HTTPStatus(%s) = %d, want %d", code, got, want)
 		}
 	}
 	if len(wantAuthStatus) != len(codes) {
@@ -114,184 +107,47 @@ func TestAuthErrorEveryCodeHasADeliberateStatus(t *testing.T) {
 }
 
 func TestAuthErrorUndeclaredCodeAnswers500(t *testing.T) {
-	if got := (&AuthError{Code: "NOT_A_DECLARED_CODE"}).GetStatus(); got != http.StatusInternalServerError {
-		t.Errorf("GetStatus for an undeclared code = %d, want 500", got)
+	if got := (&AuthError{Code: "NOT_A_DECLARED_CODE"}).HTTPStatus(); got != http.StatusInternalServerError {
+		t.Errorf("HTTPStatus for an undeclared code = %d, want 500", got)
 	}
 }
 
-type decodedAuthBody struct {
-	Success   *bool   `json:"success"`
-	Message   *string `json:"message"`
-	ErrorCode *string `json:"error_code"`
-	RequestID *string `json:"request_id"`
+// huma marshals a returned StatusError as the response body. AuthError must
+// not become one, or its exported fields, Internal included, reach the client
+// instead of the envelope the API layer builds from it.
+func TestAuthErrorIsNotAHumaStatusError(t *testing.T) {
+	var err error = ErrServiceUnavailable("export_data", fmt.Errorf("%s", driverText))
+	if _, ok := err.(interface{ GetStatus() int }); ok {
+		t.Fatal("*AuthError has a GetStatus method; huma would marshal it as the response body")
+	}
 }
 
-func TestAuthErrorBodyCarriesOnlyTheExternalCodeAndMessage(t *testing.T) {
+func TestAuthErrorExternalMessage(t *testing.T) {
 	for _, code := range declaredAuthCodes(t) {
-		t.Run(code, func(t *testing.T) {
-			authErr := NewAuthError(code, "user-facing copy", fmt.Errorf("lookup: %s", driverText))
-
-			raw, err := json.Marshal(authErr)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
-			body := string(raw)
-			for _, leaked := range []string{"user_bookmarks", "SQLSTATE", "lookup:", "internal"} {
-				if strings.Contains(body, leaked) {
-					t.Errorf("body contains %q: %s", leaked, body)
-				}
-			}
-
-			var fields map[string]any
-			if err := json.Unmarshal(raw, &fields); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-			for key := range fields {
-				switch key {
-				case "success", "message", "error_code":
-				default:
-					t.Errorf("unexpected body field %q: %s", key, body)
-				}
-			}
-
-			var decoded decodedAuthBody
-			if err := json.Unmarshal(raw, &decoded); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-			if decoded.Success == nil || *decoded.Success {
-				t.Errorf("success must be present and false: %s", body)
-			}
-			wantCode := ToExternalCode(code)
-			if decoded.ErrorCode == nil || *decoded.ErrorCode != wantCode {
-				t.Errorf("error_code = %v, want %q", decoded.ErrorCode, wantCode)
-			}
-			wantMessage := "user-facing copy"
-			if wantCode != code {
-				wantMessage = ToExternalMessage(wantCode)
-			}
-			if decoded.Message == nil || *decoded.Message != wantMessage {
-				t.Errorf("message = %v, want %q", decoded.Message, wantMessage)
-			}
-		})
+		authErr := NewAuthError(code, "user-facing copy", fmt.Errorf("%s", driverText))
+		want := "user-facing copy"
+		if external := ToExternalCode(code); external != code {
+			want = ToExternalMessage(external)
+		}
+		if got := authErr.ExternalMessage(); got != want {
+			t.Errorf("ExternalMessage(%s) = %q, want %q", code, got, want)
+		}
 	}
 }
 
-func TestAuthErrorBodyCarriesTheRequestIDWhenSet(t *testing.T) {
-	raw, err := json.Marshal(ErrServiceUnavailable("export_data", fmt.Errorf("%s", driverText)).WithRequestID("req-123"))
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var decoded decodedAuthBody
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if decoded.RequestID == nil || *decoded.RequestID != "req-123" {
-		t.Errorf("request_id = %v, want req-123 (body: %s)", decoded.RequestID, raw)
-	}
-}
-
-// An unknown address and a wrong password must be indistinguishable on the
-// wire: same status, same bytes.
+// An unknown address and a wrong password must be indistinguishable to the
+// client: same status, same external code, same message.
 func TestAuthErrorUserNotFoundIsIndistinguishableFromInvalidCredentials(t *testing.T) {
 	notFound := ErrUserNotFound("someone@example.com")
 	invalid := ErrInvalidCredentials(nil)
 
-	if notFound.GetStatus() != invalid.GetStatus() {
-		t.Errorf("status differs: user-not-found %d, invalid-credentials %d", notFound.GetStatus(), invalid.GetStatus())
+	if notFound.HTTPStatus() != invalid.HTTPStatus() {
+		t.Errorf("status differs: user-not-found %d, invalid-credentials %d", notFound.HTTPStatus(), invalid.HTTPStatus())
 	}
-	notFoundBody, _ := json.Marshal(notFound)
-	invalidBody, _ := json.Marshal(invalid)
-	if !bytes.Equal(notFoundBody, invalidBody) {
-		t.Errorf("body differs:\n user-not-found:      %s\n invalid-credentials: %s", notFoundBody, invalidBody)
+	if ToExternalCode(notFound.Code) != ToExternalCode(invalid.Code) {
+		t.Errorf("external code differs: %q vs %q", ToExternalCode(notFound.Code), ToExternalCode(invalid.Code))
 	}
-}
-
-// MarshalJSON makes AuthError a json.Marshaler, which slog's JSON handler
-// prefers over Error(). The internal chain must still reach the log.
-func TestAuthErrorLogsKeepTheInternalChain(t *testing.T) {
-	authErr := ErrServiceUnavailable("export_data", fmt.Errorf("%s", driverText))
-
-	for name, value := range map[string]any{
-		"direct":  authErr,
-		"wrapped": fmt.Errorf("handler: %w", authErr),
-	} {
-		t.Run(name, func(t *testing.T) {
-			var buf bytes.Buffer
-			slog.New(slog.NewJSONHandler(&buf, nil)).Error("export_data_failed", slog.Any("error", value))
-			if !strings.Contains(buf.String(), "user_bookmarks") {
-				t.Errorf("JSON log line lost the internal chain: %s", buf.String())
-			}
-			buf.Reset()
-			slog.New(slog.NewTextHandler(&buf, nil)).Error("export_data_failed", "error", value)
-			if !strings.Contains(buf.String(), "user_bookmarks") {
-				t.Errorf("text log line lost the internal chain: %s", buf.String())
-			}
-		})
-	}
-}
-
-// The properties above hold for the value; this drives a registered huma
-// operation to prove huma writes that value, at that status, on the wire.
-func TestAuthErrorOverTheWire(t *testing.T) {
-	_, api := humatest.New(t, huma.DefaultConfig("auth-error-wire", "1.0.0"))
-
-	cases := []struct {
-		name       string
-		path       string
-		err        error
-		wantStatus int
-		wantCode   string
-	}{
-		{
-			name:       "direct",
-			path:       "/direct",
-			err:        ErrServiceUnavailable("export_data", fmt.Errorf("%s", driverText)),
-			wantStatus: http.StatusServiceUnavailable,
-			wantCode:   CodeServiceUnavailable,
-		},
-		{
-			name:       "wrapped",
-			path:       "/wrapped",
-			err:        fmt.Errorf("handler: %w", ErrUsernameTaken(fmt.Errorf("%s", driverText))),
-			wantStatus: http.StatusConflict,
-			wantCode:   CodeUsernameTaken,
-		},
-	}
-	for _, tc := range cases {
-		huma.Register(api, huma.Operation{
-			OperationID: "auth-error-" + tc.name,
-			Method:      http.MethodGet,
-			Path:        tc.path,
-		}, func(context.Context, *struct{}) (*struct{}, error) {
-			return nil, tc.err
-		})
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp := api.Get(tc.path)
-			if resp.Code != tc.wantStatus {
-				t.Fatalf("status = %d, want %d; body: %s", resp.Code, tc.wantStatus, resp.Body.String())
-			}
-			if ct := resp.Header().Get("Content-Type"); ct != "application/json" {
-				t.Errorf("Content-Type = %q, want application/json", ct)
-			}
-			body := resp.Body.String()
-			for _, leaked := range []string{"user_bookmarks", "SQLSTATE", "internal"} {
-				if strings.Contains(body, leaked) {
-					t.Errorf("wire body contains %q: %s", leaked, body)
-				}
-			}
-			var decoded decodedAuthBody
-			if err := json.Unmarshal(resp.Body.Bytes(), &decoded); err != nil {
-				t.Fatalf("decode: %v (body: %s)", err, body)
-			}
-			if decoded.ErrorCode == nil || *decoded.ErrorCode != tc.wantCode {
-				t.Errorf("error_code = %v, want %q (body: %s)", decoded.ErrorCode, tc.wantCode, body)
-			}
-			if decoded.Message == nil || *decoded.Message == "" {
-				t.Errorf("message missing (body: %s)", body)
-			}
-		})
+	if notFound.ExternalMessage() != invalid.ExternalMessage() {
+		t.Errorf("external message differs: %q vs %q", notFound.ExternalMessage(), invalid.ExternalMessage())
 	}
 }
