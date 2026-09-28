@@ -42,7 +42,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 #
 # Pinned to the same base as the runtime stage (see NODE PIN below), so the npm
 # that resolves the tree and the node that executes the script are one build.
-FROM node:26.9.0-alpine3.24@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS layout-deps
+FROM node:26.10.0-alpine3.24@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS layout-deps
 WORKDIR /layout
 COPY layout/package.json layout/package-lock.json ./
 RUN npm ci --omit=dev
@@ -111,7 +111,7 @@ COPY layout/fa2-layout.mjs ./
 #   2. copy the TOP-LEVEL `Digest:` into BOTH FROM lines in this file
 #   3. scripts/check_node_base_pin.sh && scripts/check_node_base_manifest.sh
 #   4. rebuild and confirm `node --test` in backend/layout still passes
-FROM node:26.9.0-alpine3.24@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070
+FROM node:26.10.0-alpine3.24@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
 
 # ca-certificates for HTTPS requests, tzdata for /usr/share/zoneinfo (absent
 # from this base), netcat-openbsd for the entrypoint's database wait. Node comes
