@@ -10,7 +10,6 @@ import {
   CUSTOM_ALERTS_HREF,
   followAlertHasChannel,
   followAlertHasScopeAxis,
-  followAlertPendingNote,
 } from './followAlertChoices'
 
 interface LibraryAlertsBarProps {
@@ -38,7 +37,6 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   // restriction this tab's follows do not have, and contradicting the venue
   // control one page over that says exactly that.
   const hasScopeAxis = followAlertHasScopeAxis(entityType)
-  const pendingNote = followAlertPendingNote(entityType)
 
   // Fetched on EVERY tab this bar renders on, not only the scoped ones.
   //
@@ -94,121 +92,112 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
     matrixKnown && !followAlertHasChannel(accountShowChannels)
 
   return (
-    <div className="mb-4 border border-border bg-card px-3.5 py-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        {/* The pause is stated on every tab this bar renders on, because one
-            `shows` key governs every follow type here.
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 border border-border bg-card px-3.5 py-3 text-[13px]">
+      {/* The pause is stated on every tab this bar renders on, because one
+          `shows` key governs every follow type here.
 
-            The LEAD-IN forks, because only a scoped tab has a sentence being
-            replaced. There, "New follows start at: Near me" is what a reader
-            takes as a delivery promise with no channel on, so the pause takes
-            its slot and its phrasing. The Venues tab renders no such sentence
-            in any other state, so a "new follows" lead-in there would be a
-            scope-shaped claim on a tab with no scope axis, and would explain
-            nothing about the column of paused brackets below it. */}
-        {newFollowsPaused ? (
-          <>
-            <span className="text-muted-foreground">
-              {hasScopeAxis ? 'New follows start at: ' : 'New-show alerts: '}
-              <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
+          The LEAD-IN forks, because only a scoped tab has a sentence being
+          replaced. There, "New follows start at: Near me" is what a reader
+          takes as a delivery promise with no channel on, so the pause takes
+          its slot and its phrasing. The Venues tab renders no such sentence
+          in any other state, so a "new follows" lead-in there would be a
+          scope-shaped claim on a tab with no scope axis, and would explain
+          nothing about the column of paused brackets below it. */}
+      {newFollowsPaused ? (
+        <>
+          <span className="text-muted-foreground">
+            {hasScopeAxis ? 'New follows start at: ' : 'New-show alerts: '}
+            <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
+          </span>
+          <BracketLink
+            label="turn a channel on"
+            ariaLabel={
+              hasScopeAxis
+                ? 'New follows start paused. Turn a channel on in alert settings.'
+                : 'New-show alerts are paused. Turn a channel on in alert settings.'
+            }
+            href={ALERTS_HREF}
+            className="font-mono text-[11px]"
+          />
+        </>
+      ) : (
+        areaKnown && (
+          <span className="text-muted-foreground">
+            New follows start at:{' '}
+            <span className="text-foreground">
+              {homeMetro ? 'Near me' : 'Everywhere'}
             </span>
-            <BracketLink
-              label="turn a channel on"
-              ariaLabel={
-                hasScopeAxis
-                  ? 'New follows start paused. Turn a channel on in alert settings.'
-                  : 'New-show alerts are paused. Turn a channel on in alert settings.'
-              }
-              href={ALERTS_HREF}
-              className="font-mono text-[11px]"
-            />
-          </>
-        ) : (
-          areaKnown && (
-            <span className="text-muted-foreground">
-              New follows start at:{' '}
-              <span className="text-foreground">
-                {homeMetro ? 'Near me' : 'Everywhere'}
-              </span>
-            </span>
-          )
-        )}
-
-        {/* The AREA half stays under a pause: it is what "near me" will mean
-            when a channel comes back, and this bar is the only place on the
-            page it can be changed. The separator leads it rather than
-            trailing the block above, so a tab with no area half (Venues)
-            cannot render an orphaned dot. */}
-        {areaKnown && (
-          <>
-            <span className="text-muted-foreground/40" aria-hidden>
-              ·
-            </span>
-
-            {isEditingArea ? (
-              <HomeMetroSelect
-                metro={homeMetro}
-                ariaLabel="Your area"
-                onSaved={() => setIsEditingArea(false)}
-              />
-            ) : (
-              <>
-                <span className="text-muted-foreground">
-                  Your area:{' '}
-                  <span className="text-foreground">
-                    {areaLabel ?? 'not set yet'}
-                  </span>
-                </span>
-                <BracketLink
-                  label="change"
-                  ariaLabel="Change your area"
-                  onClick={() => setIsEditingArea(true)}
-                  className="font-mono text-[11px]"
-                />
-              </>
-            )}
-          </>
-        )}
-
-        {/* FAILED is not PENDING, the rule the entity-page twin states and
-            obeys. On a scoped tab the degradation is severe: the bar loses its
-            area half AND every row's bracket disappears, because an unknown
-            home area makes each menu render null, so a user reasonably
-            concludes their follows carry no alert subscription at all.
-
-            On the Venues tab the ROWS are fine either way: each carries its
-            own resolved subscription in the list payload, so a bracket still
-            reads paused or on without this query. What is unanswerable is
-            this bar's own half, which reads the account matrix. It says so
-            rather than rendering an empty bar. */}
-        {readFailed && (
-          <>
-            <span className="text-muted-foreground" role="alert">
-              Couldn&apos;t load your alert settings.
-            </span>
-            <BracketLink
-              label="retry"
-              onClick={() => void refetch()}
-              className="font-mono text-[11px]"
-            />
-          </>
-        )}
-
-        <span className="grow" />
-
-        <BracketLink
-          label="custom alerts →"
-          href={CUSTOM_ALERTS_HREF}
-          className="font-mono text-[11px]"
-        />
-      </div>
-
-      {/* Only where there is something pending to disclose. Artist show
-          alerts deliver (PSY-1896), so an "any day now" line above the
-          Artists tab would be the opposite kind of lie. */}
-      {pendingNote && (
-        <p className="mt-2 text-xs text-muted-foreground">{pendingNote}</p>
+          </span>
+        )
       )}
+
+      {/* The AREA half stays under a pause: it is what "near me" will mean
+          when a channel comes back, and this bar is the only place on the
+          page it can be changed. The separator leads it rather than
+          trailing the block above, so a tab with no area half (Venues)
+          cannot render an orphaned dot. */}
+      {areaKnown && (
+        <>
+          <span className="text-muted-foreground/40" aria-hidden>
+            ·
+          </span>
+
+          {isEditingArea ? (
+            <HomeMetroSelect
+              metro={homeMetro}
+              ariaLabel="Your area"
+              onSaved={() => setIsEditingArea(false)}
+            />
+          ) : (
+            <>
+              <span className="text-muted-foreground">
+                Your area:{' '}
+                <span className="text-foreground">
+                  {areaLabel ?? 'not set yet'}
+                </span>
+              </span>
+              <BracketLink
+                label="change"
+                ariaLabel="Change your area"
+                onClick={() => setIsEditingArea(true)}
+                className="font-mono text-[11px]"
+              />
+            </>
+          )}
+        </>
+      )}
+
+      {/* FAILED is not PENDING, the rule the entity-page twin states and
+          obeys. On a scoped tab the degradation is severe: the bar loses its
+          area half AND every row's bracket disappears, because an unknown
+          home area makes each menu render null, so a user reasonably
+          concludes their follows carry no alert subscription at all.
+
+          On the Venues tab the ROWS are fine either way: each carries its
+          own resolved subscription in the list payload, so a bracket still
+          reads paused or on without this query. What is unanswerable is
+          this bar's own half, which reads the account matrix. It says so
+          rather than rendering an empty bar. */}
+      {readFailed && (
+        <>
+          <span className="text-muted-foreground" role="alert">
+            Couldn&apos;t load your alert settings.
+          </span>
+          <BracketLink
+            label="retry"
+            onClick={() => void refetch()}
+            className="font-mono text-[11px]"
+          />
+        </>
+      )}
+
+      <span className="grow" />
+
+      <BracketLink
+        label="custom alerts →"
+        href={CUSTOM_ALERTS_HREF}
+        className="font-mono text-[11px]"
+      />
     </div>
   )
 }

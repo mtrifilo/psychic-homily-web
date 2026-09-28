@@ -31,7 +31,6 @@ import {
   followAlertUpdateFor,
   isAlertCapableFollowType,
   RELEASE_ALERTS_PENDING_NOTE,
-  VENUE_ALERTS_PENDING_NOTE,
   type FollowAlertChoice,
   type HomeMetroState,
 } from './followAlertChoices'
@@ -42,12 +41,10 @@ import { cn } from '@/lib/utils'
 // account-level setting, which is why they get named here rather than implied.
 const ARTIST_TOOLTIP = `Chooses which of this artist's new shows you get alerted about. New releases are never geography-scoped, so this does not affect them. ${RELEASE_ALERTS_PENDING_NOTE}`
 
-// Future tense throughout, because the pending note that follows it says these
-// alerts are not flowing yet. "Turns alerts on or off" read as a present-tense
-// capability claim and then got contradicted two sentences later, inside one
-// tooltip. Delete the note (and restore the present tense) when PSY-1895 lands
-// venue delivery.
-const VENUE_TOOLTIP = `Sets whether you will be alerted about shows this venue adds. A venue sits in one place, so there is nothing to scope. ${VENUE_ALERTS_PENDING_NOTE}`
+// Venue show alerts deliver, coalesced to one alert per venue per venue-local
+// day, so the copy names that unit and promises no clock. Email is named only
+// as something the person switches on, because the email lane defaults off.
+const VENUE_TOOLTIP = `Sets whether you are alerted about new shows this venue adds. A venue sits in one place, so there is nothing to scope. A venue’s new shows arrive together, as one alert per venue per day, in your inbox, and by email too if you switch email on in your alert settings.`
 
 interface FollowAlertsRevealProps {
   /** PLURAL follow path segment: "artists" or "venues". */

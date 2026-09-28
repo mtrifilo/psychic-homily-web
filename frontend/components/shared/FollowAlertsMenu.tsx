@@ -18,7 +18,6 @@ import {
   followAlertChoice,
   followAlertHasReleaseAxis,
   followAlertOptions,
-  followAlertPendingNote,
   followAlertsPaused,
   followAlertsPausedNote,
   followAlertSummaryFor,
@@ -127,13 +126,11 @@ export function FollowAlertsMenu({
             // `BracketLink` sets an explicit aria-label, so `title` is the
             // accessible DESCRIPTION, announced on every row a screen reader
             // lands on. So it carries only what the NAME does not already
-            // say: nothing at all while paused on a type whose alerts
-            // deliver (the name says "paused" and the menu holds the prose),
-            // and the pending-delivery disclosure on a type where "paused"
-            // alone would read as "un-pause and they resume".
+            // say: nothing at all while paused (the name says "paused" and
+            // the menu holds the prose).
             title={
               paused
-                ? (followAlertPendingNote(entityType) ?? undefined)
+                ? undefined
                 : hasReleaseAxis
                   ? `New-show alerts for ${entityName}. Release alerts are set in Settings, and are still being switched on.`
                   : `New-show alerts for ${entityName}.`

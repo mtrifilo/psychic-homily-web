@@ -2,14 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   followAlertChoice,
   followAlertOptions,
-  followAlertPendingNote,
   followAlertsPaused,
   followAlertsPausedNote,
   followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
   RELEASE_ALERTS_PENDING_NOTE,
-  VENUE_ALERTS_PENDING_NOTE,
 } from './followAlertChoices'
 import type { FollowAlertSettings } from '@/lib/types/follow'
 
@@ -160,37 +158,6 @@ describe('followAlertChoice', () => {
         hasHomeMetro: undefined,
       })
     ).toBe('on')
-  })
-})
-
-// PSY-1896 split delivery in two: artist show alerts deliver, venue ones do
-// not. This function is the whole mechanism behind that distinction on the
-// Library bar, so a regression here silently restores a claim the product
-// spent a commit removing.
-describe('followAlertPendingNote', () => {
-  it('discloses pending delivery for venues, whose alerts have no notifier', () => {
-    expect(followAlertPendingNote('venues')).toBe(VENUE_ALERTS_PENDING_NOTE)
-  })
-
-  // The regression this exists to catch: artist alerts DO deliver, so an
-  // "any day now" line above the Artists tab is the opposite kind of lie.
-  it('says nothing for artists, whose alerts already deliver', () => {
-    expect(followAlertPendingNote('artists')).toBeNull()
-  })
-
-  it('says nothing for follow types with no alert subscription at all', () => {
-    for (const entityType of ['labels', 'tags', 'festivals', 'scenes']) {
-      expect(followAlertPendingNote(entityType)).toBeNull()
-    }
-  })
-
-  // A bare object index would return Object.prototype here, which React then
-  // throws on rendering. No caller can reach these today; this pins the guard
-  // so that stays true if one ever forwards a route segment.
-  it('does not leak inherited object properties as a note', () => {
-    for (const key of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
-      expect(followAlertPendingNote(key)).toBeNull()
-    }
   })
 })
 
@@ -387,9 +354,9 @@ describe('followAlertsPausedNote', () => {
     expect(followAlertsPausedNote('venues')).not.toContain('scope for this follow')
   })
 
-  // "Resumes them" is a DELIVERY claim, and a venue follow has no notifier to
-  // resume. Lifting the pause is what a channel actually does, and it is true
-  // of every follow type.
+  // Lifting the pause is what switching a channel on does, for every follow
+  // type. "Resumes them" would describe alerts arriving, which also depends on
+  // something new being announced.
   it('promises the pause lifted, never delivery resumed', () => {
     for (const entityType of ['artists', 'venues']) {
       const note = followAlertsPausedNote(entityType)
@@ -398,14 +365,11 @@ describe('followAlertsPausedNote', () => {
     }
   })
 
-  // This copy REPLACES the tooltip that carried the disclosures, so anything
-  // that tooltip said and the pause does not retract has to travel with it.
-  it('keeps the pending-delivery disclosure a paused surface would otherwise drop', () => {
-    expect(followAlertsPausedNote('venues')).toContain(
-      VENUE_ALERTS_PENDING_NOTE
-    )
-    expect(followAlertsPausedNote('artists')).not.toContain(
-      VENUE_ALERTS_PENDING_NOTE
+  // Venue alerts deliver, so a paused venue follow has nothing pending to
+  // disclose: its note is the pause and the way out, and nothing else.
+  it('tells a paused venue follow only the pause and the way out', () => {
+    expect(followAlertsPausedNote('venues')).toBe(
+      'New-show alerts are paused. Neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on lifts the pause, and the account-wide channels are in your alert settings.'
     )
   })
 

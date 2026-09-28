@@ -20,20 +20,18 @@ import type {
 export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
 
 /**
- * Capability truth, per alert type, because they no longer share a state.
+ * Capability truth, per alert type, because they do not share a state.
  *
- * ARTIST show alerts DELIVER as of PSY-1896: the matcher runs inside
- * MatchAndNotify and sends both the in-app row and the email. Nothing here may
- * still call those "coming soon".
+ * ARTIST and VENUE show alerts deliver. The artist matcher sends per show; a
+ * venue's new shows are accrued and flushed as one alert per user per venue
+ * per venue-local day. Nothing here may call either "coming soon". The venue
+ * copy holds only while the backend's DISABLE_VENUE_SHOW_ALERTS is unset, since
+ * that flag stops accrual and delivery alike.
  *
- * Venue show alerts and release alerts have a stored, resolved subscription and
- * no delivery behind it: there is no venue-follow notifier and no release
- * notifier. Their controls may say what the alerts WILL cover; they may not
- * imply anything is already flowing. Delete each note as its delivery lands.
+ * Release alerts have a stored, resolved subscription and no notifier behind
+ * it. Their controls may say what the alerts WILL cover; they may not imply
+ * anything is already flowing.
  */
-export const VENUE_ALERTS_PENDING_NOTE =
-  'Alerts for shows a venue you follow adds are still being switched on. This setting decides what they will cover once they are.'
-
 export const RELEASE_ALERTS_PENDING_NOTE =
   'Release alerts are still being switched on. These settings decide where they will reach you once they are.'
 
@@ -92,10 +90,9 @@ export const followAlertHasScopeAxis = (entityType: string): boolean =>
  * Whether this follow type puts out records at all.
  *
  * A SEPARATE predicate from the scope axis, even though the two split the same
- * way today (a venue has neither). They are different facts, and this module
- * already learned that lesson once with the pending-delivery notes: inferring
- * one axis from another reads as a coincidence that happens to hold, and
- * silently grants the inferred property to the next type someone adds.
+ * way today (a venue has neither). They are different facts: inferring one
+ * axis from another reads as a coincidence that happens to hold, and silently
+ * grants the inferred property to the next type someone adds.
  *
  * A positive list rather than an exclusion, for the same reason
  * `isAlertCapableFollowType` is one: the server is the authority, and it omits
@@ -103,36 +100,6 @@ export const followAlertHasScopeAxis = (entityType: string): boolean =>
  */
 export const followAlertHasReleaseAxis = (entityType: string): boolean =>
   entityType === 'artists'
-
-/**
- * The pending-delivery disclosure for one follow type, or null when that
- * type's alerts genuinely deliver today.
- *
- * Delivery status is its OWN fact, listed per type rather than inferred from
- * the scope axis. Inferring it read as a coincidence that happened to hold
- * today (the type that tours is the one PSY-1896 shipped delivery for) and
- * would have silently granted "delivers" to any alert type added later.
- *
- * When venue delivery lands (PSY-1895), delete its entry here and every
- * surface stops disclosing it. That is a deliberate edit, not something this
- * function discovers on its own.
- */
-const PENDING_DELIVERY_NOTES: Record<string, string> = {
-  venues: VENUE_ALERTS_PENDING_NOTE,
-}
-
-/**
- * `Object.hasOwn`, not a bare index. `entityType` is a plain string here, and
- * every object literal inherits `__proto__`, `constructor` and `toString`, so a
- * bare lookup can hand back an object or a function typed as `string`. Callers
- * render this straight into JSX. No call site can reach those keys today (all
- * three pass a closed literal set), which is exactly why an index would sit
- * here unnoticed until one of them started forwarding a route segment.
- */
-export const followAlertPendingNote = (entityType: string): string | null =>
-  Object.hasOwn(PENDING_DELIVERY_NOTES, entityType)
-    ? PENDING_DELIVERY_NOTES[entityType]!
-    : null
 
 /**
  * Whether the viewer has a home area, or `undefined` while that is still
@@ -290,10 +257,9 @@ export const ALERTS_PAUSED_LEAD = 'New-show alerts are paused.'
 /**
  * "Lifts the pause", NOT "resumes them".
  *
- * Resuming is a delivery claim, and a venue follow has no notifier behind it
- * to resume. Lifting the pause is what switching a channel actually does, and
- * it is true of every follow type; whether anything then flows is the
- * pending-delivery note's business, appended below.
+ * Lifting the pause is what switching a channel on does, for every follow
+ * type. "Resumes them" would describe alerts arriving, which also depends on
+ * the artist or venue announcing something new.
  */
 const ALERTS_PAUSED_EFFECT =
   'Neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on lifts the pause, and the account-wide channels are in your alert settings.'
@@ -334,15 +300,11 @@ const ALERTS_PAUSED_RELEASES_UNAFFECTED =
  * it, "paused" reads as "your setting was discarded" and the honest fix looks
  * like re-picking a scope that was never lost.
  *
- * The pending-delivery note rides along because a paused venue follower told
- * only that a channel lifts the pause would reasonably expect alerts after
- * that, and venue delivery does not exist yet.
- *
- * So does the RELEASE disclosure, for scope-axis types. This copy REPLACES
- * the tooltip that carried it, and the scope chips it explains are still on
- * screen under the pause, so the misreading that disclosure exists to prevent
- * (that the chips govern releases too) is live in exactly the state that would
- * have dropped it.
+ * The RELEASE disclosure rides along for types with a release axis. This copy
+ * REPLACES the tooltip that carried it, and the scope chips it explains are
+ * still on screen under the pause, so the misreading that disclosure exists to
+ * prevent (that the chips govern releases too) is live in exactly the state
+ * that would have dropped it.
  */
 const followAlertsPausedDetail = (entityType: string): string =>
   [
@@ -351,7 +313,6 @@ const followAlertsPausedDetail = (entityType: string): string =>
     followAlertHasReleaseAxis(entityType)
       ? ALERTS_PAUSED_RELEASES_UNAFFECTED
       : null,
-    followAlertPendingNote(entityType),
   ]
     .filter(Boolean)
     .join(' ')

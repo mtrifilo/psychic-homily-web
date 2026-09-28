@@ -17,7 +17,6 @@ import {
   ALERTS_AREA_ANCHOR,
   CUSTOM_ALERTS_HREF,
   RELEASE_ALERTS_PENDING_NOTE,
-  VENUE_ALERTS_PENDING_NOTE,
 } from '@/components/shared/followAlertChoices'
 import { useProfile } from '@/features/auth/hooks/useAuth'
 import { useSetShowReminders } from '@/features/shows'
@@ -304,12 +303,11 @@ export function AlertSettings() {
       id: 'shows',
       title: 'An artist or venue you follow announces a show',
       // One row because the account matrix has ONE `shows` key covering both,
-      // which is also what PSY-1896's unsubscribe writes. Their DELIVERY
-      // differs today, and saying so is the honest way to render one control
-      // over two half-shipped things.
-      // "In-app" is the claim that has been observed end to end. PSY-1896's
-      // email lane is built and covered by integration tests, but no owner has
-      // watched a real message arrive, so it is not named as live here.
+      // which is also what the show-alert unsubscribe writes. Their delivery
+      // UNIT differs: an artist alert is per show, a venue alert coalesces a
+      // venue's new shows into one per venue per day, so the copy names it.
+      // "In-app" is the only channel this row names as live. Email is
+      // described once, in the footer below, as off until switched on.
       // The pause is AUTHORED here, and every "turn a channel on" link across
       // the product lands on this row. Clearing both boxes inherits down into
       // every artist and venue follow that never overrode a channel, so those
@@ -320,8 +318,8 @@ export function AlertSettings() {
         <>
           Which shows count for an artist is that follow&rsquo;s own scope, near
           me or everywhere. A venue sits in one place, so its alerts have no
-          scope. In-app alerts for artists are live; venue alerts are still
-          being switched on.
+          scope; its new shows arrive together as one alert per venue per day.
+          In-app alerts for artists and venues are live.
           {showAlertsPaused && (
             <>
               {' '}
@@ -554,7 +552,7 @@ export function AlertSettings() {
               opt-in.
             </p>
             <p className="text-xs text-muted-foreground">
-              {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}
+              {RELEASE_ALERTS_PENDING_NOTE}
             </p>
           </div>
       </AlertsCard>
