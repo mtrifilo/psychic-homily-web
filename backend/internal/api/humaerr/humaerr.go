@@ -5,10 +5,11 @@
 // huma.NewError and huma.NewErrorWithContext. The huma.ErrorNNN helpers call
 // the first. The second serves huma's own request-time errors: a handler error
 // that is not a huma.StatusError, huma.WriteErr (which request validation and
-// resolver errors go through), and a failed content negotiation. Their defaults put each non-ErrorDetailer error argument's
-// Error() text into errors[].message, which for a wrapped service or driver
-// error is internal text (SQL, schema names, service names). Install replaces
-// both so that text is logged instead of rendered.
+// resolver errors go through), and a failed content negotiation. Their
+// defaults put each non-ErrorDetailer error argument's Error() text into
+// errors[].message, which for a wrapped service or driver error is internal
+// text (SQL, schema names, service names). Install replaces both so that text
+// is logged instead of rendered.
 //
 // Only the error arguments are filtered. The message argument becomes the
 // body's detail verbatim, so a caller that formats an error into the message

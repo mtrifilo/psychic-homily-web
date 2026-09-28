@@ -23,6 +23,10 @@ const driverText = `ERROR: relation "user_bookmarks" does not exist (SQLSTATE 42
 
 const testRequestID = "req-humaerr-test"
 
+// testSecret stands in for a credential an upstream error can echo. It may
+// reach neither the body nor the log.
+const testSecret = "hunter2-humaerr-secret"
+
 func errDriver() error { return fmt.Errorf("lookup: %s", driverText) }
 
 // installForTest installs the constructors and restores huma's defaults when
@@ -69,6 +73,9 @@ func newTestAPI(t *testing.T) humatest.TestAPI {
 		})
 	}
 	register("/raw", errDriver)
+	register("/raw-secret", func() error {
+		return fmt.Errorf("dial upstream: password=%s", testSecret)
+	})
 	register("/error500-detail", func() error {
 		return huma.Error500InternalServerError("Failed to load things", errDriver())
 	})
@@ -181,6 +188,26 @@ func TestUnmappedHandlerErrorIsWithheldAndLogged(t *testing.T) {
 		t.Errorf("want huma's generic detail and no errors[]; body: %s", body)
 	}
 	assertLoggedWithRequestID(t, logs)
+}
+
+// Withheld text is logged through observability.ScrubText, so a credential an
+// upstream error echoes stays out of the log as well as the body.
+func TestWithheldTextIsScrubbedBeforeLogging(t *testing.T) {
+	api := newTestAPI(t)
+	code, _, body, logs := get(t, api, "/raw-secret")
+
+	if code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", code, body)
+	}
+	if strings.Contains(body, testSecret) {
+		t.Errorf("body carries the secret: %s", body)
+	}
+	if !strings.Contains(logs, "dial upstream") {
+		t.Fatalf("the withheld error was not logged; logs:\n%s", logs)
+	}
+	if strings.Contains(logs, testSecret) {
+		t.Errorf("log carries the secret unscrubbed; logs:\n%s", logs)
+	}
 }
 
 // The huma.ErrorNNN helpers run in handler code with no request context, so
