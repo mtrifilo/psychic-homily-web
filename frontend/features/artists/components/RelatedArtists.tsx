@@ -1366,7 +1366,9 @@ function RelatedArtistRow({
   }
 
   return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-muted/50 transition-colors group">
+    // No hover fill: the name is an accent link, and `link` text is not AA on
+    // a muted surface.
+    <div className="flex items-center gap-3 py-2 px-3 rounded-md">
       <Link
         href={`/artists/${node.slug}`}
         // PSY-1288: floor the name column at a readable min-width so the row's other items can't

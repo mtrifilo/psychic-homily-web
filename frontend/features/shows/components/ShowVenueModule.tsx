@@ -90,7 +90,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
             {venue.name}
           </Link>
         ) : (
-          <span className="text-lg text-primary/80 font-medium">
+          <span className="text-lg font-medium text-link">
             {venue.name}
           </span>
         )}

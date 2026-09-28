@@ -165,6 +165,9 @@ describe('ArtistSimilarSidebar', () => {
     }
     // The reason badges stay as they are: hidden below `sm`.
     expect(link!.nextElementSibling?.className).toContain('hidden sm:flex')
+    // `link` text is not AA on a muted surface, so the row takes no muted fill,
+    // at rest or on hover.
+    expect(link!.parentElement?.className).not.toMatch(/(^|\s)(hover:)?bg-muted/)
   })
 
   it('renders an [Explore graph] link when relationships exist', () => {

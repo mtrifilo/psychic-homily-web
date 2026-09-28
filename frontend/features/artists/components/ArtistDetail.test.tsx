@@ -317,6 +317,7 @@ vi.mock('@/components/shared', () => ({
 }))
 
 import { ArtistDetail } from './ArtistDetail'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
 function makeArtist(overrides: Partial<Artist> = {}): Artist {
   return {
@@ -1362,7 +1363,7 @@ describe('ArtistDetail', () => {
       expect(screen.getByTestId('subtitle')).toContainElement(link)
       expect(link).toHaveAttribute('href', '/scenes/kansas-city-mo')
       expect(link).toHaveTextContent('Kansas City, MO scene →')
-      expect(link.className).toContain('text-primary/80')
+      expect(link.className).toBe(ENTITY_LINK_CLASS.accent)
     })
 
     it('names the scene it opens, not the artist city, for a metro suburb', () => {
