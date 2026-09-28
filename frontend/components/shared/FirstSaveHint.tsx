@@ -16,6 +16,14 @@ import { useDismissFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint
 // hint's max width below (100vw - 2rem) is this gutter on both sides.
 const VIEWPORT_GUTTER_PX = 16
 
+/** Height of the fixed mobile tab bar, or 0 where it is not rendered (it is
+ *  display:none from `xl`, which measures as 0). Read at each positioning so
+ *  a viewport resize across `xl` is honoured. */
+function bottomTabBarHeight(): number {
+  const bar = document.querySelector<HTMLElement>('[data-bottom-tab-bar]')
+  return bar?.getBoundingClientRect().height ?? 0
+}
+
 interface FirstSaveHintProps {
   /** The Save control's wrapper. The hint positions against it; when focus
    *  is inside the hint as it closes, focus moves to the first button or link
@@ -50,12 +58,20 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
   } = useFloating({
     strategy: 'fixed',
     placement: align === 'start' ? 'bottom-start' : 'bottom-end',
-    // flip moves it above the control when there is no room below (a row at
-    // the bottom of the viewport, or above the mobile tab bar); it keeps the
-    // requested edge. shift keeps it inside the viewport gutter.
+    // flip moves it above the control when there is no room below, counting
+    // the fixed mobile tab bar as unavailable space; it keeps the requested
+    // edge. shift keeps it inside the viewport gutter.
     middleware: [
       offset(8),
-      flip({ padding: VIEWPORT_GUTTER_PX, flipAlignment: false }),
+      flip(() => ({
+        padding: {
+          top: VIEWPORT_GUTTER_PX,
+          right: VIEWPORT_GUTTER_PX,
+          left: VIEWPORT_GUTTER_PX,
+          bottom: VIEWPORT_GUTTER_PX + bottomTabBarHeight(),
+        },
+        flipAlignment: false,
+      })),
       shift({ padding: VIEWPORT_GUTTER_PX }),
     ],
     whileElementsMounted: autoUpdate,
