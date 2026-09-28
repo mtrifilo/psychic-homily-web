@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -43,14 +44,16 @@ type createBody struct {
 }
 
 // newTestAPI registers one operation per behaviour under test. Each request
-// carries a request ID and a logger that writes wherever slog's default points,
-// which is the capture buffer inside testlog.Capture.
+// carries what middleware.HumaRequestIDMiddleware gives it in production, a
+// request ID and a logger bound to it, except that the logger writes wherever
+// slog's default points, which is the capture buffer inside testlog.Capture.
 func newTestAPI(t *testing.T) humatest.TestAPI {
 	t.Helper()
 	installForTest(t)
 	_, api := humatest.New(t, huma.DefaultConfig("humaerr-test", "1.0.0"))
 	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
-		reqCtx := logger.SetRequestID(testlog.Context(t, ctx.Context()), testRequestID)
+		reqCtx := logger.SetRequestID(ctx.Context(), testRequestID)
+		reqCtx = logger.NewContext(reqCtx, logger.WithRequestID(slog.Default(), testRequestID))
 		next(huma.WithContext(ctx, reqCtx))
 	})
 
@@ -276,8 +279,8 @@ func TestAuthErrorAnswersWithItsStatusAndTheAuthEnvelope(t *testing.T) {
 	}
 }
 
-// Install runs before the API is built because huma derives the documented
-// error schema from what huma.NewError returns; it must stay *huma.ErrorModel.
+// huma derives the documented error schema from what huma.NewError returns, so
+// it must stay *huma.ErrorModel or the published spec changes.
 func TestDocumentedErrorSchemaIsHumaErrorModel(t *testing.T) {
 	installForTest(t)
 	if _, ok := huma.NewError(0, "").(*huma.ErrorModel); !ok {

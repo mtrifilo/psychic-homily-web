@@ -1,12 +1,19 @@
-// Package humaerr decides what huma writes into an error response body.
+// Package humaerr controls which errors huma renders into an error response
+// body.
 //
-// huma builds every error body it writes through two package-level
-// constructors, huma.NewError and huma.NewErrorWithContext: the huma.ErrorNNN
-// helpers call the first, and a handler error that is not a huma.StatusError
-// goes through the second. Their defaults put each non-ErrorDetailer error's
+// huma builds its error bodies through two package-level constructors,
+// huma.NewError and huma.NewErrorWithContext: the huma.ErrorNNN helpers call
+// the first, and a handler error that is not a huma.StatusError goes through
+// the second. Their defaults put each non-ErrorDetailer error argument's
 // Error() text into errors[].message, which for a wrapped service or driver
 // error is internal text (SQL, schema names, service names). Install replaces
-// both so that text goes to the log and never to the body.
+// both so that text is logged instead of rendered.
+//
+// Only the error arguments are filtered. The message argument becomes the
+// body's detail verbatim, so a caller that formats an error into the message
+// still puts that text in the body. A handler-defined huma.StatusError, such
+// as middleware.ReauthRequiredError, is written as its own body and never
+// reaches these constructors.
 package humaerr
 
 import (
@@ -20,31 +27,33 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/observability"
 )
 
-// Install replaces huma's error constructors with ones that keep internal
-// error text out of response bodies. The constructors are huma package
-// globals, so this applies to every huma API in the process; call it at API
-// setup, before any request is served.
+// Install replaces huma's error constructors. They are huma package globals,
+// so this applies to every huma API in the process and stays in effect; call
+// it at API setup, before any request is served.
 //
-// What reaches the body:
+// For the error arguments:
 //   - a huma.ErrorDetailer (huma's own validation details, and the structured
-//     *huma.ErrorDetail values handlers build) is kept as the handler built it;
-//   - any other error is withheld from the body and logged;
-//   - a handler error that is an *AuthError, directly or wrapped, answers with
-//     its code's status and the auth envelope (success, message, error_code,
-//     request_id) the auth middleware writes, carrying only the external code
-//     and message.
+//     *huma.ErrorDetail values handlers build) is rendered as built;
+//   - any other error is left out of the body and logged, scrubbed;
+//   - a handler error that huma could not resolve to a huma.StatusError and
+//     that is, or wraps, an *AuthError answers with its code's status and the
+//     auth middleware's envelope (success, message, error_code, request_id),
+//     carrying only the external code and message. An *AuthError passed as a
+//     huma.ErrorNNN argument is an error argument like any other: left out
+//     and logged, at the status the caller chose.
 func Install() {
 	huma.NewError = newError
 	huma.NewErrorWithContext = newErrorWithContext
 }
 
-// newError has no request context: it runs inside handler code, which calls
-// the huma.ErrorNNN helpers without one. Withheld text is logged without a
-// request ID for that reason.
+// newError has no request context: handler code calls the huma.ErrorNNN
+// helpers without one, so its log line carries no request ID, and it logs when
+// the error is built whether or not the error is then written.
 func newError(status int, msg string, errs ...error) huma.StatusError {
-	return buildErrorModel(context.Background(), slog.Default(), "", status, msg, errs)
+	return buildErrorModel(context.Background(), slog.Default(), status, msg, errs)
 }
 
 func newErrorWithContext(ctx huma.Context, status int, msg string, errs ...error) huma.StatusError {
@@ -52,18 +61,19 @@ func newErrorWithContext(ctx huma.Context, status int, msg string, errs ...error
 	if ctx != nil {
 		reqCtx = ctx.Context()
 	}
-	log, requestID := logger.FromContext(reqCtx), logger.GetRequestID(reqCtx)
+	// The request's logger already carries its request ID.
+	log := logger.FromContext(reqCtx)
 
 	if len(errs) == 1 {
 		var authErr *autherrors.AuthError
 		if errors.As(errs[0], &authErr) {
-			return newAuthErrorResponse(reqCtx, log, requestID, authErr, errs[0])
+			return newAuthErrorResponse(reqCtx, log, logger.GetRequestID(reqCtx), authErr, errs[0])
 		}
 	}
-	return buildErrorModel(reqCtx, log, requestID, status, msg, errs)
+	return buildErrorModel(reqCtx, log, status, msg, errs)
 }
 
-func buildErrorModel(ctx context.Context, log *slog.Logger, requestID string, status int, msg string, errs []error) huma.StatusError {
+func buildErrorModel(ctx context.Context, log *slog.Logger, status int, msg string, errs []error) huma.StatusError {
 	var details []*huma.ErrorDetail
 	var withheld []string
 	for _, err := range errs {
@@ -74,7 +84,7 @@ func buildErrorModel(ctx context.Context, log *slog.Logger, requestID string, st
 			details = append(details, detailer.ErrorDetail())
 			continue
 		}
-		withheld = append(withheld, err.Error())
+		withheld = append(withheld, observability.ScrubText(err.Error()))
 	}
 
 	if len(withheld) > 0 {
@@ -82,7 +92,6 @@ func buildErrorModel(ctx context.Context, log *slog.Logger, requestID string, st
 			"status", status,
 			"detail", msg,
 			"errors", withheld,
-			"request_id", requestID,
 		)
 	}
 
@@ -112,8 +121,7 @@ func newAuthErrorResponse(ctx context.Context, log *slog.Logger, requestID strin
 	log.Log(ctx, levelFor(status), "auth_error_response",
 		"status", status,
 		"auth_code", authErr.Code,
-		"error", returned.Error(),
-		"request_id", requestID,
+		"error", observability.ScrubText(returned.Error()),
 	)
 	return &authErrorResponse{
 		JWTErrorResponse: middleware.JWTErrorResponse{

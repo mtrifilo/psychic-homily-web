@@ -336,7 +336,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		resp.Body.Success = false
 		resp.Body.Message = "Failed to generate authentication token"
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, authErr // Return actual error for 500 handling
+		return resp, authErr // Return actual error for 5xx HTTP status
 	}
 
 	// Set HTTP-only cookie using Huma's built-in support

@@ -23,8 +23,8 @@ var errWireDriver = fmt.Errorf(`ERROR: relation "user_bookmarks" does not exist 
 
 // Handler unit tests call handlers directly, so they never see what huma puts
 // on the wire for a returned error. These register the real handlers on a
-// huma API configured as routes.SetupRoutes configures it, and read the
-// response.
+// huma API with humaerr installed, as routes.SetupRoutes installs it, and read
+// the response.
 func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
 	t.Helper()
 	prevNewError, prevNewErrorWithContext := huma.NewError, huma.NewErrorWithContext
