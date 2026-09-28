@@ -2,9 +2,10 @@
 // body.
 //
 // huma builds its error bodies through two package-level constructors,
-// huma.NewError and huma.NewErrorWithContext: the huma.ErrorNNN helpers call
-// the first, and a handler error that is not a huma.StatusError goes through
-// the second. Their defaults put each non-ErrorDetailer error argument's
+// huma.NewError and huma.NewErrorWithContext. The huma.ErrorNNN helpers call
+// the first. The second serves huma's own request-time errors: a handler error
+// that is not a huma.StatusError, huma.WriteErr (which request validation and
+// resolver errors go through), and a failed content negotiation. Their defaults put each non-ErrorDetailer error argument's
 // Error() text into errors[].message, which for a wrapped service or driver
 // error is internal text (SQL, schema names, service names). Install replaces
 // both so that text is logged instead of rendered.
@@ -52,8 +53,9 @@ func Install() {
 
 // unresolvedHandlerErrorStatus and unresolvedHandlerErrorMessage are the
 // arguments huma passes to NewErrorWithContext for a handler error that is not
-// a huma.StatusError. Only that call gets the auth envelope; huma.WriteErr
-// calls, which carry their caller's own status and message, do not.
+// a huma.StatusError. Only a call with both, and one error argument, gets the
+// auth envelope; a huma.WriteErr call with any other status or message does
+// not.
 const (
 	unresolvedHandlerErrorStatus  = http.StatusInternalServerError
 	unresolvedHandlerErrorMessage = "unexpected error occurred"
@@ -64,7 +66,9 @@ func isUnresolvedHandlerError(status int, msg string, errs []error) bool {
 }
 
 // requestLogger is the request's logger, which carries its request ID, or
-// slog.Default() when the context has none. slog.Default() is also what
+// slog.Default() when the context has none. Not logger.FromContext: its
+// fallback, logger.Default(), runs logger.Init when nothing has, and Init
+// replaces slog.Default() for the whole process. slog.Default() is also what
 // newError logs through; logger.Init makes it the process logger.
 func requestLogger(ctx context.Context) *slog.Logger {
 	if log, ok := ctx.Value(logger.LoggerContextKey).(*slog.Logger); ok {

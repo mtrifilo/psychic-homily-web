@@ -93,17 +93,28 @@ func newTestAPI(t *testing.T) humatest.TestAPI {
 
 	// huma.WriteErr carries its caller's status and message, so an AuthError
 	// argument there is withheld like any other, not turned into the envelope.
-	huma.Register(api, huma.Operation{
-		OperationID: "write-err",
-		Method:      http.MethodGet,
-		Path:        "/write-err",
-		Middlewares: huma.Middlewares{func(ctx huma.Context, _ func(huma.Context)) {
-			_ = huma.WriteErr(api, ctx, http.StatusUnprocessableEntity, "validation failed",
-				autherrors.ErrUserExists("someone@example.com"))
-		}},
-	}, func(context.Context, *struct{}) (*struct{}, error) {
-		return &struct{}{}, nil
-	})
+	// Each path shares one half of huma's unresolved-handler-error arguments
+	// with it, so each half of that check is pinned on its own.
+	for path, call := range map[string]struct {
+		status int
+		msg    string
+	}{
+		"/write-err":                  {http.StatusUnprocessableEntity, "validation failed"},
+		"/write-err-500":              {http.StatusInternalServerError, "Unable to get resource"},
+		"/write-err-fallback-message": {http.StatusUnprocessableEntity, unresolvedHandlerErrorMessage},
+	} {
+		huma.Register(api, huma.Operation{
+			OperationID: strings.TrimPrefix(path, "/"),
+			Method:      http.MethodGet,
+			Path:        path,
+			Middlewares: huma.Middlewares{func(ctx huma.Context, _ func(huma.Context)) {
+				_ = huma.WriteErr(api, ctx, call.status, call.msg,
+					autherrors.ErrUserExists("someone@example.com"))
+			}},
+		}, func(context.Context, *struct{}) (*struct{}, error) {
+			return &struct{}{}, nil
+		})
+	}
 
 	huma.Register(api, huma.Operation{
 		OperationID: "create",
@@ -227,23 +238,47 @@ func TestStructuredDetailsReachTheBody(t *testing.T) {
 
 func TestWriteErrKeepsItsStatusAndWithholdsAnAuthError(t *testing.T) {
 	api := newTestAPI(t)
-	code, contentType, body, logs := get(t, api, "/write-err")
 
-	if code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want the caller's 422; body: %s", code, body)
+	for path, want := range map[string]struct {
+		status int
+		detail string
+	}{
+		"/write-err":                  {http.StatusUnprocessableEntity, "validation failed"},
+		"/write-err-500":              {http.StatusInternalServerError, "Unable to get resource"},
+		"/write-err-fallback-message": {http.StatusUnprocessableEntity, unresolvedHandlerErrorMessage},
+	} {
+		t.Run(path, func(t *testing.T) {
+			code, contentType, body, logs := get(t, api, path)
+
+			if code != want.status {
+				t.Fatalf("status = %d, want the caller's %d; body: %s", code, want.status, body)
+			}
+			if contentType != "application/problem+json" {
+				t.Errorf("Content-Type = %q, want application/problem+json", contentType)
+			}
+			model := decodeModel(t, body)
+			if model.Detail != want.detail || len(model.Errors) != 0 {
+				t.Errorf("want the caller's detail and no errors[]; body: %s", body)
+			}
+			if strings.Contains(body, "USER_EXISTS") || strings.Contains(body, "already exists") {
+				t.Errorf("body carries the AuthError: %s", body)
+			}
+			if !strings.Contains(logs, "USER_EXISTS") {
+				t.Errorf("the withheld AuthError was not logged; logs:\n%s", logs)
+			}
+		})
 	}
-	if contentType != "application/problem+json" {
-		t.Errorf("Content-Type = %q, want application/problem+json", contentType)
+}
+
+// A context without a logger falls back to slog.Default() itself, not to
+// logger.Default(), which would run logger.Init and replace slog.Default().
+func TestRequestLoggerFallsBackToSlogDefault(t *testing.T) {
+	before := slog.Default()
+	if got := requestLogger(context.Background()); got != before {
+		t.Error("requestLogger without a context logger did not return slog.Default()")
 	}
-	model := decodeModel(t, body)
-	if model.Detail != "validation failed" || len(model.Errors) != 0 {
-		t.Errorf("want the caller's detail and no errors[]; body: %s", body)
-	}
-	if strings.Contains(body, "USER_EXISTS") || strings.Contains(body, "already exists") {
-		t.Errorf("body carries the AuthError: %s", body)
-	}
-	if !strings.Contains(logs, "USER_EXISTS") {
-		t.Errorf("the withheld AuthError was not logged; logs:\n%s", logs)
+	if slog.Default() != before {
+		t.Error("requestLogger replaced slog.Default()")
 	}
 }
 

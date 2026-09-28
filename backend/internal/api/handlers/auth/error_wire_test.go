@@ -161,7 +161,8 @@ func TestGetProfileDeletedUserBodyOverTheWire(t *testing.T) {
 		"refresh":     api.Post("/auth/refresh"),
 	} {
 		if resp.Code != http.StatusUnauthorized {
-			t.Fatalf("%s: status = %d, want 401; body: %s", name, resp.Code, resp.Body.String())
+			t.Errorf("%s: status = %d, want 401; body: %s", name, resp.Code, resp.Body.String())
+			continue
 		}
 		assertNoInternalText(t, resp.Body.String(), "no user with id", "USER_NOT_FOUND")
 	}

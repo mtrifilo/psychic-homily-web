@@ -13,8 +13,8 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
-// The unhandled-authcode branches must answer 5xx even when the unrouted
-// code's own status is a 4xx. CodeUserExists maps to 409, and none of these
+// The unhandled-authcode branches must answer 5xx even when the code their
+// switch does not handle maps to a 4xx. CodeUserExists maps to 409, and none of these
 // three branches routes it.
 func TestUnhandledAuthCodeAnswersServiceUnavailable(t *testing.T) {
 	unrouted := autherrors.NewAuthError(autherrors.CodeUserExists, "An account with this email already exists", errWireDriver)

@@ -307,7 +307,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 				// Wrapped so the response is a 5xx: an AuthError answers with
-				// its code's status, and the unrouted code's may be a 4xx.
+				// its code's status, and a code this switch does not handle
+				// may map to a 4xx.
 				return resp, autherrors.ErrServiceUnavailable("login_unhandled_authcode", authErr)
 			}
 		}
@@ -1461,7 +1462,8 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 				// Wrapped so the response is a 5xx: an AuthError answers with
-				// its code's status, and the unrouted code's may be a 4xx.
+				// its code's status, and a code this switch does not handle
+				// may map to a 4xx.
 				return resp, autherrors.ErrServiceUnavailable("change_password_unhandled_authcode", authErr)
 			}
 		}
@@ -2481,7 +2483,8 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 				// Wrapped so the response is a 5xx: an AuthError answers with
-				// its code's status, and the unrouted code's may be a 4xx.
+				// its code's status, and a code this switch does not handle
+				// may map to a 4xx.
 				return resp, autherrors.ErrServiceUnavailable("update_profile_unhandled_authcode", authErr)
 			}
 		}
