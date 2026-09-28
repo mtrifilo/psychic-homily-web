@@ -54,17 +54,6 @@ describe('useAuthGatedAction', () => {
     )
   })
 
-  it('names whichever intent the control passes', () => {
-    mockAuthStatus = 'anonymous'
-    const { result } = renderHook(() => useAuthGatedAction('follow', vi.fn()))
-
-    act(() => result.current.onClick())
-
-    expect(mockPush).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fartists%2Fcalexico&intent=follow'
-    )
-  })
-
   // The home page is a destination `buildAuthHref` drops, so the intent is the
   // only parameter left and still has to arrive.
   it('keeps the intent when there is no returnTo to carry', () => {
@@ -118,9 +107,9 @@ describe('useAuthGatedAction', () => {
     expect(stopPropagation).toHaveBeenCalledTimes(1)
   })
 
-  // A dialog offers Sign in and Create account as separate buttons, so the
-  // href it gets has to open on Sign in.
-  it('hands an anonymous override the same returnTo, without the intent', () => {
+  // A dialog offers Sign in and Create account as separate buttons: both carry
+  // the same returnTo, and only the Create account one names the intent.
+  it('hands an anonymous override both hrefs, the intent on Create account only', () => {
     mockAuthStatus = 'anonymous'
     mockPathname = '/shows/example'
     setLocation('/shows/example?tab=bill')
@@ -131,9 +120,11 @@ describe('useAuthGatedAction', () => {
 
     act(() => result.current.onClick())
 
-    expect(onAnonymous).toHaveBeenCalledWith(
-      '/auth?returnTo=%2Fshows%2Fexample%3Ftab%3Dbill'
-    )
+    expect(onAnonymous).toHaveBeenCalledWith({
+      signInHref: '/auth?returnTo=%2Fshows%2Fexample%3Ftab%3Dbill',
+      createAccountHref:
+        '/auth?returnTo=%2Fshows%2Fexample%3Ftab%3Dbill&intent=report',
+    })
     expect(mockPush).not.toHaveBeenCalled()
   })
 

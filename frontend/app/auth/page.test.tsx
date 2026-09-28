@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { AUTH_INTENTS } from '@/lib/auth-href'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -195,15 +194,6 @@ describe('AuthPage', () => {
       expect(screen.queryByTestId('passkey-login')).not.toBeInTheDocument()
     })
 
-    it('opens on Create account for every intent a gated control can name', () => {
-      for (const intent of AUTH_INTENTS) {
-        setSearchParams(`returnTo=%2Fartists%2Fcalexico&intent=${intent}`)
-        const { unmount } = renderWithProviders(<AuthPage />)
-        expectSelected('Create account')
-        unmount()
-      }
-    })
-
     it('opens on Create account from a gated click on a page with no returnTo', () => {
       setSearchParams('intent=follow')
       renderWithProviders(<AuthPage />)
@@ -222,13 +212,10 @@ describe('AuthPage', () => {
       expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
     })
 
-    it.each([
-      ['an unlisted value', 'returnTo=%2Fshows&intent=signup'],
-      ['a different case', 'returnTo=%2Fshows&intent=SAVE'],
-      ['an empty value', 'returnTo=%2Fshows&intent='],
-      ['markup', 'returnTo=%2Fshows&intent=%3Cscript%3E'],
-    ])('ignores %s and opens on Sign in', (_label, query) => {
-      setSearchParams(query)
+    // The value edge cases are pinned on `isAuthIntent` itself; this proves
+    // the page goes through it.
+    it('ignores an unlisted intent and opens on Sign in', () => {
+      setSearchParams('returnTo=%2Fshows&intent=signup')
       renderWithProviders(<AuthPage />)
 
       expectSelected('Sign in')

@@ -148,9 +148,9 @@ export const AUTH_INTENTS = [
 
 export type AuthIntent = (typeof AUTH_INTENTS)[number]
 
-/** Reads the intent back off an auth-page URL; an unlisted value is null. */
-export function parseAuthIntent(raw: string | null): AuthIntent | null {
-  return AUTH_INTENTS.find(intent => intent === raw) ?? null
+/** Is this intent-parameter value one a gated control can name? */
+export function isAuthIntent(raw: string | null): raw is AuthIntent {
+  return raw !== null && (AUTH_INTENTS as readonly string[]).includes(raw)
 }
 
 /**

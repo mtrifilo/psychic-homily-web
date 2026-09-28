@@ -10,6 +10,16 @@ import {
   type AuthIntent,
 } from '@/lib/auth-href'
 
+/**
+ * The two ways into `/auth` a turned-away viewer can be offered. Both return
+ * them to the same place; only `createAccountHref` names the intent, so only
+ * it opens on Create account.
+ */
+export interface AuthGateHrefs {
+  signInHref: string
+  createAccountHref: string
+}
+
 export interface AuthGatedAction {
   /**
    * The sign-in href for the viewer's current location, naming no intent, so
@@ -44,15 +54,14 @@ export interface AuthGatedAction {
  * card that would otherwise navigate underneath it.
  *
  * `onAnonymous` is for a control that surfaces sign-in as a dialog rather than
- * a navigation. It receives `buildAuthHrefForHere()`: the same returnTo the
- * default push carries, without the intent, because a dialog offers Sign in
- * and Create account as separate choices and the intent would open Create
- * account under the one labelled Sign in.
+ * a navigation. It receives both hrefs, built from the same returnTo the
+ * default push carries, so a dialog that offers Sign in and Create account as
+ * separate choices can put each on its own button.
  */
 export function useAuthGatedAction(
   intent: AuthIntent,
   action: () => void,
-  onAnonymous?: (authHref: string) => void
+  onAnonymous?: (hrefs: AuthGateHrefs) => void
 ): AuthGatedAction {
   const router = useRouter()
   const pathname = usePathname()
@@ -76,12 +85,15 @@ export function useAuthGatedAction(
     if (authStatus === 'pending') return
 
     if (authStatus === 'anonymous') {
+      const returnTo = currentLocationReturnTo(pathname)
+      const createAccountHref = buildGatedAuthHref(returnTo, intent)
       if (onAnonymous) {
-        onAnonymous(buildAuthHrefForHere())
+        onAnonymous({
+          signInHref: buildAuthHref(returnTo),
+          createAccountHref,
+        })
       } else {
-        router.push(
-          buildGatedAuthHref(currentLocationReturnTo(pathname), intent)
-        )
+        router.push(createAccountHref)
       }
       return
     }

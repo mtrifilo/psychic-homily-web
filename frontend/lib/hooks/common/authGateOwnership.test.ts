@@ -107,16 +107,19 @@ function sourceFiles(dir: string): string[] {
   return out
 }
 
+// Read once for the whole file: every assertion below is a pattern over the
+// same comment-stripped sources.
+const SOURCES = SCANNED_DIRS.flatMap(dir => sourceFiles(join(ROOT, dir))).map(
+  file => ({
+    rel: relative(ROOT, file),
+    code: stripComments(readFileSync(file, 'utf8')),
+  })
+)
+
 function filesMatching(pattern: RegExp): string[] {
-  const found: string[] = []
-  for (const dir of SCANNED_DIRS) {
-    for (const file of sourceFiles(join(ROOT, dir))) {
-      if (pattern.test(stripComments(readFileSync(file, 'utf8')))) {
-        found.push(relative(ROOT, file))
-      }
-    }
-  }
-  return found.sort()
+  return SOURCES.filter(source => pattern.test(source.code))
+    .map(source => source.rel)
+    .sort()
 }
 
 function offenders(pattern: RegExp): string[] {

@@ -31,8 +31,8 @@ import {
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import {
   AUTH_INTENT_PARAM,
+  isAuthIntent,
   isReauthReason,
-  parseAuthIntent,
 } from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
@@ -648,10 +648,10 @@ function AuthPageContent() {
   // in. Re-auth wins: it hides that tab, and a selected tab that does not
   // render would leave the card empty. The URL only seeds the first render;
   // tab changes after that are local state and never written back.
-  const arrivedFromGatedAction =
-    parseAuthIntent(searchParams.get(AUTH_INTENT_PARAM)) !== null
-  const [activeTab, setActiveTab] = useState(
-    arrivedFromGatedAction && !isReauth ? 'signup' : 'login'
+  const [activeTab, setActiveTab] = useState(() =>
+    isAuthIntent(searchParams.get(AUTH_INTENT_PARAM)) && !isReauth
+      ? 'signup'
+      : 'login'
   )
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)

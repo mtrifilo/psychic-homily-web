@@ -47,9 +47,19 @@ vi.mock('./ReportShowDialog', () => ({
 }))
 
 vi.mock('@/features/auth', () => ({
-  LoginPromptDialog: ({ open, authHref }: { open: boolean; authHref?: string }) =>
+  LoginPromptDialog: ({
+    open,
+    hrefs,
+  }: {
+    open: boolean
+    hrefs: { signInHref: string; createAccountHref: string }
+  }) =>
     open ? (
-      <div data-testid="login-prompt" data-auth-href={authHref}>
+      <div
+        data-testid="login-prompt"
+        data-sign-in-href={hrefs.signInHref}
+        data-create-account-href={hrefs.createAccountHref}
+      >
         Login Prompt
       </div>
     ) : null,
@@ -93,8 +103,28 @@ describe('ReportShowButton', () => {
 
     await user.click(screen.getByRole('button', { name: /Report Issue/ }))
     expect(screen.getByTestId('login-prompt')).toHaveAttribute(
-      'data-auth-href',
+      'data-sign-in-href',
       '/auth?returnTo=%2Fshows%2Ftest-show%3Ftab%3Dbill'
+    )
+    window.history.replaceState({}, '', '/')
+  })
+
+  // The prompt offers Sign in and Create account as separate buttons, so only
+  // the Create account destination names the intent that opens that tab.
+  it('names the report intent on the Create account destination only', async () => {
+    window.history.replaceState({}, '', '/shows/test-show')
+    const user = userEvent.setup()
+    render(<ReportShowButton showId={1} showTitle="Test Show" />)
+
+    await user.click(screen.getByRole('button', { name: /Report Issue/ }))
+    const prompt = screen.getByTestId('login-prompt')
+    expect(prompt).toHaveAttribute(
+      'data-create-account-href',
+      '/auth?returnTo=%2Fshows%2Ftest-show&intent=report'
+    )
+    expect(prompt).toHaveAttribute(
+      'data-sign-in-href',
+      '/auth?returnTo=%2Fshows%2Ftest-show'
     )
     window.history.replaceState({}, '', '/')
   })

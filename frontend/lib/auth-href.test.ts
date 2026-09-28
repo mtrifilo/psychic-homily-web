@@ -9,7 +9,7 @@ import {
   buildReauthHref,
   currentLocationReturnTo,
   isReauthReason,
-  parseAuthIntent,
+  isAuthIntent,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
 } from './auth-href'
@@ -119,48 +119,43 @@ describe('isReauthReason', () => {
 })
 
 // A gated control turned an anonymous viewer away. The page reads the intent
-// back with parseAuthIntent, so every href built here has to parse to the
-// intent it was built with, alongside the returnTo the viewer came from.
+// back with isAuthIntent, so every href built here has to carry an intent it
+// accepts, alongside the returnTo the viewer came from.
 describe('buildGatedAuthHref', () => {
-  it('carries the returnTo and the intent together', () => {
-    const params = new URL(
-      buildGatedAuthHref('/shows?city=phoenix', 'save'),
-      'https://x'
-    ).searchParams
-    expect(sanitizeReturnTo(params.get('returnTo'))).toBe('/shows?city=phoenix')
-    expect(parseAuthIntent(params.get(AUTH_INTENT_PARAM))).toBe('save')
+  it('carries the returnTo and an accepted intent for every intent', () => {
+    for (const intent of AUTH_INTENTS) {
+      const params = new URL(
+        buildGatedAuthHref('/shows?city=phoenix', intent),
+        'https://x'
+      ).searchParams
+      expect(sanitizeReturnTo(params.get('returnTo'))).toBe('/shows?city=phoenix')
+      expect(params.get(AUTH_INTENT_PARAM)).toBe(intent)
+      expect(isAuthIntent(params.get(AUTH_INTENT_PARAM))).toBe(true)
+    }
   })
 
   it('carries the intent alone when there is no destination worth keeping', () => {
     expect(buildGatedAuthHref('/', 'follow')).toBe('/auth?intent=follow')
   })
-
-  it('round-trips every intent through the parser', () => {
-    for (const intent of AUTH_INTENTS) {
-      const href = buildGatedAuthHref('/artists/calexico', intent)
-      const raw = new URL(href, 'https://x').searchParams.get(AUTH_INTENT_PARAM)
-      expect(parseAuthIntent(raw)).toBe(intent)
-    }
-  })
-
-  it('is not what the plain sign-in href builds', () => {
-    expect(buildAuthHref('/artists/calexico')).not.toContain(AUTH_INTENT_PARAM)
-  })
 })
 
-describe('parseAuthIntent', () => {
+describe('isAuthIntent', () => {
   it('accepts a listed intent', () => {
-    expect(parseAuthIntent('save')).toBe('save')
+    expect(isAuthIntent('save')).toBe(true)
   })
 
-  it('treats an absent, unlisted, or near-miss value as no intent', () => {
-    expect(parseAuthIntent(null)).toBeNull()
-    expect(parseAuthIntent('')).toBeNull()
-    expect(parseAuthIntent('signup')).toBeNull()
-    expect(parseAuthIntent('SAVE')).toBeNull()
-    expect(parseAuthIntent(' save')).toBeNull()
-    expect(parseAuthIntent('save,follow')).toBeNull()
-    expect(parseAuthIntent('https://evil.example')).toBeNull()
-    expect(parseAuthIntent('<script>')).toBeNull()
+  it('rejects an absent, unlisted, or near-miss value', () => {
+    for (const raw of [
+      null,
+      '',
+      'signup',
+      'SAVE',
+      ' save',
+      'save,follow',
+      'https://evil.example',
+      '<script>',
+    ]) {
+      expect(isAuthIntent(raw)).toBe(false)
+    }
   })
 })
