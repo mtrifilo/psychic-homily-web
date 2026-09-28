@@ -306,7 +306,10 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Success = false
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-				return resp, authErr // Return actual error for 5xx HTTP status
+				// Wrapped so the response is a 5xx: an AuthError answers with
+				// its code's status, and a code this switch does not handle
+				// may map to a 4xx.
+				return resp, autherrors.ErrServiceUnavailable("login_unhandled_authcode", authErr)
 			}
 		}
 
@@ -334,7 +337,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		resp.Body.Success = false
 		resp.Body.Message = "Failed to generate authentication token"
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, authErr // Return actual error for 500 handling
+		return resp, authErr // Return actual error for 5xx HTTP status
 	}
 
 	// Set HTTP-only cookie using Huma's built-in support
@@ -506,13 +509,13 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserNotFound {
 			logger.AuthWarn(ctx, "refresh_token_user_deleted",
 				"user_id", contextUser.ID,
+				"error", authErr,
 			)
 			resp.Body.Success = false
 			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeUnauthorized)
 			resp.Body.ErrorCode = autherrors.CodeUnauthorized
 			return resp, huma.Error401Unauthorized(
 				autherrors.ToExternalMessage(autherrors.CodeUnauthorized),
-				authErr,
 			)
 		}
 
@@ -615,13 +618,13 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserNotFound {
 			logger.AuthWarn(ctx, "get_profile_user_deleted",
 				"user_id", contextUser.ID,
+				"error", authErr,
 			)
 			resp.Body.Success = false
 			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeUnauthorized)
 			resp.Body.ErrorCode = autherrors.CodeUnauthorized
 			return resp, huma.Error401Unauthorized(
 				autherrors.ToExternalMessage(autherrors.CodeUnauthorized),
-				authErr,
 			)
 		}
 
@@ -1458,7 +1461,10 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 				resp.Body.Success = false
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-				return resp, authErr
+				// Wrapped so the response is a 5xx: an AuthError answers with
+				// its code's status, and a code this switch does not handle
+				// may map to a 4xx.
+				return resp, autherrors.ErrServiceUnavailable("change_password_unhandled_authcode", authErr)
 			}
 		}
 
@@ -2476,7 +2482,10 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 				resp.Body.Success = false
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-				return resp, authErr
+				// Wrapped so the response is a 5xx: an AuthError answers with
+				// its code's status, and a code this switch does not handle
+				// may map to a 4xx.
+				return resp, autherrors.ErrServiceUnavailable("update_profile_unhandled_authcode", authErr)
 			}
 		}
 		// Outer fallback: err is NOT an AuthError. Genuine "unexpected error"

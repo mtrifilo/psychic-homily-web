@@ -3,6 +3,7 @@ package errors
 
 import (
 	"fmt"
+	"net/http"
 
 	"psychic-homily-backend/internal/logger"
 )
@@ -100,6 +101,64 @@ func (e *AuthError) Unwrap() error {
 // UserMessage returns the user-safe message (without internal details).
 func (e *AuthError) UserMessage() string {
 	return e.Message
+}
+
+// authCodeHTTPStatus is the HTTP status each code answers with when an
+// AuthError reaches the client as a handler error. A code missing here answers
+// 500 (see HTTPStatus); the errors package tests fail when a declared code is
+// missing, so adding a code means choosing its status here.
+var authCodeHTTPStatus = map[string]int{
+	CodeInvalidCredentials: http.StatusUnauthorized,
+	// Answers as INVALID_CREDENTIALS does (ToExternalCode), so the status must
+	// match it too or the status alone tells an unknown address from a wrong
+	// password.
+	CodeUserNotFound:       http.StatusUnauthorized,
+	CodeTokenExpired:       http.StatusUnauthorized,
+	CodeTokenInvalid:       http.StatusUnauthorized,
+	CodeTokenMissing:       http.StatusUnauthorized,
+	CodeServiceUnavailable: http.StatusServiceUnavailable,
+	CodeUserExists:         http.StatusConflict,
+	CodeValidationFailed:   http.StatusBadRequest,
+	// 403, not 401: the frontend reads every 401 as "no session" and signs the
+	// viewer out, which is wrong for a caller who is signed in but refused.
+	CodeUnauthorized:               http.StatusForbidden,
+	CodeUnknown:                    http.StatusInternalServerError,
+	CodeAccountLocked:              http.StatusLocked,
+	CodeAccountInactive:            http.StatusForbidden,
+	CodeNoPasswordSet:              http.StatusConflict,
+	CodeTermsAcceptanceRequired:    http.StatusUnprocessableEntity,
+	CodeAgeConfirmationRequired:    http.StatusUnprocessableEntity,
+	CodeInvalidReplyPermission:     http.StatusBadRequest,
+	CodeUsernameTaken:              http.StatusConflict,
+	CodeOAuthLinkRefused:           http.StatusConflict,
+	CodeOAuthIdentityInUse:         http.StatusConflict,
+	CodeOAuthProviderAlreadyLinked: http.StatusConflict,
+	CodeOAuthLinkExpired:           http.StatusBadRequest,
+	CodeReauthRequired:             http.StatusForbidden,
+	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
+}
+
+// HTTPStatus reports the HTTP status for the error's code.
+//
+// Deliberately not named GetStatus: that would make AuthError a
+// huma.StatusError, and huma marshals a returned StatusError as the response
+// body, so every exported field, Internal included, would reach the client.
+// The API layer reads this status when it builds the response instead.
+func (e *AuthError) HTTPStatus() int {
+	if status, ok := authCodeHTTPStatus[e.Code]; ok {
+		return status
+	}
+	return http.StatusInternalServerError
+}
+
+// ExternalMessage is the message a client may see: UserMessage, unless
+// ToExternalCode rewrites the code, in which case the rewritten code's message,
+// so the message cannot say what the rewritten code conceals.
+func (e *AuthError) ExternalMessage() string {
+	if code := ToExternalCode(e.Code); code != e.Code {
+		return ToExternalMessage(code)
+	}
+	return e.UserMessage()
 }
 
 // WithRequestID returns a copy of the error with the request ID set.
