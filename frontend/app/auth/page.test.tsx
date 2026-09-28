@@ -270,6 +270,25 @@ describe('AuthPage', () => {
         expectSelected('Sign in')
       })
 
+      // Back to the first query string is a new arrival too, not a return to
+      // the pick made under it.
+      it('does not bring a dropped pick back when the first arrival returns', async () => {
+        const user = userEvent.setup()
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expectSelected('Create account')
+
+        setSearchParams('')
+        rerender(<AuthPage />)
+        expectSelected('Sign in')
+
+        setSearchParams('returnTo=%2Fshows%2Fexample')
+        rerender(<AuthPage />)
+
+        expectSelected('Sign in')
+      })
+
       it('keeps a tab the viewer picked while the arrival is unchanged', async () => {
         const user = userEvent.setup()
         setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')

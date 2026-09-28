@@ -29,7 +29,7 @@ import { join, relative, sep } from 'node:path'
  *   - `buildGatedAuthHref`: `lib/auth-href.ts` and `useAuthGatedAction`
  *   - `AUTH_INTENT_PARAM`: `lib/auth-href.ts` (it is also unexported)
  *   - the parameter spelled out, as `?intent=` / `&intent=` or as a quoted
- *     `'intent'`: `lib/auth-href.ts`
+ *     `'intent'`: `lib/auth-href.ts` (an unquoted object key is not caught)
  * The last rule covers every route, not only `/auth`: a route that needs an
  * `intent` parameter of its own is added to it deliberately. A helper added
  * inside `lib/auth-href.ts` that wraps `buildGatedAuthHref` is not caught.
@@ -179,7 +179,8 @@ describe('auth gate ownership', () => {
 
   it('spells the intent parameter nowhere but the module that owns it', () => {
     // A written-out `?intent=` / `&intent=`, or `'intent'` as a quoted string
-    // (a URLSearchParams key, a query object key), in any scanned file.
+    // (a quoted URLSearchParams or object key), in any scanned file. An
+    // unquoted object key (`{ intent: 'save' }`, `{ intent }`) is not caught.
     expect(filesMatching(/[?&]intent=|['"`]intent['"`]/)).toEqual([
       ['lib', 'auth-href.ts'].join(sep),
     ])

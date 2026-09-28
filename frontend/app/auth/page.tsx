@@ -659,6 +659,9 @@ function AuthPageContent() {
     arrival: string
     tab: string
   } | null>(null)
+  if (pickedTab !== null && pickedTab.arrival !== arrival) {
+    setPickedTab(null)
+  }
   const activeTab = pickedTab?.arrival === arrival ? pickedTab.tab : arrivalTab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
