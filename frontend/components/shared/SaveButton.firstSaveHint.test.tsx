@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapperWithClient } from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { SaveButton } from './SaveButton'
 
 // The one-time first-save hint, end to end through SaveButton: the real hint
@@ -80,6 +81,13 @@ function putCount(): number {
       String(endpoint).endsWith('/auth/preferences/first-save-hint') &&
       (options as { method?: string } | undefined)?.method === 'PUT'
   ).length
+}
+
+// The hint element whether or not it is visible yet: it stays hidden until
+// floating-ui places it, and a role query skips hidden elements, so an
+// absence check by role would pass while an unplaced hint is mounted.
+function hintElement(): HTMLElement | null {
+  return screen.queryByTestId('first-save-hint')
 }
 
 function countReads(): number {
@@ -168,7 +176,7 @@ describe('SaveButton first-save hint', () => {
     await clickSave(user, 1)
     await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
     await waitFor(() => expect(putCount()).toBe(1))
     expect(readFlag(client)).toEqual(expect.any(String))
     expect(apiRequest).toHaveBeenCalledWith(
@@ -185,7 +193,7 @@ describe('SaveButton first-save hint', () => {
     renderSave(client, 2)
     await clickSave(user, 2)
     await waitFor(() => expect(saved.has(2)).toBe(true))
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
     expect(countReads()).toBe(readsBefore)
   })
 
@@ -196,7 +204,7 @@ describe('SaveButton first-save hint', () => {
     await clickSave(user)
 
     await waitFor(() => expect(saved.has(1)).toBe(true))
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
     expect(countReads()).toBe(0)
   })
 
@@ -208,7 +216,7 @@ describe('SaveButton first-save hint', () => {
     await clickSave(user)
 
     await waitFor(() => expect(countReads()).toBe(1))
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
   })
 
   it('never shows for an anonymous viewer', async () => {
@@ -220,7 +228,7 @@ describe('SaveButton first-save hint', () => {
 
     expect(mockToggle).not.toHaveBeenCalled()
     expect(countReads()).toBe(0)
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
   })
 
   it.each([
@@ -242,30 +250,91 @@ describe('SaveButton first-save hint', () => {
     await screen.findByRole('status')
     await close(user)
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
     await waitFor(() => expect(putCount()).toBe(1))
     expect(readFlag(client)).toEqual(expect.any(String))
   })
 
-  // An Escape a Radix layer above the hint already consumed closed that
-  // layer; it is not the viewer dismissing the hint.
-  it('ignores an Escape another layer already handled', async () => {
+  // A real Radix popover open beside the hint (the show page's Add to
+  // collection) owns its Escape: it closes, and the hint neither dismisses
+  // nor stamps the account. Covered in both mount orders, because mount order
+  // decides Radix's own layer stack: opened while the count read is still in
+  // flight (the hint mounts after it), and opened over an open hint.
+  it.each(['while the read is in flight', 'over the open hint'] as const)(
+    'leaves Escape to a popover opened %s',
+    async when => {
+      const user = userEvent.setup()
+      const client = createClient(null)
+      let resolveRead!: () => void
+      if (when === 'while the read is in flight') {
+        apiRequest.mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveRead = () =>
+                resolve({ shows: [], total: savedTotal, limit: 1, offset: 0 })
+            })
+        )
+      }
+      const ui = (withPopover: boolean) => (
+        <>
+          <SaveButton showId={1} variant="bracket" />
+          {withPopover ? (
+            <Popover defaultOpen>
+              <PopoverAnchor>
+                <span>anchor</span>
+              </PopoverAnchor>
+              <PopoverContent>collection picker</PopoverContent>
+            </Popover>
+          ) : null}
+        </>
+      )
+      const { rerender } = render(ui(false), {
+        wrapper: createWrapperWithClient(client),
+      })
+
+      await clickSave(user)
+      if (when === 'while the read is in flight') {
+        await waitFor(() => expect(countReads()).toBe(1))
+        rerender(ui(true))
+        await screen.findByText('collection picker')
+        resolveRead()
+        await screen.findByRole('status')
+      } else {
+        await screen.findByRole('status')
+        rerender(ui(true))
+        await screen.findByText('collection picker')
+      }
+
+      await user.keyboard('{Escape}')
+
+      await waitFor(() =>
+        expect(screen.queryByText('collection picker')).not.toBeInTheDocument()
+      )
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      expect(readFlag(client)).toBeNull()
+    }
+  )
+
+  // Keyboard users reach the hint as the next tab stop after Save, and
+  // closing it from the keyboard puts focus back on Save instead of <body>.
+  it('is the next tab stop, and returns focus to Save when dismissed', async () => {
     const user = userEvent.setup()
-    const client = createClient(null)
-    renderSave(client)
+    renderSave(createClient(null))
 
     await clickSave(user)
     await screen.findByRole('status')
-    const consumed = new KeyboardEvent('keydown', {
-      key: 'Escape',
-      bubbles: true,
-      cancelable: true,
-    })
-    consumed.preventDefault()
-    document.dispatchEvent(consumed)
+    const save = screen.getByRole('button', { name: /Remove from saved shows/ })
+    save.focus()
 
-    expect(screen.getByRole('status')).toBeInTheDocument()
-    expect(readFlag(client)).toBeNull()
+    await user.tab()
+    expect(screen.getByRole('link', { name: 'home page' })).toHaveFocus()
+    await user.tab()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+    expect(hintElement()).not.toBeInTheDocument()
+    expect(save).toHaveFocus()
   })
 
   // Unsaving closes it without stamping: the hint's "Saved." is no longer
@@ -280,7 +349,7 @@ describe('SaveButton first-save hint', () => {
     await user.click(screen.getByRole('button', { name: /Saved, remove|Remove from saved shows/ }))
 
     await waitFor(() =>
-      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(hintElement()).not.toBeInTheDocument()
     )
     expect(readFlag(client)).toBeNull()
   })
@@ -298,12 +367,52 @@ describe('SaveButton first-save hint', () => {
       screen.getByRole('button', { name: /Remove from saved shows/ })
     )
     await waitFor(() =>
-      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(hintElement()).not.toBeInTheDocument()
     )
     await clickSave(user)
 
     await waitFor(() => expect(saved.has(1)).toBe(true))
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
+  })
+
+  // A count read that resolves after the viewer already unsaved answered a
+  // question that no longer stands: it must not arm the hint for a later
+  // re-save.
+  it('ignores a count read that resolves after a later click', async () => {
+    const user = userEvent.setup()
+    let resolveRead!: () => void
+    apiRequest.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveRead = () =>
+            resolve({ shows: [], total: 1, limit: 1, offset: 0 })
+        })
+    )
+    const client = createClient(null)
+    const ui = () => <SaveButton showId={1} variant="bracket" />
+    const { rerender } = render(ui(), {
+      wrapper: createWrapperWithClient(client),
+    })
+
+    await clickSave(user)
+    await waitFor(() => expect(countReads()).toBe(1))
+    // The stubbed save does not re-render; this stands in for the cache
+    // update that does in the app.
+    rerender(ui())
+    await user.click(
+      screen.getByRole('button', { name: /Remove from saved shows/ })
+    )
+    await waitFor(() => expect(saved.has(1)).toBe(false))
+    resolveRead()
+    rerender(ui())
+    await clickSave(user)
+    await waitFor(() => expect(saved.has(1)).toBe(true))
+    rerender(ui())
+
+    expect(
+      screen.getByRole('button', { name: /Remove from saved shows/ })
+    ).toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
   })
 
   // Once the question is answered in a session, later saves do not re-ask:
@@ -333,29 +442,35 @@ describe('SaveButton first-save hint', () => {
     await clickSave(user)
 
     await waitFor(() => expect(countReads()).toBe(1))
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(hintElement()).not.toBeInTheDocument()
     expect(screen.queryByText(/Failed to/)).not.toBeInTheDocument()
   })
 
-  // No layout shift and no clipping: the hint is portalled out of the row
-  // (so an overflow-hidden or scrolling ancestor cannot cut it off, and it
-  // takes no space there) and anchored to the control's requested edge.
+  // No layout shift and no clipping: the hint sits right after the control
+  // in the DOM (reading and tab order) but is fixed-positioned, so it takes
+  // no space in the row and an overflow-hidden or scrolling ancestor cannot
+  // cut it off; it lines up with the requested edge of the control.
   it.each([
     ['bracket', 'start'],
     ['bracket', 'end'],
     ['ghost', 'end'],
   ] as const)(
-    'portals out of the %s control, aligned %s',
+    'overlays in place after the %s control, aligned %s',
     async (variant, align) => {
       const user = userEvent.setup()
-      const { container } = renderSave(createClient(null), 1, align, variant)
+      renderSave(createClient(null), 1, align, variant)
 
       await clickSave(user)
 
       const hint = await screen.findByRole('status')
-      expect(container).not.toContainElement(hint)
+      const save = screen.getByRole('button', {
+        name: /Remove from saved shows/,
+      })
+      expect(save.compareDocumentPosition(hint)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      )
+      expect(hint.style.position).toBe('fixed')
       expect(hint).toHaveAttribute('data-align', align)
-      expect(hint).toHaveAttribute('data-side', 'bottom')
     }
   )
 })

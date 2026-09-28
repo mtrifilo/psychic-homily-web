@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, type ReactElement } from 'react'
+import { useCallback, useEffect, useLayoutEffect, type RefObject } from 'react'
 import Link from 'next/link'
 import { X } from 'lucide-react'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { autoUpdate, offset, shift, useFloating } from '@floating-ui/react-dom'
 import { useDismissFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
 
 // Minimum distance between the hint and either edge of the viewport. The
@@ -11,74 +11,80 @@ import { useDismissFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint
 const VIEWPORT_GUTTER_PX = 16
 
 interface FirstSaveHintProps {
-  /** Whether the hint is showing. */
-  open: boolean
+  /** The Save control's wrapper. The hint positions against it, and focus
+   *  returns to the first control inside it when the hint closes from the
+   *  keyboard. */
+  anchorRef: RefObject<HTMLElement | null>
   /** Which edge of the Save control the hint lines up with. */
   align: 'start' | 'end'
   /** Close the hint locally. Dismissal on the account happens here. */
   onClose: () => void
-  /** The Save control's own wrapper, which the hint anchors to. Always
-   *  rendered through this component, open or not, so opening the hint never
-   *  remounts the control (and never drops its focus). */
-  children: ReactElement
 }
 
 /**
  * The one-time note that follows a viewer's first saved show, naming where the
- * save went. It is portalled and anchored under the Save control, so it
- * overlays what follows instead of pushing a dense row apart, and no clipping
- * ancestor (a scrolling table, an `overflow-hidden` module) can cut it off.
- */
-export function FirstSaveHint({
-  open,
-  align,
-  onClose,
-  children,
-}: FirstSaveHintProps) {
-  return (
-    <Popover open={open}>
-      <PopoverAnchor asChild>{children}</PopoverAnchor>
-      {open ? <FirstSaveHintContent align={align} onClose={onClose} /> : null}
-    </Popover>
-  )
-}
-
-/**
- * Mounted only while open, so the account write it owns (and the query
- * client that write needs) is never touched by the closed Save controls on a
- * list page. Every way of closing it (the dismiss control, either link,
+ * save went.
+ *
+ * Rendered in place, right after the Save control, so it is the next stop in
+ * tab and reading order; `position: fixed` (anchored by floating-ui) is what
+ * lets it overlay what follows without pushing a dense row apart and without
+ * being cut off by an `overflow-hidden` or scrolling ancestor. It is not a
+ * dismissable layer: a menu or popover opened near it keeps its own Escape and
+ * outside clicks. Every way of closing it (the dismiss control, either link,
  * Escape) stamps the account, so it never opens again on any device.
  */
-function FirstSaveHintContent({
-  align,
-  onClose,
-}: Pick<FirstSaveHintProps, 'align' | 'onClose'>) {
+export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps) {
   const { mutate: dismissOnAccount } = useDismissFirstSaveHint()
+  const {
+    floatingStyles,
+    isPositioned,
+    refs: { setReference, setFloating, floating: hintRef },
+  } = useFloating({
+    strategy: 'fixed',
+    placement: align === 'start' ? 'bottom-start' : 'bottom-end',
+    middleware: [offset(8), shift({ padding: VIEWPORT_GUTTER_PX })],
+    whileElementsMounted: autoUpdate,
+  })
+
+  useLayoutEffect(() => {
+    setReference(anchorRef.current)
+  }, [setReference, anchorRef])
+
   const dismiss = useCallback(() => {
+    const focusWasInside =
+      hintRef.current?.contains(document.activeElement) ?? false
     dismissOnAccount()
     onClose()
-  }, [dismissOnAccount, onClose])
+    // The focused control is about to unmount; without this the keyboard
+    // user's place in the page drops to <body>.
+    if (focusWasInside) {
+      anchorRef.current?.querySelector<HTMLElement>('button, a')?.focus()
+    }
+  }, [anchorRef, dismissOnAccount, onClose, hintRef])
+
+  // Bubble phase on purpose: a Radix menu or popover handles its Escape in the
+  // capture phase and marks it defaultPrevented, so an Escape that closed one
+  // of those is not read as dismissing this hint.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) dismiss()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [dismiss])
 
   return (
-    <PopoverContent
-      side="bottom"
-      align={align}
-      sideOffset={8}
-      collisionPadding={VIEWPORT_GUTTER_PX}
-      // A hint, not a dialog: focus stays on the Save control, and a click
-      // elsewhere on the page leaves it open until the viewer closes it.
-      onOpenAutoFocus={event => event.preventDefault()}
-      onCloseAutoFocus={event => event.preventDefault()}
-      onInteractOutside={event => event.preventDefault()}
-      // Radix calls this only while the hint is the topmost layer, so an
-      // Escape that closes a menu opened over it is not a dismissal; nor is
-      // one another handler already consumed.
-      onEscapeKeyDown={event => {
-        if (!event.defaultPrevented) dismiss()
-      }}
+    <div
+      ref={setFloating}
       role="status"
       data-testid="first-save-hint"
-      className="flex w-[300px] max-w-[calc(100vw-2rem)] items-start gap-3 border-border px-3 py-2.5 text-left font-sans text-sm normal-case leading-snug tracking-normal whitespace-normal shadow-md"
+      data-align={align}
+      style={{
+        ...floatingStyles,
+        // Hidden until placed, so it never flashes at the viewport origin.
+        visibility: isPositioned ? undefined : 'hidden',
+      }}
+      className="z-50 flex w-[300px] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-md border border-border bg-popover px-3 py-2.5 text-left font-sans text-sm normal-case leading-snug tracking-normal whitespace-normal text-popover-foreground shadow-md"
     >
       <p className="flex-1">
         Saved. Find it on your{' '}
@@ -107,6 +113,6 @@ function FirstSaveHintContent({
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
-    </PopoverContent>
+    </div>
   )
 }

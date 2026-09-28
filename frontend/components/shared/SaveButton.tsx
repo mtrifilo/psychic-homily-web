@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -67,6 +67,12 @@ export function SaveButton({
   const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
   const [isHintOpen, setIsHintOpen] = useState(false)
   const closeHint = useCallback(() => setIsHintOpen(false), [])
+  // The hint anchors to this wrapper and renders inside it, right after the
+  // control, so it is the next stop in tab and reading order.
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  // Only the latest click may open the hint: a count read that resolves after
+  // a later unsave or re-save answered a question that no longer stands.
+  const latestClick = useRef(0)
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own. While a batch is in
@@ -109,6 +115,7 @@ export function SaveButton({
   const { onClick: handleClick } = useAuthGatedAction('save', async () => {
     if (isDisabled) return
 
+    const click = ++latestClick.current
     const isSaving = !isSaved
     // Closed here, not only hidden by the render gate below: a hint left open
     // under an unsave would reappear on a re-save without being re-checked.
@@ -125,13 +132,21 @@ export function SaveButton({
     // The hint is an extra, never part of the save: a failed check shows
     // nothing and must not read as a failed save.
     try {
-      if (await shouldOpenFirstSaveHint()) setIsHintOpen(true)
+      const shouldOpen = await shouldOpenFirstSaveHint()
+      if (shouldOpen && click === latestClick.current) setIsHintOpen(true)
     } catch {}
   })
 
   // Gated on `isSaved` as well: the hint opens with "Saved.", which stops
   // being true the moment the show is unsaved.
-  const isHintShowing = isHintOpen && isSaved
+  const firstSaveHint =
+    isHintOpen && isSaved ? (
+      <FirstSaveHint
+        anchorRef={wrapperRef}
+        align={hintAlign}
+        onClose={closeHint}
+      />
+    ) : null
 
   // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
   // is a claim about the viewer, and the unsettled window is not yet entitled
@@ -151,33 +166,28 @@ export function SaveButton({
 
   if (variant === 'bracket') {
     return (
-      <FirstSaveHint
-        open={isHintShowing}
-        align={hintAlign}
-        onClose={closeHint}
-      >
-        <div className="relative inline-flex">
-          <BracketLink
-            label={isSaved ? 'Saved' : 'Save'}
-            active={isSaved}
-            onClick={handleClick}
-            disabled={isDisabled}
-            className={cn('font-mono text-[11px]', className)}
-            // Same accessible name the Button variant composes, count suffix
-            // included: the bracket shows no visual count, but the PUBLIC save
-            // count stays in the announced name (and the save E2E round-trip
-            // asserts the exact "(N saved)" form).
-            ariaLabel={
-              saveCount > 0 ? `${label} (${saveCount} saved)` : label
-            }
-          />
-          {showError && error ? (
-            <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-destructive px-3 py-1.5 text-xs text-destructive-foreground shadow-sm">
-              Failed to {isSaved ? 'remove' : 'save'} show
-            </div>
-          ) : null}
-        </div>
-      </FirstSaveHint>
+      <div ref={wrapperRef} className="relative inline-flex">
+        <BracketLink
+          label={isSaved ? 'Saved' : 'Save'}
+          active={isSaved}
+          onClick={handleClick}
+          disabled={isDisabled}
+          className={cn('font-mono text-[11px]', className)}
+          // Same accessible name the Button variant composes, count suffix
+          // included: the bracket shows no visual count, but the PUBLIC save
+          // count stays in the announced name (and the save E2E round-trip
+          // asserts the exact "(N saved)" form).
+          ariaLabel={
+            saveCount > 0 ? `${label} (${saveCount} saved)` : label
+          }
+        />
+        {showError && error ? (
+          <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-destructive px-3 py-1.5 text-xs text-destructive-foreground shadow-sm">
+            Failed to {isSaved ? 'remove' : 'save'} show
+          </div>
+        ) : null}
+        {firstSaveHint}
+      </div>
     )
   }
 
@@ -191,50 +201,49 @@ export function SaveButton({
   const paintsCount = showCount && hasCount
 
   return (
-    <FirstSaveHint open={isHintShowing} align={hintAlign} onClose={closeHint}>
-      <div className="relative">
-        <Button
-          // A dropped Save is the worst case in PSY-1610's table: silent, so the
-          // user walks away believing the show is on their list. (The bracket
-          // variant above inherits replay from BracketLink.)
-          {...replayOnHydrate}
-          variant={variant}
-          size="icon"
-          onClick={handleClick}
-          disabled={isDisabled}
-          className={cn(
-            buttonSize,
-            'p-0',
-            (showLabel || paintsCount) && 'w-auto px-3 gap-1.5',
-            className
-          )}
-          title={label}
-          aria-label={hasCount ? `${label} (${saveCount} saved)` : label}
-        >
-          <Heart
-            className={`${iconSize} transition-all ${
-              isSaved
-                ? 'fill-red-500 text-red-500'
-                : 'text-muted-foreground hover:text-foreground'
-            } ${isLoading ? 'opacity-50' : ''}`}
-          />
-          {paintsCount && (
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {saveCount}
-            </span>
-          )}
-          {showLabel && (
-            <span className="text-sm">{isSaved ? 'Saved' : 'Save'}</span>
-          )}
-        </Button>
-
-        {/* Error tooltip */}
-        {showError && error && (
-          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-destructive text-destructive-foreground text-xs rounded-md whitespace-nowrap z-50 shadow-sm">
-            Failed to {isSaved ? 'remove' : 'save'} show
-          </div>
+    <div ref={wrapperRef} className="relative">
+      <Button
+        // A dropped Save is the worst case in PSY-1610's table: silent, so the
+        // user walks away believing the show is on their list. (The bracket
+        // variant above inherits replay from BracketLink.)
+        {...replayOnHydrate}
+        variant={variant}
+        size="icon"
+        onClick={handleClick}
+        disabled={isDisabled}
+        className={cn(
+          buttonSize,
+          'p-0',
+          (showLabel || paintsCount) && 'w-auto px-3 gap-1.5',
+          className
         )}
-      </div>
-    </FirstSaveHint>
+        title={label}
+        aria-label={hasCount ? `${label} (${saveCount} saved)` : label}
+      >
+        <Heart
+          className={`${iconSize} transition-all ${
+            isSaved
+              ? 'fill-red-500 text-red-500'
+              : 'text-muted-foreground hover:text-foreground'
+          } ${isLoading ? 'opacity-50' : ''}`}
+        />
+        {paintsCount && (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {saveCount}
+          </span>
+        )}
+        {showLabel && (
+          <span className="text-sm">{isSaved ? 'Saved' : 'Save'}</span>
+        )}
+      </Button>
+
+      {/* Error tooltip */}
+      {showError && error && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-destructive text-destructive-foreground text-xs rounded-md whitespace-nowrap z-50 shadow-sm">
+          Failed to {isSaved ? 'remove' : 'save'} show
+        </div>
+      )}
+      {firstSaveHint}
+    </div>
   )
 }
