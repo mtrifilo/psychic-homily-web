@@ -501,8 +501,8 @@ describe('SaveButton first-save hint', () => {
     expect(countReads()).toBe(1)
   })
 
-  // A save that fails is not a first save: the save-failure message shows,
-  // and the count is never read.
+  // A save that fails is not a first save: the count is never read and the
+  // hint never opens.
   it('does not ask for the count when the save fails', async () => {
     const user = userEvent.setup()
     mockToggle.mockRejectedValueOnce(new Error('500'))
