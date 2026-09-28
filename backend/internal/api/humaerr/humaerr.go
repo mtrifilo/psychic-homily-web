@@ -41,12 +41,36 @@ import (
 //   - a handler error that huma could not resolve to a huma.StatusError and
 //     that is, or wraps, an *AuthError answers with its code's status and the
 //     auth middleware's envelope (success, message, error_code, request_id),
-//     carrying only the external code and message. An *AuthError passed as a
-//     huma.ErrorNNN argument is an error argument like any other: left out
-//     and logged, at the status the caller chose.
+//     carrying only the external code and message. Everywhere else an
+//     *AuthError is an error argument like any other: left out and logged, at
+//     the status the caller chose, including a huma.ErrorNNN argument and a
+//     huma.WriteErr argument.
 func Install() {
 	huma.NewError = newError
 	huma.NewErrorWithContext = newErrorWithContext
+}
+
+// unresolvedHandlerErrorStatus and unresolvedHandlerErrorMessage are the
+// arguments huma passes to NewErrorWithContext for a handler error that is not
+// a huma.StatusError. Only that call gets the auth envelope; huma.WriteErr
+// calls, which carry their caller's own status and message, do not.
+const (
+	unresolvedHandlerErrorStatus  = http.StatusInternalServerError
+	unresolvedHandlerErrorMessage = "unexpected error occurred"
+)
+
+func isUnresolvedHandlerError(status int, msg string, errs []error) bool {
+	return status == unresolvedHandlerErrorStatus && msg == unresolvedHandlerErrorMessage && len(errs) == 1
+}
+
+// requestLogger is the request's logger, which carries its request ID, or
+// slog.Default() when the context has none. slog.Default() is also what
+// newError logs through; logger.Init makes it the process logger.
+func requestLogger(ctx context.Context) *slog.Logger {
+	if log, ok := ctx.Value(logger.LoggerContextKey).(*slog.Logger); ok {
+		return log
+	}
+	return slog.Default()
 }
 
 // newError has no request context: handler code calls the huma.ErrorNNN
@@ -61,10 +85,9 @@ func newErrorWithContext(ctx huma.Context, status int, msg string, errs ...error
 	if ctx != nil {
 		reqCtx = ctx.Context()
 	}
-	// The request's logger already carries its request ID.
-	log := logger.FromContext(reqCtx)
+	log := requestLogger(reqCtx)
 
-	if len(errs) == 1 {
+	if isUnresolvedHandlerError(status, msg, errs) {
 		var authErr *autherrors.AuthError
 		if errors.As(errs[0], &authErr) {
 			return newAuthErrorResponse(reqCtx, log, logger.GetRequestID(reqCtx), authErr, errs[0])

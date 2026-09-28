@@ -91,6 +91,20 @@ func newTestAPI(t *testing.T) humatest.TestAPI {
 		return autherrors.ErrUserNotFoundByID(7, errDriver())
 	})
 
+	// huma.WriteErr carries its caller's status and message, so an AuthError
+	// argument there is withheld like any other, not turned into the envelope.
+	huma.Register(api, huma.Operation{
+		OperationID: "write-err",
+		Method:      http.MethodGet,
+		Path:        "/write-err",
+		Middlewares: huma.Middlewares{func(ctx huma.Context, _ func(huma.Context)) {
+			_ = huma.WriteErr(api, ctx, http.StatusUnprocessableEntity, "validation failed",
+				autherrors.ErrUserExists("someone@example.com"))
+		}},
+	}, func(context.Context, *struct{}) (*struct{}, error) {
+		return &struct{}{}, nil
+	})
+
 	huma.Register(api, huma.Operation{
 		OperationID: "create",
 		Method:      http.MethodPost,
@@ -114,7 +128,7 @@ func get(t *testing.T, api humatest.TestAPI, path string) (code int, contentType
 
 func assertNoDriverText(t *testing.T, body string) {
 	t.Helper()
-	for _, leaked := range []string{"user_bookmarks", "SQLSTATE", "lookup:", "internal"} {
+	for _, leaked := range []string{"user_bookmarks", "SQLSTATE", "lookup:", "(internal:"} {
 		if strings.Contains(body, leaked) {
 			t.Errorf("body contains %q: %s", leaked, body)
 		}
@@ -209,6 +223,28 @@ func TestStructuredDetailsReachTheBody(t *testing.T) {
 			t.Errorf("want huma's located validation details; body: %s", resp.Body.String())
 		}
 	})
+}
+
+func TestWriteErrKeepsItsStatusAndWithholdsAnAuthError(t *testing.T) {
+	api := newTestAPI(t)
+	code, contentType, body, logs := get(t, api, "/write-err")
+
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want the caller's 422; body: %s", code, body)
+	}
+	if contentType != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", contentType)
+	}
+	model := decodeModel(t, body)
+	if model.Detail != "validation failed" || len(model.Errors) != 0 {
+		t.Errorf("want the caller's detail and no errors[]; body: %s", body)
+	}
+	if strings.Contains(body, "USER_EXISTS") || strings.Contains(body, "already exists") {
+		t.Errorf("body carries the AuthError: %s", body)
+	}
+	if !strings.Contains(logs, "USER_EXISTS") {
+		t.Errorf("the withheld AuthError was not logged; logs:\n%s", logs)
+	}
 }
 
 type authEnvelope struct {

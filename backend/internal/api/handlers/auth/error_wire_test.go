@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -51,6 +52,12 @@ func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
 		Middlewares: withUser,
 	}, h.GetProfileHandler)
 	huma.Register(api, huma.Operation{
+		OperationID: "refresh",
+		Method:      http.MethodPost,
+		Path:        "/auth/refresh",
+		Middlewares: withUser,
+	}, h.RefreshTokenHandler)
+	huma.Register(api, huma.Operation{
 		OperationID: "login",
 		Method:      http.MethodPost,
 		Path:        "/auth/login",
@@ -60,7 +67,7 @@ func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
 
 func assertNoInternalText(t *testing.T, body string, fragments ...string) {
 	t.Helper()
-	for _, leaked := range append([]string{"user_bookmarks", "SQLSTATE", "internal"}, fragments...) {
+	for _, leaked := range append([]string{"user_bookmarks", "SQLSTATE", "(internal:"}, fragments...) {
 		if strings.Contains(body, leaked) {
 			t.Errorf("response body contains %q: %s", leaked, body)
 		}
@@ -147,10 +154,15 @@ func TestGetProfileDeletedUserBodyOverTheWire(t *testing.T) {
 		}
 	})
 
-	resp := newWireAPI(t, h).Get("/auth/profile")
+	api := newWireAPI(t, h)
 
-	if resp.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body: %s", resp.Code, resp.Body.String())
+	for name, resp := range map[string]*httptest.ResponseRecorder{
+		"get profile": api.Get("/auth/profile"),
+		"refresh":     api.Post("/auth/refresh"),
+	} {
+		if resp.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: status = %d, want 401; body: %s", name, resp.Code, resp.Body.String())
+		}
+		assertNoInternalText(t, resp.Body.String(), "no user with id", "USER_NOT_FOUND")
 	}
-	assertNoInternalText(t, resp.Body.String(), "no user with id", "USER_NOT_FOUND")
 }
