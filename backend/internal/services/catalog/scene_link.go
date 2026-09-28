@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // sceneServingScope is the one existence rule for a scene addressed by its
@@ -68,10 +69,7 @@ func (p sceneLinkPlace) isUSPlace() bool {
 	return ok && iso == "US"
 }
 
-// artistHasAnyLocation reports whether an artist states any location. Only
-// an artist with none takes its scene from a show's venue: an artist that
-// names somewhere, even partially or abroad, keeps that as its location, and
-// a scene borrowed from a show would contradict it.
+// artistHasAnyLocation reports whether an artist states any location.
 func artistHasAnyLocation(artist *catalogm.Artist) bool {
 	for _, v := range []*string{artist.City, artist.State, artist.Country} {
 		if v != nil && strings.TrimSpace(*v) != "" {
@@ -150,18 +148,28 @@ func venueSceneLink(database *gorm.DB, g geo.Geocoder, entity string, id uint, v
 	return sceneLinkOrNil(entity, id, link, err)
 }
 
-// latestShowVenuePlace is the primary venue of the artist's latest approved
-// show that has a venue, by event date, and false when there is none.
+// latestShowVenuePlace is the primary venue of the show an artist whose own
+// location names no place takes its scene from, and false when there is none.
+// Only approved, non-cancelled shows with a venue count. The most recent one
+// dated up to today on its venue's own calendar wins; only when there is none
+// does the nearest upcoming one.
 func latestShowVenuePlace(database *gorm.DB, artistID uint) (sceneLinkPlace, bool, error) {
+	onOrBeforeToday := shared.VenueLocalDateSQL + ` <= ` + shared.VenueLocalTodaySQL
 	var rows []sceneLinkPlace
+	// shows stays UNALIASED: shared.VenueTZJoin's lateral correlates on shows.id.
 	err := database.Raw(`
 		SELECT pv.city, pv.state, pv.country
-		FROM shows s
-		JOIN show_artists sa ON sa.show_id = s.id
-		JOIN LATERAL `+shared.PrimaryVenueLateralSQL("iv.city, iv.state, iv.country", "s.id")+` pv ON true
+		FROM shows
+		JOIN show_artists sa ON sa.show_id = shows.id
+		JOIN LATERAL `+shared.PrimaryVenueLateralSQL("iv.city, iv.state, iv.country", "shows.id")+` pv ON true
+		`+shared.VenueTZJoin+`
 		WHERE sa.artist_id = ?
-		  AND s.status = ?
-		ORDER BY s.event_date DESC, s.id DESC
+		  AND shows.status = ?
+		  AND shows.is_cancelled = false
+		ORDER BY (`+onOrBeforeToday+`) DESC,
+		         CASE WHEN `+onOrBeforeToday+` THEN shows.event_date END DESC NULLS LAST,
+		         shows.event_date ASC,
+		         shows.id DESC
 		LIMIT 1
 	`, artistID, catalogm.ShowStatusApproved).Scan(&rows).Error
 	if err != nil {
@@ -173,16 +181,58 @@ func latestShowVenuePlace(database *gorm.DB, artistID uint) (sceneLinkPlace, boo
 	return rows[0], true, nil
 }
 
-// artistSceneLink is the scene link on an artist's detail page: from the
-// artist's own city and state, or, for an artist with no location at all,
-// from the venue of its latest approved show.
+// artistOwnPlace is the artist's own location as a scene-link place, with a
+// spelled-out US state ("Arizona") normalised to its code through the shared
+// state map. Any other state value is kept as stored.
+func artistOwnPlace(artist *catalogm.Artist) sceneLinkPlace {
+	state := strings.TrimSpace(derefString(artist.State))
+	if abbr, ok := utils.StateNameToAbbrev(state); ok {
+		state = abbr
+	}
+	return sceneLinkPlace{City: derefString(artist.City), State: state, Country: artist.Country}
+}
+
+// isKnownNonUSPlace reports whether a location names somewhere outside the
+// US: its country resolves to another country, its state is itself another
+// country's name, or the geocoder places it outside the US. A location it
+// cannot place anywhere is not known to be non-US.
+func isKnownNonUSPlace(g geo.Geocoder, p sceneLinkPlace) bool {
+	if country := strings.TrimSpace(derefString(p.Country)); country != "" {
+		if iso, ok := geo.CountryToISO(country); ok {
+			return iso != "US"
+		}
+	}
+	if state := strings.TrimSpace(p.State); len(state) > 2 {
+		if iso, ok := geo.CountryToISO(state); ok && iso != "US" {
+			return true
+		}
+	}
+	if strings.TrimSpace(p.City) == "" {
+		return false
+	}
+	if g == nil {
+		g = geo.Default()
+	}
+	r, ok := g.Resolve(p.City, p.State, derefString(p.Country))
+	return ok && r.Country != "" && r.Country != "US"
+}
+
+// artistSceneLink is the scene link on an artist's detail page.
+//
+//   - A US location, after state normalisation, links its own scene, or
+//     nothing when no scene serves it.
+//   - A location outside the US links nothing.
+//   - No location at all, or one that places the artist in no country, takes
+//     the venue of the show latestShowVenuePlace picks.
 func artistSceneLink(database *gorm.DB, g geo.Geocoder, artist *catalogm.Artist) (*contracts.SceneLinkResponse, error) {
 	if artistHasAnyLocation(artist) {
-		return servedSceneLink(database, g, sceneLinkPlace{
-			City:    derefString(artist.City),
-			State:   derefString(artist.State),
-			Country: artist.Country,
-		})
+		place := artistOwnPlace(artist)
+		if place.isUSPlace() {
+			return servedSceneLink(database, g, place)
+		}
+		if isKnownNonUSPlace(g, place) {
+			return nil, nil
+		}
 	}
 	place, ok, err := latestShowVenuePlace(database, artist.ID)
 	if err != nil || !ok {

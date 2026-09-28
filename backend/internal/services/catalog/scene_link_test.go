@@ -43,6 +43,37 @@ func TestArtistHasAnyLocation(t *testing.T) {
 	assert.True(t, artistHasAnyLocation(&catalogm.Artist{Country: stringPtr("Japan")}))
 }
 
+func TestArtistOwnPlace_NormalisesASpelledOutState(t *testing.T) {
+	place := artistOwnPlace(&catalogm.Artist{City: stringPtr("Phoenix"), State: stringPtr(" Arizona ")})
+	assert.Equal(t, "AZ", place.State)
+	assert.True(t, place.isUSPlace())
+
+	kept := artistOwnPlace(&catalogm.Artist{City: stringPtr("Leeds"), State: stringPtr("England")})
+	assert.Equal(t, "England", kept.State, "a value the state map does not know is kept as stored")
+	assert.False(t, kept.isUSPlace())
+}
+
+func TestIsKnownNonUSPlace(t *testing.T) {
+	g := geo.Default()
+	tests := []struct {
+		name  string
+		place sceneLinkPlace
+		want  bool
+	}{
+		{"non-US country field", sceneLinkPlace{City: "Perth", State: "WA", Country: stringPtr("Australia")}, true},
+		{"US country field", sceneLinkPlace{City: "Phoenix", State: "Arizonaa", Country: stringPtr("USA")}, false},
+		{"a UK city with a region for a state", sceneLinkPlace{City: "Leeds", State: "England"}, true},
+		{"a state that is another country's name", sceneLinkPlace{State: "Japan"}, true},
+		{"a US city with a misspelled state", sceneLinkPlace{City: "Phoenix", State: "Arizonaa"}, false},
+		{"nothing to place", sceneLinkPlace{State: "Nowhere"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isKnownNonUSPlace(g, tt.place))
+		})
+	}
+}
+
 // =============================================================================
 // INTEGRATION (runs inside SceneServiceIntegrationTestSuite for its teardown
 // and fixtures)
@@ -198,6 +229,93 @@ func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_NonUSLocation
 	resp, err := NewArtistService(suite.db).GetArtist(artist.ID)
 	suite.Require().NoError(err)
 	suite.Nil(resp.Scene, "an artist based abroad keeps its own location; a US show does not relabel it")
+}
+
+// seedTwoScenes makes Phoenix and Kansas City both serve and returns one room
+// in each.
+func (suite *SceneServiceIntegrationTestSuite) seedTwoScenes() (phoenix, kansasCity *catalogm.Venue) {
+	phoenix = suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	kansasCity = suite.createVerifiedVenue("Record Bar", "Kansas City", "MO")
+	suite.createVerifiedVenue("Lemonade Park", "Kansas City", "MO")
+	return phoenix, kansasCity
+}
+
+func (suite *SceneServiceIntegrationTestSuite) unplacedArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+	return artist
+}
+
+func (suite *SceneServiceIntegrationTestSuite) artistSceneSlug(artist *catalogm.Artist) string {
+	resp, err := NewArtistService(suite.db).GetArtist(artist.ID)
+	suite.Require().NoError(err)
+	if resp.Scene == nil {
+		return ""
+	}
+	suite.requireLinkServes(resp.Scene)
+	return resp.Scene.Slug
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_PastShowBeatsAnUpcomingOne() {
+	user := suite.createUser()
+	phoenix, kansasCity := suite.seedTwoScenes()
+	artist := suite.unplacedArtist("Touring Band")
+	suite.createApprovedShow("Played", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, -3, 0))
+	suite.createApprovedShow("Booked", kansasCity.ID, artist.ID, user.ID, time.Now().AddDate(0, 1, 0))
+
+	suite.Equal("phoenix-az", suite.artistSceneSlug(artist),
+		"the most recent show dated up to today wins over any upcoming one")
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_OnlyUpcomingTakesTheNearest() {
+	user := suite.createUser()
+	phoenix, kansasCity := suite.seedTwoScenes()
+	artist := suite.unplacedArtist("New Band")
+	suite.createApprovedShow("Later", kansasCity.ID, artist.ID, user.ID, time.Now().AddDate(0, 2, 0))
+	suite.createApprovedShow("Sooner", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, 1, 0))
+
+	suite.Equal("phoenix-az", suite.artistSceneSlug(artist))
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_CancelledShowsDoNotCount() {
+	user := suite.createUser()
+	phoenix, kansasCity := suite.seedTwoScenes()
+	artist := suite.unplacedArtist("Cancelled Band")
+	suite.createApprovedShow("Older", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, -6, 0))
+	cancelled := suite.createApprovedShow("Called off", kansasCity.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	suite.Equal("phoenix-az", suite.artistSceneSlug(artist), "a more recent cancelled show is skipped")
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_OnlyCancelledShowsIsNil() {
+	user := suite.createUser()
+	phoenix, _ := suite.seedTwoScenes()
+	artist := suite.unplacedArtist("Never Played")
+	cancelled := suite.createApprovedShow("Called off", phoenix.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	suite.Equal("", suite.artistSceneSlug(artist))
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_SpelledOutStateIsNormalised() {
+	user := suite.createUser()
+	_, kansasCity := suite.seedTwoScenes()
+	artist := suite.createArtistInNullMetro("Spelled Out", "Phoenix", "Arizona")
+	suite.createApprovedShow("Tour", kansasCity.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+
+	suite.Equal("phoenix-az", suite.artistSceneSlug(artist),
+		"the artist's own normalised state wins; its show elsewhere is not consulted")
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestArtistSceneLink_UnknownStateFallsBackToTheLatestShow() {
+	user := suite.createUser()
+	_, kansasCity := suite.seedTwoScenes()
+	artist := suite.createArtistInNullMetro("Typo Band", "Phoenix", "Arizonaa")
+	suite.createApprovedShow("Tour", kansasCity.ID, artist.ID, user.ID, time.Now().AddDate(0, -1, 0))
+
+	suite.Equal("kansas-city-mo", suite.artistSceneSlug(artist))
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestVenueAndShowDetailCarryTheScene() {

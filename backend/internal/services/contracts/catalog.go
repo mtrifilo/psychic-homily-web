@@ -1460,9 +1460,11 @@ type ArtistDetailResponse struct {
 	// Scene is the artist's scene page, populated by the same two detail
 	// lookups as Stats (GetArtist / GetArtistBySlug), so every caller of those
 	// pays for it, including the mutations that return one. It comes from the
-	// artist's own city and state; an artist with no location at all (no city,
-	// state or country) takes the venue of its latest approved show instead.
-	// See SceneLinkResponse for when it is present.
+	// artist's own city and state (a spelled-out US state is normalised); a
+	// location outside the US yields none; an artist whose location names no
+	// place takes the venue of its most recent non-cancelled approved show
+	// dated up to today, else its nearest upcoming one. See SceneLinkResponse
+	// for when it is present.
 	Scene *SceneLinkResponse `json:"scene,omitempty" doc:"The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads."`
 }
 
