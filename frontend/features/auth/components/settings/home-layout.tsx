@@ -37,10 +37,6 @@ export function HomeLayoutSettings() {
   // the viewer lands at the top of the page, three cards above the one they
   // clicked to reach.
   const anchorRef = useAnchorScroll(HOME_LAYOUT_SETTINGS_ANCHOR)
-  // The host renders the failure line, not the list: on the home page the host
-  // is the toolbar row, which outlives the popover. Two hosts rendering it at
-  // once would fire two live-region alerts for one failure.
-  const hasWriteFailed = useHomeLayoutWriteFailed()
 
   return (
     <Card
@@ -56,13 +52,30 @@ export function HomeLayoutSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0">
-        <HomeSectionList className="border-t border-border" />
-        {hasWriteFailed && (
-          <div className="px-4 pt-3">
-            <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
-          </div>
-        )}
+        <HomeLayoutSettingsList />
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * The list and its write-failure line, for a settings surface that supplies
+ * its own heading and anchor.
+ */
+export function HomeLayoutSettingsList() {
+  // The host renders the failure line, not the list: on the home page the host
+  // is the toolbar row, which outlives the popover. Two hosts rendering it at
+  // once would fire two live-region alerts for one failure.
+  const hasWriteFailed = useHomeLayoutWriteFailed()
+
+  return (
+    <>
+      <HomeSectionList className="border-t border-border" />
+      {hasWriteFailed && (
+        <div className="px-4 pt-3">
+          <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
+        </div>
+      )}
+    </>
   )
 }
