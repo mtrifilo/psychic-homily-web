@@ -1335,7 +1335,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         </div>
       </EntityDetailLayout>
 
-      {/* Graph Dialog — opened by the action-row [Graph] link, the sidebar
+      {/* Graph Dialog, opened by the action-row [Graph] link, the sidebar
           [Explore graph] link, or the #graph URL hash (PSY-361 shareable
           graph URLs preserved). Hosts the full re-centering graph. */}
       <ArtistGraphDialog
