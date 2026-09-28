@@ -7,10 +7,12 @@ import { jumpToAnchor } from '../anchorTargets'
  * Lands the viewer on the element inside `rootRef` that the address bar's
  * fragment names when the page mounts, and reports the fragment to `onLand`.
  *
- * The page's content mounts after the auth gate settles, which is after the
- * browser has already tried the fragment and found nothing, so this one
- * landing has to be the page's own. Resolving inside the root keeps it off a
- * hidden, still-mounted route that carries the same id.
+ * When the server rendered the content, the browser has already scrolled to
+ * the fragment before hydration; this landing re-applies that scroll, moves
+ * focus to the target and marks it. When the page first showed the auth
+ * gate's loading state, the browser found nothing to scroll to, and this
+ * landing is the only one. Resolving inside the root keeps it off a hidden,
+ * still-mounted route that carries the same id.
  *
  * Exactly once per mount, tracked by a ref, so a route kept alive while the
  * viewer is elsewhere does not land again when it is shown. Fragment changes
