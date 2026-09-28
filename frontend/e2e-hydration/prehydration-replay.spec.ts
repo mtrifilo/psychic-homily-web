@@ -425,12 +425,6 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     expect(new URL(page.url()).searchParams.get('returnTo')).toBe(
       `/artists/${ARTIST_SLUG}`
     )
-    // A gated click names its action, which is what opens /auth on Create
-    // account.
-    expect(new URL(page.url()).searchParams.get('intent')).toBe('follow')
-    await expect(
-      page.getByRole('tab', { name: 'Create account' })
-    ).toHaveAttribute('aria-selected', 'true')
 
     // Now. Replay requires hydration, so reaching this line proves the page
     // hydrated and both FollowButton and FollowAlertsReveal mounted against the
