@@ -24,10 +24,14 @@ import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { formatShowTimeCompact } from '@/lib/utils/formatters'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { DeleteShowDialog } from './DeleteShowDialog'
-import { ExportShowButton } from './ExportShowButton'
+import {
+  EXPORT_SHOW_BUTTON_RENDERS,
+  ExportShowButton,
+} from './ExportShowButton'
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
+import type { ActionsFootprint } from './showListActionsFootprint'
 import { canModerateShow, splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
 
@@ -66,6 +70,11 @@ export interface DayGroupedShowRowProps {
    * the column appear on page 1 and vanish on page 2 of one filter.
    */
   showCity: boolean
+  /**
+   * Sizes the actions column. One value for the whole list (see
+   * `actionsFootprintFor`), so every row and the header share one width.
+   */
+  actionsFootprint: ActionsFootprint
 }
 
 /**
@@ -82,8 +91,25 @@ const COLUMN = {
   venue: 'lg:w-[260px]',
   price: 'lg:w-[80px]',
   age: 'lg:w-[60px]',
-  actions: 'lg:min-w-[100px]',
 } as const
+
+/**
+ * The actions column's FIXED width per footprint, identical on every row and
+ * on the header, so the venue and price columns start at the same x on every
+ * row whatever subset of controls a row carries.
+ *
+ * `viewer` holds the expand control (28px), save with a two-digit count (62px)
+ * and outbound (28px), plus the 2px gaps between them. Every further control
+ * is 28px plus a 2px gap: `owner` adds delete, `admin` adds edit and delete,
+ * and export where `ExportShowButton` renders. A longer save count spills
+ * leftward out of the cell (it is `justify-end` and never wraps) instead of
+ * widening it, so it still moves no other column.
+ */
+const ACTIONS_WIDTH: Record<ActionsFootprint, string> = {
+  viewer: 'lg:w-[124px]',
+  owner: 'lg:w-[154px]',
+  admin: EXPORT_SHOW_BUTTON_RENDERS ? 'lg:w-[214px]' : 'lg:w-[184px]',
+}
 
 /**
  * Padding per density, and only once the row IS a column row. The frame gives
@@ -151,8 +177,9 @@ function SupportText({
  * viewer, gated on the same `SHOW_LIST_FEATURE_POLICY.discovery` flags: save,
  * outbound, expand-music, and the admin and owner controls. The frame draws
  * that column simplified; it was never a decision to remove capability, and the
- * open players behind the expand control are a locked decision. The column
- * wraps rather than dropping anything.
+ * open players behind the expand control are a locked decision. The column is
+ * sized to hold every control the viewer can see (`ACTIONS_WIDTH`) rather than
+ * dropping any.
  *
  * The `<article aria-label>` is load-bearing and not decoration: it is how the
  * save and list-action E2E specs address a specific seeded show
@@ -166,6 +193,7 @@ export function DayGroupedShowRow({
   saveData,
   index,
   showCity,
+  actionsFootprint,
 }: DayGroupedShowRowProps) {
   const { user } = useAuthContext()
   // DERIVED from the density, not seeded from it. `useDensity` reads
@@ -281,16 +309,17 @@ export function DayGroupedShowRow({
             )}
           </span>
 
-          {/* A MINIMUM width, not a cap. The frame drew this column for two
-              controls; an admin carries five, six where the dev-only export
-              button renders. At a fixed width they would wrap to a second line
-              inside the box and make admin rows taller than the rest, which
-              `lg:items-baseline` would then align to the first line. */}
+          {/* The width comes from the LIST's footprint, never from this
+              row's own controls, and `justify-end` puts a shorter cluster
+              against the right edge. No `flex-wrap`: a cluster that outgrows
+              the box spills left in one line rather than making this row
+              taller than the rest. */}
           <span
             className={cn(
               'flex shrink-0 items-center justify-end gap-0.5 lg:order-6',
-              COLUMN.actions
+              ACTIONS_WIDTH[actionsFootprint]
             )}
+            data-testid="row-actions"
           >
             {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
               hasArtistMusic && (
@@ -327,7 +356,7 @@ export function DayGroupedShowRow({
             {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
               <Link
                 href={detailsHref}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
                 aria-label="View show details"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -480,9 +509,17 @@ export function DayGroupedShowRow({
  * price pair) states itself.
  *
  * Takes the density because the row does: a compact list renders no age, and a
- * label over fifty empty cells is a column that is not there.
+ * label over fifty empty cells is a column that is not there. Takes the
+ * footprint because the rows do: its actions cell must be exactly as wide as
+ * theirs for the labels to sit over their columns.
  */
-export function DayGroupedShowListHeader({ density }: { density: Density }) {
+export function DayGroupedShowListHeader({
+  density,
+  actionsFootprint,
+}: {
+  density: Density
+  actionsFootprint: ActionsFootprint
+}) {
   return (
     <div
       className="hidden items-baseline gap-2 border-b border-border px-2 pb-1 font-mono text-[10px] font-bold uppercase tracking-[0.8px] text-muted-foreground lg:flex"
@@ -496,7 +533,10 @@ export function DayGroupedShowListHeader({ density }: { density: Density }) {
       <span className={cn(COLUMN.age, 'shrink-0')}>
         {showsAge(density) ? 'Age' : null}
       </span>
-      <span className={cn(COLUMN.actions, 'shrink-0')} />
+      <span
+        className={cn(ACTIONS_WIDTH[actionsFootprint], 'shrink-0')}
+        data-testid="show-list-header-actions"
+      />
     </div>
   )
 }

@@ -16,6 +16,12 @@ interface ExportShowButtonProps {
 }
 
 /**
+ * Whether `ExportShowButton` renders at all. A layout that reserves room for
+ * the button reads this rather than restating the environment check.
+ */
+export const EXPORT_SHOW_BUTTON_RENDERS = process.env.NODE_ENV === 'development'
+
+/**
  * Export show button component - only visible in development environment
  * Downloads the show as a markdown file
  */
@@ -29,8 +35,7 @@ export function ExportShowButton({
 }: ExportShowButtonProps) {
   const [isExporting, setIsExporting] = useState(false)
 
-  // Only render in development
-  if (process.env.NODE_ENV !== 'development') {
+  if (!EXPORT_SHOW_BUTTON_RENDERS) {
     return null
   }
 
