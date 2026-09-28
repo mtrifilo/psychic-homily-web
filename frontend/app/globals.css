@@ -143,7 +143,7 @@
   --primary: #d2541b;
   --primary-foreground: #f4f1ea;
   /* Accent link text: primary's hue darkened to clear WCAG AA on background
-   * (4.51:1) and card (4.75:1). Not AA on muted, secondary, sidebar or
+   * (4.50:1) and card (4.75:1). Not AA on muted, secondary, sidebar or
    * accent surfaces; text there stays in a restrained treatment. */
   --link: #bb4b18;
   --secondary: #e8e3d6;

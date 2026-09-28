@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -41,6 +42,14 @@ func TestArtistHasAnyLocation(t *testing.T) {
 	assert.True(t, artistHasAnyLocation(&catalogm.Artist{City: stringPtr("Phoenix")}))
 	assert.True(t, artistHasAnyLocation(&catalogm.Artist{State: stringPtr("AZ")}))
 	assert.True(t, artistHasAnyLocation(&catalogm.Artist{Country: stringPtr("Japan")}))
+}
+
+// A failed lookup drops the link and never the detail read that attaches it.
+func TestSceneLinkOrNil(t *testing.T) {
+	link := &contracts.SceneLinkResponse{Slug: "phoenix-az", City: "Phoenix", State: "AZ"}
+	assert.Same(t, link, sceneLinkOrNil("show", 1, link, nil))
+	assert.Nil(t, sceneLinkOrNil("show", 1, link, errors.New("connection refused")))
+	assert.Nil(t, sceneLinkOrNil("artist", 2, nil, nil))
 }
 
 func TestArtistOwnPlace_NormalisesASpelledOutState(t *testing.T) {

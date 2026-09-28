@@ -334,5 +334,9 @@ describe('ShowVenueModule', () => {
     expect(
       screen.getByRole('link', { name: /More shows in Chicago/ })
     ).toHaveAttribute('href', '/scenes/chicago-il')
+    // The unlinked venue name keeps the accent's colour token, as plain text.
+    const name = screen.getByText('Salt Shed')
+    expect(name.tagName).toBe('SPAN')
+    expect(name.className.split(' ')).toContain('text-link')
   })
 })
