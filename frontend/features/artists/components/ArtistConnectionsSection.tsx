@@ -9,7 +9,7 @@
  * deselects, background click closes, selection pins the focus-dim); no node
  * drag; navigation only via the panel's "Open page →". The [Expand] header
  * action opens the existing ArtistGraphDialog (uncapped, full tool), which
- * the header [Graph] link and the sidebar [Explore graph] link also drive.
+ * the action row's [Graph] link and the sidebar [Explore graph] link also drive.
  *
  * Data: reuses the SAME useArtistGraph query the sidebar Similar-artists
  * list fetches on every artist page load (identical cache key: no types
@@ -29,7 +29,7 @@
  * convention — primary sections self-hide rather than render an apologetic
  * empty state; the sidebar owns the "suggest similar" affordance). Below the
  * 640px canvas gate the whole section is one line of link into the knowledge
- * graph (MobileGraphTeaser); the page header's [Graph] is what still reaches
+ * graph (MobileGraphTeaser); the action row's [Graph] is what still reaches
  * the ego dialog at that width.
  */
 
@@ -252,7 +252,7 @@ export function ArtistConnectionsSection({
     <section ref={refCallback} className="min-w-0">
       {isBelowGraphBreakpoint ? (
         /* The section's sub-640px form: the header, the count line and
-           [Expand] all go with the canvas. The page header's [Graph] is the
+           [Expand] all go with the canvas. The action row's [Graph] is the
            surviving path to the ego dialog at this width. */
         <MobileGraphTeaser
           href={graphRootHref(artistSlug)}

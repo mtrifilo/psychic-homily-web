@@ -1,13 +1,20 @@
 'use client'
 
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { googleMapsSearchUrl } from '@/lib/maps'
+import { entityHref } from '@/lib/entity-slug'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import { MiddotSegments } from './MiddotSegments'
 import { venueFactSegments } from './showVenueFacts'
 import type { ShowResponse } from '../types'
+
+/** The module's quiet onward links: `More at {venue}` and its scene sibling. */
+const ONWARD_LINK_CLASS =
+  'text-sm text-muted-foreground hover:text-primary transition-colors'
 
 interface ShowVenueModuleProps {
   show: ShowResponse
@@ -20,9 +27,10 @@ interface ShowVenueModuleProps {
  * under commerce.
  *
  * Three rows: name + address, the facts line, and the venue's verbs
- * (`[Directions ↗] [Follow venue] [Notify me] More at {venue} →`). Every row
- * degrades to omission when its data is absent; an unverified venue's street
- * address arrives redacted server-side and the module simply says less.
+ * (`[Directions ↗] [Follow venue] More at {venue} → More shows in {city} →`).
+ * Every row degrades to omission when its data is absent; an unverified
+ * venue's street address arrives redacted server-side and the module simply
+ * says less.
  *
  * The venue is derived HERE from `show.venues[0]` rather than accepted as a
  * prop, so the facts line (whose age/doors segments read the SHOW) can never
@@ -46,6 +54,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
   const cityState =
     formattedCityState === LOCATION_UNKNOWN ? null : formattedCityState
   const factSegments = venueFactSegments(show, venue)
+  const sceneHref = entityHref('/scenes', show.scene?.slug)
   // VERIFIED venues only. The venue's own page refuses to map an unverified
   // venue at all (city/state text, no directions, no embed) because a
   // name + city map search narrows a house show to a door — server-side
@@ -76,12 +85,12 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
         {venue.slug ? (
           <Link
             href={`/venues/${venue.slug}`}
-            className="text-lg text-primary/80 hover:text-primary font-medium transition-colors"
+            className={cn('text-lg', ENTITY_LINK_CLASS.accent)}
           >
             {venue.name}
           </Link>
         ) : (
-          <span className="text-lg text-primary/80 font-medium">
+          <span className="text-lg font-medium text-link">
             {venue.name}
           </span>
         )}
@@ -133,9 +142,21 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
         {venue.slug && (
           <Link
             href={`/venues/${venue.slug}`}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            className={ONWARD_LINK_CLASS}
           >
-            More at {venue.name} &rarr;
+            More at {venue.name} <span aria-hidden="true">&rarr;</span>
+          </Link>
+        )}
+        {/* The venue's own scene, at the same treatment as `More at` so the
+            two read as siblings. `show.scene` belongs to `venues[0]`, the
+            venue this module renders. */}
+        {show.scene && sceneHref && (
+          <Link
+            href={sceneHref}
+            className={ONWARD_LINK_CLASS}
+          >
+            More shows in {show.scene.city}{' '}
+            <span aria-hidden="true">&rarr;</span>
           </Link>
         )}
       </div>

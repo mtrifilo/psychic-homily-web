@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { ArtistShowsTable } from './ArtistShowsTable'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import type { ArtistShow, ArtistShowVenue } from '../types'
 
 /**
@@ -114,5 +115,37 @@ describe('ArtistShowsTable time column', () => {
     )
     const row = screen.getAllByRole('row')[1]
     expect(within(row).getAllByRole('cell')[0]).toHaveTextContent('Sep 9')
+  })
+})
+
+// The bill column is a dense table, so its names take the restrained tier:
+// colour and weight from the surrounding text, accent and underline on hover.
+describe('ArtistShowsTable bill links', () => {
+  it('gives headliner and support names the restrained entity-link treatment', () => {
+    render(
+      <ArtistShowsTable
+        shows={[
+          {
+            ...makeShow(1, makeVenue()),
+            artists: [
+              { id: 10, slug: 'lead', name: 'Lead Act' },
+              { id: 11, slug: 'opener', name: 'Opening Act' },
+            ],
+          },
+        ]}
+        ariaLabel="Shows"
+      />
+    )
+    for (const name of ['Lead Act', 'Opening Act']) {
+      const link = screen.getByRole('link', { name })
+      expect(link.className).toBe(ENTITY_LINK_CLASS.restrained)
+    }
+    // The headliner keeps its weight from the bill, the support its muted run.
+    expect(
+      screen.getByRole('link', { name: 'Lead Act' }).closest('.font-medium')
+    ).not.toBeNull()
+    expect(
+      screen.getByRole('link', { name: 'Opening Act' }).closest('.font-medium')
+    ).toBeNull()
   })
 })

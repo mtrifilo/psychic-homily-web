@@ -699,6 +699,7 @@ func (s *ShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 	resp := s.buildShowResponse(&show)
 	s.attachBillLabels(resp)
 	s.attachSubmitterAttribution(resp)
+	s.attachSceneLink(resp, &show)
 	return resp, nil
 }
 
@@ -720,6 +721,7 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 	resp := s.buildShowResponse(&show)
 	s.attachBillLabels(resp)
 	s.attachSubmitterAttribution(resp)
+	s.attachSceneLink(resp, &show)
 	return resp, nil
 }
 
@@ -2723,6 +2725,17 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 		}
 		resp.Artists[i].Labels = &labels
 	}
+}
+
+// attachSceneLink fills in Scene from the show's first venue, the venue
+// buildShowResponse lists first and the show page's venue module renders.
+// A detail-read decoration on the same terms as attachBillLabels: GetShow's
+// non-page callers pay its queries too.
+func (s *ShowService) attachSceneLink(resp *contracts.ShowResponse, show *catalogm.Show) {
+	if resp == nil || len(show.Venues) == 0 {
+		return
+	}
+	resp.Scene = venueSceneLink(s.db, s.geocoder, "show", show.ID, &show.Venues[0])
 }
 
 // attachSubmitterAttribution fills in SubmittedByName / SubmittedByUsername on

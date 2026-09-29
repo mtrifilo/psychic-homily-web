@@ -362,6 +362,7 @@ func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailRe
 
 	resp := s.buildVenueResponse(&venue)
 	resp.Provenance = s.venueProvenanceFor(&venue)
+	resp.Scene = venueSceneLink(s.db, s.geocoder, "venue", venue.ID, &venue)
 	return resp, nil
 }
 

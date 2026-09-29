@@ -292,7 +292,14 @@ func (s *ArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailRespons
 
 	resp := s.buildArtistResponse(&artist)
 	resp.Stats = s.buildArtistStats(artist.ID)
+	resp.Scene = s.sceneLinkFor(&artist)
 	return resp, nil
+}
+
+// sceneLinkFor is the scene link the two detail lookups attach beside Stats.
+func (s *ArtistService) sceneLinkFor(artist *catalogm.Artist) *contracts.SceneLinkResponse {
+	link, err := artistSceneLink(s.db, s.sceneGeocoder(), artist)
+	return sceneLinkOrNil("artist", artist.ID, link, err)
 }
 
 // GetArtistByName retrieves an artist by name (case-insensitive)
@@ -330,6 +337,7 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailRes
 
 	resp := s.buildArtistResponse(&artist)
 	resp.Stats = s.buildArtistStats(artist.ID)
+	resp.Scene = s.sceneLinkFor(&artist)
 	return resp, nil
 }
 

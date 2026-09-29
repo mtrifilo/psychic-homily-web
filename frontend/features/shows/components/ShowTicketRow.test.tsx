@@ -451,6 +451,22 @@ describe('ShowTicketRow', () => {
     expect(ticketLine()).not.toContain('rsvp.example')
   })
 
+  // The ticket link is one bracket among the row's verbs, never louder than
+  // the page's internal entity links: no accent colour, no extra weight.
+  it('renders Buy Tickets as a plain bracket, no louder than the entity links', () => {
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, ticket_url: 'https://rsvp.example/1' })}
+      />
+    )
+
+    const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+    expect(buy.className).toContain('text-muted-foreground')
+    expect(buy.className).not.toMatch(/(^|\s)text-primary/)
+    expect(buy.className).not.toMatch(/(^|\s)font-(medium|semibold|bold)/)
+  })
+
   // Zero is a price, but an unpriced show is not a free one: with no price
   // column stated at all the referral is a referral like any other.
   it('withholds the link for an unpriced show', () => {

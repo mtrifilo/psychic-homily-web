@@ -56,6 +56,8 @@ import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, 
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
+import { entityHref } from '@/lib/entity-slug'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
@@ -1033,7 +1035,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const [isReportOpen, setIsReportOpen] = useState(false)
   const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   // Graph Dialog open state — reactive to the `#graph` URL hash (PSY-361
-  // shareable graph URLs still work) AND user toggles (header [Graph] link,
+  // shareable graph URLs still work) AND user toggles (action-row [Graph] link,
   // sidebar [Explore graph], close button). User intent sticks once set.
   const hash = useUrlHash()
   const [graphDialogUserToggle, setGraphDialogUserToggle] = useState<
@@ -1136,7 +1138,21 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const labels = labelsData?.labels ?? []
 
-  const headerSubtitle = (artist.city || artist.state || artist.country) ? (
+  // The subtitle under the name. With a scene the subtitle IS the link to
+  // it, named for the scene it opens rather than for the artist's own city (a
+  // metro suburb links to its principal city's scene). Without one it is the
+  // artist's plain location, and with neither it is absent.
+  const sceneHref = entityHref('/scenes', artist.scene?.slug)
+  const headerSubtitle = artist.scene && sceneHref ? (
+    <Link
+      href={sceneHref}
+      className={ENTITY_LINK_CLASS.accent}
+      data-testid="artist-scene-link"
+    >
+      {artist.scene.city}, {artist.scene.state} scene{' '}
+      <span aria-hidden="true">&rarr;</span>
+    </Link>
+  ) : artist.city || artist.state || artist.country ? (
     <>
       <MapPin className="h-4 w-4" />
       <span>{getArtistLocation(artist)}</span>
@@ -1147,11 +1163,16 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // pair (Follow / Add to collection) render their own bracket variant; they
   // each handle the unauthenticated → /auth redirect internally.
   //
+  // It sits directly under the shows, not in the header.
+  //
   // There is no separate Notify-me bracket: following an artist IS subscribing
   // to its alerts (PSY-1893), so the scope reveal below replaces it rather
   // than sitting beside it (PSY-1905).
-  const headerActions = (
-    <div className="flex flex-col items-start gap-1.5">
+  const artistActions = (
+    <div
+      className="flex flex-col items-start gap-1.5"
+      data-testid="artist-actions"
+    >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <FollowButton
           entityType="artists"
@@ -1211,11 +1232,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         entityName={artist.name}
         header={
           <>
-            <EntityHeader
-              title={artist.name}
-              subtitle={headerSubtitle}
-              actions={headerActions}
-            />
+            <EntityHeader title={artist.name} subtitle={headerSubtitle} />
             <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
             <AttributionLine entityType="artist" entityId={artist.id} />
           </>
@@ -1237,11 +1254,13 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             artistName={artist.name}
           />
 
+          {artistActions}
+
           <DiscographyTab artistIdOrSlug={artistId} />
 
           {/* Inline Connections ego map — reuses the sidebar's cached
               useArtistGraph payload; [Expand] opens the same Dialog as the
-              header [Graph] and sidebar [Explore graph] links. */}
+              action-row [Graph] and sidebar [Explore graph] links. */}
           <ArtistConnectionsSection
             artistId={artist.id}
             artistName={artist.name}
@@ -1316,7 +1335,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         </div>
       </EntityDetailLayout>
 
-      {/* Graph Dialog — opened by the header [Graph] link, the sidebar
+      {/* Graph Dialog, opened by the action-row [Graph] link, the sidebar
           [Explore graph] link, or the #graph URL hash (PSY-361 shareable
           graph URLs preserved). Hosts the full re-centering graph. */}
       <ArtistGraphDialog

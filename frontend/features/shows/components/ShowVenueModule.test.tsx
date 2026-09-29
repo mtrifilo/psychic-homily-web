@@ -292,4 +292,51 @@ describe('ShowVenueModule', () => {
       screen.queryByRole('link', { name: /More at Salt Shed/ })
     ).not.toBeInTheDocument()
   })
+
+  it('adds a More shows in {city} sibling beside More at when the show carries a scene', () => {
+    render(
+      <ShowVenueModule
+        show={makeShow({
+          scene: { slug: 'chicago-il', city: 'Chicago', state: 'IL' },
+        })}
+      />
+    )
+    const moreAt = screen.getByRole('link', { name: /More at Salt Shed/ })
+    const sceneLink = screen.getByRole('link', { name: /More shows in Chicago/ })
+    expect(sceneLink).toHaveAttribute('href', '/scenes/chicago-il')
+    expect(sceneLink).toHaveTextContent('More shows in Chicago →')
+    // Siblings: same row, same treatment, More at first.
+    expect(sceneLink.parentElement).toBe(moreAt.parentElement)
+    expect(sceneLink.className).toBe(moreAt.className)
+    expect(moreAt.compareDocumentPosition(sceneLink)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  })
+
+  it('omits the More shows line when no scene serves, keeping More at', () => {
+    render(<ShowVenueModule show={makeShow()} />)
+    expect(
+      screen.queryByRole('link', { name: /More shows in/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /More at Salt Shed/ })
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the scene line when the venue has no slug', () => {
+    render(
+      <ShowVenueModule
+        show={showAt(makeVenue({ slug: '' }), {
+          scene: { slug: 'chicago-il', city: 'Chicago', state: 'IL' },
+        })}
+      />
+    )
+    expect(
+      screen.getByRole('link', { name: /More shows in Chicago/ })
+    ).toHaveAttribute('href', '/scenes/chicago-il')
+    // The unlinked venue name keeps the accent's colour token, as plain text.
+    const name = screen.getByText('Salt Shed')
+    expect(name.tagName).toBe('SPAN')
+    expect(name.className.split(' ')).toContain('text-link')
+  })
 })

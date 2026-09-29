@@ -2,6 +2,10 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import {
+  ENTITY_LINK_CLASS,
+  type EntityLinkTier,
+} from '@/components/shared/entityLink'
 import { EN_DASH } from '../showArchive'
 import { splitBill } from '../utils'
 
@@ -55,6 +59,12 @@ export interface ShowBillProps {
    * archive has nothing to add and omits it.
    */
   afterBill?: ReactNode
+  /**
+   * `'restrained'` gives every artist name the site's restrained entity-link
+   * treatment (`ENTITY_LINK_CLASS.restrained`). Omitted, the names keep this
+   * cell's own hover styling.
+   */
+  linkTreatment?: Extract<EntityLinkTier, 'restrained'>
 }
 
 /**
@@ -71,8 +81,11 @@ export function ShowBill({
   isCancelled,
   isSoldOut,
   afterBill,
+  linkTreatment,
 }: ShowBillProps) {
   const { headliners, support } = splitBill(artists)
+  const restrained =
+    linkTreatment === 'restrained' ? ENTITY_LINK_CLASS.restrained : undefined
 
   return (
     /* The badges sit OUTSIDE the bill branch on purpose. A show can reach this
@@ -94,7 +107,7 @@ export function ShowBill({
                 {index > 0 && ', '}
                 <ArtistLink
                   artist={artist}
-                  className="hover:text-primary hover:underline"
+                  className={restrained ?? 'hover:text-primary hover:underline'}
                 />
               </span>
             ))}
@@ -107,7 +120,9 @@ export function ShowBill({
                   {index > 0 && ', '}
                   <ArtistLink
                     artist={artist}
-                    className="hover:text-foreground hover:underline"
+                    className={
+                      restrained ?? 'hover:text-foreground hover:underline'
+                    }
                   />
                 </span>
               ))}

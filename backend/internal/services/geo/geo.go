@@ -353,6 +353,13 @@ func (g *offlineGeocoder) countryToISO(s string) (string, bool) {
 	return "", false
 }
 
+// IsUSStateCode reports whether s, trimmed and in any case, is one of the 50
+// US state codes or DC: the set resolveCountry reads a US place from.
+func IsUSStateCode(s string) bool {
+	Default()
+	return defaultGeo.usStates[strings.ToUpper(strings.TrimSpace(s))]
+}
+
 // CanonicalCountryName maps any recognized country string to a single canonical
 // display name (the GeoNames name for its ISO code), so values from different
 // sources ("US" / "USA" / "United States") store identically. ok is false for an

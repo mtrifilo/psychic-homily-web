@@ -84,6 +84,7 @@ function ShowRow({ show }: { show: ArtistShow }) {
           isCancelled={show.is_cancelled}
           isSoldOut={show.is_sold_out}
           afterBill={<VenueContext venue={show.venue} />}
+          linkTreatment="restrained"
         />
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">

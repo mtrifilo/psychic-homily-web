@@ -317,6 +317,7 @@ vi.mock('@/components/shared', () => ({
 }))
 
 import { ArtistDetail } from './ArtistDetail'
+import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
 function makeArtist(overrides: Partial<Artist> = {}): Artist {
   return {
@@ -470,12 +471,12 @@ describe('ArtistDetail', () => {
       expect(screen.queryByTestId('comment-thread')).not.toBeInTheDocument()
     })
 
-    it('renders the header action linkbox as bracket links', () => {
+    it('renders the action linkbox as bracket links', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const headerActions = screen.getByTestId('header-actions')
+      const actions = screen.getByTestId('artist-actions')
       // Stateful pair + the always-on [Graph] link.
-      expect(headerActions).toHaveTextContent('Follow')
-      expect(headerActions).toHaveTextContent('Add to collection')
+      expect(actions).toHaveTextContent('Follow')
+      expect(actions).toHaveTextContent('Add to collection')
       // [Graph] is a button that opens the page-level Dialog (PSY-645).
       // The legacy href="#graph" auto-open still works via the parent's
       // useUrlHash → graphDialogOpen plumbing, but the link itself no
@@ -487,16 +488,49 @@ describe('ArtistDetail', () => {
     // [Notify me] bracket is gone and the scope reveal takes its place.
     it('offers the alerts reveal and no standalone Notify-me control', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const headerActions = screen.getByTestId('header-actions')
-      expect(headerActions).not.toHaveTextContent('Notify')
+      const actions = screen.getByTestId('artist-actions')
+      expect(actions).not.toHaveTextContent('Notify')
       expect(screen.getByTestId('follow-alerts-reveal')).toBeInTheDocument()
     })
 
     it('offers a share affordance pointing at the artist canonical path', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       const share = screen.getByTestId('share-button')
-      expect(screen.getByTestId('header-actions')).toContainElement(share)
+      expect(screen.getByTestId('artist-actions')).toContainElement(share)
       expect(share).toHaveAttribute('data-path', '/artists/test-artist')
+    })
+
+    // The header holds the name and the scene link only; the whole action
+    // row, signed-in brackets and the alerts reveal included, sits in the main
+    // column directly after the shows.
+    it('puts the action row directly under the shows, not in the header', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const actions = screen.getByTestId('artist-actions')
+
+      expect(screen.queryByTestId('header-actions')).not.toBeInTheDocument()
+      expect(screen.getByTestId('header-slot')).not.toContainElement(actions)
+      expect(screen.getByTestId('content-slot')).toContainElement(actions)
+      expect(screen.getByTestId('artist-shows-list').nextElementSibling).toBe(
+        actions
+      )
+
+      for (const control of [
+        'follow-button',
+        'add-to-collection',
+        'share-button',
+        'bracket-Graph',
+        'bracket-Suggest edit',
+        'bracket-Add tag',
+        'follow-alerts-reveal',
+      ]) {
+        expect(actions).toContainElement(screen.getByTestId(control))
+      }
+      expect(actions).toContainElement(screen.getByTitle('Report an issue'))
     })
 
     // PSY-664: the graph dialog drives the `#graph` URL hash so the open
@@ -1311,6 +1345,74 @@ describe('ArtistDetail', () => {
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.queryByTestId('subtitle')).not.toBeInTheDocument()
+    })
+
+    it('makes the subtitle the scene link when the payload carries a scene', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          city: 'Kansas City',
+          state: 'MO',
+          scene: { slug: 'kansas-city-mo', city: 'Kansas City', state: 'MO' },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const link = screen.getByTestId('artist-scene-link')
+      expect(screen.getByTestId('subtitle')).toContainElement(link)
+      expect(link).toHaveAttribute('href', '/scenes/kansas-city-mo')
+      expect(link).toHaveTextContent('Kansas City, MO scene →')
+      expect(link.className).toBe(ENTITY_LINK_CLASS.accent)
+    })
+
+    it('names the scene it opens, not the artist city, for a metro suburb', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          city: 'Tempe',
+          state: 'AZ',
+          scene: { slug: 'phoenix-az', city: 'Phoenix', state: 'AZ' },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('artist-scene-link')).toHaveTextContent(
+        'Phoenix, AZ scene →'
+      )
+    })
+
+    it('links the scene for an artist with no location of its own', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          city: null,
+          state: null,
+          scene: { slug: 'kansas-city-mo', city: 'Kansas City', state: 'MO' },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('artist-scene-link')).toHaveAttribute(
+        'href',
+        '/scenes/kansas-city-mo'
+      )
+    })
+
+    it('renders the plain location, unlinked, when no scene serves', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({ city: 'Leeds', state: 'England' }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const subtitle = screen.getByTestId('subtitle')
+      expect(subtitle).toHaveTextContent('Leeds, England')
+      expect(subtitle.querySelector('a')).toBeNull()
+      expect(screen.queryByTestId('artist-scene-link')).not.toBeInTheDocument()
     })
   })
 })
