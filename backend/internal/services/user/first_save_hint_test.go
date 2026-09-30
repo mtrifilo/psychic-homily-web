@@ -13,8 +13,8 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// First-save hint dismissal against a real database: what matters is what the
-// column holds (NULL until dismissed, then the FIRST dismissal forever), and
+// First-save hint stamp against a real database: what matters is what the
+// column holds (NULL until stamped, then the FIRST stamp forever), and
 // the first-wins rule lives in the SQL itself.
 
 type FirstSaveHintIntegrationTestSuite struct {
@@ -41,7 +41,7 @@ func (suite *FirstSaveHintIntegrationTestSuite) createUser(email string) *authm.
 }
 
 // storedDismissal reads the column verbatim. nil means NULL or no row, which
-// are the same state to every reader: the hint has not been dismissed.
+// are the same state to every reader: the hint has never been shown.
 func (suite *FirstSaveHintIntegrationTestSuite) storedDismissal(userID uint) *time.Time {
 	var prefs authm.UserPreferences
 	err := suite.db.Where("user_id = ?", userID).Take(&prefs).Error
@@ -57,7 +57,7 @@ func (suite *FirstSaveHintIntegrationTestSuite) TestNewUserHasNotDismissed() {
 	suite.Nil(suite.storedDismissal(user.ID))
 }
 
-// A user who has never written a preference has no row; dismissing creates
+// A user who has never written a preference has no row; stamping creates
 // it, and the sibling columns land on their DDL defaults rather than on Go
 // zero values.
 func (suite *FirstSaveHintIntegrationTestSuite) TestDismiss_CreatesTheRow() {
@@ -94,10 +94,10 @@ func (suite *FirstSaveHintIntegrationTestSuite) TestDismiss_UpdatesAnExistingRow
 	prefs, err := suite.userService.GetAlertPreferences(user.ID)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(prefs.HomeMetro)
-	suite.Equal(metro, *prefs.HomeMetro, "dismissing must not clear the home metro")
+	suite.Equal(metro, *prefs.HomeMetro, "stamping must not clear the home metro")
 }
 
-// Idempotent, first-write-wins: a repeat dismissal returns and keeps the
+// Idempotent, first-write-wins: a repeat stamp returns and keeps the
 // original time.
 func (suite *FirstSaveHintIntegrationTestSuite) TestDismiss_RepeatKeepsTheFirstTime() {
 	user := suite.createUser("first-save-hint-repeat@example.com")
@@ -121,7 +121,7 @@ func (suite *FirstSaveHintIntegrationTestSuite) TestDismiss_RepeatKeepsTheFirstT
 	suite.True(stored.Equal(backdated), "repeat must not move the stored time")
 }
 
-// Two first-ever dismissals racing to create the row both succeed and agree
+// Two first-ever stamps racing to create the row both succeed and agree
 // on one stored time.
 func (suite *FirstSaveHintIntegrationTestSuite) TestDismiss_ConcurrentFirstWritesAgree() {
 	user := suite.createUser("first-save-hint-race@example.com")

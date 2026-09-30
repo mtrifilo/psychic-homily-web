@@ -64,5 +64,5 @@ func TestDismissFirstSaveHintHandler_ServiceError(t *testing.T) {
 	})
 
 	_, err := h.DismissFirstSaveHintHandler(authedPrefsCtx(), &DismissFirstSaveHintRequest{})
-	testhelpers.AssertHumaErrorWithDetail(t, err, 500, "Failed to dismiss the first-save hint")
+	testhelpers.AssertHumaErrorWithDetail(t, err, 500, "Failed to record the first-save hint")
 }

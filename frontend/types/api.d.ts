@@ -10845,7 +10845,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: date-time
-             * @description When the first-save hint was first dismissed
+             * @description When the first-save hint was first shown
              */
             first_save_hint_dismissed_at: string;
             success: boolean;

@@ -5,17 +5,18 @@ import (
 	"time"
 )
 
-// DismissFirstSaveHint records that the user dismissed the one-time hint that
-// follows their first saved show, and returns the stored dismissal time.
+// DismissFirstSaveHint stamps the one-time hint that follows the user's first
+// saved show as done for their account, and returns the stored time. The
+// client calls it when the hint is first shown and again when it is closed.
 //
 // Idempotent and first-write-wins: a repeat call leaves the stored time as it
-// is and returns it, so two devices dismissing the same hint agree on one
-// value and a retry cannot move it.
+// is and returns it, so the show-time and close-time stamps (or two devices)
+// agree on one value and a retry cannot move it.
 //
 // One statement rather than the update-then-insert pair the other preference
 // writes use, because keeping the FIRST value has to hold even when two
-// dismissals race to create the preferences row; ON CONFLICT resolves that
-// race inside Postgres. Every column the INSERT does not name takes its DDL
+// stamps race to create the preferences row; ON CONFLICT resolves that race
+// inside Postgres. Every column the INSERT does not name takes its DDL
 // default, exactly as the GORM-built inserts elsewhere in this package do.
 func (s *UserService) DismissFirstSaveHint(userID uint) (time.Time, error) {
 	if s.db == nil {

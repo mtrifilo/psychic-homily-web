@@ -270,16 +270,16 @@ func newHomeLayoutResponse(message string, layout *authm.HomeLayout) *HomeLayout
 // One-time first-save hint
 // ===========================================================================
 
-// DismissFirstSaveHintRequest takes nothing: dismissal is a one-way stamp on
+// DismissFirstSaveHintRequest takes nothing: the stamp is one-way, on
 // the session user's own preferences.
 type DismissFirstSaveHintRequest struct{}
 
-// DismissFirstSaveHintResponse reports the STORED dismissal time, which on a
-// repeat call is the first dismissal rather than this request's clock.
+// DismissFirstSaveHintResponse reports the STORED time, which on a repeat call
+// is the first stamp rather than this request's clock.
 type DismissFirstSaveHintResponse struct {
 	Body struct {
 		Success     bool      `json:"success"`
-		DismissedAt time.Time `json:"first_save_hint_dismissed_at" doc:"When the first-save hint was first dismissed"`
+		DismissedAt time.Time `json:"first_save_hint_dismissed_at" doc:"When the first-save hint was first shown"`
 	}
 }
 
@@ -299,7 +299,7 @@ func (h *UserPreferencesHandler) DismissFirstSaveHintHandler(ctx context.Context
 			"user_id", user.ID,
 			"request_id", requestID,
 		)
-		return nil, huma.Error500InternalServerError("Failed to dismiss the first-save hint")
+		return nil, huma.Error500InternalServerError("Failed to record the first-save hint")
 	}
 
 	logger.FromContext(ctx).Info("dismiss_first_save_hint_success",

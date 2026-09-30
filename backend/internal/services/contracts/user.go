@@ -351,8 +351,9 @@ type UserServiceInterface interface {
 	// authm.ErrInvalidHomeLayout.
 	SetHomeLayout(userID uint, layout *authm.HomeLayout) (*authm.HomeLayout, error)
 	ClearHomeLayout(userID uint) error
-	// DismissFirstSaveHint stamps the one-time first-save hint as dismissed and
-	// returns the stored time. A repeat call keeps the first time.
+	// DismissFirstSaveHint stamps the one-time first-save hint as done (it is
+	// called when the hint is first shown, and when it is closed) and returns
+	// the stored time. A repeat call keeps the first time.
 	DismissFirstSaveHint(userID uint) (time.Time, error)
 	SetShowReminders(userID uint, enabled bool) error
 	// PSY-296: default reply permission applied to new top-level comments.

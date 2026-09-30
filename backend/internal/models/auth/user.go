@@ -130,10 +130,11 @@ type UserPreferences struct {
 	// rules live in home_layout.go.
 	HomeLayout *json.RawMessage `json:"home_layout" gorm:"column:home_layout;type:jsonb"`
 
-	// FirstSaveHintDismissedAt is when the viewer dismissed the one-time hint
-	// that follows their first saved show. NULL means never dismissed, the only
-	// state in which the hint may render. Once set it never changes: the write
-	// keeps the first dismissal (see UserService.DismissFirstSaveHint).
+	// FirstSaveHintDismissedAt is set when the one-time hint that follows the
+	// viewer's first saved show is first shown; closing the hint writes it
+	// again. NULL means never shown, the only state in which the hint may
+	// render. Once set it never changes: the write keeps the first time (see
+	// UserService.DismissFirstSaveHint).
 	FirstSaveHintDismissedAt *time.Time `json:"first_save_hint_dismissed_at" gorm:"column:first_save_hint_dismissed_at"`
 
 	CreatedAt time.Time `json:"created_at"`
