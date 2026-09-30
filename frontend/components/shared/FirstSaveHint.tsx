@@ -81,7 +81,9 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
     setReference(anchorRef.current)
   }, [setReference, anchorRef])
 
-  // This component mounts only when the hint opens, so mounting is showing.
+  // Stamps on every mount. The hint mounts when it opens and can remount while
+  // open (a list's batch key changing briefly blanks `isSaved`), which is safe
+  // only because the server keeps the first stamp.
   useEffect(() => {
     stampOnAccount()
   }, [stampOnAccount])
