@@ -154,13 +154,8 @@ describe('SaveButton first-save hint', () => {
     await clickSave(user)
 
     const hint = await screen.findByRole('status')
-    expect(hint).toHaveTextContent(
-      'Saved. Find it on your home page and in Library.'
-    )
-    expect(within(hint).getByRole('link', { name: 'home page' })).toHaveAttribute(
-      'href',
-      '/'
-    )
+    expect(hint).toHaveTextContent('Saved. Find it in your Library.')
+    expect(within(hint).getAllByRole('link')).toHaveLength(1)
     expect(within(hint).getByRole('link', { name: 'Library' })).toHaveAttribute(
       'href',
       '/library'
@@ -168,15 +163,16 @@ describe('SaveButton first-save hint', () => {
     expect(within(hint).getByRole('button', { name: 'Dismiss' })).toBeVisible()
   })
 
-  it('dismissing stamps the account, and later saves never show it again', async () => {
+  // Stamped the moment it shows, before the viewer does anything with it, so
+  // it never shows again on any device however it goes away.
+  it('stamps the account as it opens, and later saves never show it again', async () => {
     const user = userEvent.setup()
     const client = createClient(null)
     const first = renderSave(client, 1)
 
     await clickSave(user, 1)
-    await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
+    await screen.findByRole('status')
 
-    expect(hintElement()).not.toBeInTheDocument()
     await waitFor(() => expect(putCount()).toBe(1))
     expect(readFlag(client)).toEqual(expect.any(String))
     expect(apiRequest).toHaveBeenCalledWith(
@@ -235,29 +231,27 @@ describe('SaveButton first-save hint', () => {
     ['Escape', async (user: ReturnType<typeof userEvent.setup>) => {
       await user.keyboard('{Escape}')
     }],
-    ['the home page link', async (user: ReturnType<typeof userEvent.setup>) => {
-      await user.click(screen.getByRole('link', { name: 'home page' }))
-    }],
     ['the Library link', async (user: ReturnType<typeof userEvent.setup>) => {
       await user.click(screen.getByRole('link', { name: 'Library' }))
     }],
-  ])('closing with %s also stamps the account', async (_label, close) => {
+  ])('closing with %s stamps the account again', async (_label, close) => {
     const user = userEvent.setup()
     const client = createClient(null)
     renderSave(client)
 
     await clickSave(user)
     await screen.findByRole('status')
+    await waitFor(() => expect(putCount()).toBe(1))
     await close(user)
 
     expect(hintElement()).not.toBeInTheDocument()
-    await waitFor(() => expect(putCount()).toBe(1))
+    await waitFor(() => expect(putCount()).toBe(2))
     expect(readFlag(client)).toEqual(expect.any(String))
   })
 
   // A real Radix popover open beside the hint (the show page's Add to
-  // collection) owns its Escape: it closes, and the hint neither dismisses
-  // nor stamps the account. Both orders of registering the two document
+  // collection) owns its Escape: it closes, and the hint neither closes nor
+  // stamps again (the one stamp is the one it made as it opened). Both orders of registering the two document
   // keydown listeners are covered: the popover's first (it opens while the
   // count read is in flight) fails if the hint stops ignoring
   // defaultPrevented events; the hint's first (the popover opens over it)
@@ -313,7 +307,7 @@ describe('SaveButton first-save hint', () => {
         expect(screen.queryByText('collection picker')).not.toBeInTheDocument()
       )
       expect(screen.getByRole('status')).toBeInTheDocument()
-      expect(readFlag(client)).toBeNull()
+      await waitFor(() => expect(putCount()).toBe(1))
     }
   )
 
@@ -340,8 +334,7 @@ describe('SaveButton first-save hint', () => {
       save.focus()
 
       await user.tab()
-      expect(screen.getByRole('link', { name: 'home page' })).toHaveFocus()
-      await user.tab()
+      expect(screen.getByRole('link', { name: 'Library' })).toHaveFocus()
       await user.tab()
       expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveFocus()
 
@@ -373,21 +366,23 @@ describe('SaveButton first-save hint', () => {
     expect(input).toHaveFocus()
   })
 
-  // Unsaving closes it without stamping: the hint's "Saved." is no longer
-  // true, but the viewer never dismissed it.
-  it('closes when the show is unsaved, without stamping the account', async () => {
+  // Unsaving closes it, because its "Saved." is no longer true. The account
+  // already carries the stamp from when it opened, and unsaving adds none.
+  it('closes when the show is unsaved, the account already stamped', async () => {
     const user = userEvent.setup()
     const client = createClient(null)
     renderSave(client)
 
     await clickSave(user)
     await screen.findByRole('status')
+    await waitFor(() => expect(putCount()).toBe(1))
     await user.click(screen.getByRole('button', { name: /Saved, remove|Remove from saved shows/ }))
 
     await waitFor(() =>
       expect(hintElement()).not.toBeInTheDocument()
     )
-    expect(readFlag(client)).toBeNull()
+    expect(readFlag(client)).toEqual(expect.any(String))
+    expect(putCount()).toBe(1)
   })
 
   // Unsave, then re-save the same show after a save elsewhere made it a

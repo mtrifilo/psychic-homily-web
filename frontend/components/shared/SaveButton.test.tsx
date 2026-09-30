@@ -36,7 +36,7 @@ const mockRouterPush = vi.fn()
 vi.mock('@/features/shows/hooks/useFirstSaveHint', async importOriginal => ({
   ...(await importOriginal<typeof import('@/features/shows/hooks/useFirstSaveHint')>()),
   useShouldOpenFirstSaveHint: () => async () => false,
-  useDismissFirstSaveHint: () => ({ mutate: vi.fn() }),
+  useStampFirstSaveHint: () => ({ mutate: vi.fn() }),
 }))
 
 vi.mock('next/navigation', () => ({

@@ -5,7 +5,7 @@ import { createWrapperWithClient } from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
 import {
   shouldOpenFirstSaveHint,
-  useDismissFirstSaveHint,
+  useStampFirstSaveHint,
 } from './useFirstSaveHint'
 
 const apiRequest = vi.fn()
@@ -149,7 +149,7 @@ describe('shouldOpenFirstSaveHint', () => {
   })
 })
 
-describe('useDismissFirstSaveHint', () => {
+describe('useStampFirstSaveHint', () => {
   it('stamps the cache at once and keeps it set when the write lands', async () => {
     const client = createClient()
     client.setQueryData(queryKeys.auth.profile, profilePayload(null))
@@ -158,7 +158,7 @@ describe('useDismissFirstSaveHint', () => {
       () => new Promise(r => (resolve = r))
     )
 
-    const { result } = renderHook(() => useDismissFirstSaveHint(), {
+    const { result } = renderHook(() => useStampFirstSaveHint(), {
       wrapper: createWrapperWithClient(client),
     })
     act(() => result.current.mutate())
@@ -193,13 +193,44 @@ describe('useDismissFirstSaveHint', () => {
     client.setQueryData(queryKeys.auth.profile, profilePayload(null))
     apiRequest.mockRejectedValue(new Error('500'))
 
-    const { result } = renderHook(() => useDismissFirstSaveHint(), {
+    const { result } = renderHook(() => useStampFirstSaveHint(), {
       wrapper: createWrapperWithClient(client),
     })
     act(() => result.current.mutate())
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(readFlag(client)).toBeNull()
+  })
+
+  // The hint stamps as it opens and again as it closes. An earlier stamp that
+  // fails after a later one was issued must not clear the flag.
+  it('lets only the last issued stamp roll the flag back', async () => {
+    const client = createClient()
+    client.setQueryData(queryKeys.auth.profile, profilePayload(null))
+    let rejectFirst!: (error: Error) => void
+    apiRequest
+      .mockImplementationOnce(
+        () => new Promise((_resolve, reject) => (rejectFirst = reject))
+      )
+      .mockResolvedValueOnce({
+        success: true,
+        first_save_hint_dismissed_at: '2026-09-01T12:00:00Z',
+      })
+
+    const { result } = renderHook(
+      () => ({ open: useStampFirstSaveHint(), close: useStampFirstSaveHint() }),
+      { wrapper: createWrapperWithClient(client) }
+    )
+    act(() => result.current.open.mutate())
+    await waitFor(() => expect(readFlag(client)).toEqual(expect.any(String)))
+    act(() => result.current.close.mutate())
+    await waitFor(() => expect(result.current.close.isSuccess).toBe(true))
+
+    await act(async () => {
+      rejectFirst(new Error('500'))
+    })
+    await waitFor(() => expect(result.current.open.isError).toBe(true))
+    expect(readFlag(client)).toEqual(expect.any(String))
   })
 
   // A write can outlive its session: the next account's profile must not
@@ -212,7 +243,7 @@ describe('useDismissFirstSaveHint', () => {
       () => new Promise((_resolve, r) => (reject = r))
     )
 
-    const { result } = renderHook(() => useDismissFirstSaveHint(), {
+    const { result } = renderHook(() => useStampFirstSaveHint(), {
       wrapper: createWrapperWithClient(client),
     })
     act(() => result.current.mutate())

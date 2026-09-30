@@ -11,7 +11,7 @@ vi.mock('@/features/shows/hooks/useFirstSaveHint', async importOriginal => ({
   ...(await importOriginal<
     typeof import('@/features/shows/hooks/useFirstSaveHint')
   >()),
-  useDismissFirstSaveHint: () => ({ mutate: vi.fn() }),
+  useStampFirstSaveHint: () => ({ mutate: vi.fn() }),
 }))
 
 const VIEWPORT = { width: 400, height: 800 }

@@ -13,7 +13,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('../hooks/useFirstSaveHint', async importOriginal => ({
   ...(await importOriginal<typeof import('../hooks/useFirstSaveHint')>()),
   useShouldOpenFirstSaveHint: () => async () => false,
-  useDismissFirstSaveHint: () => ({ mutate: vi.fn() }),
+  useStampFirstSaveHint: () => ({ mutate: vi.fn() }),
 }))
 
 // The save bracket reads the router for its login redirect; there is no app

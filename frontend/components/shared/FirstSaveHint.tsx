@@ -10,7 +10,7 @@ import {
   shift,
   useFloating,
 } from '@floating-ui/react-dom'
-import { useDismissFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
+import { useStampFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
 
 // Minimum distance between the hint and either edge of the viewport. The
 // hint's max width below (100vw - 2rem) is this gutter on both sides.
@@ -44,12 +44,12 @@ interface FirstSaveHintProps {
  * lets it overlay what follows without pushing a dense row apart and without
  * being cut off by an `overflow-hidden` or scrolling ancestor. It is not a
  * dismissable layer: a menu or popover opened near it keeps its own Escape and
- * outside clicks. Each of its own controls (Dismiss, either link, Escape)
- * stamps the account. Unsaving the show, or the control unmounting, closes it
- * without stamping.
+ * outside clicks. It stamps the account as it opens, so it never opens again
+ * on any device however it goes away; its own controls (Dismiss, the Library
+ * link, Escape) stamp again, which keeps the first time.
  */
 export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps) {
-  const { mutate: dismissOnAccount } = useDismissFirstSaveHint()
+  const { mutate: stampOnAccount } = useStampFirstSaveHint()
   const {
     floatingStyles,
     isPositioned,
@@ -81,17 +81,22 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
     setReference(anchorRef.current)
   }, [setReference, anchorRef])
 
+  // This component mounts only when the hint opens, so mounting is showing.
+  useEffect(() => {
+    stampOnAccount()
+  }, [stampOnAccount])
+
   const dismiss = useCallback(() => {
     const focusWasInside =
       hintRef.current?.contains(document.activeElement) ?? false
-    dismissOnAccount()
+    stampOnAccount()
     onClose()
     // The focused control is about to unmount; without this the keyboard
     // user's place in the page drops to <body>.
     if (focusWasInside) {
       anchorRef.current?.querySelector<HTMLElement>('button, a')?.focus()
     }
-  }, [anchorRef, dismissOnAccount, onClose, hintRef])
+  }, [anchorRef, stampOnAccount, onClose, hintRef])
 
   // Bubble phase on purpose: a Radix menu or popover handles its Escape in the
   // capture phase and marks it defaultPrevented, so an Escape that closed one
@@ -118,15 +123,7 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
       className="z-50 flex w-[300px] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-md border border-border bg-popover px-3 py-2.5 text-left font-sans text-sm normal-case leading-snug tracking-normal whitespace-normal text-popover-foreground shadow-md"
     >
       <p className="flex-1">
-        Saved. Find it on your{' '}
-        <Link
-          href="/"
-          onClick={dismiss}
-          className="text-primary underline underline-offset-2"
-        >
-          home page
-        </Link>{' '}
-        and in{' '}
+        Saved. Find it in your{' '}
         <Link
           href="/library"
           onClick={dismiss}

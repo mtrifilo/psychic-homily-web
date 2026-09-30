@@ -20,14 +20,16 @@ import type { SavedShowsListResponse } from '../types'
 type DismissFirstSaveHintResponse =
   components['schemas']['DismissFirstSaveHintResponseBody']
 
+// The account flag. Named for dismissal, it is set as soon as the hint is
+// first shown (and again, keeping the first time, when it is closed).
 const DISMISSED_AT = 'first_save_hint_dismissed_at'
 
 /**
- * Whether the viewer the cached profile names has NOT dismissed the hint. A
- * cache entry that names no viewer answers false: there is nobody to show it
+ * Whether the viewer the cached profile names has never been shown the hint.
+ * A cache entry that names no viewer answers false: there is nobody to show it
  * to, and an unknown answer must not render a once-ever message.
  */
-function isHintUndismissed(cached: unknown): boolean {
+function isHintUnseen(cached: unknown): boolean {
   return (
     readProfileViewerId(cached) != null &&
     readProfilePreference<string>(cached, DISMISSED_AT) == null
@@ -44,8 +46,8 @@ const answeredViewers = new WeakMap<QueryClient, Set<unknown>>()
 
 /**
  * Called after a save SUCCEEDS: whether that save should open the first-save
- * hint. True only when the viewer has not dismissed the hint, has not had the
- * question answered this session, and the save took them from zero saved
+ * hint. True only when the viewer has never been shown the hint, has not had
+ * the question answered this session, and the save took them from zero saved
  * shows to exactly one.
  *
  * The flag is read from the profile cache at call time rather than through a
@@ -54,8 +56,7 @@ const answeredViewers = new WeakMap<QueryClient, Set<unknown>>()
  *
  * Cost: while the flag is unset, the FIRST save of each session reads the
  * saved-show count once. That includes every account that had saves before
- * the flag existed and every viewer who never dismissed the hint, since their
- * flag stays unset.
+ * the flag existed, since their flag stays unset.
  * Any answer of one or more ends the question for the session, so the read
  * never repeats per save, and the hint cannot reopen in the same session.
  */
@@ -65,7 +66,7 @@ export async function shouldOpenFirstSaveHint(
 ): Promise<boolean> {
   const cached = queryClient.getQueryData(queryKeys.auth.profile)
   const viewerId = readProfileViewerId(cached)
-  if (!isHintUndismissed(cached)) return false
+  if (!isHintUnseen(cached)) return false
   const answered = answeredViewers.get(queryClient) ?? new Set<unknown>()
   answeredViewers.set(queryClient, answered)
   if (answered.has(viewerId)) return false
@@ -97,23 +98,31 @@ export function useShouldOpenFirstSaveHint(): (
 }
 
 /**
- * Stamp the hint dismissed on the account, optimistically: the profile cache
+ * Issue order for stamps, module scoped. The hint stamps as it opens and
+ * again as it closes, so two stamps in flight is the ordinary path; only the
+ * last issued one may roll the cache back, or an earlier stamp failing after
+ * a later one succeeded would clear a flag the server holds.
+ */
+let issuedStamps = 0
+
+/**
+ * Stamp the hint as shown on the account, optimistically: the profile cache
  * carries the flag at once, so no other Save control can open the hint again
  * while the request is in flight. Only null versus set is ever read, so the
- * server's stored time is not reconciled into the cache.
+ * server's stored time is not reconciled into the cache. The server keeps the
+ * first time, so a repeat stamp is harmless.
  *
- * A failed write restores the flag and is not surfaced. The hint has already
- * closed at the viewer's request, and the only cost of the failure is that the
- * hint may open again at a later first save.
+ * A failed write restores the flag and is not surfaced: the only cost of the
+ * failure is that the hint may open again at a later first save.
  */
-export function useDismissFirstSaveHint() {
+export function useStampFirstSaveHint() {
   const queryClient = useQueryClient()
 
   return useMutation<
     DismissFirstSaveHintResponse,
     Error,
     void,
-    { viewerId: unknown; previous: string | null }
+    { issue: number; viewerId: unknown; previous: string | null }
   >({
     mutationFn: () =>
       apiRequest<DismissFirstSaveHintResponse>(
@@ -124,6 +133,7 @@ export function useDismissFirstSaveHint() {
       await queryClient.cancelQueries({ queryKey: queryKeys.auth.profile })
       const cached = queryClient.getQueryData(queryKeys.auth.profile)
       const context = {
+        issue: ++issuedStamps,
         viewerId: readProfileViewerId(cached),
         previous: readProfilePreference<string>(cached, DISMISSED_AT),
       }
@@ -137,7 +147,7 @@ export function useDismissFirstSaveHint() {
       return context
     },
     onError: (_error, _vars, context) => {
-      if (!context) return
+      if (!context || context.issue !== issuedStamps) return
       queryClient.setQueryData(queryKeys.auth.profile, (old: unknown) =>
         settleProfilePreference(
           old,
