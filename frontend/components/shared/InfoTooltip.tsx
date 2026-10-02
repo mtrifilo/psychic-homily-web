@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type PointerEvent } from 'react'
 import { Info } from 'lucide-react'
 
 import {
@@ -40,15 +40,10 @@ export interface InfoTooltipProps {
  * open/closed state (matching `aria-expanded`), and the popover toggles
  * before the tooltip's own click handler closes the tooltip.
  *
- * The tooltip is suppressed while the popover is open, so the two never
- * render at once (a pointer re-entering the glyph over an open popover asks
- * the tooltip to open; that request is held until the popover closes).
- * Tooltip open requests are also ignored while focus came from a touch: a tap
- * focuses the button after `pointerup`, which Radix reads as keyboard focus
- * and would flash the tooltip before the click opens the popover.
- *
- * `select-none` and `-webkit-touch-callout: none` keep a long press on the
- * glyph from starting a text selection or the iOS callout menu.
+ * The tooltip never renders while the popover is open. Tooltip open requests
+ * are also ignored while focus came from a touch: Chromium focuses a tapped
+ * button after `pointerup`, which Radix reads as keyboard focus and would
+ * flash the tooltip before the click opens the popover.
  *
  * Owns its own `TooltipProvider` so it drops in anywhere without a
  * surrounding provider.
@@ -74,6 +69,15 @@ export function InfoTooltip({
     if (next && focusedByTouchRef.current) return
     setTooltipOpen(next)
   }
+  const handlePointerDown = (event: PointerEvent) => {
+    focusedByTouchRef.current = event.pointerType === 'touch'
+  }
+  const handlePointerMove = (event: PointerEvent) => {
+    if (event.pointerType !== 'touch') focusedByTouchRef.current = false
+  }
+  const handleBlur = () => {
+    focusedByTouchRef.current = false
+  }
 
   return (
     <TooltipProvider delayDuration={120}>
@@ -84,22 +88,16 @@ export function InfoTooltip({
         >
           <PopoverTrigger asChild>
             <TooltipTrigger asChild>
+              {/* select-none and the touch-callout reset keep a long press
+                  from starting a text selection or the iOS callout menu. */}
               <button
                 type="button"
                 aria-label={label}
                 className="inline-flex select-none items-center rounded-full p-0.5 text-muted-foreground transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid={testId}
-                onPointerDown={event => {
-                  focusedByTouchRef.current = event.pointerType === 'touch'
-                }}
-                onPointerMove={event => {
-                  if (event.pointerType !== 'touch') {
-                    focusedByTouchRef.current = false
-                  }
-                }}
-                onBlur={() => {
-                  focusedByTouchRef.current = false
-                }}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onBlur={handleBlur}
               >
                 <Info className="h-3.5 w-3.5" aria-hidden />
               </button>

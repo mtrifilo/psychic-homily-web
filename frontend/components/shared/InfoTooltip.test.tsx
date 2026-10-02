@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -18,7 +18,19 @@ function renderInfo(props: Partial<Parameters<typeof InfoTooltip>[0]> = {}) {
 
 const trigger = () => screen.getByRole('button', { name: LABEL })
 
+// Mobile browsers focus a tapped button after pointerup, so Radix sees a
+// focus with no pointer down in progress. This replays that order.
+function tapFocus(button: HTMLElement) {
+  fireEvent.pointerDown(button, { pointerType: 'touch' })
+  fireEvent.pointerUp(document, { pointerType: 'touch' })
+  act(() => button.focus())
+}
+
 describe('InfoTooltip', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('passes the testId through to the trigger button', () => {
     renderInfo()
     expect(screen.getByTestId('info-glyph')).toBe(trigger())
@@ -69,15 +81,11 @@ describe('InfoTooltip', () => {
     expect(trigger()).toHaveAttribute('aria-expanded', 'true')
   })
 
-  // Mobile browsers focus the button after pointerup on a tap, so Radix sees
-  // a focus with no pointer down in progress. This replays that order.
   it('does not flash the tooltip when a tap focuses the trigger', async () => {
     renderInfo()
     const button = trigger()
 
-    fireEvent.pointerDown(button, { pointerType: 'touch' })
-    fireEvent.pointerUp(document, { pointerType: 'touch' })
-    act(() => button.focus())
+    tapFocus(button)
 
     expect(screen.queryByRole('tooltip')).toBeNull()
 
@@ -102,9 +110,7 @@ describe('InfoTooltip', () => {
     renderInfo()
     const button = trigger()
 
-    fireEvent.pointerDown(button, { pointerType: 'touch' })
-    fireEvent.pointerUp(document, { pointerType: 'touch' })
-    act(() => button.focus())
+    tapFocus(button)
     act(() => button.blur())
 
     await user.tab()
@@ -112,14 +118,16 @@ describe('InfoTooltip', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
   })
 
-  it('closes the popover on an outside pointer down', async () => {
+  it.each([
+    ['an outside pointer down', () => screen.getByTestId('outside')],
+    ['a second click of the trigger', trigger],
+  ])('closes the popover on %s', async (_name, target) => {
     const user = userEvent.setup()
     renderInfo()
 
     await user.click(trigger())
     await screen.findByRole('dialog')
-
-    await user.click(screen.getByTestId('outside'))
+    await user.click(target())
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(trigger()).toHaveAttribute('aria-expanded', 'false')
@@ -131,20 +139,7 @@ describe('InfoTooltip', () => {
 
     await user.click(trigger())
     await screen.findByRole('dialog')
-
     await user.keyboard('{Escape}')
-
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(trigger()).toHaveAttribute('aria-expanded', 'false')
-  })
-
-  it('toggles the popover closed on a second click of the trigger', async () => {
-    const user = userEvent.setup()
-    renderInfo()
-
-    await user.click(trigger())
-    await screen.findByRole('dialog')
-    await user.click(trigger())
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(trigger()).toHaveAttribute('aria-expanded', 'false')
@@ -175,7 +170,8 @@ describe('InfoTooltip', () => {
   })
 
   it('holds the tooltip back while the popover is open', async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     renderInfo()
 
     await user.click(trigger())
@@ -184,9 +180,9 @@ describe('InfoTooltip', () => {
     await user.unhover(trigger())
     await user.hover(trigger())
 
-    // The tooltip opens after a 120 ms hover delay; wait past it so a
+    // The tooltip opens after a 120 ms hover delay; advance past it so a
     // regression has time to render before the absence is asserted.
-    await new Promise(resolve => setTimeout(resolve, 300))
+    await act(() => vi.advanceTimersByTimeAsync(300))
     expect(screen.queryByRole('tooltip')).toBeNull()
     expect(screen.getByRole('dialog')).toHaveTextContent(COPY)
   })
