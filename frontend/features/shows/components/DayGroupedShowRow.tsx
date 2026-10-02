@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils'
 import type { Density } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
-import { useAuthContext } from '@/lib/context/AuthContext'
 // Imported by path, not through the `components/shared` barrel: that barrel is
 // ~30 client components and any route reaching it pulls the lot into its module
 // graph (the reason `SceneWeekView` imports `ShareButton` the same way).
@@ -55,7 +54,10 @@ export interface DayGroupedShowRowProps {
   density: Density
   /** Gates the admin controls, exactly as it does on `ShowCard`. */
   isAdmin: boolean
-  /** The viewer, for the owner's delete control. */
+  /**
+   * The viewer, for the owner's delete control. The only viewer id the row
+   * reads: the list sizes `actionsFootprint` from the same value.
+   */
   userId?: string
   /** Forwarded to SaveButton; `'pending'` while the list's batch is in flight. */
   saveData?: BatchedSaveData
@@ -73,10 +75,7 @@ export interface DayGroupedShowRowProps {
    * the column appear on page 1 and vanish on page 2 of one filter.
    */
   showCity: boolean
-  /**
-   * Sizes the actions column: one value for the whole list, computed from the
-   * same `userId` this row receives.
-   */
+  /** Sizes the actions column: one value for the whole list. */
   actionsFootprint: ActionsFootprint
 }
 
@@ -85,9 +84,9 @@ export interface DayGroupedShowRowProps {
  *
  * Spelled as `lg:` utilities, which is where the frame's desktop layout starts.
  * Below that the row is a stacked two-line block and the fixed widths must not
- * apply: they total 590px before the bill column gets a pixel, which already
- * exceeds a 640px viewport. The header row and the cells read the same
- * constants, so a width moves in one place.
+ * apply: with the narrowest `ACTIONS_WIDTH` they total 614px before the bill
+ * column gets a pixel, nearly all of a 640px viewport. The header row and the
+ * cells read the same constants, so a width moves in one place.
  */
 const COLUMN = {
   time: 'lg:w-[90px]',
@@ -101,11 +100,13 @@ const COLUMN = {
  * on the header, so the venue and price columns start at the same x on every
  * row whatever subset of controls a row carries.
  *
- * `viewer` holds the expand control (28px), save with a two-digit count (62px)
- * and outbound (28px), plus the 2px gaps between them. Every further control
- * the footprint adds is 28px plus a 2px gap. A longer save count spills
- * leftward out of the cell (it is `justify-end` and never wraps) instead of
- * widening it, so it still moves no other column.
+ * `viewer` holds the expand control (28px), `SaveButton` with a two-digit
+ * count (62px: its `px-3` padding, 16px heart, `gap-1.5` and two digits) and
+ * outbound (28px), plus two 2px gaps: 122px, and 2px of slack makes 124. Every
+ * further control the footprint adds is 28px plus a 2px gap. A longer save
+ * count spills leftward out of the cell (it is `justify-end` and never wraps)
+ * into the 8px row gap and then over the age cell, instead of widening the
+ * cell, so it still moves no other column.
  */
 const ACTIONS_WIDTH: Record<ActionsFootprint, string> = {
   viewer: 'lg:w-[124px]',
@@ -197,7 +198,6 @@ export function DayGroupedShowRow({
   showCity,
   actionsFootprint,
 }: DayGroupedShowRowProps) {
-  const { user } = useAuthContext()
   // DERIVED from the density, not seeded from it. `useDensity` reads
   // localStorage through a server snapshot, so it is always 'comfortable' on
   // the server and the hydration render, and this row first mounts on the
@@ -218,7 +218,7 @@ export function DayGroupedShowRow({
 
   const controls = rowActionControls({
     submittedBy: show.submitted_by,
-    viewerId: userId || user?.id,
+    viewerId: userId,
     isAdmin,
   })
 

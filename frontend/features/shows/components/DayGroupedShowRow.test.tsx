@@ -428,8 +428,9 @@ describe('DayGroupedShowRow', () => {
 
 // jsdom has no layout, so what this pins is the CLASS that fixes the width:
 // one `lg:w-[...]` utility per footprint, the same on the header and on every
-// row whatever controls the row itself carries. The x positions are measured
-// in a browser.
+// row whatever controls the row itself carries. A width derived from a row's
+// own controls fails the matrix below. Whether the controls FIT the width is
+// a layout fact no test here can see.
 describe('the actions column width', () => {
   function widthClasses(element: HTMLElement): string[] {
     return [...element.classList].filter(c => /(^|:)(min-|max-)?w-/.test(c))

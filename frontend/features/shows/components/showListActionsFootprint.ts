@@ -11,9 +11,9 @@ import type { ShowResponse } from '../types'
 export type ActionsFootprint = 'viewer' | 'owner' | 'admin'
 
 /**
- * Which viewer-dependent controls one discovery row renders. The row reads
- * this to render them and `actionsFootprintFor` reads it to size the column,
- * so the two cannot disagree about a row.
+ * Which viewer-dependent controls (admin, delete) one discovery row renders.
+ * The row reads this to render them and `actionsFootprintFor` reads it to size
+ * the column, so the two agree about those controls on every row.
  */
 export function rowActionControls({
   submittedBy,
