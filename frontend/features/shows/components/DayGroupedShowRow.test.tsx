@@ -5,6 +5,7 @@ import {
   DayGroupedShowListHeader,
   DayGroupedShowRow,
 } from './DayGroupedShowRow'
+import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import type { ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -87,6 +88,7 @@ function renderRow(overrides: Partial<ShowResponse> = {}, props = {}) {
       isAdmin={false}
       index={0}
       showCity={false}
+      actionsFootprint="viewer"
       {...props}
     />
   )
@@ -425,9 +427,154 @@ describe('DayGroupedShowRow', () => {
   })
 })
 
+// jsdom has no layout, so what this pins is the CLASS that fixes the width:
+// one `lg:w-[...]` utility per footprint, the same on the header and on every
+// row whatever controls the row itself carries. A width derived from a row's
+// own controls fails the matrix below. Whether the controls FIT the width is
+// a layout fact no test here can see.
+describe('the actions column width', () => {
+  function widthClasses(element: HTMLElement): string[] {
+    return [...element.classList].filter(c => /(^|:)(min-|max-)?w-/.test(c))
+  }
+
+  const noMusic = {
+    artists: [
+      { id: 3, name: 'Quiet Act', slug: 'quiet-act', is_headliner: true },
+    ] as never,
+  }
+
+  // Each viewer with the rows a list can hand them. Every case pairs a row
+  // with the expand control and one without it; the owner case also pairs an
+  // owned row (delete control) with a row someone else submitted.
+  const viewers = [
+    {
+      viewer: 'an anonymous reader',
+      footprint: 'viewer',
+      rowProps: {},
+      rows: [{}, noMusic],
+    },
+    {
+      viewer: 'a signed-in reader who submitted no row',
+      footprint: 'viewer',
+      rowProps: { userId: '42' },
+      rows: [{ submitted_by: 7 }, { ...noMusic, submitted_by: 7 }],
+    },
+    {
+      viewer: 'a signed-in reader who submitted a row',
+      footprint: 'owner',
+      rowProps: { userId: '42' },
+      rows: [
+        { submitted_by: 42 },
+        { ...noMusic, submitted_by: 42 },
+        { submitted_by: 7 },
+        { ...noMusic, submitted_by: 7 },
+      ],
+    },
+    {
+      viewer: 'an admin',
+      footprint: 'admin',
+      rowProps: { isAdmin: true, userId: '1' },
+      rows: [{}, noMusic],
+    },
+  ] as const
+
+  it.each(viewers)(
+    'is one fixed width on the header and every row for $viewer',
+    ({ footprint, rowProps, rows }) => {
+      render(
+        <DayGroupedShowListHeader
+          density="comfortable"
+          actionsFootprint={footprint}
+        />
+      )
+      const header = widthClasses(
+        screen.getByTestId('show-list-header-actions')
+      )
+      expect(header).toHaveLength(1)
+      expect(header[0]).toMatch(/^lg:w-\[\d+px\]$/)
+
+      for (const [i, overrides] of rows.entries()) {
+        renderRow(
+          { ...overrides, id: i + 1, title: `Row ${i + 1}` },
+          { ...rowProps, actionsFootprint: footprint }
+        )
+      }
+
+      const articles = screen.getAllByRole('article')
+      expect(articles).toHaveLength(rows.length)
+      // Both variants are really on the page, so the comparison below covers
+      // a row with the expand control and a row without it.
+      const expandable = articles.filter(article =>
+        within(article).queryByRole('button', {
+          name: 'Discover artist music',
+        })
+      )
+      expect(expandable).toHaveLength(rows.length / 2)
+
+      for (const article of articles) {
+        expect(
+          widthClasses(within(article).getByTestId('row-actions'))
+        ).toEqual(header)
+      }
+    }
+  )
+
+  // `ACTIONS_WIDTH` is sized for exactly these controls. A flag added to or
+  // changed in the discovery policy fails here, so the widths get revisited.
+  it('is sized for the discovery policy as it stands', () => {
+    expect(SHOW_LIST_FEATURE_POLICY.discovery).toEqual({
+      showDetailsLink: true,
+      showSaveButton: true,
+      showExpandMusic: true,
+      showAdminActions: true,
+      showOwnerActions: true,
+      useCompactLayout: false,
+    })
+  })
+
+  // When the fixed columns overflow a narrow row, the age cell is the one that
+  // gives; the header's must give the same way or its later columns drift.
+  it('lets the header age cell shrink exactly as the row age cell does', () => {
+    render(
+      <DayGroupedShowListHeader density="comfortable" actionsFootprint="admin" />
+    )
+    renderRow({}, { actionsFootprint: 'admin', isAdmin: true })
+
+    const shrinkClasses = (element: HTMLElement) =>
+      [...element.classList].filter(c => /^(shrink(-0)?|truncate)$/.test(c))
+    expect(shrinkClasses(screen.getByText('Age'))).toEqual(
+      shrinkClasses(screen.getByText('21+'))
+    )
+  })
+
+  it('gives each footprint its own width, wider as it holds more controls', () => {
+    const pixels = (['viewer', 'owner', 'admin'] as const).map(footprint => {
+      const { unmount } = render(
+        <DayGroupedShowListHeader
+          density="comfortable"
+          actionsFootprint={footprint}
+        />
+      )
+      const [width] = widthClasses(
+        screen.getByTestId('show-list-header-actions')
+      )
+      unmount()
+      return Number(width.match(/\d+/)?.[0])
+    })
+
+    expect(pixels[0]).toBeLessThan(pixels[1])
+    expect(pixels[1]).toBeLessThan(pixels[2])
+  })
+})
+
 describe('DayGroupedShowListHeader', () => {
   it('labels every column the row renders', () => {
-    render(<DayGroupedShowListHeader density="comfortable" />)
+    render(
+      <DayGroupedShowListHeader
+        density="comfortable"
+        actionsFootprint="viewer"
+      />
+    )
 
     for (const label of ['Time', 'Bill', 'Venue', 'Price', 'Age']) {
       expect(screen.getByText(label)).toBeInTheDocument()
@@ -437,7 +584,9 @@ describe('DayGroupedShowListHeader', () => {
   // Compact renders no age, and a label over fifty empty cells is a column that
   // is not there.
   it('drops the Age label in compact, where the column is empty', () => {
-    render(<DayGroupedShowListHeader density="compact" />)
+    render(
+      <DayGroupedShowListHeader density="compact" actionsFootprint="viewer" />
+    )
 
     expect(screen.queryByText('Age')).toBeNull()
     expect(screen.getByText('Time')).toBeInTheDocument()
@@ -446,7 +595,12 @@ describe('DayGroupedShowListHeader', () => {
   // These rows are articles, not a table: with no header-to-cell association
   // the labels would arrive as five orphan words before the list.
   it('is hidden from assistive tech', () => {
-    render(<DayGroupedShowListHeader density="comfortable" />)
+    render(
+      <DayGroupedShowListHeader
+        density="comfortable"
+        actionsFootprint="viewer"
+      />
+    )
 
     expect(screen.getByTestId('show-list-header')).toHaveAttribute(
       'aria-hidden',

@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils'
 import type { Density } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
-import { useAuthContext } from '@/lib/context/AuthContext'
 // Imported by path, not through the `components/shared` barrel: that barrel is
 // ~30 client components and any route reaching it pulls the lot into its module
 // graph (the reason `SceneWeekView` imports `ShareButton` the same way).
@@ -24,11 +23,18 @@ import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { formatShowTimeCompact } from '@/lib/utils/formatters'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { DeleteShowDialog } from './DeleteShowDialog'
-import { ExportShowButton } from './ExportShowButton'
+import {
+  EXPORT_SHOW_BUTTON_RENDERS,
+  ExportShowButton,
+} from './ExportShowButton'
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
-import { canModerateShow, splitBill } from '../utils'
+import {
+  rowActionControls,
+  type ActionsFootprint,
+} from './showListActionsFootprint'
+import { splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
 
 /**
@@ -48,7 +54,10 @@ export interface DayGroupedShowRowProps {
   density: Density
   /** Gates the admin controls, exactly as it does on `ShowCard`. */
   isAdmin: boolean
-  /** The viewer, for the owner's delete control. */
+  /**
+   * The viewer, for the owner's delete control. The only viewer id the row
+   * reads: the list sizes `actionsFootprint` from the same value.
+   */
   userId?: string
   /** Forwarded to SaveButton; `'pending'` while the list's batch is in flight. */
   saveData?: BatchedSaveData
@@ -66,6 +75,8 @@ export interface DayGroupedShowRowProps {
    * the column appear on page 1 and vanish on page 2 of one filter.
    */
   showCity: boolean
+  /** Sizes the actions column: one value for the whole list. */
+  actionsFootprint: ActionsFootprint
 }
 
 /**
@@ -73,7 +84,8 @@ export interface DayGroupedShowRowProps {
  *
  * Spelled as `lg:` utilities, which is where the frame's desktop layout starts.
  * Below that the row is a stacked two-line block and the fixed widths must not
- * apply: they total 590px before the bill column gets a pixel, which already
+ * apply: together with the narrowest `ACTIONS_WIDTH`, the row's gaps and its
+ * padding, they take 670px before the bill column gets a pixel, which already
  * exceeds a 640px viewport. The header row and the cells read the same
  * constants, so a width moves in one place.
  */
@@ -82,8 +94,28 @@ const COLUMN = {
   venue: 'lg:w-[260px]',
   price: 'lg:w-[80px]',
   age: 'lg:w-[60px]',
-  actions: 'lg:min-w-[100px]',
 } as const
+
+/**
+ * The actions column's FIXED width per footprint, identical on every row and
+ * on the header, so the venue and price columns start at the same x on every
+ * row whatever subset of controls a row carries.
+ *
+ * `viewer` holds the expand control (28px), `SaveButton` with a two-digit
+ * count (62px measured: its `px-3` padding, 16px heart, `gap-1.5` and two
+ * digits; 32px with no count) and outbound (28px), plus two 2px gaps: 122px,
+ * and 2px of slack makes 124. Every further control the footprint adds is 28px
+ * plus a 2px gap. The widths assume the discovery policy renders expand, save
+ * and outbound, which a width test pins. A longer save count spills leftward
+ * out of the cell (it is `justify-end` and never wraps) into the 8px row gap,
+ * and from four digits over the age text, instead of widening the cell, so it
+ * still moves no other column.
+ */
+const ACTIONS_WIDTH: Record<ActionsFootprint, string> = {
+  viewer: 'lg:w-[124px]',
+  owner: 'lg:w-[154px]',
+  admin: EXPORT_SHOW_BUTTON_RENDERS ? 'lg:w-[214px]' : 'lg:w-[184px]',
+}
 
 /**
  * Padding per density, and only once the row IS a column row. The frame gives
@@ -151,8 +183,9 @@ function SupportText({
  * viewer, gated on the same `SHOW_LIST_FEATURE_POLICY.discovery` flags: save,
  * outbound, expand-music, and the admin and owner controls. The frame draws
  * that column simplified; it was never a decision to remove capability, and the
- * open players behind the expand control are a locked decision. The column
- * wraps rather than dropping anything.
+ * open players behind the expand control are a locked decision. The column is
+ * sized to hold every control the viewer can see, with a save count of up to
+ * two digits (`ACTIONS_WIDTH`), rather than dropping any.
  *
  * The `<article aria-label>` is load-bearing and not decoration: it is how the
  * save and list-action E2E specs address a specific seeded show
@@ -166,8 +199,8 @@ export function DayGroupedShowRow({
   saveData,
   index,
   showCity,
+  actionsFootprint,
 }: DayGroupedShowRowProps) {
-  const { user } = useAuthContext()
   // DERIVED from the density, not seeded from it. `useDensity` reads
   // localStorage through a server snapshot, so it is always 'comfortable' on
   // the server and the hydration render, and this row first mounts on the
@@ -186,10 +219,9 @@ export function DayGroupedShowRow({
     [artists]
   )
 
-  const resolvedUserId = userId || user?.id
-  const canDelete = canModerateShow({
+  const controls = rowActionControls({
     submittedBy: show.submitted_by,
-    viewerId: resolvedUserId,
+    viewerId: userId,
     isAdmin,
   })
 
@@ -281,16 +313,14 @@ export function DayGroupedShowRow({
             )}
           </span>
 
-          {/* A MINIMUM width, not a cap. The frame drew this column for two
-              controls; an admin carries five, six where the dev-only export
-              button renders. At a fixed width they would wrap to a second line
-              inside the box and make admin rows taller than the rest, which
-              `lg:items-baseline` would then align to the first line. */}
+          {/* No `flex-wrap`, so this row never grows taller than the rest;
+              the width and the overflow are `ACTIONS_WIDTH`'s. */}
           <span
             className={cn(
               'flex shrink-0 items-center justify-end gap-0.5 lg:order-6',
-              COLUMN.actions
+              ACTIONS_WIDTH[actionsFootprint]
             )}
+            data-testid="row-actions"
           >
             {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
               hasArtistMusic && (
@@ -327,14 +357,14 @@ export function DayGroupedShowRow({
             {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
               <Link
                 href={detailsHref}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
                 aria-label="View show details"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </Link>
             )}
 
-            {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions && isAdmin && (
+            {controls.admin && (
               <Button
                 variant={isEditing ? 'secondary' : 'ghost'}
                 size="sm"
@@ -350,7 +380,7 @@ export function DayGroupedShowRow({
               </Button>
             )}
 
-            {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions && isAdmin && (
+            {controls.admin && (
               <ExportShowButton
                 showId={show.id}
                 showTitle={show.title}
@@ -361,7 +391,7 @@ export function DayGroupedShowRow({
               />
             )}
 
-            {SHOW_LIST_FEATURE_POLICY.discovery.showOwnerActions && canDelete && (
+            {controls.delete && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -459,7 +489,7 @@ export function DayGroupedShowRow({
           `useShowDelete` at mount, so rendering it unconditionally would put 50
           mutations and 50 dialog roots on a page for readers who can never use
           one. */}
-      {canDelete && (
+      {controls.delete && (
         <DeleteShowDialog
           show={show}
           open={isDeleteDialogOpen}
@@ -480,9 +510,16 @@ export function DayGroupedShowRow({
  * price pair) states itself.
  *
  * Takes the density because the row does: a compact list renders no age, and a
- * label over fifty empty cells is a column that is not there.
+ * label over fifty empty cells is a column that is not there. Takes the
+ * footprint because the rows do.
  */
-export function DayGroupedShowListHeader({ density }: { density: Density }) {
+export function DayGroupedShowListHeader({
+  density,
+  actionsFootprint,
+}: {
+  density: Density
+  actionsFootprint: ActionsFootprint
+}) {
   return (
     <div
       className="hidden items-baseline gap-2 border-b border-border px-2 pb-1 font-mono text-[10px] font-bold uppercase tracking-[0.8px] text-muted-foreground lg:flex"
@@ -493,10 +530,15 @@ export function DayGroupedShowListHeader({ density }: { density: Density }) {
       <span className="min-w-0 flex-1">Bill</span>
       <span className={cn(COLUMN.venue, 'shrink-0')}>Venue</span>
       <span className={cn(COLUMN.price, 'shrink-0')}>Price</span>
-      <span className={cn(COLUMN.age, 'shrink-0')}>
+      {/* Shrinks as the row's age cell does: when the fixed columns overflow
+          the row, header and rows give up the same pixels and stay aligned. */}
+      <span className={cn(COLUMN.age, 'shrink truncate')}>
         {showsAge(density) ? 'Age' : null}
       </span>
-      <span className={cn(COLUMN.actions, 'shrink-0')} />
+      <span
+        className={cn(ACTIONS_WIDTH[actionsFootprint], 'shrink-0')}
+        data-testid="show-list-header-actions"
+      />
     </div>
   )
 }

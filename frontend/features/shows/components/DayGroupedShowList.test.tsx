@@ -16,12 +16,14 @@ vi.mock('./DayGroupedShowRow', () => ({
     isAdmin,
     userId,
     showCity,
+    actionsFootprint,
   }: {
     show: ShowResponse
     density: string
     isAdmin: boolean
     userId?: string
     showCity: boolean
+    actionsFootprint: string
   }) => (
     <article
       data-testid={`show-card-${show.id}`}
@@ -29,11 +31,21 @@ vi.mock('./DayGroupedShowRow', () => ({
       data-is-admin={String(isAdmin)}
       data-user-id={userId ?? ''}
       data-show-city={String(showCity)}
+      data-actions-footprint={actionsFootprint}
     >
       {show.title}
     </article>
   ),
-  DayGroupedShowListHeader: () => <div data-testid="show-list-header" />,
+  DayGroupedShowListHeader: ({
+    actionsFootprint,
+  }: {
+    actionsFootprint: string
+  }) => (
+    <div
+      data-testid="show-list-header"
+      data-actions-footprint={actionsFootprint}
+    />
+  ),
 }))
 
 function makeShow(
@@ -374,6 +386,56 @@ describe('DayGroupedShowList', () => {
       expect(row).toHaveAttribute('data-is-admin', 'false')
       expect(row).toHaveAttribute('data-user-id', '')
       expect(row).toHaveAttribute('data-show-city', 'false')
+    })
+
+    // One footprint for the header and every row, taken over the whole list:
+    // a row the reader does not own still takes the width their own row needs.
+    it('hands the header and every row the same actions footprint', () => {
+      const shows = [
+        { ...twoDays[0], submitted_by: 42 },
+        twoDays[1],
+        twoDays[2],
+      ]
+      render(
+        <DayGroupedShowList
+          shows={shows}
+          density="comfortable"
+          isAdmin={false}
+          userId="42"
+          showCity={false}
+        />
+      )
+
+      expect(screen.getByTestId('show-list-header')).toHaveAttribute(
+        'data-actions-footprint',
+        'owner'
+      )
+      for (const id of [1, 2, 3]) {
+        expect(screen.getByTestId(`show-card-${id}`)).toHaveAttribute(
+          'data-actions-footprint',
+          'owner'
+        )
+      }
+    })
+
+    it('hands every row the admin footprint for an admin', () => {
+      render(
+        <DayGroupedShowList
+          shows={twoDays}
+          density="comfortable"
+          isAdmin
+          showCity={false}
+        />
+      )
+
+      expect(screen.getByTestId('show-list-header')).toHaveAttribute(
+        'data-actions-footprint',
+        'admin'
+      )
+      expect(screen.getByTestId('show-card-3')).toHaveAttribute(
+        'data-actions-footprint',
+        'admin'
+      )
     })
   })
 

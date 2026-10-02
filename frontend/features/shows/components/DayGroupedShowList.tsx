@@ -12,6 +12,10 @@ import {
   DayGroupedShowRow,
 } from './DayGroupedShowRow'
 import {
+  actionsFootprintFor,
+  type ActionsFootprint,
+} from './showListActionsFootprint'
+import {
   dayGroupHeading,
   groupShowsByVenueLocalDay,
   type ShowDayGroup,
@@ -87,6 +91,7 @@ function DayGroupSection({
   saveCounts,
   isFirst,
   showCity,
+  actionsFootprint,
 }: {
   group: ShowDayGroup
   density: Density
@@ -95,6 +100,7 @@ function DayGroupSection({
   saveCounts?: Record<string, SaveCounts>
   isFirst: boolean
   showCity: boolean
+  actionsFootprint: ActionsFootprint
 }) {
   return (
     <section
@@ -160,6 +166,7 @@ function DayGroupSection({
             density={density}
             index={index}
             showCity={showCity}
+            actionsFootprint={actionsFootprint}
           />
         ))}
       </div>
@@ -200,9 +207,20 @@ export function DayGroupedShowList({
     [shows, hydrated]
   )
 
+  // `userId` and `isAdmin` settle after hydration, so an owner's or admin's
+  // footprint widens once then: the header and every row together, which
+  // keeps the columns aligned through the change.
+  const actionsFootprint = useMemo(
+    () => actionsFootprintFor({ shows, isAdmin, userId }),
+    [shows, isAdmin, userId]
+  )
+
   return (
     <div className="min-w-0" data-testid="day-grouped-show-list">
-      <DayGroupedShowListHeader density={density} />
+      <DayGroupedShowListHeader
+        density={density}
+        actionsFootprint={actionsFootprint}
+      />
       {groups.map((group, index) => (
         <DayGroupSection
           key={`${group.dateKey ?? 'undated'}-${index}`}
@@ -213,6 +231,7 @@ export function DayGroupedShowList({
           saveCounts={saveCounts}
           isFirst={index === 0}
           showCity={showCity}
+          actionsFootprint={actionsFootprint}
         />
       ))}
     </div>
