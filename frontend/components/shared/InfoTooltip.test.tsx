@@ -29,6 +29,7 @@ const trigger = () => screen.getByRole('button', { name: LABEL })
 // with no pointer down in progress. This replays that order.
 function tapFocus(button: HTMLElement) {
   fireEvent.pointerDown(button, { pointerType: 'touch' })
+  fireEvent.pointerMove(button, { pointerType: 'touch' })
   fireEvent.pointerUp(document, { pointerType: 'touch' })
   act(() => button.focus())
 }
@@ -109,6 +110,7 @@ describe('InfoTooltip', () => {
     await user.tab()
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
+    expect(trigger()).toHaveAccessibleDescription(COPY)
     expect(trigger()).toHaveAttribute('aria-expanded', 'false')
   })
 
@@ -150,6 +152,38 @@ describe('InfoTooltip', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(trigger()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('describes the trigger with the popover copy while it is open', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+
+    await user.click(trigger())
+    await screen.findByRole('dialog')
+
+    expect(trigger()).toHaveAccessibleDescription(COPY)
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(trigger()).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('keeps focus on the trigger when the popover copy is pressed', async () => {
+    const user = userEvent.setup()
+    render(
+      <div>
+        <InfoTooltip copy={COPY} label={LABEL} />
+        <button type="button">Next control</button>
+      </div>
+    )
+
+    await user.tab()
+    await user.keyboard('{Enter}')
+    await user.click(await screen.findByText(COPY))
+
+    expect(trigger()).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Next control' })).toHaveFocus()
   })
 
   it('names the popover after the trigger label', async () => {
@@ -204,6 +238,45 @@ describe('InfoTooltip', () => {
     fireEvent.pointerMove(button, { pointerType: 'mouse' })
 
     expect(button).toHaveFocus()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
+  })
+
+  it('closes on Escape without focusing an unfocused trigger or reopening the tooltip', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+
+    // Safari and Firefox on macOS open the popover without focusing the button.
+    fireEvent.click(trigger())
+    await screen.findByRole('dialog')
+    expect(trigger()).not.toHaveFocus()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(trigger()).not.toHaveFocus()
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('shows the focus tooltip after a tap that never focused the trigger', async () => {
+    const user = userEvent.setup()
+    render(
+      <div>
+        <button type="button">Before</button>
+        <InfoTooltip copy={COPY} label={LABEL} />
+      </div>
+    )
+
+    // iOS Safari fires the tap's pointer events and click without focusing.
+    fireEvent.pointerDown(trigger(), { pointerType: 'touch' })
+    fireEvent.pointerUp(document, { pointerType: 'touch' })
+    fireEvent.click(trigger())
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    act(() => screen.getByRole('button', { name: 'Before' }).focus())
+    await user.tab()
+
+    expect(trigger()).toHaveFocus()
     expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
   })
 
@@ -294,8 +367,6 @@ describe('InfoTooltip', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(COPY)
   })
 
-  // jsdom applies no CSS, so this pins the classes; the selection behavior
-  // itself is checked in a browser.
   // Safari and Firefox on macOS do not focus a clicked button, so no blur
   // arrives to clear a tooltip request made while the popover was open.
   it('does not pop a stale tooltip after the popover closes', async () => {
@@ -317,6 +388,8 @@ describe('InfoTooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
+  // jsdom applies no CSS, so this pins the classes; the selection behavior
+  // itself is checked in a browser.
   it('carries the long-press suppression classes on the trigger', () => {
     renderInfo()
     expect(trigger()).toHaveClass('select-none', '[-webkit-touch-callout:none]')
