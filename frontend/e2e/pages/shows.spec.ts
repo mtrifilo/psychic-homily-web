@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { firstUnlistedDay } from '../helpers/calendar-days'
 
 test.describe('Shows list', () => {
   test('loads and displays upcoming shows', { tag: '@smoke' }, async ({ page }) => {
@@ -194,6 +195,19 @@ test.describe('Shows month and day routes', () => {
     return href as string
   }
 
+  /** Every month the strip offers, in its order, as the served HTML carries them. */
+  async function monthHrefs(page: import('@playwright/test').Page) {
+    await page.goto('/shows')
+    const strip = page.getByTestId('month-strip')
+    await expect(strip).toBeVisible({ timeout: 15_000 })
+    const hrefs = await strip
+      .locator('a[href^="/shows/"]')
+      .evaluateAll(links => links.map(link => link.getAttribute('href') ?? ''))
+    const months = hrefs.filter(href => /^\/shows\/\d{4}\/\d{2}$/.test(href))
+    expect(months.length, 'the strip offers at least one month').toBeGreaterThan(0)
+    return months
+  }
+
   test('the root carries the month strip as real links', async ({ page }) => {
     const response = await page.goto('/shows')
     const html = (await response?.text()) ?? ''
@@ -351,34 +365,48 @@ test.describe('Shows month and day routes', () => {
    * The empty day is DERIVED from the served page rather than hardcoded: which
    * days the seed fills is the seed's business, and a fixed date would either
    * rot or pass while testing nothing.
+   *
+   * The search walks the strip's months in order and takes the first day any of
+   * them leaves unlisted. Every month in the strip is inside the span, and a
+   * month can be listed on every one of its days, so the months after the
+   * first are candidates too.
    */
   test('an empty day inside the span serves the quiet state at 200', async ({
     page,
   }) => {
     test.setTimeout(60_000)
 
-    const href = await firstMonthHref(page)
-    const [, , year, month] = href.split('/')
-    await page.goto(href)
-    await expect(page.getByTestId('day-grouped-show-list')).toBeVisible({
-      timeout: 15_000,
-    })
+    let quietDayHref: string | undefined
+    for (const href of await monthHrefs(page)) {
+      const [, , year, month] = href.split('/')
+      await page.goto(href)
+      const list = page.getByTestId('day-grouped-show-list')
+      await expect(list).toBeVisible({ timeout: 15_000 })
 
-    const filled = new Set(
-      await page
-        .getByTestId('day-grouped-show-list')
-        .locator(`a[href^="/shows/${year}/${month}/"]`)
-        .evaluateAll(links =>
-          links.map(link => link.getAttribute('href')?.split('/').pop())
-        )
-    )
+      // Page 1 is all this reads, so it can only vouch for a month that fits
+      // on one page: a day missing from page 1 of a longer month may be on the
+      // next.
+      if ((await page.locator(`a[href="${href}?page=2"]`).count()) > 0) continue
 
-    const quietDay = Array.from({ length: 28 }, (_, index) =>
-      String(index + 1).padStart(2, '0')
-    ).find(day => !filled.has(day))
-    expect(quietDay, 'the seeded month must leave at least one day empty').toBeTruthy()
+      const listed = new Set(
+        await list
+          .locator(`a[href^="/shows/${year}/${month}/"]`)
+          .evaluateAll(links =>
+            links.map(link => link.getAttribute('href')?.split('/').pop() ?? '')
+          )
+      )
+      const day = firstUnlistedDay(Number(year), Number(month), listed)
+      if (day !== undefined) {
+        quietDayHref = `${href}/${day}`
+        break
+      }
+    }
+    expect(
+      quietDayHref,
+      'some month in the strip must leave at least one day empty'
+    ).toBeTruthy()
 
-    const response = await page.goto(`${href}/${quietDay}`)
+    const response = await page.goto(quietDayHref as string)
     expect(
       response?.status(),
       'a day inside the addressable span is a page even with nothing on it'
