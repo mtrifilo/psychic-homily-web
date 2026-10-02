@@ -25,6 +25,10 @@ function renderInfo(props: Partial<Parameters<typeof InfoTooltip>[0]> = {}) {
 
 const trigger = () => screen.getByRole('button', { name: LABEL })
 
+// Comfortably past InfoTooltip's 120 ms tooltip delay, so an absence check
+// gives a regression time to render.
+const PAST_HOVER_DELAY_MS = 300
+
 // Chromium focuses a tapped button after pointerup, so Radix sees a focus
 // with no pointer down in progress. This replays that order.
 function tapFocus(button: HTMLElement) {
@@ -360,9 +364,7 @@ describe('InfoTooltip', () => {
     await user.unhover(trigger())
     await user.hover(trigger())
 
-    // The tooltip opens after a 120 ms hover delay; advance past it so a
-    // regression has time to render before the absence is asserted.
-    await act(() => vi.advanceTimersByTimeAsync(300))
+    await act(() => vi.advanceTimersByTimeAsync(PAST_HOVER_DELAY_MS))
     expect(screen.queryByRole('tooltip')).toBeNull()
     expect(screen.getByRole('dialog')).toHaveTextContent(COPY)
   })
@@ -379,17 +381,70 @@ describe('InfoTooltip', () => {
     expect(trigger()).not.toHaveFocus()
 
     await user.hover(trigger())
-    await act(() => vi.advanceTimersByTimeAsync(300))
+    await act(() => vi.advanceTimersByTimeAsync(PAST_HOVER_DELAY_MS))
     await user.unhover(trigger())
     await user.click(screen.getByTestId('outside'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-    await act(() => vi.advanceTimersByTimeAsync(300))
+    await act(() => vi.advanceTimersByTimeAsync(PAST_HOVER_DELAY_MS))
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
   // jsdom applies no CSS, so this pins the classes; the selection behavior
   // itself is checked in a browser.
+  it('keeps the hover delay for a hover that follows a closed popover', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderInfo()
+
+    fireEvent.click(trigger())
+    await screen.findByRole('dialog')
+    await user.hover(trigger())
+    await act(() => vi.advanceTimersByTimeAsync(PAST_HOVER_DELAY_MS))
+    await user.unhover(trigger())
+    await user.click(screen.getByTestId('outside'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await user.hover(trigger())
+    await act(() => vi.advanceTimersByTimeAsync(40))
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    await act(() => vi.advanceTimersByTimeAsync(PAST_HOVER_DELAY_MS))
+    expect(screen.getByRole('tooltip')).toHaveTextContent(COPY)
+  })
+
+  it('stops the closing Escape at the popover so outer Escape handlers stay put', async () => {
+    const user = userEvent.setup()
+    const outerEscape = vi.fn()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') outerEscape()
+    }
+    document.addEventListener('keydown', onKey)
+    try {
+      renderInfo()
+      await user.click(trigger())
+      await screen.findByRole('dialog')
+
+      await user.keyboard('{Escape}')
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(outerEscape).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', onKey)
+    }
+  })
+
+  it('closes the focus tooltip when Enter opens the popover', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+
+    await user.tab()
+    await screen.findByRole('tooltip')
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(COPY)
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+  })
+
   it('carries the long-press suppression classes on the trigger', () => {
     renderInfo()
     expect(trigger()).toHaveClass('select-none', '[-webkit-touch-callout:none]')

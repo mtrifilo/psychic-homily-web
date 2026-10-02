@@ -1,6 +1,12 @@
 'use client'
 
-import { useId, useRef, useState, type PointerEvent } from 'react'
+import {
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type PointerEvent,
+} from 'react'
 import { Info } from 'lucide-react'
 
 import {
@@ -35,33 +41,39 @@ export interface InfoTooltipProps {
  *   has no hover, and a Radix tooltip closes on pointer down, so the popover
  *   is the only surface a phone can reach.
  *
- * The popover never takes focus, even when its copy is pressed: it holds no
- * tabbable element, and Radix's looping focus scope swallows Tab while focus
- * sits on such a container, so letting focus in would strand keyboard users.
- * Since focus never moves in, closing the popover restores nothing; Radix's
- * default return-focus is prevented, because focusing the trigger would
- * reopen the tooltip (and in Safari and Firefox on macOS a clicked button
- * was never focused to begin with). While the popover is open the trigger is
- * described by its copy, since the forced-closed tooltip no longer does.
+ * The popover never takes focus, even when its copy is pressed (which also
+ * means a mouse cannot drag-select the copy): it holds no tabbable element,
+ * and Radix's looping focus scope swallows Tab while focus sits on such a
+ * container, so letting focus in would strand keyboard users. Since focus
+ * never moves in, closing the popover restores nothing; Radix's default
+ * return-focus is prevented, because focusing the trigger would reopen the
+ * tooltip (and in Safari and Firefox on macOS a clicked button was never
+ * focused to begin with). While the popover is open the trigger is described
+ * by its copy, since the closed tooltip no longer does.
+ *
+ * An Escape that closes the popover stops propagating, so a document-level
+ * Escape handler on a surrounding panel does not close that panel too.
  *
  * `PopoverTrigger` wraps `TooltipTrigger`. `TooltipTrigger` spreads the props
  * it receives after its own `data-state`, so the button's `data-state` is the
  * popover's open/closed state, matching `aria-expanded`. Props set on the
  * `<button>` itself win over both triggers, even when undefined, so
  * `aria-describedby` is spread onto it only while the popover is open, which
- * is exactly when the tooltip sets none.
+ * is exactly when the tooltip sets none. The button's own handlers run before
+ * the Radix ones, and Radix skips its handler for an event that is already
+ * default-prevented.
  *
- * The tooltip never renders while the popover is open: the click that opens
- * the popover also closes the tooltip (Radix's trigger click handler), and
- * open requests made while the popover is open are dropped rather than held,
- * so closing the popover never pops a stale tooltip.
- *
- * Tooltip open requests are also ignored while focus came from a touch:
- * Chromium focuses a tapped button after `pointerup`, which Radix reads as
- * keyboard focus and would flash the tooltip before the click opens the
- * popover. The flag lasts from a touch `pointerdown` until that
- * tap's click (or a cancel, a blur, or a non-touch pointer), so it never
- * outlives the tap on browsers that skip the focus.
+ * Tooltip opens are suppressed at the source, by default-preventing the event
+ * Radix would open on, so a suppressed open never reaches Radix's provider:
+ * - Hover (`pointermove`) is suppressed while the popover is open, so the
+ *   tooltip never renders over it and none is left pending when it closes.
+ *   The click that opens the popover closes any open tooltip itself.
+ * - Focus is suppressed while the popover is open, and for the one focus
+ *   that follows a touch `pointerdown`: Chromium focuses a tapped button
+ *   after `pointerup`, which Radix reads as keyboard focus and would flash
+ *   the tooltip before the click opens the popover. The touch flag is
+ *   consumed by that focus, or cleared by the tap's click or a cancel, so it
+ *   suppresses at most one focus.
  *
  * Owns its own `TooltipProvider` so it drops in anywhere without a
  * surrounding provider.
@@ -81,30 +93,27 @@ export function InfoTooltip({
 }: InfoTooltipProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [tooltipOpen, setTooltipOpen] = useState(false)
-  const focusedByTouchRef = useRef(false)
+  const touchPressedRef = useRef(false)
   const popoverCopyId = useId()
 
-  const handleTooltipOpenChange = (next: boolean) => {
-    if (next && (popoverOpen || focusedByTouchRef.current)) return
-    setTooltipOpen(next)
-  }
   const handlePointerDown = (event: PointerEvent) => {
-    focusedByTouchRef.current = event.pointerType === 'touch'
+    touchPressedRef.current = event.pointerType === 'touch'
   }
   const handlePointerMove = (event: PointerEvent) => {
-    if (event.pointerType !== 'touch') focusedByTouchRef.current = false
+    if (popoverOpen) event.preventDefault()
   }
-  const clearTouchFocus = () => {
-    focusedByTouchRef.current = false
+  const handleFocus = (event: FocusEvent) => {
+    if (popoverOpen || touchPressedRef.current) event.preventDefault()
+    touchPressedRef.current = false
+  }
+  const clearTouchPress = () => {
+    touchPressedRef.current = false
   }
 
   return (
     <TooltipProvider delayDuration={120}>
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-        <Tooltip
-          open={tooltipOpen}
-          onOpenChange={handleTooltipOpenChange}
-        >
+        <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
           <PopoverTrigger asChild>
             <TooltipTrigger asChild>
               {/* select-none and the touch-callout reset keep a long press
@@ -117,9 +126,9 @@ export function InfoTooltip({
                 {...(popoverOpen && { 'aria-describedby': popoverCopyId })}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
-                onPointerCancel={clearTouchFocus}
-                onClick={clearTouchFocus}
-                onBlur={clearTouchFocus}
+                onFocus={handleFocus}
+                onPointerCancel={clearTouchPress}
+                onClick={clearTouchPress}
               >
                 <Info className="h-3.5 w-3.5" aria-hidden />
               </button>
@@ -134,6 +143,7 @@ export function InfoTooltip({
             aria-label={label}
             onOpenAutoFocus={event => event.preventDefault()}
             onCloseAutoFocus={event => event.preventDefault()}
+            onEscapeKeyDown={event => event.stopPropagation()}
             onMouseDown={event => event.preventDefault()}
             className="w-auto max-w-xs px-3 py-1.5 text-xs"
           >
