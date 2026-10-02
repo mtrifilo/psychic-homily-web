@@ -519,13 +519,32 @@ describe('the actions column width', () => {
     }
   )
 
-  // Every footprint's width reserves expand, save and outbound.
-  it('sits on a discovery policy that renders expand, save and outbound', () => {
-    expect(SHOW_LIST_FEATURE_POLICY.discovery).toMatchObject({
-      showExpandMusic: true,
-      showSaveButton: true,
+  // `ACTIONS_WIDTH` is sized for exactly these controls. A flag added to or
+  // changed in the discovery policy fails here, so the widths get revisited.
+  it('is sized for the discovery policy as it stands', () => {
+    expect(SHOW_LIST_FEATURE_POLICY.discovery).toEqual({
       showDetailsLink: true,
+      showSaveButton: true,
+      showExpandMusic: true,
+      showAdminActions: true,
+      showOwnerActions: true,
+      useCompactLayout: false,
     })
+  })
+
+  // When the fixed columns overflow a narrow row, the age cell is the one that
+  // gives; the header's must give the same way or its later columns drift.
+  it('lets the header age cell shrink exactly as the row age cell does', () => {
+    render(
+      <DayGroupedShowListHeader density="comfortable" actionsFootprint="admin" />
+    )
+    renderRow({}, { actionsFootprint: 'admin', isAdmin: true })
+
+    const shrinkClasses = (element: HTMLElement) =>
+      [...element.classList].filter(c => /^(shrink(-0)?|truncate)$/.test(c))
+    expect(shrinkClasses(screen.getByText('Age'))).toEqual(
+      shrinkClasses(screen.getByText('21+'))
+    )
   })
 
   it('gives each footprint its own width, wider as it holds more controls', () => {

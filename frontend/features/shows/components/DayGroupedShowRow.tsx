@@ -84,10 +84,10 @@ export interface DayGroupedShowRowProps {
  *
  * Spelled as `lg:` utilities, which is where the frame's desktop layout starts.
  * Below that the row is a stacked two-line block and the fixed widths must not
- * apply: with the narrowest `ACTIONS_WIDTH`, the row's gaps and its padding
- * they take 670px before the bill column gets a pixel, which already exceeds a
- * 640px viewport. The header row and the cells read the same constants, so a
- * width moves in one place.
+ * apply: together with the narrowest `ACTIONS_WIDTH`, the row's gaps and its
+ * padding, they take 670px before the bill column gets a pixel, which already
+ * exceeds a 640px viewport. The header row and the cells read the same
+ * constants, so a width moves in one place.
  */
 const COLUMN = {
   time: 'lg:w-[90px]',
@@ -106,7 +106,7 @@ const COLUMN = {
  * digits; 32px with no count) and outbound (28px), plus two 2px gaps: 122px,
  * and 2px of slack makes 124. Every further control the footprint adds is 28px
  * plus a 2px gap. The widths assume the discovery policy renders expand, save
- * and outbound, which the width tests pin. A longer save count spills leftward
+ * and outbound, which a width test pins. A longer save count spills leftward
  * out of the cell (it is `justify-end` and never wraps) into the 8px row gap,
  * and from four digits over the age text, instead of widening the cell, so it
  * still moves no other column.
@@ -184,8 +184,8 @@ function SupportText({
  * outbound, expand-music, and the admin and owner controls. The frame draws
  * that column simplified; it was never a decision to remove capability, and the
  * open players behind the expand control are a locked decision. The column is
- * sized to hold every control the viewer can see (`ACTIONS_WIDTH`) rather than
- * dropping any.
+ * sized to hold every control the viewer can see, with a save count of up to
+ * two digits (`ACTIONS_WIDTH`), rather than dropping any.
  *
  * The `<article aria-label>` is load-bearing and not decoration: it is how the
  * save and list-action E2E specs address a specific seeded show
@@ -530,7 +530,9 @@ export function DayGroupedShowListHeader({
       <span className="min-w-0 flex-1">Bill</span>
       <span className={cn(COLUMN.venue, 'shrink-0')}>Venue</span>
       <span className={cn(COLUMN.price, 'shrink-0')}>Price</span>
-      <span className={cn(COLUMN.age, 'shrink-0')}>
+      {/* Shrinks as the row's age cell does: when the fixed columns overflow
+          the row, header and rows give up the same pixels and stay aligned. */}
+      <span className={cn(COLUMN.age, 'shrink truncate')}>
         {showsAge(density) ? 'Age' : null}
       </span>
       <span
