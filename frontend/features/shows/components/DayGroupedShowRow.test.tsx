@@ -401,11 +401,13 @@ describe('DayGroupedShowRow', () => {
             bottomPaddingPx(stack.className, 'lg:')
         ).toBe(10)
 
-        // The indent is the time column's width, so the players start where
-        // that column ends.
+        // The indent is the time column's width plus the row's 8px gap, so
+        // the players start flush with the bill text.
         const timeCell = row.querySelector('.lg\\:order-1') as HTMLElement
+        const rowGapPx = 8
+        expect(row.querySelector('.lg\\:gap-x-2')).not.toBeNull()
         expect(arbitraryPx(stack.className, 'lg:pl-')).toBe(
-          arbitraryPx(timeCell.className, 'lg:w-')
+          (arbitraryPx(timeCell.className, 'lg:w-') ?? 0) + rowGapPx
         )
       }
     )

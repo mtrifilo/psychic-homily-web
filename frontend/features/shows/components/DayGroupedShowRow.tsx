@@ -97,12 +97,12 @@ const COLUMN = {
 } as const
 
 /**
- * The open players' indent at `lg`: the same pixel count as `COLUMN.time`'s
- * width, so inside the row's 8px padding the players start where the time
- * column ends, 98px from the row's edge, and 8px before the bill text, which
- * sits past the row's gap. A width test holds the two numbers equal.
+ * The open players' indent at `lg`: `COLUMN.time`'s width plus the row's 8px
+ * `lg:gap-x-2`, so inside the row's 8px padding the players start flush with
+ * the bill text, 106px from the row's edge. A width test holds the indent to
+ * the time column's width plus that gap.
  */
-const PLAYER_STACK_INDENT = 'lg:pl-[90px]'
+const PLAYER_STACK_INDENT = 'lg:pl-[98px]'
 
 /**
  * The actions column's FIXED width per footprint, identical on every row and
