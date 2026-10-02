@@ -28,15 +28,18 @@ vi.mock('./DeleteShowDialog', () => ({
     <div data-testid={open ? 'delete-dialog' : 'delete-dialog-closed'} />
   ),
 }))
-// The PANEL is stubbed and the predicates are kept real: what decides whether
-// the expand control appears is `showHasArtistMusic`, and stubbing that would
-// test the stub. The panel itself mounts `MusicEmbed`, which needs a query
-// client this file has no reason to provide.
+// The PLAYER STACK is stubbed and the predicates are kept real: what decides
+// whether the expand control appears is `showHasArtistMusic`, and stubbing that
+// would test the stub. The stack itself mounts `MusicEmbed`, which needs a
+// query client this file has no reason to provide. The stub forwards the
+// caller's className, which is the row's spacing contract for the stack.
 vi.mock('./ShowArtistMusic', async importOriginal => {
   const actual = await importOriginal<typeof import('./ShowArtistMusic')>()
   return {
     ...actual,
-    ShowArtistMusicPanel: () => <div data-testid="artist-music-panel" />,
+    ShowArtistPlayerStack: ({ className }: { className?: string }) => (
+      <div data-testid="artist-player-stack" className={className} />
+    ),
   }
 })
 
@@ -92,6 +95,32 @@ function renderRow(overrides: Partial<ShowResponse> = {}, props = {}) {
       {...props}
     />
   )
+}
+
+/**
+ * The bottom padding a class list sets at one breakpoint prefix, in px, from
+ * Tailwind's spacing scale (one unit = 4px). The prefix's own `pb-`, else its
+ * `py-`, else its `p-`; `lg:` falls back to the unprefixed value.
+ */
+function bottomPaddingPx(className: string, prefix: '' | 'lg:'): number {
+  const classes = className.split(/\s+/)
+  const units = (utility: string) => {
+    const hit = classes.find(name => name.startsWith(`${prefix}${utility}-`))
+    return hit === undefined
+      ? undefined
+      : Number(hit.slice(`${prefix}${utility}-`.length)) * 4
+  }
+  const own = units('pb') ?? units('py') ?? units('p')
+  if (own !== undefined) return own
+  return prefix === 'lg:' ? bottomPaddingPx(className, '') : 0
+}
+
+/** The px value of an arbitrary-value utility such as `lg:w-[90px]`. */
+function arbitraryPx(className: string, utility: string): number | undefined {
+  const hit = className
+    .split(/\s+/)
+    .find(name => name.startsWith(`${utility}[`))
+  return hit === undefined ? undefined : Number(hit.match(/\[(\d+)px\]/)?.[1])
 }
 
 describe('DayGroupedShowRow', () => {
@@ -265,7 +294,7 @@ describe('DayGroupedShowRow', () => {
       expect(
         screen.getByRole('button', { name: 'Hide artist music' })
       ).toBeInTheDocument()
-      expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('artist-player-stack')).toBeInTheDocument()
     })
 
     // Export is deliberately NOT asserted here: `ExportShowButton` renders
@@ -343,11 +372,51 @@ describe('DayGroupedShowRow', () => {
       expect(screen.queryByTestId('delete-dialog')).toBeNull()
     })
 
+    // The stack sits under the row with no rule of its own, indented past the
+    // time column at `lg` in every density.
+    it.each(['compact', 'comfortable', 'expanded'] as const)(
+      'spaces and indents the open players in %s',
+      async density => {
+        const user = userEvent.setup()
+        renderRow({}, { density })
+        if (density !== 'expanded') {
+          await user.click(
+            screen.getByRole('button', { name: 'Discover artist music' })
+          )
+        }
+
+        const stack = screen.getByTestId('artist-player-stack')
+        expect(stack).toHaveClass('pt-2', 'lg:pt-3')
+        expect(stack.className).not.toMatch(/border-t/)
+
+        // jsdom has no layout, so the 10px under the last player is read off
+        // the classes: the row's bottom padding plus the stack's, in px.
+        const row = screen.getByRole('article')
+        expect(
+          bottomPaddingPx(row.className, '') +
+            bottomPaddingPx(stack.className, '')
+        ).toBe(10)
+        expect(
+          bottomPaddingPx(row.className, 'lg:') +
+            bottomPaddingPx(stack.className, 'lg:')
+        ).toBe(10)
+
+        // The indent is the time column's width plus the row's 8px gap, so
+        // the players start flush with the bill text.
+        const timeCell = row.querySelector('.lg\\:order-1') as HTMLElement
+        const rowGapPx = 8
+        expect(row.querySelector('.lg\\:gap-x-2')).not.toBeNull()
+        expect(arbitraryPx(stack.className, 'lg:pl-')).toBe(
+          (arbitraryPx(timeCell.className, 'lg:w-') ?? 0) + rowGapPx
+        )
+      }
+    )
+
     // The expanded density auto-opens the music, and the toggle outranks it.
     it('opens the players already at the expanded density', () => {
       renderRow({}, { density: 'expanded' })
 
-      expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('artist-player-stack')).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: 'Hide artist music' })
       ).toBeInTheDocument()
@@ -408,6 +477,68 @@ describe('DayGroupedShowRow', () => {
       const bill = screen.getByTestId('row-support')
       const headliner = screen.getByRole('link', { name: 'Sunn Amps' })
       expect(bill.parentElement).not.toBe(headliner.parentElement)
+    })
+
+    // jsdom has no layout, so what this pins is the CLASS contract: the
+    // headliner and the venue step up per density at `lg`, and hold one size
+    // below it.
+    it.each([
+      ['compact', 'lg:text-[13.5px]', 'lg:text-[13px]'],
+      ['comfortable', 'lg:text-[15px]', 'lg:text-[14px]'],
+      ['expanded', 'lg:text-[17px]', 'lg:text-[15px]'],
+    ] as const)(
+      'sizes the headliner and the venue for %s',
+      (density, headlinerSize, venueSize) => {
+        renderRow({}, { density })
+
+        const headliner = screen.getByTestId('row-headliner')
+        expect(headliner).toHaveClass('text-base', 'font-bold', headlinerSize)
+        expect(headliner).not.toHaveClass('font-medium')
+
+        const venue = screen.getByTestId('row-venue')
+        expect(venue).toHaveClass('text-sm', venueSize)
+        expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveClass(
+          'font-medium',
+          'text-primary'
+        )
+      }
+    )
+
+    it('sets a venue with no page in medium muted text, unlinked', () => {
+      renderRow({
+        venues: [{ id: 7, name: 'Valley Bar', timezone: 'America/Phoenix' }] as never,
+      })
+
+      expect(screen.queryByRole('link', { name: 'Valley Bar' })).toBeNull()
+      expect(screen.getByText('Valley Bar')).toHaveClass(
+        'font-medium',
+        'text-muted-foreground'
+      )
+    })
+
+    it('gives each density exactly one headliner and one venue size at lg', () => {
+      for (const density of ['compact', 'comfortable', 'expanded'] as const) {
+        const { unmount } = renderRow({}, { density })
+        const lgSizes = (element: HTMLElement) =>
+          Array.from(element.classList).filter(name =>
+            name.startsWith('lg:text-[')
+          )
+        expect(lgSizes(screen.getByTestId('row-headliner'))).toHaveLength(1)
+        expect(lgSizes(screen.getByTestId('row-venue'))).toHaveLength(1)
+        unmount()
+      }
+    })
+
+    it('keeps support at one size in every density that shows it', () => {
+      for (const density of ['comfortable', 'expanded'] as const) {
+        const { unmount } = renderRow({}, { density })
+        expect(screen.getByTestId('row-support')).toHaveClass(
+          'text-[12.5px]',
+          'lg:text-[13px]',
+          'text-muted-foreground'
+        )
+        unmount()
+      }
     })
 
     it('keeps every column in all three densities', () => {

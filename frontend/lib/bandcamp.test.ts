@@ -9,6 +9,7 @@ import {
   isAllowedBandcampUrl,
   isBandcampReleaseUrl,
   bandcampEmbedSrc,
+  BANDCAMP_THEME_COLORS,
 } from './bandcamp'
 
 describe('bandcampEmbedSrc', () => {
@@ -46,8 +47,47 @@ describe('bandcampEmbedSrc', () => {
       expect(src).toContain(part)
     }
   })
+  // `artwork=small` breaks Bandcamp's small player, so a small player gets no
+  // artwork segment unless the caller names one.
+  it('gives the small player no artwork segment by default', () => {
+    const src = bandcampEmbedSrc({ kind: 'track', id: '1', size: 'small' })
+    expect(src).toContain('size=small')
+    expect(src).not.toContain('artwork=')
+  })
+  it('keeps an artwork the caller names on the small player', () => {
+    expect(
+      bandcampEmbedSrc({ kind: 'track', id: '1', size: 'small', artwork: 'big' })
+    ).toContain('artwork=big')
+  })
   it('omits transparent unless requested', () => {
     expect(bandcampEmbedSrc({ kind: 'album', id: '1' })).not.toContain('transparent')
+  })
+})
+
+// jsdom loads no stylesheet, so this reads it as text: a palette change in
+// globals.css that does not reach the player would otherwise leave every test
+// green while the player paints the old colours.
+describe('BANDCAMP_THEME_COLORS', () => {
+  const css = readFileSync(resolve(__dirname, '../app/globals.css'), 'utf8')
+
+  function tokenIn(block: string, token: string): string | undefined {
+    return block
+      .match(new RegExp(`${token}:\\s*#([0-9a-fA-F]{6})\\s*;`))?.[1]
+      ?.toLowerCase()
+  }
+
+  const darkStart = css.indexOf('\n.dark {')
+  const lightBlock = css.slice(css.indexOf('/* Light mode'), darkStart)
+  const darkBlock = css.slice(darkStart)
+
+  it('paints the light player in the light page background and primary', () => {
+    expect(tokenIn(lightBlock, '--background')).toBe(BANDCAMP_THEME_COLORS.light.bgcol)
+    expect(tokenIn(lightBlock, '--primary')).toBe(BANDCAMP_THEME_COLORS.light.linkcol)
+  })
+
+  it('paints the dark player in the dark page background and primary', () => {
+    expect(tokenIn(darkBlock, '--background')).toBe(BANDCAMP_THEME_COLORS.dark.bgcol)
+    expect(tokenIn(darkBlock, '--primary')).toBe(BANDCAMP_THEME_COLORS.dark.linkcol)
   })
 })
 

@@ -27,7 +27,7 @@ import {
   EXPORT_SHOW_BUTTON_RENDERS,
   ExportShowButton,
 } from './ExportShowButton'
-import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
+import { ShowArtistPlayerStack, showHasArtistMusic } from './ShowArtistMusic'
 import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import {
@@ -97,6 +97,14 @@ const COLUMN = {
 } as const
 
 /**
+ * The open players' indent at `lg`: `COLUMN.time`'s width plus the row's 8px
+ * `lg:gap-x-2`, so inside the row's 8px padding the players start flush with
+ * the bill text, 106px from the row's edge. A width test holds the indent to
+ * the time column's width plus that gap.
+ */
+const PLAYER_STACK_INDENT = 'lg:pl-[98px]'
+
+/**
  * The actions column's FIXED width per footprint, identical on every row and
  * on the header, so the venue and price columns start at the same x on every
  * row whatever subset of controls a row carries.
@@ -121,12 +129,43 @@ const ACTIONS_WIDTH: Record<ActionsFootprint, string> = {
  * Padding per density, and only once the row IS a column row. The frame gives
  * the stacked form a flat 8px whatever the density: what density buys on two
  * lines is nothing, because the lines are already as tight as they read.
+ *
+ * `playerStackBottom` sits beside the row's padding because the two add up: the
+ * last open player ends 10px above the row's bottom edge in every density, and
+ * that 10px is the row's bottom padding plus this. A test holds the sum.
  */
-const ROW_PADDING: Record<Density, string> = {
-  compact: 'p-2 lg:px-2 lg:py-1',
-  comfortable: 'p-2 lg:px-2 lg:py-1.5',
-  expanded: 'p-2 lg:px-2 lg:py-2.5',
+const ROW_SPACING: Record<Density, { row: string; playerStackBottom: string }> =
+  {
+    compact: { row: 'p-2 lg:px-2 lg:py-1', playerStackBottom: 'lg:pb-1.5' },
+    comfortable: { row: 'p-2 lg:px-2 lg:py-1.5', playerStackBottom: 'lg:pb-1' },
+    expanded: { row: 'p-2 lg:px-2 lg:py-2.5', playerStackBottom: 'lg:pb-0' },
+  }
+
+/**
+ * The two anchors a reader scans down the list, the headliner and the venue,
+ * step up with the density once the row is a column row. Below `lg` they hold
+ * one size whatever the density (headliner 16, venue 14), as the padding does.
+ * Support, time, price and age keep one size in every density.
+ */
+const HEADLINER_TYPE: Record<Density, string> = {
+  compact: 'lg:text-[13.5px]',
+  comfortable: 'lg:text-[15px]',
+  expanded: 'lg:text-[17px]',
 }
+
+const VENUE_TYPE: Record<Density, string> = {
+  compact: 'lg:text-[13px]',
+  comfortable: 'lg:text-[14px]',
+  expanded: 'lg:text-[15px]',
+}
+
+/**
+ * Where the open players sit under the row, in every density: the first starts
+ * 8px under the row's content (12px at `lg`), and the last ends 10px above the
+ * row's bottom edge (`ROW_SPACING`). Stacked, the players span the row up to
+ * the stack's 700px cap.
+ */
+const PLAYER_STACK_SPACING = cn('pt-2 pb-0.5 lg:pt-3', PLAYER_STACK_INDENT)
 
 /** Age is the first column the frame collapses, and support the second. */
 function showsAge(density: Density): boolean {
@@ -262,7 +301,7 @@ export function DayGroupedShowRow({
     <article
       aria-label={show.title}
       className={cn(
-        ROW_PADDING[density],
+        ROW_SPACING[density].row,
         stripe,
         'transition-colors hover:bg-muted/40',
         show.is_cancelled && 'opacity-60'
@@ -287,7 +326,11 @@ export function DayGroupedShowRow({
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
               <Link
                 href={detailsHref}
-                className="min-w-0 truncate text-sm font-medium transition-colors hover:text-primary lg:text-[13.5px]"
+                className={cn(
+                  'min-w-0 truncate text-base font-bold leading-tight transition-colors hover:text-primary',
+                  HEADLINER_TYPE[density]
+                )}
+                data-testid="row-headliner"
               >
                 {headliners.length > 0
                   ? headliners.map(artist => artist.name).join(' / ')
@@ -408,9 +451,11 @@ export function DayGroupedShowRow({
         <span className="flex w-full min-w-0 items-baseline gap-x-2 lg:contents">
           <span
             className={cn(
-              'min-w-0 flex-1 truncate text-[12.5px] lg:order-3 lg:flex-none lg:text-[13px]',
+              'min-w-0 flex-1 truncate text-sm leading-tight lg:order-3 lg:flex-none',
+              VENUE_TYPE[density],
               COLUMN.venue
             )}
+            data-testid="row-venue"
             // Truncation hides the tail with no other way to read it.
             // `ShowPrice` sets a title for the same reason.
             title={venueLabel || undefined}
@@ -418,12 +463,14 @@ export function DayGroupedShowRow({
             {venue?.slug ? (
               <Link
                 href={`/venues/${venue.slug}`}
-                className="text-primary hover:underline"
+                className="font-medium text-primary hover:underline"
               >
                 {venue.name}
               </Link>
             ) : (
-              <span className="text-muted-foreground">{venue?.name}</span>
+              <span className="font-medium text-muted-foreground">
+                {venue?.name}
+              </span>
             )}
             {/* City AND state. Two metros can share a name across state lines,
                 so the city alone names nothing on a list that spans them. */}
@@ -468,9 +515,12 @@ export function DayGroupedShowRow({
       </div>
 
       {isExpanded && hasArtistMusic && (
-        <ShowArtistMusicPanel
+        <ShowArtistPlayerStack
           artists={artists}
-          className="mt-3 border-t border-border/50 pt-3"
+          className={cn(
+            PLAYER_STACK_SPACING,
+            ROW_SPACING[density].playerStackBottom
+          )}
         />
       )}
 

@@ -3,22 +3,39 @@
 import { useQuery } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { type SpotifyEmbedKind } from '@/lib/spotify'
 import {
+  BANDCAMP_THEME_COLORS,
   bandcampEmbedSrc,
   isAllowedBandcampUrl,
   isBandcampReleaseUrl,
   type BandcampEmbedResponse,
+  type EmbedTheme,
 } from '@/lib/bandcamp'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { playableMusicSources } from '@/lib/playableMusicSources'
 import { queryKeys } from '@/lib/queryClient'
+import { cn } from '@/lib/utils'
+
+/**
+ * `default` is the headed player block (or, with `compact`, the unheaded one).
+ * `slim` is the one-line player for a stack of them: Bandcamp's small player,
+ * a short Spotify card, no heading, no outer margin and no host-side rounding.
+ * Slim players follow the page theme: Bandcamp takes the theme's colours, and
+ * Spotify shows its dark card on the dark page and a cover-coloured card on the
+ * light one.
+ */
+export type MusicEmbedSize = 'default' | 'slim'
 
 interface MusicEmbedProps {
   bandcampAlbumUrl?: string | null
   bandcampProfileUrl?: string | null
   spotifyUrl?: string | null
   artistName: string
+  /** Drops the heading and shortens the Spotify card. Ignored by `slim`. */
   compact?: boolean
+  size?: MusicEmbedSize
 }
 
 type BandcampEmbed = Pick<BandcampEmbedResponse, 'kind' | 'id'> & {
@@ -110,6 +127,46 @@ export const BANDCAMP_EMBED_MAX_WIDTH_PX = 700
  */
 const BANDCAMP_EMBED_HEIGHT_PX = 120
 
+/**
+ * The height of Bandcamp's `size=small` player, which is fixed by Bandcamp:
+ * the slim size's iframe and its loading placeholder both stand at it.
+ */
+export const BANDCAMP_SLIM_EMBED_HEIGHT_PX = 42
+
+/** The shortest Spotify card that still shows the cover and the transport. */
+const SPOTIFY_SLIM_EMBED_HEIGHT_PX = 80
+
+/**
+ * The page theme a slim player is coloured for.
+ *
+ * `dark` on the server and through the hydration render, whatever the reader's
+ * theme: next-themes reads the stored theme in the browser's FIRST render, so
+ * reading it straight into a src would make the hydration render disagree with
+ * the server HTML. The reader's real theme arrives the commit after.
+ *
+ * Every slim player is keyed on a src built from this, so any theme change,
+ * the reader's own or the OS's under the `system` theme, remounts the players
+ * and stops whatever is playing.
+ */
+function useEmbedTheme(): EmbedTheme {
+  const hydrated = useHydrated()
+  const { resolvedTheme } = useTheme()
+  return hydrated && resolvedTheme === 'light' ? 'light' : 'dark'
+}
+
+/**
+ * Spotify's embed src. `theme=0` is Spotify's dark card; with no `theme`
+ * Spotify colours the card from the cover art.
+ */
+function spotifyEmbedSrc(
+  kind: SpotifyEmbedKind,
+  id: string,
+  theme: EmbedTheme
+): string {
+  const themeParam = theme === 'dark' ? '&theme=0' : ''
+  return `https://open.spotify.com/embed/${kind}/${id}?utm_source=generator${themeParam}`
+}
+
 type EmbedState =
   | { type: 'loading' }
   | { type: 'bandcamp'; embedKind: 'album' | 'track'; embedId: string }
@@ -123,13 +180,19 @@ export function MusicEmbed({
   spotifyUrl,
   artistName,
   compact = false,
+  size = 'default',
 }: MusicEmbedProps) {
+  const theme = useEmbedTheme()
+  const slim = size === 'slim'
+  const showHeading = !slim && !compact
+  const sectionClass = slim ? undefined : compact ? 'mb-2' : 'mb-8'
+
   // The album URL only as far as it can go: `/api/bandcamp/album-id` refuses
   // anything failing this same host anchor with a 400 before it fetches, so a
   // value that cannot clear it is not "an album URL we have not resolved yet",
   // it is one the resolver will never accept. Treating it as absent for the
   // WHOLE ladder (the query and the branches below) is what keeps a junk row
-  // from paying a round trip, holding the 120px loading placeholder open, and
+  // from paying a round trip, holding the loading placeholder open, and
   // then collapsing to nothing.
   //
   // It also makes hasRenderableMusic (lib/musicAvailability) an exact necessary
@@ -192,8 +255,8 @@ export function MusicEmbed({
 
   if (embed.type === 'loading') {
     return (
-      <section className={compact ? 'mb-2' : 'mb-8'}>
-        {!compact && (
+      <section className={sectionClass}>
+        {showHeading && (
           <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
             <Music className="h-5 w-5" />
             Music
@@ -207,18 +270,30 @@ export function MusicEmbed({
             without it, each one lands as its own jump and everything below the
             stack walks down the page. */}
         <div
-          className={`flex items-center justify-center ${compact ? 'py-4' : 'py-8'} bg-muted/30 rounded-md`}
-          style={{ minHeight: BANDCAMP_EMBED_HEIGHT_PX }}
+          className={cn(
+            'flex items-center justify-center bg-muted/30',
+            !slim && ['rounded-md', compact ? 'py-4' : 'py-8']
+          )}
+          style={{
+            minHeight: slim
+              ? BANDCAMP_SLIM_EMBED_HEIGHT_PX
+              : BANDCAMP_EMBED_HEIGHT_PX,
+          }}
         >
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Loader2
+            className={cn(
+              slim ? 'h-4 w-4' : 'h-6 w-6',
+              'animate-spin text-muted-foreground'
+            )}
+          />
         </div>
       </section>
     )
   }
 
   return (
-    <section className={compact ? 'mb-2' : 'mb-8'}>
-      {!compact && (
+    <section className={sectionClass}>
+      {showHeading && (
         <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
           <Music className="h-5 w-5" />
           Music
@@ -235,37 +310,125 @@ export function MusicEmbed({
           <ExternalLink className="h-4 w-4" />
         </a>
       ) : embed.type === 'bandcamp' ? (
-        <div className="music-embed-container">
-          <iframe
-            title={`${artistName} on Bandcamp`}
-            style={{
-              border: 0,
-              width: '100%',
-              maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
-              height: BANDCAMP_EMBED_HEIGHT_PX,
-            }}
-            src={bandcampEmbedSrc({ kind: embed.embedKind, id: embed.embedId })}
-            // Matches the Spotify branch below, which has always had it. It
-            // costs nothing on the one-embed pages this component was built for
-            // and matters on the scene roster (PSY-1784), which is the first
-            // surface to put ten of these on one page.
-            loading="lazy"
-            seamless
-          />
-        </div>
+        <BandcampFrame
+          kind={embed.embedKind}
+          id={embed.embedId}
+          artistName={artistName}
+          slim={slim}
+          theme={theme}
+        />
       ) : (
-        <div className="music-embed-container">
-          <iframe
-            title={`${artistName} on Spotify`}
-            style={{ borderRadius: '12px', width: '100%', height: compact ? '152px' : '352px' }}
-            src={`https://open.spotify.com/embed/${embed.spotifyKind}/${embed.spotifyId}?utm_source=generator&theme=0`}
-            frameBorder="0"
-            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-            loading="lazy"
-          />
-        </div>
+        <SpotifyFrame
+          kind={embed.spotifyKind}
+          id={embed.spotifyId}
+          artistName={artistName}
+          slim={slim}
+          compact={compact}
+          theme={theme}
+        />
       )}
     </section>
+  )
+}
+
+// Slim players carry no host-side rounding: `.music-embed-container` rounds
+// both itself and its iframe, so the slim wrapper does not take that class.
+function playerWrapperClass(slim: boolean): string {
+  return slim ? 'w-full overflow-hidden' : 'music-embed-container'
+}
+
+// An iframe whose color-scheme differs from its document's is painted on an
+// opaque canvas, which shows as white corners around a vendor's rounded card
+// on the dark page. The vendors' documents use `normal`, so a slim iframe
+// declares `normal` too and stays transparent outside the card in both themes.
+// The default size clips those corners with its host-side radius instead.
+const SLIM_IFRAME_COLOR_SCHEME = 'normal'
+
+// Each iframe is keyed on its src. The theme is baked into the src, so a theme
+// change remounts the player with the other colours instead of leaving the old
+// ones painted.
+function BandcampFrame({
+  kind,
+  id,
+  artistName,
+  slim,
+  theme,
+}: {
+  kind: 'album' | 'track'
+  id: string
+  artistName: string
+  slim: boolean
+  theme: EmbedTheme
+}) {
+  const src = slim
+    ? bandcampEmbedSrc({
+        kind,
+        id,
+        size: 'small',
+        ...BANDCAMP_THEME_COLORS[theme],
+        transparent: true,
+      })
+    : bandcampEmbedSrc({ kind, id })
+  return (
+    <div className={playerWrapperClass(slim)}>
+      <iframe
+        key={src}
+        title={`${artistName} on Bandcamp`}
+        style={{
+          border: 0,
+          width: '100%',
+          maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
+          height: slim ? BANDCAMP_SLIM_EMBED_HEIGHT_PX : BANDCAMP_EMBED_HEIGHT_PX,
+          ...(slim && { colorScheme: SLIM_IFRAME_COLOR_SCHEME }),
+        }}
+        src={src}
+        // Lazy, as the Spotify frame is, so a page carrying many players (the
+        // scene roster, an expanded shows list) loads only those in view.
+        loading="lazy"
+        seamless
+      />
+    </div>
+  )
+}
+
+// The default size keeps Spotify's dark card and the host-side radius in both
+// themes; only the slim size follows the page theme.
+function SpotifyFrame({
+  kind,
+  id,
+  artistName,
+  slim,
+  compact,
+  theme,
+}: {
+  kind: SpotifyEmbedKind
+  id: string
+  artistName: string
+  slim: boolean
+  compact: boolean
+  theme: EmbedTheme
+}) {
+  const src = spotifyEmbedSrc(kind, id, slim ? theme : 'dark')
+  return (
+    <div className={playerWrapperClass(slim)}>
+      <iframe
+        key={src}
+        title={`${artistName} on Spotify`}
+        style={
+          slim
+            ? {
+                width: '100%',
+                height: `${SPOTIFY_SLIM_EMBED_HEIGHT_PX}px`,
+                colorScheme: SLIM_IFRAME_COLOR_SCHEME,
+              }
+            : { borderRadius: '12px', width: '100%', height: compact ? '152px' : '352px' }
+        }
+        src={src}
+        frameBorder="0"
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+        loading="lazy"
+      />
+    </div>
   )
 }
 

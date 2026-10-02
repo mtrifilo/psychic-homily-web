@@ -2,11 +2,27 @@
 
 import Link from 'next/link'
 import { MapPin } from 'lucide-react'
-import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import {
+  BANDCAMP_EMBED_MAX_WIDTH_PX,
+  MusicEmbed,
+} from '@/components/shared/MusicEmbed'
 import { SocialLinks } from '@/components/shared/SocialLinks'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { basedInPhrase, billHometown } from '../utils'
 import type { ArtistResponse } from '../types'
+
+/**
+ * An act's music sources, in the shape both `hasRenderableMusic` and
+ * `MusicEmbed` take: the one mapping the predicate and every player on a bill
+ * share, so the predicate cannot say yes to sources a player never receives.
+ */
+function artistMusicSources(artist: ArtistResponse) {
+  return {
+    bandcampAlbumUrl: artist.bandcamp_embed_url,
+    bandcampProfileUrl: artist.socials?.bandcamp,
+    spotifyUrl: artist.socials?.spotify,
+  }
+}
 
 /**
  * Whether an artist's music block will render anything. A stored Bandcamp URL
@@ -14,11 +30,7 @@ import type { ArtistResponse } from '../types'
  * than testing the column, or the expand control would open onto nothing.
  */
 export function artistHasMusic(artist: ArtistResponse): boolean {
-  return hasRenderableMusic({
-    bandcampAlbumUrl: artist.bandcamp_embed_url,
-    bandcampProfileUrl: artist.socials?.bandcamp,
-    spotifyUrl: artist.socials?.spotify,
-  })
+  return hasRenderableMusic(artistMusicSources(artist))
 }
 
 /** Whether any act on the bill has music to open. */
@@ -45,7 +57,9 @@ export function ArtistBase({ artist }: { artist: ArtistResponse }) {
 }
 
 /**
- * The music a show's bill opens onto: a player per act that has one.
+ * The music a `ShowCard`'s bill opens onto: per act that has music, its
+ * name, where it is based, its social links and a player. The `/shows` list
+ * rows open {@link ShowArtistPlayerStack} instead.
  *
  * Players render OPEN, never as a click-to-load facade (locked decision): the
  * discovery loop is a reader scanning tonight's shows for bands they have never
@@ -86,13 +100,58 @@ export function ShowArtistMusicPanel({
               <SocialLinks social={artist.socials} className="shrink-0" />
             </div>
             <MusicEmbed
-              bandcampAlbumUrl={artist.bandcamp_embed_url}
-              bandcampProfileUrl={artist.socials?.bandcamp}
-              spotifyUrl={artist.socials?.spotify}
+              {...artistMusicSources(artist)}
               artistName={artist.name}
               compact
             />
           </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The music a `/shows` list row opens onto: one slim OPEN player per act that
+ * has music, in bill order, stacked 6px apart and no wider than a Bandcamp
+ * player gets.
+ *
+ * The row above already names every act, and each player names its own act
+ * again, so the stack prints no act name, no hometown and no social links;
+ * those live on the show page's listen cards and the artist page. Players
+ * render open for the same reason {@link ShowArtistMusicPanel}'s do.
+ *
+ * An act with no playable source, only a Bandcamp profile or a release whose
+ * player could not be resolved, gets `MusicEmbed`'s one-line "Listen to X on
+ * Bandcamp" link in its place, which is the only text the stack prints.
+ *
+ * Outer spacing and indent are the caller's, through `className`.
+ */
+export function ShowArtistPlayerStack({
+  artists,
+  className,
+}: {
+  artists: ArtistResponse[]
+  className?: string
+}) {
+  const withMusic = artists.filter(artistHasMusic)
+  if (withMusic.length === 0) return null
+
+  return (
+    <div className={className} data-testid="artist-player-stack">
+      {/* The cap sits on its own box so the caller's padding does not eat
+          into the players' 700px. */}
+      <div
+        className="space-y-1.5"
+        style={{ maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX }}
+      >
+        {withMusic.map(artist => (
+          <MusicEmbed
+            key={artist.id}
+            {...artistMusicSources(artist)}
+            artistName={artist.name}
+            size="slim"
+          />
         ))}
       </div>
     </div>
