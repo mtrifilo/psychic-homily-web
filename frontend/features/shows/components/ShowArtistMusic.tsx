@@ -2,7 +2,10 @@
 
 import Link from 'next/link'
 import { MapPin } from 'lucide-react'
-import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import {
+  BANDCAMP_EMBED_MAX_WIDTH_PX,
+  MusicEmbed,
+} from '@/components/shared/MusicEmbed'
 import { SocialLinks } from '@/components/shared/SocialLinks'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { basedInPhrase, billHometown } from '../utils'
@@ -45,7 +48,9 @@ export function ArtistBase({ artist }: { artist: ArtistResponse }) {
 }
 
 /**
- * The music a show's bill opens onto: a player per act that has one.
+ * The music a `ShowCard`'s bill opens onto: per act that has music, its
+ * name, where it is based, its social links and a player. The `/shows` list
+ * rows open {@link ShowArtistPlayerStack} instead.
  *
  * Players render OPEN, never as a click-to-load facade (locked decision): the
  * discovery loop is a reader scanning tonight's shows for bands they have never
@@ -93,6 +98,50 @@ export function ShowArtistMusicPanel({
               compact
             />
           </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The music a `/shows` list row opens onto: one slim OPEN player per act that
+ * has music, in bill order, stacked 6px apart and no wider than a Bandcamp
+ * player gets.
+ *
+ * Players only. The row above already names every act, and each player names
+ * its own act again, so the stack prints no act name, no hometown and no
+ * social links; those live on the show page's listen cards and the artist
+ * page. Players render open for the same reason {@link ShowArtistMusicPanel}'s
+ * do.
+ *
+ * Outer spacing and indent are the caller's, through `className`.
+ */
+export function ShowArtistPlayerStack({
+  artists,
+  className,
+}: {
+  artists: ArtistResponse[]
+  className?: string
+}) {
+  const withMusic = artists.filter(artistHasMusic)
+  if (withMusic.length === 0) return null
+
+  return (
+    <div className={className} data-testid="artist-player-stack">
+      <div
+        className="space-y-1.5"
+        style={{ maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX }}
+      >
+        {withMusic.map(artist => (
+          <MusicEmbed
+            key={artist.id}
+            bandcampAlbumUrl={artist.bandcamp_embed_url}
+            bandcampProfileUrl={artist.socials?.bandcamp}
+            spotifyUrl={artist.socials?.spotify}
+            artistName={artist.name}
+            size="slim"
+          />
         ))}
       </div>
     </div>

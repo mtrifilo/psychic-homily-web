@@ -78,14 +78,32 @@ export interface BandcampEmbed {
 // Shared so a field rename is a compile error at both ends.
 export type BandcampEmbedResponse = Pick<BandcampEmbed, 'kind' | 'id'>
 
+/** The page theme an embedded player is coloured for. */
+export type EmbedTheme = 'light' | 'dark'
+
+/**
+ * The Bandcamp player's `bgcol` / `linkcol` per page theme: the page's own
+ * `--background` and `--primary` (app/globals.css), so a `transparent=true`
+ * player reads as part of the page. `bandcamp.test.ts` holds these to the
+ * stylesheet's values.
+ */
+export const BANDCAMP_THEME_COLORS: Record<
+  EmbedTheme,
+  { bgcol: string; linkcol: string }
+> = {
+  light: { bgcol: 'f4f1ea', linkcol: 'd2541b' },
+  dark: { bgcol: '0d0805', linkcol: 'e89960' },
+}
+
 // Builds a Bandcamp EmbeddedPlayer iframe `src` from a kind + id. The single
-// source of truth for that URL shape, used by both MusicEmbed (dark defaults)
-// and the blog <Bandcamp> component (its own colors + a fallback link). The
-// player parses the `key=value` path segments order-independently.
+// source of truth for that URL shape, used by both MusicEmbed and the blog
+// <Bandcamp> component (its own colors + a fallback link). The player parses
+// the `key=value` path segments order-independently.
 //
-// The default bgcol/linkcol are MusicEmbed's hardcoded dark theme, baked into
-// the iframe src — they are NOT theme-aware. Making the embed follow the
-// light/dark theme (a re-render on toggle) is a deferred follow-up.
+// The default bgcol/linkcol are a fixed dark pair that ignores the page theme.
+// A themed caller passes `BANDCAMP_THEME_COLORS[theme]`, and because the colours
+// are baked into the src, the iframe must be re-keyed on the src for a theme
+// change to reach the player.
 export function bandcampEmbedSrc(opts: {
   kind: BandcampEmbedKind
   id: string

@@ -28,15 +28,18 @@ vi.mock('./DeleteShowDialog', () => ({
     <div data-testid={open ? 'delete-dialog' : 'delete-dialog-closed'} />
   ),
 }))
-// The PANEL is stubbed and the predicates are kept real: what decides whether
-// the expand control appears is `showHasArtistMusic`, and stubbing that would
-// test the stub. The panel itself mounts `MusicEmbed`, which needs a query
-// client this file has no reason to provide.
+// The PLAYER STACK is stubbed and the predicates are kept real: what decides
+// whether the expand control appears is `showHasArtistMusic`, and stubbing that
+// would test the stub. The stack itself mounts `MusicEmbed`, which needs a
+// query client this file has no reason to provide. The stub forwards the
+// caller's className, which is the row's spacing contract for the stack.
 vi.mock('./ShowArtistMusic', async importOriginal => {
   const actual = await importOriginal<typeof import('./ShowArtistMusic')>()
   return {
     ...actual,
-    ShowArtistMusicPanel: () => <div data-testid="artist-music-panel" />,
+    ShowArtistPlayerStack: ({ className }: { className?: string }) => (
+      <div data-testid="artist-music-panel" className={className} />
+    ),
   }
 })
 
@@ -344,6 +347,25 @@ describe('DayGroupedShowRow', () => {
     })
 
     // The expanded density auto-opens the music, and the toggle outranks it.
+    // The stack sits under the row with no rule of its own (the row's stripe
+    // bounds it), indented past the time column at `lg` in every density.
+    it.each(['compact', 'comfortable', 'expanded'] as const)(
+      'spaces and indents the open players in %s',
+      async density => {
+        const user = userEvent.setup()
+        renderRow({}, { density })
+        if (density !== 'expanded') {
+          await user.click(
+            screen.getByRole('button', { name: 'Discover artist music' })
+          )
+        }
+
+        const stack = screen.getByTestId('artist-music-panel')
+        expect(stack).toHaveClass('pt-2', 'lg:pt-3', 'lg:pl-[90px]')
+        expect(stack.className).not.toMatch(/border-t/)
+      }
+    )
+
     it('opens the players already at the expanded density', () => {
       renderRow({}, { density: 'expanded' })
 
@@ -408,6 +430,56 @@ describe('DayGroupedShowRow', () => {
       const bill = screen.getByTestId('row-support')
       const headliner = screen.getByRole('link', { name: 'Sunn Amps' })
       expect(bill.parentElement).not.toBe(headliner.parentElement)
+    })
+
+    // jsdom has no layout, so what this pins is the CLASS contract: the
+    // headliner and the venue step up per density at `lg`, and hold one size
+    // below it.
+    it.each([
+      ['compact', 'lg:text-[13.5px]', 'lg:text-[13px]'],
+      ['comfortable', 'lg:text-[15px]', 'lg:text-[14px]'],
+      ['expanded', 'lg:text-[17px]', 'lg:text-[15px]'],
+    ] as const)(
+      'sizes the headliner and the venue for %s',
+      (density, headlinerSize, venueSize) => {
+        renderRow({}, { density })
+
+        const headliner = screen.getByTestId('row-headliner')
+        expect(headliner).toHaveClass('text-base', 'font-bold', headlinerSize)
+        expect(headliner).not.toHaveClass('font-medium')
+
+        const venue = screen.getByTestId('row-venue')
+        expect(venue).toHaveClass('text-sm', venueSize)
+        expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveClass(
+          'font-medium',
+          'text-primary'
+        )
+      }
+    )
+
+    it('gives each density exactly one headliner and one venue size at lg', () => {
+      for (const density of ['compact', 'comfortable', 'expanded'] as const) {
+        const { unmount } = renderRow({}, { density })
+        const lgSizes = (element: HTMLElement) =>
+          Array.from(element.classList).filter(name =>
+            name.startsWith('lg:text-[')
+          )
+        expect(lgSizes(screen.getByTestId('row-headliner'))).toHaveLength(1)
+        expect(lgSizes(screen.getByTestId('row-venue'))).toHaveLength(1)
+        unmount()
+      }
+    })
+
+    it('keeps support at one size in every density that shows it', () => {
+      for (const density of ['comfortable', 'expanded'] as const) {
+        const { unmount } = renderRow({}, { density })
+        expect(screen.getByTestId('row-support')).toHaveClass(
+          'text-[12.5px]',
+          'lg:text-[13px]',
+          'text-muted-foreground'
+        )
+        unmount()
+      }
     })
 
     it('keeps every column in all three densities', () => {

@@ -1,18 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
+import { QueryClientProvider } from '@tanstack/react-query'
 // MusicEmbed resolves its Bandcamp embed via TanStack Query (PSY-1102), so it
 // must render inside a QueryClientProvider. `renderWithProviders` (re-exported
 // as `render`) wraps each render in a fresh client with retries disabled, which
 // keeps the `mockRejectedValueOnce` error-path tests deterministic.
-import { render } from '../../test/utils'
-import { MusicEmbed } from './MusicEmbed'
+import { createTestQueryClient, render } from '../../test/utils'
+import { BANDCAMP_SLIM_EMBED_HEIGHT_PX, MusicEmbed } from './MusicEmbed'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
+
+// The page theme, as next-themes reports it. `undefined` is what next-themes
+// reports before it has read storage, and what a tree with no provider sees.
+const theme = vi.hoisted(() => ({ resolved: undefined as string | undefined }))
+vi.mock('next-themes', () => ({
+  useTheme: () => ({ resolvedTheme: theme.resolved }),
+}))
 
 
 describe('MusicEmbed', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.restoreAllMocks()
+    theme.resolved = undefined
   })
 
   it('renders loading state initially when bandcamp URL is provided', () => {
@@ -510,5 +520,202 @@ describe('MusicEmbed', () => {
         )
       })
     })
+  })
+})
+
+describe('MusicEmbed slim size', () => {
+  const SPOTIFY_URL = 'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb'
+  const ALBUM_URL = 'https://band.bandcamp.com/album/test'
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    theme.resolved = undefined
+  })
+
+  function resolvesTo(id: string) {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ kind: 'album', id }),
+    } as Response)
+  }
+
+  it('renders Bandcamp s small player at its own height', async () => {
+    resolvesTo('12345')
+    render(
+      <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Test Artist" size="slim" />
+    )
+
+    const iframe = await screen.findByTitle('Test Artist on Bandcamp')
+    expect(BANDCAMP_SLIM_EMBED_HEIGHT_PX).toBe(42)
+    expect(iframe).toHaveStyle({ height: '42px' })
+    const src = iframe.getAttribute('src') ?? ''
+    expect(src).toContain('album=12345')
+    expect(src).toContain('size=small')
+    expect(src).toContain('transparent=true')
+  })
+
+  it('colours the Bandcamp player for the dark page', async () => {
+    theme.resolved = 'dark'
+    resolvesTo('12345')
+    render(
+      <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Test Artist" size="slim" />
+    )
+
+    const src =
+      (await screen.findByTitle('Test Artist on Bandcamp')).getAttribute('src') ?? ''
+    expect(src).toContain('bgcol=0d0805')
+    expect(src).toContain('linkcol=e89960')
+  })
+
+  it('colours the Bandcamp player for the light page', async () => {
+    theme.resolved = 'light'
+    resolvesTo('12345')
+    render(
+      <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Test Artist" size="slim" />
+    )
+
+    const src =
+      (await screen.findByTitle('Test Artist on Bandcamp')).getAttribute('src') ?? ''
+    expect(src).toContain('bgcol=f4f1ea')
+    expect(src).toContain('linkcol=d2541b')
+  })
+
+  // The colours are baked into the src, so a player that kept its element
+  // across a theme change would keep painting the old ones.
+  it('remounts the Bandcamp player with the other colours on a theme change', async () => {
+    theme.resolved = 'dark'
+    resolvesTo('12345')
+    const { rerender } = render(
+      <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Test Artist" size="slim" />
+    )
+    const dark = await screen.findByTitle('Test Artist on Bandcamp')
+
+    theme.resolved = 'light'
+    rerender(
+      <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Test Artist" size="slim" />
+    )
+
+    const light = screen.getByTitle('Test Artist on Bandcamp')
+    expect(light).not.toBe(dark)
+    expect(dark).not.toBeInTheDocument()
+    expect(light.getAttribute('src')).toContain('bgcol=f4f1ea')
+  })
+
+  it('remounts the Spotify player on a theme change', () => {
+    theme.resolved = 'dark'
+    const { rerender } = render(
+      <MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />
+    )
+    const dark = screen.getByTitle('Test Artist on Spotify')
+
+    theme.resolved = 'light'
+    rerender(<MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />)
+
+    expect(screen.getByTitle('Test Artist on Spotify')).not.toBe(dark)
+  })
+
+  it('holds the loading placeholder at the small player s height', () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
+    const { container } = render(
+      <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Test Artist" size="slim" />
+    )
+
+    const placeholder = container.querySelector('.animate-spin')?.parentElement
+    expect(placeholder).toHaveStyle({ minHeight: '42px' })
+    expect(placeholder).not.toHaveClass('rounded-md')
+  })
+
+  it('renders Spotify s card at 80px with no host-side rounding', () => {
+    render(<MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />)
+
+    const iframe = screen.getByTitle('Test Artist on Spotify')
+    expect(iframe).toHaveStyle({ height: '80px' })
+    expect(iframe.style.borderRadius).toBe('')
+    expect(iframe.parentElement).not.toHaveClass('music-embed-container')
+  })
+
+  it('gives Spotify s dark card on the dark page and its own card on the light page', () => {
+    theme.resolved = 'dark'
+    const { unmount } = render(
+      <MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />
+    )
+    expect(screen.getByTitle('Test Artist on Spotify').getAttribute('src')).toContain(
+      'theme=0'
+    )
+    unmount()
+
+    theme.resolved = 'light'
+    render(<MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />)
+    expect(
+      screen.getByTitle('Test Artist on Spotify').getAttribute('src')
+    ).not.toContain('theme=')
+  })
+
+  it('renders no heading and no outer margin', () => {
+    const { container } = render(
+      <MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />
+    )
+
+    expect(screen.queryByText('Music')).not.toBeInTheDocument()
+    expect(container.querySelector('section')?.className ?? '').toBe('')
+  })
+
+  // The server cannot know the reader's theme, and next-themes reads it in the
+  // browser's FIRST render: a src derived from it before hydration would make
+  // the hydration render disagree with the server HTML.
+  it('renders the dark src in server HTML whatever the stored theme', () => {
+    theme.resolved = 'light'
+    const html = renderToString(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Test Artist" size="slim" />
+      </QueryClientProvider>
+    )
+
+    expect(html).toContain('theme=0')
+  })
+})
+
+// The show page's listen cards and every other caller use the default size,
+// whose players are unchanged in both themes.
+describe('MusicEmbed default size', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    theme.resolved = 'light'
+  })
+
+  it('keeps the 120px Bandcamp player with its fixed dark colours', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ kind: 'album', id: '12345' }),
+    } as Response)
+    render(
+      <MusicEmbed
+        bandcampAlbumUrl="https://band.bandcamp.com/album/test"
+        artistName="Test Artist"
+        compact
+      />
+    )
+
+    const iframe = await screen.findByTitle('Test Artist on Bandcamp')
+    expect(iframe).toHaveStyle({ height: '120px' })
+    const src = iframe.getAttribute('src') ?? ''
+    expect(src).toContain('size=large')
+    expect(src).toContain('bgcol=1a1a1a')
+    expect(src).not.toContain('transparent')
+    expect(iframe.parentElement).toHaveClass('music-embed-container')
+  })
+
+  it('keeps the 152px rounded dark Spotify card when compact', () => {
+    render(
+      <MusicEmbed
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
+        artistName="Test Artist"
+        compact
+      />
+    )
+
+    const iframe = screen.getByTitle('Test Artist on Spotify')
+    expect(iframe).toHaveStyle({ height: '152px', borderRadius: '12px' })
+    expect(iframe.getAttribute('src')).toContain('theme=0')
   })
 })
