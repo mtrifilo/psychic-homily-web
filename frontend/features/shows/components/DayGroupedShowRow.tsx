@@ -97,9 +97,10 @@ const COLUMN = {
 } as const
 
 /**
- * The open players' indent at `lg`: `COLUMN.time`'s width, so inside the row's
- * 8px padding the players start 98px from the row's edge. A time column that
- * changes width changes this with it.
+ * The open players' indent at `lg`: the same pixel count as `COLUMN.time`'s
+ * width, so inside the row's 8px padding the players start where the time
+ * column ends, 98px from the row's edge, and 8px before the bill text, which
+ * sits past the row's gap. A width test holds the two numbers equal.
  */
 const PLAYER_STACK_INDENT = 'lg:pl-[90px]'
 
@@ -128,12 +129,17 @@ const ACTIONS_WIDTH: Record<ActionsFootprint, string> = {
  * Padding per density, and only once the row IS a column row. The frame gives
  * the stacked form a flat 8px whatever the density: what density buys on two
  * lines is nothing, because the lines are already as tight as they read.
+ *
+ * `playerStackBottom` sits beside the row's padding because the two add up: the
+ * last open player ends 10px above the row's bottom edge in every density, and
+ * that 10px is the row's bottom padding plus this. A test holds the sum.
  */
-const ROW_PADDING: Record<Density, string> = {
-  compact: 'p-2 lg:px-2 lg:py-1',
-  comfortable: 'p-2 lg:px-2 lg:py-1.5',
-  expanded: 'p-2 lg:px-2 lg:py-2.5',
-}
+const ROW_SPACING: Record<Density, { row: string; playerStackBottom: string }> =
+  {
+    compact: { row: 'p-2 lg:px-2 lg:py-1', playerStackBottom: 'lg:pb-1.5' },
+    comfortable: { row: 'p-2 lg:px-2 lg:py-1.5', playerStackBottom: 'lg:pb-1' },
+    expanded: { row: 'p-2 lg:px-2 lg:py-2.5', playerStackBottom: 'lg:pb-0' },
+  }
 
 /**
  * The two anchors a reader scans down the list, the headliner and the venue,
@@ -154,19 +160,12 @@ const VENUE_TYPE: Record<Density, string> = {
 }
 
 /**
- * Where the open players sit under the row. In every density the first player
- * starts 8px under the row's content (12px at `lg`) and the last ends 10px
- * above the row's bottom edge. That 10px is `ROW_PADDING`'s bottom padding plus
- * `PLAYER_STACK_BOTTOM`, so the two records move together. Stacked, the
- * players run the row's full width.
+ * Where the open players sit under the row, in every density: the first starts
+ * 8px under the row's content (12px at `lg`), and the last ends 10px above the
+ * row's bottom edge (`ROW_SPACING`). Stacked, the players span the row up to
+ * the stack's 700px cap.
  */
 const PLAYER_STACK_SPACING = cn('pt-2 pb-0.5 lg:pt-3', PLAYER_STACK_INDENT)
-
-const PLAYER_STACK_BOTTOM: Record<Density, string> = {
-  compact: 'lg:pb-1.5',
-  comfortable: 'lg:pb-1',
-  expanded: 'lg:pb-0',
-}
 
 /** Age is the first column the frame collapses, and support the second. */
 function showsAge(density: Density): boolean {
@@ -302,7 +301,7 @@ export function DayGroupedShowRow({
     <article
       aria-label={show.title}
       className={cn(
-        ROW_PADDING[density],
+        ROW_SPACING[density].row,
         stripe,
         'transition-colors hover:bg-muted/40',
         show.is_cancelled && 'opacity-60'
@@ -518,7 +517,10 @@ export function DayGroupedShowRow({
       {isExpanded && hasArtistMusic && (
         <ShowArtistPlayerStack
           artists={artists}
-          className={cn(PLAYER_STACK_SPACING, PLAYER_STACK_BOTTOM[density])}
+          className={cn(
+            PLAYER_STACK_SPACING,
+            ROW_SPACING[density].playerStackBottom
+          )}
         />
       )}
 

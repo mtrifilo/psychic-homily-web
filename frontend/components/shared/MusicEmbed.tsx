@@ -21,8 +21,10 @@ import { cn } from '@/lib/utils'
 /**
  * `default` is the headed player block (or, with `compact`, the unheaded one).
  * `slim` is the one-line player for a stack of them: Bandcamp's small player,
- * a short Spotify card, no heading, no outer margin, square corners, and both
- * players coloured for the page theme.
+ * a short Spotify card, no heading, no outer margin and no host-side rounding.
+ * Slim players follow the page theme: Bandcamp takes the theme's colours, and
+ * Spotify shows its dark card on the dark page and a cover-coloured card on the
+ * light one.
  */
 export type MusicEmbedSize = 'default' | 'slim'
 
@@ -141,6 +143,10 @@ const SPOTIFY_SLIM_EMBED_HEIGHT_PX = 80
  * theme: next-themes reads the stored theme in the browser's FIRST render, so
  * reading it straight into a src would make the hydration render disagree with
  * the server HTML. The reader's real theme arrives the commit after.
+ *
+ * Every slim player is keyed on a src built from this, so any theme change,
+ * the reader's own or the OS's under the `system` theme, remounts the players
+ * and stops whatever is playing.
  */
 function useEmbedTheme(): EmbedTheme {
   const hydrated = useHydrated()

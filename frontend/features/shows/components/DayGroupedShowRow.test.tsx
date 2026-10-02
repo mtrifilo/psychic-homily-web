@@ -38,7 +38,7 @@ vi.mock('./ShowArtistMusic', async importOriginal => {
   return {
     ...actual,
     ShowArtistPlayerStack: ({ className }: { className?: string }) => (
-      <div data-testid="artist-music-panel" className={className} />
+      <div data-testid="artist-player-stack" className={className} />
     ),
   }
 })
@@ -95,6 +95,32 @@ function renderRow(overrides: Partial<ShowResponse> = {}, props = {}) {
       {...props}
     />
   )
+}
+
+/**
+ * The bottom padding a class list sets at one breakpoint prefix, in px, from
+ * Tailwind's spacing scale (one unit = 4px). The prefix's own `pb-`, else its
+ * `py-`, else its `p-`; `lg:` falls back to the unprefixed value.
+ */
+function bottomPaddingPx(className: string, prefix: '' | 'lg:'): number {
+  const classes = className.split(/\s+/)
+  const units = (utility: string) => {
+    const hit = classes.find(name => name.startsWith(`${prefix}${utility}-`))
+    return hit === undefined
+      ? undefined
+      : Number(hit.slice(`${prefix}${utility}-`.length)) * 4
+  }
+  const own = units('pb') ?? units('py') ?? units('p')
+  if (own !== undefined) return own
+  return prefix === 'lg:' ? bottomPaddingPx(className, '') : 0
+}
+
+/** The px value of an arbitrary-value utility such as `lg:w-[90px]`. */
+function arbitraryPx(className: string, utility: string): number | undefined {
+  const hit = className
+    .split(/\s+/)
+    .find(name => name.startsWith(`${utility}[`))
+  return hit === undefined ? undefined : Number(hit.match(/\[(\d+)px\]/)?.[1])
 }
 
 describe('DayGroupedShowRow', () => {
@@ -268,7 +294,7 @@ describe('DayGroupedShowRow', () => {
       expect(
         screen.getByRole('button', { name: 'Hide artist music' })
       ).toBeInTheDocument()
-      expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('artist-player-stack')).toBeInTheDocument()
     })
 
     // Export is deliberately NOT asserted here: `ExportShowButton` renders
@@ -346,9 +372,8 @@ describe('DayGroupedShowRow', () => {
       expect(screen.queryByTestId('delete-dialog')).toBeNull()
     })
 
-    // The expanded density auto-opens the music, and the toggle outranks it.
-    // The stack sits under the row with no rule of its own (the row's stripe
-    // bounds it), indented past the time column at `lg` in every density.
+    // The stack sits under the row with no rule of its own, indented past the
+    // time column at `lg` in every density.
     it.each(['compact', 'comfortable', 'expanded'] as const)(
       'spaces and indents the open players in %s',
       async density => {
@@ -360,16 +385,36 @@ describe('DayGroupedShowRow', () => {
           )
         }
 
-        const stack = screen.getByTestId('artist-music-panel')
-        expect(stack).toHaveClass('pt-2', 'lg:pt-3', 'lg:pl-[90px]')
+        const stack = screen.getByTestId('artist-player-stack')
+        expect(stack).toHaveClass('pt-2', 'lg:pt-3')
         expect(stack.className).not.toMatch(/border-t/)
+
+        // jsdom has no layout, so the 10px under the last player is read off
+        // the classes: the row's bottom padding plus the stack's, in px.
+        const row = screen.getByRole('article')
+        expect(
+          bottomPaddingPx(row.className, '') +
+            bottomPaddingPx(stack.className, '')
+        ).toBe(10)
+        expect(
+          bottomPaddingPx(row.className, 'lg:') +
+            bottomPaddingPx(stack.className, 'lg:')
+        ).toBe(10)
+
+        // The indent is the time column's width, so the players start where
+        // that column ends.
+        const timeCell = row.querySelector('.lg\\:order-1') as HTMLElement
+        expect(arbitraryPx(stack.className, 'lg:pl-')).toBe(
+          arbitraryPx(timeCell.className, 'lg:w-')
+        )
       }
     )
 
+    // The expanded density auto-opens the music, and the toggle outranks it.
     it('opens the players already at the expanded density', () => {
       renderRow({}, { density: 'expanded' })
 
-      expect(screen.getByTestId('artist-music-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('artist-player-stack')).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: 'Hide artist music' })
       ).toBeInTheDocument()
