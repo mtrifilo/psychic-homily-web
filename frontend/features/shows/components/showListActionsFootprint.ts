@@ -11,11 +11,33 @@ import type { ShowResponse } from '../types'
 export type ActionsFootprint = 'viewer' | 'owner' | 'admin'
 
 /**
+ * Which viewer-dependent controls one discovery row renders. The row reads
+ * this to render them and `actionsFootprintFor` reads it to size the column,
+ * so the two cannot disagree about a row.
+ */
+export function rowActionControls({
+  submittedBy,
+  viewerId,
+  isAdmin,
+}: {
+  submittedBy?: ShowResponse['submitted_by']
+  viewerId: UserIdLike
+  isAdmin: boolean
+}): { admin: boolean; delete: boolean } {
+  const { showAdminActions, showOwnerActions } =
+    SHOW_LIST_FEATURE_POLICY.discovery
+  return {
+    admin: showAdminActions && isAdmin,
+    delete:
+      showOwnerActions && canModerateShow({ submittedBy, viewerId, isAdmin }),
+  }
+}
+
+/**
  * The footprint for a whole list: the widest set of controls the viewer can see
  * on any of its rows, so every row and the header can share one actions width.
  *
- * `userId` must be the same id the list hands each row, which is what the row
- * checks for its delete control.
+ * `userId` must be the same id the row passes to `rowActionControls`.
  */
 export function actionsFootprintFor({
   shows,
@@ -26,13 +48,15 @@ export function actionsFootprintFor({
   isAdmin: boolean
   userId?: UserIdLike
 }): ActionsFootprint {
-  const { showAdminActions, showOwnerActions } =
-    SHOW_LIST_FEATURE_POLICY.discovery
-  if (isAdmin && showAdminActions) return 'admin'
-  const canDeleteARow =
-    showOwnerActions &&
-    shows.some(show =>
-      canModerateShow({ submittedBy: show.submitted_by, viewerId: userId, isAdmin })
-    )
+  // Decided without the rows, so an admin's header agrees on an empty list.
+  if (rowActionControls({ viewerId: userId, isAdmin }).admin) return 'admin'
+  const canDeleteARow = shows.some(
+    show =>
+      rowActionControls({
+        submittedBy: show.submitted_by,
+        viewerId: userId,
+        isAdmin,
+      }).delete
+  )
   return canDeleteARow ? 'owner' : 'viewer'
 }

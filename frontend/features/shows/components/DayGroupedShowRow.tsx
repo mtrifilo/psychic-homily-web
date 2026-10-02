@@ -31,8 +31,11 @@ import {
 import { ShowArtistMusicPanel, showHasArtistMusic } from './ShowArtistMusic'
 import { ShowForm } from './ShowForm'
 import { ShowStatusBadge } from './ShowStatusBadge'
-import type { ActionsFootprint } from './showListActionsFootprint'
-import { canModerateShow, splitBill } from '../utils'
+import {
+  rowActionControls,
+  type ActionsFootprint,
+} from './showListActionsFootprint'
+import { splitBill } from '../utils'
 import type { ArtistResponse, ShowResponse } from '../types'
 
 /**
@@ -213,10 +216,9 @@ export function DayGroupedShowRow({
     [artists]
   )
 
-  const resolvedUserId = userId || user?.id
-  const canDelete = canModerateShow({
+  const controls = rowActionControls({
     submittedBy: show.submitted_by,
-    viewerId: resolvedUserId,
+    viewerId: userId || user?.id,
     isAdmin,
   })
 
@@ -359,7 +361,7 @@ export function DayGroupedShowRow({
               </Link>
             )}
 
-            {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions && isAdmin && (
+            {controls.admin && (
               <Button
                 variant={isEditing ? 'secondary' : 'ghost'}
                 size="sm"
@@ -375,7 +377,7 @@ export function DayGroupedShowRow({
               </Button>
             )}
 
-            {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions && isAdmin && (
+            {controls.admin && (
               <ExportShowButton
                 showId={show.id}
                 showTitle={show.title}
@@ -386,7 +388,7 @@ export function DayGroupedShowRow({
               />
             )}
 
-            {SHOW_LIST_FEATURE_POLICY.discovery.showOwnerActions && canDelete && (
+            {controls.delete && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -484,7 +486,7 @@ export function DayGroupedShowRow({
           `useShowDelete` at mount, so rendering it unconditionally would put 50
           mutations and 50 dialog roots on a page for readers who can never use
           one. */}
-      {canDelete && (
+      {controls.delete && (
         <DeleteShowDialog
           show={show}
           open={isDeleteDialogOpen}

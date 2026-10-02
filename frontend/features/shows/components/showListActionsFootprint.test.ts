@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { actionsFootprintFor } from './showListActionsFootprint'
+import {
+  actionsFootprintFor,
+  rowActionControls,
+} from './showListActionsFootprint'
 import type { ShowResponse } from '../types'
 
 function show(id: number, submittedBy?: number): ShowResponse {
@@ -43,5 +46,28 @@ describe('actionsFootprintFor', () => {
 
   it('is admin for an admin even on an empty list, so the header agrees', () => {
     expect(actionsFootprintFor({ shows: [], isAdmin: true })).toBe('admin')
+  })
+})
+
+describe('rowActionControls', () => {
+  it('gives an admin the admin controls and delete on any row', () => {
+    expect(
+      rowActionControls({ submittedBy: 7, viewerId: '1', isAdmin: true })
+    ).toEqual({ admin: true, delete: true })
+  })
+
+  it('gives the submitter delete and no admin controls', () => {
+    expect(
+      rowActionControls({ submittedBy: 42, viewerId: '42', isAdmin: false })
+    ).toEqual({ admin: false, delete: true })
+  })
+
+  it('gives anyone else neither', () => {
+    expect(
+      rowActionControls({ submittedBy: 7, viewerId: '42', isAdmin: false })
+    ).toEqual({ admin: false, delete: false })
+    expect(
+      rowActionControls({ submittedBy: 7, viewerId: undefined, isAdmin: false })
+    ).toEqual({ admin: false, delete: false })
   })
 })
