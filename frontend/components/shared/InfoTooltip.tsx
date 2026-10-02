@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Info } from 'lucide-react'
 
 import {
@@ -43,6 +43,9 @@ export interface InfoTooltipProps {
  * The tooltip is suppressed while the popover is open, so the two never
  * render at once (a pointer re-entering the glyph over an open popover asks
  * the tooltip to open; that request is held until the popover closes).
+ * Tooltip open requests are also ignored while focus came from a touch: a tap
+ * focuses the button after `pointerup`, which Radix reads as keyboard focus
+ * and would flash the tooltip before the click opens the popover.
  *
  * `select-none` and `-webkit-touch-callout: none` keep a long press on the
  * glyph from starting a text selection or the iOS callout menu.
@@ -65,13 +68,19 @@ export function InfoTooltip({
 }: InfoTooltipProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [tooltipOpen, setTooltipOpen] = useState(false)
+  const focusedByTouchRef = useRef(false)
+
+  const handleTooltipOpenChange = (next: boolean) => {
+    if (next && focusedByTouchRef.current) return
+    setTooltipOpen(next)
+  }
 
   return (
     <TooltipProvider delayDuration={120}>
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <Tooltip
           open={tooltipOpen && !popoverOpen}
-          onOpenChange={setTooltipOpen}
+          onOpenChange={handleTooltipOpenChange}
         >
           <PopoverTrigger asChild>
             <TooltipTrigger asChild>
@@ -80,6 +89,17 @@ export function InfoTooltip({
                 aria-label={label}
                 className="inline-flex select-none items-center rounded-full p-0.5 text-muted-foreground transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid={testId}
+                onPointerDown={event => {
+                  focusedByTouchRef.current = event.pointerType === 'touch'
+                }}
+                onPointerMove={event => {
+                  if (event.pointerType !== 'touch') {
+                    focusedByTouchRef.current = false
+                  }
+                }}
+                onBlur={() => {
+                  focusedByTouchRef.current = false
+                }}
               >
                 <Info className="h-3.5 w-3.5" aria-hidden />
               </button>

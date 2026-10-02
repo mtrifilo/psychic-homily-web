@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { InfoTooltip } from './InfoTooltip'
@@ -67,6 +67,49 @@ describe('InfoTooltip', () => {
 
     expect(await screen.findByRole('dialog')).toHaveTextContent(COPY)
     expect(trigger()).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  // Mobile browsers focus the button after pointerup on a tap, so Radix sees
+  // a focus with no pointer down in progress. This replays that order.
+  it('does not flash the tooltip when a tap focuses the trigger', async () => {
+    renderInfo()
+    const button = trigger()
+
+    fireEvent.pointerDown(button, { pointerType: 'touch' })
+    fireEvent.pointerUp(document, { pointerType: 'touch' })
+    act(() => button.focus())
+
+    expect(screen.queryByRole('tooltip')).toBeNull()
+
+    fireEvent.click(button)
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(COPY)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('shows the tooltip on keyboard focus', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+
+    await user.tab()
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
+    expect(trigger()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('shows the tooltip on keyboard focus after an earlier tap', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+    const button = trigger()
+
+    fireEvent.pointerDown(button, { pointerType: 'touch' })
+    fireEvent.pointerUp(document, { pointerType: 'touch' })
+    act(() => button.focus())
+    act(() => button.blur())
+
+    await user.tab()
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
   })
 
   it('closes the popover on an outside pointer down', async () => {
