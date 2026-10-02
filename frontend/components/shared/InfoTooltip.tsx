@@ -31,19 +31,28 @@ export interface InfoTooltipProps {
  *
  * - Hover and keyboard focus show a Radix tooltip (pointer users skim it).
  * - Click, tap, Enter and Space toggle a DS popover, which closes on an
- *   outside press and on Escape. Touch has no hover, and a Radix tooltip
- *   closes on pointer down, so the popover is the only surface a phone can
- *   reach.
+ *   outside press, on Escape, and when focus leaves the trigger. Touch has no
+ *   hover, and a Radix tooltip closes on pointer down, so the popover is the
+ *   only surface a phone can reach.
  *
- * `PopoverTrigger` wraps `TooltipTrigger`: an outer Slot's props override the
- * inner trigger's defaults, so the button's `data-state` is the popover's
- * open/closed state (matching `aria-expanded`), and the popover toggles
- * before the tooltip's own click handler closes the tooltip.
+ * Focus stays on the trigger when the popover opens. The popover holds no
+ * tabbable element, and Radix's looping focus scope swallows Tab while focus
+ * sits on such a container, so moving focus in would strand keyboard users.
+ * Keeping focus on the trigger also means closing the popover does not
+ * refocus the trigger and reopen the tooltip.
  *
- * The tooltip never renders while the popover is open. Tooltip open requests
- * are also ignored while focus came from a touch: Chromium focuses a tapped
- * button after `pointerup`, which Radix reads as keyboard focus and would
- * flash the tooltip before the click opens the popover.
+ * `PopoverTrigger` wraps `TooltipTrigger`. `TooltipTrigger` spreads the props
+ * it receives after its own `data-state`, so the button's `data-state` is the
+ * popover's open/closed state, matching `aria-expanded`. Props set on the
+ * `<button>` itself win over both triggers, so it must not set `data-state`
+ * or `aria-*` attributes beyond its label.
+ *
+ * The tooltip never renders while the popover is open, and open requests made
+ * meanwhile are dropped rather than held, so closing the popover never pops
+ * a stale tooltip. Tooltip open requests are also ignored while focus came
+ * from a touch: Chromium focuses a tapped button after `pointerup`, which
+ * Radix reads as keyboard focus and would flash the tooltip before the click
+ * opens the popover.
  *
  * Owns its own `TooltipProvider` so it drops in anywhere without a
  * surrounding provider.
@@ -66,7 +75,7 @@ export function InfoTooltip({
   const focusedByTouchRef = useRef(false)
 
   const handleTooltipOpenChange = (next: boolean) => {
-    if (next && focusedByTouchRef.current) return
+    if (next && (popoverOpen || focusedByTouchRef.current)) return
     setTooltipOpen(next)
   }
   const handlePointerDown = (event: PointerEvent) => {
@@ -75,7 +84,7 @@ export function InfoTooltip({
   const handlePointerMove = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') focusedByTouchRef.current = false
   }
-  const handleBlur = () => {
+  const clearTouchFocus = () => {
     focusedByTouchRef.current = false
   }
 
@@ -97,7 +106,8 @@ export function InfoTooltip({
                 data-testid={testId}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
-                onBlur={handleBlur}
+                onPointerCancel={clearTouchFocus}
+                onBlur={clearTouchFocus}
               >
                 <Info className="h-3.5 w-3.5" aria-hidden />
               </button>
@@ -109,6 +119,8 @@ export function InfoTooltip({
           <PopoverContent
             side={side}
             align="center"
+            aria-label={label}
+            onOpenAutoFocus={event => event.preventDefault()}
             className="w-auto max-w-xs px-3 py-1.5 text-xs"
           >
             {copy}

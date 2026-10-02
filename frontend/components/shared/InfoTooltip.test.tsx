@@ -2,6 +2,13 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
 import { InfoTooltip } from './InfoTooltip'
 
 const COPY = 'Controls immediate alerts when a new show is added.'
@@ -18,8 +25,8 @@ function renderInfo(props: Partial<Parameters<typeof InfoTooltip>[0]> = {}) {
 
 const trigger = () => screen.getByRole('button', { name: LABEL })
 
-// Mobile browsers focus a tapped button after pointerup, so Radix sees a
-// focus with no pointer down in progress. This replays that order.
+// Chromium focuses a tapped button after pointerup, so Radix sees a focus
+// with no pointer down in progress. This replays that order.
 function tapFocus(button: HTMLElement) {
   fireEvent.pointerDown(button, { pointerType: 'touch' })
   fireEvent.pointerUp(document, { pointerType: 'touch' })
@@ -145,6 +152,106 @@ describe('InfoTooltip', () => {
     expect(trigger()).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('names the popover after the trigger label', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+
+    await user.click(trigger())
+
+    expect(await screen.findByRole('dialog', { name: LABEL })).toBeInTheDocument()
+  })
+
+  it('keeps focus on the trigger and does not reopen the tooltip on Escape', async () => {
+    const user = userEvent.setup()
+    renderInfo()
+
+    await user.tab()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('dialog')
+    expect(trigger()).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(trigger()).toHaveFocus()
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('lets Tab move past the trigger and closes the popover', async () => {
+    const user = userEvent.setup()
+    render(
+      <div>
+        <InfoTooltip copy={COPY} label={LABEL} />
+        <button type="button">Next control</button>
+      </div>
+    )
+
+    await user.tab()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('dialog')
+
+    await user.tab()
+
+    expect(screen.getByRole('button', { name: 'Next control' })).toHaveFocus()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('shows the hover tooltip when a mouse moves over a tap-focused trigger', async () => {
+    renderInfo()
+    const button = trigger()
+
+    tapFocus(button)
+    fireEvent.pointerMove(button, { pointerType: 'mouse' })
+
+    expect(button).toHaveFocus()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
+  })
+
+  it('re-enables the focus tooltip after a cancelled touch', async () => {
+    const user = userEvent.setup()
+    render(
+      <div>
+        <button type="button">Before</button>
+        <InfoTooltip copy={COPY} label={LABEL} />
+      </div>
+    )
+
+    // A scroll cancels the touch on the glyph without a pointerup or focus;
+    // a later tap elsewhere ends Radix's own pointer-down tracking.
+    fireEvent.pointerDown(trigger(), { pointerType: 'touch' })
+    fireEvent.pointerCancel(trigger(), { pointerType: 'touch' })
+    fireEvent.pointerUp(document, { pointerType: 'touch' })
+
+    act(() => screen.getByRole('button', { name: 'Before' }).focus())
+    await user.tab()
+
+    expect(trigger()).toHaveFocus()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(COPY)
+  })
+
+  it('closes only the popover on Escape inside a modal dialog', async () => {
+    const user = userEvent.setup()
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Host dialog</DialogTitle>
+          <DialogDescription>Hosts the explainer</DialogDescription>
+          <InfoTooltip copy={COPY} label={LABEL} />
+        </DialogContent>
+      </Dialog>
+    )
+
+    await user.click(trigger())
+    expect(await screen.findByRole('dialog', { name: LABEL })).toHaveTextContent(COPY)
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: LABEL })).toBeNull()
+    )
+    expect(screen.getByRole('dialog', { name: 'Host dialog' })).toBeInTheDocument()
+  })
+
   it('shows the tooltip with the copy on hover without opening the popover', async () => {
     const user = userEvent.setup()
     renderInfo()
@@ -187,7 +294,30 @@ describe('InfoTooltip', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(COPY)
   })
 
-  it('suppresses long-press text selection and the touch callout on the trigger', () => {
+  // jsdom applies no CSS, so this pins the classes; the selection behavior
+  // itself is checked in a browser.
+  // Safari and Firefox on macOS do not focus a clicked button, so no blur
+  // arrives to clear a tooltip request made while the popover was open.
+  it('does not pop a stale tooltip after the popover closes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderInfo()
+
+    fireEvent.click(trigger())
+    await screen.findByRole('dialog')
+    expect(trigger()).not.toHaveFocus()
+
+    await user.hover(trigger())
+    await act(() => vi.advanceTimersByTimeAsync(300))
+    await user.unhover(trigger())
+    await user.click(screen.getByTestId('outside'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await act(() => vi.advanceTimersByTimeAsync(300))
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('carries the long-press suppression classes on the trigger', () => {
     renderInfo()
     expect(trigger()).toHaveClass('select-none', '[-webkit-touch-callout:none]')
   })
