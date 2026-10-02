@@ -282,9 +282,9 @@ export function MusicEmbed({
         >
           <Loader2
             className={cn(
-            slim ? 'h-4 w-4' : 'h-6 w-6',
-            'animate-spin text-muted-foreground'
-          )}
+              slim ? 'h-4 w-4' : 'h-6 w-6',
+              'animate-spin text-muted-foreground'
+            )}
           />
         </div>
       </section>
@@ -382,10 +382,8 @@ function BandcampFrame({
           ...(slim && { colorScheme: SLIM_IFRAME_COLOR_SCHEME }),
         }}
         src={src}
-        // Matches the Spotify branch below, which has always had it. It
-        // costs nothing on the one-embed pages this component was built for
-        // and matters on the scene roster (PSY-1784), which is the first
-        // surface to put ten of these on one page.
+        // Lazy, as the Spotify frame is, so a page carrying many players (the
+        // scene roster, an expanded shows list) loads only those in view.
         loading="lazy"
         seamless
       />

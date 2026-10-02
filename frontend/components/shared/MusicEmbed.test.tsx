@@ -724,6 +724,21 @@ describe('MusicEmbed default size', () => {
     expect(iframe.parentElement).toHaveClass('music-embed-container')
   })
 
+  it('keeps the headed 352px rounded dark Spotify card when not compact', () => {
+    render(
+      <MusicEmbed
+        spotifyUrl="https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb"
+        artistName="Test Artist"
+      />
+    )
+
+    expect(screen.getByText('Music')).toBeInTheDocument()
+    const iframe = screen.getByTitle('Test Artist on Spotify')
+    expect(iframe).toHaveStyle({ height: '352px', borderRadius: '12px' })
+    expect(iframe.getAttribute('src')).toContain('theme=0')
+    expect(iframe.parentElement).toHaveClass('music-embed-container')
+  })
+
   it('keeps the 152px rounded dark Spotify card when compact', () => {
     render(
       <MusicEmbed

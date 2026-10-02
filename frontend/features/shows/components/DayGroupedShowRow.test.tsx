@@ -502,6 +502,18 @@ describe('DayGroupedShowRow', () => {
       }
     )
 
+    it('sets a venue with no page in medium muted text, unlinked', () => {
+      renderRow({
+        venues: [{ id: 7, name: 'Valley Bar', timezone: 'America/Phoenix' }] as never,
+      })
+
+      expect(screen.queryByRole('link', { name: 'Valley Bar' })).toBeNull()
+      expect(screen.getByText('Valley Bar')).toHaveClass(
+        'font-medium',
+        'text-muted-foreground'
+      )
+    })
+
     it('gives each density exactly one headliner and one venue size at lg', () => {
       for (const density of ['compact', 'comfortable', 'expanded'] as const) {
         const { unmount } = renderRow({}, { density })
