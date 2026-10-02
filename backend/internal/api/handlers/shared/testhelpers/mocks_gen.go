@@ -4140,6 +4140,7 @@ type MockUserService struct {
 	SetChartDefaultsFn                 func(uint, *authm.ChartDefaults) error
 	SetHomeLayoutFn                    func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
 	ClearHomeLayoutFn                  func(uint) error
+	DismissFirstSaveHintFn             func(uint) (time.Time, error)
 	SetShowRemindersFn                 func(uint, bool) error
 	SetDefaultReplyPermissionFn        func(uint, string) error
 	SetNotifyOnCommentSubscriptionFn   func(uint, bool) error
@@ -4381,6 +4382,12 @@ func (m *MockUserService) ClearHomeLayout(userID uint) error {
 		return m.ClearHomeLayoutFn(userID)
 	}
 	return nil
+}
+func (m *MockUserService) DismissFirstSaveHint(userID uint) (time.Time, error) {
+	if m.DismissFirstSaveHintFn != nil {
+		return m.DismissFirstSaveHintFn(userID)
+	}
+	return time.Time{}, nil
 }
 func (m *MockUserService) SetShowReminders(userID uint, enabled bool) error {
 	if m.SetShowRemindersFn != nil {

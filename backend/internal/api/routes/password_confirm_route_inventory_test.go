@@ -101,6 +101,7 @@ var authRouteRateLimitScope = map[string]string{
 	"PATCH /auth/preferences/tier-edit-notifications":  scopeProtectedNoLimit,
 
 	"PUT /auth/preferences/chart-defaults":  scopeProtectedNoLimit,
+	"PUT /auth/preferences/first-save-hint": scopeProtectedNoLimit,
 	"PUT /auth/preferences/favorite-cities": scopeProtectedNoLimit,
 	"PUT /auth/preferences/home-layout":     scopeProtectedNoLimit,
 	"PUT /auth/preferences/home-metro":      scopeProtectedNoLimit,

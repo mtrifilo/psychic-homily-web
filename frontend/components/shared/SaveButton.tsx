@@ -1,5 +1,6 @@
 'use client'
 
+import { useCallback, useRef, useState } from 'react'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -13,6 +14,8 @@ import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
+import { useShouldOpenFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
+import { FirstSaveHint } from './FirstSaveHint'
 
 // How long a save failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000
@@ -41,6 +44,12 @@ interface SaveButtonProps {
   showCount?: boolean
   className?: string
   disabled?: boolean
+  /**
+   * Which edge of this control the one-time first-save hint lines up with.
+   * `end` suits a control at the trailing edge of a row; `start` suits one
+   * inline among other verbs, where the hint reads left to right from it.
+   */
+  hintAlign?: 'start' | 'end'
 }
 
 export function SaveButton({
@@ -52,8 +61,18 @@ export function SaveButton({
   showCount = true,
   className,
   disabled = false,
+  hintAlign = 'end',
 }: SaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
+  const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
+  const [isHintOpen, setIsHintOpen] = useState(false)
+  const closeHint = useCallback(() => setIsHintOpen(false), [])
+  // The hint anchors to this wrapper and renders inside it, right after the
+  // control, so it is the next stop in tab and reading order.
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  // Only the latest click may open the hint: a count read that resolves after
+  // a later unsave or re-save answered a question that no longer stands.
+  const latestClick = useRef(0)
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own. While a batch is in
@@ -71,6 +90,10 @@ export function SaveButton({
   const data = batched ?? single
 
   const isSaved = data?.is_saved ?? false
+  // Any settled unsave closes the hint, including one made through another
+  // Save control for the same show (home can render two). Keyed on a settled
+  // `false`, not a pending `undefined`, so a batch refetch does not close it.
+  if (isHintOpen && data?.is_saved === false) setIsHintOpen(false)
   const saveCount = data?.save_count ?? 0
 
   const { isLoading, toggle, error } = useSaveShowToggle(
@@ -96,13 +119,36 @@ export function SaveButton({
   const { onClick: handleClick } = useAuthGatedAction('save', async () => {
     if (isDisabled) return
 
+    const click = ++latestClick.current
+    const isSaving = !isSaved
+    if (!isSaving) setIsHintOpen(false)
     try {
       clearSaveError()
       await toggle()
     } catch {
       showSaveError(true)
+      return
     }
+    if (!isSaving) return
+
+    // The hint is an extra, never part of the save: a failed check shows
+    // nothing and must not read as a failed save.
+    try {
+      const isStillCurrent = () => click === latestClick.current
+      if (await shouldOpenFirstSaveHint(isStillCurrent)) setIsHintOpen(true)
+    } catch {}
   })
+
+  // Gated on `isSaved` as well: the hint opens with "Saved.", which stops
+  // being true the moment the show is unsaved.
+  const firstSaveHint =
+    isHintOpen && isSaved ? (
+      <FirstSaveHint
+        anchorRef={wrapperRef}
+        align={hintAlign}
+        onClose={closeHint}
+      />
+    ) : null
 
   // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
   // is a claim about the viewer, and the unsettled window is not yet entitled
@@ -122,7 +168,7 @@ export function SaveButton({
 
   if (variant === 'bracket') {
     return (
-      <div className="relative inline-flex">
+      <div ref={wrapperRef} className="relative inline-flex">
         <BracketLink
           label={isSaved ? 'Saved' : 'Save'}
           active={isSaved}
@@ -142,6 +188,7 @@ export function SaveButton({
             Failed to {isSaved ? 'remove' : 'save'} show
           </div>
         ) : null}
+        {firstSaveHint}
       </div>
     )
   }
@@ -156,7 +203,7 @@ export function SaveButton({
   const paintsCount = showCount && hasCount
 
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       <Button
         // A dropped Save is the worst case in PSY-1610's table: silent, so the
         // user walks away believing the show is on their list. (The bracket
@@ -198,6 +245,7 @@ export function SaveButton({
           Failed to {isSaved ? 'remove' : 'save'} show
         </div>
       )}
+      {firstSaveHint}
     </div>
   )
 }

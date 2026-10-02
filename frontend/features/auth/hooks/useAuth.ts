@@ -98,6 +98,9 @@ interface UserPreferencesData {
         }[]
       | null
   } | null
+  // Set when the one-time first-save hint is first shown (the first time is
+  // kept). Absent/null = never shown, the only state in which it may render.
+  first_save_hint_dismissed_at?: string | null
   default_reply_permission?: string
   // PSY-350 / PSY-515: weekly digest of new items in collections the user
   // follows. Server default is FALSE (opt-IN); user toggles this from the

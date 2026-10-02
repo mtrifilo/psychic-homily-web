@@ -123,7 +123,10 @@
    * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
    * `xl` — current subtractors: AppShell padding, Sidebar + AdminSidebar
    * heights, AtlasGlobe height, CookieConsentBanner bottom offset, CityFilters
-   * popover max-height (on soft-keyboard viewports only). */
+   * popover max-height (on soft-keyboard viewports only). Floating overlays
+   * positioned in JS (FirstSaveHint) measure the bar through its
+   * `data-bottom-tab-bar` attribute instead, since this calc() cannot be read
+   * back as a number. */
   --bottom-tab-bar-height: calc(3.5rem + 1px);
 
   /* Radius scale — sharp editorial corners (2/4/6/8px) */

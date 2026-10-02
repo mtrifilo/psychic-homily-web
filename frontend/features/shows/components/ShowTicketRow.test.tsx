@@ -7,6 +7,15 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ isAuthenticated: false, user: undefined }),
 }))
 
+// The first-save hint reads the query client, which this render-only test
+// does not mount; the hint's own behaviour is covered in
+// SaveButton.firstSaveHint.test and useFirstSaveHint.test.
+vi.mock('../hooks/useFirstSaveHint', async importOriginal => ({
+  ...(await importOriginal<typeof import('../hooks/useFirstSaveHint')>()),
+  useShouldOpenFirstSaveHint: () => async () => false,
+  useStampFirstSaveHint: () => ({ mutate: vi.fn() }),
+}))
+
 // The save bracket reads the router for its login redirect; there is no app
 // router mounted in a render-only test.
 vi.mock('next/navigation', () => ({

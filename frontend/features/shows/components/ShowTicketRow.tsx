@@ -92,6 +92,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
         <SaveButton
           showId={show.id}
           variant="bracket"
+          hintAlign="start"
           className="font-sans text-sm"
         />
         <AddToCollectionButton

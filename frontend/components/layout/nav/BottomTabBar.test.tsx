@@ -116,6 +116,15 @@ describe('BottomTabBar', () => {
     )
   })
 
+  // Floating overlays that must stay clear of the bar (the first-save hint)
+  // find it by this attribute; FirstSaveHint.test pins what they do with it.
+  it('carries the hook floating overlays measure', () => {
+    const { container } = render(<BottomTabBar />)
+    expect(
+      container.querySelector('nav[aria-label="Mobile navigation"]')
+    ).toHaveAttribute('data-bottom-tab-bar')
+  })
+
   // PSY-1820 geometry contract. The bar must RENDER exactly the height every
   // other surface RESERVES for it, or page content slides under the bar.
   //

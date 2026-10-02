@@ -344,6 +344,9 @@ export function BottomTabBar() {
   return (
     <nav
       aria-label="Mobile navigation"
+      // Measured by floating overlays (the first-save hint) that must stay
+      // clear of this bar; see the geometry contract in globals.css.
+      data-bottom-tab-bar=""
       className="fixed inset-x-0 bottom-0 z-40 h-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 xl:hidden"
     >
       <div className="grid h-full grid-cols-5">
