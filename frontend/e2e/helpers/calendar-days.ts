@@ -1,10 +1,6 @@
 /**
  * Every day of a calendar month as the two-digit segment a day URL carries,
- * `01` through the month's real last day. `month` is 1-12.
- *
- * The length comes from the calendar rather than a safe constant: a list that
- * fills the first four weeks of a month still leaves its 29th to 31st open, and
- * those days are candidates only if the month is counted in full.
+ * `01` through the month's real last day, 28 to 31 of them. `month` is 1-12.
  */
 export function daysOfMonth(year: number, month: number): string[] {
   // Day 0 of the following month is the last day of this one.

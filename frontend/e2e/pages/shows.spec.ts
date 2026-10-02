@@ -182,6 +182,9 @@ test.describe('Shows list', () => {
  * and a literal here would rot the first time the seed moved.
  */
 test.describe('Shows month and day routes', () => {
+  /** A month URL as the strip links it: `/shows/{yyyy}/{mm}`. */
+  const MONTH_HREF = /^\/shows\/\d{4}\/\d{2}$/
+
   /** Every `/shows/...` href in the month strip, in its order, as served. */
   async function monthStripHrefs(page: Page) {
     await page.goto('/shows')
@@ -195,18 +198,22 @@ test.describe('Shows month and day routes', () => {
   /** The first month the strip offers, as the served HTML carries it. */
   async function firstMonthHref(page: Page) {
     const [href] = await monthStripHrefs(page)
-    expect(href).toMatch(/^\/shows\/\d{4}\/\d{2}$/)
+    expect(href).toMatch(MONTH_HREF)
     return href
   }
 
   /**
    * The first day, walking the strip's months in order, that a month's list
-   * leaves unlisted, as a day URL; `undefined` when every month is full.
+   * leaves unlisted, as a day URL. `examined` says why each month before it
+   * did not answer, so a failure names its cause.
    */
-  async function firstUnlistedDayHref(page: Page) {
+  async function firstUnlistedDayHref(
+    page: Page
+  ): Promise<{ href?: string; examined: string[] }> {
     const months = (await monthStripHrefs(page)).filter(href =>
-      /^\/shows\/\d{4}\/\d{2}$/.test(href)
+      MONTH_HREF.test(href)
     )
+    const examined: string[] = []
     for (const href of months) {
       const [, , year, month] = href.split('/')
       await page.goto(href)
@@ -216,7 +223,10 @@ test.describe('Shows month and day routes', () => {
       // Page 1 is all this reads, so it can only vouch for a month that fits
       // on one page: a day missing from page 1 of a longer month may be on the
       // next.
-      if ((await page.locator(`a[href="${href}?page=2"]`).count()) > 0) continue
+      if ((await page.getByRole('link', { name: /^Page 2\b/ }).count()) > 0) {
+        examined.push(`${href} runs past one page`)
+        continue
+      }
 
       const listed = new Set(
         await list
@@ -226,9 +236,10 @@ test.describe('Shows month and day routes', () => {
           )
       )
       const day = firstUnlistedDay(Number(year), Number(month), listed)
-      if (day !== undefined) return `${href}/${day}`
+      if (day !== undefined) return { href: `${href}/${day}`, examined }
+      examined.push(`${href} lists every day`)
     }
-    return undefined
+    return { examined }
   }
 
   test('the root carries the month strip as real links', async ({ page }) => {
@@ -390,19 +401,18 @@ test.describe('Shows month and day routes', () => {
    * rot or pass while testing nothing.
    *
    * The search walks the strip's months in order and takes the first day any of
-   * them leaves unlisted. Every month in the strip is inside the span, and a
-   * month can be listed on every one of its days, so the months after the
-   * first are candidates too.
+   * them leaves unlisted: a month can be listed on every one of its days, so
+   * the months after the first are candidates too.
    */
   test('an empty day inside the span serves the quiet state at 200', async ({
     page,
   }) => {
     test.setTimeout(60_000)
 
-    const quietDayHref = await firstUnlistedDayHref(page)
+    const { href: quietDayHref, examined } = await firstUnlistedDayHref(page)
     expect(
       quietDayHref,
-      'some month in the strip must leave at least one day empty'
+      `some month in the strip must leave a day unlisted (${examined.join('; ')})`
     ).toBeTruthy()
 
     const response = await page.goto(quietDayHref as string)

@@ -42,7 +42,7 @@ describe('firstUnlistedDay', () => {
     expect(firstUnlistedDay(2028, 2, dayRange(1, 28))).toBe('29')
   })
 
-  it('finds an early past day when only the month tail is listed', () => {
+  it('finds the 1st when only the month tail is listed', () => {
     expect(firstUnlistedDay(2026, 9, dayRange(29, 30))).toBe('01')
   })
 
