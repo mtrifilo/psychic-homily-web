@@ -149,7 +149,7 @@ function useEmbedTheme(): EmbedTheme {
 
 /**
  * Spotify's embed src. `theme=0` is Spotify's dark card; with no `theme`
- * Spotify picks its own colour from the cover art, which is its light card.
+ * Spotify colours the card from the cover art.
  */
 function spotifyEmbedSrc(
   kind: SpotifyEmbedKind,
@@ -328,6 +328,13 @@ function playerWrapperClass(slim: boolean): string {
   return slim ? 'w-full overflow-hidden' : 'music-embed-container'
 }
 
+// An iframe whose color-scheme differs from its document's is painted on an
+// opaque canvas, which shows as white corners around a vendor's rounded card
+// on the dark page. The vendors' documents use `normal`, so a slim iframe
+// declares `normal` too and stays transparent outside the card in both themes.
+// The default size clips those corners with its host-side radius instead.
+const SLIM_IFRAME_COLOR_SCHEME = 'normal'
+
 // Each iframe is keyed on its src. The theme is baked into the src, so a theme
 // change remounts the player with the other colours instead of leaving the old
 // ones painted.
@@ -358,12 +365,22 @@ function BandcampFrame({
       <iframe
         key={src}
         title={`${artistName} on Bandcamp`}
-        style={{
-          border: 0,
-          width: '100%',
-          maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
-          height: slim ? BANDCAMP_SLIM_EMBED_HEIGHT_PX : BANDCAMP_EMBED_HEIGHT_PX,
-        }}
+        style={
+          slim
+            ? {
+                border: 0,
+                width: '100%',
+                maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
+                height: BANDCAMP_SLIM_EMBED_HEIGHT_PX,
+                colorScheme: SLIM_IFRAME_COLOR_SCHEME,
+              }
+            : {
+                border: 0,
+                width: '100%',
+                maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
+                height: BANDCAMP_EMBED_HEIGHT_PX,
+              }
+        }
         src={src}
         // Matches the Spotify branch below, which has always had it. It
         // costs nothing on the one-embed pages this component was built for
@@ -401,7 +418,11 @@ function SpotifyFrame({
         title={`${artistName} on Spotify`}
         style={
           slim
-            ? { width: '100%', height: `${SPOTIFY_SLIM_EMBED_HEIGHT_PX}px` }
+            ? {
+                width: '100%',
+                height: `${SPOTIFY_SLIM_EMBED_HEIGHT_PX}px`,
+                colorScheme: SLIM_IFRAME_COLOR_SCHEME,
+              }
             : { borderRadius: '12px', width: '100%', height: compact ? '152px' : '352px' }
         }
         src={src}

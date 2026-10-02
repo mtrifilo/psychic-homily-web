@@ -47,6 +47,18 @@ describe('bandcampEmbedSrc', () => {
       expect(src).toContain(part)
     }
   })
+  // `artwork=small` breaks Bandcamp's small player, so a small player gets no
+  // artwork segment unless the caller names one.
+  it('gives the small player no artwork segment by default', () => {
+    const src = bandcampEmbedSrc({ kind: 'track', id: '1', size: 'small' })
+    expect(src).toContain('size=small')
+    expect(src).not.toContain('artwork=')
+  })
+  it('keeps an artwork the caller names on the small player', () => {
+    expect(
+      bandcampEmbedSrc({ kind: 'track', id: '1', size: 'small', artwork: 'big' })
+    ).toContain('artwork=big')
+  })
   it('omits transparent unless requested', () => {
     expect(bandcampEmbedSrc({ kind: 'album', id: '1' })).not.toContain('transparent')
   })

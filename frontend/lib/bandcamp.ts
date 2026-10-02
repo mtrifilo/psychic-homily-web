@@ -83,9 +83,10 @@ export type EmbedTheme = 'light' | 'dark'
 
 /**
  * The Bandcamp player's `bgcol` / `linkcol` per page theme: the page's own
- * `--background` and `--primary` (app/globals.css), so a `transparent=true`
- * player reads as part of the page. `bandcamp.test.ts` holds these to the
- * stylesheet's values.
+ * `--background` and `--primary` (app/globals.css), which `bandcamp.test.ts`
+ * holds to the stylesheet's values. Bandcamp honours `linkcol` exactly; the
+ * small player paints its background in its own light or dark shade, and
+ * `bgcol` picks which.
  */
 export const BANDCAMP_THEME_COLORS: Record<
   EmbedTheme,
@@ -104,6 +105,10 @@ export const BANDCAMP_THEME_COLORS: Record<
 // A themed caller passes `BANDCAMP_THEME_COLORS[theme]`, and because the colours
 // are baked into the src, the iframe must be re-keyed on the src for a theme
 // change to reach the player.
+//
+// The small player takes no `artwork` segment by default: `artwork=small` there
+// drops the cover and lays the title under the play button, while with no
+// segment it shows its 42px cover. The large player defaults to `small`.
 export function bandcampEmbedSrc(opts: {
   kind: BandcampEmbedKind
   id: string
@@ -114,14 +119,16 @@ export function bandcampEmbedSrc(opts: {
   tracklist?: boolean
   transparent?: boolean
 }): string {
+  const size = opts.size ?? 'large'
+  const artwork = opts.artwork ?? (size === 'large' ? 'small' : null)
   const parts = [
     `${opts.kind}=${opts.id}`,
-    `size=${opts.size ?? 'large'}`,
+    `size=${size}`,
     `bgcol=${opts.bgcol ?? '1a1a1a'}`,
     `linkcol=${opts.linkcol ?? 'f59e0b'}`,
     `tracklist=${opts.tracklist ?? false}`,
-    `artwork=${opts.artwork ?? 'small'}`,
   ]
+  if (artwork) parts.push(`artwork=${artwork}`)
   if (opts.transparent) parts.push('transparent=true')
   return `https://bandcamp.com/EmbeddedPlayer/${parts.join('/')}/`
 }

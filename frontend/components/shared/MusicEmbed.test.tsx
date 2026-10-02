@@ -552,6 +552,7 @@ describe('MusicEmbed slim size', () => {
     expect(src).toContain('album=12345')
     expect(src).toContain('size=small')
     expect(src).toContain('transparent=true')
+    expect(src).not.toContain('artwork=')
   })
 
   it('colours the Bandcamp player for the dark page', async () => {
@@ -632,6 +633,24 @@ describe('MusicEmbed slim size', () => {
     expect(iframe).toHaveStyle({ height: '80px' })
     expect(iframe.style.borderRadius).toBe('')
     expect(iframe.parentElement).not.toHaveClass('music-embed-container')
+  })
+
+  // A color-scheme mismatch between the iframe and its document paints an
+  // opaque canvas behind the vendor's rounded card on the dark page.
+  it('declares the vendors color-scheme on both slim iframes', async () => {
+    resolvesTo('12345')
+    render(
+      <>
+        <MusicEmbed bandcampAlbumUrl={ALBUM_URL} artistName="Bandcamp Act" size="slim" />
+        <MusicEmbed spotifyUrl={SPOTIFY_URL} artistName="Spotify Act" size="slim" />
+      </>
+    )
+
+    const bandcamp = await screen.findByTitle('Bandcamp Act on Bandcamp')
+    expect(bandcamp.getAttribute('style')).toContain('color-scheme: normal')
+    expect(
+      screen.getByTitle('Spotify Act on Spotify').getAttribute('style')
+    ).toContain('color-scheme: normal')
   })
 
   it('gives Spotify s dark card on the dark page and its own card on the light page', () => {
