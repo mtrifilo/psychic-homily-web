@@ -49,7 +49,7 @@ export interface InfoTooltipProps {
  * return-focus is prevented, because focusing the trigger would reopen the
  * tooltip (and in Safari and Firefox on macOS a clicked button was never
  * focused to begin with). While the popover is open the trigger is described
- * by its copy, since the closed tooltip no longer does.
+ * by its copy, a description the closed tooltip does not provide.
  *
  * An Escape that closes the popover stops propagating, so a document-level
  * Escape handler on a surrounding panel does not close that panel too.
