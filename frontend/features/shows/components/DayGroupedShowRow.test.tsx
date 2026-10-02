@@ -427,12 +427,10 @@ describe('DayGroupedShowRow', () => {
 })
 
 // jsdom has no layout, so what this pins is the CLASS that fixes the width:
-// one `lg:w-[...]` utility per footprint, the same on the header and on a row
-// whatever controls the row itself carries. The x positions are measured in a
-// browser.
+// one `lg:w-[...]` utility per footprint, the same on the header and on every
+// row whatever controls the row itself carries. The x positions are measured
+// in a browser.
 describe('the actions column width', () => {
-  const footprints = ['viewer', 'owner', 'admin'] as const
-
   function widthClasses(element: HTMLElement): string[] {
     return [...element.classList].filter(c => /(^|:)(min-|max-)?w-/.test(c))
   }
@@ -443,9 +441,44 @@ describe('the actions column width', () => {
     ] as never,
   }
 
-  it.each(footprints)(
-    'is one fixed width, shared by the header and a %s row',
-    footprint => {
+  // Each viewer with the rows a list can hand them. Every case pairs a row
+  // with the expand control and one without it; the owner case also pairs an
+  // owned row (delete control) with a row someone else submitted.
+  const viewers = [
+    {
+      viewer: 'an anonymous reader',
+      footprint: 'viewer',
+      rowProps: {},
+      rows: [{}, noMusic],
+    },
+    {
+      viewer: 'a signed-in reader who submitted no row',
+      footprint: 'viewer',
+      rowProps: { userId: '42' },
+      rows: [{ submitted_by: 7 }, { ...noMusic, submitted_by: 7 }],
+    },
+    {
+      viewer: 'a signed-in reader who submitted a row',
+      footprint: 'owner',
+      rowProps: { userId: '42' },
+      rows: [
+        { submitted_by: 42 },
+        { ...noMusic, submitted_by: 42 },
+        { submitted_by: 7 },
+        { ...noMusic, submitted_by: 7 },
+      ],
+    },
+    {
+      viewer: 'an admin',
+      footprint: 'admin',
+      rowProps: { isAdmin: true, userId: '1' },
+      rows: [{}, noMusic],
+    },
+  ] as const
+
+  it.each(viewers)(
+    'is one fixed width on the header and every row for $viewer',
+    ({ footprint, rowProps, rows }) => {
       render(
         <DayGroupedShowListHeader
           density="comfortable"
@@ -458,26 +491,49 @@ describe('the actions column width', () => {
       expect(header).toHaveLength(1)
       expect(header[0]).toMatch(/^lg:w-\[\d+px\]$/)
 
-      renderRow({}, { actionsFootprint: footprint })
-      expect(widthClasses(screen.getByTestId('row-actions'))).toEqual(header)
+      for (const [i, overrides] of rows.entries()) {
+        renderRow(
+          { ...overrides, id: i + 1, title: `Row ${i + 1}` },
+          { ...rowProps, actionsFootprint: footprint }
+        )
+      }
+
+      const articles = screen.getAllByRole('article')
+      expect(articles).toHaveLength(rows.length)
+      // Both variants are really on the page, so the comparison below covers
+      // a row with the expand control and a row without it.
+      const expandable = articles.filter(article =>
+        within(article).queryByRole('button', {
+          name: 'Discover artist music',
+        })
+      )
+      expect(expandable).toHaveLength(rows.length / 2)
+
+      for (const article of articles) {
+        expect(
+          widthClasses(within(article).getByTestId('row-actions'))
+        ).toEqual(header)
+      }
     }
   )
 
-  // The regression: a row with fewer controls than the list's widest one must
-  // still take the list's width rather than one sized to its own cluster.
-  it('keeps the list width on a row carrying fewer controls than it', () => {
-    render(
-      <DayGroupedShowListHeader density="comfortable" actionsFootprint="admin" />
-    )
-    renderRow(noMusic, { actionsFootprint: 'admin', isAdmin: false })
+  it('gives each footprint its own width, wider as it holds more controls', () => {
+    const pixels = (['viewer', 'owner', 'admin'] as const).map(footprint => {
+      const { unmount } = render(
+        <DayGroupedShowListHeader
+          density="comfortable"
+          actionsFootprint={footprint}
+        />
+      )
+      const [width] = widthClasses(
+        screen.getByTestId('show-list-header-actions')
+      )
+      unmount()
+      return Number(width.match(/\d+/)?.[0])
+    })
 
-    expect(
-      screen.queryByRole('button', { name: 'Discover artist music' })
-    ).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Edit show' })).toBeNull()
-    expect(widthClasses(screen.getByTestId('row-actions'))).toEqual(
-      widthClasses(screen.getByTestId('show-list-header-actions'))
-    )
+    expect(pixels[0]).toBeLessThan(pixels[1])
+    expect(pixels[1]).toBeLessThan(pixels[2])
   })
 })
 
