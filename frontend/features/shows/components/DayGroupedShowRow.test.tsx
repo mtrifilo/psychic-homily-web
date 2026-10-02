@@ -5,6 +5,7 @@ import {
   DayGroupedShowListHeader,
   DayGroupedShowRow,
 } from './DayGroupedShowRow'
+import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import type { ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -517,6 +518,15 @@ describe('the actions column width', () => {
       }
     }
   )
+
+  // Every footprint's width reserves expand, save and outbound.
+  it('sits on a discovery policy that renders expand, save and outbound', () => {
+    expect(SHOW_LIST_FEATURE_POLICY.discovery).toMatchObject({
+      showExpandMusic: true,
+      showSaveButton: true,
+      showDetailsLink: true,
+    })
+  })
 
   it('gives each footprint its own width, wider as it holds more controls', () => {
     const pixels = (['viewer', 'owner', 'admin'] as const).map(footprint => {

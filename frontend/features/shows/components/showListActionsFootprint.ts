@@ -20,7 +20,7 @@ export function rowActionControls({
   viewerId,
   isAdmin,
 }: {
-  submittedBy?: ShowResponse['submitted_by']
+  submittedBy: ShowResponse['submitted_by']
   viewerId: UserIdLike
   isAdmin: boolean
 }): { admin: boolean; delete: boolean } {
@@ -48,8 +48,9 @@ export function actionsFootprintFor({
   isAdmin: boolean
   userId?: UserIdLike
 }): ActionsFootprint {
-  // Decided without the rows, so an admin's header agrees on an empty list.
-  if (rowActionControls({ viewerId: userId, isAdmin }).admin) return 'admin'
+  // The admin controls do not depend on who submitted a row.
+  const anyRow = { submittedBy: undefined, viewerId: userId, isAdmin }
+  if (rowActionControls(anyRow).admin) return 'admin'
   const canDeleteARow = shows.some(
     show =>
       rowActionControls({

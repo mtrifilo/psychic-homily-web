@@ -44,7 +44,7 @@ describe('actionsFootprintFor', () => {
     ).toBe('admin')
   })
 
-  it('is admin for an admin even on an empty list, so the header agrees', () => {
+  it('is admin for an admin whoever submitted the rows, even with none', () => {
     expect(actionsFootprintFor({ shows: [], isAdmin: true })).toBe('admin')
   })
 })

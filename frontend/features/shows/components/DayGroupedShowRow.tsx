@@ -84,9 +84,10 @@ export interface DayGroupedShowRowProps {
  *
  * Spelled as `lg:` utilities, which is where the frame's desktop layout starts.
  * Below that the row is a stacked two-line block and the fixed widths must not
- * apply: with the narrowest `ACTIONS_WIDTH` they total 614px before the bill
- * column gets a pixel, nearly all of a 640px viewport. The header row and the
- * cells read the same constants, so a width moves in one place.
+ * apply: with the narrowest `ACTIONS_WIDTH`, the row's gaps and its padding
+ * they take 670px before the bill column gets a pixel, which already exceeds a
+ * 640px viewport. The header row and the cells read the same constants, so a
+ * width moves in one place.
  */
 const COLUMN = {
   time: 'lg:w-[90px]',
@@ -101,12 +102,14 @@ const COLUMN = {
  * row whatever subset of controls a row carries.
  *
  * `viewer` holds the expand control (28px), `SaveButton` with a two-digit
- * count (62px: its `px-3` padding, 16px heart, `gap-1.5` and two digits) and
- * outbound (28px), plus two 2px gaps: 122px, and 2px of slack makes 124. Every
- * further control the footprint adds is 28px plus a 2px gap. A longer save
- * count spills leftward out of the cell (it is `justify-end` and never wraps)
- * into the 8px row gap and then over the age cell, instead of widening the
- * cell, so it still moves no other column.
+ * count (62px measured: its `px-3` padding, 16px heart, `gap-1.5` and two
+ * digits; 32px with no count) and outbound (28px), plus two 2px gaps: 122px,
+ * and 2px of slack makes 124. Every further control the footprint adds is 28px
+ * plus a 2px gap. The widths assume the discovery policy renders expand, save
+ * and outbound, which the width tests pin. A longer save count spills leftward
+ * out of the cell (it is `justify-end` and never wraps) into the 8px row gap,
+ * and from four digits over the age text, instead of widening the cell, so it
+ * still moves no other column.
  */
 const ACTIONS_WIDTH: Record<ActionsFootprint, string> = {
   viewer: 'lg:w-[124px]',

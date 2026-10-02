@@ -207,6 +207,9 @@ export function DayGroupedShowList({
     [shows, hydrated]
   )
 
+  // `userId` and `isAdmin` settle after hydration, so an owner's or admin's
+  // footprint widens once then: the header and every row together, which
+  // keeps the columns aligned through the change.
   const actionsFootprint = useMemo(
     () => actionsFootprintFor({ shows, isAdmin, userId }),
     [shows, isAdmin, userId]
