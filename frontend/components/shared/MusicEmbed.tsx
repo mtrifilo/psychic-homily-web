@@ -16,6 +16,7 @@ import {
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { playableMusicSources } from '@/lib/playableMusicSources'
 import { queryKeys } from '@/lib/queryClient'
+import { cn } from '@/lib/utils'
 
 /**
  * `default` is the headed player block (or, with `compact`, the unheaded one).
@@ -263,11 +264,10 @@ export function MusicEmbed({
             without it, each one lands as its own jump and everything below the
             stack walks down the page. */}
         <div
-          className={
-            slim
-              ? 'flex items-center justify-center bg-muted/30'
-              : `flex items-center justify-center ${compact ? 'py-4' : 'py-8'} bg-muted/30 rounded-md`
-          }
+          className={cn(
+            'flex items-center justify-center bg-muted/30',
+            !slim && ['rounded-md', compact ? 'py-4' : 'py-8']
+          )}
           style={{
             minHeight: slim
               ? BANDCAMP_SLIM_EMBED_HEIGHT_PX
@@ -275,7 +275,10 @@ export function MusicEmbed({
           }}
         >
           <Loader2
-            className={`${slim ? 'h-4 w-4' : 'h-6 w-6'} animate-spin text-muted-foreground`}
+            className={cn(
+            slim ? 'h-4 w-4' : 'h-6 w-6',
+            'animate-spin text-muted-foreground'
+          )}
           />
         </div>
       </section>
@@ -365,22 +368,13 @@ function BandcampFrame({
       <iframe
         key={src}
         title={`${artistName} on Bandcamp`}
-        style={
-          slim
-            ? {
-                border: 0,
-                width: '100%',
-                maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
-                height: BANDCAMP_SLIM_EMBED_HEIGHT_PX,
-                colorScheme: SLIM_IFRAME_COLOR_SCHEME,
-              }
-            : {
-                border: 0,
-                width: '100%',
-                maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
-                height: BANDCAMP_EMBED_HEIGHT_PX,
-              }
-        }
+        style={{
+          border: 0,
+          width: '100%',
+          maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
+          height: slim ? BANDCAMP_SLIM_EMBED_HEIGHT_PX : BANDCAMP_EMBED_HEIGHT_PX,
+          ...(slim && { colorScheme: SLIM_IFRAME_COLOR_SCHEME }),
+        }}
         src={src}
         // Matches the Spotify branch below, which has always had it. It
         // costs nothing on the one-embed pages this component was built for

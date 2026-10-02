@@ -97,6 +97,13 @@ const COLUMN = {
 } as const
 
 /**
+ * The open players' indent at `lg`: `COLUMN.time`'s width, so inside the row's
+ * 8px padding the players start 98px from the row's edge. A time column that
+ * changes width changes this with it.
+ */
+const PLAYER_STACK_INDENT = 'lg:pl-[90px]'
+
+/**
  * The actions column's FIXED width per footprint, identical on every row and
  * on the header, so the venue and price columns start at the same x on every
  * row whatever subset of controls a row carries.
@@ -149,15 +156,16 @@ const VENUE_TYPE: Record<Density, string> = {
 /**
  * Where the open players sit under the row. In every density the first player
  * starts 8px under the row's content (12px at `lg`) and the last ends 10px
- * above the row's bottom edge: that edge is `ROW_PADDING`'s bottom padding
- * plus this record's `pb`, so the two records move together. At `lg` the
- * stack is indented past the time column, 98px from the row's edge with the
- * row's 8px padding; stacked, the players run the row's full width.
+ * above the row's bottom edge. That 10px is `ROW_PADDING`'s bottom padding plus
+ * `PLAYER_STACK_BOTTOM`, so the two records move together. Stacked, the
+ * players run the row's full width.
  */
-const PLAYER_STACK_SPACING: Record<Density, string> = {
-  compact: 'pt-2 pb-0.5 lg:pt-3 lg:pb-1.5 lg:pl-[90px]',
-  comfortable: 'pt-2 pb-0.5 lg:pt-3 lg:pb-1 lg:pl-[90px]',
-  expanded: 'pt-2 pb-0.5 lg:pt-3 lg:pb-0 lg:pl-[90px]',
+const PLAYER_STACK_SPACING = cn('pt-2 pb-0.5 lg:pt-3', PLAYER_STACK_INDENT)
+
+const PLAYER_STACK_BOTTOM: Record<Density, string> = {
+  compact: 'lg:pb-1.5',
+  comfortable: 'lg:pb-1',
+  expanded: 'lg:pb-0',
 }
 
 /** Age is the first column the frame collapses, and support the second. */
@@ -510,7 +518,7 @@ export function DayGroupedShowRow({
       {isExpanded && hasArtistMusic && (
         <ShowArtistPlayerStack
           artists={artists}
-          className={PLAYER_STACK_SPACING[density]}
+          className={cn(PLAYER_STACK_SPACING, PLAYER_STACK_BOTTOM[density])}
         />
       )}
 

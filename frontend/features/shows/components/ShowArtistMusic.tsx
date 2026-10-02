@@ -12,16 +12,25 @@ import { basedInPhrase, billHometown } from '../utils'
 import type { ArtistResponse } from '../types'
 
 /**
+ * An act's music sources, in the shape both `hasRenderableMusic` and
+ * `MusicEmbed` take: the one mapping the predicate and every player on a bill
+ * share, so the predicate cannot say yes to sources a player never receives.
+ */
+function artistMusicSources(artist: ArtistResponse) {
+  return {
+    bandcampAlbumUrl: artist.bandcamp_embed_url,
+    bandcampProfileUrl: artist.socials?.bandcamp,
+    spotifyUrl: artist.socials?.spotify,
+  }
+}
+
+/**
  * Whether an artist's music block will render anything. A stored Bandcamp URL
  * no longer implies that on its own, so this asks the shared predicate rather
  * than testing the column, or the expand control would open onto nothing.
  */
 export function artistHasMusic(artist: ArtistResponse): boolean {
-  return hasRenderableMusic({
-    bandcampAlbumUrl: artist.bandcamp_embed_url,
-    bandcampProfileUrl: artist.socials?.bandcamp,
-    spotifyUrl: artist.socials?.spotify,
-  })
+  return hasRenderableMusic(artistMusicSources(artist))
 }
 
 /** Whether any act on the bill has music to open. */
@@ -91,9 +100,7 @@ export function ShowArtistMusicPanel({
               <SocialLinks social={artist.socials} className="shrink-0" />
             </div>
             <MusicEmbed
-              bandcampAlbumUrl={artist.bandcamp_embed_url}
-              bandcampProfileUrl={artist.socials?.bandcamp}
-              spotifyUrl={artist.socials?.spotify}
+              {...artistMusicSources(artist)}
               artistName={artist.name}
               compact
             />
@@ -129,6 +136,8 @@ export function ShowArtistPlayerStack({
 
   return (
     <div className={className} data-testid="artist-player-stack">
+      {/* The cap sits on its own box so the caller's padding does not eat
+          into the players' 700px. */}
       <div
         className="space-y-1.5"
         style={{ maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX }}
@@ -136,9 +145,7 @@ export function ShowArtistPlayerStack({
         {withMusic.map(artist => (
           <MusicEmbed
             key={artist.id}
-            bandcampAlbumUrl={artist.bandcamp_embed_url}
-            bandcampProfileUrl={artist.socials?.bandcamp}
-            spotifyUrl={artist.socials?.spotify}
+            {...artistMusicSources(artist)}
             artistName={artist.name}
             size="slim"
           />
