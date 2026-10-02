@@ -87,6 +87,28 @@ describe('ShowArtistPlayerStack', () => {
     expect(screen.getByTestId('artist-player-stack')).toHaveClass('pt-3')
   })
 
+  // MusicEmbed's outbound link stands in for a player it cannot render, and
+  // is the only text the stack prints.
+  it('links a profile-only act to Bandcamp in its slot, in bill order', async () => {
+    const profileOnly = makeArtist({
+      id: 4,
+      name: 'Profile Only',
+      slug: 'profile-only',
+      socials: { bandcamp: 'https://profileonly.bandcamp.com' },
+    } as never)
+    renderStack([profileOnly, SPOTIFY_ACT])
+
+    const stack = await screen.findByTestId('artist-player-stack')
+    const link = screen.getByRole('link', { name: /Listen to Profile Only on Bandcamp/ })
+    expect(link).toHaveAttribute('href', 'https://profileonly.bandcamp.com')
+    expect(stack.querySelectorAll('a')).toHaveLength(1)
+    expect(stack.querySelector('iframe')?.title).toBe('Melt on Spotify')
+    expect(
+      link.compareDocumentPosition(stack.querySelector('iframe') as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it('renders nothing when no act has music', () => {
     const { container } = renderStack([SILENT_ACT])
 

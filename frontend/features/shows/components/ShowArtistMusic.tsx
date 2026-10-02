@@ -116,11 +116,14 @@ export function ShowArtistMusicPanel({
  * has music, in bill order, stacked 6px apart and no wider than a Bandcamp
  * player gets.
  *
- * Players only. The row above already names every act, and each player names
- * its own act again, so the stack prints no act name, no hometown and no
- * social links; those live on the show page's listen cards and the artist
- * page. Players render open for the same reason {@link ShowArtistMusicPanel}'s
- * do.
+ * The row above already names every act, and each player names its own act
+ * again, so the stack prints no act name, no hometown and no social links;
+ * those live on the show page's listen cards and the artist page. Players
+ * render open for the same reason {@link ShowArtistMusicPanel}'s do.
+ *
+ * An act with no playable source, only a Bandcamp profile or a release whose
+ * player could not be resolved, gets `MusicEmbed`'s one-line "Listen to X on
+ * Bandcamp" link in its place, which is the only text the stack prints.
  *
  * Outer spacing and indent are the caller's, through `className`.
  */
