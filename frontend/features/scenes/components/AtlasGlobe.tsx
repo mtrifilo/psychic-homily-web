@@ -56,7 +56,9 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 
-const GLOBE_BREAKPOINT_PX = 640
+// SPIKE ONLY (PSY-1816): the mobile list gate is disabled so a preview build
+// renders the map at phone widths. Production value is 640. Do not merge.
+const GLOBE_BREAKPOINT_PX = 0
 // North America centroid — the default focus before/without visitor geo, so the
 // first paint shows the populated cluster rather than empty ocean (PSY-1211).
 const DEFAULT_POV: GlobePov = { lat: 39.5, lng: -98.35, altitude: 1.8 }
