@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
@@ -8,7 +8,11 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 
-import { AtlasSearch, listSideOffsetPx } from './AtlasSearch'
+import {
+  AtlasSearch,
+  listSideOffsetPx,
+  visualViewportShrunk,
+} from './AtlasSearch'
 
 const scenes: SceneListItem[] = [
   {
@@ -121,28 +125,55 @@ describe('AtlasSearch (PSY-1310)', () => {
   })
 })
 
+describe('visualViewportShrunk', () => {
+  it('is true while the visual viewport is shorter than the layout viewport', () => {
+    expect(visualViewportShrunk(190, 390)).toBe(true)
+  })
+
+  it('is false at full height, at a fractional full height, and with no visual viewport', () => {
+    expect(visualViewportShrunk(390, 390)).toBe(false)
+    expect(visualViewportShrunk(389.6, 390)).toBe(false)
+    expect(visualViewportShrunk(undefined, 390)).toBe(false)
+  })
+})
+
 describe('listSideOffsetPx', () => {
   it('drops the list to the line below the trigger', () => {
     // Trigger at top 16 and 34 tall, line at 112: 62px below its bottom edge.
-    expect(listSideOffsetPx(112, 50)).toBe(62)
+    expect(listSideOffsetPx(112, 50, false)).toBe(62)
   })
 
   it('adds nothing when the trigger already reaches past the line', () => {
-    expect(listSideOffsetPx(112, 112)).toBe(0)
-    expect(listSideOffsetPx(112, 130)).toBe(0)
+    expect(listSideOffsetPx(112, 112, false)).toBe(0)
+    expect(listSideOffsetPx(112, 130, false)).toBe(0)
   })
 
   it('keeps the default gap when there is no line to clear', () => {
-    expect(listSideOffsetPx(undefined, 50)).toBeUndefined()
+    expect(listSideOffsetPx(undefined, 50, false)).toBeUndefined()
+  })
+
+  it('gives the line up while the keyboard is up', () => {
+    expect(listSideOffsetPx(112, 50, true)).toBeUndefined()
   })
 })
 
 describe('AtlasSearch getListMinTopPx', () => {
-  it('reads the line afresh on every open', () => {
-    const getListMinTopPx = vi
-      .fn<() => number | undefined>()
-      .mockReturnValueOnce(112)
-      .mockReturnValueOnce(undefined)
+  /**
+   * The list's vertical translate once Radix has placed it. jsdom lays the
+   * trigger out at 0, so this is the popover's side offset: 4 is its default
+   * gap. `data-radix-popper-content-wrapper` and the `translate(Xpx, Ypx)`
+   * form are Radix Popper details.
+   */
+  async function expectListTranslateY(px: number) {
+    await waitFor(() => {
+      const wrapper = document.querySelector<HTMLElement>(
+        '[data-radix-popper-content-wrapper]',
+      )
+      expect(wrapper?.style.transform).toBe(`translate(0px, ${px}px)`)
+    })
+  }
+
+  function renderWithLine(getListMinTopPx: () => number | undefined) {
     renderWithProviders(
       <AtlasSearch
         scenes={scenes}
@@ -150,12 +181,69 @@ describe('AtlasSearch getListMinTopPx', () => {
         getListMinTopPx={getListMinTopPx}
       />,
     )
-    const trigger = screen.getByRole('combobox', { name: /search scenes/i })
+    return screen.getByRole('combobox', { name: /search scenes/i })
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('opens at the line, read afresh on every open', async () => {
+    const trigger = renderWithLine(
+      vi
+        .fn<() => number | undefined>()
+        .mockReturnValueOnce(112)
+        .mockReturnValue(undefined),
+    )
     fireEvent.click(trigger)
-    expect(getListMinTopPx).toHaveBeenCalledTimes(1)
+    await expectListTranslateY(112)
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
-    expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('option')).not.toBeInTheDocument(),
+    )
     fireEvent.click(trigger)
-    expect(getListMinTopPx).toHaveBeenCalledTimes(2)
+    await expectListTranslateY(4)
+  })
+
+  it('clears a line that appears beside the trigger after the list opened', async () => {
+    let lineDrawn = false
+    const trigger = renderWithLine(() => (lineDrawn ? 112 : undefined))
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+    lineDrawn = true
+    act(() => {
+      const credit = document.createElement('div')
+      credit.className = 'credit'
+      trigger.parentElement!.appendChild(credit)
+    })
+    await expectListTranslateY(112)
+  })
+
+  it('gives the line up while the keyboard is up, and takes it back when it falls', async () => {
+    // Floating UI positions against the visual viewport too, so the stand-in
+    // carries every field it reads.
+    const viewport = Object.assign(new EventTarget(), {
+      width: window.innerWidth,
+      height: window.innerHeight - 200,
+      offsetLeft: 0,
+      offsetTop: 0,
+      pageLeft: 0,
+      pageTop: 0,
+      scale: 1,
+    })
+    vi.stubGlobal('visualViewport', viewport)
+    const trigger = renderWithLine(() => 112)
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+    act(() => {
+      viewport.height = window.innerHeight
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    await expectListTranslateY(112)
+    act(() => {
+      viewport.height = window.innerHeight - 200
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    await expectListTranslateY(4)
   })
 })

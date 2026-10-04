@@ -28,12 +28,28 @@ interface AtlasSearchProps {
    */
   triggerRef?: React.RefObject<HTMLButtonElement | null>
   /**
-   * Read on every open: how far below the top of the trigger's positioned
-   * container the result list's top edge must stay, so it opens under
-   * whatever is docked there at that moment (the Atlas sheet layout's map
-   * credit). undefined, or no getter, leaves the popover's default gap.
+   * How far below the top of the trigger's positioned container the result
+   * list's top edge must stay, so it opens under whatever is docked there
+   * (the Atlas sheet layout's map credit). Read on open and again while the
+   * list is open. undefined, or no getter, leaves the popover's default gap,
+   * and so does a raised software keyboard: see listSideOffsetPx.
    */
   getListMinTopPx?: () => number | undefined
+}
+
+/**
+ * Whether a software keyboard (or a pinch zoom) has shrunk the visual
+ * viewport below the layout viewport. Rounded because the visual viewport
+ * reports fractional heights at some device scales.
+ */
+export function visualViewportShrunk(
+  visualViewportHeight: number | undefined,
+  layoutViewportHeight: number,
+): boolean {
+  return (
+    visualViewportHeight !== undefined &&
+    Math.round(visualViewportHeight) < layoutViewportHeight
+  )
 }
 
 /**
@@ -41,14 +57,35 @@ interface AtlasSearchProps {
  * below the trigger's container top, given where the trigger's bottom edge
  * sits in that container. undefined keeps the popover's default gap, and a
  * trigger already past the line gets no extra offset.
+ *
+ * The line gives way while the keyboard is up. The list's height is capped
+ * to the room left above the keyboard, and on a short landscape phone the
+ * line leaves less room than the field being typed into needs, so the field
+ * outranks what the line keeps clear; the line returns with the keyboard's
+ * fall, at the next measure.
  */
 export function listSideOffsetPx(
   listMinTopPx: number | undefined,
   triggerBottomPx: number,
+  keyboardUp: boolean,
 ): number | undefined {
-  return listMinTopPx === undefined
+  return listMinTopPx === undefined || keyboardUp
     ? undefined
     : Math.max(0, listMinTopPx - triggerBottomPx)
+}
+
+/** The list's side offset for a trigger as it sits on screen now. */
+function measureListOffset(
+  trigger: HTMLElement | null,
+  getListMinTopPx: (() => number | undefined) | undefined,
+): number | undefined {
+  return trigger
+    ? listSideOffsetPx(
+        getListMinTopPx?.(),
+        trigger.offsetTop + trigger.offsetHeight,
+        visualViewportShrunk(window.visualViewport?.height, window.innerHeight),
+      )
+    : undefined
 }
 
 /**
@@ -76,25 +113,44 @@ export function AtlasSearch({
   const [listOffset, setListOffset] = useState<number | undefined>(undefined)
   const localTriggerRef = useRef<HTMLButtonElement>(null)
   const trigRef = triggerRef ?? localTriggerRef
-  // Recomputed on every open, from where the trigger sits and what is docked
-  // below it then, so a line that has since gone away leaves no stale offset.
+  // Measured on every open, so a line that has since gone away leaves no
+  // stale offset behind.
   const setOpen = useCallback(
     (next: boolean) => {
       if (next) {
         const trigger = trigRef.current
-        setListOffset(
-          trigger
-            ? listSideOffsetPx(
-                getListMinTopPx?.(),
-                trigger.offsetTop + trigger.offsetHeight,
-              )
-            : undefined,
-        )
+        setListOffset(measureListOffset(trigger, getListMinTopPx))
       }
       setOpenState(next)
     },
     [getListMinTopPx, trigRef],
   )
+  // While the list is open it is re-measured when the keyboard rises or falls
+  // (a visual viewport resize), and when the trigger's container changes:
+  // what the getter reads (a map credit drawn or emptied, a layout switch
+  // that moves it) is docked beside the trigger there, and can change after
+  // the open that first measured it.
+  useEffect(() => {
+    if (!open || !getListMinTopPx) return
+    const trigger = trigRef.current
+    const container = trigger?.parentElement
+    if (!container) return
+    const remeasure = () =>
+      setListOffset(measureListOffset(trigger, getListMinTopPx))
+    const observer = new MutationObserver(remeasure)
+    observer.observe(container, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['class', 'data-atlas-credit'],
+    })
+    const viewport = window.visualViewport
+    viewport?.addEventListener('resize', remeasure)
+    return () => {
+      observer.disconnect()
+      viewport?.removeEventListener('resize', remeasure)
+    }
+  }, [open, getListMinTopPx, trigRef])
   // True while a close is caused by PICKING a scene (vs Esc/click-outside).
   // Radix restores focus to the trigger AFTER the popover's exit animation —
   // late enough to steal focus back from the preview panel's close button

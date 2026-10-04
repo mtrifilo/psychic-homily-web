@@ -117,8 +117,92 @@ function measure(content: Locator): Promise<Geometry> {
   })
 }
 
+/** The map credit's bottom edge in the viewport, or null while none is drawn. */
+function creditBottomPx(page: Page): Promise<number | null> {
+  return page.evaluate(() => {
+    const credit = document.querySelector('.maplibregl-ctrl-attrib')
+    if (!credit || credit.classList.contains('maplibregl-attrib-empty')) {
+      return null
+    }
+    return credit.getBoundingClientRect().bottom
+  })
+}
+
+/** The popover's top edge in the viewport, once its animation has settled. */
+function contentTopPx(content: Locator): Promise<number> {
+  return content.evaluate(async el => {
+    await Promise.all(
+      el.getAnimations().map(animation => animation.finished.catch(() => {}))
+    )
+    return el.getBoundingClientRect().top
+  })
+}
+
+/**
+ * Asserts the keyboard-up bound on an open Atlas search popover: the frame,
+ * the column inside it, and the field being typed into all stay above the
+ * keyboard, and the rows scroll inside that bound.
+ */
+async function expectBoundUnderKeyboard(
+  page: Page,
+  content: Locator,
+  search: Locator
+): Promise<Geometry> {
+  await raiseKeyboard(page, ATLAS_KEYBOARD_HEIGHT)
+  await expect
+    .poll(() => availableHeightPx(content), { timeout: 10_000 })
+    .toBeLessThan(ATLAS_KEYBOARD_HEIGHT)
+
+  const geometry = await measure(content)
+  // The popover's whole border box, borders included, fits the room Radix
+  // reported. On its own this is close to tautological, since that room IS
+  // the frame's `max-height`.
+  expect(geometry.contentHeight).toBeLessThanOrEqual(geometry.available)
+  // The load-bearing half: the column stays inside the frame. A frame that
+  // stopped being a column flex container would still satisfy the line above
+  // while the column rendered at full height straight through it.
+  expect(geometry.columnHeight).toBeLessThanOrEqual(geometry.contentHeight)
+  // And so nothing paints below the keyboard.
+  expect(wholePixelsBelow(geometry.contentBottom, ATLAS_KEYBOARD_HEIGHT)).toBe(
+    0
+  )
+  // The rows scroll inside that bound instead of running past it.
+  expect(geometry.listScrolls).toBe(true)
+  // The field being typed into is never squeezed out by the bound.
+  const searchBox = (await search.boundingBox())!
+  expect(searchBox.y + searchBox.height).toBeLessThanOrEqual(
+    ATLAS_KEYBOARD_HEIGHT
+  )
+  return geometry
+}
+
+/** Resolves once the Atlas map has started and loaded its style. */
+async function waitForAtlasMap(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const map = (
+            window as unknown as {
+              __atlasMap?: { isStyleLoaded: () => boolean }
+            }
+          ).__atlasMap
+          return !!map && map.isStyleLoaded()
+        }),
+      { timeout: 60_000 }
+    )
+    .toBe(true)
+}
+
 test.describe('Atlas search popover under a software keyboard', () => {
-  test.use({ viewport: ATLAS_VIEWPORT })
+  test.use({
+    viewport: ATLAS_VIEWPORT,
+    // MapLibre needs a WebGL2 context headless Chromium otherwise lacks, and
+    // the credit the search list steps around is drawn by the running map.
+    launchOptions: {
+      args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
+    },
+  })
 
   test('bounds the command column to the space the keyboard leaves', async ({
     page,
@@ -128,6 +212,13 @@ test.describe('Atlas search popover under a software keyboard', () => {
 
     const trigger = page.getByRole('combobox', { name: 'Search scenes' })
     await expect(trigger).toBeVisible({ timeout: 30_000 })
+    // The globe-zoom state: the map is running and its credit is empty, so
+    // the list opens directly under its trigger.
+    await waitForAtlasMap(page)
+    await expect(page.locator('.maplibregl-ctrl-attrib')).toHaveClass(
+      /maplibregl-attrib-empty/,
+      { timeout: 30_000 }
+    )
     await trigger.click()
 
     const content = popoverContent(page)
@@ -142,31 +233,7 @@ test.describe('Atlas search popover under a software keyboard', () => {
 
     // Open first, then raise the keyboard: the re-measure the shrinking visual
     // viewport triggers is what tightens the bound.
-    await raiseKeyboard(page, ATLAS_KEYBOARD_HEIGHT)
-    await expect
-      .poll(() => availableHeightPx(content), { timeout: 10_000 })
-      .toBeLessThan(ATLAS_KEYBOARD_HEIGHT)
-
-    const geometry = await measure(content)
-    // The popover's whole border box, borders included, fits the room Radix
-    // reported. On its own this is close to tautological, since that room IS
-    // the frame's `max-height`.
-    expect(geometry.contentHeight).toBeLessThanOrEqual(geometry.available)
-    // The load-bearing half: the column stays inside the frame. A frame that
-    // stopped being a column flex container would still satisfy the line above
-    // while the column rendered at full height straight through it.
-    expect(geometry.columnHeight).toBeLessThanOrEqual(geometry.contentHeight)
-    // And so nothing paints below the keyboard.
-    expect(wholePixelsBelow(geometry.contentBottom, ATLAS_KEYBOARD_HEIGHT)).toBe(
-      0
-    )
-    // The rows scroll inside that bound instead of running past it.
-    expect(geometry.listScrolls).toBe(true)
-    // The field being typed into is never squeezed out by the bound.
-    const searchBox = (await search.boundingBox())!
-    expect(searchBox.y + searchBox.height).toBeLessThanOrEqual(
-      ATLAS_KEYBOARD_HEIGHT
-    )
+    const geometry = await expectBoundUnderKeyboard(page, content, search)
 
     // Lowering the keyboard gives the room back: the bound tracks the viewport
     // in both directions rather than latching at its smallest reading.
@@ -180,6 +247,49 @@ test.describe('Atlas search popover under a software keyboard', () => {
     // asserted: a relayout after scrolling moves it a few px either way.
     expect(restored.contentMaxHeight).toBeGreaterThan(geometry.available)
     expect(restored.columnHeight).toBeGreaterThan(geometry.columnHeight)
+  })
+
+  test('gives the credit clearance up to a raised keyboard, and takes it back', async ({
+    page,
+  }) => {
+    await page.addInitScript(installVisualViewportShim)
+    await page.goto('/atlas')
+    await waitForAtlasMap(page)
+    // Below city view but past the street basemap's first zoom, so the
+    // OpenStreetMap credit is drawn top-left while the globe's search shows.
+    await page.evaluate(() => {
+      const map = (
+        window as unknown as {
+          __atlasMap: {
+            jumpTo: (o: { center: [number, number]; zoom: number }) => void
+          }
+        }
+      ).__atlasMap
+      map.jumpTo({ center: [-112.074, 33.4484], zoom: 8 })
+    })
+    await expect(page.locator('.maplibregl-ctrl-attrib-inner')).toContainText(
+      'OpenStreetMap',
+      { timeout: 30_000 }
+    )
+
+    await page.getByRole('combobox', { name: 'Search scenes' }).click()
+    const content = popoverContent(page)
+    const search = page.getByPlaceholder('City or state…')
+    await expect(search).toBeVisible()
+
+    // At rest the list opens below the credit.
+    const creditBottom = await creditBottomPx(page)
+    expect(creditBottom).not.toBeNull()
+    expect(await contentTopPx(content)).toBeGreaterThanOrEqual(creditBottom!)
+
+    // With the keyboard up the field being typed into outranks the clearance.
+    await expectBoundUnderKeyboard(page, content, search)
+
+    // The keyboard's fall puts the list back below the credit.
+    await raiseKeyboard(page, ATLAS_VIEWPORT.height)
+    await expect
+      .poll(() => contentTopPx(content), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(creditBottom!)
   })
 })
 
