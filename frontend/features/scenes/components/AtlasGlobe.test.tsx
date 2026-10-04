@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MutableRefObject, ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
@@ -522,6 +522,63 @@ describe('AtlasGlobe', () => {
       expect(
         screen.getByRole('complementary', { name: /Chicago, IL scene/ }),
       ).toBeInTheDocument()
+    })
+  })
+
+  describe('scene search list offset', () => {
+    beforeEach(() => {
+      mockUseScenes.mockReturnValue({
+        data: sampleData,
+        isLoading: false,
+        isError: false,
+      })
+    })
+
+    /** Draws a top-left credit with text inside the map pane, as MapLibre would. */
+    function drawTopCredit() {
+      screen.getByTestId('globe-canvas').innerHTML =
+        '<div data-atlas-credit="top"><details class="maplibregl-ctrl maplibregl-ctrl-attrib">OpenStreetMap</details></div>'
+    }
+
+    /**
+     * The list's vertical translate. jsdom lays the trigger out at 0, so this
+     * is the popover's side offset: 4 is its default gap.
+     */
+    async function listTranslateY(): Promise<string> {
+      fireEvent.click(screen.getByRole('combobox', { name: 'Search scenes' }))
+      let transform = ''
+      await waitFor(() => {
+        const wrapper = document.querySelector<HTMLElement>(
+          '[data-radix-popper-content-wrapper]',
+        )
+        transform = wrapper?.style.transform ?? ''
+        // Radix parks the wrapper off screen until floating-ui has placed it.
+        expect(transform).toMatch(/^translate\(0px, -?\d+px\)$/)
+      })
+      return transform
+    }
+
+    it('opens below a drawn top-left credit in the sheet layout', async () => {
+      setMockContainerWidth(800)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      drawTopCredit()
+      expect(await listTranslateY()).toBe('translate(0px, 112px)')
+    })
+
+    it('opens directly under its trigger when the sheet layout draws no credit', async () => {
+      setMockContainerWidth(800)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(await listTranslateY()).toBe('translate(0px, 4px)')
+    })
+
+    it('keeps the default gap in the panel layout', async () => {
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      drawTopCredit()
+      expect(await listTranslateY()).toBe('translate(0px, 4px)')
     })
   })
 

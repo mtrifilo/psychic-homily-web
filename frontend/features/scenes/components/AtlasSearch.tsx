@@ -28,11 +28,27 @@ interface AtlasSearchProps {
    */
   triggerRef?: React.RefObject<HTMLButtonElement | null>
   /**
-   * The result list's top edge stays at least this far below the top of the
-   * trigger's positioned container, so it opens under anything docked there
-   * (the Atlas sheet layout's map credit).
+   * Read on every open: how far below the top of the trigger's positioned
+   * container the result list's top edge must stay, so it opens under
+   * whatever is docked there at that moment (the Atlas sheet layout's map
+   * credit). undefined, or no getter, leaves the popover's default gap.
    */
-  listMinTopPx?: number
+  getListMinTopPx?: () => number | undefined
+}
+
+/**
+ * The popover side offset that puts the list's top edge at `listMinTopPx`
+ * below the trigger's container top, given where the trigger's bottom edge
+ * sits in that container. undefined keeps the popover's default gap, and a
+ * trigger already past the line gets no extra offset.
+ */
+export function listSideOffsetPx(
+  listMinTopPx: number | undefined,
+  triggerBottomPx: number,
+): number | undefined {
+  return listMinTopPx === undefined
+    ? undefined
+    : Math.max(0, listMinTopPx - triggerBottomPx)
 }
 
 /**
@@ -52,7 +68,7 @@ export function AtlasSearch({
   scenes,
   onPick,
   triggerRef,
-  listMinTopPx,
+  getListMinTopPx,
 }: AtlasSearchProps) {
   const router = useRouter()
   const [open, setOpenState] = useState(false)
@@ -60,21 +76,24 @@ export function AtlasSearch({
   const [listOffset, setListOffset] = useState<number | undefined>(undefined)
   const localTriggerRef = useRef<HTMLButtonElement>(null)
   const trigRef = triggerRef ?? localTriggerRef
-  // Recomputed on every open, from where the trigger sits then, so a
-  // listMinTopPx that has since gone away leaves no stale offset behind.
+  // Recomputed on every open, from where the trigger sits and what is docked
+  // below it then, so a line that has since gone away leaves no stale offset.
   const setOpen = useCallback(
     (next: boolean) => {
       if (next) {
         const trigger = trigRef.current
         setListOffset(
-          listMinTopPx !== undefined && trigger
-            ? Math.max(0, listMinTopPx - (trigger.offsetTop + trigger.offsetHeight))
+          trigger
+            ? listSideOffsetPx(
+                getListMinTopPx?.(),
+                trigger.offsetTop + trigger.offsetHeight,
+              )
             : undefined,
         )
       }
       setOpenState(next)
     },
-    [listMinTopPx, trigRef],
+    [getListMinTopPx, trigRef],
   )
   // True while a close is caused by PICKING a scene (vs Esc/click-outside).
   // Radix restores focus to the trigger AFTER the popover's exit animation —

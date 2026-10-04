@@ -8,7 +8,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 
-import { AtlasSearch } from './AtlasSearch'
+import { AtlasSearch, listSideOffsetPx } from './AtlasSearch'
 
 const scenes: SceneListItem[] = [
   {
@@ -118,5 +118,44 @@ describe('AtlasSearch (PSY-1310)', () => {
     // "/" on the document opens the combobox list.
     fireEvent.keyDown(document, { key: '/' })
     expect(screen.getAllByRole('option').length).toBeGreaterThan(0)
+  })
+})
+
+describe('listSideOffsetPx', () => {
+  it('drops the list to the line below the trigger', () => {
+    // Trigger at top 16 and 34 tall, line at 112: 62px below its bottom edge.
+    expect(listSideOffsetPx(112, 50)).toBe(62)
+  })
+
+  it('adds nothing when the trigger already reaches past the line', () => {
+    expect(listSideOffsetPx(112, 112)).toBe(0)
+    expect(listSideOffsetPx(112, 130)).toBe(0)
+  })
+
+  it('keeps the default gap when there is no line to clear', () => {
+    expect(listSideOffsetPx(undefined, 50)).toBeUndefined()
+  })
+})
+
+describe('AtlasSearch getListMinTopPx', () => {
+  it('reads the line afresh on every open', () => {
+    const getListMinTopPx = vi
+      .fn<() => number | undefined>()
+      .mockReturnValueOnce(112)
+      .mockReturnValueOnce(undefined)
+    renderWithProviders(
+      <AtlasSearch
+        scenes={scenes}
+        onPick={vi.fn()}
+        getListMinTopPx={getListMinTopPx}
+      />,
+    )
+    const trigger = screen.getByRole('combobox', { name: /search scenes/i })
+    fireEvent.click(trigger)
+    expect(getListMinTopPx).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    expect(getListMinTopPx).toHaveBeenCalledTimes(2)
   })
 })

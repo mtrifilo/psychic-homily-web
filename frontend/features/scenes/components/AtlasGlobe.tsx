@@ -31,6 +31,7 @@ import {
   CITY_RAIL_WIDTH_PX,
   CITY_VENUE_FETCH_LIMIT,
   NO_CITY_VENUE_FILTERS,
+  atlasTopCreditShown,
   countPinsInBounds,
   filterCityVenues,
   formatNextShowDate,
@@ -437,6 +438,18 @@ export function AtlasGlobe() {
   // target — it's the page's keyboard entry point into scenes, so closing the
   // panel lands a keyboard user back where the journey starts.
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // The map pane: the search trigger's positioned container, and the box the
+  // sheet layout's top-left credit is drawn in.
+  const mapPaneRef = useRef<HTMLDivElement | null>(null)
+  // Sheet layout: the search list opens below the credit while one is drawn,
+  // and directly under its trigger while there is nothing there to clear.
+  const searchListMinTopPx = useCallback(
+    () =>
+      mapPaneRef.current !== null && atlasTopCreditShown(mapPaneRef.current)
+        ? ATLAS_SHEET_TOP_INSET_PX
+        : undefined,
+    [],
+  )
 
   // Drift (PSY-1308): fly to a weighted-random scene and open its preview —
   // the radio.garden "balloon ride". The panel opens immediately so the
@@ -670,6 +683,7 @@ export function AtlasGlobe() {
           />
         )}
         <div
+          ref={mapPaneRef}
           className="relative min-w-0 flex-1"
           data-atlas-layout={sheetLayout ? 'sheet' : undefined}
           style={paneStyle}
@@ -785,7 +799,7 @@ export function AtlasGlobe() {
                 scenes={allScenes}
                 onPick={handleSearchPick}
                 triggerRef={searchTriggerRef}
-                listMinTopPx={sheetLayout ? ATLAS_SHEET_TOP_INSET_PX : undefined}
+                getListMinTopPx={sheetLayout ? searchListMinTopPx : undefined}
               />
               <MyScenesStrip
                 scenes={allScenes}

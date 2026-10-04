@@ -878,6 +878,21 @@ export const ATLAS_TOP_CREDIT_OFFSET_PX = 16 + 36 + 10
 export const ATLAS_SHEET_TOP_INSET_PX = ATLAS_TOP_CREDIT_OFFSET_PX + 40 + 10
 
 /**
+ * Whether `root` holds a top-left map credit that is drawn. MapLibre keeps
+ * its attribution control mounted but hidden (`maplibregl-attrib-empty`)
+ * while no source in use carries an attribution, and there is no control at
+ * all when the map failed to start.
+ */
+export function atlasTopCreditShown(root: ParentNode): boolean {
+  const credit = root.querySelector(
+    "[data-atlas-credit='top'] .maplibregl-ctrl-attrib",
+  )
+  return (
+    credit !== null && !credit.classList.contains('maplibregl-attrib-empty')
+  )
+}
+
+/**
  * How many positioned venues fall inside `bounds`, edges inclusive. A box
  * whose west edge is east of its east edge spans the antimeridian.
  */

@@ -29,6 +29,7 @@ import {
   mergeVenueConfirmation,
   ATLAS_SHEET_TOP_INSET_PX,
   CITY_VIEW_MIN_VIEWPORT_PX,
+  atlasTopCreditShown,
   countPinsInBounds,
   usesAtlasSheetLayout,
   venuePinStacks,
@@ -995,6 +996,50 @@ describe('usesAtlasSheetLayout', () => {
   it('reserves the status row and a two-line credit above every sheet', () => {
     // 16 inset + 36 row + 10 gap + 40 credit + 10 gap.
     expect(ATLAS_SHEET_TOP_INSET_PX).toBe(112)
+  })
+})
+
+describe('atlasTopCreditShown', () => {
+  function pane(html: string): HTMLElement {
+    const root = document.createElement('div')
+    root.innerHTML = html
+    return root
+  }
+
+  it('is true for a top-left credit with something to credit', () => {
+    expect(
+      atlasTopCreditShown(
+        pane(
+          '<div data-atlas-credit="top"><details class="maplibregl-ctrl maplibregl-ctrl-attrib">OpenStreetMap</details></div>',
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it('is false while MapLibre hides an empty credit', () => {
+    expect(
+      atlasTopCreditShown(
+        pane(
+          '<div data-atlas-credit="top"><details class="maplibregl-ctrl maplibregl-ctrl-attrib maplibregl-attrib-empty"></details></div>',
+        ),
+      ),
+    ).toBe(false)
+  })
+
+  it('is false with no credit control, as when the map failed to start', () => {
+    expect(atlasTopCreditShown(pane('<div data-atlas-credit="top"></div>'))).toBe(
+      false,
+    )
+  })
+
+  it('ignores a credit outside the top-left placement', () => {
+    expect(
+      atlasTopCreditShown(
+        pane(
+          '<div><details class="maplibregl-ctrl maplibregl-ctrl-attrib">OpenStreetMap</details></div>',
+        ),
+      ),
+    ).toBe(false)
   })
 })
 
