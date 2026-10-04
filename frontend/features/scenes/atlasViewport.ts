@@ -42,7 +42,7 @@ export function useAtlasCompactViewport(): boolean {
 }
 
 /**
- * Below this map-pane width, a visitor who prefers reduced motion gets the
+ * Below this Atlas pane width (the whole frame, rail included), a visitor who prefers reduced motion gets the
  * scene list instead of the map. At and above it they get the map, which
  * honours the preference itself (GlobeCanvas drops its pulse rings, and
  * camera moves cut rather than fly).
@@ -77,12 +77,26 @@ export function atlasRendersSceneList({
   return prefersReducedMotion && paneWidthPx < ATLAS_REDUCED_MOTION_LIST_BELOW_PX
 }
 
+/**
+ * Thrown by the Atlas map when MapLibre could not get a WebGL2 context, a
+ * failure that repeats on every later attempt in the same page load. Lives
+ * here, not beside the map, so AtlasGlobe can recognise it without importing
+ * MapLibre.
+ */
+export class AtlasMapContextError extends Error {
+  constructor() {
+    super('Atlas map: MapLibre could not get a WebGL2 context')
+    this.name = 'AtlasMapContextError'
+  }
+}
+
 let atlasMapFailed = false
 
 /**
- * Records that an Atlas map threw while React was mounting or updating it, so
- * every later Atlas mount in this page load goes straight to the scene list
- * instead of building (and leaking) another map that would fail the same way.
+ * Records that the Atlas map failed in a way a retry would repeat
+ * ({@link AtlasMapContextError}), so every later Atlas mount in this page
+ * load goes straight to the scene list instead of building (and leaking)
+ * another map that would fail the same way.
  */
 export function markAtlasMapFailed(): void {
   atlasMapFailed = true

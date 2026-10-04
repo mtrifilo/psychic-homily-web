@@ -162,9 +162,10 @@ let lastCanvasProps: {
 } = {}
 // Set by a case to make the canvas throw from its mount effect, as the real
 // GlobeCanvas does when MapLibre gets no WebGL2 context.
-let mockCanvasThrowsOnStart = false
+let mockCanvasThrowsOnStart: false | 'context' | 'other' = false
 vi.mock('./GlobeCanvas', async () => {
   const { useEffect } = await import('react')
+  const { AtlasMapContextError } = await import('../atlasViewport')
   return {
     default: function MockGlobeCanvas(
       props: typeof lastCanvasProps & {
@@ -174,9 +175,8 @@ vi.mock('./GlobeCanvas', async () => {
       if (props.flyToRef) props.flyToRef.current = flyToSpy
       lastCanvasProps = props
       useEffect(() => {
-        if (mockCanvasThrowsOnStart) {
-          throw new Error('Atlas map: MapLibre could not get a WebGL2 context')
-        }
+        if (mockCanvasThrowsOnStart === 'context') throw new AtlasMapContextError()
+        if (mockCanvasThrowsOnStart === 'other') throw new Error('a later effect threw')
       }, [])
       return <div data-testid="globe-canvas" />
     },
@@ -393,20 +393,20 @@ describe('AtlasGlobe', () => {
       'falls back to the list when the map throws while starting, on a %ipx pane',
       async (width) => {
         const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-        mockCanvasThrowsOnStart = true
+        mockCanvasThrowsOnStart = 'context'
         setMockContainerWidth(width)
         renderWithScenes()
         await waitFor(() =>
           expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument(),
         )
-        expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+        await expectFullSceneList()
         quiet.mockRestore()
       },
     )
 
-    it('goes straight to the list on a later mount once a map has failed this page load', async () => {
+    it('goes straight to the list on a later mount once the map was refused a context', async () => {
       const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockCanvasThrowsOnStart = true
+      mockCanvasThrowsOnStart = 'context'
       setMockContainerWidth(390)
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       const first = renderWithProviders(<AtlasGlobe />)
@@ -418,6 +418,22 @@ describe('AtlasGlobe', () => {
       renderWithScenes()
       expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
       expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      quiet.mockRestore()
+    })
+
+    it('falls back for this mount only when the map throws something else', async () => {
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockCanvasThrowsOnStart = 'other'
+      setMockContainerWidth(390)
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      const first = renderWithProviders(<AtlasGlobe />)
+      await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
+      expect(mockMapFailedThisPage).toBe(false)
+      first.unmount()
+
+      mockCanvasThrowsOnStart = false
+      renderWithScenes()
+      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
       quiet.mockRestore()
     })
 

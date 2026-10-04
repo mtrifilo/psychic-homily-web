@@ -73,7 +73,7 @@ describe('atlasRendersSceneList', () => {
   })
 })
 
-describe('atlasRendersSceneList after a failed map', () => {
+describe('a failed map', () => {
   it('lists the scenes at every width, whatever the probe and preference say', () => {
     for (const paneWidthPx of [390, 1440]) {
       expect(

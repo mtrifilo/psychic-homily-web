@@ -22,9 +22,10 @@
  *   - `onError`: optional notification, called once from componentDidCatch after
  *     the Sentry report, so a SELF-HIDING consumer can react outside this
  *     boundary: retract copy that only makes sense with the canvas present (a
- *     "click a name"-style instruction above it), or, as the Atlas does, replace
- *     the whole surface with its fallback. What this boundary itself renders is
- *     unchanged either way.
+ *     "click a name"-style instruction above it), or replace the whole surface
+ *     with the consumer's own fallback, as the Atlas does with its scene list
+ *     (it passes no `fallback`, so this boundary's latch stays its own). What
+ *     this boundary itself renders is unchanged either way.
  *
  * NOTE on recovery: the boundary deliberately does NOT offer an in-place "reset".
  * next/dynamic wraps the import in a module-scoped React.lazy that permanently

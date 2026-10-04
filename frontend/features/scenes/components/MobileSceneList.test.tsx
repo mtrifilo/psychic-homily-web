@@ -116,8 +116,9 @@ describe('MobileSceneList', () => {
 
   it('heads the list with its title and no intro sentence', () => {
     renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Scenes' })).toBeInTheDocument()
-    expect(screen.queryByText(/larger screen/i)).not.toBeInTheDocument()
+    const heading = screen.getByRole('heading', { level: 1, name: 'Scenes' })
+    // The list follows the heading directly: no paragraph between them.
+    expect(heading.nextElementSibling?.tagName).toBe('UL')
   })
 
   it('marks its root with the test id the Atlas perf script detects', () => {
@@ -154,7 +155,7 @@ describe('MobileSceneList', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Phoenix, AZ/ }))
 
-    // Same roster-fetch contract as the desktop panel: the display-sized limit.
+    // Same roster-fetch contract as the map's preview: the display-sized limit.
     // The player comes from the backend's representative embed (PSY-1294), so we
     // no longer over-fetch a wider embed-search window.
     expect(mockUseSceneArtists).toHaveBeenCalledWith({

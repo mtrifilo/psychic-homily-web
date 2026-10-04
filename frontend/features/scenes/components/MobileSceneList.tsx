@@ -8,9 +8,8 @@ import type { SceneListItem } from '../types'
 /**
  * The Atlas's stand-in for the map wherever atlasRendersSceneList says the
  * map should not run: the scenes as a list, still the geographic-discovery
- * payoff, just not spatial. Lists
- * ALL scenes (incl. ones the globe can't place), liveliest first. Each row
- * expands in place (the app expands in place rather than modally, cf.
+ * payoff, just not spatial. Lists ALL scenes (incl. ones the globe can't
+ * place), liveliest first. Each row expands in place (the app expands in place rather than modally, cf.
  * StationShowsDirectory's in-place view-all; the only Sheet primitive is
  * modal and would bury the list) into the same payoff the map's scene
  * preview shows: playable embed, next-7-days shows, top local artists, scene

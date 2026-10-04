@@ -5,9 +5,9 @@
  * hide but also REAL unmounts of the canvas, such as a switch to the scene
  * list (atlasRendersSceneList), which unmounts it entirely. Single-instance
  * surface (one Atlas globe per app), so shared module state is safe.
- * Deliberately a DATA cache, not an init guard: the map is still created fresh on every show, and the one
- * pattern PSY-1284 proved fatal was a guard ref that survives hide and skips
- * re-init. Without this, nav-away/back would reset the camera to the initial
+ * Deliberately a DATA cache, not an init guard: the map is still created
+ * fresh on every show, and the one pattern PSY-1284 proved fatal was a guard
+ * ref that survives hide and skips re-init. Without this, nav-away/back would reset the camera to the initial
  * POV, because the map instance is new each show.
  *
  * Its own module so the entry points that must OVERRIDE a saved camera (a

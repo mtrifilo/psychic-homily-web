@@ -89,8 +89,8 @@ export function ScenePreviewContent({
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      {/* Follow-a-scene (PSY-1340) — in the shared body so the desktop panel
-          and the mobile accordion rows carry the same affordance. Scenes are
+      {/* Follow-a-scene (PSY-1340), in the shared body so the map's preview
+          and the scene list's rows carry the same affordance. Scenes are
           slug-addressed (PSY-1339). */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <FollowButton entityType="scenes" entityId={scene.slug} compact />
@@ -173,7 +173,7 @@ export function ScenePreviewContent({
             ))}
           </ul>
         ) : isError ? (
-          // A failed fetch must not read as an empty scene — on the mobile
+          // A failed fetch must not read as an empty scene: on the scene list's
           // fetch-on-tap path (flaky cell networks) that would misreport a
           // dense scene as dead. Ordered AFTER the list branch so a cached
           // roster survives a failed background refetch (data wins over

@@ -49,6 +49,7 @@ import {
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
+import { AtlasMapContextError } from '../atlasViewport'
 import {
   ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
@@ -954,13 +955,14 @@ export default function GlobeCanvas({
       },
     })
 
-    // MapLibre reports a refused WebGL2 context as an event during
-    // construction and returns a map with no painter and no input handlers.
-    // Throwing here hands that to the Atlas's error boundary, which swaps in
-    // the scene list. The half-built map is not removed: its remove() needs the
-    // painter.
-    if (!map.painter) {
-      throw new Error('Atlas map: MapLibre could not get a WebGL2 context')
+    // maplibre-gl 6.0.0 reports a refused WebGL2 context as an event during
+    // construction and returns a map with no painter and no input handlers
+    // (the field is typed non-optional, but it is unset on that path).
+    // Throwing reaches the error boundary AtlasGlobe wraps around this canvas,
+    // and AtlasGlobe swaps in the scene list. The half-built map is not
+    // removed: its remove() needs the painter.
+    if (!(map as { painter?: unknown }).painter) {
+      throw new AtlasMapContextError()
     }
 
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the

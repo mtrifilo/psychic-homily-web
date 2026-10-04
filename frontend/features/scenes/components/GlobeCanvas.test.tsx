@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { AtlasMapContextError } from '../atlasViewport'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -346,7 +347,7 @@ describe('GlobeCanvas without a WebGL2 context', () => {
       </GraphSectionErrorBoundary>,
     )
     expect(onError).toHaveBeenCalledTimes(1)
-    expect((onError.mock.calls[0][0] as Error).message).toMatch(/WebGL2 context/)
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapContextError)
     quiet.mockRestore()
   })
 })

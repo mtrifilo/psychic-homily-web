@@ -72,6 +72,7 @@ import { preloadAtlasMap } from './atlasMapPreload'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import {
+  AtlasMapContextError,
   atlasMapFailedThisPage,
   atlasRendersSceneList,
   atlasSupportsWebGL2,
@@ -455,7 +456,8 @@ export function AtlasGlobe() {
   // The search list opens below a drawn top-left credit (the sheet layout's
   // placement), and directly under its trigger while there is none to clear:
   // at globe zoom the compact globe draws no attributed source, so MapLibre
-  // empties the credit, and a map that failed to start draws none. The line
+  // empties the credit, and a map that has not mounted its controls draws
+  // none. The line
   // gives way to a raised keyboard inside AtlasSearch. MyScenesStrip keeps a
   // fixed place below the credit's slot instead: it is static chrome with no
   // height bound to the room on screen.
@@ -618,12 +620,14 @@ export function AtlasGlobe() {
   const prefersReducedMotion = useReducedMotion()
   // Any error GlobeCanvas throws while React renders or runs its effects
   // (MapLibre refused its WebGL2 context, the canvas module failed to load, or
-  // a later effect threw) swaps the map for the scene list for the rest of the
-  // page load, instead of the app's error page. Errors MapLibre throws inside
-  // its own animation frames are not React errors and do not reach it.
+  // a later effect threw) swaps the map for the scene list for the rest of
+  // this mount, instead of the app's error page. A refused context also holds
+  // for the rest of the page load, since a retry would fail the same way.
+  // Errors thrown from MapLibre's own callbacks (animation frames, map events)
+  // are not React errors and do not reach it.
   const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
-  const handleMapFailed = useCallback(() => {
-    markAtlasMapFailed()
+  const handleMapFailed = useCallback((error: unknown) => {
+    if (error instanceof AtlasMapContextError) markAtlasMapFailed()
     setMapFailed(true)
   }, [])
   const showsSceneList =
