@@ -69,8 +69,8 @@ export function globeSurfaceVisibility(
 /**
  * The surface sources. The land source starts EMPTY: a GeoJSON source
  * fetches its data as soon as it is added, visible or not, so
- * {@link showGlobeSurface} points it at the file the first time a map shows
- * the light look.
+ * {@link showGlobeSurface} loads the land data the first time a map shows the
+ * light look.
  */
 export function globeSurfaceSources(): Record<string, SourceSpecification> {
   return {
@@ -141,22 +141,81 @@ export interface GlobeSurfaceMap {
   getSource(id: string): unknown
 }
 
-// Maps whose land source already points at the data file. Each Atlas show
-// builds a fresh map, so entries go with the map they belong to.
+// Maps whose land source already holds (or is fetching) the land data. Each
+// Atlas show builds a fresh map, so entries go with the map they belong to.
 const landRequested = new WeakSet<object>()
 
+// The land file fetched on the main thread ahead of the map, once per page
+// load. Resolves to the parsed collection, or null after a failed or unusable
+// response (the map then fetches the file itself).
+let landPrefetch: Promise<GeoJSON.FeatureCollection | null> | null = null
+// Whether the prefetch has settled, and whether a map has given up waiting on
+// it. Once a wait has run out, later maps stop waiting on a still-unsettled
+// prefetch and fetch the file themselves straight away; a prefetch that
+// settles after that is used again from then on.
+let landPrefetchSettled = false
+let landPrefetchWaitExpired = false
+
+// How long a map waits on an unfinished prefetch before fetching the file
+// itself. The clock starts when the map starts waiting. The prefetch is not
+// cancelled: a map whose wait runs out pays for a second download, and the
+// prefetch, once it lands, still serves the maps built after it.
+const LAND_PREFETCH_WAIT_MS = 10_000
+const WAIT_EXPIRED = Symbol('wait expired')
+
 /**
- * Switches a live map to one look. Idempotent; loads the land file at most
- * once per map, on the first switch to the light look.
+ * Starts fetching the land file before any map exists, so a map that shows
+ * the light look takes the parsed data instead of fetching it from its worker
+ * after the style loads. Idempotent. After a failed or unusable response the
+ * map fetches the URL itself, where a failure reaches basemapTelemetry like
+ * any source error.
+ */
+export function prefetchGlobeLand(): void {
+  if (landPrefetch) return
+  landPrefetch = fetch(GLOBE_LAND_DATA_URL)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data: unknown) =>
+      (data as GeoJSON.FeatureCollection | null)?.type === 'FeatureCollection'
+        ? (data as GeoJSON.FeatureCollection)
+        : null,
+    )
+    .catch(() => null)
+    .finally(() => {
+      landPrefetchSettled = true
+    })
+}
+
+type LandSource = { setData(data: string | GeoJSON.FeatureCollection): unknown }
+
+/**
+ * Switches a live map to one look. Idempotent; loads the land data at most
+ * once per map, on the first switch to the light look: the prefetch's result
+ * when a prefetch was started (waiting up to LAND_PREFETCH_WAIT_MS for it if
+ * it is still in flight rather than starting a second download), else the
+ * file's URL, fetched by the map.
  */
 export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): void {
   if (lightGlobe && !landRequested.has(map)) {
-    const source = map.getSource(GLOBE_LAND_SOURCE_ID) as
-      | { setData(data: string): unknown }
-      | undefined
+    const source = map.getSource(GLOBE_LAND_SOURCE_ID) as LandSource | undefined
     if (source) {
-      source.setData(GLOBE_LAND_DATA_URL)
       landRequested.add(map)
+      if (landPrefetch && (landPrefetchSettled || !landPrefetchWaitExpired)) {
+        const waited = new Promise<typeof WAIT_EXPIRED>((resolve) =>
+          setTimeout(() => resolve(WAIT_EXPIRED), LAND_PREFETCH_WAIT_MS),
+        )
+        void Promise.race([landPrefetch, waited]).then((result) => {
+          if (result === WAIT_EXPIRED) landPrefetchWaitExpired = true
+          const data = result === WAIT_EXPIRED ? null : result
+          // A map removed while the prefetch was in flight no longer owns this
+          // source (a removed map has no style, so getSource answers
+          // undefined); data sent to it would reach the worker for a map that
+          // no longer exists.
+          if (map.getSource(GLOBE_LAND_SOURCE_ID) !== source) return
+          source.setData(data ?? GLOBE_LAND_DATA_URL)
+        })
+      } else {
+        source.setData(GLOBE_LAND_DATA_URL)
+      }
     }
   }
   for (const [layer, visibility] of Object.entries(

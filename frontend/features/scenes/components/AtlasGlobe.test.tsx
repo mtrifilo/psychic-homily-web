@@ -170,6 +170,11 @@ vi.mock('./GlobeCanvas', () => ({
   },
 }))
 
+const preloadAtlasMap = vi.fn()
+vi.mock('./atlasMapPreload', () => ({
+  preloadAtlasMap: () => preloadAtlasMap(),
+}))
+
 import { AtlasGlobe } from './AtlasGlobe'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { CITY_VIEW_MIN_ZOOM } from '../cityView'
@@ -287,6 +292,52 @@ describe('AtlasGlobe', () => {
     expect(
       screen.getByRole('button', { name: /Faketown, ZZ/ }),
     ).toBeInTheDocument()
+  })
+
+  describe('early canvas fetch', () => {
+    it('starts loading the canvas module while scenes are still loading, on a map-wide container', () => {
+      setMockContainerWidth(1200)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts loading it while the camera focus waits on visitor geo, scenes already loaded', () => {
+      setMockContainerWidth(1200)
+      // The geo lookup never answers, so the focus stays pending (within
+      // the geo timeout) and the canvas cannot render yet.
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
+    })
+
+    it('never fetches the canvas module where the scene list renders instead', () => {
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch it once the scenes arrive with nothing to place', () => {
+      setMockContainerWidth(1200)
+      mockUseScenes.mockReturnValue({
+        data: { scenes: [], count: 0 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch it when the scenes query has failed', () => {
+      setMockContainerWidth(1200)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+      renderWithProviders(<AtlasGlobe />)
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
+    })
   })
 
   it('shows an error state when the scenes query fails', () => {
