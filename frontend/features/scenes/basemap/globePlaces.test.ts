@@ -6,6 +6,7 @@ import {
   PLACE_LABEL_MIN_ZOOM,
   dotBox,
   facingPoint,
+  isFacing,
   parseGlobePlaces,
   pickPlaceLabels,
   placeLabelBudget,
@@ -132,6 +133,11 @@ describe('facingPoint', () => {
 
   it('rejects a location that projects outside the pane', () => {
     expect(facingPoint(projector, 89, 20, 300, 731)).toBeNull()
+  })
+
+  it('tells near side from far side without a pane, for marks that may hang into it', () => {
+    expect(isFacing(projector, 89, 20)).toBe(true)
+    expect(isFacing(projector, 170, 20)).toBe(false)
   })
 })
 

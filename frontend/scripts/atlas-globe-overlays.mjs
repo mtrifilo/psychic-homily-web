@@ -5,11 +5,8 @@
 //   globe-state-lines-50m.geojson     state and province lines (1:50m)
 //   globe-places-110m.geojson         populated places (1:110m), ranked
 //
-// Inputs: Natural Earth (public domain, no credit required:
-// https://www.naturalearthdata.com/about/terms-of-use/), pinned to the same
-// natural-earth-vector commit as scripts/atlas-globe-land.mjs:
-// https://raw.githubusercontent.com/nvkelso/natural-earth-vector/693f11422f4e08d2da4566b854dda53eb7c39fb3/geojson/<name>.geojson
-// Each input's sha256 is checked before anything is written.
+// Inputs: the three Natural Earth files named in INPUTS, pinned and checked
+// as scripts/lib/natural-earth.mjs describes.
 //
 // Lines: one Feature with one MultiLineString per file (properties dropped,
 // coordinates rounded to COORD_DECIMALS, consecutive duplicate vertices
@@ -23,58 +20,9 @@
 //
 // Usage:
 //   node scripts/atlas-globe-overlays.mjs <dir holding the three inputs> public/atlas
-import { createHash } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import path from 'node:path'
-
-const COORD_DECIMALS = 2
-
-const INPUTS = {
-  countryLines: {
-    file: 'ne_110m_admin_0_boundary_lines_land.geojson',
-    sha256: 'a40ca2c54c19b63db803cdc4f24532d586083b160906cef35fd89bd3c7585302',
-    output: 'globe-country-lines-110m.geojson',
-  },
-  stateLines: {
-    file: 'ne_50m_admin_1_states_provinces_lines.geojson',
-    sha256: 'e2bd3674134d6660337c1e02939cd910a925280b68c1adc3f92d1a556ea1273b',
-    output: 'globe-state-lines-50m.geojson',
-  },
-  places: {
-    file: 'ne_110m_populated_places_simple.geojson',
-    sha256: 'd1c9602aed1860f3dcb7c75b5a269e73c0dd2b6f8a94f85ecc747f4017e5f928',
-    output: 'globe-places-110m.geojson',
-  },
-}
-
-const [inputDir, outputDir] = process.argv.slice(2)
-if (!inputDir || !outputDir) {
-  console.error('usage: node scripts/atlas-globe-overlays.mjs <input dir> <output dir>')
-  process.exit(2)
-}
-
-function readPinned({ file, sha256 }) {
-  const raw = readFileSync(path.join(inputDir, file))
-  const actual = createHash('sha256').update(raw).digest('hex')
-  if (actual !== sha256) {
-    console.error(`${file}: sha256 ${actual} does not match the pinned ${sha256}`)
-    process.exit(1)
-  }
-  return JSON.parse(raw.toString('utf8'))
-}
-
-const factor = 10 ** COORD_DECIMALS
-const round = (n) => Math.round(n * factor) / factor
-
-function compactLine(line) {
-  const out = []
-  for (const [lng, lat] of line) {
-    const p = [round(lng), round(lat)]
-    const last = out[out.length - 1]
-    if (!last || last[0] !== p[0] || last[1] !== p[1]) out.push(p)
-  }
-  return out
-}
+import { compactPositions, readPinned, round } from './lib/natural-earth.mjs'
 
 function linesCollection(input) {
   const lines = []
@@ -82,7 +30,7 @@ function linesCollection(input) {
     const { type, coordinates } = feature.geometry
     const parts = type === 'LineString' ? [coordinates] : coordinates
     for (const part of parts) {
-      const line = compactLine(part)
+      const line = compactPositions(part)
       if (line.length >= 2) lines.push(line)
     }
   }
@@ -128,11 +76,34 @@ function placesCollection(input) {
   }
 }
 
-const outputs = [
-  [INPUTS.countryLines, linesCollection],
-  [INPUTS.stateLines, linesCollection],
-  [INPUTS.places, placesCollection],
+const INPUTS = [
+  {
+    file: 'ne_110m_admin_0_boundary_lines_land.geojson',
+    sha256: 'a40ca2c54c19b63db803cdc4f24532d586083b160906cef35fd89bd3c7585302',
+    output: 'globe-country-lines-110m.geojson',
+    build: linesCollection,
+  },
+  {
+    file: 'ne_50m_admin_1_states_provinces_lines.geojson',
+    sha256: 'e2bd3674134d6660337c1e02939cd910a925280b68c1adc3f92d1a556ea1273b',
+    output: 'globe-state-lines-50m.geojson',
+    build: linesCollection,
+  },
+  {
+    file: 'ne_110m_populated_places_simple.geojson',
+    sha256: 'd1c9602aed1860f3dcb7c75b5a269e73c0dd2b6f8a94f85ecc747f4017e5f928',
+    output: 'globe-places-110m.geojson',
+    build: placesCollection,
+  },
 ]
-for (const [input, build] of outputs) {
-  writeFileSync(path.join(outputDir, input.output), JSON.stringify(build(readPinned(input))))
+
+const [inputDir, outputDir] = process.argv.slice(2)
+if (!inputDir || !outputDir) {
+  console.error('usage: node scripts/atlas-globe-overlays.mjs <input dir> <output dir>')
+  process.exit(2)
 }
+// Every input is checked before any output is written.
+const parsed = INPUTS.map(({ file, sha256 }) => readPinned(path.join(inputDir, file), sha256))
+INPUTS.forEach(({ output, build }, i) => {
+  writeFileSync(path.join(outputDir, output), JSON.stringify(build(parsed[i])))
+})

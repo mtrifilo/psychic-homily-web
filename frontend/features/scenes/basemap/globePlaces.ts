@@ -47,7 +47,7 @@ const PLACE_LABEL_REFERENCE_PANE_AREA = 390 * 731
 const PLACE_LABEL_MAX_AREA_SCALE = 2.5
 
 /** Clear space kept around every label, in CSS px. */
-export const PLACE_LABEL_GAP_PX = 2
+const PLACE_LABEL_GAP_PX = 2
 
 export function placeLabelBudget(zoom: number, paneWidth: number, paneHeight: number): number {
   const t = Math.min(
@@ -87,7 +87,7 @@ export function parseGlobePlaces(data: GeoJSON.FeatureCollection): GlobePlace[] 
   return places.sort((a, b) => a.rank - b.rank)
 }
 
-/** The slice of a MapLibre map {@link facingPoint} needs. */
+/** The slice of a MapLibre map {@link isFacing} and {@link facingPoint} need. */
 export interface GlobeProjector {
   project(lngLat: [number, number]): { x: number; y: number }
   unproject(point: [number, number]): { lng: number; lat: number }
@@ -98,10 +98,25 @@ export interface GlobeProjector {
 const FACING_TOLERANCE_DEG = 0.5
 
 /**
+ * Whether a location is on the near side of the globe. A far-side location
+ * projects to a point inside the globe's disk too; unprojecting that point
+ * lands on the near-side surface, far from where it started, which is how the
+ * far side is told apart.
+ */
+export function isFacing(map: GlobeProjector, lng: number, lat: number): boolean {
+  const point = map.project([lng, lat])
+  const back = map.unproject([point.x, point.y])
+  const dLng = ((((back.lng - lng) % 360) + 540) % 360) - 180
+  const dLat = back.lat - lat
+  return (
+    Math.abs(dLat) <= FACING_TOLERANCE_DEG &&
+    Math.abs(dLng * Math.cos((lat * Math.PI) / 180)) <= FACING_TOLERANCE_DEG
+  )
+}
+
+/**
  * The screen point of a location on the near side of the globe and inside
- * the pane, or null. A far-side location projects to a point inside the
- * globe's disk too; unprojecting that point lands on the near-side surface,
- * far from where it started, which is how the far side is told apart.
+ * the pane, or null.
  */
 export function facingPoint(
   map: GlobeProjector,
@@ -114,13 +129,7 @@ export function facingPoint(
   if (!(point.x >= 0 && point.x <= paneWidth && point.y >= 0 && point.y <= paneHeight)) {
     return null
   }
-  const back = map.unproject([point.x, point.y])
-  const dLng = ((((back.lng - lng) % 360) + 540) % 360) - 180
-  const dLat = back.lat - lat
-  const facing =
-    Math.abs(dLat) <= FACING_TOLERANCE_DEG &&
-    Math.abs(dLng * Math.cos((lat * Math.PI) / 180)) <= FACING_TOLERANCE_DEG
-  return facing ? point : null
+  return isFacing(map, lng, lat) ? point : null
 }
 
 /** A square box around a scene dot of the given radius. */
@@ -128,7 +137,8 @@ export function dotBox(x: number, y: number, radiusPx: number): Box {
   return { left: x - radiusPx, top: y - radiusPx, right: x + radiusPx, bottom: y + radiusPx }
 }
 
-function overlaps(a: Box, b: Box, gap: number): boolean {
+function overlaps(a: Box, b: Box): boolean {
+  const gap = PLACE_LABEL_GAP_PX
   return (
     a.left < b.right + gap &&
     b.left < a.right + gap &&
@@ -156,15 +166,14 @@ export function pickPlaceLabels<T extends { box: Box }>(
   blockers: readonly Box[],
   pane: Box,
   budget: number,
-  gap: number = PLACE_LABEL_GAP_PX,
 ): T[] {
   const kept: T[] = []
   for (const candidate of candidates) {
     if (kept.length >= budget) break
     const { box } = candidate
     if (!inside(box, pane)) continue
-    if (blockers.some((b) => overlaps(box, b, gap))) continue
-    if (kept.some((k) => overlaps(box, k.box, gap))) continue
+    if (blockers.some((b) => overlaps(box, b))) continue
+    if (kept.some((k) => overlaps(box, k.box))) continue
     kept.push(candidate)
   }
   return kept

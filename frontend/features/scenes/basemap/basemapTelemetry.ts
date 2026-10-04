@@ -118,12 +118,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import type { ErrorEvent } from 'maplibre-gl'
-import {
-  GLOBE_COUNTRY_LINES_SOURCE_ID,
-  GLOBE_DATA_HOST,
-  GLOBE_LAND_SOURCE_ID,
-  GLOBE_STATE_LINES_SOURCE_ID,
-} from './globeSurface'
+import { GLOBE_DATA_HOST, GLOBE_DATA_SOURCE_IDS } from './globeSurface'
 import {
   NIGHT_EARTH_SOURCE_ID,
   NIGHT_EARTH_TILE_HOST,
@@ -152,9 +147,7 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
 const REPORTED_SOURCE_HOSTS = new Map<string, string>([
   [PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST],
   [NIGHT_EARTH_SOURCE_ID, NIGHT_EARTH_TILE_HOST],
-  [GLOBE_LAND_SOURCE_ID, GLOBE_DATA_HOST],
-  [GLOBE_STATE_LINES_SOURCE_ID, GLOBE_DATA_HOST],
-  [GLOBE_COUNTRY_LINES_SOURCE_ID, GLOBE_DATA_HOST],
+  ...GLOBE_DATA_SOURCE_IDS.map((id): [string, string] => [id, GLOBE_DATA_HOST]),
 ])
 
 /**

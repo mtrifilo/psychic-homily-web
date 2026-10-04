@@ -10,7 +10,6 @@ import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
 import {
-  GLOBE_PLACE_LABEL_COLOR,
   globeSurfaceLayers,
   globeSurfaceSources,
   loadGlobePlaces,
@@ -21,11 +20,10 @@ import {
   type GlobePlace,
   dotBox,
   facingPoint,
+  isFacing,
   parseGlobePlaces,
-  pickPlaceLabels,
-  placeLabelBudget,
-  placeLabelsShowAt,
 } from '../basemap/globePlaces'
+import { mountPlaceLabels } from './globePlaceLabels'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
 import {
   isAtlasCompactViewport,
@@ -195,12 +193,6 @@ const RING_COLOR = '#ff7a3c'
 const HALO_SHADOW =
   '0 0 90px 24px rgba(74, 163, 255, 0.42), 0 0 220px 80px rgba(74, 163, 255, 0.18)'
 
-// Place labels on the light globe (globePlaces.ts): the board's 9.5px mono,
-// and how many ranked candidates are measured per layout, as a multiple of
-// the label budget, so a dense view never builds a marker for every place.
-const PLACE_LABEL_FONT_PX = 9.5
-const PLACE_LABEL_CANDIDATES_PER_SLOT = 4
-
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [],
@@ -284,8 +276,9 @@ export default function GlobeCanvas({
   // Filled by the map effect (closes over that map), nulled in its cleanup —
   // callers must stay null-safe, same contract as flyToRef.
   const redrawStatusChipRef = useRef<(() => void) | null>(null)
-  // The scene label markers' elements, for the place-label collision pass.
-  const sceneLabelElementsRef = useRef<HTMLElement[]>([])
+  // The scene label markers' elements and where they stand, for the
+  // place-label collision pass.
+  const sceneLabelsRef = useRef<{ el: HTMLElement; lng: number; lat: number }[]>([])
   const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
@@ -682,10 +675,10 @@ export default function GlobeCanvas({
   // the venue layer — and the basemap already labels the city itself.
   useEffect(() => {
     if (!mapReady || cityViewActive) return
-    const elements: HTMLElement[] = []
+    const labels: { el: HTMLElement; lng: number; lat: number }[] = []
     const markers = labelScenes.map((s) => {
       const el = document.createElement('div')
-      elements.push(el)
+      labels.push({ el, lng: s.longitude, lat: s.latitude })
       el.textContent = s.city
       el.dataset.testid = 'atlas-scene-label'
       el.style.cssText = [
@@ -712,120 +705,52 @@ export default function GlobeCanvas({
         .setLngLat([s.longitude, s.latitude])
         .addTo(mapReady)
     })
-    sceneLabelElementsRef.current = elements
+    sceneLabelsRef.current = labels
     return () => {
-      sceneLabelElementsRef.current = []
+      sceneLabelsRef.current = []
       for (const m of markers) m.remove()
     }
   }, [mapReady, labelScenes, cityViewActive])
 
-  // Place labels on the light globe: ranked Natural Earth places as DOM
-  // markers in the app's mono face, laid out again whenever the camera
-  // settles or crosses the label zoom range. Every label is measured as
-  // rendered and kept only where it clears the scene labels and dots
-  // (globePlaces.ts owns the rules), so a scene always wins its spot.
-  // pointer-events: none, like the scene labels. Declared after the scene
-  // label effect so a re-run reads that effect's fresh markers.
+  // Place labels on the light globe (globePlaceLabels.ts), clear of every
+  // scene label and dot on the near side of the globe, so a scene always wins
+  // its spot. Declared after the scene label effect so a re-run reads that
+  // effect's fresh markers.
   useEffect(() => {
     if (!mapReady || !lightGlobe || cityViewActive || !places || places.length === 0) {
       return
     }
     const map = mapReady
-    let markers: maplibregl.Marker[] = []
-    const clear = () => {
-      for (const m of markers) m.remove()
-      markers = []
-    }
-    const layout = () => {
-      clear()
-      if (!placeLabelsShowAt(map.getZoom(), BLACK_MARBLE_FADE_START)) return
+    const obstacles = (): Box[] => {
       const container = map.getContainer()
       const width = container.clientWidth
       const height = container.clientHeight
-      const budget = placeLabelBudget(map.getZoom(), width, height)
       const origin = container.getBoundingClientRect()
-      const boxOf = (el: HTMLElement): Box => {
+      const boxes: Box[] = []
+      for (const { el, lng, lat } of sceneLabelsRef.current) {
+        // A label behind the globe is hidden and holds no spot on screen.
+        if (!isFacing(map, lng, lat)) continue
         const r = el.getBoundingClientRect()
-        return {
+        boxes.push({
           left: r.left - origin.left,
           top: r.top - origin.top,
           right: r.right - origin.left,
           bottom: r.bottom - origin.top,
-        }
-      }
-
-      const blockers: Box[] = []
-      for (const el of sceneLabelElementsRef.current) {
-        // A label behind the globe is hidden (opacityWhenCovered) and holds
-        // no spot on screen.
-        if (el.style.opacity !== '0') blockers.push(boxOf(el))
+        })
       }
       for (const s of scenes) {
         const point = facingPoint(map, s.longitude, s.latitude, width, height)
         if (point) {
           const radius = sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE
-          blockers.push(dotBox(point.x, point.y, radius))
+          boxes.push(dotBox(point.x, point.y, radius))
         }
       }
-
-      const candidates: { marker: maplibregl.Marker; el: HTMLElement; box: Box }[] = []
-      for (const place of places) {
-        if (candidates.length >= budget * PLACE_LABEL_CANDIDATES_PER_SLOT) break
-        if (!facingPoint(map, place.lng, place.lat, width, height)) continue
-        const el = document.createElement('div')
-        el.textContent = place.name
-        el.className = 'font-mono'
-        el.dataset.testid = 'atlas-place-label'
-        el.setAttribute('aria-hidden', 'true')
-        el.style.cssText = [
-          'pointer-events: none',
-          'user-select: none',
-          'white-space: nowrap',
-          `color: ${GLOBE_PLACE_LABEL_COLOR}`,
-          `font-size: ${PLACE_LABEL_FONT_PX}px`,
-          'line-height: normal',
-        ].join(';')
-        const marker = new maplibregl.Marker({
-          element: el,
-          anchor: 'center',
-          opacityWhenCovered: '0',
-        })
-          .setLngLat([place.lng, place.lat])
-          .addTo(map)
-        candidates.push({ marker, el, box: { left: 0, top: 0, right: 0, bottom: 0 } })
-      }
-      // Measured in one pass after every candidate is in the DOM: one layout.
-      for (const c of candidates) c.box = boxOf(c.el)
-      const kept = new Set(
-        pickPlaceLabels(
-          candidates,
-          blockers,
-          { left: 0, top: 0, right: width, bottom: height },
-          budget,
-        ),
-      )
-      for (const c of candidates) {
-        if (kept.has(c)) markers.push(c.marker)
-        else c.marker.remove()
-      }
+      return boxes
     }
-
-    let showing = placeLabelsShowAt(map.getZoom(), BLACK_MARBLE_FADE_START)
-    const handleZoom = () => {
-      const next = placeLabelsShowAt(map.getZoom(), BLACK_MARBLE_FADE_START)
-      if (next !== showing) {
-        showing = next
-        layout()
-      }
-    }
-    layout()
-    map.on('moveend', layout)
-    map.on('zoom', handleZoom)
-    return () => {
-      map.off('moveend', layout)
-      map.off('zoom', handleZoom)
-      clear()
-    }
+    return mountPlaceLabels(map, places, {
+      maxZoom: BLACK_MARBLE_FADE_START,
+      obstacles,
+    })
   }, [mapReady, lightGlobe, cityViewActive, places, labelScenes, scenes])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────

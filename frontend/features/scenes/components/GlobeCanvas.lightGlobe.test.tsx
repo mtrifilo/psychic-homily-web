@@ -9,6 +9,7 @@ import {
   GLOBE_COUNTRY_LINES_SOURCE_ID,
   GLOBE_LAND_DATA_URL,
   GLOBE_LAND_LAYER_ID,
+  GLOBE_LAND_SOURCE_ID,
   GLOBE_OCEAN_LAYER_ID,
   GLOBE_STATE_LINES_DATA_URL,
   GLOBE_STATE_LINES_LAYER_ID,
@@ -27,7 +28,6 @@ interface StubMap {
   options: { style: StubStyle }
   fire: (event: string) => void
   setLayoutProperty: ReturnType<typeof vi.fn>
-  landSetData: ReturnType<typeof vi.fn>
   sourceSetData: (id: string) => ReturnType<typeof vi.fn>
 }
 
@@ -45,7 +45,6 @@ vi.mock('maplibre-gl', () => {
   class StubMapImpl {
     handlers = new Map<string, ((e?: unknown) => void)[]>()
     setLayoutProperty = vi.fn()
-    landSetData = vi.fn()
     setPaintProperty = vi.fn()
     setFeatureState = vi.fn()
     removeFeatureState = vi.fn()
@@ -79,7 +78,6 @@ vi.mock('maplibre-gl', () => {
     }
     sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>()
     getSource(id: string) {
-      if (id === 'globeLand') return { setData: this.landSetData }
       if (!(id in this.options.style.sources)) return undefined
       // One object per id, as MapLibre returns the same source every call.
       if (!this.sources.has(id)) this.sources.set(id, { setData: vi.fn() })
@@ -165,10 +163,10 @@ describe('GlobeCanvas globe surface', () => {
     installViewport(true)
     renderCanvas()
     const map = theMap()
-    expect(map.landSetData).not.toHaveBeenCalled()
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).not.toHaveBeenCalled()
     act(() => map.fire('style.load'))
-    expect(map.landSetData).toHaveBeenCalledTimes(1)
-    expect(map.landSetData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).toHaveBeenCalledTimes(1)
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
   })
 
@@ -183,7 +181,7 @@ describe('GlobeCanvas globe surface', () => {
     const country = map.sourceSetData(GLOBE_COUNTRY_LINES_SOURCE_ID)
     expect(state).toHaveBeenCalledExactlyOnceWith(GLOBE_STATE_LINES_DATA_URL)
     expect(country).toHaveBeenCalledExactlyOnceWith(GLOBE_COUNTRY_LINES_DATA_URL)
-    expect(map.landSetData.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID).mock.invocationCallOrder[0]).toBeLessThan(
       state.mock.invocationCallOrder[0],
     )
   })
@@ -207,7 +205,7 @@ describe('GlobeCanvas globe surface', () => {
     act(() => map.fire('style.load'))
     expect(constructedVisibility(map, NIGHT_EARTH_LAYER_ID)).toBe('visible')
     expect(constructedVisibility(map, GLOBE_LAND_LAYER_ID)).toBe('none')
-    expect(map.landSetData).not.toHaveBeenCalled()
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).not.toHaveBeenCalled()
   })
 
   it('switches the live map across the breakpoint without rebuilding it', () => {
@@ -219,7 +217,7 @@ describe('GlobeCanvas globe surface', () => {
     viewport.set(true)
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
     expect(lastVisibilitySet(map, GLOBE_LAND_LAYER_ID)).toBe('visible')
-    expect(map.landSetData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
 
     viewport.set(false)
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('visible')

@@ -180,11 +180,12 @@ export interface GlobeSurfaceMap {
 }
 
 /**
- * One light-look data file and its main-thread prefetch, once per page load.
+ * One light-look map source's data file and its main-thread prefetch, once
+ * per page load.
  * `prefetch` resolves to the parsed collection, or null after a failed or
- * unusable response (the consumer then fetches the URL itself). Once a
- * consumer's wait on an unsettled prefetch has run out (`waitExpired`),
- * later consumers stop waiting on it and fetch the URL straight away; a
+ * unusable response (the map then fetches the URL itself). Once a
+ * map's wait on an unsettled prefetch has run out (`waitExpired`),
+ * later maps stop waiting on it and fetch the URL straight away; a
  * prefetch that settles after that is used again from then on.
  */
 interface SurfaceFile {
@@ -204,7 +205,6 @@ const surfaceFile = (url: string): SurfaceFile => ({
 const LAND_FILE = surfaceFile(GLOBE_LAND_DATA_URL)
 const COUNTRY_LINES_FILE = surfaceFile(GLOBE_COUNTRY_LINES_DATA_URL)
 const STATE_LINES_FILE = surfaceFile(GLOBE_STATE_LINES_DATA_URL)
-const PLACES_FILE = surfaceFile(GLOBE_PLACES_DATA_URL)
 
 /** The map sources the light look fills, each from its own file, land first. */
 const SOURCE_FILES: ReadonlyArray<readonly [string, SurfaceFile]> = [
@@ -213,10 +213,13 @@ const SOURCE_FILES: ReadonlyArray<readonly [string, SurfaceFile]> = [
   [GLOBE_COUNTRY_LINES_SOURCE_ID, COUNTRY_LINES_FILE],
 ]
 
-// How long a consumer waits on an unfinished prefetch before fetching the
-// file itself. The clock starts when the consumer starts waiting. The
-// prefetch is not cancelled: a consumer whose wait runs out pays for a second
-// download, and the prefetch, once it lands, still serves later consumers.
+/** The ids of the map sources that fetch a same-origin light-look file. */
+export const GLOBE_DATA_SOURCE_IDS: readonly string[] = SOURCE_FILES.map(([id]) => id)
+
+// How long a map waits on an unfinished prefetch before fetching the file
+// itself. The clock starts when the map starts waiting. The prefetch is not
+// cancelled: a map whose wait runs out pays for a second download, and the
+// prefetch, once it lands, still serves the maps built after it.
 const PREFETCH_WAIT_MS = 10_000
 const WAIT_EXPIRED = Symbol('wait expired')
 
@@ -241,63 +244,66 @@ function startPrefetch(file: SurfaceFile, after?: Promise<unknown>): void {
   })
 }
 
+// The place-label file (globePlaces.ts parses it), fetched once per page load
+// and shared by every map; cleared after a failure so a later map fetches it
+// again.
+let placesData: Promise<GeoJSON.FeatureCollection | null> | null = null
+
+function startPlacesFetch(after?: Promise<unknown>): Promise<GeoJSON.FeatureCollection | null> {
+  const loading = after
+    ? after.then(() => fetchCollection(GLOBE_PLACES_DATA_URL))
+    : fetchCollection(GLOBE_PLACES_DATA_URL)
+  placesData = loading
+  void loading.then((data) => {
+    if (!data && placesData === loading) placesData = null
+  })
+  return loading
+}
+
 /**
  * Starts fetching the light look's files before any map exists, so a map
  * that shows the light look takes parsed data instead of fetching each file
  * from its worker after the style loads. The land file goes first; the line
  * and place files start once it has settled, so at entry they never share
- * bandwidth with it. Idempotent. After a failed or unusable response the
- * consumer fetches the URL itself, where a map source's failure reaches
- * basemapTelemetry like any source error.
+ * bandwidth with it. Idempotent. After a failed or unusable response a map
+ * fetches the source's URL itself, where a failure reaches basemapTelemetry
+ * like any source error.
  */
 export function prefetchGlobeSurface(): void {
   startPrefetch(LAND_FILE)
   const afterLand = LAND_FILE.prefetch ?? undefined
-  for (const file of [STATE_LINES_FILE, COUNTRY_LINES_FILE, PLACES_FILE]) {
-    startPrefetch(file, afterLand)
-  }
+  startPrefetch(STATE_LINES_FILE, afterLand)
+  startPrefetch(COUNTRY_LINES_FILE, afterLand)
+  if (!placesData) startPlacesFetch(afterLand)
 }
 
-/** Whether a consumer should wait on the file's prefetch at all. */
-const worthWaiting = (file: SurfaceFile) =>
-  file.prefetch !== null && (file.settled || !file.waitExpired)
+/** The place-label data, from the prefetch when one was started. */
+export function loadGlobePlaces(): Promise<GeoJSON.FeatureCollection | null> {
+  return placesData ?? startPlacesFetch()
+}
 
 /**
  * The prefetched collection, waiting up to PREFETCH_WAIT_MS for a prefetch
- * still in flight; the file's URL when there is no usable prefetch.
+ * still in flight; the file's URL after a failed prefetch or a wait that ran
+ * out.
  */
-function prefetchedOrUrl(file: SurfaceFile): Promise<GeoJSON.FeatureCollection | string> {
-  if (!worthWaiting(file) || !file.prefetch) return Promise.resolve(file.url)
-  const waited = new Promise<typeof WAIT_EXPIRED>((resolve) =>
-    setTimeout(() => resolve(WAIT_EXPIRED), PREFETCH_WAIT_MS),
-  )
-  return Promise.race([file.prefetch, waited]).then((result) => {
-    if (result === WAIT_EXPIRED) {
-      file.waitExpired = true
-      return file.url
-    }
-    return result ?? file.url
+function prefetchedOrUrl(
+  file: SurfaceFile,
+  prefetch: Promise<GeoJSON.FeatureCollection | null>,
+): Promise<GeoJSON.FeatureCollection | string> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const waited = new Promise<typeof WAIT_EXPIRED>((resolve) => {
+    timer = setTimeout(() => resolve(WAIT_EXPIRED), PREFETCH_WAIT_MS)
   })
-}
-
-let placesData: Promise<GeoJSON.FeatureCollection | null> | null = null
-
-/**
- * The place-label data (globePlaces.ts parses it): the prefetched collection
- * when a prefetch was started, else a fetch of the file. Shared by every map
- * in the page load; after a failure the next call fetches again.
- */
-export function loadGlobePlaces(): Promise<GeoJSON.FeatureCollection | null> {
-  if (!placesData) {
-    const loading = prefetchedOrUrl(PLACES_FILE).then((data) =>
-      typeof data === 'string' ? fetchCollection(data) : data,
-    )
-    placesData = loading
-    void loading.then((data) => {
-      if (!data && placesData === loading) placesData = null
+  return Promise.race([prefetch, waited])
+    .then((result) => {
+      if (result === WAIT_EXPIRED) {
+        file.waitExpired = true
+        return file.url
+      }
+      return result ?? file.url
     })
-  }
-  return placesData
+    .finally(() => clearTimeout(timer))
 }
 
 type DataSource = { setData(data: string | GeoJSON.FeatureCollection): unknown }
@@ -312,11 +318,14 @@ function loadSourceData(
   source: DataSource,
   file: SurfaceFile,
 ): void {
-  if (!worthWaiting(file)) {
+  const { prefetch } = file
+  // No prefetch, or one still unsettled after a wait already ran out: the
+  // map fetches the file itself, now.
+  if (!prefetch || (!file.settled && file.waitExpired)) {
     source.setData(file.url)
     return
   }
-  void prefetchedOrUrl(file).then((data) => {
+  void prefetchedOrUrl(file, prefetch).then((data) => {
     // A map removed while the prefetch was in flight no longer owns this
     // source (a removed map has no style, so getSource answers undefined);
     // data sent to it would reach the worker for a map that no longer exists.

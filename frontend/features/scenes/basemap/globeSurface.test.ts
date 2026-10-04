@@ -44,6 +44,13 @@ const FADE_OUT: ExpressionSpecification = [
 ]
 const MAX_ZOOM = 7.1
 
+// Module state is once per page load by design, so each prefetch case gets a
+// fresh module instance rather than a reset seam.
+async function freshModule() {
+  vi.resetModules()
+  return import('./globeSurface')
+}
+
 function surfaceStyle(lightGlobe: boolean): StyleSpecification {
   return {
     version: 8,
@@ -285,13 +292,6 @@ describe('globe land data file', () => {
 describe('prefetchGlobeSurface', () => {
   const LAND: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
-  // Module state is once per page load by design, so each case gets a fresh
-  // module instance rather than a reset seam.
-  async function freshModule() {
-    vi.resetModules()
-    return import('./globeSurface')
-  }
-
   function stubFetch(response: () => Promise<unknown>) {
     const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>(() => response())
     vi.stubGlobal('fetch', fetchMock)
@@ -457,11 +457,6 @@ describe('prefetch order and place data', () => {
   const FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   const ok = () => Promise.resolve({ ok: true, json: () => Promise.resolve(FC) })
 
-  async function freshModule() {
-    vi.resetModules()
-    return import('./globeSurface')
-  }
-
   afterEach(() => vi.unstubAllGlobals())
 
   it('fetches the line and place files only after the land file settles', async () => {
@@ -488,11 +483,11 @@ describe('prefetch order and place data', () => {
   })
 
   it('hands each line source its own prefetched collection', async () => {
-    const byUrl = new Map<string, GeoJSON.FeatureCollection>([
-      [GLOBE_LAND_DATA_URL, { type: 'FeatureCollection', features: [] }],
-      [GLOBE_STATE_LINES_DATA_URL, { type: 'FeatureCollection', features: [] }],
-      [GLOBE_COUNTRY_LINES_DATA_URL, { type: 'FeatureCollection', features: [] }],
-    ])
+    const byUrl = new Map<string, GeoJSON.FeatureCollection>(
+      [GLOBE_LAND_DATA_URL, GLOBE_STATE_LINES_DATA_URL, GLOBE_COUNTRY_LINES_DATA_URL].map(
+        (url) => [url, { type: 'FeatureCollection', features: [] }],
+      ),
+    )
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(byUrl.get(url)) })),
@@ -501,14 +496,13 @@ describe('prefetch order and place data', () => {
     mod.prefetchGlobeSurface()
     const { map, setData, stateSetData, countrySetData } = fakeMap()
     mod.showGlobeSurface(map, true)
+    // Identity, not shape: the three collections are equal, so only the
+    // object each source received tells them apart.
     await vi.waitFor(() => {
-      expect(setData).toHaveBeenCalledWith(byUrl.get(GLOBE_LAND_DATA_URL))
-      expect(stateSetData).toHaveBeenCalledWith(byUrl.get(GLOBE_STATE_LINES_DATA_URL))
-      expect(countrySetData).toHaveBeenCalledWith(byUrl.get(GLOBE_COUNTRY_LINES_DATA_URL))
+      expect(setData.mock.calls[0]?.[0]).toBe(byUrl.get(GLOBE_LAND_DATA_URL))
+      expect(stateSetData.mock.calls[0]?.[0]).toBe(byUrl.get(GLOBE_STATE_LINES_DATA_URL))
+      expect(countrySetData.mock.calls[0]?.[0]).toBe(byUrl.get(GLOBE_COUNTRY_LINES_DATA_URL))
     })
-    // Identity, not just shape: each source got the object fetched for it.
-    expect(stateSetData.mock.calls[0][0]).toBe(byUrl.get(GLOBE_STATE_LINES_DATA_URL))
-    expect(countrySetData.mock.calls[0][0]).toBe(byUrl.get(GLOBE_COUNTRY_LINES_DATA_URL))
   })
 
   it('a failed line file falls back to its URL and leaves the others on their data', async () => {

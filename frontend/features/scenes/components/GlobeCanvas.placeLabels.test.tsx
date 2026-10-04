@@ -185,6 +185,14 @@ describe('GlobeCanvas place labels', () => {
     maps = []
     zoom = 2.4
     sessionStorage.clear()
+    // Measured label size: 6px per character, 12px tall. A positioned marker
+    // element carries its own rect (StubMarker.addTo), which shadows this.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ) {
+      const width = (this.textContent ?? '').length * 6
+      return { left: 0, top: 0, right: width, bottom: 12, width, height: 12 } as DOMRect
+    })
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) =>
@@ -199,6 +207,7 @@ describe('GlobeCanvas place labels', () => {
   afterEach(() => {
     restoreMatchMedia()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
     document.body.innerHTML = ''
   })
 
@@ -235,7 +244,7 @@ describe('GlobeCanvas place labels', () => {
     expect(fetch).not.toHaveBeenCalledWith(GLOBE_PLACES_DATA_URL)
   })
 
-  it('clears the labels when the camera leaves the label zoom range and restores them on return', async () => {
+  it('clears the labels as soon as the zoom leaves the label range and lays them out again on the next settle', async () => {
     const map = await showMap(true)
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
     zoom = 6
@@ -243,6 +252,7 @@ describe('GlobeCanvas place labels', () => {
     expect(placeLabelTexts()).toEqual([])
     zoom = 3
     act(() => map.fire('zoom'))
+    act(() => map.fire('moveend'))
     expect(placeLabelTexts()).toEqual(['Clear City'])
   })
 })
