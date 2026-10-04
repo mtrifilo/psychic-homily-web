@@ -44,6 +44,10 @@ async function touchDrag(page: Page, x: number, fromY: number, toY: number) {
 }
 
 test.describe('Atlas sheet layout under touch', () => {
+  // Each test boots a SwiftShader map and walks several animated steps; the
+  // first test's back-to-globe flight renders the whole globe again.
+  test.setTimeout(120_000)
+
   test('stacked pin, list, venue and artist sheets, back to globe', async ({ page }) => {
     await stubAtlas(page)
     await page.goto('/atlas?city=Phoenix%2CAZ')
