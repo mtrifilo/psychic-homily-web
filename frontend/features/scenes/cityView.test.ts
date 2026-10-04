@@ -27,6 +27,15 @@ import {
   venueProvenanceSegments,
   venueFieldNoteAttribution,
   mergeVenueConfirmation,
+  ATLAS_SHEET_TOP_INSET_PX,
+  CITY_VIEW_MIN_VIEWPORT_PX,
+  countPinsInBounds,
+  usesAtlasSheetLayout,
+  venuePinStacks,
+  venueSheetPeekLine,
+  venueSheetTitle,
+  venueStackLabel,
+  venueStackScopeLine,
 } from './cityView'
 
 function scene(overrides: Partial<PlaceableScene> = {}): PlaceableScene {
@@ -970,5 +979,113 @@ describe('venueFieldNoteAttribution', () => {
     expect(venueFieldNoteAttribution('Doom Night', [], '', 'TX', null)).toBe(
       'Doom Night',
     )
+  })
+})
+
+// ── Phone layout: the bottom-sheet family ─────────────────────────────────
+
+describe('usesAtlasSheetLayout', () => {
+  it('switches to sheets exactly where the rail stops fitting', () => {
+    expect(CITY_VIEW_MIN_VIEWPORT_PX).toBe(900)
+    expect(usesAtlasSheetLayout(899)).toBe(true)
+    expect(usesAtlasSheetLayout(390)).toBe(true)
+    expect(usesAtlasSheetLayout(900)).toBe(false)
+  })
+
+  it('reserves the status row and a two-line credit above every sheet', () => {
+    // 16 inset + 36 row + 10 gap + 40 credit + 10 gap.
+    expect(ATLAS_SHEET_TOP_INSET_PX).toBe(112)
+  })
+})
+
+describe('countPinsInBounds', () => {
+  const pins = [
+    { lng: -87.63, lat: 41.88 },
+    { lng: -87.7, lat: 41.95 },
+    { lng: -88.2, lat: 41.88 },
+  ]
+  it('counts pins inside the box, edges inclusive', () => {
+    expect(
+      countPinsInBounds(pins, { west: -87.7, south: 41.8, east: -87.5, north: 41.95 }),
+    ).toBe(2)
+  })
+  it('handles a box that spans the antimeridian', () => {
+    expect(
+      countPinsInBounds([{ lng: 179.5, lat: 0 }, { lng: -179.5, lat: 0 }, { lng: 0, lat: 0 }], {
+        west: 179,
+        south: -1,
+        east: -179,
+        north: 1,
+      }),
+    ).toBe(2)
+  })
+})
+
+describe('venuePinStacks', () => {
+  it('groups venues that pin at the same point, and only those', () => {
+    const stacks = venuePinStacks([
+      venue({ id: 1 }),
+      venue({ id: 2 }),
+      venue({ id: 3, street_latitude: 30.26, street_longitude: -97.74 }),
+      venue({ id: 4, latitude: undefined, longitude: undefined }),
+    ])
+    expect(stacks).toHaveLength(1)
+    expect(stacks[0]).toMatchObject({
+      venueIds: [1, 2],
+      atCentroid: true,
+      lng: -97.7431,
+      lat: 30.2672,
+    })
+  })
+
+  it('is not a centroid stack when a member pins by street geocode', () => {
+    const [stack] = venuePinStacks([
+      venue({ id: 1, street_latitude: 30.2672, street_longitude: -97.7431 }),
+      venue({ id: 2 }),
+    ])
+    expect(stack.atCentroid).toBe(false)
+    expect(venueStackLabel(stack)).toBe('2 venues')
+    expect(venueStackScopeLine(stack)).toBe('2 venues at this point')
+  })
+
+  it('words a centroid stack as the city centre', () => {
+    const [stack] = venuePinStacks([venue({ id: 1 }), venue({ id: 2 }), venue({ id: 3 })])
+    expect(venueStackLabel(stack)).toBe('3 venues · city centre')
+    expect(venueStackScopeLine(stack)).toBe('3 venues at the city centre point')
+  })
+})
+
+describe('venueSheetTitle', () => {
+  it('names the city and counts the venues', () => {
+    expect(venueSheetTitle('Chicago', 42, false)).toBe('Chicago · 42 venues')
+    expect(venueSheetTitle('Phoenix', 1, false)).toBe('Phoenix · 1 venue')
+    expect(venueSheetTitle('Phoenix', 12, true)).toBe('Phoenix · 12 metro venues')
+  })
+})
+
+describe('venueSheetPeekLine', () => {
+  const centroid = { key: 'a', lng: 0, lat: 0, venueIds: [1, 2, 3], atCentroid: true }
+  const street = { key: 'b', lng: 1, lat: 1, venueIds: [4, 5], atCentroid: false }
+
+  it('reads as the board draws it', () => {
+    expect(venueSheetPeekLine({ inViewCount: 6, stacks: [centroid, street] })).toBe(
+      '6 in view · 3 share the city centre point',
+    )
+  })
+  it('drops the in-view half until the map reports bounds', () => {
+    expect(venueSheetPeekLine({ inViewCount: null, stacks: [centroid] })).toBe(
+      '3 share the city centre point',
+    )
+  })
+  it('drops the centroid half when nothing stacks at a centroid', () => {
+    expect(venueSheetPeekLine({ inViewCount: 4, stacks: [street] })).toBe('4 in view')
+  })
+  it('counts several centroid points without calling them one', () => {
+    expect(
+      venueSheetPeekLine({
+        inViewCount: 2,
+        stacks: [centroid, { ...centroid, key: 'c', venueIds: [6, 7] }],
+      }),
+    ).toBe('2 in view · 5 share 2 city centre points')
   })
 })

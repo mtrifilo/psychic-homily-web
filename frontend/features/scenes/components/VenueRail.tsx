@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import type { VenueWithShowCount } from '@/features/venues/types'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import { GENRE_FAMILIES } from '../genreFamilies'
@@ -21,9 +21,6 @@ import {
   venuesSpanMetro,
   type CityVenueFilters,
 } from '../cityView'
-
-/** Ties the all-ages chip to its "at least sometimes" caveat via aria-describedby. */
-const ALL_AGES_CAVEAT_ID = 'atlas-rail-all-ages-caveat'
 
 const GENRE_LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
   // Lowercased: the rail's meta line is running mono text ("… · punk &
@@ -99,42 +96,13 @@ export function VenueRail({
   onBackToGlobe,
 }: VenueRailProps) {
   const stats = useMemo(() => cityRailStats(allVenues), [allVenues])
-  const genreFamilies = useMemo(() => cityGenreFamilies(allVenues), [allVenues])
-  const updatedAt = useMemo(() => cityDataUpdatedAt(allVenues), [allVenues])
   const spansMetro = useMemo(
     () => venuesSpanMetro(allVenues, principalCity),
     [allVenues, principalCity],
   )
-  const contributionSegments = useMemo(
-    () => cityContributionSegments(cityContributionCounts(allVenues)),
-    [allVenues],
-  )
   // The fetch cap bit, so `allVenues` is one busiest-first page rather than the
-  // whole metro. Three things read it: the "showing the N busiest of M" line,
-  // the empty state (which must not generalise from a partial city), and the
-  // active-filter caveat below.
-  const listTruncated =
-    totalVenueCount !== undefined && totalVenueCount > allVenues.length
-
-  // All over the UNFILTERED list on purpose: together they separate "no venue
-  // here carries the tag" from "your filters excluded everything" from "the tag
-  // lookup never answered". emptyRailReason owns the precedence between them.
-  const emptyReason = useMemo(
-    () =>
-      emptyRailReason({
-        fetchFailed,
-        cityEmpty: allVenues.length === 0,
-        allAgesOnly: filters.allAgesOnly,
-        hasAllAgesVenue: cityHasAllAgesVenue(allVenues),
-        tagDetermined: cityAllAgesTagDetermined(allVenues),
-        listTruncated,
-      }),
-    [allVenues, fetchFailed, filters.allAgesOnly, listTruncated],
-  )
-
-  const activeGenreLabel = filters.genreFamily
-    ? (GENRE_LABEL_BY_KEY.get(filters.genreFamily) ?? 'All genres')
-    : 'All genres'
+  // whole metro: the "showing the N busiest of M" line says so.
+  const listTruncated = isVenueListTruncated(totalVenueCount, allVenues.length)
 
   return (
     <aside
@@ -185,135 +153,26 @@ export function VenueRail({
           </p>
         )}
 
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <FilterChip
-            active={filters.thisWeekOnly}
-            onClick={() =>
-              onFiltersChange({ ...filters, thisWeekOnly: !filters.thisWeekOnly })
-            }
-          >
-            Next 7 days
-          </FilterChip>
-
-          {/* A native select styled as a chip: the menu is a list of the
-              families actually present, so every option leads somewhere.
-              The select comes FIRST in the DOM (and sits on top via z-10) so
-              the visible chip can be its Tailwind `peer` — the select itself
-              is transparent, so its own focus ring is invisible and a
-              keyboard user would otherwise get no focus indicator at all. */}
-          <span className="relative inline-flex">
-            <select
-              aria-label="Filter venues by genre"
-              value={filters.genreFamily ?? ''}
-              onChange={(e) =>
-                onFiltersChange({
-                  ...filters,
-                  genreFamily: e.target.value === '' ? null : e.target.value,
-                })
-              }
-              className="peer absolute inset-0 z-10 cursor-pointer opacity-0"
-            >
-              <option value="">All genres</option>
-              {genreFamilies.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-            <span
-              aria-hidden="true"
-              className={`${chipClass(filters.genreFamily !== null)} peer-focus-visible:ring-2 peer-focus-visible:ring-ring`}
-            >
-              {activeGenreLabel} ⌄
-            </span>
-          </span>
-
-          {/* "All-ages shows", not the mock's "All ages" (user decision,
-              PSY-1573). The tag-vs-column question is settled the other way
-              from what this comment used to say: the filter reads the canonical
-              `all-ages` TAG, not the free-text `venues.age_policy` column.
-              age_policy is the HOUSE DEFAULT, and the traveler's question is
-              "can I get in to something here", which a 21+ room booking an
-              all-ages matinee answers yes to and its column answers no to.
-
-              Hence the copy. The tag means the room hosts all-ages shows AT
-              LEAST SOMETIMES, so the chip names the shows rather than the room:
-              a bare "All ages" beside a venue name reads as a promise about
-              every night there, which nobody has made. */}
-          <FilterChip
-            active={filters.allAgesOnly}
-            title="Venues that host all-ages shows at least sometimes"
-            /* The caveat below is the chip's DESCRIPTION, not decoration.
-               `title` alone leaves a screen-reader user with just the label
-               "All-ages shows" (most SRs drop title on an already-labelled
-               control), so the same sentence sighted users get is wired here
-               and rendered unconditionally — a description has to exist before
-               activation, not appear after it. */
-            describedById={ALL_AGES_CAVEAT_ID}
-            onClick={() =>
-              onFiltersChange({ ...filters, allAgesOnly: !filters.allAgesOnly })
-            }
-          >
-            All-ages shows
-          </FilterChip>
-          {/* Still a disabled placeholder, exactly as the mock draws it —
-              record stores are a later chapter of the travel-mode project, and
-              the Atlas has no non-venue places on it at all yet. */}
-          <FilterChip disabled title="Record stores aren’t on the Atlas yet">
-            Record stores
-          </FilterChip>
-        </div>
-
-        {/* The caveat has to be VISIBLE while the filter is on, not parked in
-            the chip's `title`. A tooltip never opens on touch — the Atlas
-            travel-mode audience's likeliest device — and most screen readers
-            skip `title` on a control that already has a text label. Without
-            this line, a phone user narrowing the list would see nothing but
-            "All-ages shows" above it, which reads as a promise about every
-            night at every room listed.
-
-            ALWAYS RENDERED, and merely hidden while the chip is off: it is the
-            chip's aria-describedby target, and a description that only exists
-            after activation is not a description. Visually it still appears
-            only when the filter is on, so the chip row stays quiet by default.
-
-            Copy agreed with the user directly (2026-08-27), NOT taken from the
-            Figma mock — the mock draws neither this line nor the "All-ages
-            shows" label, so do not "restore" either to match board 01. */}
-        <p
-          id={ALL_AGES_CAVEAT_ID}
-          className={
-            filters.allAgesOnly
-              ? 'mt-2 font-mono text-[11px] leading-4 text-muted-foreground'
-              : 'sr-only'
-          }
-        >
-          rooms that host all-ages shows at least sometimes. check the
-          individual show.
-        </p>
+        <VenueRailFilters
+          allVenues={allVenues}
+          filters={filters}
+          onFiltersChange={onFiltersChange}
+          className="mt-3"
+        />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {loading && venues.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">
-            Loading venues…
-          </p>
-        ) : venues.length === 0 ? (
-          <EmptyRail reason={emptyReason} shownCount={allVenues.length} />
-        ) : (
-          <ul>
-            {venues.map((venue) => (
-              <li key={venue.id}>
-                <VenueRow
-                  venue={venue}
-                  principalCity={principalCity}
-                  selected={venue.id === selectedVenueId}
-                  onSelect={() => onVenueSelect(venue.id)}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
+        <VenueRailList
+          venues={venues}
+          allVenues={allVenues}
+          principalCity={principalCity}
+          totalVenueCount={totalVenueCount}
+          loading={loading}
+          fetchFailed={fetchFailed}
+          filters={filters}
+          selectedVenueId={selectedVenueId}
+          onVenueSelect={onVenueSelect}
+        />
       </div>
 
       <footer className="border-t border-border px-4 py-3">
@@ -335,21 +194,255 @@ export function VenueRail({
             a bulk confirm of every listed venue would make each confirmation
             far weaker evidence than the deliberate per-venue one in the panel.
             Confirming happens where you can actually vouch for the place. */}
-        <p
-          data-testid="rail-provenance"
-          className="font-mono text-[11px] leading-4 text-muted-foreground"
-        >
-          {/* Full-strength muted, not a dimmed variant: at 11px an opacity
-              step lands under the 4.5:1 contrast floor. The line's hierarchy
-              comes from the VALUE being brighter, not the label dimmer. */}
-          <span className="text-muted-foreground">DATA</span>{' '}
-          {updatedAt ? `updated ${formatTimeAgo(updatedAt)}` : 'no update recorded'}
-          {contributionSegments.map((segment) => (
-            <span key={segment}> · {segment}</span>
-          ))}
-        </p>
+        <VenueRailProvenance allVenues={allVenues} />
       </footer>
     </aside>
+  )
+}
+
+/** Whether the fetch cap cut the city to one busiest-first page. */
+function isVenueListTruncated(
+  totalVenueCount: number | undefined,
+  listedCount: number,
+): boolean {
+  return totalVenueCount !== undefined && totalVenueCount > listedCount
+}
+
+/**
+ * The rail's filter chips and the all-ages caveat they describe. Shared by the
+ * desktop rail and the phone venue-list sheet, so both filter the same way.
+ */
+export function VenueRailFilters({
+  allVenues,
+  filters,
+  onFiltersChange,
+  touch = false,
+  className,
+}: {
+  allVenues: readonly VenueWithShowCount[]
+  filters: CityVenueFilters
+  onFiltersChange: (filters: CityVenueFilters) => void
+  /** 24px-tall chips, for touch layouts. */
+  touch?: boolean
+  className?: string
+}) {
+  // Ties the all-ages chip to its "at least sometimes" caveat via aria-describedby.
+  const caveatId = useId()
+  const genreFamilies = useMemo(() => cityGenreFamilies(allVenues), [allVenues])
+  const activeGenreLabel = filters.genreFamily
+    ? (GENRE_LABEL_BY_KEY.get(filters.genreFamily) ?? 'All genres')
+    : 'All genres'
+
+  return (
+    <div className={className}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <FilterChip
+          touch={touch}
+          active={filters.thisWeekOnly}
+          onClick={() =>
+            onFiltersChange({ ...filters, thisWeekOnly: !filters.thisWeekOnly })
+          }
+        >
+          Next 7 days
+        </FilterChip>
+
+        {/* A native select styled as a chip: the menu is a list of the
+            families actually present, so every option leads somewhere.
+            The select comes FIRST in the DOM (and sits on top via z-10) so
+            the visible chip can be its Tailwind `peer` — the select itself
+            is transparent, so its own focus ring is invisible and a
+            keyboard user would otherwise get no focus indicator at all. */}
+        <span className="relative inline-flex">
+          <select
+            aria-label="Filter venues by genre"
+            value={filters.genreFamily ?? ''}
+            onChange={(e) =>
+              onFiltersChange({
+                ...filters,
+                genreFamily: e.target.value === '' ? null : e.target.value,
+              })
+            }
+            className="peer absolute inset-0 z-10 cursor-pointer opacity-0"
+          >
+            <option value="">All genres</option>
+            {genreFamilies.map((f) => (
+              <option key={f.key} value={f.key}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <span
+            aria-hidden="true"
+            className={`${chipClass(filters.genreFamily !== null, false, touch)} peer-focus-visible:ring-2 peer-focus-visible:ring-ring`}
+          >
+            {activeGenreLabel} ⌄
+          </span>
+        </span>
+
+        {/* "All-ages shows", not the mock's "All ages" (user decision,
+            PSY-1573). The tag-vs-column question is settled the other way
+            from what this comment used to say: the filter reads the canonical
+            `all-ages` TAG, not the free-text `venues.age_policy` column.
+            age_policy is the HOUSE DEFAULT, and the traveler's question is
+            "can I get in to something here", which a 21+ room booking an
+            all-ages matinee answers yes to and its column answers no to.
+
+            Hence the copy. The tag means the room hosts all-ages shows AT
+            LEAST SOMETIMES, so the chip names the shows rather than the room:
+            a bare "All ages" beside a venue name reads as a promise about
+            every night there, which nobody has made. */}
+        <FilterChip
+          touch={touch}
+          active={filters.allAgesOnly}
+          title="Venues that host all-ages shows at least sometimes"
+          /* The caveat below is the chip's DESCRIPTION, not decoration.
+             `title` alone leaves a screen-reader user with just the label
+             "All-ages shows" (most SRs drop title on an already-labelled
+             control), so the same sentence sighted users get is wired here
+             and rendered unconditionally — a description has to exist before
+             activation, not appear after it. */
+          describedById={caveatId}
+          onClick={() =>
+            onFiltersChange({ ...filters, allAgesOnly: !filters.allAgesOnly })
+          }
+        >
+          All-ages shows
+        </FilterChip>
+        {/* Still a disabled placeholder, exactly as the mock draws it —
+            record stores are a later chapter of the travel-mode project, and
+            the Atlas has no non-venue places on it at all yet. */}
+        <FilterChip
+          touch={touch}
+          disabled
+          title="Record stores aren’t on the Atlas yet"
+        >
+          Record stores
+        </FilterChip>
+      </div>
+
+      {/* The caveat has to be VISIBLE while the filter is on, not parked in
+          the chip's `title`. A tooltip never opens on touch — the Atlas
+          travel-mode audience's likeliest device — and most screen readers
+          skip `title` on a control that already has a text label. Without
+          this line, a phone user narrowing the list would see nothing but
+          "All-ages shows" above it, which reads as a promise about every
+          night at every room listed.
+
+          ALWAYS RENDERED, and merely hidden while the chip is off: it is the
+          chip's aria-describedby target, and a description that only exists
+          after activation is not a description. Visually it still appears
+          only when the filter is on, so the chip row stays quiet by default.
+
+          Copy agreed with the user directly (2026-08-27), NOT taken from the
+          Figma mock — the mock draws neither this line nor the "All-ages
+          shows" label, so do not "restore" either to match board 01. */}
+      <p
+        id={caveatId}
+        className={
+          filters.allAgesOnly
+            ? 'mt-2 font-mono text-[11px] leading-4 text-muted-foreground'
+            : 'sr-only'
+        }
+      >
+        rooms that host all-ages shows at least sometimes. check the
+        individual show.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * The rail's venue rows, or the sentence that explains why there are none.
+ * Shared by the desktop rail and the phone venue-list sheet.
+ */
+export function VenueRailList({
+  venues,
+  allVenues,
+  principalCity,
+  totalVenueCount,
+  loading = false,
+  fetchFailed = false,
+  filters,
+  selectedVenueId,
+  onVenueSelect,
+}: {
+  venues: readonly VenueWithShowCount[]
+  allVenues: readonly VenueWithShowCount[]
+  principalCity: string
+  totalVenueCount?: number
+  loading?: boolean
+  fetchFailed?: boolean
+  filters: CityVenueFilters
+  selectedVenueId: number | null
+  onVenueSelect: (venueId: number) => void
+}) {
+  // A truncated page must not generalise to the whole city in the empty state.
+  const listTruncated = isVenueListTruncated(totalVenueCount, allVenues.length)
+  // All over the UNFILTERED list on purpose: together they separate "no venue
+  // here carries the tag" from "your filters excluded everything" from "the tag
+  // lookup never answered". emptyRailReason owns the precedence between them.
+  const emptyReason = useMemo(
+    () =>
+      emptyRailReason({
+        fetchFailed,
+        cityEmpty: allVenues.length === 0,
+        allAgesOnly: filters.allAgesOnly,
+        hasAllAgesVenue: cityHasAllAgesVenue(allVenues),
+        tagDetermined: cityAllAgesTagDetermined(allVenues),
+        listTruncated,
+      }),
+    [allVenues, fetchFailed, filters.allAgesOnly, listTruncated],
+  )
+
+  if (loading && venues.length === 0) {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">Loading venues…</p>
+    )
+  }
+  if (venues.length === 0) {
+    return <EmptyRail reason={emptyReason} shownCount={allVenues.length} />
+  }
+  return (
+    <ul>
+      {venues.map((venue) => (
+        <li key={venue.id}>
+          <VenueRow
+            venue={venue}
+            principalCity={principalCity}
+            selected={venue.id === selectedVenueId}
+            onSelect={() => onVenueSelect(venue.id)}
+          />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** The city's provenance line (PSY-1542), shared by the rail and the sheet. */
+export function VenueRailProvenance({
+  allVenues,
+}: {
+  allVenues: readonly VenueWithShowCount[]
+}) {
+  const updatedAt = useMemo(() => cityDataUpdatedAt(allVenues), [allVenues])
+  const contributionSegments = useMemo(
+    () => cityContributionSegments(cityContributionCounts(allVenues)),
+    [allVenues],
+  )
+  return (
+    <p
+      data-testid="rail-provenance"
+      className="font-mono text-[11px] leading-4 text-muted-foreground"
+    >
+      {/* Full-strength muted, not a dimmed variant: at 11px an opacity
+          step lands under the 4.5:1 contrast floor. The line's hierarchy
+          comes from the VALUE being brighter, not the label dimmer. */}
+      <span className="text-muted-foreground">DATA</span>{' '}
+      {updatedAt ? `updated ${formatTimeAgo(updatedAt)}` : 'no update recorded'}
+      {contributionSegments.map((segment) => (
+        <span key={segment}> · {segment}</span>
+      ))}
+    </p>
   )
 }
 
@@ -425,9 +518,11 @@ function EmptyRail({
   )
 }
 
-function chipClass(active: boolean, disabled = false): string {
-  const base =
-    'inline-flex items-center rounded-sm px-2 py-0.5 font-mono text-[11px] leading-4 transition-colors'
+/** `touch` raises the chip to a 24px-tall target for touch layouts. */
+function chipClass(active: boolean, disabled = false, touch = false): string {
+  const base = `inline-flex items-center rounded-sm px-2 font-mono text-[11px] leading-4 transition-colors ${
+    touch ? 'min-h-6' : 'py-0.5'
+  }`
   if (disabled) return `${base} bg-muted/50 text-muted-foreground/50`
   if (active) return `${base} bg-primary text-background`
   return `${base} bg-muted text-foreground hover:bg-muted/70`
@@ -439,6 +534,7 @@ function FilterChip({
   disabled = false,
   title,
   describedById,
+  touch = false,
   onClick,
 }: {
   children: React.ReactNode
@@ -451,6 +547,7 @@ function FilterChip({
    * text label, so any caveat a chip's label depends on belongs here too.
    */
   describedById?: string
+  touch?: boolean
   onClick?: () => void
 }) {
   return (
@@ -461,7 +558,7 @@ function FilterChip({
       aria-describedby={describedById}
       aria-pressed={disabled ? undefined : active}
       onClick={onClick}
-      className={`${chipClass(active, disabled)} ${
+      className={`${chipClass(active, disabled, touch)} ${
         disabled
           ? 'cursor-not-allowed'
           : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'

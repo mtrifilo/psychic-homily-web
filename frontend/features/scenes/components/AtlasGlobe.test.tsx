@@ -140,24 +140,30 @@ const flyToSpy = vi.fn()
 // callback and the pin array, so a test can drive the camera the way the real
 // map does and assert what the map would have drawn — the whole
 // camera → city → fetch → filter → pins chain, without WebGL.
+type CanvasSettle = {
+  lng: number
+  lat: number
+  zoom: number
+  bounds?: { west: number; south: number; east: number; north: number }
+}
 let lastCanvasProps: {
   pov?: { lat: number; lng: number; altitude: number }
-  onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
+  onCameraSettle?: (c: CanvasSettle) => void
   onVenueSelect?: (venueId: number) => void
   venues?: readonly { id: number; name: string }[]
   cityLabel?: string | null
   width?: number
+  attributionPosition?: 'bottom-left' | 'top-left'
+  onBackToGlobe?: () => void
+  venueStacks?: readonly { key: string; venueIds: readonly number[]; label: string }[]
+  onVenueStackSelect?: (key: string) => void
 } = {}
 vi.mock('./GlobeCanvas', () => ({
-  default: (props: {
-    flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
-    pov?: { lat: number; lng: number; altitude: number }
-    onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
-    onVenueSelect?: (venueId: number) => void
-    venues?: readonly { id: number; name: string }[]
-    cityLabel?: string | null
-    width?: number
-  }) => {
+  default: (
+    props: typeof lastCanvasProps & {
+      flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
+    },
+  ) => {
     if (props.flyToRef) props.flyToRef.current = flyToSpy
     lastCanvasProps = props
     return <div data-testid="globe-canvas" />
@@ -403,7 +409,7 @@ describe('AtlasGlobe', () => {
 
   describe('Drift (desktop globe branch, PSY-1308)', () => {
     beforeEach(() => {
-      setMockContainerWidth(800) // above the 640px mobile gate
+      setMockContainerWidth(1400) // the side-panel layout
       flyToSpy.mockReset()
       mockUseScenes.mockReturnValue({
         data: sampleData,
@@ -1067,6 +1073,229 @@ describe('AtlasGlobe', () => {
       settleCamera(-87.63, 41.88, 13)
 
       expect(screen.getByText('showing the 2 busiest of 150')).toBeInTheDocument()
+    })
+    // ── Sheet layout (panes under 900px) ────────────────────────────────
+    // Too narrow for the rail beside the map, so the venue list and every
+    // panel become bottom sheets over a full-width map. Exercised at 800px:
+    // above the mobile gate, so the map renders, and below the rail's 900.
+    describe('sheet layout', () => {
+      beforeEach(() => {
+        setMockContainerWidth(800)
+      })
+
+      /** Settle with a viewport that holds both Chicago pins. */
+      function settleOnChicago() {
+        act(() => {
+          lastCanvasProps.onCameraSettle?.({
+            lng: -87.63,
+            lat: 41.88,
+            zoom: 13,
+            bounds: { west: -87.7, south: 41.8, east: -87.5, north: 41.95 },
+          })
+        })
+      }
+
+      it('replaces the rail with a venue sheet at Peek, map full width', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        expect(screen.queryByTestId('atlas-venue-rail')).not.toBeInTheDocument()
+        expect(lastCanvasProps.width).toBe(800)
+        const sheet = screen.getByTestId('atlas-venue-sheet')
+        expect(sheet).toHaveAttribute('data-detent', 'peek')
+        expect(
+          within(sheet).getByRole('heading', { name: 'Chicago · 2 venues' }),
+        ).toBeInTheDocument()
+        // Both rooms pin at the city centroid, so they share one point.
+        expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent(
+          '2 in view · 2 share the city centre point',
+        )
+        // No close control: the list is the city view's standing surface.
+        expect(
+          within(sheet).queryByRole('button', { name: /close/i }),
+        ).not.toBeInTheDocument()
+      })
+
+      it('lists every venue as a row from Half, including stacked ones', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand Chicago venues' }))
+        const sheet = screen.getByTestId('atlas-venue-sheet')
+        expect(sheet).toHaveAttribute('data-detent', 'half')
+        expect(within(sheet).getByRole('button', { name: /Empty Bottle/ })).toBeInTheDocument()
+        expect(within(sheet).getByRole('button', { name: /Hideout/ })).toBeInTheDocument()
+        // The rail's filters come along, as 24px chips.
+        const chip = within(sheet).getByRole('button', { name: 'Next 7 days' })
+        expect(chip.className).toContain('min-h-6')
+      })
+
+      it('hands the canvas the phone chrome: top credit, back control, stacks', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        expect(lastCanvasProps.attributionPosition).toBe('top-left')
+        expect(lastCanvasProps.onBackToGlobe).toBeTypeOf('function')
+        expect(lastCanvasProps.venueStacks).toEqual([
+          expect.objectContaining({
+            venueIds: [1, 2],
+            label: '2 venues · city centre',
+          }),
+        ])
+
+        flyToSpy.mockReset()
+        act(() => lastCanvasProps.onBackToGlobe?.())
+        expect(flyToSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ slug: 'chicago-il' }),
+        )
+      })
+
+      it('opens the list at Half scoped to a tapped stack, and widens it back', async () => {
+        mockUseVenues.mockReturnValue({
+          data: {
+            venues: [
+              ...chicagoVenues,
+              {
+                ...chicagoVenues[1],
+                id: 3,
+                name: 'Thalia Hall',
+                street_latitude: 41.857,
+                street_longitude: -87.657,
+              },
+            ],
+            total: 3,
+          },
+          isFetching: false,
+          isPlaceholderData: false,
+        })
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        const stack = lastCanvasProps.venueStacks![0]
+        act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
+
+        const sheet = screen.getByTestId('atlas-venue-sheet')
+        expect(sheet).toHaveAttribute('data-detent', 'half')
+        expect(screen.getByTestId('venue-sheet-scope-line')).toHaveTextContent(
+          '2 venues at the city centre point',
+        )
+        expect(within(sheet).getByRole('button', { name: /Empty Bottle/ })).toBeInTheDocument()
+        expect(within(sheet).queryByRole('button', { name: /Thalia Hall/ })).not.toBeInTheDocument()
+
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Show all' }))
+        expect(within(sheet).getByRole('button', { name: /Thalia Hall/ })).toBeInTheDocument()
+        expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
+      })
+
+      it('opens a single pin as a venue sheet at Half, hiding the list', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        act(() => lastCanvasProps.onVenueSelect?.(2))
+        const venueSheet = screen.getByTestId('atlas-venue-panel')
+        expect(venueSheet).toHaveAttribute('data-slot', 'bottom-sheet')
+        expect(venueSheet).toHaveAttribute('data-detent', 'half')
+        expect(
+          within(venueSheet).getByRole('heading', { name: 'Hideout' }),
+        ).toBeInTheDocument()
+        expect(screen.getByTestId('atlas-venue-sheet')).toHaveClass('hidden')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close Hideout panel' }))
+        expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+        expect(screen.getByTestId('atlas-venue-sheet')).not.toHaveClass('hidden')
+      })
+
+      it('walks list row, venue sheet, artist sheet at Full, and back by Escape', async () => {
+        mockUseVenueShows.mockReturnValue({
+          data: { shows: venueWeek, venue_id: 1, total: 2 },
+          isLoading: false,
+          isError: false,
+        })
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+        fireEvent.click(screen.getByRole('button', { name: 'Expand Chicago venues' }))
+        fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+        fireEvent.click(screen.getByRole('button', { name: /Bottle Fest night one/ }))
+
+        const artistSheet = screen.getByTestId('atlas-artist-panel')
+        expect(artistSheet).toHaveAttribute('data-slot', 'bottom-sheet')
+        expect(artistSheet).toHaveAttribute('data-detent', 'full')
+        expect(
+          within(artistSheet).getByRole('heading', { name: 'Die Spitz' }),
+        ).toBeInTheDocument()
+        // The stepper's touch targets are 28px.
+        expect(screen.getByTestId('artist-panel-step-next').className).toContain('size-7')
+
+        await userEvent.keyboard('{Escape}')
+        expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+        expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+
+        await userEvent.keyboard('{Escape}')
+        expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+        const list = screen.getByTestId('atlas-venue-sheet')
+        expect(list).not.toHaveClass('hidden')
+        expect(list).toHaveAttribute('data-detent', 'half')
+
+        // Escape on the list itself collapses it rather than removing it.
+        await userEvent.keyboard('{Escape}')
+        expect(list).toHaveAttribute('data-detent', 'peek')
+      })
+
+      it('lifts the zoom control by the list sheet’s height', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        const pane = screen.getByTestId('globe-canvas').parentElement!
+        expect(pane).toHaveAttribute('data-atlas-layout', 'sheet')
+        expect(pane.style.getPropertyValue('--atlas-sheet-offset')).toBe(
+          'min(120px, calc(100% - 112px))',
+        )
+        act(() => lastCanvasProps.onVenueSelect?.(1))
+        expect(pane.style.getPropertyValue('--atlas-sheet-offset')).toBe('0px')
+      })
+
+      it('opens Drift’s scene preview as a sheet at Half', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
+
+        const preview = screen.getByRole('region', { name: /Chicago, IL scene/ })
+        expect(preview).toHaveAttribute('data-slot', 'bottom-sheet')
+        expect(preview).toHaveAttribute('data-detent', 'half')
+        expect(
+          screen.queryByRole('complementary', { name: /Chicago, IL scene/ }),
+        ).not.toBeInTheDocument()
+
+        await userEvent.keyboard('{Escape}')
+        expect(
+          screen.queryByRole('region', { name: /Chicago, IL scene/ }),
+        ).not.toBeInTheDocument()
+      })
+
+      it('keeps the side-panel layout, unchanged, at 900px and up', async () => {
+        setMockContainerWidth(900)
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+
+        expect(screen.getByTestId('atlas-venue-rail')).toBeInTheDocument()
+        expect(screen.queryByTestId('atlas-venue-sheet')).not.toBeInTheDocument()
+        expect(lastCanvasProps.attributionPosition).toBe('bottom-left')
+        expect(lastCanvasProps.onBackToGlobe).toBeUndefined()
+        expect(lastCanvasProps.venueStacks).toBeUndefined()
+        act(() => lastCanvasProps.onVenueSelect?.(1))
+        expect(screen.getByTestId('atlas-venue-panel')).not.toHaveAttribute(
+          'data-slot',
+          'bottom-sheet',
+        )
+      })
     })
   })
 })

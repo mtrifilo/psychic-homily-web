@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react'
 import dynamic from 'next/dynamic'
@@ -23,18 +24,27 @@ import {
   type GlobePov,
   type PlaceableScene,
   type VenuePin,
+  type VenueStackMarker,
 } from './globeTypes'
 import {
+  ATLAS_SHEET_TOP_INSET_PX,
   CITY_RAIL_WIDTH_PX,
   CITY_VENUE_FETCH_LIMIT,
-  CITY_VIEW_MIN_VIEWPORT_PX,
   NO_CITY_VENUE_FILTERS,
+  countPinsInBounds,
   filterCityVenues,
   formatNextShowDate,
   resolveAtlasCityPov,
   resolveCityScene,
+  usesAtlasSheetLayout,
+  venuePinStacks,
+  venueStackLabel,
   type CityVenueFilters,
 } from '../cityView'
+import {
+  bottomSheetHeightCss,
+  type BottomSheetDetent,
+} from '@/components/ui/bottom-sheet'
 import {
   buildArtistSteps,
   clampStepIndex,
@@ -43,6 +53,7 @@ import {
 } from '../artistDrillIn'
 import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
+import { VenueListSheet } from './VenueListSheet'
 import { VenuePanel } from './VenuePanel'
 import { ArtistPanel } from './ArtistPanel'
 import { venuePinPosition } from '../venuePinPosition'
@@ -173,7 +184,14 @@ export function AtlasGlobe() {
   const [camera, setCamera] = useState<CameraSettle | null>(null)
   const handleCameraSettle = useCallback((next: CameraSettle) => {
     setCamera((prev) =>
-      prev && prev.lng === next.lng && prev.lat === next.lat && prev.zoom === next.zoom
+      prev &&
+      prev.lng === next.lng &&
+      prev.lat === next.lat &&
+      prev.zoom === next.zoom &&
+      prev.bounds?.west === next.bounds?.west &&
+      prev.bounds?.south === next.bounds?.south &&
+      prev.bounds?.east === next.bounds?.east &&
+      prev.bounds?.north === next.bounds?.north
         ? prev
         : next,
     )
@@ -193,12 +211,18 @@ export function AtlasGlobe() {
   const [filters, setFilters] = useState<CityVenueFilters>(NO_CITY_VENUE_FILTERS)
   const [selectedVenueId, setSelectedVenueId] = useState<number | null>(null)
   const [drillIn, setDrillIn] = useState<ArtistDrillIn | null>(null)
+  // Sheet layout only: the venue-list sheet's detent, and the stacked pin (by
+  // point key) its rows are scoped to.
+  const [listDetent, setListDetent] = useState<BottomSheetDetent>('peek')
+  const [stackScopeKey, setStackScopeKey] = useState<string | null>(null)
   const [filtersCitySlug, setFiltersCitySlug] = useState<string | null>(null)
   if (citySlug !== filtersCitySlug) {
     setFiltersCitySlug(citySlug)
     setFilters(NO_CITY_VENUE_FILTERS)
     setSelectedVenueId(null)
     setDrillIn(null)
+    setListDetent('peek')
+    setStackScopeKey(null)
   }
   // INVARIANT: a scene preview and city view never coexist. City view hides
   // the globe chrome the panel lives in, which UNMOUNTS the panel without
@@ -284,6 +308,41 @@ export function AtlasGlobe() {
     }
     return pins
   }, [filteredVenues])
+
+  // Points where two or more listed venues pin. Built from the same filtered
+  // array as the pins, so a stack's count is what the map draws there.
+  const venueStacks = useMemo(
+    () => venuePinStacks(filteredVenues),
+    [filteredVenues],
+  )
+  const venueStackMarkers = useMemo<VenueStackMarker[]>(
+    () =>
+      venueStacks.map((stack) => ({
+        key: stack.key,
+        lng: stack.lng,
+        lat: stack.lat,
+        venueIds: stack.venueIds,
+        label: venueStackLabel(stack),
+      })),
+    [venueStacks],
+  )
+  const scopedStack =
+    stackScopeKey === null
+      ? null
+      : (venueStacks.find((s) => s.key === stackScopeKey) ?? null)
+  const inViewCount = camera?.bounds
+    ? countPinsInBounds(venuePins, camera.bounds)
+    : null
+
+  // A stacked pin cannot open one venue honestly, so a tap on it opens the
+  // list at Half scoped to the venues that share the point.
+  const handleVenueStackSelect = useCallback((stackKey: string) => {
+    setStackScopeKey(stackKey)
+    setListDetent('half')
+    setSelectedVenueId(null)
+    setDrillIn(null)
+  }, [])
+  const clearStackScope = useCallback(() => setStackScopeKey(null), [])
 
   // Selecting a venue marks it in both the rail and the map AND opens the
   // panel (PSY-1540). Re-selecting the same venue toggles it back off, so a
@@ -540,14 +599,24 @@ export function AtlasGlobe() {
       />
     )
   } else if (size !== null && placeable.length > 0 && pov !== null) {
-    // The rail sits BESIDE the map (never over it — the map's bottom-left
-    // attribution is a licensing requirement), so opening it narrows the
-    // canvas by exactly the rail's width. Below CITY_VIEW_MIN_VIEWPORT_PX
-    // that would leave a uselessly thin map, so city view stays map-only:
-    // pins and status chip, no rail.
-    const railOpen =
-      cityScene !== null && size.width >= CITY_VIEW_MIN_VIEWPORT_PX
+    // Two layouts. Wide panes put the rail BESIDE the map (never over it: the
+    // map's bottom-left attribution is a licensing requirement), narrowing the
+    // canvas by exactly the rail's width, with panels docked to the right.
+    // Narrower panes would leave a uselessly thin map beside a rail, so they
+    // keep the map full width and use bottom sheets for the venue list and
+    // every panel, with the credit moved to the top-left.
+    const sheetLayout = usesAtlasSheetLayout(size.width)
+    const railOpen = cityScene !== null && !sheetLayout
     const canvasWidth = railOpen ? size.width - CITY_RAIL_WIDTH_PX : size.width
+    const panelPresentation = sheetLayout ? 'sheet' : 'panel'
+    const listSheetShown = sheetLayout && cityScene !== null && !selectedVenue
+    const paneStyle = sheetLayout
+      ? ({
+          '--atlas-sheet-offset': listSheetShown
+            ? bottomSheetHeightCss(listDetent, ATLAS_SHEET_TOP_INSET_PX)
+            : '0px',
+        } as CSSProperties)
+      : undefined
     // The globe's own chrome is a globe-scale toolkit — Drift lands you in
     // another metro, the genre key explains dot tints that aren't drawn at
     // street zoom. City view replaces it with the rail.
@@ -581,7 +650,11 @@ export function AtlasGlobe() {
             onBackToGlobe={handleBackToGlobe}
           />
         )}
-        <div className="relative min-w-0 flex-1">
+        <div
+          className="relative min-w-0 flex-1"
+          data-atlas-layout={sheetLayout ? 'sheet' : undefined}
+          style={paneStyle}
+        >
           <GlobeCanvas
             width={canvasWidth}
             height={size.height}
@@ -598,7 +671,35 @@ export function AtlasGlobe() {
               cityScene ? `${cityScene.city}, ${cityScene.state}` : null
             }
             onCameraSettle={handleCameraSettle}
+            attributionPosition={sheetLayout ? 'top-left' : 'bottom-left'}
+            onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
+            venueStacks={sheetLayout ? venueStackMarkers : undefined}
+            onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
           />
+          {sheetLayout && cityScene && (
+            <VenueListSheet
+              principalCity={cityScene.city}
+              venues={filteredVenues}
+              allVenues={cityVenues}
+              totalVenueCount={isPlaceholderData ? undefined : cityVenueData?.total}
+              loading={venuesLoading}
+              fetchFailed={venuesFailed && !venuesLoading}
+              filters={filters}
+              onFiltersChange={setFilters}
+              selectedVenueId={selectedVenueId}
+              onVenueSelect={handleVenueSelect}
+              detent={listDetent}
+              onDetentChange={setListDetent}
+              stacks={venueStacks}
+              inViewCount={inViewCount}
+              scopedStack={scopedStack}
+              onClearScope={clearStackScope}
+              /* Hidden, not unmounted, while a venue or artist sheet is up:
+                 the list keeps its scroll position and the row that opened
+                 the venue is still there to take focus back. */
+              hidden={!listSheetShown}
+            />
+          )}
           {/* The Atlas panel stack (PSY-1540 venue → PSY-1541 artist). Docked
               to the map pane's right edge, so it sits opposite the rail and
               clear of the bottom-left attribution control. Outside the
@@ -630,6 +731,7 @@ export function AtlasGlobe() {
               backLabel={selectedVenue.name}
               onBack={handleDrillInBack}
               onClose={handleDrillInClose}
+              presentation={panelPresentation}
             />
           ) : (
             selectedVenue && (
@@ -638,6 +740,7 @@ export function AtlasGlobe() {
                 venue={selectedVenue}
                 onClose={handleVenuePanelClose}
                 onShowSelect={handleShowSelect}
+                presentation={panelPresentation}
               />
             )
           )}
@@ -656,7 +759,11 @@ export function AtlasGlobe() {
                 onPick={handleSearchPick}
                 triggerRef={searchTriggerRef}
               />
-              <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
+              <MyScenesStrip
+                scenes={allScenes}
+                onPick={handleSearchPick}
+                belowTopCredit={sheetLayout}
+              />
               {/* Genre color key (PSY-1315). Hidden while a preview is open — that
                   docks the right edge, and you're reading one scene, not scanning. */}
               {!selected && (
@@ -680,6 +787,7 @@ export function AtlasGlobe() {
                   scene={selected}
                   onClose={closePreview}
                   returnFocusTo={searchTriggerRef}
+                  presentation={panelPresentation}
                 />
               )}
             </>

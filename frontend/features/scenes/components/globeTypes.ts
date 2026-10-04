@@ -59,9 +59,33 @@ export interface VenuePin {
 // here would be a value nothing reads, and DRAWING street and centroid pins
 // differently is a design decision the approved mock does not make.
 
+/** A map viewport as west/south/east/north degrees. */
+export interface MapBounds {
+  west: number
+  south: number
+  east: number
+  north: number
+}
+
 /** Camera state reported by GlobeCanvas once a movement settles. */
 export interface CameraSettle {
   lng: number
   lat: number
   zoom: number
+  /** The visible viewport at settle time. */
+  bounds?: MapBounds
+}
+
+/**
+ * One counted marker for venues that pin at the same point, drawn in place of
+ * their individual pins. A view model like VenuePin: positioned and worded by
+ * the caller.
+ */
+export interface VenueStackMarker {
+  key: string
+  lng: number
+  lat: number
+  venueIds: readonly number[]
+  /** Visible text under the count, e.g. "17 venues · city centre". */
+  label: string
 }

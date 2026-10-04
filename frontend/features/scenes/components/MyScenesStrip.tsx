@@ -28,10 +28,16 @@ export const MY_SCENES_FETCH_LIMIT = 100
 export function MyScenesStrip({
   scenes,
   onPick,
+  belowTopCredit = false,
 }: {
   /** ALL scenes — follows are matched to them by slug. */
   scenes: SceneListItem[]
   onPick: (scene: PlaceableScene) => void
+  /**
+   * Sit below a top-left map credit (the Atlas sheet layout) instead of
+   * directly under the search control, where the credit is.
+   */
+  belowTopCredit?: boolean
 }) {
   const router = useRouter()
   const { data } = useMyFollowing({ type: 'scene', limit: MY_SCENES_FETCH_LIMIT })
@@ -69,7 +75,9 @@ export function MyScenesStrip({
     // (max-w-sm) down to the 640px mobile gate.
     <nav
       aria-label="My scenes"
-      className="pointer-events-none absolute left-4 top-16 z-10 flex max-w-[min(50vw,24rem)] flex-wrap items-center gap-1.5"
+      className={`pointer-events-none absolute left-4 z-10 flex max-w-[min(50vw,24rem)] flex-wrap items-center gap-1.5 ${
+        belowTopCredit ? 'top-28' : 'top-16'
+      }`}
     >
       <Star aria-hidden className="h-3.5 w-3.5 text-primary" />
       {shown.map(({ slug, name, scene }) => (

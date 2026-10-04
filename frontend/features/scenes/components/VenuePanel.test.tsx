@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
 
@@ -872,3 +872,36 @@ describe('VenuePanel field notes teaser', () => {
     expect(mockUseVenueFieldNotes).toHaveBeenCalledWith(7, undefined)
   })
 })
+
+describe('VenuePanel as a bottom sheet', () => {
+  it('opens at Half, titled by the venue, with the panel content', () => {
+    mockUseVenueShows.mockReturnValue({
+      data: { shows: [show({ id: 1, title: 'Night one' })], venue_id: 7, total: 1 },
+      isLoading: false,
+      isError: false,
+    })
+    renderPanel({ presentation: 'sheet' })
+    const sheet = screen.getByTestId('atlas-venue-panel')
+    expect(sheet).toHaveAttribute('data-slot', 'bottom-sheet')
+    expect(sheet).toHaveAttribute('data-detent', 'half')
+    expect(sheet).not.toHaveAttribute('aria-modal')
+    expect(within(sheet).getByRole('heading', { level: 2 })).toHaveTextContent(venue().name)
+    expect(within(sheet).getByTestId('venue-panel-confirm')).toBeInTheDocument()
+    expect(within(sheet).getByText('Night one')).toBeInTheDocument()
+    expect(within(sheet).getByRole('link', { name: /open venue page/i })).toBeInTheDocument()
+    // The 24px close control takes focus on open, as the panel's does.
+    const close = screen.getByRole('button', { name: `Close ${venue().name} panel` })
+    expect(close).toHaveFocus()
+    expect(close.className).toContain('size-6')
+  })
+
+  it('closes on Escape and on its close control', () => {
+    const onClose = vi.fn()
+    renderPanel({ presentation: 'sheet', onClose })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: `Close ${venue().name} panel` }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})
+
