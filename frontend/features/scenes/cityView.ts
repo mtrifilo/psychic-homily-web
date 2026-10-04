@@ -95,8 +95,16 @@ export const CITY_VENUE_PANEL_WIDTH_PX = 384
 // A right-docked panel only reaches the credit when the map pane is narrow
 // enough that 384px of panel spans into it — so rather than depend on the pane
 // being wide, the panel simply cannot grow into the credit's strip. Same ~30px
-// strip the "N more scenes" link clears with bottom-11.
+// strip the "N more scenes" link clears.
 export const CITY_VENUE_PANEL_BOTTOM_INSET_PX = 36
+
+/**
+ * The right-docked panels' height cap (they sit at a 0.75rem top inset). It
+ * keeps CITY_VENUE_PANEL_BOTTOM_INSET_PX clear above the credit's corner,
+ * which itself rises by the cookie banner's published height while the banner
+ * is up (globals.css), so the cap gives up the same height.
+ */
+export const CITY_VENUE_PANEL_MAX_HEIGHT = `calc(100% - 0.75rem - ${CITY_VENUE_PANEL_BOTTOM_INSET_PX}px - var(--cookie-banner-height, 0px))`
 
 // How many show rows the panel lists before deferring to "view all N →". The
 // mock draws five; past that the panel stops being a glance and the venue page

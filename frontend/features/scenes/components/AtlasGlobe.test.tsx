@@ -948,7 +948,7 @@ describe('AtlasGlobe', () => {
       // so the panel can never grow into the bottom-left OSM credit the ODbL
       // requires stay visible.
       expect(screen.getByTestId('atlas-artist-panel')).toHaveStyle({
-        maxHeight: 'calc(100% - 0.75rem - 36px)',
+        maxHeight: 'calc(100% - 0.75rem - 36px - var(--cookie-banner-height, 0px))',
       })
     })
 

@@ -819,11 +819,12 @@ export function AtlasGlobe() {
               {unplaceableCount > 0 && (
                 <Link
                   href="/scenes"
-                  /* bottom-11, not bottom-4: in the panel layout the map's
-                     attribution control (PSY-1543, a license requirement) is
-                     docked bottom-left, and this link must clear its ~30px strip
-                     rather than sit on the OSM credit. */
-                  className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  /* 2.75rem, not 1rem: in the panel layout the map's
+                     attribution control (a license requirement) is docked
+                     bottom-left, and this link must clear its ~30px strip
+                     rather than sit on the OSM credit. The banner term follows
+                     the credit's own lift above the cookie banner. */
+                  className="absolute bottom-[calc(2.75rem+var(--cookie-banner-height,0px))] left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
                 >
                   {unplaceableCount} more{' '}
                   {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·

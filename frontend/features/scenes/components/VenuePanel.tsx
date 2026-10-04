@@ -33,7 +33,7 @@ import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import {
   ATLAS_SHEET_TOP_INSET_PX,
-  CITY_VENUE_PANEL_BOTTOM_INSET_PX,
+  CITY_VENUE_PANEL_MAX_HEIGHT,
   CITY_VENUE_PANEL_WIDTH_PX,
   VENUE_PANEL_SHOW_ROWS,
   formatPanelShowDate,
@@ -428,11 +428,11 @@ export function VenuePanel({
           width: CITY_VENUE_PANEL_WIDTH_PX,
           // Bounded, not stretched. `bottom` would pin the panel to a fixed
           // height and leave a tall empty box under a two-show venue; a max
-          // gives the same floor-clearance guarantee (top inset + this max can
-          // never reach within CITY_VENUE_PANEL_BOTTOM_INSET_PX of the map's
-          // bottom edge, where the attribution control lives) while letting
-          // the panel shrink to what it actually has to say.
-          maxHeight: `calc(100% - 0.75rem - ${CITY_VENUE_PANEL_BOTTOM_INSET_PX}px)`,
+          // gives the same floor-clearance guarantee (top inset + this max
+          // stays clear of the bottom-left corner where the attribution
+          // control lives) while letting the panel shrink to what it actually
+          // has to say.
+          maxHeight: CITY_VENUE_PANEL_MAX_HEIGHT,
         }}
         className="absolute right-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-md border border-border bg-background/95 shadow-lg backdrop-blur"
       >
