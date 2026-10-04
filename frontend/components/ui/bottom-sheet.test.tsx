@@ -28,8 +28,8 @@ describe('bottomSheetHeightPx (the detent rule)', () => {
     expect(BOTTOM_SHEET_HALF_MIN_STEP_PX).toBe(48)
   })
 
-  // Hosts of the Atlas map pane: a short phone viewport (450, 551), a mid one
-  // (600) and a tall one (844). Expected values are the rule worked by hand:
+  // Host heights (the sheet's parent, not the viewport) across short, mid
+  // and tall panes. Expected values are the rule worked by hand:
   // Peek min(120, host - 112); Half min(400, 45% of host, host - 112); Full
   // min(660, host - 112). 45% of each of these hosts clears 120 + 48.
   it.each([
@@ -492,32 +492,63 @@ describe('BottomSheet', () => {
     expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('')
   })
 
-  it('labels the grabber Collapse when its tap would shrink the sheet', () => {
-    const observers: (() => void)[] = []
+  /**
+   * Swaps in a ResizeObserver whose callbacks the test fires by hand, each
+   * reporting the host at `contentHeightPx`. Returns the trigger and a restore.
+   */
+  function controlledResizeObserver() {
+    const observers: ((contentHeightPx: number) => void)[] = []
     const Original = window.ResizeObserver
     window.ResizeObserver = class {
-      constructor(private cb: () => void) {
-        observers.push(() => this.cb())
+      constructor(private cb: ResizeObserverCallback) {
+        observers.push((height) =>
+          this.cb(
+            [{ contentRect: { height } } as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          ),
+        )
       }
       observe() {}
       unobserve() {}
       disconnect() {}
     } as unknown as typeof ResizeObserver
+    return {
+      resize: (contentHeightPx: number) =>
+        act(() => observers.forEach((o) => o(contentHeightPx))),
+      restore: () => {
+        window.ResizeObserver = Original
+      },
+    }
+  }
+
+  it('labels the grabber Collapse when its tap would shrink the sheet', () => {
+    const ro = controlledResizeObserver()
     try {
       renderWithProviders(<Harness onClose={vi.fn()} defaultDetent="half" />)
       const sheet = screen.getByTestId('sheet')
       // A 300px host: Half renders at Full's height (188) over Peek's 120, so
       // from Half nothing is taller and the tap shrinks the sheet to Peek.
-      Object.defineProperty(sheet.parentElement!, 'clientHeight', {
-        configurable: true,
-        value: 300,
-      })
-      act(() => observers.forEach((o) => o()))
+      ro.resize(300)
       const grabber = screen.getByRole('button', { name: 'Collapse Chicago, IL scene' })
       fireEvent.click(grabber)
       expect(sheet).toHaveAttribute('data-detent', 'peek')
     } finally {
-      window.ResizeObserver = Original
+      ro.restore()
+    }
+  })
+
+  it('measures the host unrounded, as the CSS rule resolves it', () => {
+    const ro = controlledResizeObserver()
+    try {
+      renderWithProviders(<Harness onClose={vi.fn()} defaultDetent="half" />)
+      // 45% of 373.4 is 168.03, just past Peek plus the minimum step, so Half
+      // is the share and Full (261.4) is still a tap away; a host rounded to
+      // 373 would put Half at Full's height and the tap back to Peek.
+      ro.resize(373.4)
+      fireEvent.click(screen.getByRole('button', { name: 'Expand Chicago, IL scene' }))
+      expect(screen.getByTestId('sheet')).toHaveAttribute('data-detent', 'full')
+    } finally {
+      ro.restore()
     }
   })
 

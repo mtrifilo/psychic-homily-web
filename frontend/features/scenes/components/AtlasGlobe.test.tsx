@@ -1525,9 +1525,13 @@ describe('AtlasGlobe', () => {
         act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
         expect(sheet).toHaveAttribute('data-detent', 'peek')
 
+        // Back to Half, then a venue sheet over it: the hidden list keeps Half.
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Expand Chicago venues' }))
+        expect(sheet).toHaveAttribute('data-detent', 'half')
         act(() => lastCanvasProps.onVenueSelect?.(2))
         expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
         expect(sheet).toHaveClass('hidden')
+        expect(sheet).toHaveAttribute('data-detent', 'half')
         act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
         expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
         expect(sheet).not.toHaveClass('hidden')

@@ -244,10 +244,10 @@ test.describe('Atlas sheet layout under touch', () => {
 // short phone and a tall phone, at a width where the map renders in the sheet
 // layout. The rule is checked against each host as measured, and the host and
 // map area are recorded as annotations.
-for (const viewport of [
-  { width: 820, height: 480 },
-  { width: 820, height: 664 },
-  { width: 820, height: 844 },
+for (const { mergedHalf, ...viewport } of [
+  { width: 820, height: 480, mergedHalf: true },
+  { width: 820, height: 664, mergedHalf: false },
+  { width: 820, height: 844, mergedHalf: false },
 ]) {
   test.describe(`Atlas sheet detents at ${viewport.width}x${viewport.height}`, () => {
     test.use({ viewport })
@@ -272,6 +272,10 @@ for (const viewport of [
 
       await pullToHalf(page, 'atlas-venue-sheet')
       const half = await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
+      expect(
+        detentPx('half', half.host) === detentPx('full', half.host),
+        `Half ${mergedHalf ? 'takes' : 'stays under'} Full's height on this host`,
+      ).toBe(mergedHalf)
       await expect(page.getByTestId('venue-sheet-scope-line')).toBeVisible()
       expect(await creditUncovered(page)).toBe(true)
       test.info().annotations.push({

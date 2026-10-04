@@ -108,14 +108,23 @@ export function bottomSheetHeightPx(
 }
 
 /**
+ * How steeply Half's CSS switches from Full's height to the share: the step
+ * reaches Full's DS height (its clamp ceiling, so `full - step` falls to 0 or
+ * below) once the share is 660 / 10000 = 0.066px past the threshold. Kept
+ * small enough that the unclamped product stays far inside layout limits.
+ */
+const HALF_STEP_GAIN = 10000
+
+/**
  * The same rule as `bottomSheetHeightPx`, as a CSS length resolved against the
  * host's height. Lets the sheet (and anything a host positions above it)
  * render correctly before, or without, a layout measurement.
  *
  * Half's switch to Full's height is a step in CSS: `step` is 0px while the
- * share is below the threshold and saturates within a tenth of a pixel
- * above it, so `full - step` is Full's height below the threshold and falls
- * under the share's height above it, where `max` then picks the share.
+ * share is at or below the threshold, so `max` picks Full's height there. It
+ * climbs to Full's DS height over the next 0.066px of share (HALF_STEP_GAIN),
+ * the only band where the CSS renders between the two heights; past it
+ * `full - step` is at most 0 and `max` picks the share.
  */
 export function bottomSheetHeightCss(
   detent: BottomSheetDetent,
@@ -128,7 +137,7 @@ export function bottomSheetHeightCss(
   const share = `${BOTTOM_SHEET_HALF_HOST_PERCENT}%`
   const thresholdPx =
     BOTTOM_SHEET_DETENT_HEIGHT_PX.peek + BOTTOM_SHEET_HALF_MIN_STEP_PX
-  const step = `clamp(0px, (${share} - ${thresholdPx}px) * 10000, ${BOTTOM_SHEET_DETENT_HEIGHT_PX.full}px)`
+  const step = `clamp(0px, (${share} - ${thresholdPx}px) * ${HALF_STEP_GAIN}, ${BOTTOM_SHEET_DETENT_HEIGHT_PX.full}px)`
   return `max(min(${capped('half')}, ${share}), calc(${capped('full')} - ${step}))`
 }
 
@@ -289,13 +298,25 @@ export function BottomSheet({
   const sheetRef = useRef<HTMLElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const grabberRef = useRef<HTMLButtonElement | null>(null)
-  // The host's height, kept current so the grabber's label names what a tap
-  // will actually do. 0 until measured.
+  // The host's padding-box height, unrounded: the box the sheet's percentage
+  // heights resolve against, so the px rule (the grabber's target and label, a
+  // drag's settle) sees the height the CSS rule renders against. 0 until
+  // measured.
   const [hostHeight, setHostHeight] = useState(0)
+  const hostHeightRef = useRef(0)
   useEffect(() => {
     const host = sheetRef.current?.parentElement
     if (!host || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => setHostHeight(host.clientHeight))
+    const observer = new ResizeObserver(([entry]) => {
+      // An unresolved padding (jsdom reports '') counts as none.
+      const style = getComputedStyle(host)
+      const px =
+        entry.contentRect.height +
+        (parseFloat(style.paddingTop) || 0) +
+        (parseFloat(style.paddingBottom) || 0)
+      hostHeightRef.current = px
+      setHostHeight(px)
+    })
     observer.observe(host)
     return () => observer.disconnect()
   }, [])
@@ -414,7 +435,11 @@ export function BottomSheet({
       pointerId: e.pointerId,
       startY: e.clientY,
       startHeight: sheet.getBoundingClientRect().height,
-      hostHeight: sheet.parentElement?.clientHeight ?? 0,
+      // Before the first measurement the rounded clientHeight stands in.
+      hostHeight:
+        hostHeightRef.current > 0
+          ? hostHeightRef.current
+          : (sheet.parentElement?.clientHeight ?? 0),
       lastY: e.clientY,
       lastTime: e.timeStamp,
       velocity: 0,
