@@ -1,0 +1,124 @@
+[
+  {
+    "slug": "empty-bottle",
+    "page": "address_pages/empty-bottle.html",
+    "url": "https://www.emptybottle.com",
+    "kind": "website",
+    "venue": {"name": "Empty Bottle", "city": "Chicago", "state": "IL"},
+    "expected": ["1035 N Western Ave"],
+    "structured": true
+  },
+  {
+    "slug": "van-buren",
+    "page": "address_pages/van-buren.html",
+    "url": "https://www.thevanburenphx.com",
+    "kind": "website",
+    "venue": {"name": "The Van Buren", "city": "Phoenix", "state": "AZ"},
+    "expected": ["401 W Van Buren St"],
+    "structured": true
+  },
+  {
+    "slug": "moth-club-no-house-number",
+    "page": "address_pages/moth-club.html",
+    "url": "https://mothclub.co.uk/",
+    "kind": "website",
+    "venue": {"name": "Moth Club", "city": "London", "state": "England"},
+    "expected": []
+  },
+  {
+    "slug": "hi-dive",
+    "page": "address_pages/hi-dive.html",
+    "url": "https://hi-dive.com",
+    "kind": "website",
+    "venue": {"name": "Hi-Dive", "city": "Denver", "state": "CO"},
+    "expected": ["7 South Broadway"]
+  },
+  {
+    "slug": "zebulon",
+    "page": "address_pages/zebulon.html",
+    "url": "https://zebulon.la",
+    "kind": "website",
+    "venue": {"name": "Zebulon", "city": "Los Angeles", "state": "CA"},
+    "expected": ["2478 Fletcher Drive"]
+  },
+  {
+    "slug": "thalia-hall",
+    "page": "address_pages/thalia-hall.html",
+    "url": "https://www.thaliahallchicago.com",
+    "kind": "website",
+    "venue": {"name": "Thalia Hall", "city": "Chicago", "state": "IL"},
+    "expected": ["1807 S. Allport St"]
+  },
+  {
+    "slug": "sleeping-village",
+    "page": "address_pages/sleeping-village.html",
+    "url": "https://sleeping-village.com",
+    "kind": "website",
+    "venue": {"name": "Sleeping Village", "city": "Chicago", "state": "IL"},
+    "expected": ["3734 W. Belmont Ave"]
+  },
+  {
+    "slug": "metro-baltimore",
+    "page": "address_pages/metro-baltimore.html",
+    "url": "https://metrobmore.com",
+    "kind": "website",
+    "venue": {"name": "Metro Baltimore", "city": "Baltimore", "state": "MD"},
+    "expected": ["1700 North Charles Street"]
+  },
+  {
+    "slug": "cactus-club",
+    "page": "address_pages/cactus-club.html",
+    "url": "https://www.cactusclubmilwaukee.com",
+    "kind": "website",
+    "venue": {"name": "Cactus Club", "city": "Milwaukee", "state": "WI"},
+    "expected": ["2496 S. Wentworth Avenue"]
+  },
+  {
+    "slug": "lh-st-schubas",
+    "page": "address_pages/lh-st.html",
+    "url": "https://lh-st.com/",
+    "kind": "website",
+    "venue": {"name": "Schubas Tavern", "city": "Chicago", "state": "IL"},
+    "expected": ["3159 N Southport Ave"]
+  },
+  {
+    "slug": "lh-st-lincoln-hall",
+    "page": "address_pages/lh-st.html",
+    "url": "https://lh-st.com/",
+    "kind": "website",
+    "venue": {"name": "Lincoln Hall", "city": "Chicago", "state": "IL"},
+    "expected": ["2424 N Lincoln Ave"]
+  },
+  {
+    "slug": "new-cross-inn",
+    "page": "address_pages/new-cross-inn.html",
+    "url": "https://www.newcrossinn.com/",
+    "kind": "website",
+    "venue": {"name": "New Cross Inn", "city": "London", "state": "England"},
+    "expected": ["323 New Cross Rd", "323 New Cross Road"]
+  },
+  {
+    "slug": "boom-leeds",
+    "page": "address_pages/boom-leeds.html",
+    "url": "https://www.boomleeds.com",
+    "kind": "website",
+    "venue": {"name": "Boom Leeds", "city": "Leeds", "state": "England"},
+    "expected": ["5 Canal Place", "5 Canal Place, Armley Road"]
+  },
+  {
+    "slug": "walter-studios",
+    "page": "address_pages/walter-studios.html",
+    "url": "https://walterstudios.com/",
+    "kind": "website",
+    "venue": {"name": "Walter Studios", "city": "Phoenix", "state": "AZ"},
+    "expected": ["747 W Roosevelt Street"]
+  },
+  {
+    "slug": "club-congress",
+    "page": "address_pages/club-congress.html",
+    "url": "https://hotelcongress.com",
+    "kind": "website",
+    "venue": {"name": "Club Congress", "city": "Tucson", "state": "AZ"},
+    "expected": ["311 East Congress St"]
+  }
+]

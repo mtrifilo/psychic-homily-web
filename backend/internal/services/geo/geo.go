@@ -353,6 +353,24 @@ func (g *offlineGeocoder) countryToISO(s string) (string, bool) {
 	return "", false
 }
 
+// ResolveCountryISO returns the ISO 3166-1 alpha-2 code a venue's state and
+// country fields denote, read the way the offline geocoder reads them (a US
+// state code wins, then the country field, then a Canadian province or an ISO
+// code in the state field). Empty when neither field identifies a country.
+func ResolveCountryISO(state, country string) string {
+	Default()
+	iso, _ := defaultGeo.resolveCountry(state, country)
+	return iso
+}
+
+// FoldPlaceName normalizes a name the way the geocoder keys places: diacritics
+// stripped, lowercased, punctuation collapsed to single spaces, and the
+// St./Ft./Mt. abbreviations expanded. Comparing two folded names is the
+// supported way to ask whether they spell the same thing.
+func FoldPlaceName(s string) string {
+	return foldKey(s)
+}
+
 // IsUSStateCode reports whether s, trimmed and in any case, is one of the 50
 // US state codes or DC: the set resolveCountry reads a US place from.
 func IsUSStateCode(s string) bool {

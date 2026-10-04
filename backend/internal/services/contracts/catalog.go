@@ -926,7 +926,7 @@ type VenueDetailResponse struct {
 	// DIY/house venues from being street-mapped before human review).
 	StreetLatitude   *float64       `json:"street_latitude,omitempty"`
 	StreetLongitude  *float64       `json:"street_longitude,omitempty"`
-	GeocodePrecision *string        `json:"geocode_precision,omitempty"` // rooftop|interpolated|city
+	GeocodePrecision *string        `json:"geocode_precision,omitempty"` // rooftop|interpolated|city|name_search
 	Timezone         *string        `json:"timezone"`                    // IANA zone resolved from location (PSY-985)
 	Zipcode          *string        `json:"zipcode"`
 	Capacity         *int           `json:"capacity"`   // Venue capacity (PSY-1179); not redacted for unverified venues

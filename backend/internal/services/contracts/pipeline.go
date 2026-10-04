@@ -51,6 +51,29 @@ type ExtractedArtist struct {
 	Suggestions     []MatchSuggestion `json:"suggestions,omitempty"`
 }
 
+// VenueAddressExtractionRequest asks the AI extraction path for the street
+// address one named venue has printed on one page. PageText is the page's
+// visible text, already reduced to what fits the prompt.
+type VenueAddressExtractionRequest struct {
+	VenueName string
+	City      string
+	State     string
+	PageURL   string
+	PageText  string
+}
+
+// VenueAddressExtraction is the extracted venue_address. Found is false when
+// the page does not print that venue's street address; the other fields are
+// then empty. City, State, and PostalCode are only what the page prints beside
+// the street line, so any of them may be empty on a hit.
+type VenueAddressExtraction struct {
+	Found      bool
+	Street     string
+	City       string
+	State      string
+	PostalCode string
+}
+
 // ExtractedVenue represents an extracted venue with optional DB match
 type ExtractedVenue struct {
 	Name        string                 `json:"name"`
