@@ -225,6 +225,24 @@ describe('AtlasSearch getListMinTopPx', () => {
     await expectListTranslateY(112)
   })
 
+  it('follows a docked element drawn and emptied by class while the list is open', async () => {
+    let credit: HTMLElement | null = null
+    const trigger = renderWithLine(() =>
+      credit && !credit.classList.contains('empty') ? 112 : undefined,
+    )
+    act(() => {
+      credit = document.createElement('div')
+      credit.className = 'empty'
+      trigger.parentElement!.appendChild(credit)
+    })
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+    act(() => credit!.classList.remove('empty'))
+    await expectListTranslateY(112)
+    act(() => credit!.classList.add('empty'))
+    await expectListTranslateY(4)
+  })
+
   it('gives the line up while the keyboard is up, and takes it back when it falls', async () => {
     // Floating UI positions against the visual viewport too, so the stand-in
     // carries every field it reads.
