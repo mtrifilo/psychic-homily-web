@@ -10,9 +10,10 @@
 //
 // Output: one Feature with one MultiPolygon (properties dropped, coordinates
 // rounded to COORD_DECIMALS, consecutive duplicate vertices removed, rings
-// that collapse below four positions dropped). 0.01 degree is about 1 km:
-// under a pixel below z5.5, where the land layer is fully opaque, and under
-// two pixels at z7, where it has faded out.
+// that collapse below four positions dropped). 0.01 degree is about 1 km: at
+// the equator, under a pixel below z5.5 (where the land layer is fully
+// opaque) and under two at z7 (where it has faded out); the globe magnifies
+// by 1/cos(latitude), so about 2.5 px at Chicago at z7.
 //
 // Usage:
 //   node scripts/atlas-globe-land.mjs ne_110m_land.geojson > public/atlas/globe-land-110m.geojson

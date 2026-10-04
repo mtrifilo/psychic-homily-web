@@ -79,7 +79,7 @@
  * OpenFreeMap vector source, the NASA GIBS raster, and the light globe's land
  * file (`globeLand`, one same-origin GeoJSON request whose failure leaves a
  * compact viewport's globe without continents). Everything else is
- * ignored — the other GeoJSON sources (`scenes`, `scene-rings`, `venues`) are
+ * ignored: the other GeoJSON sources (`scenes`, `scene-rings`, `venues`) are
  * fed from local data and fetch nothing, and a map-level error carries no
  * `sourceId` at all. Each source is tagged with its own `basemap_source` and
  * throttled in its own slot, so a total GIBS outage and a total OpenFreeMap

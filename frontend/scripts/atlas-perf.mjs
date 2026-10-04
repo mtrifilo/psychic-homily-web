@@ -56,7 +56,8 @@
 //     `window.__atlasMap` seam. MapLibre's `idle` event never fires on /atlas
 //     (the pulse rings repaint every frame), so it is not used.
 //   - Compact viewports (narrower than 1024px) must request no night-earth
-//     raster tile: one raster request fails the run.
+//     raster tile at any point in the run (entry or city view, finished or
+//     not): one raster request fails the run.
 //   - Entry bytes: every request that finished between navigation and
 //     first rendered map + SETTLE_MS, on the wire (encoded body + headers,
 //     from Playwright's request.sizes()), each URL counted once per resource
@@ -187,11 +188,15 @@ function summarize(requests) {
 // The readiness gate, defined once in the page and used for both the entry
 // and the city view. The entry poll runs in the top frame every 50 ms, so the
 // timestamp is the page's own clock (ms since navigation start), and reports
-// once through an exposed binding. The poll itself is a small cost inside the
-// measured window: the cheap checks short-circuit queryRenderedFeatures until
-// style and tiles are loaded.
+// once through an exposed binding (or reports the scene list, when the build
+// renders that instead of a map). The poll itself is a small cost inside the
+// measured window: until the map exists it adds a text check every 500 ms,
+// and the cheap map checks short-circuit queryRenderedFeatures until style
+// and tiles load.
 const READINESS_PROBE = `(() => {
   if (window !== window.top) return
+  const sceneListShown = () =>
+    !!document.body && document.body.textContent.includes(${JSON.stringify(SCENE_LIST_TEXT)})
   window.__atlasPerfReady = () => {
     const m = window.__atlasMap
     if (!m) return false
@@ -201,8 +206,11 @@ const READINESS_PROBE = `(() => {
       return false
     }
   }
+  let polls = 0
   const poll = () => {
+    polls++
     if (window.__atlasPerfReady()) window.__atlasPerfFirstMap(performance.now())
+    else if (!window.__atlasMap && polls % 10 === 0 && sceneListShown()) window.__atlasPerfFirstMap('scene-list')
     else setTimeout(poll, 50)
   }
   poll()
@@ -262,13 +270,18 @@ async function oneRun(browser, opts) {
     }
   })
   const finished = () => [...byKey.values()]
+  // Raster requests are counted when ISSUED, for the whole run: a tile request
+  // aborted by a late hide, or failed by an unreachable host, never reaches
+  // requestfinished but still left the page.
+  const rasterRequested = new Set()
+  context.on('request', (request) => {
+    if (category({ url: request.url(), type: request.resourceType() }) === 'raster') {
+      rasterRequested.add(request.url())
+    }
+  })
 
   await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
-  const sceneList = page
-    .getByText(SCENE_LIST_TEXT)
-    .waitFor({ timeout: READY_TIMEOUT_MS })
-    .then(() => 'scene-list', () => null)
-  const firstMapMs = await Promise.race([firstMapReported, sceneList, timeout(READY_TIMEOUT_MS)])
+  const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
     throw new Error('the page rendered the Atlas scene list, not the map: this build gates the map below 640px wide (see the header)')
@@ -315,6 +328,7 @@ async function oneRun(browser, opts) {
     entry: summarize(entry),
     city: { readyMs: Math.round(cityMs), ...summarize(city) },
     renderer,
+    rasterRequests: rasterRequested.size,
     requests: { entry, city },
   }
 }
@@ -391,7 +405,7 @@ const verdict = {
 verdict.firstMapOk = verdict.firstMapMs <= BUDGET.firstMapMs
 verdict.entryOk = verdict.entryBytes <= BUDGET.entryBytes
 verdict.compact = contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH
-verdict.rasterRequests = Math.max(...runs.map((r) => r.entry.byCategory.raster?.requests ?? 0))
+verdict.rasterRequests = Math.max(...runs.map((r) => r.rasterRequests))
 verdict.rasterOk = !verdict.compact || verdict.rasterRequests === 0
 printReport(opts, runs, verdict)
 if (opts.json) {

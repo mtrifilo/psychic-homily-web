@@ -98,8 +98,8 @@ function zoomRamp(
  *
  * Why the background ramps: it is the street style's ground, and the ramp is
  * the mirror of the globe surface's fade-out, so the ground is the globe
- * surface at globe zooms and the street background at street zooms, with the
- * two summing to opaque across the handoff. On the globe projection MapLibre
+ * surface at globe zooms and the street background at street zooms, with
+ * complementary opacities across the handoff. On the globe projection MapLibre
  * draws a background layer on the sphere only, not the whole viewport, so
  * space around the globe stays transparent for the CSS starfield either way.
  *
