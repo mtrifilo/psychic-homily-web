@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -177,6 +179,38 @@ func TestFixtures_FinderAcceptsTheCorrectAnswer(t *testing.T) {
 				t.Fatalf("method = %q, want %q", res.Method, MethodAI)
 			}
 		})
+	}
+}
+
+// failingPages fails every fetch the same way.
+type failingPages struct{ err error }
+
+func (p failingPages) Fetch(context.Context, string) (*Page, error) { return nil, p.err }
+
+// failingAI fails every extraction call.
+type failingAI struct{}
+
+func (failingAI) ExtractVenueAddress(context.Context, contracts.VenueAddressExtractionRequest) (*contracts.VenueAddressExtraction, error) {
+	return nil, errors.New("anthropic API error (status 529)")
+}
+
+// TestFinder_TransientFailuresAreErrorsAndDefinitiveOnesAreMisses pins the
+// contract the backfill relies on: a transient fetch or AI failure makes Find
+// return an error (never recorded), and a definitive one is a clean miss.
+func TestFinder_TransientFailuresAreErrorsAndDefinitiveOnesAreMisses(t *testing.T) {
+	v := Venue{Name: "Lincoln Hall", City: "Chicago", State: "IL"}
+	src := []Source{{URL: "https://lh.example", Kind: SourceWebsite}}
+
+	if _, err := NewFinder(failingPages{errors.New("request failed: timeout")}, nil).Find(context.Background(), v, src); err == nil {
+		t.Fatal("a transient fetch failure must be an error")
+	}
+	res, err := NewFinder(failingPages{fmt.Errorf("%w: status 404", ErrUnavailable)}, nil).Find(context.Background(), v, src)
+	if err != nil || res.Found {
+		t.Fatalf("a definitive failure is a clean miss: res=%+v err=%v", res, err)
+	}
+	pages := fixturePages{"https://lh.example": []byte("<p>Lincoln Hall, 2424 N Lincoln Ave</p>")}
+	if _, err := NewFinder(pages, failingAI{}).Find(context.Background(), v, src); err == nil {
+		t.Fatal("a failed AI call must be an error, not a miss")
 	}
 }
 

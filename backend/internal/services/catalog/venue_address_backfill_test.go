@@ -793,3 +793,98 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyRebuilds
 	suite.Equal(1, result.Written, "a show passing after the lookup does not change the row's key")
 	suite.Equal("1 Main St", *suite.loadVenue(v.ID).Address)
 }
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyMoreRefusals() {
+	nopage := suite.seedAddresslessVenue("Pages Gone", "Chicago", "IL", "https://gone.example", 0)
+	twice := suite.seedAddresslessVenue("Lincoln Hall", "Chicago", "IL", "https://lh.example", 0)
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{
+		"Pages Gone":   pageHit("1 Main St", "https://gone.example"),
+		"Lincoln Hall": {Notes: []string{"no address"}},
+	}}
+	places := &stubPlaces{results: map[string][]geo.PlaceCandidate{"Lincoln Hall": {lincolnHallCandidate()}}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder, Places: places, Geocoder: hitStub(41.9, -87.6, geo.PrecisionRooftop), AIEnabled: true}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+
+	// The venue loses its only page after the lookup.
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", nopage.ID).Update("website", nil).Error)
+	reviewed := suite.roundTrip(report)
+	// The reviewer turns the Lincoln Hall page miss into a hit of its own and
+	// approves both rows for that venue: the first write wins, the second is
+	// refused as already written.
+	pageRow := rowFor(reviewed, "Lincoln Hall", "page")
+	pageRow.Outcome, pageRow.WouldWrite, pageRow.Address, pageRow.LookedUpAddress, pageRow.Geocode =
+		catalogm.VenueAddressOutcomeHit, true, "2424 N Lincoln Ave", "2424 N Lincoln Ave", GeocodeNone
+	result, err := (&VenueAddressBackfill{DB: suite.db}).Apply(context.Background(), reviewed)
+	suite.Require().NoError(err)
+	reasons := map[string][]string{}
+	for _, r := range result.Rows {
+		reasons[r.Name] = append(reasons[r.Name], r.Action+": "+r.Reason)
+	}
+	suite.Contains(strings.Join(reasons["Pages Gone"], " "), "no pages")
+	suite.Equal(1, result.Written)
+	suite.Contains(strings.Join(reasons["Lincoln Hall"], " "), "already wrote this venue")
+	suite.Equal("2424 N Lincoln Ave", *suite.loadVenue(twice.ID).Address)
+	suite.Nil(suite.loadVenue(nopage.ID).Address)
+}
+
+func TestApplyColumns_RefusesMalformedRows(t *testing.T) {
+	v := &catalogm.Venue{Name: "X", City: "Chicago", State: "IL"}
+	lat, lng := 41.9, -87.6
+	base := VenueAddressRow{Phase: "page", Address: "1 Main St", LookedUpAddress: "1 Main St", Geocode: GeocodeHit,
+		Precision: geo.PrecisionRooftop, Latitude: &lat, Longitude: &lng}
+	tests := []struct {
+		name   string
+		mutate func(*VenueAddressRow)
+		want   string
+	}{
+		{"valid", func(*VenueAddressRow) {}, ""},
+		{"empty address", func(r *VenueAddressRow) { r.Address, r.LookedUpAddress = " ", " " }, "empty or too long"},
+		{"over-long address", func(r *VenueAddressRow) {
+			r.Address = strings.Repeat("a", maxAddressLen+1)
+			r.LookedUpAddress = r.Address
+		}, "empty or too long"},
+		{"unknown geocode", func(r *VenueAddressRow) { r.Geocode = "guess" }, "not a known outcome"},
+		{"name row with no point", func(r *VenueAddressRow) { r.Phase, r.Geocode = "name", GeocodeNone }, "matched point"},
+		{"name row with a page precision", func(r *VenueAddressRow) { r.Phase = "name" }, "precision"},
+		{"missing coordinates", func(r *VenueAddressRow) { r.Latitude = nil }, "coordinates"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := base
+			tt.mutate(&row)
+			updates, why := applyColumns(v, row)
+			if tt.want == "" {
+				if why != "" || updates["street_latitude"] != lat || updates["address"] != "1 Main St" {
+					t.Fatalf("updates=%v why=%q", updates, why)
+				}
+				return
+			}
+			if !strings.Contains(why, tt.want) {
+				t.Fatalf("why = %q, want it to contain %q", why, tt.want)
+			}
+		})
+	}
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_LookupFailureNotes() {
+	suite.seedAddresslessVenue("Search Fails", "Chicago", "IL", "", 0)
+	geoErr := suite.seedAddresslessVenue("Geocode Fails", "Chicago", "IL", "https://g.example", 0)
+	_ = geoErr
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{"Geocode Fails": pageHit("1 Main St", "https://g.example")}}
+	report, err := (&VenueAddressBackfill{
+		DB: suite.db, Pages: finder, Places: &stubPlaces{err: errors.New("nominatim: status 503")},
+		Geocoder: &stubAddressGeocoder{err: errors.New("nominatim: status 503")}, AIEnabled: true,
+	}).Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+	s := rowFor(report, "Search Fails", "name")
+	suite.Equal(VenueAddressError, s.Outcome)
+	suite.Contains(s.Notes[0], "search failed")
+	g := rowFor(report, "Geocode Fails", "page")
+	suite.Equal(GeocodeNone, g.Geocode)
+	suite.Contains(strings.Join(g.Notes, " "), "street geocode failed")
+
+	report, err = (&VenueAddressBackfill{DB: suite.db, Pages: finder, AIEnabled: true}).Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+	suite.Contains(strings.Join(rowFor(report, "Geocode Fails", "page").Notes, " "), "no street geocoder configured")
+}

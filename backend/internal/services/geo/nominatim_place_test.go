@@ -71,7 +71,7 @@ func TestSearchPlaces_EmptyNameMakesNoRequest(t *testing.T) {
 	}
 }
 
-func TestSearchPlaces_RetriesThenFails(t *testing.T) {
+func TestSearchPlaces_NonRetryableStatusFailsFast(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
@@ -84,6 +84,22 @@ func TestSearchPlaces_RetriesThenFails(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("a non-retryable status must not be retried; calls = %d", calls)
+	}
+}
+
+func TestSearchPlaces_RetriesOn429ThenSucceeds(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"lat":"1","lon":"2","category":"amenity","type":"bar","name":"X"}]`))
+	}))
+	defer srv.Close()
+	cands, err := newTestClient(srv.URL).SearchPlaces(context.Background(), PlaceQuery{Name: "X", City: "Y"})
+	if err != nil || len(cands) != 1 || calls != 2 {
+		t.Fatalf("cands=%v err=%v calls=%d, want one candidate after one retry", cands, err, calls)
 	}
 }
 

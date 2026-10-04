@@ -1,9 +1,38 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"psychic-homily-backend/internal/services/catalog"
 )
+
+func TestWriteReport_OwnerOnlyFilesForEitherSpelling(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "addr")
+	// An existing world-readable file is replaced and made owner-only.
+	if err := os.WriteFile(base+".json", []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &catalog.VenueAddressReport{Phases: map[string]*catalog.VenueAddressPhaseTotals{}}
+	if err := writeReport(r, base+".json"); err != nil {
+		t.Fatalf("writeReport: %v", err)
+	}
+	for _, p := range []string{base + ".md", base + ".json"} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Fatalf("%s mode = %o, want 600", p, mode)
+		}
+	}
+	if b, _ := os.ReadFile(base + ".json"); strings.Contains(string(b), "old") {
+		t.Fatal("the existing file was not replaced")
+	}
+}
 
 func TestValidateFlags(t *testing.T) {
 	tests := []struct {
