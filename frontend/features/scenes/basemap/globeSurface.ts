@@ -149,12 +149,19 @@ const landRequested = new WeakSet<object>()
 // load. Resolves to the parsed collection, or null after a failed or unusable
 // response (the map then fetches the file itself).
 let landPrefetch: Promise<GeoJSON.FeatureCollection | null> | null = null
+// Whether the prefetch has settled, and whether a map has given up waiting on
+// it. Once a wait has run out, later maps stop waiting on a still-unsettled
+// prefetch and fetch the file themselves straight away; a prefetch that
+// settles after that is used again from then on.
+let landPrefetchSettled = false
+let landPrefetchWaitExpired = false
 
 // How long a map waits on an unfinished prefetch before fetching the file
-// itself. The clock starts when the map starts waiting, and the prefetch is
-// not cancelled, so a slow transfer is never thrown away; only a stalled one
-// costs a second download.
+// itself. The clock starts when the map starts waiting. The prefetch is not
+// cancelled: a map whose wait runs out pays for a second download, and the
+// prefetch, once it lands, still serves the maps built after it.
 const LAND_PREFETCH_WAIT_MS = 10_000
+const WAIT_EXPIRED = Symbol('wait expired')
 
 /**
  * Starts fetching the land file before any map exists, so a map that shows
@@ -173,6 +180,9 @@ export function prefetchGlobeLand(): void {
         : null,
     )
     .catch(() => null)
+    .finally(() => {
+      landPrefetchSettled = true
+    })
 }
 
 type LandSource = { setData(data: string | GeoJSON.FeatureCollection): unknown }
@@ -189,11 +199,13 @@ export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): voi
     const source = map.getSource(GLOBE_LAND_SOURCE_ID) as LandSource | undefined
     if (source) {
       landRequested.add(map)
-      if (landPrefetch) {
-        const waited = new Promise<null>((resolve) =>
-          setTimeout(() => resolve(null), LAND_PREFETCH_WAIT_MS),
+      if (landPrefetch && (landPrefetchSettled || !landPrefetchWaitExpired)) {
+        const waited = new Promise<typeof WAIT_EXPIRED>((resolve) =>
+          setTimeout(() => resolve(WAIT_EXPIRED), LAND_PREFETCH_WAIT_MS),
         )
-        void Promise.race([landPrefetch, waited]).then((data) => {
+        void Promise.race([landPrefetch, waited]).then((result) => {
+          if (result === WAIT_EXPIRED) landPrefetchWaitExpired = true
+          const data = result === WAIT_EXPIRED ? null : result
           // A map removed while the prefetch was in flight no longer owns this
           // source (a removed map has no style, so getSource answers
           // undefined); data sent to it would reach the worker for a map that

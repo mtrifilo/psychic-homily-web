@@ -277,20 +277,46 @@ describe('prefetchGlobeLand', () => {
     expect(setData).not.toHaveBeenCalled()
   })
 
-  it('waits 10 s on an unfinished prefetch, then fetches the URL without cancelling it', async () => {
+  it('waits 10 s on an unfinished prefetch, then fetches the URL; later maps skip the wait', async () => {
     vi.useFakeTimers()
     try {
-      const fetchMock = stubFetch(() => new Promise(() => {}))
+      stubFetch(() => new Promise(() => {}))
       const mod = await freshModule()
       mod.prefetchGlobeLand()
-      const { map, setData } = fakeMap()
-      mod.showGlobeSurface(map, true)
+      const first = fakeMap()
+      mod.showGlobeSurface(first.map, true)
       await vi.advanceTimersByTimeAsync(9_999)
-      expect(setData).not.toHaveBeenCalled()
+      expect(first.setData).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
-      expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
-      // The prefetch request carries no abort signal.
-      expect(fetchMock.mock.calls[0][1]).toBeUndefined()
+      expect(first.setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+
+      const second = fakeMap()
+      mod.showGlobeSurface(second.map, true)
+      expect(second.setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not cancel a slow prefetch: once it lands, later maps take its data', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveFetch: (value: unknown) => void = () => {}
+      const fetchMock = stubFetch(() => new Promise((resolve) => (resolveFetch = resolve)))
+      const mod = await freshModule()
+      mod.prefetchGlobeLand()
+      const first = fakeMap()
+      mod.showGlobeSurface(first.map, true)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(first.setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+
+      resolveFetch({ ok: true, json: () => Promise.resolve(LAND) })
+      await vi.advanceTimersByTimeAsync(0)
+      const later = fakeMap()
+      mod.showGlobeSurface(later.map, true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(later.setData).toHaveBeenCalledWith(LAND)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }

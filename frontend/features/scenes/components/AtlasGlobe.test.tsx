@@ -303,6 +303,17 @@ describe('AtlasGlobe', () => {
       expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
     })
 
+    it('starts loading it while the camera focus waits on visitor geo, scenes already loaded', () => {
+      setMockContainerWidth(1200)
+      // The geo lookup never answers, so the focus stays pending (within
+      // the geo timeout) and the canvas cannot render yet.
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
+    })
+
     it('never fetches the canvas module where the scene list renders instead', () => {
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       renderWithProviders(<AtlasGlobe />)
