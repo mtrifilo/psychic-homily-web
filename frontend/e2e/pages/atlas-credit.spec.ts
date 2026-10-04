@@ -1,9 +1,10 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 import {
-  PHOENIX,
   creditReport,
+  dismissBanner,
   jumpToPhoenix,
+  phoenixDotPoint,
   stubAtlas,
   waitForMap,
   type AtlasMapSeam,
@@ -105,12 +106,7 @@ async function jumpToStreetBasemap(page: Page) {
 
 /** A tap or click on the Phoenix scene dot, through the map's own projection. */
 async function pressSceneDot(page: Page, how: 'tap' | 'click') {
-  const point = await page.evaluate(({ lng, lat }) => {
-    const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
-    const p = m.project([lng, lat])
-    const r = m.getCanvas().getBoundingClientRect()
-    return { x: r.left + p.x, y: r.top + p.y }
-  }, PHOENIX)
+  const point = await phoenixDotPoint(page)
   if (how === 'tap') await page.touchscreen.tap(point.x, point.y)
   else await page.mouse.click(point.x, point.y)
 }
@@ -125,11 +121,6 @@ async function stepDetent(page: Page, sheetTestId: string, to: string) {
   await expect
     .poll(() => sheet.evaluate((el) => el.getAnimations().length))
     .toBe(0)
-}
-
-async function dismissBanner(page: Page) {
-  await page.getByRole('button', { name: 'Reject All' }).tap()
-  await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
 }
 
 // Fixme while AtlasGlobe's 640px gate renders MobileSceneList at these widths

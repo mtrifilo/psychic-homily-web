@@ -1,13 +1,12 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 import {
-  PHOENIX,
   creditUncovered,
   dismissBanner,
   jumpToPhoenix,
+  phoenixDotPoint,
   stubAtlas,
   waitForMap,
-  type AtlasMapSeam,
 } from '../helpers/atlas'
 
 /**
@@ -53,16 +52,21 @@ async function touchDrag(page: Page, x: number, fromY: number, toY: number) {
 
 type Detent = 'peek' | 'half' | 'full'
 
-// The detent rule (bottomSheetHeightPx in components/ui/bottom-sheet.tsx) with
-// the Atlas's top inset (ATLAS_SHEET_TOP_INSET_PX in features/scenes/cityView.ts):
-// Peek 120 and Full 660, Half 45% of the host but at most 400 and at least
-// 120, each capped at the host's height minus the inset.
+// The detent rule (bottomSheetHeightPx, BOTTOM_SHEET_DETENT_HEIGHT_PX and
+// BOTTOM_SHEET_HALF_HOST_PERCENT in components/ui/bottom-sheet.tsx) with the
+// Atlas's top inset (ATLAS_SHEET_TOP_INSET_PX in features/scenes/cityView.ts):
+// Peek and Full at their DS heights, Half a share of the host between Peek's
+// height and its own DS ceiling, each capped at the host minus the inset.
+const PEEK_PX = 120
+const HALF_MAX_PX = 400
+const HALF_HOST_PERCENT = 45
+const FULL_PX = 660
 const ATLAS_SHEET_TOP_INSET_PX = 112
 function detentPx(detent: Detent, hostPx: number) {
   const cap = Math.max(0, hostPx - ATLAS_SHEET_TOP_INSET_PX)
-  if (detent === 'peek') return Math.min(120, cap)
-  if (detent === 'full') return Math.min(660, cap)
-  return Math.min(400, Math.max(hostPx * 0.45, 120), cap)
+  if (detent === 'peek') return Math.min(PEEK_PX, cap)
+  if (detent === 'full') return Math.min(FULL_PX, cap)
+  return Math.min(HALF_MAX_PX, Math.max((hostPx * HALF_HOST_PERCENT) / 100, PEEK_PX), cap)
 }
 
 /** The sheet's host (its parent, the map pane) height in CSS px. */
@@ -81,10 +85,13 @@ async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
   await expect(sheet).not.toHaveAttribute('data-dragging', 'true')
   const host = await hostHeight(page, testId)
   const expected = detentPx(detent, host)
+  let height = 0
   await expect
-    .poll(() => sheet.evaluate((el) => el.getBoundingClientRect().height))
+    .poll(async () => {
+      height = await sheet.evaluate((el) => el.getBoundingClientRect().height)
+      return height
+    })
     .toBeCloseTo(expected, 0)
-  const height = await sheet.evaluate((el) => el.getBoundingClientRect().height)
   return { host, height }
 }
 
@@ -93,13 +100,10 @@ async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
  * dot has stopped moving on screen (the map resizes when the banner leaves).
  */
 async function tapSceneDot(page: Page) {
-  const dotPoint = () =>
-    page.evaluate(({ lng, lat }) => {
-      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
-      const p = m.project([lng, lat])
-      const r = m.getCanvas().getBoundingClientRect()
-      return { x: Math.round(r.left + p.x), y: Math.round(r.top + p.y) }
-    }, PHOENIX)
+  const dotPoint = async () => {
+    const p = await phoenixDotPoint(page)
+    return { x: Math.round(p.x), y: Math.round(p.y) }
+  }
   let point = await dotPoint()
   await expect
     .poll(async () => {
@@ -254,7 +258,10 @@ for (const viewport of [
 
       await pullUp(page, 'atlas-venue-sheet', 150)
       const half = await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
-      expect(half.height, 'Half is 45% of the host here').toBeCloseTo(half.host * 0.45, 0)
+      expect(half.height, 'Half is its share of the host here').toBeCloseTo(
+        (half.host * HALF_HOST_PERCENT) / 100,
+        0,
+      )
       await expect(page.getByTestId('venue-sheet-scope-line')).toBeVisible()
       expect(await creditUncovered(page)).toBe(true)
       test.info().annotations.push({

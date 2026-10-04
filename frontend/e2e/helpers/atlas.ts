@@ -135,6 +135,16 @@ export async function dismissBanner(page: Page) {
   await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
 }
 
+/** The Phoenix scene dot's position in the viewport, through the map's own projection. */
+export function phoenixDotPoint(page: Page) {
+  return page.evaluate(({ lng, lat }) => {
+    const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+    const p = m.project([lng, lat])
+    const r = m.getCanvas().getBoundingClientRect()
+    return { x: r.left + p.x, y: r.top + p.y }
+  }, PHOENIX)
+}
+
 /** Moves the camera over Phoenix at `zoom`, synchronously. */
 export async function jumpToPhoenix(page: Page, zoom: number) {
   await page.evaluate(
