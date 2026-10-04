@@ -337,8 +337,12 @@ function captureSourceFailure({
       // `basemap_status` is 0 for a network-level failure (DNS, blocked, or a
       // client connection that dropped without `navigator.onLine` catching
       // it) and an HTTP status otherwise, so it also separates the AJAX cases
-      // from a style or worker error, which report 'none'. Triage a spike of
-      // status 0 as "could be either end" rather than a confirmed outage.
+      // from a style or worker error, which report 'none'. For 'globePlaces'
+      // (fetched by the app, not by a map), 0 also covers a request that ran
+      // past its deadline, and 'none' means the response arrived but its body
+      // was not a usable FeatureCollection (an HTML fallback page, a
+      // truncated file). Triage a spike of status 0 as "could be either end"
+      // rather than a confirmed outage.
       basemap_source: sourceId,
       basemap_host: host,
       basemap_status: status ?? 'none',

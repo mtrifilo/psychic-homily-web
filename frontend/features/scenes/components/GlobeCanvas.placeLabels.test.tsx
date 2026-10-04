@@ -6,7 +6,6 @@ import { clearAtlasCamera } from './atlasCamera'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import * as globeSurface from '../basemap/globeSurface'
-import { GLOBE_PLACES_DATA_URL } from '../basemap/globeSurface'
 import { reportGlobePlacesFailure } from '../basemap/basemapTelemetry'
 
 vi.mock('../basemap/basemapTelemetry', async (importOriginal) => ({
@@ -207,16 +206,11 @@ describe('GlobeCanvas place labels', () => {
       const width = (this.textContent ?? '').length * 6
       return { left: 0, top: 0, right: width, bottom: 12, width, height: 12 } as DOMRect
     })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) =>
-        Promise.resolve(
-          url === GLOBE_PLACES_DATA_URL
-            ? { ok: true, json: () => Promise.resolve(PLACES) }
-            : { ok: false },
-        ),
-      ),
-    )
+    // The place data through its loader (the loader caches its result for
+    // the page load, so stubbing fetch would only reach the first case);
+    // the boundary files fail, which leaves no line data to draw.
+    vi.spyOn(globeSurface, 'loadGlobePlaces').mockResolvedValue({ data: PLACES })
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })))
   })
   afterEach(() => {
     restoreMatchMedia()
@@ -237,7 +231,10 @@ describe('GlobeCanvas place labels', () => {
       />,
     )
     expect(maps).toHaveLength(1)
-    await act(async () => maps[0].fire('style.load'))
+    await act(async () => {
+      maps[0].fire('style.load')
+      maps[0].fire('load')
+    })
     return maps[0]
   }
 
@@ -252,7 +249,7 @@ describe('GlobeCanvas place labels', () => {
   })
 
   it('draws no place label on the full look and never asks for the place data', async () => {
-    const load = vi.spyOn(globeSurface, 'loadGlobePlaces')
+    const load = vi.mocked(globeSurface.loadGlobePlaces)
     await showMap(false)
     await act(async () => {})
     expect(placeLabelTexts()).toEqual([])
@@ -314,11 +311,33 @@ describe('GlobeCanvas place labels', () => {
 
   it('reports a place file that could not be loaded and draws no place label', async () => {
     const load = vi
-      .spyOn(globeSurface, 'loadGlobePlaces')
+      .mocked(globeSurface.loadGlobePlaces)
       .mockResolvedValueOnce({ data: null, status: 503 })
     await showMap(true)
     await waitFor(() => expect(reportGlobePlacesFailure).toHaveBeenCalledWith(503))
     expect(load).toHaveBeenCalledTimes(1)
     expect(placeLabelTexts()).toEqual([])
+  })
+})
+
+describe('GlobeCanvas place labels before the first full render', () => {
+  it('asks for the place data only once the map has loaded', async () => {
+    maps = []
+    clearAtlasCamera()
+    const load = vi.spyOn(globeSurface, 'loadGlobePlaces').mockResolvedValue({ data: PLACES })
+    const { restore } = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+    try {
+      render(
+        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />,
+      )
+      await act(async () => maps[0].fire('style.load'))
+      expect(load).not.toHaveBeenCalled()
+      await act(async () => maps[0].fire('load'))
+      expect(load).toHaveBeenCalledTimes(1)
+    } finally {
+      restore()
+      vi.restoreAllMocks()
+      document.body.innerHTML = ''
+    }
   })
 })

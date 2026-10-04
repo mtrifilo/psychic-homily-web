@@ -188,8 +188,8 @@ describe('globe surface looks', () => {
 })
 
 describe('showGlobeSurface', () => {
-  // The boundary files are fetched on first show; their loading is the
-  // 'boundary lines and place data' block's concern.
+  // showGlobeSurface fetches nothing itself: the land comes from a prefetch
+  // or the map, the boundaries from loadGlobeBoundaries.
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
   })
@@ -279,8 +279,7 @@ describe('globe land data file', () => {
 describe('prefetchGlobeLand', () => {
   const LAND: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
-  // Answers the land file; the boundary files a light-globe map also fetches
-  // stay in flight (their loading is tested below).
+  // Answers the land file; any other request stays in flight.
   function stubFetch(response: () => Promise<unknown>) {
     const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>((url) =>
       url === GLOBE_LAND_DATA_URL ? response() : new Promise(() => {}),
@@ -462,7 +461,7 @@ describe('boundary lines and place data', () => {
     expect(fetchedUrls(fetchMock)).toEqual([GLOBE_LAND_DATA_URL])
   })
 
-  it('fetches each boundary file on first show and hands its source the collection once it arrives', async () => {
+  it('fetches each boundary file once per map and hands its source the collection once it arrives', async () => {
     const byUrl = new Map<string, GeoJSON.FeatureCollection>(
       [GLOBE_STATE_LINES_DATA_URL, GLOBE_COUNTRY_LINES_DATA_URL].map((url) => [
         url,
@@ -476,13 +475,11 @@ describe('boundary lines and place data', () => {
     vi.stubGlobal('fetch', fetchMock)
     const mod = await freshModule()
     const { map, stateSetData, countrySetData } = fakeMap()
-    mod.showGlobeSurface(map, true)
-    mod.showGlobeSurface(map, false)
-    mod.showGlobeSurface(map, true)
-    // Until a file arrives its source keeps its empty collection, so the
-    // map's first frame never waits on it.
+    mod.loadGlobeBoundaries(map)
+    mod.loadGlobeBoundaries(map)
+    // Until a file arrives its source keeps its empty collection.
     expect(stateSetData).not.toHaveBeenCalled()
-    expect(fetchedUrls(fetchMock).filter((u) => u !== GLOBE_LAND_DATA_URL).sort()).toEqual(
+    expect(fetchedUrls(fetchMock).sort()).toEqual(
       [GLOBE_STATE_LINES_DATA_URL, GLOBE_COUNTRY_LINES_DATA_URL].sort(),
     )
     for (const [url, data] of byUrl) pending.get(url)?.({ ok: true, json: () => Promise.resolve(data) })
@@ -505,7 +502,7 @@ describe('boundary lines and place data', () => {
     )
     const mod = await freshModule()
     const { map, stateSetData, countrySetData } = fakeMap()
-    mod.showGlobeSurface(map, true)
+    mod.loadGlobeBoundaries(map)
     await vi.waitFor(() => {
       expect(stateSetData).toHaveBeenCalledWith(GLOBE_STATE_LINES_DATA_URL)
       expect(countrySetData).toHaveBeenCalledWith(FC)
@@ -516,7 +513,7 @@ describe('boundary lines and place data', () => {
     vi.stubGlobal('fetch', vi.fn(() => ok()))
     const mod = await freshModule()
     const { map, stateSetData, countrySetData } = fakeMap({ withLandSource: false })
-    mod.showGlobeSurface(map, true)
+    mod.loadGlobeBoundaries(map)
     await vi.waitFor(() => {
       expect(stateSetData).toHaveBeenCalledWith(FC)
       expect(countrySetData).toHaveBeenCalledWith(FC)
@@ -535,7 +532,7 @@ describe('boundary lines and place data', () => {
     )
     const mod = await freshModule()
     const { map, stateSetData } = fakeMap()
-    mod.showGlobeSurface(map, true)
+    mod.loadGlobeBoundaries(map)
     map.getSource.mockReturnValue(undefined)
     resolveFetch({ ok: true, json: () => Promise.resolve(FC) })
     await settle()
@@ -589,4 +586,56 @@ describe('boundary lines and place data', () => {
       expect(fetchedUrls(fetchMock)).toHaveLength(3)
     },
   )
+
+  // A fetch that never answers until its abort signal fires, as a stalled
+  // connection does.
+  const stalled = (_url: string, init?: RequestInit) =>
+    new Promise((_resolve, reject) =>
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+    )
+
+  it('gives up on a stalled place fetch after 10 s, retries once, and reports a network failure', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn(stalled)
+      vi.stubGlobal('fetch', fetchMock)
+      const mod = await freshModule()
+      const loading = mod.loadGlobePlaces()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(loading).resolves.toEqual({ data: null, status: 0 })
+      // Cleared like any failure: the next load asks again.
+      fetchMock.mockImplementation(() => ok())
+      await expect(mod.loadGlobePlaces()).resolves.toEqual({ data: FC })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('hands a map the URL of a boundary file whose fetch stalled', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn(stalled))
+      const mod = await freshModule()
+      const { map, stateSetData } = fakeMap()
+      mod.loadGlobeBoundaries(map)
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(stateSetData).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(stateSetData).toHaveBeenCalledWith(GLOBE_STATE_LINES_DATA_URL)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('validates the land prefetch like the other files: a collection without features is unusable', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => ok({ type: 'FeatureCollection' })))
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    await settle()
+    const { map, setData } = fakeMap()
+    mod.showGlobeSurface(map, true)
+    await vi.waitFor(() => expect(setData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL))
+  })
 })

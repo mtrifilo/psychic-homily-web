@@ -15,6 +15,7 @@ import {
 import {
   globeSurfaceLayers,
   globeSurfaceSources,
+  loadGlobeBoundaries,
   loadGlobePlaces,
   showGlobeSurface,
 } from '../basemap/globeSurface'
@@ -195,6 +196,9 @@ const RING_COLOR = '#ff7a3c'
 const HALO_SHADOW =
   '0 0 90px 24px rgba(74, 163, 255, 0.42), 0 0 220px 80px rgba(74, 163, 255, 0.18)'
 
+// The scene dot's outline width, drawn outside its radius.
+const SCENE_DOT_STROKE_PX = 1
+
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [],
@@ -285,6 +289,10 @@ export default function GlobeCanvas({
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
+  // The same map once its first full render is in (MapLibre's 'load': style
+  // and every visible source loaded). The light globe's overlays wait for it,
+  // so their downloads never hold up that first frame.
+  const [mapLoaded, setMapLoaded] = useState<maplibregl.Map | null>(null)
 
   const selectedSlug = selected?.slug ?? null
 
@@ -297,11 +305,14 @@ export default function GlobeCanvas({
   useEffect(() => {
     if (mapReady) showGlobeSurface(mapReady, lightGlobe)
   }, [mapReady, lightGlobe])
+  useEffect(() => {
+    if (mapLoaded && lightGlobe) loadGlobeBoundaries(mapLoaded)
+  }, [mapLoaded, lightGlobe])
 
-  // The light globe's place-label data, loaded the first time a map shows
-  // the light look and kept for this canvas's lifetime.
+  // The light globe's place-label data, loaded the first time a loaded map
+  // shows the light look and kept for this canvas's lifetime.
   const [places, setPlaces] = useState<readonly GlobePlace[] | null>(null)
-  const wantPlaces = mapReady !== null && lightGlobe && places === null
+  const wantPlaces = mapLoaded !== null && lightGlobe && places === null
   useEffect(() => {
     if (!wantPlaces) return
     let cancelled = false
@@ -749,7 +760,9 @@ export default function GlobeCanvas({
       for (const s of scenes) {
         if (!isFacing(map, s.longitude, s.latitude)) continue
         const point = map.project([s.longitude, s.latitude])
-        const radius = sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE
+        // The most a dot draws: its hovered radius plus its stroke.
+        const radius =
+          sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE + SCENE_DOT_STROKE_PX
         boxes.push(dotBox(point.x, point.y, radius))
       }
       return boxes
@@ -918,7 +931,7 @@ export default function GlobeCanvas({
                 DOT_COLOR_HOVERED,
                 ['get', 'color'],
               ],
-              'circle-stroke-width': 1,
+              'circle-stroke-width': SCENE_DOT_STROKE_PX,
               'circle-stroke-color': 'rgba(255,230,194,0.35)',
             },
           },
@@ -994,6 +1007,7 @@ export default function GlobeCanvas({
     })
     map.on('load', () => {
       w.__atlasMapLoaded = true
+      setMapLoaded(map)
     })
 
     // CSS halo sized to the globe's screen radius (it grows past the viewport
@@ -1258,6 +1272,7 @@ export default function GlobeCanvas({
       redrawStatusChipRef.current = null
       clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
+      setMapLoaded((prev) => (prev === map ? null : prev))
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a
