@@ -120,7 +120,7 @@ function GlobeLoadError({ onRetry }: { onRetry?: () => void }) {
 }
 
 // maplibre-gl is heavy (~900 kB chunk) and window-bound — dynamic-import the
-// canvas with ssr:false so the chunk loads only on /atlas (PSY-1211
+// canvas with ssr:false so the canvas module loads only on /atlas (PSY-1211
 // pattern, isolation re-verified for MapLibre in the PSY-1537 spike).
 // The import stays inline here for next/dynamic; preloadAtlasMap starts the
 // same module earlier (see the effect in AtlasGlobe).
