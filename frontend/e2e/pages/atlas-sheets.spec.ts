@@ -52,21 +52,31 @@ async function touchDrag(page: Page, x: number, fromY: number, toY: number) {
 
 type Detent = 'peek' | 'half' | 'full'
 
-// The detent rule (bottomSheetHeightPx, BOTTOM_SHEET_DETENT_HEIGHT_PX and
-// BOTTOM_SHEET_HALF_HOST_PERCENT in components/ui/bottom-sheet.tsx) with the
-// Atlas's top inset (ATLAS_SHEET_TOP_INSET_PX in features/scenes/cityView.ts):
-// Peek and Full at their DS heights, Half a share of the host between Peek's
-// height and its own DS ceiling, each capped at the host minus the inset.
+// The detent rule (bottomSheetHeightPx and its constants in
+// components/ui/bottom-sheet.tsx) with the Atlas's top inset
+// (ATLAS_SHEET_TOP_INSET_PX in features/scenes/cityView.ts): every detent is
+// capped at the host minus the inset; Peek and Full sit at their DS heights;
+// Half is a share of the host up to its DS ceiling, or Full's height when the
+// share is less than a minimum step above Peek.
 const PEEK_PX = 120
 const HALF_MAX_PX = 400
 const HALF_HOST_PERCENT = 45
+const HALF_MIN_STEP_PX = 48
 const FULL_PX = 660
 const ATLAS_SHEET_TOP_INSET_PX = 112
 function detentPx(detent: Detent, hostPx: number) {
   const cap = Math.max(0, hostPx - ATLAS_SHEET_TOP_INSET_PX)
   if (detent === 'peek') return Math.min(PEEK_PX, cap)
   if (detent === 'full') return Math.min(FULL_PX, cap)
-  return Math.min(HALF_MAX_PX, Math.max((hostPx * HALF_HOST_PERCENT) / 100, PEEK_PX), cap)
+  const sharePx = (hostPx * HALF_HOST_PERCENT) / 100
+  if (sharePx < PEEK_PX + HALF_MIN_STEP_PX) return Math.min(FULL_PX, cap)
+  return Math.min(HALF_MAX_PX, sharePx, cap)
+}
+
+/** How far a drag from Peek travels to release exactly at Half's height. */
+async function peekToHalfPx(page: Page, testId: string) {
+  const host = await hostHeight(page, testId)
+  return detentPx('half', host) - detentPx('peek', host)
 }
 
 /** The sheet's host (its parent, the map pane) height in CSS px. */
@@ -116,8 +126,9 @@ async function tapSceneDot(page: Page) {
   await page.touchscreen.tap(point.x, point.y)
 }
 
-/** A touch drag up from the sheet's grabber by `distance` px. */
-async function pullUp(page: Page, testId: string, distance: number) {
+/** A touch drag up from the sheet's grabber at Peek to Half's height. */
+async function pullToHalf(page: Page, testId: string) {
+  const distance = await peekToHalfPx(page, testId)
   const grabber = page.getByTestId(testId).locator('[data-bottom-sheet-grabber]')
   const box = (await grabber.boundingBox())!
   const y = box.y + box.height / 2
@@ -147,7 +158,8 @@ test.describe('Atlas sheet layout under touch', () => {
     const grabber = list.locator('[data-bottom-sheet-grabber]')
     const atPeek = (await grabber.boundingBox())!
     const x = atPeek.x + atPeek.width / 2
-    await touchDrag(page, x, atPeek.y + atPeek.height / 2, atPeek.y - 330)
+    const toHalf = await peekToHalfPx(page, 'atlas-venue-sheet')
+    await touchDrag(page, x, atPeek.y + atPeek.height / 2, atPeek.y + atPeek.height / 2 - toHalf)
     // Wait out the settle animation, then drag down from where the grabber
     // now is.
     await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
@@ -164,7 +176,7 @@ test.describe('Atlas sheet layout under touch', () => {
     await page.mouse.move(x, forMouse.y + forMouse.height / 2)
     await page.mouse.down()
     for (let i = 1; i <= 12; i++) {
-      await page.mouse.move(x, forMouse.y + forMouse.height / 2 - (330 * i) / 12)
+      await page.mouse.move(x, forMouse.y + forMouse.height / 2 - (toHalf * i) / 12)
     }
     await page.waitForTimeout(150)
     await page.mouse.up()
@@ -228,10 +240,12 @@ test.describe('Atlas sheet layout under touch', () => {
   })
 })
 
-// Viewport heights of a short and a tall phone, at a width where the map
-// renders in the sheet layout. The rule is checked against each host as
-// measured, and the host and map area are recorded as annotations.
+// Viewport heights of a landscape phone (where Half takes Full's height), a
+// short phone and a tall phone, at a width where the map renders in the sheet
+// layout. The rule is checked against each host as measured, and the host and
+// map area are recorded as annotations.
 for (const viewport of [
+  { width: 820, height: 480 },
   { width: 820, height: 664 },
   { width: 820, height: 844 },
 ]) {
@@ -256,12 +270,8 @@ for (const viewport of [
         '2 venues at the city centre point',
       )
 
-      await pullUp(page, 'atlas-venue-sheet', 150)
+      await pullToHalf(page, 'atlas-venue-sheet')
       const half = await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
-      expect(half.height, 'Half is its share of the host here').toBeCloseTo(
-        (half.host * HALF_HOST_PERCENT) / 100,
-        0,
-      )
       await expect(page.getByTestId('venue-sheet-scope-line')).toBeVisible()
       expect(await creditUncovered(page)).toBe(true)
       test.info().annotations.push({
@@ -270,6 +280,7 @@ for (const viewport of [
           host: half.host,
           peek: peek.height,
           half: half.height,
+          full: detentPx('full', half.host),
           mapAreaAtPeek: half.host - peek.height,
           mapAreaAtHalf: half.host - half.height,
         }),
@@ -298,7 +309,7 @@ for (const viewport of [
         })
       }).toPass({ timeout: 30_000 })
       const preview = await expectDetentHeight(page, 'atlas-scene-preview-sheet', 'peek')
-      await pullUp(page, 'atlas-scene-preview-sheet', 150)
+      await pullToHalf(page, 'atlas-scene-preview-sheet')
       const half = await expectDetentHeight(page, 'atlas-scene-preview-sheet', 'half')
       test.info().annotations.push({
         type: 'scene preview',

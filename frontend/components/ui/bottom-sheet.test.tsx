@@ -7,6 +7,7 @@ import {
   BOTTOM_SHEET_DETENT_HEIGHT_PX,
   BOTTOM_SHEET_DRAG_SLOP_PX,
   BOTTOM_SHEET_HALF_HOST_PERCENT,
+  BOTTOM_SHEET_HALF_MIN_STEP_PX,
   BottomSheet,
   bottomSheetHeightCss,
   bottomSheetHeightPx,
@@ -24,12 +25,13 @@ describe('bottomSheetHeightPx (the detent rule)', () => {
   it('keeps the DS table, with 400 as the Half ceiling', () => {
     expect(BOTTOM_SHEET_DETENT_HEIGHT_PX).toEqual({ peek: 120, half: 400, full: 660 })
     expect(BOTTOM_SHEET_HALF_HOST_PERCENT).toBe(45)
+    expect(BOTTOM_SHEET_HALF_MIN_STEP_PX).toBe(48)
   })
 
   // Hosts of the Atlas map pane: a short phone viewport (450, 551), a mid one
   // (600) and a tall one (844). Expected values are the rule worked by hand:
-  // Peek min(120, host - 112); Half min(400, max(45% of host, 120), host - 112);
-  // Full min(660, host - 112).
+  // Peek min(120, host - 112); Half min(400, 45% of host, host - 112); Full
+  // min(660, host - 112). 45% of each of these hosts clears 120 + 48.
   it.each([
     { host: 450, peek: 120, half: 202.5, full: 338 },
     { host: 551, peek: 120, half: 247.95, full: 439 },
@@ -48,10 +50,24 @@ describe('bottomSheetHeightPx (the detent rule)', () => {
     expect(bottomSheetHeightPx('half', 1200, 0)).toBe(400)
   })
 
+  // 45% of the host against 120 + 48 = 168: below it Half renders at Full's
+  // height; from it, at the share.
+  it.each([
+    { host: 270, half: 158, full: 158 },
+    { host: 300, half: 188, full: 188 },
+    { host: 373, half: 261, full: 261 },
+    { host: 374, half: 168.3, full: 262 },
+    { host: 400, half: 180, full: 288 },
+    { host: 543, half: 244.35, full: 431 },
+  ])('renders Half $half beside Full $full in a $host px host', ({ host, half, full }) => {
+    expect(bottomSheetHeightPx('half', host, INSET)).toBeCloseTo(half, 6)
+    expect(bottomSheetHeightPx('full', host, INSET)).toBe(full)
+  })
+
   it('caps every detent at the host height minus the top inset', () => {
-    // 45% of 250 is 112.5, so Half takes its Peek floor; Full is the cap.
+    // 250 - 112 leaves 138px: Peek fits, and Half renders at Full's height.
     expect(bottomSheetHeightPx('peek', 250, INSET)).toBe(120)
-    expect(bottomSheetHeightPx('half', 250, INSET)).toBe(120)
+    expect(bottomSheetHeightPx('half', 250, INSET)).toBe(138)
     expect(bottomSheetHeightPx('full', 250, INSET)).toBe(138)
     // 200 - 112 leaves 88px: every detent renders at the cap.
     expect(bottomSheetHeightPx('peek', 200, INSET)).toBe(88)
@@ -68,22 +84,26 @@ describe('bottomSheetHeightPx (the detent rule)', () => {
     expect(bottomSheetHeightPx('full', 600, 0)).toBe(600)
   })
 
-  it('keeps the detents in order, shortest to tallest, on every host', () => {
+  it('keeps the detents in order, and Half either at Full or a full step above Peek', () => {
     for (let host = 0; host <= 1400; host += 1) {
       const [peek, half, full] = (['peek', 'half', 'full'] as const).map((d) =>
         bottomSheetHeightPx(d, host, INSET),
       )
       expect(peek).toBeLessThanOrEqual(half)
       expect(half).toBeLessThanOrEqual(full)
+      if (half !== full) {
+        expect(half - peek).toBeGreaterThanOrEqual(BOTTOM_SHEET_HALF_MIN_STEP_PX)
+      }
     }
   })
 
   it('states the same rule in CSS against the host height', () => {
     expect(bottomSheetHeightCss('peek', INSET)).toBe('min(120px, calc(100% - 112px))')
-    expect(bottomSheetHeightCss('half', INSET)).toBe(
-      'min(400px, max(45%, 120px), calc(100% - 112px))',
-    )
     expect(bottomSheetHeightCss('full', INSET)).toBe('min(660px, calc(100% - 112px))')
+    expect(bottomSheetHeightCss('half', INSET)).toBe(
+      'max(min(min(400px, calc(100% - 112px)), 45%), ' +
+        'calc(min(660px, calc(100% - 112px)) - clamp(0px, (45% - 168px) * 10000, 660px)))',
+    )
   })
 })
 
@@ -115,9 +135,9 @@ describe('nextGrabberDetent', () => {
     expect(nextGrabberDetent('full', HOST, INSET)).toBe('peek')
   })
   it('skips a detent that renders no taller than the current one', () => {
-    // A 250px host: Peek and Half both render at 120, Full at 138.
-    expect(nextGrabberDetent('peek', 250, INSET)).toBe('full')
-    expect(nextGrabberDetent('full', 250, INSET)).toBe('peek')
+    // A 250px host: Peek 120, Half and Full both 138.
+    expect(nextGrabberDetent('peek', 250, INSET)).toBe('half')
+    expect(nextGrabberDetent('half', 250, INSET)).toBe('peek')
     // A 200px host: all three render at 88, so the grabber returns to Peek.
     expect(nextGrabberDetent('peek', 200, INSET)).toBe('peek')
   })
@@ -486,10 +506,11 @@ describe('BottomSheet', () => {
     try {
       renderWithProviders(<Harness onClose={vi.fn()} defaultDetent="half" />)
       const sheet = screen.getByTestId('sheet')
-      // A 200px host caps Half and Full to one height: the tap goes to Peek.
+      // A 300px host: Half renders at Full's height (188) over Peek's 120, so
+      // from Half nothing is taller and the tap shrinks the sheet to Peek.
       Object.defineProperty(sheet.parentElement!, 'clientHeight', {
         configurable: true,
-        value: 200,
+        value: 300,
       })
       act(() => observers.forEach((o) => o()))
       const grabber = screen.getByRole('button', { name: 'Collapse Chicago, IL scene' })

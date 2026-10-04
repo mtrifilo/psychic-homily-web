@@ -1615,6 +1615,26 @@ describe('AtlasGlobe', () => {
         expect(preview).toHaveAttribute('data-detent', 'peek')
       })
 
+      it('keeps the preview’s detent when another scene is picked while it is open', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        const dot = lastCanvasProps.scenes![0]
+        act(() => lastCanvasProps.onSelect?.(dot))
+        const preview = screen.getByTestId('atlas-scene-preview-sheet')
+        fireEvent.click(
+          within(preview).getByRole('button', { name: `Expand ${dot.city}, ${dot.state} scene` }),
+        )
+        expect(preview).toHaveAttribute('data-detent', 'half')
+
+        // The sheet stays mounted across a swap, so the height the viewer
+        // chose holds; only a fresh open starts at Peek.
+        const other = { ...dot, city: 'Austin', state: 'TX', slug: 'austin-tx' }
+        act(() => lastCanvasProps.onSelect?.(other))
+        const swapped = screen.getByRole('region', { name: 'Austin, TX scene' })
+        expect(swapped).toBe(preview)
+        expect(swapped).toHaveAttribute('data-detent', 'half')
+      })
+
       it('opens Drift’s scene preview as a sheet at Peek', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
