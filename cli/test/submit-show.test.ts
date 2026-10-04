@@ -13,6 +13,8 @@ import {
   showPriceLine,
   billRoleTag,
   submitShows,
+  planVenueAddress,
+  venueAddressFills,
   type ShowPlan,
 } from "../src/commands/submit-show";
 import { APIClient } from "../src/lib/api";
@@ -1709,5 +1711,108 @@ describe("backfillShowTimes", () => {
     });
     expect(filled).toBeNull();
     expect(putCalls).toBe(0);
+  });
+});
+
+// -- Venue address fills -----------------------------------------------------
+
+describe("planVenueAddress", () => {
+  test("fills a verified venue whose address is empty", () => {
+    expect(planVenueAddress(" 2424 N Lincoln Ave ", { verified: true, address: "" })).toEqual({
+      addressFill: "2424 N Lincoln Ave",
+    });
+  });
+
+  test("never replaces a stored address", () => {
+    const plan = planVenueAddress("1 New St", { verified: true, address: "2424 N Lincoln Ave" });
+    expect(plan.addressFill).toBeUndefined();
+    expect(plan.addressNote).toContain("already has");
+  });
+
+  test("says nothing when the stored address is the same", () => {
+    expect(planVenueAddress("2424 N Lincoln Ave", { verified: true, address: "2424 N Lincoln Ave" })).toEqual({});
+  });
+
+  test("never writes an unverified venue, whose address the API hides", () => {
+    const plan = planVenueAddress("2424 N Lincoln Ave", { verified: false, address: "" });
+    expect(plan.addressFill).toBeUndefined();
+    expect(plan.addressNote).toContain("unverified");
+  });
+
+  test("no batch address, no plan", () => {
+    expect(planVenueAddress(undefined, { verified: true, address: "" })).toEqual({});
+    expect(planVenueAddress("   ", { verified: true, address: "" })).toEqual({});
+  });
+});
+
+describe("venueAddressFills", () => {
+  function planFor(venueId: number, fill?: string): ShowPlan {
+    return {
+      input: { event_date: "2026-10-10", city: "Chicago", state: "IL", artists: [{ name: "A" }], venues: [{ name: "Lincoln Hall" }] },
+      artists: [],
+      venues: [{ id: venueId, name: "Lincoln Hall", status: "existing", addressFill: fill }],
+      valid: true,
+      errors: [],
+    };
+  }
+
+  test("one fill per venue; a different address for the same venue is a conflict", () => {
+    const { fills, conflicts } = venueAddressFills([
+      planFor(2, "2424 N Lincoln Ave"),
+      planFor(2, "2424 N Lincoln Ave"),
+      planFor(2, "9 Other St"),
+      planFor(3),
+    ]);
+    expect(fills).toEqual([{ venueId: 2, venueName: "Lincoln Hall", address: "2424 N Lincoln Ave" }]);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain("9 Other St");
+  });
+});
+
+describe("submitShows venue address capture", () => {
+  function clientFor(venue: Record<string, unknown>, puts: Array<{ path: string; body: unknown }>) {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/artists/search")) return { artists: [{ id: 42, name: "Nina Hagen", slug: "nina-hagen" }] };
+        if (path.includes("/venues/search")) return { venues: [{ id: 10, name: "Lincoln Hall", slug: "lincoln-hall", city: "Chicago", state: "IL", ...venue }] };
+        return { shows: [] };
+      },
+      post: async () => ({ id: 100 }),
+    });
+    (client as unknown as Record<string, unknown>).put = async (path: string, body: unknown) => {
+      puts.push({ path, body });
+      return {};
+    };
+    return client;
+  }
+
+  const showJSON = (address?: string) =>
+    JSON.stringify({
+      event_date: "2026-10-10",
+      city: "Chicago",
+      state: "IL",
+      artists: [{ name: "Nina Hagen" }],
+      venues: [{ name: "Lincoln Hall", city: "Chicago", state: "IL", ...(address ? { address } : {}) }],
+    });
+
+  test("a dry run previews the fill and writes nothing", async () => {
+    const puts: Array<{ path: string; body: unknown }> = [];
+    const result = await submitShows(clientFor({ verified: true, address: "" }, puts), showJSON("2424 N Lincoln Ave"), false);
+    expect(result.plans[0].venues[0].addressFill).toBe("2424 N Lincoln Ave");
+    expect(puts).toHaveLength(0);
+  });
+
+  test("--confirm sets the address of a verified venue that has none", async () => {
+    const puts: Array<{ path: string; body: unknown }> = [];
+    await submitShows(clientFor({ verified: true, address: "" }, puts), showJSON("2424 N Lincoln Ave"), true);
+    expect(puts).toEqual([{ path: "/venues/10", body: { address: "2424 N Lincoln Ave" } }]);
+  });
+
+  test("--confirm never touches a venue that has an address or is unverified", async () => {
+    const puts: Array<{ path: string; body: unknown }> = [];
+    await submitShows(clientFor({ verified: true, address: "1 Old St" }, puts), showJSON("2424 N Lincoln Ave"), true);
+    await submitShows(clientFor({ verified: false }, puts), showJSON("2424 N Lincoln Ave"), true);
+    await submitShows(clientFor({ verified: true, address: "" }, puts), showJSON(), true);
+    expect(puts).toHaveLength(0);
   });
 });

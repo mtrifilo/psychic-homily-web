@@ -114,7 +114,11 @@
             "properties": {
               "name": { "type": "string", "minLength": 1 },
               "city": { "type": "string" },
-              "state": { "type": "string" }
+              "state": { "type": "string" },
+              "address": {
+                "type": "string",
+                "description": "The venue's street line (house number and street) exactly as the source prints it. State it only when the source prints it. `ph batch` writes it onto a matched venue only when that venue is verified and has no address; it never replaces a stored address, and a new venue is created with it."
+              }
             },
             "additionalProperties": true
           }

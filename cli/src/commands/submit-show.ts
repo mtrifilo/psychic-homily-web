@@ -129,8 +129,42 @@ interface ResolvedVenue {
    * is the value the read surfaces judge the show's zone on.
    */
   matchedState?: string;
+  /**
+   * The batch's street address for a matched venue whose stored address is
+   * empty: what --confirm writes onto that venue. Absent when nothing would be
+   * written; `addressNote` then says why, if the batch carried an address.
+   */
+  addressFill?: string;
+  addressNote?: string;
   status: "existing" | "new";
   confidence?: number;
+}
+
+/**
+ * Decides whether a batch address may fill a matched venue's address.
+ *
+ * Only an EMPTY address is ever filled, so a venue's stored address is never
+ * replaced by an ingest. The search API withholds the address of an
+ * unverified venue, which makes "empty" unknowable there, so an unverified
+ * match is never written either; the note says so instead.
+ */
+export function planVenueAddress(
+  proposed: string | undefined,
+  match: { verified?: unknown; address?: unknown },
+): { addressFill?: string; addressNote?: string } {
+  const address = typeof proposed === "string" ? proposed.trim() : "";
+  if (!address) return {};
+  if (match.verified !== true) {
+    return {
+      addressNote:
+        "address not written: the venue is unverified, so the API does not say whether it already has one",
+    };
+  }
+  const stored = typeof match.address === "string" ? match.address.trim() : "";
+  if (stored) {
+    return stored === address ? {} : { addressNote: `address kept: the venue already has "${stored}"` };
+  }
+  return { addressFill: address };
 }
 
 export interface ShowPlan {
@@ -247,6 +281,7 @@ export async function resolveVenues(
             typeof best.timezone === "string" ? best.timezone : undefined,
           matchedState:
             typeof best.state === "string" ? best.state : undefined,
+          ...planVenueAddress(venue.address, { verified: best.verified, address: best.address }),
           status: "existing",
           confidence: best.score,
         });
@@ -559,6 +594,10 @@ export async function submitShows(
   // 3. Display preview
   displayPreview(plans, resolvedTags);
 
+  // 3b. Fill empty venue addresses the batch states. Duplicate shows count:
+  // a calendar refresh whose shows all exist still carries the address.
+  await applyVenueAddressFills(client, plans.filter((p) => p.valid), confirm);
+
   // 4. Summary
   const validPlans = plans.filter((p) => p.valid);
   const duplicatePlans = validPlans.filter((p) => p.duplicate?.isDuplicate);
@@ -660,6 +699,75 @@ export async function submitShows(
   display.summary(created, 0, failed + invalidCount + duplicateCount);
 
   return { plans, created, failed, skipped: invalidCount + duplicateCount };
+}
+
+export interface VenueAddressFill {
+  venueId: number;
+  venueName: string;
+  address: string;
+}
+
+/**
+ * One fill per matched venue across the batch. The first show to state an
+ * address for a venue wins; a later show stating a DIFFERENT address for the
+ * same venue is reported as a conflict and never written.
+ */
+export function venueAddressFills(plans: ShowPlan[]): {
+  fills: VenueAddressFill[];
+  conflicts: string[];
+} {
+  const byVenue = new Map<number, VenueAddressFill>();
+  const conflicts: string[] = [];
+  for (const plan of plans) {
+    for (const v of plan.venues) {
+      if (v.id === undefined || !v.addressFill) continue;
+      const seen = byVenue.get(v.id);
+      if (!seen) {
+        byVenue.set(v.id, { venueId: v.id, venueName: v.name, address: v.addressFill });
+      } else if (seen.address !== v.addressFill) {
+        conflicts.push(
+          `${v.name} (ID ${v.id}): "${v.addressFill}" differs from "${seen.address}"; keeping the first`,
+        );
+      }
+    }
+  }
+  return { fills: [...byVenue.values()], conflicts };
+}
+
+/**
+ * Previews, and on --confirm writes, the venue address fills a batch carries.
+ * A failed write is reported and does not stop the shows.
+ */
+async function applyVenueAddressFills(
+  client: APIClient,
+  plans: ShowPlan[],
+  confirm: boolean,
+): Promise<void> {
+  const { fills, conflicts } = venueAddressFills(plans);
+  const notes = new Map<number, string>();
+  for (const plan of plans) {
+    for (const v of plan.venues) {
+      if (v.id !== undefined && v.addressNote) notes.set(v.id, `${v.name} (ID ${v.id}): ${v.addressNote}`);
+    }
+  }
+  if (fills.length === 0 && conflicts.length === 0 && notes.size === 0) return;
+
+  display.header("Venue Addresses");
+  for (const note of notes.values()) display.info(note);
+  for (const conflict of conflicts) display.warn(conflict);
+  for (const fill of fills) {
+    if (!confirm) {
+      display.info(`FILL: ${fill.venueName} (ID ${fill.venueId}) has no address; --confirm sets "${fill.address}"`);
+      continue;
+    }
+    try {
+      await client.put(`/venues/${fill.venueId}`, { address: fill.address });
+      display.success(`Set address of ${fill.venueName} (ID ${fill.venueId}): ${fill.address}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      display.error(`Failed to set the address of ${fill.venueName} (ID ${fill.venueId}): ${message}`);
+    }
+  }
 }
 
 // -- Display helpers ---------------------------------------------------------
