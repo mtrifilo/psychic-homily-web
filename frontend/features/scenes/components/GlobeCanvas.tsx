@@ -8,12 +8,25 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
 import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
-import { handleBasemapError } from '../basemap/basemapTelemetry'
+import {
+  handleBasemapError,
+  reportGlobePlacesFailure,
+} from '../basemap/basemapTelemetry'
 import {
   globeSurfaceLayers,
   globeSurfaceSources,
+  loadGlobeBoundaries,
+  loadGlobePlaces,
   showGlobeSurface,
 } from '../basemap/globeSurface'
+import {
+  type Box,
+  type GlobePlace,
+  dotBox,
+  isFacing,
+  parseGlobePlaces,
+} from '../basemap/globePlaces'
+import { mountPlaceLabels } from './globePlaceLabels'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
 import {
   isAtlasCompactViewport,
@@ -183,6 +196,9 @@ const RING_COLOR = '#ff7a3c'
 const HALO_SHADOW =
   '0 0 90px 24px rgba(74, 163, 255, 0.42), 0 0 220px 80px rgba(74, 163, 255, 0.18)'
 
+// The scene dot's outline width, drawn outside its radius.
+const SCENE_DOT_STROKE_PX = 1
+
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [],
@@ -266,21 +282,49 @@ export default function GlobeCanvas({
   // Filled by the map effect (closes over that map), nulled in its cleanup —
   // callers must stay null-safe, same contract as flyToRef.
   const redrawStatusChipRef = useRef<(() => void) | null>(null)
+  // The scene label markers' elements and where they stand, for the
+  // place-label collision pass.
+  const sceneLabelsRef = useRef<{ el: HTMLElement; lng: number; lat: number }[]>([])
   const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
+  // The same map once its first full render is in: style and every visible
+  // source loaded. The light globe's overlays wait for it, so their downloads
+  // never hold up that first frame.
+  const [mapLoaded, setMapLoaded] = useState<maplibregl.Map | null>(null)
 
   const selectedSlug = selected?.slug ?? null
 
-  // Compact viewports get the light globe: flat ocean and vector land in
-  // place of the night-earth raster (globeSurface.ts). The map is built with
+  // Compact viewports get the light globe: flat ocean, vector land and
+  // boundary lines in place of the night-earth raster (globeSurface.ts), with
+  // place labels (the effect after the scene labels). The map is built with
   // the look matchMedia reports at construction; a breakpoint crossing never
   // rebuilds it, this effect switches the live map instead.
   const lightGlobe = useAtlasCompactViewport()
   useEffect(() => {
     if (mapReady) showGlobeSurface(mapReady, lightGlobe)
   }, [mapReady, lightGlobe])
+  useEffect(() => {
+    if (mapLoaded && lightGlobe) loadGlobeBoundaries(mapLoaded)
+  }, [mapLoaded, lightGlobe])
+
+  // The light globe's place-label data, loaded the first time a loaded map
+  // shows the light look and kept for this canvas's lifetime.
+  const [places, setPlaces] = useState<readonly GlobePlace[] | null>(null)
+  const wantPlaces = mapLoaded !== null && lightGlobe && places === null
+  useEffect(() => {
+    if (!wantPlaces) return
+    let cancelled = false
+    void loadGlobePlaces().then((result) => {
+      if (cancelled) return
+      if (result.data) setPlaces(parseGlobePlaces(result.data))
+      else reportGlobePlacesFailure(result.status)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [wantPlaces])
 
   // Resolved theme palette for the dominant-genre dot tint (PSY-1315).
   const palette = useGraphPalette()
@@ -647,9 +691,12 @@ export default function GlobeCanvas({
   // the venue layer — and the basemap already labels the city itself.
   useEffect(() => {
     if (!mapReady || cityViewActive) return
+    const labels: { el: HTMLElement; lng: number; lat: number }[] = []
     const markers = labelScenes.map((s) => {
       const el = document.createElement('div')
+      labels.push({ el, lng: s.longitude, lat: s.latitude })
       el.textContent = s.city
+      el.dataset.testid = 'atlas-scene-label'
       el.style.cssText = [
         'pointer-events: none',
         'user-select: none',
@@ -658,6 +705,8 @@ export default function GlobeCanvas({
         'font-weight: 500',
         'letter-spacing: 0.01em',
         'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
+        // Above the place labels, which carry no z-index.
+        'z-index: 1',
       ].join(';')
       el.style.fontSize = `${sceneLabelSizePx(s.upcoming_show_count).toFixed(1)}px`
       return new maplibregl.Marker({
@@ -672,10 +721,57 @@ export default function GlobeCanvas({
         .setLngLat([s.longitude, s.latitude])
         .addTo(mapReady)
     })
+    sceneLabelsRef.current = labels
     return () => {
+      sceneLabelsRef.current = []
       for (const m of markers) m.remove()
     }
   }, [mapReady, labelScenes, cityViewActive])
+
+  // Place labels on the light globe (globePlaceLabels.ts), clear of every
+  // scene label and dot on the near side of the globe, so a scene always wins
+  // its spot. Declared after the scene label effect and keyed on the same
+  // label set, so whenever that effect rebuilds its markers this one lays the
+  // place labels out again against them.
+  useEffect(() => {
+    if (!mapReady || !lightGlobe || cityViewActive || !places || places.length === 0) {
+      return
+    }
+    const map = mapReady
+    const obstacles = (): Box[] => {
+      const container = map.getContainer()
+      const origin = container.getBoundingClientRect()
+      const boxes: Box[] = []
+      for (const { el, lng, lat } of sceneLabelsRef.current) {
+        // A label behind the globe is hidden and holds no spot on screen. Its
+        // element keeps a box at the far-side projection, so the box alone
+        // cannot tell; the same far-side test the place labels use decides.
+        if (!isFacing(map, lng, lat)) continue
+        const r = el.getBoundingClientRect()
+        boxes.push({
+          left: r.left - origin.left,
+          top: r.top - origin.top,
+          right: r.right - origin.left,
+          bottom: r.bottom - origin.top,
+        })
+      }
+      // A dot centred just outside the pane can still draw into it, so dots
+      // are kept by side, not by pane.
+      for (const s of scenes) {
+        if (!isFacing(map, s.longitude, s.latitude)) continue
+        const point = map.project([s.longitude, s.latitude])
+        // The most a dot draws: its hovered radius plus its stroke.
+        const radius =
+          sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE + SCENE_DOT_STROKE_PX
+        boxes.push(dotBox(point.x, point.y, radius))
+      }
+      return boxes
+    }
+    return mountPlaceLabels(map, places, {
+      maxZoom: BLACK_MARBLE_FADE_START,
+      obstacles,
+    })
+  }, [mapReady, lightGlobe, cityViewActive, places, labelScenes, scenes])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so
@@ -835,7 +931,7 @@ export default function GlobeCanvas({
                 DOT_COLOR_HOVERED,
                 ['get', 'color'],
               ],
-              'circle-stroke-width': 1,
+              'circle-stroke-width': SCENE_DOT_STROKE_PX,
               'circle-stroke-color': 'rgba(255,230,194,0.35)',
             },
           },
@@ -862,8 +958,9 @@ export default function GlobeCanvas({
     // style's own TileJSON fetch — the earliest thing that can fail — is
     // already covered. The handler restores MapLibre's default console.error
     // (attaching any listener suppresses it) and reports a failure of a
-    // ground source (the OpenFreeMap vector tiles, the GIBS raster, or the
-    // light globe's land file) to Sentry once per session per source;
+    // ground source (the OpenFreeMap vector tiles, the GIBS raster, or one of
+    // the light globe's same-origin files) to Sentry once per session per
+    // source;
     // basemapTelemetry.ts owns the filtering and the throttle. Removed with
     // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)
@@ -911,6 +1008,15 @@ export default function GlobeCanvas({
     map.on('load', () => {
       w.__atlasMapLoaded = true
     })
+    // The first full render, read on 'render' rather than 'load': 'load' also
+    // needs a frame with no style change pending, which the pulse-ring
+    // animation (a paint change every frame) can withhold indefinitely.
+    const handleFirstFullRender = () => {
+      if (!map.isStyleLoaded() || !map.areTilesLoaded()) return
+      map.off('render', handleFirstFullRender)
+      setMapLoaded(map)
+    }
+    map.on('render', handleFirstFullRender)
 
     // CSS halo sized to the globe's screen radius (it grows past the viewport
     // and out of sight as the earth fills the frame).
@@ -1174,6 +1280,7 @@ export default function GlobeCanvas({
       redrawStatusChipRef.current = null
       clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
+      setMapLoaded((prev) => (prev === map ? null : prev))
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a

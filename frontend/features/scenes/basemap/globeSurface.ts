@@ -2,8 +2,11 @@
 //
 // - full: the NASA GIBS night-earth raster (nightEarthRaster.ts), a few dozen
 //   PNG tiles for one globe view;
-// - light: a flat ocean plus Natural Earth 1:110m land polygons from one
-//   small same-origin file, drawn in the dark tokens of the phone board.
+// - light: a flat ocean, Natural Earth 1:110m land polygons, and hairline
+//   country (1:110m) and state or province (1:50m) boundary lines, each from
+//   one small same-origin file, drawn in the dark tokens of the phone board.
+//   The light look's place labels are DOM markers (globePlaces.ts); their data
+//   file loads through this module with the others.
 //
 // Both looks hand off to the street basemap the same way: every surface layer
 // takes the raster's fade-out ramp and cutoff zoom from phBasemapFragment, so
@@ -20,36 +23,50 @@ import type {
 } from 'maplibre-gl'
 import { NIGHT_EARTH_SOURCE_ID, nightEarthSource } from './nightEarthRaster'
 
-/** Layer ids of the two looks, in draw order (ocean under land). */
+/** Layer ids of the two looks, in draw order (ocean under land under lines). */
 export const NIGHT_EARTH_LAYER_ID = 'earth'
 export const GLOBE_OCEAN_LAYER_ID = 'globe-ocean'
 export const GLOBE_LAND_LAYER_ID = 'globe-land'
+export const GLOBE_STATE_LINES_LAYER_ID = 'globe-state-lines'
+export const GLOBE_COUNTRY_LINES_LAYER_ID = 'globe-country-lines'
 
-/** The light look's land source id. */
+/** The light look's source ids. */
 export const GLOBE_LAND_SOURCE_ID = 'globeLand'
+export const GLOBE_STATE_LINES_SOURCE_ID = 'globeStateLines'
+export const GLOBE_COUNTRY_LINES_SOURCE_ID = 'globeCountryLines'
 
 /**
- * Same-origin land polygons for the light look, built by
- * scripts/atlas-globe-land.mjs from Natural Earth 1:110m land (public domain;
- * Natural Earth's terms waive credit, so the source carries no attribution).
- * Same-origin, so the CSP's `connect-src 'self'` already admits it.
+ * Same-origin data for the light look, built from Natural Earth (public
+ * domain; Natural Earth's terms waive credit, so no source carries an
+ * attribution): the land by scripts/atlas-globe-land.mjs, the lines and the
+ * places by scripts/atlas-globe-overlays.mjs. Same-origin, so the CSP's
+ * `connect-src 'self'` already admits them.
  */
 export const GLOBE_LAND_DATA_URL = '/atlas/globe-land-110m.geojson'
+export const GLOBE_COUNTRY_LINES_DATA_URL = '/atlas/globe-country-lines-110m.geojson'
+export const GLOBE_STATE_LINES_DATA_URL = '/atlas/globe-state-lines-50m.geojson'
+export const GLOBE_PLACES_DATA_URL = '/atlas/globe-places-110m.geojson'
 
 /**
- * The `basemap_host` basemapTelemetry reports for a land-source failure that
- * carries no absolute URL: the file is served by the app itself.
+ * The `basemap_host` basemapTelemetry reports for a failure of one of these
+ * files that carries no absolute URL: the app serves them itself.
  */
-export const GLOBE_LAND_HOST = 'same-origin'
+export const GLOBE_DATA_HOST = 'same-origin'
 
 /**
  * The light look's palette, from the phone board (Figma Product Designs,
  * Atlas page, board 01 "Globe entry (lighter globe)"): sphere `#0A0C18`, land
- * `#111528`. Fixed rather than themed: the map stays dark in light mode, as
- * the raster and the street basemap do.
+ * `#111528`, boundary hairlines `#3A3F5C` at 0.75px, place labels `#7A7F9A`.
+ * Literal values rather than DS tokens, the same in both themes: the globe
+ * surface stays dark in light mode, as the raster and the street basemap do,
+ * and the themed border and muted tokens are drawn for the app's paper and
+ * ink grounds, not for this one.
  */
 export const GLOBE_OCEAN_COLOR = '#0a0c18'
 export const GLOBE_LAND_COLOR = '#111528'
+export const GLOBE_BOUNDARY_COLOR = '#3a3f5c'
+export const GLOBE_BOUNDARY_WIDTH_PX = 0.75
+export const GLOBE_PLACE_LABEL_COLOR = '#7a7f9a'
 
 type Visibility = 'visible' | 'none'
 
@@ -62,30 +79,37 @@ export function globeSurfaceVisibility(
   return {
     [GLOBE_OCEAN_LAYER_ID]: light,
     [GLOBE_LAND_LAYER_ID]: light,
+    [GLOBE_STATE_LINES_LAYER_ID]: light,
+    [GLOBE_COUNTRY_LINES_LAYER_ID]: light,
     [NIGHT_EARTH_LAYER_ID]: full,
   }
 }
 
+const emptyGeoJson = (): SourceSpecification => ({
+  type: 'geojson',
+  data: { type: 'FeatureCollection', features: [] },
+})
+
 /**
- * The surface sources. The land source starts EMPTY: a GeoJSON source
- * fetches its data as soon as it is added, visible or not, so
- * {@link showGlobeSurface} loads the land data the first time a map shows the
+ * The surface sources. The light look's sources start EMPTY: a GeoJSON
+ * source fetches its data as soon as it is added, visible or not, so
+ * {@link showGlobeSurface} loads their data the first time a map shows the
  * light look.
  */
 export function globeSurfaceSources(): Record<string, SourceSpecification> {
   return {
     [NIGHT_EARTH_SOURCE_ID]: nightEarthSource(),
-    [GLOBE_LAND_SOURCE_ID]: {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
-    },
+    [GLOBE_LAND_SOURCE_ID]: emptyGeoJson(),
+    [GLOBE_STATE_LINES_SOURCE_ID]: emptyGeoJson(),
+    [GLOBE_COUNTRY_LINES_SOURCE_ID]: emptyGeoJson(),
   }
 }
 
 /**
- * The surface layers, ocean then land then raster. All three share the
- * handoff: `fadeOut` is phBasemapFragment's `rasterFadeOut` and `maxZoom` its
- * `rasterMaxZoom`, so neither look outlives the crossfade into the streets.
+ * The surface layers: ocean, land, state lines, country lines, then raster.
+ * All share the handoff: `fadeOut` is phBasemapFragment's `rasterFadeOut`
+ * and `maxZoom` its `rasterMaxZoom`, so no part of either look outlives the
+ * crossfade into the streets.
  *
  * The ocean is a background layer: on the globe projection MapLibre draws a
  * background on the sphere only, so space around the globe stays transparent
@@ -101,6 +125,18 @@ export function globeSurfaceLayers({
   maxZoom: number
 }): LayerSpecification[] {
   const visibility = globeSurfaceVisibility(lightGlobe)
+  const boundaryLines = (id: string, source: string): LayerSpecification => ({
+    id,
+    type: 'line',
+    source,
+    maxzoom: maxZoom,
+    layout: { visibility: visibility[id] },
+    paint: {
+      'line-color': GLOBE_BOUNDARY_COLOR,
+      'line-width': GLOBE_BOUNDARY_WIDTH_PX,
+      'line-opacity': fadeOut,
+    },
+  })
   return [
     {
       id: GLOBE_OCEAN_LAYER_ID,
@@ -123,6 +159,8 @@ export function globeSurfaceLayers({
         'fill-opacity': fadeOut,
       },
     },
+    boundaryLines(GLOBE_STATE_LINES_LAYER_ID, GLOBE_STATE_LINES_SOURCE_ID),
+    boundaryLines(GLOBE_COUNTRY_LINES_LAYER_ID, GLOBE_COUNTRY_LINES_SOURCE_ID),
     {
       id: NIGHT_EARTH_LAYER_ID,
       type: 'raster',
@@ -140,6 +178,70 @@ export interface GlobeSurfaceMap {
   setLayoutProperty(layer: string, name: 'visibility', value: Visibility): unknown
   getSource(id: string): unknown
 }
+
+/** The ids of the map sources that fetch a same-origin light-look file. */
+export const GLOBE_DATA_SOURCE_IDS: readonly string[] = [
+  GLOBE_LAND_SOURCE_ID,
+  GLOBE_STATE_LINES_SOURCE_ID,
+  GLOBE_COUNTRY_LINES_SOURCE_ID,
+]
+
+/**
+ * A fetched collection, or why there is none: `status` is the HTTP status of
+ * a failed response, 0 for a network failure or a request that ran past
+ * FETCH_DEADLINE_MS, and undefined for a body that is not a FeatureCollection
+ * with a features array.
+ */
+export type CollectionResult =
+  | { data: GeoJSON.FeatureCollection }
+  | { data: null; status: number | undefined }
+
+// How long one main-thread fetch of a boundary or place file may take, body
+// included, before it is aborted and counts as a network failure, so a
+// stalled request is retried, reported or replaced like a failed one.
+const FETCH_DEADLINE_MS = 10_000
+
+/**
+ * The one fetch and check every light-look file goes through. With
+ * `deadline: false` the request is never aborted (the land prefetch, which
+ * keeps serving later maps whenever it lands).
+ */
+function fetchCollection(
+  url: string,
+  { deadline = true }: { deadline?: boolean } = {},
+): Promise<CollectionResult> {
+  const controller = new AbortController()
+  const timer = deadline ? setTimeout(() => controller.abort(), FETCH_DEADLINE_MS) : undefined
+  return fetch(url, deadline ? { signal: controller.signal } : undefined)
+    .then(
+      (response): Promise<CollectionResult> | CollectionResult =>
+        response.ok
+          ? response.json().then(
+              (body: unknown): CollectionResult =>
+                (body as GeoJSON.FeatureCollection | null)?.type === 'FeatureCollection' &&
+                Array.isArray((body as GeoJSON.FeatureCollection).features)
+                  ? { data: body as GeoJSON.FeatureCollection }
+                  : { data: null, status: undefined },
+              // A body cut off by the deadline is a network failure; one that
+              // arrived whole but is not JSON is an unusable body.
+              (): CollectionResult => ({
+                data: null,
+                status: controller.signal.aborted ? 0 : undefined,
+              }),
+            )
+          : { data: null, status: response.status },
+      (): CollectionResult => ({ data: null, status: 0 }),
+    )
+    .finally(() => clearTimeout(timer))
+}
+
+// The three kinds of light-look file load differently because they matter at
+// different moments: the land is part of the map's first frame, so it is
+// prefetched before the map exists (a map waits on it, then falls back to its
+// URL); the boundary lines and place labels are drawn on top once that frame
+// is up, so they are fetched only then (a boundary file falls back to its URL
+// and MapLibre's own telemetry; the place file, which no map source loads, is
+// retried once and its failure reported by the caller).
 
 // Maps whose land source already holds (or is fetching) the land data. Each
 // Atlas show builds a fresh map, so entries go with the map they belong to.
@@ -172,31 +274,85 @@ const WAIT_EXPIRED = Symbol('wait expired')
  */
 export function prefetchGlobeLand(): void {
   if (landPrefetch) return
-  landPrefetch = fetch(GLOBE_LAND_DATA_URL)
-    .then((response) => (response.ok ? response.json() : null))
-    .then((data: unknown) =>
-      (data as GeoJSON.FeatureCollection | null)?.type === 'FeatureCollection'
-        ? (data as GeoJSON.FeatureCollection)
-        : null,
-    )
-    .catch(() => null)
+  landPrefetch = fetchCollection(GLOBE_LAND_DATA_URL, { deadline: false })
+    .then((result) => result.data)
     .finally(() => {
       landPrefetchSettled = true
     })
 }
 
-type LandSource = { setData(data: string | GeoJSON.FeatureCollection): unknown }
+// The place-label file (globePlaces.ts parses it), loaded once per page load
+// and shared by every map; cleared after a failure so the next load fetches
+// it again.
+let placesLoad: Promise<CollectionResult> | null = null
+
+/**
+ * The place-label data, fetched on first use with one retry after a failure.
+ * The caller reports a result without data.
+ */
+export function loadGlobePlaces(): Promise<CollectionResult> {
+  if (!placesLoad) {
+    const loading = fetchCollection(GLOBE_PLACES_DATA_URL).then((result) =>
+      result.data ? result : fetchCollection(GLOBE_PLACES_DATA_URL),
+    )
+    placesLoad = loading
+    void loading.then((result) => {
+      if (!result.data && placesLoad === loading) placesLoad = null
+    })
+  }
+  return placesLoad
+}
+
+type DataSource = { setData(data: string | GeoJSON.FeatureCollection): unknown }
+
+/** The boundary line sources and their files, state then country. */
+const BOUNDARY_FILES: ReadonlyArray<readonly [string, string]> = [
+  [GLOBE_STATE_LINES_SOURCE_ID, GLOBE_STATE_LINES_DATA_URL],
+  [GLOBE_COUNTRY_LINES_SOURCE_ID, GLOBE_COUNTRY_LINES_DATA_URL],
+]
+
+// Per map, the boundary sources already holding (or fetching) their data.
+const boundariesRequested = new WeakMap<object, Set<string>>()
+
+/**
+ * Loads each boundary source's data once per map. The file is fetched on the
+ * main thread and handed over only once it has arrived, so the source keeps
+ * its empty collection until then. A failed or unusable response hands the
+ * map the URL instead, where a second failure reaches basemapTelemetry like
+ * any source error. Each file loads on its own, so one failing leaves the
+ * other drawn.
+ */
+export function loadGlobeBoundaries(map: GlobeSurfaceMap): void {
+  let requested = boundariesRequested.get(map)
+  if (!requested) {
+    requested = new Set()
+    boundariesRequested.set(map, requested)
+  }
+  for (const [sourceId, url] of BOUNDARY_FILES) {
+    if (requested.has(sourceId)) continue
+    const source = map.getSource(sourceId) as DataSource | undefined
+    if (!source) continue
+    requested.add(sourceId)
+    void fetchCollection(url).then((result) => {
+      // A removed map no longer owns this source (a removed map has no style,
+      // so getSource answers undefined).
+      if (map.getSource(sourceId) !== source) return
+      source.setData(result.data ?? url)
+    })
+  }
+}
 
 /**
  * Switches a live map to one look. Idempotent; loads the land data at most
  * once per map, on the first switch to the light look: the prefetch's result
  * when a prefetch was started (waiting up to LAND_PREFETCH_WAIT_MS for it if
  * it is still in flight rather than starting a second download), else the
- * file's URL, fetched by the map.
+ * file's URL, fetched by the map. The boundary data is
+ * {@link loadGlobeBoundaries}'s.
  */
 export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): void {
   if (lightGlobe && !landRequested.has(map)) {
-    const source = map.getSource(GLOBE_LAND_SOURCE_ID) as LandSource | undefined
+    const source = map.getSource(GLOBE_LAND_SOURCE_ID) as DataSource | undefined
     if (source) {
       landRequested.add(map)
       if (landPrefetch && (landPrefetchSettled || !landPrefetchWaitExpired)) {

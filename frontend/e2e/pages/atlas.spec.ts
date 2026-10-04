@@ -108,3 +108,116 @@ test.describe('Atlas city entry', () => {
     expect(view.lng).toBeCloseTo(-98.35, 0)
   })
 })
+
+/**
+ * The light globe's boundary lines and place labels on a compact viewport
+ * (narrower than `lg`). 800 wide rather than a phone width: below 640px this
+ * build renders the scene list, not the map.
+ */
+test.describe('Atlas light globe outlines and place labels', () => {
+  test.use({ viewport: { width: 800, height: 1000 } })
+
+  const LINE_LAYERS = ['globe-state-lines', 'globe-country-lines']
+
+  type MapSeam = {
+    getLayoutProperty: (layer: string, name: string) => unknown
+    queryRenderedFeatures: (options: { layers: string[] }) => unknown[]
+    jumpTo: (options: { center: [number, number]; zoom: number }) => void
+    getZoom: () => number
+  }
+
+  function renderedLines(page: Page) {
+    return page.evaluate((layers) => {
+      const map = (window as unknown as { __atlasMap?: MapSeam | null }).__atlasMap
+      if (!map) return null
+      return Object.fromEntries(
+        layers.map((id) => [id, map.queryRenderedFeatures({ layers: [id] }).length]),
+      )
+    }, LINE_LAYERS)
+  }
+
+  test('draws the outlines and place labels at globe zoom, clear of the scene labels, and neither at street zoom', async ({
+    page,
+  }) => {
+    await page.route(
+      url => url.pathname.endsWith('/scenes'),
+      route =>
+        route.fulfill({
+          json: {
+            scenes: [
+              {
+                city: 'Chicago',
+                state: 'IL',
+                slug: 'chicago-il',
+                venue_count: 12,
+                upcoming_show_count: 200,
+                total_show_count: 300,
+                shows_this_week: 0,
+                shows_calendar_week: 0,
+                latitude: 41.88,
+                longitude: -87.63,
+              },
+              {
+                city: 'Phoenix',
+                state: 'AZ',
+                slug: 'phoenix-az',
+                venue_count: 9,
+                upcoming_show_count: 180,
+                total_show_count: 250,
+                shows_this_week: 0,
+                shows_calendar_week: 0,
+                latitude: 33.4484,
+                longitude: -112.074,
+              },
+            ],
+            count: 2,
+          },
+        })
+    )
+    await page.goto('/atlas')
+
+    // Globe zoom: both line layers are shown, and the country lines render.
+    await expect
+      .poll(async () => (await renderedLines(page))?.['globe-country-lines'] ?? 0, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0)
+    const visibility = await page.evaluate((layers) => {
+      const map = (window as unknown as { __atlasMap: MapSeam }).__atlasMap
+      return layers.map((id) => map.getLayoutProperty(id, 'visibility'))
+    }, LINE_LAYERS)
+    expect(visibility).toEqual(['visible', 'visible'])
+
+    // Place labels: at least one, none over a scene label.
+    const placeLabels = page.getByTestId('atlas-place-label')
+    await expect(placeLabels.first()).toBeAttached({ timeout: 30_000 })
+    const overlaps = await page.evaluate(() => {
+      const rect = (el: Element) => el.getBoundingClientRect()
+      const scenes = [...document.querySelectorAll<HTMLElement>('[data-testid="atlas-scene-label"]')]
+        .filter((el) => el.style.opacity !== '0')
+        .map(rect)
+      const hits: string[] = []
+      for (const label of document.querySelectorAll('[data-testid="atlas-place-label"]')) {
+        const a = rect(label)
+        for (const b of scenes) {
+          if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+            hits.push(label.textContent ?? '')
+          }
+        }
+      }
+      return { hits, scenes: scenes.length }
+    })
+    expect(overlaps.scenes).toBeGreaterThan(0)
+    expect(overlaps.hits).toEqual([])
+
+    // Street zoom: past the globe surface's cutoff, nothing of either draws.
+    await page.evaluate(() => {
+      const map = (window as unknown as { __atlasMap: MapSeam }).__atlasMap
+      map.jumpTo({ center: [-87.63, 41.88], zoom: 12.5 })
+    })
+    await expect
+      .poll(() => renderedLines(page), { timeout: 30_000 })
+      .toEqual({ 'globe-state-lines': 0, 'globe-country-lines': 0 })
+    await expect(placeLabels).toHaveCount(0)
+  })
+})
