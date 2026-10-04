@@ -145,7 +145,8 @@ export function bottomSheetHeightCss(
  * Which detent a drag released at `heightPx` settles on.
  *
  * Below the fling speed it is the detent whose rendered height is nearest the
- * release. At or above it, it is the first detent past the release in the
+ * release; a release equally near two detents settles on the shorter, so a
+ * Half rendered at Full's height takes a slow release as Half. At or above it, it is the first detent past the release in the
  * fling's direction (`velocityPxPerMs` is positive when the sheet was growing),
  * or the end detent in that direction when none is past it.
  */

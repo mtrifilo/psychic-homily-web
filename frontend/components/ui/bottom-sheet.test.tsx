@@ -117,6 +117,13 @@ describe('settleBottomSheetDetent', () => {
     expect(settle(520)).toBe('full')
   })
 
+  it('settles a tie on the shorter detent, so a merged Half settles as Half', () => {
+    // A 300px host: Half renders at Full's height, 188.
+    expect(
+      settleBottomSheetDetent({ heightPx: 188, velocityPxPerMs: 0, hostHeightPx: 300, topInsetPx: INSET }),
+    ).toBe('half')
+  })
+
   it('carries a fling to the next detent in its direction', () => {
     // Released just above Peek, but moving up fast: Half, not Peek.
     expect(settle(130, 0.8)).toBe('half')
@@ -548,6 +555,51 @@ describe('BottomSheet', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Expand Chicago, IL scene' }))
       expect(screen.getByTestId('sheet')).toHaveAttribute('data-detent', 'full')
     } finally {
+      ro.restore()
+    }
+  })
+
+  it('settles a drag against the measured host, not the rounded clientHeight', () => {
+    const ro = controlledResizeObserver()
+    try {
+      renderWithProviders(<Harness onClose={vi.fn()} />)
+      const sheet = screen.getByTestId('sheet')
+      sheet.getBoundingClientRect = () => ({ height: 120 }) as DOMRect
+      Object.defineProperty(sheet.parentElement!, 'clientHeight', {
+        configurable: true,
+        value: 373,
+      })
+      ro.resize(373.4)
+      // Released at 168: Half (168.03) on the 373.4px host, where the rounded
+      // 373 would put Half at Full's height and the release nearest Peek.
+      const handle = screen.getByTestId('bottom-sheet-handle')
+      fireEvent(handle, pointer('pointerdown', { clientY: 600, timeStamp: 1000, button: 0 }))
+      fireEvent(handle, pointer('pointermove', { clientY: 552, timeStamp: 1010 }))
+      fireEvent(handle, pointer('pointerup', { clientY: 552, timeStamp: 1510 }))
+      expect(sheet).toHaveAttribute('data-detent', 'half')
+    } finally {
+      ro.restore()
+    }
+  })
+
+  it('counts the host’s padding in its measured height', () => {
+    const ro = controlledResizeObserver()
+    const realStyle = window.getComputedStyle
+    try {
+      renderWithProviders(<Harness onClose={vi.fn()} defaultDetent="half" />)
+      const host = screen.getByTestId('sheet').parentElement!
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) =>
+        el === host
+          ? ({ paddingTop: '10px', paddingBottom: '10px' } as CSSStyleDeclaration)
+          : realStyle(el, pseudo),
+      )
+      // A 353.4px content box plus 20px of padding is the 373.4px padding box
+      // the sheet's percentages resolve against: Full is still a tap away.
+      ro.resize(353.4)
+      fireEvent.click(screen.getByRole('button', { name: 'Expand Chicago, IL scene' }))
+      expect(screen.getByTestId('sheet')).toHaveAttribute('data-detent', 'full')
+    } finally {
+      vi.restoreAllMocks()
       ro.restore()
     }
   })
