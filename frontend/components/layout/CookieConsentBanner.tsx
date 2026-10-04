@@ -13,19 +13,27 @@ import { CookiePreferencesDialog } from './CookiePreferencesDialog'
  * so content at the document end (the footer) stays reachable by scrolling
  * rather than being permanently covered until the visitor consents. */
 
+/** The bar's rendered height including its padding, published on <html>
+ * while the bar is mounted and absent otherwise. AtlasGlobe's frame subtracts
+ * it (with a 0px fallback) so the map ends above the bar. */
+const COOKIE_BANNER_HEIGHT_VAR = '--cookie-banner-height'
+
 function ConsentBar() {
   const { gpcSignalDetected, acceptAll, rejectAll, openPreferences } =
     useCookieConsent()
   const barRef = useRef<HTMLDivElement>(null)
 
   // Reserve scroll space matching the bar's rendered height (it varies with
-  // viewport width / text wrapping), and release it when the bar unmounts.
+  // viewport width / text wrapping) and publish that height, releasing both
+  // when the bar unmounts.
   useEffect(() => {
     const bar = barRef.current
     if (!bar) return
 
     const reserveSpace = () => {
-      document.body.style.paddingBottom = `${bar.offsetHeight}px`
+      const height = `${bar.offsetHeight}px`
+      document.body.style.paddingBottom = height
+      document.documentElement.style.setProperty(COOKIE_BANNER_HEIGHT_VAR, height)
     }
     reserveSpace()
     const observer = new ResizeObserver(reserveSpace)
@@ -34,6 +42,7 @@ function ConsentBar() {
     return () => {
       observer.disconnect()
       document.body.style.paddingBottom = ''
+      document.documentElement.style.removeProperty(COOKIE_BANNER_HEIGHT_VAR)
     }
   }, [])
 
