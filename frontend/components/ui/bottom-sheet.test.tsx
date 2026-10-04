@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
@@ -107,6 +107,25 @@ function Harness({
       </BottomSheet>
     </div>
   )
+}
+
+/** A touch pointer event with an explicit timestamp (jsdom's is the wall clock). */
+function pointer(
+  type: string,
+  init: { clientY: number; timeStamp: number; button?: number },
+): Event {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientY: init.clientY,
+    button: init.button ?? 0,
+  })
+  Object.defineProperties(event, {
+    pointerId: { value: 1 },
+    pointerType: { value: 'touch' },
+    timeStamp: { value: init.timeStamp },
+  })
+  return event
 }
 
 /** jsdom has no layout: give the sheet and its host the geometry a phone has. */
@@ -310,6 +329,53 @@ describe('BottomSheet', () => {
     ).toContain('h-6')
   })
 
+  it('keeps a touch drag alive when a child hands its capture to the handle', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const grabber = screen.getByRole('button', { name: 'Expand Chicago, IL scene' })
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    fireEvent.pointerDown(grabber, { pointerId: 1, clientY: 600, button: 0, pointerType: 'touch' })
+    fireEvent.pointerMove(grabber, { pointerId: 1, clientY: 580, pointerType: 'touch' })
+    // The grabber's implicit capture moves to the handle; its loss bubbles.
+    fireEvent.lostPointerCapture(grabber, { pointerId: 1, pointerType: 'touch' })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
+    expect(sheet).toHaveAttribute('data-dragging', 'true')
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('320px')
+    // The handle itself losing the pointer does end it.
+    fireEvent.lostPointerCapture(handle, { pointerId: 1, pointerType: 'touch' })
+    expect(sheet).not.toHaveAttribute('data-dragging')
+  })
+
+  it('settles a fast drag held still before release by position, not fling', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    // 330px up in 10ms is a fling, but the finger then rests 500ms.
+    fireEvent(handle, pointer('pointerdown', { clientY: 600, timeStamp: 1000, button: 0 }))
+    fireEvent(handle, pointer('pointermove', { clientY: 450, timeStamp: 1005 }))
+    fireEvent(handle, pointer('pointermove', { clientY: 270, timeStamp: 1010 }))
+    fireEvent(handle, pointer('pointerup', { clientY: 270, timeStamp: 1510 }))
+    // Released at 450px: nearest is Half, where a fling would have gone Full.
+    expect(sheet).toHaveAttribute('data-detent', 'half')
+  })
+
+  it('moves focus from the body to the grabber on Escape', async () => {
+    const onDismiss = vi.fn()
+    renderWithProviders(
+      <div style={{ position: 'relative' }}>
+        <BottomSheet title="T" label="list" onDismiss={onDismiss} defaultDetent="half">
+          <button type="button">Row</button>
+        </BottomSheet>
+      </div>,
+    )
+    screen.getByRole('button', { name: 'Row' }).focus()
+    await userEvent.keyboard('{Escape}')
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: /list$/ })).toHaveFocus()
+  })
+
   it('ignores a second pointer while a drag is live', () => {
     renderWithProviders(<Harness onClose={vi.fn()} />)
     const sheet = screen.getByTestId('sheet')
@@ -336,6 +402,34 @@ describe('BottomSheet', () => {
     fireEvent.pointerMove(handle, { pointerId: 1, clientY: 300, buttons: 0, pointerType: 'mouse' })
     expect(sheet).not.toHaveAttribute('data-dragging')
     expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('')
+  })
+
+  it('labels the grabber Collapse when its tap would shrink the sheet', () => {
+    const observers: (() => void)[] = []
+    const Original = window.ResizeObserver
+    window.ResizeObserver = class {
+      constructor(private cb: () => void) {
+        observers.push(() => this.cb())
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+    try {
+      renderWithProviders(<Harness onClose={vi.fn()} defaultDetent="half" />)
+      const sheet = screen.getByTestId('sheet')
+      // A 400px host caps Half and Full to one height: the tap goes to Peek.
+      Object.defineProperty(sheet.parentElement!, 'clientHeight', {
+        configurable: true,
+        value: 400,
+      })
+      act(() => observers.forEach((o) => o()))
+      const grabber = screen.getByRole('button', { name: 'Collapse Chicago, IL scene' })
+      fireEvent.click(grabber)
+      expect(sheet).toHaveAttribute('data-detent', 'peek')
+    } finally {
+      window.ResizeObserver = Original
+    }
   })
 
   it('honours a controlled detent', async () => {

@@ -229,6 +229,7 @@ describe('GlobeCanvas sheet-layout seams', () => {
     renderCanvas({ venueStacks: [STACK], onVenueStackSelect })
     const marker = screen.getByRole('button', { name: /2 venues · city centre/ })
     expect(marker).toHaveTextContent('2')
+    expect(marker).toHaveAttribute('aria-label', '2 venues · city centre')
     fireEvent.click(marker)
     expect(onVenueStackSelect).toHaveBeenCalledWith(STACK.key)
   })

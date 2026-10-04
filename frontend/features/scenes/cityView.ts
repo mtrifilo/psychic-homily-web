@@ -864,8 +864,8 @@ export function usesAtlasSheetLayout(paneWidthPx: number): boolean {
 /**
  * Where the map credit starts in the sheet layout, in CSS px from the pane
  * top: a 16px inset, the 36px status row (back control + status chip, or the
- * scene search), then a 10px gap. AtlasGlobe publishes it to CSS as
- * `--atlas-top-credit-offset`.
+ * scene search), then a 10px gap. GlobeCanvas publishes it to CSS as
+ * `--atlas-top-credit-offset`, on the element that carries `data-atlas-credit`.
  */
 export const ATLAS_TOP_CREDIT_OFFSET_PX = 16 + 36 + 10
 

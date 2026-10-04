@@ -17,9 +17,6 @@ import { isPlaceableScene, type PlaceableScene } from './globeTypes'
 import { compareScenesByActivity } from './globeScale'
 import type { SceneListItem } from '../types'
 
-// The popover's own default gap below its trigger.
-const DEFAULT_LIST_OFFSET_PX = 4
-
 interface AtlasSearchProps {
   /** ALL scenes (placeable or not) — an unplaceable match still navigates. */
   scenes: SceneListItem[]
@@ -59,16 +56,21 @@ export function AtlasSearch({
 }: AtlasSearchProps) {
   const router = useRouter()
   const [open, setOpenState] = useState(false)
-  const [listOffset, setListOffset] = useState(DEFAULT_LIST_OFFSET_PX)
+  // undefined leaves the popover's own default gap.
+  const [listOffset, setListOffset] = useState<number | undefined>(undefined)
   const localTriggerRef = useRef<HTMLButtonElement>(null)
   const trigRef = triggerRef ?? localTriggerRef
-  // The offset is measured when the list opens, from where the trigger sits.
+  // Recomputed on every open, from where the trigger sits then, so a
+  // listMinTopPx that has since gone away leaves no stale offset behind.
   const setOpen = useCallback(
     (next: boolean) => {
-      const trigger = trigRef.current
-      if (next && listMinTopPx !== undefined && trigger) {
-        const triggerBottom = trigger.offsetTop + trigger.offsetHeight
-        setListOffset(Math.max(DEFAULT_LIST_OFFSET_PX, listMinTopPx - triggerBottom))
+      if (next) {
+        const trigger = trigRef.current
+        setListOffset(
+          listMinTopPx !== undefined && trigger
+            ? Math.max(0, listMinTopPx - (trigger.offsetTop + trigger.offsetHeight))
+            : undefined,
+        )
       }
       setOpenState(next)
     },
@@ -101,7 +103,7 @@ export function AtlasSearch({
         router.push(`/scenes/${scene.slug}`)
       }
     },
-    [onPick, router, trigRef],
+    [onPick, router, trigRef, setOpen],
   )
 
   // `/` opens the search (the common map/list idiom), ignored while typing in

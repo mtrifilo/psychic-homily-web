@@ -28,6 +28,7 @@ import type {
 } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
+  VENUE_PIN_INK,
   VENUE_PIN_STROKE,
   venuePinFeatures,
   venuePinPaint,
@@ -481,8 +482,7 @@ export default function GlobeCanvas({
         'border-radius: 9999px',
         `background: ${DOT_COLOR_BASE}`,
         `border: 1.5px solid ${VENUE_PIN_STROKE}`,
-        // The pin stroke's ink, legible on the base dot colour.
-        'color: #17100b',
+        `color: ${VENUE_PIN_INK}`,
         'font-size: 11px',
         'font-weight: 700',
       ].join(';')
@@ -498,6 +498,9 @@ export default function GlobeCanvas({
         'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
       ].join(';')
       button.append(badge, label)
+      // Named explicitly: MapLibre labels a marker element "Map marker" unless
+      // it already carries an aria-label, which would hide the visible text.
+      button.setAttribute('aria-label', stack.label)
       button.addEventListener('click', (e) => {
         e.stopPropagation()
         onVenueStackSelectRef.current?.(stack.key)

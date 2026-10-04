@@ -149,6 +149,29 @@ function creditUncovered(page: Page) {
   })
 }
 
+/**
+ * A one-finger drag through CDP touch events, which (unlike Playwright's
+ * tap) carry the browser's implicit pointer capture: the press lands on the
+ * grabber and the handle takes the capture once the drag starts.
+ */
+async function touchDrag(page: Page, x: number, fromY: number, toY: number) {
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y: fromY, id: 1 }],
+  })
+  const steps = 12
+  for (let i = 1; i <= steps; i++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: fromY + ((toY - fromY) * i) / steps, id: 1 }],
+    })
+  }
+  // A pause before release so the drag settles by position, not as a fling.
+  await page.waitForTimeout(150)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+}
+
 test.describe('Atlas sheet layout under touch', () => {
   test('stacked pin, list, venue and artist sheets, back to globe', async ({ page }) => {
     await stubAtlas(page)
@@ -163,6 +186,15 @@ test.describe('Atlas sheet layout under touch', () => {
       page.locator('.maplibregl-ctrl-top-left .maplibregl-ctrl-attrib'),
     ).toBeVisible()
     expect(await creditUncovered(page)).toBe(true)
+
+    // A drag that starts on the grabber moves the sheet, and settles it.
+    const grabber = list.getByRole('button', { name: /^Expand/ })
+    const box = (await grabber.boundingBox())!
+    await touchDrag(page, box.x + box.width / 2, box.y + box.height / 2, box.y - 330)
+    await expect(list).toHaveAttribute('data-detent', 'half')
+    await expect(list).not.toHaveAttribute('data-dragging', 'true')
+    await touchDrag(page, box.x + box.width / 2, box.y - 330, box.y + 40)
+    await expect(list).toHaveAttribute('data-detent', 'peek')
 
     // A tap on the counted marker opens the list at Half, scoped to the point.
     await page.getByTestId('atlas-venue-stack').tap()

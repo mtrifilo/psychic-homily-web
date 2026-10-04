@@ -2,10 +2,12 @@
 
 import {
   useCallback,
+  useEffect,
   useId,
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type Ref,
@@ -46,6 +48,12 @@ export const BOTTOM_SHEET_DETENT_HEIGHT_PX: Readonly<
 
 /** Pointer travel under which a press on the drag handle is a tap. */
 export const BOTTOM_SHEET_DRAG_SLOP_PX = 6
+
+/**
+ * A pointer held still this long before release carries no fling: the drag
+ * settles by where it stopped, not by how fast it was moving earlier.
+ */
+export const BOTTOM_SHEET_FLING_HOLD_MS = 100
 
 /**
  * Release speed (CSS px per ms) at or above which a drag counts as a fling
@@ -235,6 +243,18 @@ export function BottomSheet({
   )
 
   const sheetRef = useRef<HTMLElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const grabberRef = useRef<HTMLButtonElement | null>(null)
+  // The host's height, kept current so the grabber's label names what a tap
+  // will actually do. 0 until measured.
+  const [hostHeight, setHostHeight] = useState(0)
+  useEffect(() => {
+    const host = sheetRef.current?.parentElement
+    if (!host || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => setHostHeight(host.clientHeight))
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
   const setSheetRef = useCallback(
     (node: HTMLElement | null) => {
       sheetRef.current = node
@@ -253,8 +273,8 @@ export function BottomSheet({
     sheetRef.current?.style.removeProperty(DRAG_HEIGHT_VAR)
     setDragging(false)
   }
-  // A drag released over the grabber can end in a click on it; a click that
-  // close behind a drag's end belongs to the drag, not to the grabber.
+  // A drag released over the grabber can end in a click on it: a click within
+  // DRAG_CLICK_GUARD_MS of a drag's end belongs to the drag, not the grabber.
   const lastDragEndRef = useRef(-Infinity)
 
   const handlePointerCancel = () => {
@@ -322,34 +342,47 @@ export function BottomSheet({
       clearDragHeight()
       return
     }
-    lastDragEndRef.current = performance.now()
+    lastDragEndRef.current = e.timeStamp
     clearDragHeight()
     setDetent(
       settleBottomSheetDetent({
         heightPx: clampDragHeight(drag, e.clientY),
-        velocityPxPerMs: drag.velocity,
+        velocityPxPerMs:
+          e.timeStamp - drag.lastTime > BOTTOM_SHEET_FLING_HOLD_MS ? 0 : drag.velocity,
         hostHeightPx: drag.hostHeight,
         topInsetPx,
       }),
     )
   }
 
-
-  const handleGrabberClick = () => {
-    if (performance.now() - lastDragEndRef.current < DRAG_CLICK_GUARD_MS) return
-    const hostHeight = sheetRef.current?.parentElement?.clientHeight ?? 0
-    setDetent(nextGrabberDetent(detent, hostHeight, topInsetPx))
+  const grabberTarget = nextGrabberDetent(detent, hostHeight, topInsetPx)
+  // Event timestamps share one clock, so the guard compares the click's own
+  // timestamp with the drag's release.
+  const handleGrabberClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    if (e.timeStamp - lastDragEndRef.current < DRAG_CLICK_GUARD_MS) return
+    setDetent(grabberTarget)
   }
 
   const dismiss = onDismiss ?? onClose
-  const grabberAction = detent === 'full' ? 'Collapse' : 'Expand'
+  const grabberAction =
+    BOTTOM_SHEET_DETENTS.indexOf(grabberTarget) < BOTTOM_SHEET_DETENTS.indexOf(detent)
+      ? 'Collapse'
+      : 'Expand'
 
   return (
     <DismissableLayer
       asChild
       onEscapeKeyDown={(e) => {
         // Escape typed into a field belongs to that field.
-        if (isEditableTarget(e.target)) e.preventDefault()
+        if (isEditableTarget(e.target)) {
+          e.preventDefault()
+          return
+        }
+        // Dismissing may collapse or hide the body; focus inside it moves to
+        // the grabber first so it is never dropped to the document.
+        if (bodyRef.current?.contains(document.activeElement)) {
+          grabberRef.current?.focus()
+        }
       }}
       onDismiss={dismiss}
       // Non-modal: the host behind the sheet stays usable, so neither a press
@@ -386,7 +419,17 @@ export function BottomSheet({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          onLostPointerCapture={handlePointerCancel}
+          onLostPointerCapture={(e) => {
+            // Only the handle losing the drag's pointer ends the drag. A child
+            // (the grabber, the title) loses its implicit touch capture the
+            // moment the handle takes it, and that event bubbles here.
+            if (
+              e.target === e.currentTarget &&
+              dragRef.current?.pointerId === e.pointerId
+            ) {
+              handlePointerCancel()
+            }
+          }}
           // The handle owns vertical drags; the browser must not turn them
           // into a page scroll or a pinch.
           className="shrink-0 touch-none select-none"
@@ -394,6 +437,7 @@ export function BottomSheet({
           <div className="flex justify-center py-0.5">
             <button
               type="button"
+              ref={grabberRef}
               data-bottom-sheet-grabber=""
               onClick={handleGrabberClick}
               aria-label={`${grabberAction} ${label}`}
@@ -426,6 +470,7 @@ export function BottomSheet({
           </div>
         </div>
         <div
+          ref={bodyRef}
           data-testid="bottom-sheet-body"
           // overscroll-contain: reaching the end of the body never chains the
           // scroll to the page behind the sheet.

@@ -182,12 +182,18 @@ function setMockContainerWidth(width: number) {
   mockContainerWidth = width
 }
 
+// The live observer, so a test can report a new container width.
+let lastResize: (() => void) | null = null
 class ImmediateResizeObserver {
   private callback: ResizeObserverCallback
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback
   }
   observe(target: Element): void {
+    lastResize = () => this.report(target)
+    this.report(target)
+  }
+  private report(target: Element): void {
     this.callback(
       [
         {
@@ -1323,6 +1329,26 @@ describe('AtlasGlobe', () => {
         fireEvent.click(within(sheet).getByRole('button', { name: 'Next 7 days' }))
         expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
         expect(within(sheet).getByRole('button', { name: /Hideout/ })).toBeInTheDocument()
+      })
+
+      it('lets Escape close the venue sheet after the pane narrows past 900px', async () => {
+        setMockContainerWidth(1000)
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+        act(() => lastCanvasProps.onVenueSelect?.(1))
+        expect(screen.getByTestId('atlas-venue-panel')).not.toHaveAttribute('data-slot')
+
+        // The list sheet and the re-keyed venue sheet mount in one commit.
+        setMockContainerWidth(800)
+        act(() => lastResize?.())
+        expect(screen.getByTestId('atlas-venue-panel')).toHaveAttribute(
+          'data-slot',
+          'bottom-sheet',
+        )
+        await userEvent.keyboard('{Escape}')
+        expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+        expect(screen.getByTestId('atlas-venue-sheet')).toHaveAttribute('data-detent', 'peek')
       })
 
       it('keeps the side-panel layout, unchanged, at 900px and up', async () => {

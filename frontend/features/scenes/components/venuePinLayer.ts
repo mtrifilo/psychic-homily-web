@@ -83,7 +83,9 @@ export function venuePinFeatures(
 }
 
 // A dark rim, not the globe dots' cream one: on a street basemap a light halo
-// reads as a second mark rather than an outline.
+// reads as a second mark rather than an outline. VENUE_PIN_INK is the same
+// colour at full opacity, for text drawn on a pin.
+export const VENUE_PIN_INK = 'rgb(23,16,11)'
 export const VENUE_PIN_STROKE = 'rgba(23,16,11,0.85)'
 
 /**
