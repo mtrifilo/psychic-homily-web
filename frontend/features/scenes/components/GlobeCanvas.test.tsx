@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -277,5 +278,39 @@ describe('GlobeCanvas sheet-layout seams', () => {
       zoom: 13,
       bounds: { west: -87.7, south: 41.8, east: -87.5, north: 41.95 },
     })
+  })
+})
+
+describe('GlobeCanvas pulse rings', () => {
+  const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+  let matchMedia: ReturnType<typeof installMatchMedia>
+
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    matchMedia.restore()
+    vi.restoreAllMocks()
+  })
+
+  it('stops the rings when reduced motion is turned on mid-session', () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
+    const setData = vi.fn()
+    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData })
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7)
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    renderCanvas({ scenes: [{ ...CHICAGO, shows_this_week: 2 }] })
+
+    const ringFeatureCounts = () =>
+      setData.mock.calls.map(([fc]) => (fc as { features: unknown[] }).features.length)
+    expect(ringFeatureCounts()).toContain(1)
+    setData.mockClear()
+
+    matchMedia.set(REDUCED_MOTION_QUERY, true)
+    expect(cancel).toHaveBeenCalledWith(7)
+    expect(ringFeatureCounts()).toContain(0)
+    expect(ringFeatureCounts()).not.toContain(1)
   })
 })

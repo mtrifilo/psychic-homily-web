@@ -69,6 +69,7 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { atlasRendersSceneList, atlasSupportsWebGL2 } from '../atlasViewport'
 
@@ -137,9 +138,8 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
  * Explore: The Globe (PSY-1213). A spin-to-discover globe where each city scene
  * is a dot; clicking one opens a preview with a link into the scene page.
  * Centered on the visitor's IP-geo region, falling back to North America.
- * The map renders at every width; the scene list stands in for it only where
- * atlasRendersSceneList says so (no WebGL2, or reduced motion on a narrow
- * pane).
+ * The map renders at every width; the scene list stands in for it where
+ * atlasRendersSceneList says so, or once a map has failed to start.
  */
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
@@ -611,11 +611,17 @@ export function AtlasGlobe() {
   }, [isError])
 
   const prefersReducedMotion = useReducedMotion()
+  // A map that throws while starting (MapLibre denied its WebGL2 context after
+  // the probe said yes, or the canvas module failed) counts as no WebGL2 for
+  // the rest of this mount: the scene list replaces it, not the app's error
+  // page.
+  const [mapFailed, setMapFailed] = useState(false)
+  const handleMapFailed = useCallback(() => setMapFailed(true), [])
   const showsSceneList =
     size !== null &&
     atlasRendersSceneList({
       paneWidthPx: size.width,
-      supportsWebGL2: atlasSupportsWebGL2(),
+      supportsWebGL2: !mapFailed && atlasSupportsWebGL2(),
       prefersReducedMotion,
     })
   const mapSheetLayout =
@@ -768,27 +774,29 @@ export function AtlasGlobe() {
           data-atlas-layout={sheetLayout ? 'sheet' : undefined}
           style={paneStyle}
         >
-          <GlobeCanvas
-            width={canvasWidth}
-            height={size.height}
-            scenes={placeable}
-            pov={pov}
-            onSelect={setSelected}
-            selected={selected}
-            flyToRef={flyToRef}
-            followedSlugs={followedSlugs}
-            venues={venuePins}
-            selectedVenueId={selectedVenueId}
-            onVenueSelect={handleVenueSelect}
-            cityLabel={
-              cityScene ? `${cityScene.city}, ${cityScene.state}` : null
-            }
-            onCameraSettle={handleCameraSettle}
-            attributionPosition={sheetLayout ? 'top-left' : 'bottom-left'}
-            onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
-            venueStacks={sheetLayout ? venueStackMarkers : undefined}
-            onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
-          />
+          <GraphSectionErrorBoundary sentryTag="atlas-map" onError={handleMapFailed}>
+            <GlobeCanvas
+              width={canvasWidth}
+              height={size.height}
+              scenes={placeable}
+              pov={pov}
+              onSelect={setSelected}
+              selected={selected}
+              flyToRef={flyToRef}
+              followedSlugs={followedSlugs}
+              venues={venuePins}
+              selectedVenueId={selectedVenueId}
+              onVenueSelect={handleVenueSelect}
+              cityLabel={
+                cityScene ? `${cityScene.city}, ${cityScene.state}` : null
+              }
+              onCameraSettle={handleCameraSettle}
+              attributionPosition={sheetLayout ? 'top-left' : 'bottom-left'}
+              onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
+              venueStacks={sheetLayout ? venueStackMarkers : undefined}
+              onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
+            />
+          </GraphSectionErrorBoundary>
           {sheetLayout && cityScene && (
             <VenueListSheet
               principalCity={cityScene.city}

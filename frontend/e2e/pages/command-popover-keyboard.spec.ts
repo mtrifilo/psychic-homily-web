@@ -17,8 +17,8 @@ test.use({
 })
 
 /**
- * A landscape phone: the shape where a keyboard and this popover can actually
- * meet, and the wide-but-short case that leaves the popover least room.
+ * A landscape phone: the wide-but-short case that leaves the popover least
+ * room under a keyboard.
  */
 const ATLAS_VIEWPORT = { width: 844, height: 390 }
 
@@ -203,52 +203,63 @@ async function waitForAtlasMap(page: Page) {
     .toBe(true)
 }
 
+/**
+ * Opens the Atlas search at globe zoom, raises the keyboard, and checks the
+ * command column stays inside the room it leaves, then gets the room back.
+ */
+async function expectAtlasSearchBoundUnderKeyboard(
+  page: Page,
+  viewport: { width: number; height: number }
+) {
+  await page.addInitScript(installVisualViewportShim)
+  await page.goto('/atlas')
+
+  const trigger = page.getByRole('combobox', { name: 'Search scenes' })
+  await expect(trigger).toBeVisible({ timeout: 30_000 })
+  // The globe-zoom state: the map has started (the credit control mounts
+  // with its style) and the credit is empty, so the list opens directly
+  // under its trigger.
+  await expect(page.locator('.maplibregl-ctrl-attrib')).toHaveClass(
+    /maplibregl-attrib-empty/,
+    { timeout: 30_000 }
+  )
+  await trigger.click()
+
+  const content = popoverContent(page)
+  const search = page.getByPlaceholder('City or state…')
+  await expect(search).toBeVisible()
+
+  const unbounded = await measure(content)
+  // The scrolling assertion below only means anything if the seeded scenes
+  // overflow the room the keyboard leaves. Fails loudly if the seed shrinks.
+  expect(unbounded.optionCount).toBeGreaterThan(1)
+  expect(unbounded.listScrolls).toBe(false)
+
+  // Open first, then raise the keyboard: the re-measure the shrinking visual
+  // viewport triggers is what tightens the bound.
+  const geometry = await expectBoundUnderKeyboard(page, content, search)
+
+  // Lowering the keyboard gives the room back: the bound tracks the viewport
+  // in both directions rather than latching at its smallest reading.
+  await raiseKeyboard(page, viewport.height)
+  await expect
+    .poll(() => listScrolls(content), { timeout: 10_000 })
+    .toBe(false)
+  const restored = await measure(content)
+  // The ceiling is back to the full room, and the column has grown past the
+  // squeezed height rather than latching at it. Its exact height is not
+  // asserted: a relayout after scrolling moves it a few px either way.
+  expect(restored.contentMaxHeight).toBeGreaterThan(geometry.available)
+  expect(restored.columnHeight).toBeGreaterThan(geometry.columnHeight)
+}
+
 test.describe('Atlas search popover under a software keyboard', () => {
   test.use({ viewport: ATLAS_VIEWPORT })
 
   test('bounds the command column to the space the keyboard leaves', async ({
     page,
   }) => {
-    await page.addInitScript(installVisualViewportShim)
-    await page.goto('/atlas')
-
-    const trigger = page.getByRole('combobox', { name: 'Search scenes' })
-    await expect(trigger).toBeVisible({ timeout: 30_000 })
-    // The globe-zoom state: the map has started (the credit control mounts
-    // with its style) and the credit is empty, so the list opens directly
-    // under its trigger.
-    await expect(page.locator('.maplibregl-ctrl-attrib')).toHaveClass(
-      /maplibregl-attrib-empty/,
-      { timeout: 30_000 }
-    )
-    await trigger.click()
-
-    const content = popoverContent(page)
-    const search = page.getByPlaceholder('City or state…')
-    await expect(search).toBeVisible()
-
-    const unbounded = await measure(content)
-    // The scrolling assertion below only means anything if the seeded scenes
-    // overflow the room the keyboard leaves. Fails loudly if the seed shrinks.
-    expect(unbounded.optionCount).toBeGreaterThan(1)
-    expect(unbounded.listScrolls).toBe(false)
-
-    // Open first, then raise the keyboard: the re-measure the shrinking visual
-    // viewport triggers is what tightens the bound.
-    const geometry = await expectBoundUnderKeyboard(page, content, search)
-
-    // Lowering the keyboard gives the room back: the bound tracks the viewport
-    // in both directions rather than latching at its smallest reading.
-    await raiseKeyboard(page, ATLAS_VIEWPORT.height)
-    await expect
-      .poll(() => listScrolls(content), { timeout: 10_000 })
-      .toBe(false)
-    const restored = await measure(content)
-    // The ceiling is back to the full room, and the column has grown past the
-    // squeezed height rather than latching at it. Its exact height is not
-    // asserted: a relayout after scrolling moves it a few px either way.
-    expect(restored.contentMaxHeight).toBeGreaterThan(geometry.available)
-    expect(restored.columnHeight).toBeGreaterThan(geometry.columnHeight)
+    await expectAtlasSearchBoundUnderKeyboard(page, ATLAS_VIEWPORT)
   })
 
   test('gives the credit clearance up to a raised keyboard, and takes it back', async ({
@@ -292,6 +303,19 @@ test.describe('Atlas search popover under a software keyboard', () => {
     await expect
       .poll(() => contentTopPx(content), { timeout: 10_000 })
       .toBeGreaterThanOrEqual(creditBottom!)
+  })
+})
+
+/** A portrait phone, where the Atlas search sits in the map's status row. */
+const ATLAS_PORTRAIT_VIEWPORT = { width: 390, height: 844 }
+
+test.describe('Atlas search popover under a software keyboard on a portrait phone', () => {
+  test.use({ viewport: ATLAS_PORTRAIT_VIEWPORT })
+
+  test('bounds the command column to the space the keyboard leaves', async ({
+    page,
+  }) => {
+    await expectAtlasSearchBoundUnderKeyboard(page, ATLAS_PORTRAIT_VIEWPORT)
   })
 })
 

@@ -147,9 +147,9 @@ function parseArgs(argv) {
 
 function contextOptions(opts) {
   if (opts.device === 'desktop') {
-    return { ...devices['Desktop Chrome'], viewport: opts.viewport ?? { width: 1440, height: 900 } }
+    return { ...devices['Desktop Chrome'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 1440, height: 900 } }
   }
-  return { ...devices['iPhone 13'], viewport: opts.viewport ?? { width: 390, height: 844 } }
+  return { ...devices['iPhone 13'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 390, height: 844 } }
 }
 
 function category(request) {
@@ -287,7 +287,7 @@ async function oneRun(browser, opts) {
   const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
-    throw new Error('the page rendered the Atlas scene list, not the map: the browser reported no WebGL2, or this build gates the map by width (see the header)')
+    throw new Error('the page rendered the Atlas scene list, not the map: a condition atlasRendersSceneList names held, or the build predates the phone map (see the header)')
   }
   if (firstMapMs === null) {
     await context.close()

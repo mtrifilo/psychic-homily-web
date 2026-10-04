@@ -6,9 +6,9 @@ import { compareScenesByActivity } from './globeScale'
 import type { SceneListItem } from '../types'
 
 /**
- * The Atlas's stand-in for the map where the map should not run (no WebGL2,
- * or reduced motion on a narrow pane; see atlasRendersSceneList): the scenes
- * as a list, still the geographic-discovery payoff, just not spatial. Lists
+ * The Atlas's stand-in for the map wherever atlasRendersSceneList says the
+ * map should not run: the scenes as a list, still the geographic-discovery
+ * payoff, just not spatial. Lists
  * ALL scenes (incl. ones the globe can't place), liveliest first. Each row
  * expands in place (the app expands in place rather than modally, cf.
  * StationShowsDirectory's in-place view-all; the only Sheet primitive is
@@ -30,8 +30,8 @@ export function MobileSceneList({
   // several players in one scroll column is noise, not discovery.
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null)
 
-  // Liveliest first — the API returns its own order, but the top of a mobile
-  // list is prime space and should be the most active scenes. Shared comparator
+  // Liveliest first: the API returns its own order, but the top of the list
+  // is prime space and should be the most active scenes. Shared comparator
   // so this can't drift from AtlasSearch / globe label ordering.
   const sorted = useMemo(
     () => [...scenes].sort(compareScenesByActivity),
@@ -93,10 +93,9 @@ export function MobileSceneList({
                       )}
                       {s.city}, {s.state}
                     </span>
-                    {/* Both headline counts, matching the desktop panel's
-                        "N upcoming · M venues" line — the ticket's payoff
-                        parity includes the counts, and this row is the only
-                        place the mobile surface shows them. */}
+                    {/* Both headline counts, matching the map preview's
+                        "N upcoming · M venues" line: this row is the only
+                        place the list shows them. */}
                     <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                       {s.upcoming_show_count} upcoming · {s.venue_count} venues
                       <span aria-hidden>{expanded ? '−' : '+'}</span>

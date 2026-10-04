@@ -160,17 +160,28 @@ let lastCanvasProps: {
   scenes?: readonly PlaceableScene[]
   onSelect?: (scene: PlaceableScene) => void
 } = {}
-vi.mock('./GlobeCanvas', () => ({
-  default: (
-    props: typeof lastCanvasProps & {
-      flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
+// Set by a case to make the canvas throw from its mount effect, where the real
+// GlobeCanvas throws when MapLibre gets no WebGL2 context.
+let mockCanvasThrowsOnStart = false
+vi.mock('./GlobeCanvas', async () => {
+  const { useEffect } = await import('react')
+  return {
+    default: function MockGlobeCanvas(
+      props: typeof lastCanvasProps & {
+        flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
+      },
+    ) {
+      if (props.flyToRef) props.flyToRef.current = flyToSpy
+      lastCanvasProps = props
+      useEffect(() => {
+        if (mockCanvasThrowsOnStart) {
+          throw new TypeError("Cannot read properties of undefined (reading 'disableRotation')")
+        }
+      }, [])
+      return <div data-testid="globe-canvas" />
     },
-  ) => {
-    if (props.flyToRef) props.flyToRef.current = flyToSpy
-    lastCanvasProps = props
-    return <div data-testid="globe-canvas" />
-  },
-}))
+  }
+})
 
 const preloadAtlasMap = vi.fn()
 vi.mock('./atlasMapPreload', () => ({
@@ -193,10 +204,10 @@ import {
   ATLAS_COMPACT_VIEWPORT_QUERY,
   ATLAS_REDUCED_MOTION_LIST_BELOW_PX,
 } from '../atlasViewport'
-
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { altitudeForZoom } from './globeScale'
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 // ResizeObserver shim to drive the container width (same pattern as
 // SceneGraph.test.tsx). Defaults to a phone-sized pane.
@@ -280,6 +291,7 @@ describe('AtlasGlobe', () => {
   beforeEach(() => {
     setMockContainerWidth(500)
     mockSupportsWebGL2 = true
+    mockCanvasThrowsOnStart = false
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).ResizeObserver = ImmediateResizeObserver
     mockUseScenes.mockReset()
@@ -364,8 +376,34 @@ describe('AtlasGlobe', () => {
         setMockContainerWidth(width)
         renderWithScenes()
         await expectMap()
+        // The preference was asked for, so the map is a decision, not a miss.
+        expect(matchMedia.queries).toContain(REDUCED_MOTION_QUERY)
       },
     )
+
+    it.each([390, 1400])(
+      'falls back to the list when the map throws while starting, on a %ipx pane',
+      async (width) => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        mockCanvasThrowsOnStart = true
+        setMockContainerWidth(width)
+        renderWithScenes()
+        await waitFor(() =>
+          expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument(),
+        )
+        expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+        quiet.mockRestore()
+      },
+    )
+
+    it('shows the error state, not the list, when scenes fail without WebGL2', () => {
+      mockSupportsWebGL2 = false
+      setMockContainerWidth(1400)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.getByText(/couldn’t load/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+    })
 
     it('swaps to the list when reduced motion is turned on mid-session', async () => {
       matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })

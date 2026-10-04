@@ -103,7 +103,29 @@ describe('probeWebGL2', () => {
 })
 
 describe('atlasSupportsWebGL2', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('answers false without a document, and keeps no answer for the client', async () => {
+    vi.resetModules()
+    const { atlasSupportsWebGL2 } = await import('./atlasViewport')
+    const realDocument = document
+    vi.stubGlobal('document', undefined)
+    expect(atlasSupportsWebGL2()).toBe(false)
+    vi.stubGlobal('document', realDocument)
+    const loseContext = vi.fn()
+    const getContext = vi.fn(() => ({ getExtension: () => ({ loseContext }) }))
+    const realCreateElement = realDocument.createElement.bind(realDocument)
+    vi.spyOn(realDocument, 'createElement').mockImplementation((tag: string) =>
+      tag === 'canvas'
+        ? ({ getContext } as unknown as HTMLCanvasElement)
+        : realCreateElement(tag),
+    )
+    expect(atlasSupportsWebGL2()).toBe(true)
+    expect(getContext).toHaveBeenCalledTimes(1)
+  })
 
   it('probes one fresh canvas per page load and keeps the answer', async () => {
     vi.resetModules()

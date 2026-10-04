@@ -114,6 +114,12 @@ describe('MobileSceneList', () => {
     ])
   })
 
+  it('heads the list with its title and no intro sentence', () => {
+    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    expect(screen.getByRole('heading', { level: 1, name: 'Scenes' })).toBeInTheDocument()
+    expect(screen.queryByText(/larger screen/i)).not.toBeInTheDocument()
+  })
+
   it('marks its root with the test id the Atlas perf script detects', () => {
     // scripts/atlas-perf.mjs stops a run at once when this list renders
     // instead of the map; renaming the id silently turns that into a timeout.

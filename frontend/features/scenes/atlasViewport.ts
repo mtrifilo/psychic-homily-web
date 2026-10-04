@@ -44,13 +44,12 @@ export function useAtlasCompactViewport(): boolean {
 /**
  * Below this map-pane width, a visitor who prefers reduced motion gets the
  * scene list instead of the map. At and above it they get the map, which
- * already honours the preference (no pulse rings; camera moves cut rather
- * than fly).
+ * honours the preference itself (GlobeCanvas drops its pulse rings, and
+ * camera moves cut rather than fly).
  *
- * The value is the orchestrator's reading of the owner's decision that the
- * list stays as the phones' reduced-motion fallback, so desktop and tablet
- * panes keep the map. It is a product setting: moving it is a change to this
- * line alone.
+ * A product setting, not a technical limit: it reads the owner's call that
+ * the list is the phones' reduced-motion fallback while tablet and desktop
+ * panes keep the map. Moving it is a change to this line alone.
  */
 export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
 
