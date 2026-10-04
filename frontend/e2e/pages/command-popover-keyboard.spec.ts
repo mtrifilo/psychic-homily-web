@@ -6,6 +6,17 @@ import {
 import { expect, type Locator, type Page } from '@playwright/test'
 
 /**
+ * MapLibre needs a WebGL2 context headless Chromium otherwise lacks, and the
+ * credit the Atlas search list steps around is drawn by the running map.
+ * Launch options are per worker, so they sit at file level.
+ */
+test.use({
+  launchOptions: {
+    args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
+  },
+})
+
+/**
  * A landscape phone: the shape where a keyboard and this popover can actually
  * meet. `/atlas` swaps in a searchless scene list below 640px, so a portrait
  * phone has no atlas search at all, and the wide-but-short landscape case is
@@ -195,14 +206,7 @@ async function waitForAtlasMap(page: Page) {
 }
 
 test.describe('Atlas search popover under a software keyboard', () => {
-  test.use({
-    viewport: ATLAS_VIEWPORT,
-    // MapLibre needs a WebGL2 context headless Chromium otherwise lacks, and
-    // the credit the search list steps around is drawn by the running map.
-    launchOptions: {
-      args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
-    },
-  })
+  test.use({ viewport: ATLAS_VIEWPORT })
 
   test('bounds the command column to the space the keyboard leaves', async ({
     page,
