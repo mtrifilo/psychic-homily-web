@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
@@ -192,5 +192,67 @@ describe('globe land data file', () => {
       }),
     )
     expect(problems).toEqual([])
+  })
+})
+
+describe('prefetchGlobeLand', () => {
+  const LAND: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
+
+  // Module state is once per page load by design, so each case gets a fresh
+  // module instance rather than a reset seam.
+  async function freshModule() {
+    vi.resetModules()
+    return import('./globeSurface')
+  }
+
+  function stubFetch(response: () => Promise<unknown>) {
+    const fetchMock = vi.fn(response)
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('hands a map the prefetched collection instead of the URL, fetching once', async () => {
+    const fetchMock = stubFetch(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(LAND) }),
+    )
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    mod.prefetchGlobeLand()
+    await settle()
+    const { map, setData } = fakeMap()
+    mod.showGlobeSurface(map, true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+    expect(setData).toHaveBeenCalledWith(LAND)
+  })
+
+  it.each([
+    ['a failed request', () => Promise.reject(new Error('offline'))],
+    ['an HTTP error', () => Promise.resolve({ ok: false, json: () => Promise.resolve(LAND) })],
+    [
+      'a body that is not a FeatureCollection',
+      () => Promise.resolve({ ok: true, json: () => Promise.resolve({ type: 'Feature' }) }),
+    ],
+  ])('falls back to the URL after %s', async (_label, response) => {
+    stubFetch(response)
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    await settle()
+    const { map, setData } = fakeMap()
+    mod.showGlobeSurface(map, true)
+    expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+  })
+
+  it('falls back to the URL while the prefetch is still in flight', async () => {
+    stubFetch(() => new Promise(() => {}))
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    const { map, setData } = fakeMap()
+    mod.showGlobeSurface(map, true)
+    expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
   })
 })

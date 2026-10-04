@@ -170,12 +170,14 @@ vi.mock('./GlobeCanvas', () => ({
   },
 }))
 
-const preloadGlobeCanvas = vi.fn()
-vi.mock('./globeCanvasPreload', () => ({
-  preloadGlobeCanvas: () => preloadGlobeCanvas(),
+const preloadAtlasMap = vi.fn()
+vi.mock('./atlasMapPreload', () => ({
+  preloadAtlasMap: (options: { lightGlobe: boolean }) => preloadAtlasMap(options),
 }))
 
 import { AtlasGlobe } from './AtlasGlobe'
+import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { CITY_VIEW_MIN_ZOOM } from '../cityView'
 import { altitudeForZoom } from './globeScale'
@@ -300,21 +302,34 @@ describe('AtlasGlobe', () => {
       mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
       renderWithProviders(<AtlasGlobe />)
       expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
-      expect(preloadGlobeCanvas).toHaveBeenCalledTimes(1)
+      expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
+      expect(preloadAtlasMap).toHaveBeenCalledWith({ lightGlobe: false })
     })
 
     it('never fetches the canvas module where the scene list renders instead', () => {
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       renderWithProviders(<AtlasGlobe />)
       expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
-      expect(preloadGlobeCanvas).not.toHaveBeenCalled()
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
+    })
+
+    it('asks for the land data too on a compact viewport', () => {
+      setMockContainerWidth(800)
+      const mm = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      try {
+        mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+        renderWithProviders(<AtlasGlobe />)
+        expect(preloadAtlasMap).toHaveBeenCalledWith({ lightGlobe: true })
+      } finally {
+        mm.restore()
+      }
     })
 
     it('does not fetch it when the scenes query has failed', () => {
       setMockContainerWidth(1200)
       mockUseScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })
       renderWithProviders(<AtlasGlobe />)
-      expect(preloadGlobeCanvas).not.toHaveBeenCalled()
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
     })
   })
 

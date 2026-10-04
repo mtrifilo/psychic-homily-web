@@ -141,21 +141,55 @@ export interface GlobeSurfaceMap {
   getSource(id: string): unknown
 }
 
-// Maps whose land source already points at the data file. Each Atlas show
-// builds a fresh map, so entries go with the map they belong to.
+// Maps whose land source already holds (or is fetching) the land data. Each
+// Atlas show builds a fresh map, so entries go with the map they belong to.
 const landRequested = new WeakSet<object>()
 
+// The land file fetched on the main thread ahead of the map, once per page
+// load: the parsed collection once it lands, null while in flight or after a
+// failure (the map then fetches the file itself).
+let landPrefetchStarted = false
+let prefetchedLand: GeoJSON.FeatureCollection | null = null
+
 /**
- * Switches a live map to one look. Idempotent; loads the land file at most
- * once per map, on the first switch to the light look.
+ * Starts fetching the land file before any map exists, so a map that shows
+ * the light look can take the parsed data instead of fetching it from its
+ * worker after the style loads. Idempotent. A failed or unusable response
+ * leaves nothing prefetched, and the map falls back to fetching the URL,
+ * where a failure reaches basemapTelemetry like any source error.
+ */
+export function prefetchGlobeLand(): void {
+  if (landPrefetchStarted) return
+  landPrefetchStarted = true
+  fetch(GLOBE_LAND_DATA_URL)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data: unknown) => {
+      if (isFeatureCollection(data)) prefetchedLand = data
+    })
+    .catch(() => {})
+}
+
+function isFeatureCollection(data: unknown): data is GeoJSON.FeatureCollection {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { type?: unknown }).type === 'FeatureCollection' &&
+    Array.isArray((data as { features?: unknown }).features)
+  )
+}
+
+/**
+ * Switches a live map to one look. Idempotent; loads the land data at most
+ * once per map, on the first switch to the light look: the prefetched
+ * collection when it has landed, else the file's URL (fetched by the map).
  */
 export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): void {
   if (lightGlobe && !landRequested.has(map)) {
     const source = map.getSource(GLOBE_LAND_SOURCE_ID) as
-      | { setData(data: string): unknown }
+      | { setData(data: string | GeoJSON.FeatureCollection): unknown }
       | undefined
     if (source) {
-      source.setData(GLOBE_LAND_DATA_URL)
+      source.setData(prefetchedLand ?? GLOBE_LAND_DATA_URL)
       landRequested.add(map)
     }
   }
