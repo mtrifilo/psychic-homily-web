@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { BottomSheet } from '@/components/ui/bottom-sheet'
 // Deep imports, not the `@/components/shared` barrel: the barrel drags in every
 // shared component (and their AuthContext/router dependencies) for one embed,
 // and it is the path the Atlas suites already mock. Same rule VenuePanel states.
@@ -16,6 +17,7 @@ import type { ArtistShow } from '@/features/artists/types'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
   ARTIST_PANEL_NEXT_SHOW_ROWS,
+  ATLAS_SHEET_TOP_INSET_PX,
   CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
   formatPanelShowDate,
@@ -56,6 +58,12 @@ interface ArtistPanelProps {
   onBack: () => void
   /** Close the whole stack. */
   onClose: () => void
+  /**
+   * `panel` floats over the map's right edge; `sheet` is a bottom sheet
+   * opening at Full, for panes too narrow for a side panel. Same content and
+   * dismissal contract either way (Escape pops one level, ✕ closes).
+   */
+  presentation?: 'panel' | 'sheet'
 }
 
 /**
@@ -96,6 +104,7 @@ export function ArtistPanel({
   backLabel,
   onBack,
   onClose,
+  presentation = 'panel',
 }: ArtistPanelProps) {
   const backRef = useRef<HTMLButtonElement>(null)
 
@@ -196,6 +205,160 @@ export function ArtistPanel({
     scopeLabel,
   })
 
+  const isSheet = presentation === 'sheet'
+  const backButton = (
+    <button
+      ref={backRef}
+      type="button"
+      onClick={onBack}
+      className="-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <ChevronLeft className="h-3 w-3 shrink-0" aria-hidden="true" />
+      <span className="truncate">{backLabel}</span>
+    </button>
+  )
+  const kickerRow = (
+    <div className="mt-1.5 flex items-center justify-between gap-2">
+      <p
+        data-testid="artist-panel-kicker"
+        className="min-w-0 truncate font-mono text-[11px] uppercase tracking-wide text-primary"
+      >
+        {kicker}
+      </p>
+      {total > 1 && (
+        <div
+          className={`flex shrink-0 items-center ${isSheet ? 'gap-1' : 'gap-0.5'}`}
+        >
+          <StepButton
+            direction="previous"
+            touch={isSheet}
+            disabled={atFirst}
+            onClick={() => onStep(index - 1)}
+          />
+          <StepButton
+            direction="next"
+            touch={isSheet}
+            disabled={atLast}
+            onClick={() => onStep(index + 1)}
+          />
+        </div>
+      )}
+    </div>
+  )
+  const stepAnnouncement = (
+    <>
+      {/* Stepping changes the panel's contents WITHOUT moving focus (by
+          design — focus stays on the button being pressed), and the visible
+          kicker is abbreviated mono caps whose `‹ ›` glyphs only imply the
+          position visually. This is the only thing that states the new
+          position, and who you landed on, to a screen reader. */}
+      <p className="sr-only" role="status">
+        {announcement}
+      </p>
+    </>
+  )
+  const identityLine = identity && (
+    <p
+      data-testid="artist-panel-identity"
+      className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+    >
+      {identity}
+    </p>
+  )
+  const details = (
+    <>
+      {isError && !card && (
+        <p className="px-4 py-4 text-sm text-muted-foreground">
+          Details couldn’t load — the artist page has the full picture.
+        </p>
+      )}
+
+      {/* Embed-first, as the mock draws it: the whole promise of the
+          drill-in is that you can HEAR the band, so the player comes before
+          any metadata row. The heading renders only when a player will. */}
+      {hasPlayableAudio && card && (
+        <section
+          data-testid="artist-panel-listen"
+          className="border-b border-border/60 px-4 pb-2 pt-3"
+        >
+          <h3 className="pb-1.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+            Listen
+          </h3>
+          <MusicEmbed
+            compact
+            bandcampAlbumUrl={card.bandcamp_embed_url}
+            spotifyUrl={card.spotify}
+            artistName={artistName}
+          />
+        </section>
+      )}
+
+      {nextShows.length > 0 && (
+        <section className="border-b border-border/60 px-4 pb-2.5 pt-3">
+          <h3 className="pb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+            {nextShows.length === 1 ? 'Next show' : 'Next shows'}
+          </h3>
+          <ul className="space-y-1">
+            {nextShows.map((show) => (
+              <li key={show.id}>
+                <NextShowRow show={show} artistId={current.artistId} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {connections && (
+        <section className="border-b border-border/60 px-4 pb-2.5 pt-3">
+          <h3 className="pb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+            Connections
+          </h3>
+          <p className="text-sm leading-snug text-foreground/90">
+            {connections}
+          </p>
+        </section>
+      )}
+    </>
+  )
+  const artistPageLink = (
+    <Link
+      // Always rendered, and off the STEP's slug when the card hasn't
+      // landed — the panel replaced a navigation, so it must never strand
+      // the user pathless while a fetch is in flight or after it failed.
+      href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
+      className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      Open artist page →
+    </Link>
+  )
+
+  if (isSheet) {
+    return (
+      <BottomSheet
+        title={artistName}
+        label={artistName}
+        aria-label={`${artistName}, artist details`}
+        data-testid="atlas-artist-panel"
+        defaultDetent="full"
+        onClose={onClose}
+        closeLabel={`Close ${artistName} panel`}
+        // Escape pops ONE level, as in the panel.
+        onDismiss={onBack}
+        topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
+        flushBody
+      >
+        <div className="px-4 pb-3">
+          <div className="flex">{backButton}</div>
+          {kickerRow}
+          {stepAnnouncement}
+          {identityLine}
+        </div>
+        <div className="border-t border-border">{details}</div>
+        <div className="border-t border-border px-4 py-2.5">{artistPageLink}</div>
+      </BottomSheet>
+    )
+  }
+
   return (
     <DismissableLayer
       asChild
@@ -224,15 +387,7 @@ export function ArtistPanel({
       >
         <header className="border-b border-border px-4 pb-3 pt-3">
           <div className="flex items-start justify-between gap-2">
-            <button
-              ref={backRef}
-              type="button"
-              onClick={onBack}
-              className="-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <ChevronLeft className="h-3 w-3 shrink-0" aria-hidden="true" />
-              <span className="truncate">{backLabel}</span>
-            </button>
+            {backButton}
             <button
               type="button"
               onClick={onClose}
@@ -243,116 +398,20 @@ export function ArtistPanel({
             </button>
           </div>
 
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <p
-              data-testid="artist-panel-kicker"
-              className="min-w-0 truncate font-mono text-[11px] uppercase tracking-wide text-primary"
-            >
-              {kicker}
-            </p>
-            {total > 1 && (
-              <div className="flex shrink-0 items-center gap-0.5">
-                <StepButton
-                  direction="previous"
-                  disabled={atFirst}
-                  onClick={() => onStep(index - 1)}
-                />
-                <StepButton
-                  direction="next"
-                  disabled={atLast}
-                  onClick={() => onStep(index + 1)}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Stepping changes the panel's contents WITHOUT moving focus (by
-              design — focus stays on the button being pressed), and the visible
-              kicker is abbreviated mono caps whose `‹ ›` glyphs only imply the
-              position visually. This is the only thing that states the new
-              position, and who you landed on, to a screen reader. */}
-          <p className="sr-only" role="status">
-            {announcement}
-          </p>
+          {kickerRow}
+          {stepAnnouncement}
 
           <h2 className="mt-1 text-lg font-semibold leading-tight text-foreground">
             {artistName}
           </h2>
 
-          {identity && (
-            <p
-              data-testid="artist-panel-identity"
-              className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
-            >
-              {identity}
-            </p>
-          )}
+          {identityLine}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {isError && !card && (
-            <p className="px-4 py-4 text-sm text-muted-foreground">
-              Details couldn’t load — the artist page has the full picture.
-            </p>
-          )}
-
-          {/* Embed-first, as the mock draws it: the whole promise of the
-              drill-in is that you can HEAR the band, so the player comes before
-              any metadata row. The heading renders only when a player will. */}
-          {hasPlayableAudio && card && (
-            <section
-              data-testid="artist-panel-listen"
-              className="border-b border-border/60 px-4 pb-2 pt-3"
-            >
-              <h3 className="pb-1.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-                Listen
-              </h3>
-              <MusicEmbed
-                compact
-                bandcampAlbumUrl={card.bandcamp_embed_url}
-                spotifyUrl={card.spotify}
-                artistName={artistName}
-              />
-            </section>
-          )}
-
-          {nextShows.length > 0 && (
-            <section className="border-b border-border/60 px-4 pb-2.5 pt-3">
-              <h3 className="pb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-                {nextShows.length === 1 ? 'Next show' : 'Next shows'}
-              </h3>
-              <ul className="space-y-1">
-                {nextShows.map((show) => (
-                  <li key={show.id}>
-                    <NextShowRow show={show} artistId={current.artistId} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {connections && (
-            <section className="border-b border-border/60 px-4 pb-2.5 pt-3">
-              <h3 className="pb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-                Connections
-              </h3>
-              <p className="text-sm leading-snug text-foreground/90">
-                {connections}
-              </p>
-            </section>
-          )}
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{details}</div>
 
         <footer className="border-t border-border px-4 py-2.5">
-          <Link
-            // Always rendered, and off the STEP's slug when the card hasn't
-            // landed — the panel replaced a navigation, so it must never strand
-            // the user pathless while a fetch is in flight or after it failed.
-            href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
-            className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Open artist page →
-          </Link>
+          {artistPageLink}
         </footer>
       </section>
     </DismissableLayer>
@@ -372,10 +431,13 @@ export function ArtistPanel({
 function StepButton({
   direction,
   disabled,
+  touch = false,
   onClick,
 }: {
   direction: 'previous' | 'next'
   disabled: boolean
+  /** A bordered 28px target for touch layouts. */
+  touch?: boolean
   onClick: () => void
 }) {
   const Icon = direction === 'previous' ? ChevronLeft : ChevronRight
@@ -391,7 +453,11 @@ function StepButton({
       }
       data-testid={`artist-panel-step-${direction}`}
       onClick={disabled ? undefined : onClick}
-      className={`rounded-sm p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+      className={`${
+        touch
+          ? 'flex size-7 items-center justify-center rounded border border-border'
+          : 'rounded-sm p-1'
+      } transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         disabled
           ? 'cursor-not-allowed text-muted-foreground/40'
           : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'

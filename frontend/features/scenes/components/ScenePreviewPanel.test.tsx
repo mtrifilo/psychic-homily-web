@@ -475,3 +475,42 @@ describe('ScenePreviewPanel', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe('ScenePreviewPanel as a bottom sheet', () => {
+  beforeEach(() => {
+    mockUseSceneArtists.mockReturnValue({ data: undefined, isLoading: false })
+    mockUseSceneShows.mockReturnValue({ data: { shows: [] }, isLoading: false })
+  })
+
+  it('opens at Half with the same content, focus on close', () => {
+    renderWithProviders(
+      <ScenePreviewPanel scene={scene} onClose={() => {}} presentation="sheet" />,
+    )
+    const sheet = screen.getByRole('region', { name: 'Chicago, IL scene' })
+    expect(sheet).toHaveAttribute('data-slot', 'bottom-sheet')
+    expect(sheet).toHaveAttribute('data-detent', 'half')
+    expect(sheet).not.toHaveAttribute('aria-modal')
+    expect(within(sheet).getByRole('heading', { name: 'Chicago, IL' })).toBeInTheDocument()
+    expect(within(sheet).getByText(/283 upcoming · 9 venues/)).toBeInTheDocument()
+    expect(within(sheet).getByRole('link', { name: /open scene/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /close scene preview/i })).toHaveFocus()
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  })
+
+  it('closes once on Escape', () => {
+    const onClose = vi.fn()
+    renderWithProviders(
+      <ScenePreviewPanel scene={scene} onClose={onClose} presentation="sheet" />,
+    )
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays a side panel by default', () => {
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+    expect(
+      screen.getByRole('complementary', { name: 'Chicago, IL scene' }),
+    ).not.toHaveAttribute('data-slot')
+  })
+})
+

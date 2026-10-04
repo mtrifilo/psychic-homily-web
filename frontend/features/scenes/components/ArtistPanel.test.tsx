@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import type { ArtistStep } from '../artistDrillIn'
@@ -502,3 +502,33 @@ describe('ArtistPanel', () => {
     })
   })
 })
+
+describe('ArtistPanel as a bottom sheet', () => {
+  it('opens at Full with 28px stepper targets and the breadcrumb focused', () => {
+    renderPanel({ presentation: 'sheet' })
+    const sheet = screen.getByTestId('atlas-artist-panel')
+    expect(sheet).toHaveAttribute('data-slot', 'bottom-sheet')
+    expect(sheet).toHaveAttribute('data-detent', 'full')
+    expect(within(sheet).getByRole('heading', { name: 'Die Spitz' })).toBeInTheDocument()
+    expect(screen.getByTestId('artist-panel-step-next').className).toContain('size-7')
+    expect(screen.getByTestId('artist-panel-step-previous').className).toContain('size-7')
+    expect(screen.getByRole('button', { name: /Hotel Vegas/ })).toHaveFocus()
+  })
+
+  it('pops one level on Escape and closes the stack from its close control', () => {
+    const onBack = vi.fn()
+    const onClose = vi.fn()
+    renderPanel({ presentation: 'sheet', onBack, onClose })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(onBack).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close Die Spitz panel' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the compact stepper in the side panel', () => {
+    renderPanel()
+    expect(screen.getByTestId('artist-panel-step-next').className).not.toContain('size-7')
+  })
+})
+

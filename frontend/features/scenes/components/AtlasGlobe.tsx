@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react'
 import dynamic from 'next/dynamic'
@@ -23,18 +24,27 @@ import {
   type GlobePov,
   type PlaceableScene,
   type VenuePin,
+  type VenueStackMarker,
 } from './globeTypes'
 import {
+  ATLAS_SHEET_TOP_INSET_PX,
   CITY_RAIL_WIDTH_PX,
   CITY_VENUE_FETCH_LIMIT,
-  CITY_VIEW_MIN_VIEWPORT_PX,
   NO_CITY_VENUE_FILTERS,
+  countPinsInBounds,
   filterCityVenues,
   formatNextShowDate,
   resolveAtlasCityPov,
   resolveCityScene,
+  usesAtlasSheetLayout,
+  venuePinStacks,
+  venueStackLabel,
   type CityVenueFilters,
 } from '../cityView'
+import {
+  bottomSheetHeightCss,
+  type BottomSheetDetent,
+} from '@/components/ui/bottom-sheet'
 import {
   buildArtistSteps,
   clampStepIndex,
@@ -43,6 +53,7 @@ import {
 } from '../artistDrillIn'
 import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
+import { VenueListSheet } from './VenueListSheet'
 import { VenuePanel } from './VenuePanel'
 import { ArtistPanel } from './ArtistPanel'
 import { venuePinPosition } from '../venuePinPosition'
@@ -173,7 +184,14 @@ export function AtlasGlobe() {
   const [camera, setCamera] = useState<CameraSettle | null>(null)
   const handleCameraSettle = useCallback((next: CameraSettle) => {
     setCamera((prev) =>
-      prev && prev.lng === next.lng && prev.lat === next.lat && prev.zoom === next.zoom
+      prev &&
+      prev.lng === next.lng &&
+      prev.lat === next.lat &&
+      prev.zoom === next.zoom &&
+      prev.bounds?.west === next.bounds?.west &&
+      prev.bounds?.south === next.bounds?.south &&
+      prev.bounds?.east === next.bounds?.east &&
+      prev.bounds?.north === next.bounds?.north
         ? prev
         : next,
     )
@@ -193,12 +211,18 @@ export function AtlasGlobe() {
   const [filters, setFilters] = useState<CityVenueFilters>(NO_CITY_VENUE_FILTERS)
   const [selectedVenueId, setSelectedVenueId] = useState<number | null>(null)
   const [drillIn, setDrillIn] = useState<ArtistDrillIn | null>(null)
+  // Sheet layout only: the venue-list sheet's detent, and the stacked pin (by
+  // point key) its rows are scoped to.
+  const [listDetent, setListDetent] = useState<BottomSheetDetent>('peek')
+  const [stackScopeKey, setStackScopeKey] = useState<string | null>(null)
   const [filtersCitySlug, setFiltersCitySlug] = useState<string | null>(null)
   if (citySlug !== filtersCitySlug) {
     setFiltersCitySlug(citySlug)
     setFilters(NO_CITY_VENUE_FILTERS)
     setSelectedVenueId(null)
     setDrillIn(null)
+    setListDetent('peek')
+    setStackScopeKey(null)
   }
   // INVARIANT: a scene preview and city view never coexist. City view hides
   // the globe chrome the panel lives in, which UNMOUNTS the panel without
@@ -284,6 +308,41 @@ export function AtlasGlobe() {
     }
     return pins
   }, [filteredVenues])
+
+  // Points where two or more listed venues pin. Built from the same filtered
+  // array as the pins, so a stack's count is what the map draws there.
+  const venueStacks = useMemo(
+    () => venuePinStacks(filteredVenues),
+    [filteredVenues],
+  )
+  const venueStackMarkers = useMemo<VenueStackMarker[]>(
+    () =>
+      venueStacks.map((stack) => ({ ...stack, label: venueStackLabel(stack) })),
+    [venueStacks],
+  )
+  const scopedStack =
+    stackScopeKey === null
+      ? null
+      : (venueStacks.find((s) => s.key === stackScopeKey) ?? null)
+  // A scope whose point no longer stacks (a filter thinned it) is dropped for
+  // good, so clearing the filter later does not re-narrow the list unasked.
+  // Cleared during render, like the city reset above, not in an effect.
+  if (stackScopeKey !== null && scopedStack === null && !venuesLoading) {
+    setStackScopeKey(null)
+  }
+  const inViewCount = camera?.bounds
+    ? countPinsInBounds(venuePins, camera.bounds)
+    : null
+
+  // A stacked pin cannot open one venue honestly, so a tap on it opens the
+  // list at Half scoped to the venues that share the point.
+  const handleVenueStackSelect = useCallback((stackKey: string) => {
+    setStackScopeKey(stackKey)
+    setListDetent('half')
+    setSelectedVenueId(null)
+    setDrillIn(null)
+  }, [])
+  const clearStackScope = useCallback(() => setStackScopeKey(null), [])
 
   // Selecting a venue marks it in both the rail and the map AND opens the
   // panel (PSY-1540). Re-selecting the same venue toggles it back off, so a
@@ -525,6 +584,8 @@ export function AtlasGlobe() {
   }, [isError])
 
   const isMobile = size !== null && size.width < GLOBE_BREAKPOINT_PX
+  const mapSheetLayout =
+    size !== null && !isMobile && usesAtlasSheetLayout(size.width)
 
   let content: ReactNode
   if (isError) {
@@ -540,14 +601,28 @@ export function AtlasGlobe() {
       />
     )
   } else if (size !== null && placeable.length > 0 && pov !== null) {
-    // The rail sits BESIDE the map (never over it — the map's bottom-left
-    // attribution is a licensing requirement), so opening it narrows the
-    // canvas by exactly the rail's width. Below CITY_VIEW_MIN_VIEWPORT_PX
-    // that would leave a uselessly thin map, so city view stays map-only:
-    // pins and status chip, no rail.
-    const railOpen =
-      cityScene !== null && size.width >= CITY_VIEW_MIN_VIEWPORT_PX
+    // Two layouts. Wide panes put the rail BESIDE the map (never over it: the
+    // map's bottom-left attribution is a licensing requirement), narrowing the
+    // canvas by exactly the rail's width, with panels docked to the right.
+    // Narrower panes would leave a uselessly thin map beside a rail, so they
+    // keep the map full width and use bottom sheets for the venue list and
+    // every panel, with the credit moved to the top-left.
+    const sheetLayout = usesAtlasSheetLayout(size.width)
+    const railOpen = cityScene !== null && !sheetLayout
     const canvasWidth = railOpen ? size.width - CITY_RAIL_WIDTH_PX : size.width
+    const panelPresentation = sheetLayout ? 'sheet' : 'panel'
+    const listSheetShown = sheetLayout && cityScene !== null && !selectedVenue
+    // The sheet layout's geometry for chrome positioned in CSS: the strip no
+    // sheet may cover (MyScenesStrip sits below it) and the list sheet's
+    // current height (the zoom control rides above it).
+    const paneStyle = sheetLayout
+      ? ({
+          '--atlas-sheet-top-inset': `${ATLAS_SHEET_TOP_INSET_PX}px`,
+          '--atlas-sheet-offset': listSheetShown
+            ? bottomSheetHeightCss(listDetent, ATLAS_SHEET_TOP_INSET_PX)
+            : '0px',
+        } as CSSProperties)
+      : undefined
     // The globe's own chrome is a globe-scale toolkit — Drift lands you in
     // another metro, the genre key explains dot tints that aren't drawn at
     // street zoom. City view replaces it with the rail.
@@ -581,7 +656,11 @@ export function AtlasGlobe() {
             onBackToGlobe={handleBackToGlobe}
           />
         )}
-        <div className="relative min-w-0 flex-1">
+        <div
+          className="relative min-w-0 flex-1"
+          data-atlas-layout={sheetLayout ? 'sheet' : undefined}
+          style={paneStyle}
+        >
           <GlobeCanvas
             width={canvasWidth}
             height={size.height}
@@ -598,19 +677,54 @@ export function AtlasGlobe() {
               cityScene ? `${cityScene.city}, ${cityScene.state}` : null
             }
             onCameraSettle={handleCameraSettle}
+            attributionPosition={sheetLayout ? 'top-left' : 'bottom-left'}
+            onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
+            venueStacks={sheetLayout ? venueStackMarkers : undefined}
+            onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
           />
-          {/* The Atlas panel stack (PSY-1540 venue → PSY-1541 artist). Docked
-              to the map pane's right edge, so it sits opposite the rail and
-              clear of the bottom-left attribution control. Outside the
-              globe-chrome branch because it belongs to city view, which is
-              precisely when that chrome is hidden.
+          {sheetLayout && cityScene && (
+            <VenueListSheet
+              principalCity={cityScene.city}
+              venues={filteredVenues}
+              allVenues={cityVenues}
+              totalVenueCount={isPlaceholderData ? undefined : cityVenueData?.total}
+              loading={venuesLoading}
+              fetchFailed={venuesFailed && !venuesLoading}
+              filters={filters}
+              onFiltersChange={setFilters}
+              selectedVenueId={selectedVenueId}
+              onVenueSelect={handleVenueSelect}
+              detent={listDetent}
+              onDetentChange={setListDetent}
+              stacks={venueStacks}
+              inViewCount={inViewCount}
+              scopedStack={scopedStack}
+              onClearScope={clearStackScope}
+              /* Hidden, not unmounted, while a venue or artist sheet is up:
+                 the list keeps its scroll position and the row that opened
+                 the venue is still there to take focus back. */
+              hidden={!listSheetShown}
+            />
+          )}
+          {/* The Atlas panel stack (PSY-1540 venue → PSY-1541 artist). In the
+              panel layout it docks to the map pane's right edge, opposite the
+              rail and clear of the bottom-left attribution control; in the
+              sheet layout each panel is a bottom sheet below the top-left
+              credit. Outside the globe-chrome branch because it belongs to
+              city view, which is precisely when that chrome is hidden.
 
               The drill-in REPLACES the venue panel rather than stacking over
-              it, which is what makes Escape pop exactly one level: only one
-              Atlas panel is ever on Radix's layer stack, so its own onDismiss
-              is the whole contract (artist → venue → closed). Stacking both
-              would put two DismissableLayers up and leave the venue panel
-              audible to screen readers behind a panel that covers it. */}
+              it, which is what makes Escape pop exactly one level: the
+              venue or artist panel is the newest Atlas layer on Radix's
+              stack, so its own onDismiss is the whole contract (artist →
+              venue → closed). In the sheet layout the hidden venue-list sheet
+              is also a layer, rendered (and so registered) before the panel,
+              which keeps it underneath: Escape reaches it only once no panel
+              is open. Keep the list sheet ahead of the panels in this tree.
+
+              Keyed on the presentation as well, so crossing the layout
+              breakpoint remounts a panel and its mount-only focus handling
+              runs against the new DOM. */}
           {selectedVenue && drillIn ? (
             <ArtistPanel
               steps={drillIn.steps}
@@ -630,14 +744,17 @@ export function AtlasGlobe() {
               backLabel={selectedVenue.name}
               onBack={handleDrillInBack}
               onClose={handleDrillInClose}
+              presentation={panelPresentation}
+              key={panelPresentation}
             />
           ) : (
             selectedVenue && (
               <VenuePanel
-                key={selectedVenue.id}
+                key={`${selectedVenue.id}:${panelPresentation}`}
                 venue={selectedVenue}
                 onClose={handleVenuePanelClose}
                 onShowSelect={handleShowSelect}
+                presentation={panelPresentation}
               />
             )
           )}
@@ -655,8 +772,13 @@ export function AtlasGlobe() {
                 scenes={allScenes}
                 onPick={handleSearchPick}
                 triggerRef={searchTriggerRef}
+                listMinTopPx={sheetLayout ? ATLAS_SHEET_TOP_INSET_PX : undefined}
               />
-              <MyScenesStrip scenes={allScenes} onPick={handleSearchPick} />
+              <MyScenesStrip
+                scenes={allScenes}
+                onPick={handleSearchPick}
+                belowTopCredit={sheetLayout}
+              />
               {/* Genre color key (PSY-1315). Hidden while a preview is open — that
                   docks the right edge, and you're reading one scene, not scanning. */}
               {!selected && (
@@ -665,9 +787,10 @@ export function AtlasGlobe() {
               {unplaceableCount > 0 && (
                 <Link
                   href="/scenes"
-                  /* bottom-11, not bottom-4: the map's attribution control (PSY-1543,
-                     a license requirement) is docked bottom-left, and this link must
-                     clear its ~30px strip rather than sit on the OSM credit. */
+                  /* bottom-11, not bottom-4: in the panel layout the map's
+                     attribution control (PSY-1543, a license requirement) is
+                     docked bottom-left, and this link must clear its ~30px strip
+                     rather than sit on the OSM credit. */
                   className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
                 >
                   {unplaceableCount} more{' '}
@@ -677,9 +800,11 @@ export function AtlasGlobe() {
               )}
               {selected && (
                 <ScenePreviewPanel
+                  key={panelPresentation}
                   scene={selected}
                   onClose={closePreview}
                   returnFocusTo={searchTriggerRef}
+                  presentation={panelPresentation}
                 />
               )}
             </>
@@ -709,7 +834,14 @@ export function AtlasGlobe() {
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
   return (
-    <div className="relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] min-h-[480px] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom))]">
+    <div
+      className={`relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom))] ${
+        // The sheets anchor to this box's bottom edge, so in the sheet layout
+        // it must be exactly the visible area: a minimum taller than a short
+        // (landscape phone) viewport would push every sheet below the fold.
+        mapSheetLayout ? '' : 'min-h-[480px]'
+      }`}
+    >
       <div ref={measureRef} className="h-full w-full">
         {content}
       </div>

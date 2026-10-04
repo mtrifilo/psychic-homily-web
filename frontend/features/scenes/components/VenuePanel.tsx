@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 // Deep import, not the `@/components/shared` barrel: the barrel drags in every
@@ -31,6 +32,7 @@ import { showPriceText } from '@/lib/utils/showPrice'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import {
+  ATLAS_SHEET_TOP_INSET_PX,
   CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
   VENUE_PANEL_SHOW_ROWS,
@@ -68,6 +70,12 @@ interface VenuePanelProps {
    * re-deriving it from a differently-parameterized fetch.
    */
   onShowSelect?: (show: VenueShow, listedShows: VenueShow[]) => void
+  /**
+   * `panel` floats over the map's right edge; `sheet` is a bottom sheet
+   * opening at Half, for panes too narrow for a side panel. Same content and
+   * dismissal contract either way.
+   */
+  presentation?: 'panel' | 'sheet'
 }
 
 /**
@@ -94,11 +102,18 @@ interface VenuePanelProps {
  * mirrored here verbatim. If a third such panel appears, promote the
  * three-region variant into the shell rather than copying this again.
  *
- * It floats over the map's RIGHT edge and stops short of the bottom
- * (CITY_VENUE_PANEL_BOTTOM_INSET_PX) so it can never cover the map's
+ * As a panel it floats over the map's RIGHT edge and stops short of the
+ * bottom (CITY_VENUE_PANEL_BOTTOM_INSET_PX) so it can never cover the map's
  * bottom-left OpenStreetMap attribution, which the ODbL requires stay visible.
+ * As a sheet (narrow panes) the credit is top-left and the sheet stops below
+ * it (ATLAS_SHEET_TOP_INSET_PX).
  */
-export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
+export function VenuePanel({
+  venue,
+  onClose,
+  onShowSelect,
+  presentation = 'panel',
+}: VenuePanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
   const { authStatus } = useAuthContext()
@@ -110,8 +125,9 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   // through every REMAINING venue in the city before reaching the panel their
   // keystroke just opened.
   //
-  // Mount-only. AtlasGlobe keys the panel on the venue id, so switching
-  // venues remounts and re-runs this once per panel, never mid-life.
+  // Mount-only. AtlasGlobe keys the panel on the venue id and the
+  // presentation, so switching venues or layouts remounts and re-runs this
+  // once per panel, never mid-life.
   useEffect(() => {
     const section = sectionRef.current
     const opener = document.activeElement
@@ -215,6 +231,185 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
     gatedConfirm(event)
   }
 
+  const identityLine = identity && (
+    <p
+      data-testid="venue-panel-identity"
+      className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+    >
+      {identity}
+    </p>
+  )
+  const actions = (
+    <>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <FollowButton entityType="venues" entityId={venue.id} />
+        {/* `aria-disabled`, NOT the native `disabled` attribute — the same
+            rule ArtistPanel's stepper follows (PSY-1540's review): the
+            native attribute drops the control out of the tab order, so a
+            keyboard or screen-reader user who tabs back to the panel after
+            confirming never lands on it and never hears that their
+            confirmation registered. This stays focusable and says so in its
+            accessible name; the click is inert on our side (handleConfirm
+            returns early) rather than the browser's. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleConfirm}
+          aria-disabled={confirmInert || undefined}
+          className={confirmInert ? 'cursor-not-allowed opacity-70' : undefined}
+          data-testid="venue-panel-confirm"
+          aria-label={
+            hasConfirmed
+              ? `You confirmed ${venue.name}’s info is current`
+              : confirm.isPending
+                ? `Confirming ${venue.name}’s info is current`
+                : `Confirm ${venue.name}’s info is current`
+          }
+        >
+          {hasConfirmed
+            ? '✓ Confirmed'
+            : confirm.isPending
+              ? 'Confirming…'
+              : '✓ Confirm info'}
+        </Button>
+      </div>
+
+      {/* Inline, beside the control that failed — there is no toast
+          library in this codebase. `role="alert"` so the 429 ("try again
+          in 47s") is announced rather than silently appearing under a
+          button the user is about to tap again. */}
+      {confirmError && (
+        <p
+          role="alert"
+          data-testid="venue-panel-confirm-error"
+          className="mt-2 font-mono text-[11px] leading-4 text-destructive"
+        >
+          {confirmError}
+          {confirm.error?.status === 401 && (
+            <>
+              {' '}
+              {/* Called during render, which `buildSignInHrefForHere`
+                  documents as event-time only. Legal here and nowhere
+                  else in this file: the branch paints only after a client
+                  mutation returned 401, so there is no render without a
+                  browser location. */}
+              <Link
+                href={signInHref()}
+                className="underline underline-offset-4"
+              >
+                Sign in
+              </Link>{' '}
+              to confirm.
+            </>
+          )}
+        </p>
+      )}
+    </>
+  )
+  const provenanceLine = (
+    <>
+      {/* Provenance (PSY-1542). Every segment is a real aggregate and a
+          zero one is omitted rather than rendered as "0 edits" — a stamp
+          that lists what it doesn't have reads as broken. The mock's
+          "ingest + community" tail only appears when the backend actually
+          has a source to name. */}
+      <p
+        data-testid="venue-panel-provenance"
+        className="mt-2 font-mono text-[11px] leading-4 text-muted-foreground"
+      >
+        <span>UPDATED</span>{' '}
+        {venue.updated_at ? formatTimeAgo(venue.updated_at) : 'unknown'}
+        {provenanceSegments.map((segment) => (
+          <span key={segment}> · {segment}</span>
+        ))}
+      </p>
+    </>
+  )
+  const showsSection = (
+    <>
+      <h3 className="px-4 pb-1 pt-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+        Upcoming
+        {!isLoading && !isError && (
+          <> — {showCount} {showCount === 1 ? 'show' : 'shows'}</>
+        )}
+      </h3>
+
+      {isLoading ? (
+        <p className="px-4 py-4 text-sm text-muted-foreground">
+          Loading shows…
+        </p>
+      ) : isError ? (
+        <p className="px-4 py-4 text-sm text-destructive">
+          Couldn’t load this venue’s shows.
+        </p>
+      ) : visible.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-muted-foreground">
+          Nothing on the calendar yet.
+        </p>
+      ) : (
+        <>
+          <ul>
+            {visible.map((show) => (
+              <li key={show.id}>
+                <ShowRow
+                  show={show}
+                  venue={venue}
+                  listedShows={visible}
+                  onSelect={onShowSelect}
+                />
+              </li>
+            ))}
+          </ul>
+          {showCount > visible.length && (
+            <Link
+              href={venueHref}
+              className="block px-4 py-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              view all {showCount} →
+            </Link>
+          )}
+        </>
+      )}
+
+      <FieldNotesTeaser venue={venue} />
+    </>
+  )
+  const venuePageLink = (
+    <Link
+      href={venueHref}
+      className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      Open venue page →
+    </Link>
+  )
+
+  if (presentation === 'sheet') {
+    return (
+      <BottomSheet
+        ref={sectionRef}
+        closeRef={closeRef}
+        title={venue.name}
+        label={venue.name}
+        aria-label={`${venue.name}, upcoming shows`}
+        data-testid="atlas-venue-panel"
+        defaultDetent="half"
+        onClose={onClose}
+        closeLabel={`Close ${venue.name} panel`}
+        topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
+        flushBody
+      >
+        <div className="px-4 pb-3">
+          {identityLine}
+          {actions}
+          {provenanceLine}
+        </div>
+        <div className="border-t border-border">{showsSection}</div>
+        <div className="border-t border-border px-4 py-2.5">{venuePageLink}</div>
+      </BottomSheet>
+    )
+  }
+
   return (
     <DismissableLayer
       asChild
@@ -261,152 +456,15 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
             {venue.name}
           </h2>
 
-          {identity && (
-            <p
-              data-testid="venue-panel-identity"
-              className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
-            >
-              {identity}
-            </p>
-          )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <FollowButton entityType="venues" entityId={venue.id} />
-            {/* `aria-disabled`, NOT the native `disabled` attribute — the same
-                rule ArtistPanel's stepper follows (PSY-1540's review): the
-                native attribute drops the control out of the tab order, so a
-                keyboard or screen-reader user who tabs back to the panel after
-                confirming never lands on it and never hears that their
-                confirmation registered. This stays focusable and says so in its
-                accessible name; the click is inert on our side (handleConfirm
-                returns early) rather than the browser's. */}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleConfirm}
-              aria-disabled={confirmInert || undefined}
-              className={confirmInert ? 'cursor-not-allowed opacity-70' : undefined}
-              data-testid="venue-panel-confirm"
-              aria-label={
-                hasConfirmed
-                  ? `You confirmed ${venue.name}’s info is current`
-                  : confirm.isPending
-                    ? `Confirming ${venue.name}’s info is current`
-                    : `Confirm ${venue.name}’s info is current`
-              }
-            >
-              {hasConfirmed
-                ? '✓ Confirmed'
-                : confirm.isPending
-                  ? 'Confirming…'
-                  : '✓ Confirm info'}
-            </Button>
-          </div>
-
-          {/* Inline, beside the control that failed — there is no toast
-              library in this codebase. `role="alert"` so the 429 ("try again
-              in 47s") is announced rather than silently appearing under a
-              button the user is about to tap again. */}
-          {confirmError && (
-            <p
-              role="alert"
-              data-testid="venue-panel-confirm-error"
-              className="mt-2 font-mono text-[11px] leading-4 text-destructive"
-            >
-              {confirmError}
-              {confirm.error?.status === 401 && (
-                <>
-                  {' '}
-                  {/* Called during render, which `buildSignInHrefForHere`
-                      documents as event-time only. Legal here and nowhere
-                      else in this file: the branch paints only after a client
-                      mutation returned 401, so there is no render without a
-                      browser location. */}
-                  <Link
-                    href={signInHref()}
-                    className="underline underline-offset-4"
-                  >
-                    Sign in
-                  </Link>{' '}
-                  to confirm.
-                </>
-              )}
-            </p>
-          )}
-
-          {/* Provenance (PSY-1542). Every segment is a real aggregate and a
-              zero one is omitted rather than rendered as "0 edits" — a stamp
-              that lists what it doesn't have reads as broken. The mock's
-              "ingest + community" tail only appears when the backend actually
-              has a source to name. */}
-          <p
-            data-testid="venue-panel-provenance"
-            className="mt-2 font-mono text-[11px] leading-4 text-muted-foreground"
-          >
-            <span>UPDATED</span>{' '}
-            {venue.updated_at ? formatTimeAgo(venue.updated_at) : 'unknown'}
-            {provenanceSegments.map((segment) => (
-              <span key={segment}> · {segment}</span>
-            ))}
-          </p>
+          {identityLine}
+          {actions}
+          {provenanceLine}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <h3 className="px-4 pb-1 pt-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-            Upcoming
-            {!isLoading && !isError && (
-              <> — {showCount} {showCount === 1 ? 'show' : 'shows'}</>
-            )}
-          </h3>
-
-          {isLoading ? (
-            <p className="px-4 py-4 text-sm text-muted-foreground">
-              Loading shows…
-            </p>
-          ) : isError ? (
-            <p className="px-4 py-4 text-sm text-destructive">
-              Couldn’t load this venue’s shows.
-            </p>
-          ) : visible.length === 0 ? (
-            <p className="px-4 py-4 text-sm text-muted-foreground">
-              Nothing on the calendar yet.
-            </p>
-          ) : (
-            <>
-              <ul>
-                {visible.map((show) => (
-                  <li key={show.id}>
-                    <ShowRow
-                      show={show}
-                      venue={venue}
-                      listedShows={visible}
-                      onSelect={onShowSelect}
-                    />
-                  </li>
-                ))}
-              </ul>
-              {showCount > visible.length && (
-                <Link
-                  href={venueHref}
-                  className="block px-4 py-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  view all {showCount} →
-                </Link>
-              )}
-            </>
-          )}
-
-          <FieldNotesTeaser venue={venue} />
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{showsSection}</div>
 
         <footer className="border-t border-border px-4 py-2.5">
-          <Link
-            href={venueHref}
-            className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Open venue page →
-          </Link>
+          {venuePageLink}
         </footer>
       </section>
     </DismissableLayer>

@@ -24,16 +24,25 @@ import type {
   GlobePov,
   PlaceableScene,
   VenuePin,
+  VenueStackMarker,
 } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
+  VENUE_PIN_INK,
+  VENUE_PIN_STROKE,
   venuePinFeatures,
   venuePinPaint,
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
-import { CITY_VIEW_MIN_ZOOM, labelledVenuePinIds } from '../cityView'
 import {
+  ATLAS_TOP_CREDIT_OFFSET_PX,
+  CITY_VIEW_MIN_ZOOM,
+  VENUE_LABEL_DECLUTTER_KM,
+  labelledVenuePinIds,
+} from '../cityView'
+import {
+  DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
   DOT_COLOR_SELECTED,
   DOT_HOVER_RADIUS_SCALE,
@@ -103,6 +112,29 @@ interface GlobeCanvasProps {
    * state.
    */
   onCameraSettle?: (camera: CameraSettle) => void
+  /**
+   * Which corner holds the attribution control (the OpenStreetMap credit an
+   * ODbL license requires stay visible). `top-left` sits under the status row,
+   * for layouts whose bottom edge is owned by sheets.
+   */
+  attributionPosition?: 'bottom-left' | 'top-left'
+  /**
+   * When given, city view shows a back-to-globe control at the start of the
+   * status row.
+   */
+  onBackToGlobe?: () => void
+  /**
+   * Points where several venues pin. Each draws one counted marker over its
+   * pins (which stay on the pin layer, so a tap on one still routes to the
+   * stack), and those pins lose their name labels. Requires
+   * onVenueStackSelect.
+   */
+  venueStacks?: readonly VenueStackMarker[]
+  /**
+   * A tap on a stack's marker, or on any pin inside a stack, reports the
+   * stack's key here instead of a single venue to onVenueSelect.
+   */
+  onVenueStackSelect?: (stackKey: string) => void
 }
 
 // Camera altitude a fly-to lands at (legacy globe-altitude units — see
@@ -159,6 +191,10 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
 // Stable empty default for the `venues` prop, so a caller that omits it can't
 // churn the venue-layer memo on every render.
 const EMPTY_VENUES: readonly VenuePin[] = []
+const EMPTY_STACKS: readonly VenueStackMarker[] = []
+
+// The stack marker's count badge diameter: at least the 24px minimum target.
+const STACK_BADGE_PX = 24
 
 // Deterministic starfield background (data-URI SVG, module scope — client-only
 // module, so no hydration concern). Mulberry32 keeps it stable across builds.
@@ -215,6 +251,10 @@ export default function GlobeCanvas({
   onVenueSelect,
   cityLabel = null,
   onCameraSettle,
+  attributionPosition = 'bottom-left',
+  onBackToGlobe,
+  venueStacks = EMPTY_STACKS,
+  onVenueStackSelect,
 }: GlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
@@ -264,6 +304,19 @@ export default function GlobeCanvas({
   useEffect(() => {
     onCameraSettleRef.current = onCameraSettle
   }, [onCameraSettle])
+  const onVenueStackSelectRef = useRef(onVenueStackSelect)
+  useEffect(() => {
+    onVenueStackSelectRef.current = onVenueStackSelect
+  }, [onVenueStackSelect])
+  // Venue id -> the key of the stack it pins in, for the pin click handler.
+  const stackKeyByVenueIdRef = useRef<ReadonlyMap<number, string>>(new Map())
+  useEffect(() => {
+    const byId = new Map<number, string>()
+    for (const stack of venueStacks) {
+      for (const id of stack.venueIds) byId.set(id, stack.key)
+    }
+    stackKeyByVenueIdRef.current = byId
+  }, [venueStacks])
   // The status chip is painted imperatively (see the map effect), so the label
   // rides a ref rather than re-entering the effect's deps.
   const cityLabelRef = useRef(cityLabel)
@@ -368,10 +421,17 @@ export default function GlobeCanvas({
   // Venue name labels, as DOM markers for the same reasons the scene labels
   // are: app font, no glyph-server dependency. Anchored below the pin so the
   // name never covers the mark it belongs to.
-  const labelledVenueIds = useMemo(
-    () => labelledVenuePinIds(venues),
-    [venues],
-  )
+  // A stacked pin is named by its stack marker, not by one member's label, and
+  // the marker's label claims its point in the declutter.
+  const labelledVenueIds = useMemo(() => {
+    if (venueStacks.length === 0) return labelledVenuePinIds(venues)
+    const stacked = new Set(venueStacks.flatMap((s) => s.venueIds))
+    return labelledVenuePinIds(
+      venues.filter((v) => !stacked.has(v.id)),
+      VENUE_LABEL_DECLUTTER_KM,
+      venueStacks,
+    )
+  }, [venues, venueStacks])
   useEffect(() => {
     if (!mapReady || venues.length === 0) return
     const markers = venues.filter((v) => labelledVenueIds.has(v.id)).map((v) => {
@@ -399,6 +459,86 @@ export default function GlobeCanvas({
       for (const m of markers) m.remove()
     }
   }, [mapReady, venues, labelledVenueIds])
+
+  // Stack markers: a counted button per point where several venues pin, as a
+  // DOM marker so it is a real, focusable target in the app font.
+  useEffect(() => {
+    if (!mapReady || venueStacks.length === 0) return
+    const markers = venueStacks.map((stack) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.dataset.testid = 'atlas-venue-stack'
+      button.className =
+        'flex flex-col items-center gap-0.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+      const badge = document.createElement('span')
+      badge.setAttribute('aria-hidden', 'true')
+      badge.textContent = String(stack.venueIds.length)
+      badge.style.cssText = [
+        `width: ${STACK_BADGE_PX}px`,
+        `height: ${STACK_BADGE_PX}px`,
+        'display: flex',
+        'align-items: center',
+        'justify-content: center',
+        'border-radius: 9999px',
+        `background: ${DOT_COLOR_BASE}`,
+        `border: 1.5px solid ${VENUE_PIN_STROKE}`,
+        `color: ${VENUE_PIN_INK}`,
+        'font-size: 11px',
+        'font-weight: 700',
+      ].join(';')
+      const label = document.createElement('span')
+      // textContent, not innerHTML: the label carries a count only, but the
+      // rule here is that nothing in the map's DOM is parsed as markup.
+      label.textContent = stack.label
+      label.style.cssText = [
+        'white-space: nowrap',
+        `color: ${DOT_COLOR_SELECTED}`,
+        'font-size: 12px',
+        'font-weight: 500',
+        'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
+      ].join(';')
+      button.append(badge, label)
+      // Named explicitly: MapLibre labels a marker element "Map marker" unless
+      // it already carries an aria-label, which would hide the visible text.
+      button.setAttribute('aria-label', stack.label)
+      button.addEventListener('click', (e) => {
+        e.stopPropagation()
+        onVenueStackSelectRef.current?.(stack.key)
+      })
+      return new maplibregl.Marker({
+        element: button,
+        // Anchored by the top edge and lifted half a badge, so the badge's
+        // centre sits on the shared point and the label hangs below it.
+        anchor: 'top',
+        offset: [0, -STACK_BADGE_PX / 2],
+      })
+        .setLngLat([stack.lng, stack.lat])
+        .addTo(mapReady)
+    })
+    return () => {
+      for (const m of markers) m.remove()
+    }
+  }, [mapReady, venueStacks])
+
+  // Attribution: the OpenStreetMap credit is a license requirement (ODbL), so
+  // the control is always mounted and never compact (OSM's guidance frowns on
+  // credit hidden behind an icon). Credit strings come from the sources
+  // (OpenFreeMap/OSM, plus NASA GIBS while the raster layer is visible); the
+  // dark restyle and the top-left placement offsets live in globals.css.
+  //
+  // `bottom-left` by default: GenreLegend owns bottom-right at z-10 (the
+  // control's own stacking context tops out at z-index 2, so the legend would
+  // win) and the desktop panels dock to the right edge. Bottom-left is the one
+  // corner nothing else docks to there; the "N more scenes" link that shares it
+  // is offset above the strip in AtlasGlobe.
+  useEffect(() => {
+    if (!mapReady) return
+    const control = new maplibregl.AttributionControl({ compact: false })
+    mapReady.addControl(control, attributionPosition)
+    return () => {
+      mapReady.removeControl(control)
+    }
+  }, [mapReady, attributionPosition])
 
   // Zoom controls, mounted only while city view is engaged — the mock's
   // street view has them, the globe deliberately stays chrome-free (and
@@ -732,28 +872,6 @@ export default function GlobeCanvas({
     map.touchZoomRotate.disableRotation()
     map.keyboard.disableRotation()
 
-    // Attribution (PSY-1543): the OpenStreetMap credit is a license
-    // requirement (ODbL) now that street tiles ship, so the old chrome-free
-    // look gains an always-visible control (non-compact — OSM's guidance
-    // frowns on hidden-behind-an-icon attribution on desktop). Credit
-    // strings come from the sources above (OpenFreeMap/OSM, plus NASA GIBS
-    // while the raster layer is visible);
-    // the dark restyle of MapLibre's default white pill lives in
-    // globals.css (.maplibregl-ctrl-attrib).
-    //
-    // BOTTOM-LEFT, not MapLibre's bottom-right default: the Atlas chrome
-    // owns bottom-right twice over — GenreLegend sits there at z-10 (the
-    // control's own stacking context tops out at z-index 2, so the legend
-    // wins), and ScenePreviewPanel docks the entire right edge full-height
-    // whenever a scene is selected, which would hide the required credit
-    // outright. Bottom-left is the one corner nothing else docks to; the
-    // "N more scenes" link that shares it is offset above the strip in
-    // AtlasGlobe.
-    map.addControl(
-      new maplibregl.AttributionControl({ compact: false }),
-      'bottom-left',
-    )
-
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
     // Closes over THIS map; nulled in cleanup, so after a hide/show cycle
     // the seam always points at the live instance. MapLibre honors
@@ -962,7 +1080,13 @@ export default function GlobeCanvas({
       e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
       const id = pickTopVenue(e.features)
-      if (id !== null) onVenueSelectRef.current?.(id)
+      if (id === null) return
+      const stackKey = stackKeyByVenueIdRef.current.get(id)
+      if (stackKey !== undefined && onVenueStackSelectRef.current) {
+        onVenueStackSelectRef.current(stackKey)
+      } else {
+        onVenueSelectRef.current?.(id)
+      }
     }
     map.on('mousemove', 'venue-pins', handleVenueMove)
     map.on('mouseleave', 'venue-pins', handleVenueLeave)
@@ -1001,10 +1125,17 @@ export default function GlobeCanvas({
     // camera re-engages city view after a nav-away/back.
     const reportCamera = () => {
       const center = map.getCenter()
+      const bounds = map.getBounds()
       onCameraSettleRef.current?.({
         lng: center.lng,
         lat: center.lat,
         zoom: map.getZoom(),
+        bounds: {
+          west: bounds.getWest(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          north: bounds.getNorth(),
+        },
       })
     }
     map.on('moveend', reportCamera)
@@ -1052,9 +1183,20 @@ export default function GlobeCanvas({
 
   return (
     <div
-      style={{ width, height }}
       className="relative overflow-hidden"
       data-testid="globe-cursor-wrap"
+      data-atlas-credit={attributionPosition === 'top-left' ? 'top' : undefined}
+      style={
+        attributionPosition === 'top-left'
+          ? ({
+              width,
+              height,
+              // Read by the top-left credit rule in globals.css: the credit
+              // sits below the status row this component draws.
+              '--atlas-top-credit-offset': `${ATLAS_TOP_CREDIT_OFFSET_PX}px`,
+            } as React.CSSProperties)
+          : { width, height }
+      }
     >
       {/* Space backdrop: starfield + atmosphere halo behind the transparent
           map canvas (the earth sphere itself is opaque and covers them). */}
@@ -1080,23 +1222,34 @@ export default function GlobeCanvas({
         className="pointer-events-none absolute z-10 rounded border border-border bg-background/90 px-2 py-1 text-xs text-foreground backdrop-blur"
         style={{ display: 'none' }}
       />
-      {/* City-view status chip (PSY-1539). Top-LEFT of the map pane, which the
-          rail sits beside rather than over, so it never collides with the
-          bottom-left attribution control.
+      {/* City-view status row: the optional back-to-globe control, then the
+          status chip (PSY-1539), top-left of the map pane. Its geometry (the
+          top-4 inset and the size-9 control) is what ATLAS_TOP_CREDIT_OFFSET_PX
+          adds up; a top-left attribution control sits below the row.
           The live region is the always-rendered WRAPPER, not the pill: a
           region that appears at the same moment its text does may never be
           tracked, so the announcement is lost. The pill inside is what
           shows and hides. */}
-      <div
-        aria-live="polite"
-        className="pointer-events-none absolute left-4 top-4 z-10"
-      >
-        <div
-          ref={statusChipRef}
-          data-testid="atlas-status-chip"
-          className="rounded border border-border bg-background/90 px-2.5 py-1 font-mono text-[11px] tracking-wide text-muted-foreground backdrop-blur"
-          style={{ display: 'none' }}
-        />
+      <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-2">
+        {cityViewActive && onBackToGlobe && (
+          <button
+            type="button"
+            onClick={onBackToGlobe}
+            aria-label="Back to globe"
+            data-testid="atlas-back-to-globe"
+            className="pointer-events-auto flex size-9 shrink-0 items-center justify-center rounded border border-border bg-background/90 text-lg leading-none text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span aria-hidden="true">‹</span>
+          </button>
+        )}
+        <div aria-live="polite">
+          <div
+            ref={statusChipRef}
+            data-testid="atlas-status-chip"
+            className="rounded border border-border bg-background/90 px-2.5 py-1 font-mono text-[11px] tracking-wide text-muted-foreground backdrop-blur"
+            style={{ display: 'none' }}
+          />
+        </div>
       </div>
       {/* Venue hover tooltip. Three fixed lines populated by textContent —
           the name is contributor-editable, so no innerHTML anywhere here. */}

@@ -17,10 +17,17 @@ import type {
 import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatShowMonth, resolveShowTimezone } from '@/lib/utils/formatters'
-import type { GlobePov, PlaceableScene, VenuePin } from './components/globeTypes'
+import type {
+  GlobePov,
+  MapBounds,
+  PlaceableScene,
+  VenuePin,
+} from './components/globeTypes'
 import { altitudeForZoom } from './components/globeScale'
 import { parseAtlasCityParam } from './atlasCityEntry'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
+import { venuePinPosition } from './venuePinPosition'
+import { plural } from './sceneCalendar'
 
 // ── Engagement thresholds ─────────────────────────────────────────────────
 // City view is the STREET half of the Atlas: it engages once the camera is
@@ -61,9 +68,10 @@ export const CITY_VIEW_CLAIM_RADIUS_KM = 60
 // (PSY-1543's adversarial review found exactly that regression).
 export const CITY_RAIL_WIDTH_PX = 360
 
-// Below this viewport width the rail would leave a uselessly narrow map, so
-// city view stays map-only (pins + status chip, no rail). The <640px case
-// never reaches here at all — AtlasGlobe swaps in MobileSceneList.
+// Below this pane width the rail would leave a uselessly narrow map, so the
+// Atlas swaps the rail and side panels for bottom sheets over a full-width map
+// (usesAtlasSheetLayout). Panes under AtlasGlobe's GLOBE_BREAKPOINT_PX render
+// MobileSceneList and never reach the map at all.
 export const CITY_VIEW_MIN_VIEWPORT_PX = 900
 
 // One page of venues is enough for a city rail; the endpoint caps limit at 100.
@@ -202,12 +210,17 @@ export function resolveAtlasCityPov(
 // worth naming, and a wider radius would silently hide real venues.
 export const VENUE_LABEL_DECLUTTER_KM = 0.2
 
-/** The subset of pins that keeps a name label. Busier venue wins a collision. */
+/**
+ * The subset of pins that keeps a name label. Busier venue wins a collision.
+ * `labelledPoints` are positions already carrying a label of their own (a
+ * stack marker's); a pin within the radius of one loses its name label too.
+ */
 export function labelledVenuePinIds(
   pins: readonly VenuePin[],
   radiusKm: number = VENUE_LABEL_DECLUTTER_KM,
+  labelledPoints: readonly { lng: number; lat: number }[] = [],
 ): ReadonlySet<number> {
-  const kept: VenuePin[] = []
+  const kept: { id?: number; lng: number; lat: number }[] = [...labelledPoints]
   // Busiest first, so the venue a traveller most wants named is the one that
   // survives a pile-up at the centroid.
   const byActivity = [...pins].sort(
@@ -219,7 +232,9 @@ export function labelledVenuePinIds(
     )
     if (!collides) kept.push(pin)
   }
-  return new Set(kept.map((p) => p.id))
+  const ids = new Set<number>()
+  for (const k of kept) if (k.id !== undefined) ids.add(k.id)
+  return ids
 }
 
 // ── Metro members (PSY-1574) ──────────────────────────────────────────────
@@ -834,4 +849,149 @@ export function venuePanelShowCount(args: {
   if (typeof total !== 'number') return listed
   const moreExistBeyondThePage = total > fetched
   return moreExistBeyondThePage && total > listed ? total : listed
+}
+
+// ── Phone layout: the bottom-sheet family ─────────────────────────────────
+// Below CITY_VIEW_MIN_VIEWPORT_PX there is no room for the rail beside the
+// map, so the rail and the three side panels become bottom sheets
+// (components/ui/bottom-sheet.tsx) over a full-width map.
+
+/** Whether an Atlas pane this wide uses the sheet family instead of rail + panels. */
+export function usesAtlasSheetLayout(paneWidthPx: number): boolean {
+  return paneWidthPx < CITY_VIEW_MIN_VIEWPORT_PX
+}
+
+/**
+ * Where the map credit starts in the sheet layout, in CSS px from the pane
+ * top: a 16px inset, the 36px status row (back control + status chip, or the
+ * scene search), then a 10px gap. GlobeCanvas publishes it to CSS as
+ * `--atlas-top-credit-offset`, on the element that carries `data-atlas-credit`.
+ */
+export const ATLAS_TOP_CREDIT_OFFSET_PX = 16 + 36 + 10
+
+/**
+ * The strip at the top of the Atlas pane no sheet detent may cover, in CSS px:
+ * down to the credit, the credit itself (up to two 20px lines), and a 10px
+ * gap. The OpenStreetMap credit is a license requirement, so the tallest
+ * detent stops below it. AtlasGlobe publishes it as `--atlas-sheet-top-inset`.
+ */
+export const ATLAS_SHEET_TOP_INSET_PX = ATLAS_TOP_CREDIT_OFFSET_PX + 40 + 10
+
+/**
+ * How many positioned venues fall inside `bounds`, edges inclusive. A box
+ * whose west edge is east of its east edge spans the antimeridian.
+ */
+export function countPinsInBounds(
+  pins: readonly { lng: number; lat: number }[],
+  bounds: MapBounds,
+): number {
+  const spansAntimeridian = bounds.west > bounds.east
+  let count = 0
+  for (const { lng, lat } of pins) {
+    if (lat < bounds.south || lat > bounds.north) continue
+    const inLng = spansAntimeridian
+      ? lng >= bounds.west || lng <= bounds.east
+      : lng >= bounds.west && lng <= bounds.east
+    if (inLng) count++
+  }
+  return count
+}
+
+/**
+ * Two or more venues that pin at the same point.
+ *
+ * `atCentroid` is true when every member pins at its city centroid rather
+ * than at a street geocode (venuePinPosition decides which), which is the
+ * case that piles a city's unverified venues onto one point.
+ */
+export interface VenuePinStack {
+  key: string
+  lng: number
+  lat: number
+  venueIds: number[]
+  atCentroid: boolean
+}
+
+/** Identity of a pin position; equal keys pin at the same point. */
+function venuePinPointKey(lng: number, lat: number): string {
+  return `${lng.toFixed(6)},${lat.toFixed(6)}`
+}
+
+/**
+ * The points where two or more of `venues` pin, in first-seen order, each
+ * listing its venues in the order given. Venues with no coordinates are in no
+ * stack (they list but do not pin).
+ */
+export function venuePinStacks(
+  venues: readonly VenueWithShowCount[],
+): VenuePinStack[] {
+  const byKey = new Map<string, VenuePinStack>()
+  for (const venue of venues) {
+    const position = venuePinPosition(venue)
+    if (!position) continue
+    const key = venuePinPointKey(position.lng, position.lat)
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.venueIds.push(venue.id)
+      existing.atCentroid &&= position.precision === 'centroid'
+    } else {
+      byKey.set(key, {
+        key,
+        lng: position.lng,
+        lat: position.lat,
+        venueIds: [venue.id],
+        atCentroid: position.precision === 'centroid',
+      })
+    }
+  }
+  return [...byKey.values()].filter((s) => s.venueIds.length > 1)
+}
+
+/** The label under a stacked pin: "17 venues · city centre", or "3 venues". */
+export function venueStackLabel(stack: VenuePinStack): string {
+  const count = `${stack.venueIds.length} venues`
+  return stack.atCentroid ? `${count} · city centre` : count
+}
+
+/** The list sheet's scope line for one stack: what the scoped rows share. */
+export function venueStackScopeLine(stack: VenuePinStack): string {
+  const count = `${stack.venueIds.length} venues`
+  return stack.atCentroid
+    ? `${count} at the city centre point`
+    : `${count} at this point`
+}
+
+/** The venue list sheet's title, e.g. "Chicago · 42 venues". */
+export function venueSheetTitle(
+  principalCity: string,
+  venueCount: number,
+  spansMetro: boolean,
+): string {
+  return `${principalCity} · ${plural(venueCount, spansMetro ? 'metro venue' : 'venue')}`
+}
+
+/**
+ * The venue list sheet's Peek line, e.g. "6 in view · 17 share the city
+ * centre point". The in-view half is omitted while the map has not reported
+ * its bounds; the centroid half is omitted when no venues stack at a centroid.
+ */
+export function venueSheetPeekLine({
+  inViewCount,
+  stacks,
+}: {
+  inViewCount: number | null
+  stacks: readonly VenuePinStack[]
+}): string {
+  const segments: string[] = []
+  if (inViewCount !== null) segments.push(`${inViewCount} in view`)
+  const centroidStacks = stacks.filter((s) => s.atCentroid)
+  if (centroidStacks.length > 0) {
+    const stacked = centroidStacks.reduce((n, s) => n + s.venueIds.length, 0)
+    segments.push(
+      centroidStacks.length === 1
+        ? `${stacked} share the city centre point`
+        : `${stacked} share ${centroidStacks.length} city centre points`,
+    )
+  }
+  return segments.join(' · ')
 }

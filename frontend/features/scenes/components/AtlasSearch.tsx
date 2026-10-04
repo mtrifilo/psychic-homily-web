@@ -27,6 +27,12 @@ interface AtlasSearchProps {
    * with ScenePreviewPanel as the panel's focus-return target.
    */
   triggerRef?: React.RefObject<HTMLButtonElement | null>
+  /**
+   * The result list's top edge stays at least this far below the top of the
+   * trigger's positioned container, so it opens under anything docked there
+   * (the Atlas sheet layout's map credit).
+   */
+  listMinTopPx?: number
 }
 
 /**
@@ -42,11 +48,34 @@ interface AtlasSearchProps {
  * the page (unless typing in another field) — this is also the keyboard path
  * INTO scenes on /atlas, since canvas dots aren't focusable (PSY-1313 pairing).
  */
-export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
+export function AtlasSearch({
+  scenes,
+  onPick,
+  triggerRef,
+  listMinTopPx,
+}: AtlasSearchProps) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
+  // undefined leaves the popover's own default gap.
+  const [listOffset, setListOffset] = useState<number | undefined>(undefined)
   const localTriggerRef = useRef<HTMLButtonElement>(null)
   const trigRef = triggerRef ?? localTriggerRef
+  // Recomputed on every open, from where the trigger sits then, so a
+  // listMinTopPx that has since gone away leaves no stale offset behind.
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (next) {
+        const trigger = trigRef.current
+        setListOffset(
+          listMinTopPx !== undefined && trigger
+            ? Math.max(0, listMinTopPx - (trigger.offsetTop + trigger.offsetHeight))
+            : undefined,
+        )
+      }
+      setOpenState(next)
+    },
+    [listMinTopPx, trigRef],
+  )
   // True while a close is caused by PICKING a scene (vs Esc/click-outside).
   // Radix restores focus to the trigger AFTER the popover's exit animation —
   // late enough to steal focus back from the preview panel's close button
@@ -74,7 +103,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
         router.push(`/scenes/${scene.slug}`)
       }
     },
-    [onPick, router, trigRef],
+    [onPick, router, trigRef, setOpen],
   )
 
   // `/` opens the search (the common map/list idiom), ignored while typing in
@@ -96,7 +125,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [])
+  }, [setOpen])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -122,6 +151,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
       <CommandPopoverContent
         className="w-[260px] p-0"
         align="start"
+        sideOffset={listOffset}
         onCloseAutoFocus={(e) => {
           // See pickedRef: on a pick the preview panel now owns focus — let it
           // keep it. Plain dismiss (Esc/click-outside) keeps Radix's restore.
