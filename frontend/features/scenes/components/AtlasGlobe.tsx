@@ -681,7 +681,9 @@ export function AtlasGlobe() {
         openChoice={legendOpenChoice}
         onOpenChange={setLegendOpenChoice}
         className={
-          sheetLayout ? 'pointer-events-auto' : 'absolute bottom-4 right-4 z-10'
+          sheetLayout
+            ? 'pointer-events-auto max-h-full min-h-0'
+            : 'absolute bottom-4 right-4 z-10'
         }
       />
     )
@@ -694,7 +696,9 @@ export function AtlasGlobe() {
              must clear its ~30px strip rather than sit on the OSM credit. */
           className={cn(
             'rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline',
-            sheetLayout ? 'pointer-events-auto' : 'absolute bottom-11 left-4 z-10',
+            sheetLayout
+              ? 'pointer-events-auto shrink-0'
+              : 'absolute bottom-11 left-4 z-10',
           )}
         >
           {unplaceableCount} more{' '}
@@ -844,11 +848,13 @@ export function AtlasGlobe() {
                 // The credit is top-left in this layout, so the bottom-left
                 // corner is free: one column holds the "not on the map" link
                 // above a row of Drift and the genre key, so none of them can
-                // overlap. Only the controls take taps; the gaps between them
-                // stay the map's.
-                <div className="pointer-events-none absolute bottom-4 left-4 z-10 flex flex-col items-start gap-2">
+                // overlap. The column spans only the band below the strip no
+                // sheet may cover, so an open key on a short pane scrolls
+                // inside it rather than growing over the credit. Only the
+                // controls take taps; the rest of the column stays the map's.
+                <div className="pointer-events-none absolute bottom-4 left-4 top-[var(--atlas-sheet-top-inset)] z-10 flex flex-col items-start justify-end gap-2">
                   {unplaceableLink}
-                  <div className="flex items-end gap-5">
+                  <div className="flex min-h-0 items-end gap-5">
                     {driftButton}
                     {genreLegend}
                   </div>

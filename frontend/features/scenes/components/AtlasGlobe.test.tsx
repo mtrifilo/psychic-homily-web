@@ -177,7 +177,7 @@ vi.mock('./atlasMapPreload', () => ({
 
 import { AtlasGlobe } from './AtlasGlobe'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
-import { CITY_VIEW_MIN_ZOOM } from '../cityView'
+import { ATLAS_SHEET_TOP_INSET_PX, CITY_VIEW_MIN_ZOOM } from '../cityView'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { altitudeForZoom } from './globeScale'
@@ -586,6 +586,30 @@ describe('AtlasGlobe', () => {
       expect(legendToggle().parentElement).toHaveClass('pointer-events-auto')
       expect(drift()).not.toHaveClass('absolute')
       expect(notOnMapLink()).not.toHaveClass('absolute')
+    })
+
+    it('bounds the sheet layout’s column to the band below the credit strip', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const row = drift().parentElement!
+      const column = row.parentElement!
+      // The pane publishes the strip no sheet may cover; the column starts
+      // below it and stacks from the bottom, so an open key on a short pane
+      // shrinks into the column (and scrolls) instead of rising over the
+      // top-left credit.
+      expect(screen.getByTestId('globe-canvas').parentElement).toHaveStyle({
+        '--atlas-sheet-top-inset': `${ATLAS_SHEET_TOP_INSET_PX}px`,
+      })
+      expect(column).toHaveClass('top-[var(--atlas-sheet-top-inset)]', 'justify-end')
+      expect(row).toHaveClass('min-h-0')
+      expect(legendToggle().parentElement).toHaveClass('max-h-full', 'min-h-0')
+      expect(document.getElementById('atlas-genre-legend')).toHaveClass(
+        'min-h-0',
+        'overflow-y-auto',
+      )
+      expect(notOnMapLink()).toHaveClass('shrink-0')
     })
 
     it('keeps the panel layout’s own placements below lg, clear of the bottom-left credit', async () => {

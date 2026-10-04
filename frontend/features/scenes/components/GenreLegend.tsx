@@ -16,9 +16,10 @@
  *
  * Below `lg` it is a content-width chip with a 14px label, as tall as Drift
  * (38px), and it opens upward with the toggle held at the bottom, so the
- * toggle never moves under a finger or under chrome above it. From `lg` it is
- * the fixed-width key with the toggle on top. The caller positions it with
- * `className`.
+ * toggle never moves under a finger or under chrome above it; given a
+ * bounded height (`max-h-*` from the caller), the open key scrolls within it.
+ * From `lg` it is the fixed-width key with the toggle on top. The caller
+ * positions it with `className`.
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -51,7 +52,7 @@ export function GenreLegend({ openChoice, onOpenChange, className }: GenreLegend
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
         aria-controls="atlas-genre-legend"
-        className="flex min-h-9 w-full items-center justify-between gap-2 px-2.5 text-sm text-foreground/90 transition-colors hover:text-primary lg:min-h-0 lg:px-3 lg:py-1.5 lg:text-xs lg:font-medium"
+        className="flex min-h-9 w-full shrink-0 items-center justify-between gap-2 px-2.5 text-sm text-foreground/90 transition-colors hover:text-primary lg:min-h-0 lg:px-3 lg:py-1.5 lg:text-xs lg:font-medium"
       >
         <span>Genres</span>
         {open ? (
@@ -65,7 +66,7 @@ export function GenreLegend({ openChoice, onOpenChange, className }: GenreLegend
       <ul
         id="atlas-genre-legend"
         hidden={!open}
-        className="px-3 pb-0.5 pt-2 lg:pb-2 lg:pt-0.5"
+        className="min-h-0 overflow-y-auto px-3 pb-0.5 pt-2 lg:overflow-visible lg:pb-2 lg:pt-0.5"
       >
         {GENRE_FAMILIES.map((family) => (
           <li key={family.key} className="flex items-center gap-2 py-0.5">
