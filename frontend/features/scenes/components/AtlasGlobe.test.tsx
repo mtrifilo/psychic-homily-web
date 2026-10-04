@@ -172,12 +172,10 @@ vi.mock('./GlobeCanvas', () => ({
 
 const preloadAtlasMap = vi.fn()
 vi.mock('./atlasMapPreload', () => ({
-  preloadAtlasMap: (options: { lightGlobe: boolean }) => preloadAtlasMap(options),
+  preloadAtlasMap: () => preloadAtlasMap(),
 }))
 
 import { AtlasGlobe } from './AtlasGlobe'
-import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
-import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { CITY_VIEW_MIN_ZOOM } from '../cityView'
 import { altitudeForZoom } from './globeScale'
@@ -303,7 +301,6 @@ describe('AtlasGlobe', () => {
       renderWithProviders(<AtlasGlobe />)
       expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
       expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
-      expect(preloadAtlasMap).toHaveBeenCalledWith({ lightGlobe: false })
     })
 
     it('never fetches the canvas module where the scene list renders instead', () => {
@@ -311,18 +308,6 @@ describe('AtlasGlobe', () => {
       renderWithProviders(<AtlasGlobe />)
       expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
       expect(preloadAtlasMap).not.toHaveBeenCalled()
-    })
-
-    it('asks for the land data too on a compact viewport', () => {
-      setMockContainerWidth(800)
-      const mm = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
-      try {
-        mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
-        renderWithProviders(<AtlasGlobe />)
-        expect(preloadAtlasMap).toHaveBeenCalledWith({ lightGlobe: true })
-      } finally {
-        mm.restore()
-      }
     })
 
     it('does not fetch it when the scenes query has failed', () => {

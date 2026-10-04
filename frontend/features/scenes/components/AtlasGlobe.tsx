@@ -67,7 +67,6 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
-import { isAtlasCompactViewport } from '../atlasViewport'
 
 const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
@@ -591,15 +590,12 @@ export function AtlasGlobe() {
   const mapSheetLayout =
     size !== null && !isMobile && usesAtlasSheetLayout(size.width)
 
-  // The canvas renders only once scenes and the camera focus resolve (the
-  // focus waits on visitor geo, up to GEO_TIMEOUT_MS). Start its module (and
-  // with it MapLibre and the worker pool, see GlobeCanvas) and, on a compact
-  // viewport, the light globe's land data as soon as the container is
-  // measured wide enough for the map, so those downloads run during the wait
-  // instead of after it. Viewports that get the scene list fetch neither.
+  // The canvas renders only after scenes and the camera focus (which waits on
+  // visitor geo) resolve; preload what it needs during that wait. Viewports
+  // that get the scene list preload nothing.
   const mapWillMount = size !== null && !isMobile && !isError
   useEffect(() => {
-    if (mapWillMount) preloadAtlasMap({ lightGlobe: isAtlasCompactViewport() })
+    if (mapWillMount) preloadAtlasMap()
   }, [mapWillMount])
 
   let content: ReactNode

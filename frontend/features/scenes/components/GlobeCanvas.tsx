@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // is `undefined` and fails confusingly (PSY-1537 spike). Namespace import only.
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-// Aims the worker pool at the vendored copy before any Map is constructed.
+// Aims the worker pool at the vendored copy and starts it, before any Map is
+// constructed.
 import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
@@ -218,14 +219,6 @@ function buildStarfieldDataUri(): string {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 const STARFIELD_BG = buildStarfieldDataUri()
-
-// Start MapLibre's worker pool when this module loads rather than when the
-// first Map is constructed: AtlasGlobe fetches this module while it still
-// waits on scene data and the camera focus, so the workers fetch and boot the
-// vendored worker modules during that wait. Runs after the setWorkerUrl
-// import above. Prewarmed workers outlive a removed map, which a hide/show
-// cycle reuses.
-if (typeof window !== 'undefined') maplibregl.prewarm()
 
 /**
  * The MapLibre globe canvas (PSY-1538), isolated in its own client module so

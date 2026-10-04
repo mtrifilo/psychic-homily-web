@@ -30,7 +30,7 @@ interface StubStyle {
 }
 
 let maps: StubMap[] = []
-// Plain counters, not vi.fn: the global afterEach clears mock call history,
+// An event log, not vi.fn: the global afterEach clears mock call history,
 // and the prewarm happens once, at module load, before any test runs.
 const { poolEvents } = vi.hoisted(() => ({ poolEvents: [] as string[] }))
 

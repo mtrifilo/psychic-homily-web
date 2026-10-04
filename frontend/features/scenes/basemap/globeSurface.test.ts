@@ -225,9 +225,9 @@ describe('prefetchGlobeLand', () => {
     await settle()
     const { map, setData } = fakeMap()
     mod.showGlobeSurface(map, true)
+    await vi.waitFor(() => expect(setData).toHaveBeenCalledWith(LAND))
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
-    expect(setData).toHaveBeenCalledWith(LAND)
   })
 
   it.each([
@@ -244,15 +244,32 @@ describe('prefetchGlobeLand', () => {
     await settle()
     const { map, setData } = fakeMap()
     mod.showGlobeSurface(map, true)
-    expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+    await vi.waitFor(() => expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL))
   })
 
-  it('falls back to the URL while the prefetch is still in flight', async () => {
-    stubFetch(() => new Promise(() => {}))
+  it('waits for an in-flight prefetch instead of downloading the file twice', async () => {
+    let resolveFetch: (value: unknown) => void = () => {}
+    stubFetch(() => new Promise((resolve) => (resolveFetch = resolve)))
     const mod = await freshModule()
     mod.prefetchGlobeLand()
     const { map, setData } = fakeMap()
     mod.showGlobeSurface(map, true)
-    expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+    expect(setData).not.toHaveBeenCalled()
+    resolveFetch({ ok: true, json: () => Promise.resolve(LAND) })
+    await vi.waitFor(() => expect(setData).toHaveBeenCalledWith(LAND))
+    expect(setData).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not throw when the map is gone by the time the prefetch lands', async () => {
+    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve(LAND) }))
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    const { map, setData } = fakeMap()
+    setData.mockImplementation(() => {
+      throw new TypeError('map removed')
+    })
+    mod.showGlobeSurface(map, true)
+    await settle()
+    expect(setData).toHaveBeenCalled()
   })
 })
