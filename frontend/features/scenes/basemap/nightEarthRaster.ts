@@ -1,3 +1,5 @@
+import type { RasterSourceSpecification } from 'maplibre-gl'
+
 /**
  * The Atlas globe's NASA GIBS night-lights raster (PSY-1537 spike, PSY-1543
  * handoff), stated in one place so the telemetry filter and the map that
@@ -40,3 +42,20 @@ export const NIGHT_EARTH_TILES =
  * the two still agree.
  */
 export const NIGHT_EARTH_TILE_HOST = 'gibs.earthdata.nasa.gov'
+
+/**
+ * The raster source as the Atlas map registers it, a fresh object per call so
+ * no two map instances share a mutable spec. The attribution renders in the
+ * Atlas AttributionControl alongside the OpenFreeMap / OSM credit, and only
+ * while a layer drawing this source is visible. NASA imagery is public
+ * domain; GIBS attribution is requested, not required.
+ */
+export function nightEarthSource(): RasterSourceSpecification {
+  return {
+    type: 'raster',
+    tiles: [NIGHT_EARTH_TILES],
+    tileSize: 256,
+    maxzoom: 8,
+    attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
+  }
+}

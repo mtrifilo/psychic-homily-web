@@ -18,7 +18,7 @@ import type {
   LayerSpecification,
   SourceSpecification,
 } from 'maplibre-gl'
-import { NIGHT_EARTH_SOURCE_ID, NIGHT_EARTH_TILES } from './nightEarthRaster'
+import { NIGHT_EARTH_SOURCE_ID, nightEarthSource } from './nightEarthRaster'
 
 /** Layer ids of the two looks, in draw order (ocean under land). */
 export const NIGHT_EARTH_LAYER_ID = 'earth'
@@ -60,34 +60,18 @@ export function globeSurfaceVisibility(
   }
 }
 
-const EMPTY_LAND: GeoJSON.FeatureCollection = {
-  type: 'FeatureCollection',
-  features: [],
-}
-
 /**
- * The surface sources. A GeoJSON source fetches its data as soon as it is
- * added, visible or not, so the land source starts EMPTY unless the map opens
- * on the light look; {@link showGlobeSurface} points it at the file the first
- * time a map switches to the light look.
+ * The surface sources. The land source starts EMPTY: a GeoJSON source
+ * fetches its data as soon as it is added, visible or not, so
+ * {@link showGlobeSurface} points it at the file the first time a map shows
+ * the light look.
  */
-export function globeSurfaceSources(
-  lightGlobe: boolean,
-): Record<string, SourceSpecification> {
+export function globeSurfaceSources(): Record<string, SourceSpecification> {
   return {
-    [NIGHT_EARTH_SOURCE_ID]: {
-      type: 'raster',
-      tiles: [NIGHT_EARTH_TILES],
-      tileSize: 256,
-      maxzoom: 8,
-      // Rendered by the Atlas AttributionControl alongside the OpenFreeMap /
-      // OSM credit, and only while the raster layer is visible. NASA imagery
-      // is public domain and GIBS attribution is requested, not required.
-      attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
-    },
+    [NIGHT_EARTH_SOURCE_ID]: nightEarthSource(),
     [GLOBE_LAND_SOURCE_ID]: {
       type: 'geojson',
-      data: lightGlobe ? GLOBE_LAND_DATA_URL : EMPTY_LAND,
+      data: { type: 'FeatureCollection', features: [] },
     },
   }
 }
@@ -157,15 +141,6 @@ export interface GlobeSurfaceMap {
 // Maps whose land source already points at the data file. Each Atlas show
 // builds a fresh map, so entries go with the map they belong to.
 const landRequested = new WeakSet<object>()
-
-/**
- * Records that a map was constructed with the land source already pointed at
- * the file (globeSurfaceSources(true)), so a later switch does not fetch it
- * again.
- */
-export function markGlobeLandRequested(map: object): void {
-  landRequested.add(map)
-}
 
 /**
  * Switches a live map to one look. Idempotent; loads the land file at most

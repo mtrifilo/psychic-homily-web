@@ -12,7 +12,6 @@ import { handleBasemapError } from '../basemap/basemapTelemetry'
 import {
   globeSurfaceLayers,
   globeSurfaceSources,
-  markGlobeLandRequested,
   showGlobeSurface,
 } from '../basemap/globeSurface'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
@@ -232,10 +231,9 @@ export default function GlobeCanvas({
   const selectedSlug = selected?.slug ?? null
 
   // Compact viewports get the light globe: flat ocean and vector land in
-  // place of the night-earth raster (globeSurface.ts). The map is built with
-  // the look current at construction (read through the ref, so a crossing
-  // never re-runs the map effect); the effect below switches a live map when
-  // the viewport crosses the breakpoint.
+  // place of the night-earth raster (globeSurface.ts). The map effect reads
+  // the look through the ref, so a crossing never rebuilds the map; the
+  // effect below switches the live map instead.
   const lightGlobe = useAtlasCompactViewport()
   const lightGlobeRef = useRef(lightGlobe)
   useEffect(() => {
@@ -566,7 +564,6 @@ export default function GlobeCanvas({
       BLACK_MARBLE_FADE_START,
       BLACK_MARBLE_FADE_END,
     )
-    const lightGlobeAtConstruction = lightGlobeRef.current
 
     const map = new maplibregl.Map({
       container,
@@ -621,9 +618,7 @@ export default function GlobeCanvas({
         // CSS starfield and halo behind the canvas show through.
         sources: {
           ...basemap.sources,
-          // Night-earth raster and light-globe land; only one look's layers
-          // are visible at a time (globeSurface.ts).
-          ...globeSurfaceSources(lightGlobeAtConstruction),
+          ...globeSurfaceSources(),
           // promoteId: features are keyed by slug so the hover feature-state
           // (set in handleMove below) sticks across setData refreshes.
           scenes: { type: 'geojson', data: EMPTY_FC, promoteId: 'slug' },
@@ -634,16 +629,14 @@ export default function GlobeCanvas({
           venues: { type: 'geojson', data: EMPTY_FC, promoteId: 'id' },
         },
         layers: [
-          // Street basemap under the globe surface: at globe zooms the opaque
-          // surface (raster, or ocean and land) covers it (and its layers are
-          // minzoom-gated anyway); as the surface fades out across the
-          // handoff range the streets are already drawn beneath, so there is
-          // no black frame between the two worlds. The fade and the cutoff
-          // come from phBasemapFragment, the background ramp's mirror by
-          // construction.
+          // Street basemap under the globe surface, which covers it at globe
+          // zooms and fades out across the handoff (see globeSurface.ts), so
+          // the streets are already drawn when it dissolves.
           ...basemap.layers,
+          // Built with the current look's visibility so the first frame
+          // never requests a raster tile on a compact viewport.
           ...globeSurfaceLayers({
-            lightGlobe: lightGlobeAtConstruction,
+            lightGlobe: lightGlobeRef.current,
             fadeOut: basemap.rasterFadeOut,
             maxZoom: basemap.rasterMaxZoom,
           }),
@@ -732,7 +725,6 @@ export default function GlobeCanvas({
     // filtering and the throttle. Removed with the map in cleanup, like every
     // listener here.
     map.on('error', handleBasemapError)
-    if (lightGlobeAtConstruction) markGlobeLandRequested(map)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).

@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import GlobeCanvas from './GlobeCanvas'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
   GLOBE_LAND_DATA_URL,
   GLOBE_LAND_LAYER_ID,
-  GLOBE_LAND_SOURCE_ID,
   GLOBE_OCEAN_LAYER_ID,
   NIGHT_EARTH_LAYER_ID,
 } from '../basemap/globeSurface'
@@ -99,30 +99,6 @@ vi.mock('maplibre-gl', () => {
   }
 })
 
-/** A `matchMedia` with a flippable answer for the compact query only. */
-function installViewport(compact: boolean) {
-  let matches = compact
-  const listeners = new Set<() => void>()
-  window.matchMedia = ((query: string) => ({
-    get matches() {
-      return query === ATLAS_COMPACT_VIEWPORT_QUERY ? matches : false
-    },
-    media: query,
-    onchange: null,
-    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
-    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })) as unknown as typeof window.matchMedia
-  return {
-    set(next: boolean) {
-      matches = next
-      act(() => listeners.forEach((fn) => fn()))
-    },
-  }
-}
-
 const POV = { lat: 39.5, lng: -98.35, altitude: 1.8 }
 
 function renderCanvas() {
@@ -145,14 +121,17 @@ function lastVisibilitySet(map: StubMap, layer: string) {
 }
 
 describe('GlobeCanvas globe surface', () => {
-  const original = window.matchMedia
+  let restoreMatchMedia: () => void = () => {}
+  function installViewport(compact: boolean) {
+    const mm = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: compact })
+    restoreMatchMedia = mm.restore
+    return { set: (next: boolean) => mm.set(ATLAS_COMPACT_VIEWPORT_QUERY, next) }
+  }
   beforeEach(() => {
     maps = []
     sessionStorage.clear()
   })
-  afterEach(() => {
-    window.matchMedia = original
-  })
+  afterEach(() => restoreMatchMedia())
 
   it('builds a compact-viewport map without the night-earth raster', () => {
     installViewport(true)
@@ -161,18 +140,27 @@ describe('GlobeCanvas globe surface', () => {
     expect(constructedVisibility(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
     expect(constructedVisibility(map, GLOBE_OCEAN_LAYER_ID)).toBe('visible')
     expect(constructedVisibility(map, GLOBE_LAND_LAYER_ID)).toBe('visible')
-    expect(map.options.style.sources[GLOBE_LAND_SOURCE_ID].data).toBe(GLOBE_LAND_DATA_URL)
+  })
+
+  it('loads the land file once the compact map style loads', () => {
+    installViewport(true)
+    renderCanvas()
+    const map = theMap()
+    expect(map.landSetData).not.toHaveBeenCalled()
+    act(() => map.fire('style.load'))
+    expect(map.landSetData).toHaveBeenCalledTimes(1)
+    expect(map.landSetData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
+    expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
   })
 
   it('builds a wide-viewport map with the raster and no land request', () => {
     installViewport(false)
     renderCanvas()
     const map = theMap()
+    act(() => map.fire('style.load'))
     expect(constructedVisibility(map, NIGHT_EARTH_LAYER_ID)).toBe('visible')
     expect(constructedVisibility(map, GLOBE_LAND_LAYER_ID)).toBe('none')
-    expect(map.options.style.sources[GLOBE_LAND_SOURCE_ID].data).not.toBe(
-      GLOBE_LAND_DATA_URL,
-    )
+    expect(map.landSetData).not.toHaveBeenCalled()
   })
 
   it('switches the live map across the breakpoint without rebuilding it', () => {
@@ -190,14 +178,5 @@ describe('GlobeCanvas globe surface', () => {
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('visible')
     expect(lastVisibilitySet(map, GLOBE_LAND_LAYER_ID)).toBe('none')
     expect(maps).toHaveLength(1)
-  })
-
-  it('does not refetch land on style load for a map built compact', () => {
-    installViewport(true)
-    renderCanvas()
-    const map = theMap()
-    act(() => map.fire('style.load'))
-    expect(map.landSetData).not.toHaveBeenCalled()
-    expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
   })
 })

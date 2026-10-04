@@ -16,7 +16,6 @@ import {
   globeSurfaceLayers,
   globeSurfaceSources,
   globeSurfaceVisibility,
-  markGlobeLandRequested,
   showGlobeSurface,
   type GlobeSurfaceMap,
 } from './globeSurface'
@@ -38,7 +37,7 @@ const MAX_ZOOM = 7.1
 function surfaceStyle(lightGlobe: boolean): StyleSpecification {
   return {
     version: 8,
-    sources: globeSurfaceSources(lightGlobe),
+    sources: globeSurfaceSources(),
     layers: globeSurfaceLayers({ lightGlobe, fadeOut: FADE_OUT, maxZoom: MAX_ZOOM }),
   }
 }
@@ -85,19 +84,15 @@ describe('globe surface looks', () => {
     expect(validateStyleMin(surfaceStyle(light))).toEqual([])
   })
 
-  it('points the land source at the file only when the map opens on the light globe', () => {
-    // A GeoJSON source fetches its data when added, visible or not, so the
-    // full globe must not carry the URL.
-    expect(globeSurfaceSources(true)[GLOBE_LAND_SOURCE_ID]).toMatchObject({
-      data: GLOBE_LAND_DATA_URL,
-    })
-    expect(globeSurfaceSources(false)[GLOBE_LAND_SOURCE_ID]).toMatchObject({
+  it('registers the land source empty, so a map that never shows the light globe never fetches it', () => {
+    // A GeoJSON source fetches its data when added, visible or not.
+    expect(globeSurfaceSources()[GLOBE_LAND_SOURCE_ID]).toMatchObject({
       data: { type: 'FeatureCollection', features: [] },
     })
   })
 
   it('keeps the NASA credit on the raster source, where only a visible raster shows it', () => {
-    const sources = globeSurfaceSources(true)
+    const sources = globeSurfaceSources()
     expect(sources[NIGHT_EARTH_SOURCE_ID]).toMatchObject({
       attribution: expect.stringContaining('NASA'),
     })
@@ -146,13 +141,6 @@ describe('showGlobeSurface', () => {
     expect(visibilityOf(GLOBE_LAND_LAYER_ID)).toBe('none')
   })
 
-  it('does not refetch land for a map constructed on the light globe', () => {
-    const { map, setData } = fakeMap()
-    markGlobeLandRequested(map)
-    showGlobeSurface(map, true)
-    expect(setData).not.toHaveBeenCalled()
-  })
-
   it('tracks the land request per map, so a fresh map loads its own copy', () => {
     const first = fakeMap()
     const second = fakeMap()
@@ -192,15 +180,17 @@ describe('globe land data file', () => {
     expect(geometry.type).toBe('MultiPolygon')
     const polygons = (geometry as GeoJSON.MultiPolygon).coordinates
     expect(polygons.length).toBeGreaterThan(100)
-    for (const polygon of polygons) {
-      for (const ring of polygon) {
-        expect(ring.length).toBeGreaterThanOrEqual(4)
-        expect(ring[0]).toEqual(ring[ring.length - 1])
-        for (const [lng, lat] of ring) {
-          expect(Math.abs(lng)).toBeLessThanOrEqual(180)
-          expect(Math.abs(lat)).toBeLessThanOrEqual(90)
+    const problems: string[] = []
+    polygons.forEach((polygon, p) =>
+      polygon.forEach((ring, r) => {
+        const [first, last] = [ring[0], ring[ring.length - 1]]
+        if (ring.length < 4) problems.push(`${p}/${r}: ${ring.length} positions`)
+        if (first[0] !== last[0] || first[1] !== last[1]) problems.push(`${p}/${r}: open ring`)
+        if (ring.some(([lng, lat]) => Math.abs(lng) > 180 || Math.abs(lat) > 90)) {
+          problems.push(`${p}/${r}: out of bounds`)
         }
-      }
-    }
+      }),
+    )
+    expect(problems).toEqual([])
   })
 })

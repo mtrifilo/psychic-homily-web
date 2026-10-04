@@ -3,23 +3,17 @@
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 
 /**
- * The Atlas's compact viewport: any viewport narrower than Tailwind's `lg`
- * breakpoint (64rem, 1024px at the default root size). Phones in either
- * orientation and tablets in portrait fall below it; desktops and tablets in
- * landscape do not.
+ * The Atlas's compact viewport: narrower than Tailwind's `lg` breakpoint
+ * (64rem), so phones in either orientation and tablets in portrait.
  *
- * Width rather than pointer type, because what the compact treatment trades
- * away (the night-earth raster today) is screen-size-shaped: the boards that
- * define the phone Atlas are drawn by width, a viewport below `lg` is the
- * same geometry whether a finger or a mouse drives it, and a landscape
- * tablet showing the desktop layout should get the desktop globe with it.
- * A width query is also what Playwright and jsdom can emulate without a
- * device descriptor.
+ * Width rather than pointer type: the phone boards are drawn by width, and a
+ * viewport at `lg` or wider is desktop-sized whether a finger or a mouse
+ * drives it.
  *
- * Written as the exact complement of Tailwind's `lg:` variant
- * (`min-width: 64rem`), so a component styled with `lg:` utilities and a
- * branch on this query switch at the same width. `not all and (...)` rather
- * than range syntax for browsers that predate Media Queries Level 4 ranges.
+ * The exact complement of Tailwind's `lg:` variant (`min-width: 64rem`), so
+ * an `lg:` utility and a branch on this query switch at the same width;
+ * `not all and (...)` rather than range syntax for browsers that predate
+ * Media Queries Level 4 ranges.
  */
 export const ATLAS_COMPACT_VIEWPORT_QUERY = 'not all and (min-width: 64rem)'
 

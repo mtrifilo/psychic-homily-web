@@ -168,10 +168,12 @@ function summarize(requests) {
   return { byCategory, totalBytes: budgetedBytes }
 }
 
-// Polls the readiness gate inside the page so the timestamp is the page's
-// own clock (ms since navigation start), unaffected by harness round trips.
+// The readiness gate, defined once in the page and used for both the entry
+// and the city view. The entry poll runs in the page so the timestamp is the
+// page's own clock (ms since navigation start), and reports once through an
+// exposed binding, so the harness adds no polling to the throttled page.
 const READINESS_PROBE = `(() => {
-  const ready = () => {
+  window.__atlasPerfReady = () => {
     const m = window.__atlasMap
     if (!m) return false
     try {
@@ -181,24 +183,13 @@ const READINESS_PROBE = `(() => {
     }
   }
   const poll = () => {
-    if (ready()) {
-      window.__atlasPerfFirstMapMs = performance.now()
-      return
-    }
-    setTimeout(poll, 50)
+    if (window.__atlasPerfReady()) window.__atlasPerfFirstMap(performance.now())
+    else setTimeout(poll, 50)
   }
   poll()
 })()`
 
-async function waitFor(page, predicate, timeoutMs) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const value = await page.evaluate(predicate).catch(() => null)
-    if (value !== null && value !== undefined && value !== false) return value
-    await page.waitForTimeout(100)
-  }
-  return null
-}
+const timeout = (ms) => new Promise((resolve) => setTimeout(() => resolve(null), ms))
 
 async function oneRun(browser, opts) {
   const context = await browser.newContext(contextOptions(opts))
@@ -210,6 +201,11 @@ async function oneRun(browser, opts) {
     })
     if (response.status() >= 400) throw new Error(`bypass request returned HTTP ${response.status()}`)
   }
+  let reportFirstMap
+  const firstMapReported = new Promise((resolve) => {
+    reportFirstMap = resolve
+  })
+  await context.exposeFunction('__atlasPerfFirstMap', (ms) => reportFirstMap(ms))
   await context.addInitScript(READINESS_PROBE)
   const page = await context.newPage()
   const cdp = await context.newCDPSession(page)
@@ -241,7 +237,7 @@ async function oneRun(browser, opts) {
   const finished = () => [...byKey.values()]
 
   await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
-  const firstMapMs = await waitFor(page, () => window.__atlasPerfFirstMapMs ?? null, READY_TIMEOUT_MS)
+  const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === null) {
     const hasCanvas = await page.evaluate(() => !!document.querySelector('.maplibregl-canvas')).catch(() => false)
     await context.close()
@@ -252,10 +248,12 @@ async function oneRun(browser, opts) {
   await page.waitForTimeout(SETTLE_MS)
   const entryCut = Date.now()
   const entry = finished().filter((r) => r.at <= entryCut)
+  // The map canvas's own context: getContext returns the existing one, so
+  // the probe creates no extra GL context inside the measured session.
   const renderer = await page.evaluate(() => {
-    const gl = document.createElement('canvas').getContext('webgl2')
+    const gl = window.__atlasMap.getCanvas().getContext('webgl2')
     const ext = gl?.getExtension('WEBGL_debug_renderer_info')
-    return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl ? gl.getParameter(gl.RENDERER) : 'no WebGL2'
+    return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl ? gl.getParameter(gl.RENDERER) : 'unknown'
   })
 
   const cityMs = await page.evaluate(([lng, lat, zoom, timeoutMs]) => new Promise((resolve) => {
@@ -267,13 +265,7 @@ async function oneRun(browser, opts) {
     // issued during render, so areTilesLoaded() is stale until then.
     map.once('render', () => {
       const poll = () => {
-        let ready = false
-        try {
-          ready = map.isStyleLoaded() && map.areTilesLoaded() && map.queryRenderedFeatures().length > 0
-        } catch {
-          ready = false
-        }
-        if (ready) resolve(performance.now() - t0)
+        if (window.__atlasPerfReady()) resolve(performance.now() - t0)
         else setTimeout(poll, 50)
       }
       poll()
