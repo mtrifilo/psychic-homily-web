@@ -340,11 +340,14 @@ describe('AtlasGlobe', () => {
     })
   })
 
-  // The frame ends above the cookie banner at both breakpoints: the banner
-  // publishes --cookie-banner-height while it is up (absent otherwise, hence
-  // the 0px fallback), and the frame's bottom edge is where the map credit and
-  // every other bottom-anchored overlay sit.
-  it('ends the frame above the cookie banner at both breakpoints', () => {
+  // A tripwire on the frame's class contract, not a layout measurement (jsdom
+  // has none; atlas-credit.spec.ts measures it). The banner publishes
+  // --cookie-banner-height while it is up (absent otherwise, hence the 0px
+  // fallbacks); the frame's height and its minimum both give it up, and at
+  // `xl` the banner's height stands in for the home-indicator inset it
+  // already contains.
+  it('gives up the published cookie banner height in its height and minimum', () => {
+    setMockContainerWidth(1200)
     mockUseScenes.mockReturnValue({
       data: sampleData,
       isLoading: false,
@@ -354,7 +357,8 @@ describe('AtlasGlobe', () => {
     const frame = screen.getByTestId('atlas-pane-frame')
     expect(frame).toHaveClass(
       'h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))]',
-      'xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))]',
+      'xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))]',
+      'min-h-[calc(480px-var(--cookie-banner-height,0px))]',
     )
   })
 

@@ -865,18 +865,23 @@ export function AtlasGlobe() {
   // the Drift CTA (bottom-4) and the MapLibre attribution control (a license
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
-  // The cookie consent banner sits directly above that band (the viewport
-  // bottom at `xl`) while it is up and publishes its height as
-  // --cookie-banner-height, so the box ends above the banner and every
-  // bottom-anchored overlay, the credit included, stays uncovered.
+  // While the cookie consent banner is up it publishes its height as
+  // --cookie-banner-height. Below `xl` it sits directly above the tab bar's
+  // band, so the box gives up that height too. At `xl` it owns the viewport
+  // bottom and its height already includes the home-indicator inset (its own
+  // bottom padding), so the box gives up whichever of the two is larger rather
+  // than both. The minimum gives up the banner's height as well, so the banner
+  // never moves the box's bottom edge, where the credit sits, below the
+  // visible area: that happens only on viewports too short for the minimum,
+  // exactly as without a banner.
   return (
     <div
       data-testid="atlas-pane-frame"
-      className={`relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] ${
+      className={`relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
         // The sheets anchor to this box's bottom edge, so in the sheet layout
         // it must be exactly the visible area: a minimum taller than a short
         // (landscape phone) viewport would push every sheet below the fold.
-        mapSheetLayout ? '' : 'min-h-[480px]'
+        mapSheetLayout ? '' : 'min-h-[calc(480px-var(--cookie-banner-height,0px))]'
       }`}
     >
       <div ref={measureRef} className="h-full w-full">

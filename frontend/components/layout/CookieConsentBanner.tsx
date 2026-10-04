@@ -13,10 +13,9 @@ import { CookiePreferencesDialog } from './CookiePreferencesDialog'
  * so content at the document end (the footer) stays reachable by scrolling
  * rather than being permanently covered until the visitor consents. */
 
-/** The bar's rendered height, published on <html> while the bar is mounted
- * and absent otherwise. Viewport-sized surfaces whose bottom edge the bar
- * would cover subtract it to end above the bar (AtlasGlobe's frame does),
- * always with a 0px fallback. */
+/** The bar's rendered height including its padding, published on <html>
+ * while the bar is mounted and absent otherwise. AtlasGlobe's frame subtracts
+ * it (with a 0px fallback) so the map ends above the bar. */
 const COOKIE_BANNER_HEIGHT_VAR = '--cookie-banner-height'
 
 function ConsentBar() {

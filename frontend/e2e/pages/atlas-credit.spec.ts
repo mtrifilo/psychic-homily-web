@@ -10,13 +10,13 @@ import {
 } from '../helpers/atlas'
 
 /**
- * The map credit (the OpenStreetMap attribution the ODbL requires) in every
- * Atlas state where one is shown, with the cookie banner up and after it is
- * dismissed. In each, the credit's whole text is on screen and every sample
- * point across it hits the credit itself. At globe zoom the compact globe
- * (below `lg`) draws no OpenStreetMap data, so there the check is that nothing
- * OSM-derived renders and the control lists nothing. The credit's position
- * does not depend on the color scheme, so one scheme is measured.
+ * The map credit (the OpenStreetMap attribution the ODbL requires) across
+ * Atlas states and layouts, on a first visit with the cookie banner up and,
+ * where a test says so, after it is dismissed. Where a credit is due, its
+ * whole text is on screen and every sample point across it hits the credit
+ * itself. At globe zoom the compact globe (below `lg`) draws no OpenStreetMap
+ * data, so there the check is that nothing OSM-derived renders and the
+ * control lists nothing.
  *
  * SwiftShader is required: MapLibre needs a WebGL2 context headless Chromium
  * otherwise lacks.
@@ -126,8 +126,15 @@ async function dismissBanner(page: Page) {
 // Fixme while AtlasGlobe's 640px gate renders MobileSceneList at these widths
 // (no map exists to measure); PSY-1560 removes the gate and un-fixmes these.
 for (const viewport of PHONE_VIEWPORTS) {
-  test.describe.fixme(`Atlas credit at ${viewport.width}x${viewport.height}`, () => {
-    test.use({ viewport, hasTouch: true, isMobile: true, deviceScaleFactor: 2 })
+  for (const colorScheme of ['dark', 'light'] as const) {
+  test.describe.fixme(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
+    test.use({
+      viewport,
+      colorScheme,
+      hasTouch: true,
+      isMobile: true,
+      deviceScaleFactor: 2,
+    })
     test.setTimeout(120_000)
 
     test('first visit, city view, venue and artist sheets', async ({ page }) => {
@@ -183,21 +190,58 @@ for (const viewport of PHONE_VIEWPORTS) {
       await expectCreditVisible(page, 'scene preview at full, z8')
     })
   })
+  }
 }
 
 test.describe('Atlas credit on a compact pane above the mobile gate', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: true })
 
-  test('globe entry and scene preview owe no credit', async ({ page }) => {
+  test('globe entry owes no credit; city view keeps the list sheet above the banner', async ({
+    page,
+  }) => {
     await stubAtlas(page)
     await page.goto('/atlas')
     await waitForMap(page)
+    const banner = page.getByRole('dialog', { name: 'Cookie consent' })
+    await expect(banner).toBeVisible()
     await expectNoCreditDue(page, 'globe entry')
     await pressSceneDot(page, 'tap')
-    await expect(page.getByTestId('atlas-scene-preview-sheet')).toBeVisible()
+    const preview = page.getByTestId('atlas-scene-preview-sheet')
+    await expect(preview).toBeVisible()
     await expectNoCreditDue(page, 'scene preview at globe zoom')
+    await page.getByRole('button', { name: 'Close scene preview' }).tap()
+
+    // City view is camera-derived: street zoom over the scene engages it.
+    await jumpToPhoenix(page, 12.5)
+    const list = page.getByTestId('atlas-venue-sheet')
+    await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+    await expectCreditVisible(page, 'city view, list at peek, banner up')
+    const listBottom = await list.evaluate((el) => el.getBoundingClientRect().bottom)
+    const bannerTop = await banner.evaluate((el) => el.getBoundingClientRect().top)
+    expect(listBottom, 'list sheet ends above the banner').toBeLessThanOrEqual(bannerTop + 0.5)
   })
 })
+
+// The panel layout below `xl`, where the banner sits above the tab bar, and a
+// short `xl` window: in both the credit is docked bottom-left, at the frame's
+// bottom edge, with the banner up.
+for (const viewport of [
+  { width: 1024, height: 768 },
+  { width: 1280, height: 560 },
+] as const) {
+  test.describe(`Atlas credit beside the rail at ${viewport.width}x${viewport.height}`, () => {
+    test.use({ viewport })
+
+    test('city view rail, banner up', async ({ page }) => {
+      await stubAtlas(page)
+      await page.goto('/atlas?city=Phoenix%2CAZ')
+      await waitForMap(page)
+      await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
+      await expect(page.getByTestId('atlas-venue-rail')).toBeVisible({ timeout: 30_000 })
+      await expectCreditVisible(page, 'city view rail, banner up')
+    })
+  })
+}
 
 test.describe('Atlas credit on desktop', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
