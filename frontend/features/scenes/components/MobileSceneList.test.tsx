@@ -114,6 +114,15 @@ describe('MobileSceneList', () => {
     ])
   })
 
+  it('heads the list with its title alone, claiming nothing about the screen', () => {
+    // The list stands in for the map on a desktop without WebGL2 as well as
+    // on a phone, so a sentence blaming screen size would be false there.
+    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    const list = screen.getByTestId('atlas-scene-list')
+    expect(screen.getByRole('heading', { level: 1, name: 'Scenes' })).toBeInTheDocument()
+    expect(list).not.toHaveTextContent(/screen/i)
+  })
+
   it('marks its root with the test id the Atlas perf script detects', () => {
     // scripts/atlas-perf.mjs stops a run at once when this list renders
     // instead of the map; renaming the id silently turns that into a timeout.

@@ -6,14 +6,15 @@ import { compareScenesByActivity } from './globeScale'
 import type { SceneListItem } from '../types'
 
 /**
- * <640px: the WebGL globe + canvas gestures aren't usable (PSY-511/1086 gate),
- * so serve the scenes as a list — still the geographic-discovery payoff, just
- * not spatial. Lists ALL scenes (incl. ones the globe can't place), liveliest
- * first. Each row expands in place — the app expands in place rather than
- * modally (cf. StationShowsDirectory's in-place view-all; the only Sheet
- * primitive is modal and would bury the list) — into the same payoff the
- * desktop preview panel shows: playable embed, next-7-days shows, top local
- * artists, scene link (PSY-1311).
+ * The Atlas's stand-in for the map where the map should not run (no WebGL2,
+ * or reduced motion on a narrow pane; see atlasRendersSceneList): the scenes
+ * as a list, still the geographic-discovery payoff, just not spatial. Lists
+ * ALL scenes (incl. ones the globe can't place), liveliest first. Each row
+ * expands in place (the app expands in place rather than modally, cf.
+ * StationShowsDirectory's in-place view-all; the only Sheet primitive is
+ * modal and would bury the list) into the same payoff the map's scene
+ * preview shows: playable embed, next-7-days shows, top local artists, scene
+ * link.
  */
 export function MobileSceneList({
   scenes,
@@ -43,9 +44,6 @@ export function MobileSceneList({
       className="h-full w-full overflow-y-auto bg-background p-4"
     >
       <h1 className="text-lg font-semibold">Scenes</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        The globe is best on a larger screen. Browse the scenes below.
-      </p>
       {loading ? (
         <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
       ) : (

@@ -13,8 +13,8 @@ import {
  * The Atlas sheet layout under touch: panes narrower than the rail's 900px
  * get the venue list and every panel as bottom sheets over a full-width map.
  *
- * 820px wide, not a phone width: the map only renders above the 640px mobile
- * gate, and this layout is what every pane between that gate and 900px gets.
+ * The full journey runs on an 820px tablet pane; the phone panes at the end
+ * walk the detents and the sheet chain at phone sizes.
  * Scenes, venues and the venue's shows are synthesized so the stacked point
  * and the bill are known regardless of what the seed geocoded. SwiftShader is
  * required: MapLibre needs a WebGL2 context headless Chromium otherwise lacks.
@@ -321,6 +321,83 @@ for (const { mergedHalf, ...viewport } of [
           mapAreaAtHalf: half.host - half.height,
         }),
       })
+    })
+  })
+}
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 360, height: 780 },
+]) {
+  test.describe(`Atlas sheet detents on a ${viewport.width}x${viewport.height} phone`, () => {
+    test.use({ viewport, isMobile: true, deviceScaleFactor: 2 })
+    test.setTimeout(120_000)
+
+    test('Peek, Half and a capped Full, through the list, venue and artist sheets', async ({
+      page,
+    }) => {
+      await stubAtlas(page)
+      await page.goto('/atlas?city=Phoenix%2CAZ')
+      await waitForMap(page)
+      await expect(page.getByTestId('atlas-scene-list')).toHaveCount(0)
+      // The banner shortens the host while it is up; dismissed, the host is
+      // the phone's whole map area.
+      await dismissBanner(page)
+
+      const list = page.getByTestId('atlas-venue-sheet')
+      await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+      const { host } = await expectDetentHeight(page, 'atlas-venue-sheet', 'peek')
+      // On a phone the host caps Full below its DS height, and Half stays a
+      // separate step under it.
+      expect(detentPx('full', host), 'Full is capped by the host').toBeLessThan(FULL_PX)
+      expect(detentPx('half', host), 'Half stays under Full').toBeLessThan(
+        detentPx('full', host),
+      )
+      expect(await creditUncovered(page)).toBe(true)
+
+      await pullToHalf(page, 'atlas-venue-sheet')
+      await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
+
+      // The grabber steps to Full, which stops below the credit.
+      const grabber = list.locator('[data-bottom-sheet-grabber]')
+      await grabber.tap()
+      await expectDetentHeight(page, 'atlas-venue-sheet', 'full')
+      expect(await creditUncovered(page)).toBe(true)
+
+      // From the tallest detent the grabber returns to Peek, which leaves the
+      // stacked marker at the map's centre in view. The marker opens the list
+      // at Peek, scoped; the rows are one step up.
+      await grabber.tap()
+      await expectDetentHeight(page, 'atlas-venue-sheet', 'peek')
+      await page.getByTestId('atlas-venue-stack').tap()
+      await expect(page.getByTestId('venue-sheet-peek-line')).toHaveText(
+        '2 venues at the city centre point',
+      )
+      await grabber.tap()
+      await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
+      await list.getByRole('button', { name: 'Show all' }).tap()
+
+      // Row -> venue sheet at Half, then Full.
+      await list.getByRole('button', { name: /Street Room/ }).tap()
+      const venueSheet = page.getByTestId('atlas-venue-panel')
+      await expectDetentHeight(page, 'atlas-venue-panel', 'half')
+      await venueSheet.locator('[data-bottom-sheet-grabber]').tap()
+      await expectDetentHeight(page, 'atlas-venue-panel', 'full')
+      expect(await creditUncovered(page)).toBe(true)
+
+      // Show -> artist sheet, which opens at Full.
+      await venueSheet.getByRole('button', { name: /Sheet Night/ }).tap()
+      const artistSheet = page.getByTestId('atlas-artist-panel')
+      await expect(artistSheet.getByRole('heading', { name: 'Sheet Band' })).toBeVisible()
+      await expectDetentHeight(page, 'atlas-artist-panel', 'full')
+      expect(await creditUncovered(page)).toBe(true)
+
+      await page.keyboard.press('Escape')
+      await expect(venueSheet).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(list).toBeVisible()
+      await page.getByRole('button', { name: 'Back to globe' }).tap()
+      await expect(list).toHaveCount(0, { timeout: 15_000 })
     })
   })
 }

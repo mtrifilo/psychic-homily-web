@@ -2,8 +2,8 @@
  * The Atlas camera carried across map teardowns.
  *
  * Module scope (not a ref) on purpose: it survives not only Cache Components'
- * hide but also REAL unmounts of the canvas, such as the <640px mobile-gate
- * flip, which unmounts it entirely. Single-instance surface (one Atlas globe
+ * hide but also REAL unmounts of the canvas, such as a switch to the scene
+ * list (atlasRendersSceneList), which unmounts it entirely. Single-instance surface (one Atlas globe
  * per app), so shared module state is safe. Deliberately a DATA cache, not an
  * init guard: the map is still created fresh on every show, and the one
  * pattern PSY-1284 proved fatal was a guard ref that survives hide and skips

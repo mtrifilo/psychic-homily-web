@@ -4,10 +4,9 @@ import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 
 /**
  * The Atlas's compact viewport: any viewport narrower than Tailwind's `lg`
- * breakpoint (64rem). AtlasGlobe mounts the map only in a container at least
- * 640px wide and renders a scene list below that, so this query decides the
- * map's treatment between 640px and 64rem, and at every width below 64rem
- * wherever the map does mount.
+ * breakpoint (64rem). This query decides the map's treatment at every width
+ * below 64rem wherever the map mounts (see {@link atlasRendersSceneList} for
+ * where it does not).
  *
  * Width rather than pointer type: the phone boards are drawn by width, and a
  * viewport at `lg` or wider is desktop-sized whether a finger or a mouse
@@ -40,4 +39,73 @@ export function isAtlasCompactViewport(): boolean {
  */
 export function useAtlasCompactViewport(): boolean {
   return useMediaQuery(ATLAS_COMPACT_VIEWPORT_QUERY)
+}
+
+/**
+ * The visitor preference that, on a narrow pane, swaps the map for the scene
+ * list (see {@link atlasRendersSceneList}).
+ */
+export const ATLAS_REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+
+/**
+ * Below this map-pane width, a visitor who prefers reduced motion gets the
+ * scene list instead of the map. At and above it they get the map, which
+ * already honours the preference (no pulse rings; camera moves cut rather
+ * than fly).
+ *
+ * The value is the orchestrator's reading of the owner's decision that the
+ * list stays as the phones' reduced-motion fallback, so desktop and tablet
+ * panes keep the map. It is a product setting: moving it is a change to this
+ * line alone.
+ */
+export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
+
+/**
+ * Whether the Atlas renders its scene list (MobileSceneList) in place of the
+ * map. Exactly two conditions: the browser cannot give MapLibre the WebGL2
+ * context it requires (at any width), or the visitor prefers reduced motion
+ * and the pane is narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
+ * Every other visitor gets the map, phones included.
+ */
+export function atlasRendersSceneList({
+  paneWidthPx,
+  supportsWebGL2,
+  prefersReducedMotion,
+}: {
+  paneWidthPx: number
+  supportsWebGL2: boolean
+  prefersReducedMotion: boolean
+}): boolean {
+  if (!supportsWebGL2) return true
+  return prefersReducedMotion && paneWidthPx < ATLAS_REDUCED_MOTION_LIST_BELOW_PX
+}
+
+/**
+ * Whether a canvas from `createCanvas` yields a WebGL2 context, the only
+ * context type MapLibre asks for. The probe's context is released at once
+ * (browsers cap the live contexts a page may hold), and a throwing canvas
+ * counts as no support.
+ */
+export function probeWebGL2(createCanvas: () => HTMLCanvasElement): boolean {
+  try {
+    const gl = createCanvas().getContext('webgl2')
+    if (!gl) return false
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    return true
+  } catch {
+    return false
+  }
+}
+
+let webGL2Support: boolean | undefined
+
+/**
+ * {@link probeWebGL2} on a fresh `<canvas>`, probed once per page load and the
+ * answer kept, since each probe allocates a GPU context. Client only: false
+ * where there is no `document`, and that answer is not kept.
+ */
+export function atlasSupportsWebGL2(): boolean {
+  if (typeof document === 'undefined') return false
+  webGL2Support ??= probeWebGL2(() => document.createElement('canvas'))
+  return webGL2Support
 }

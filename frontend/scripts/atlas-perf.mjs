@@ -7,11 +7,10 @@
 //
 // Target a production build (a Vercel preview, or `next build && next start`).
 // `next dev` serves unminified, uncompressed bundles and is not a valid target.
-// AtlasGlobe renders a scene list instead of the map in a container narrower
-// than 640px, so the default phone profile needs a build whose map renders at
-// 390px (a preview of a branch with that gate removed); against any other
-// build the script stops at once with exit code 2. `--viewport 800x1000`
-// measures the compact globe on a stock build.
+// AtlasGlobe renders a scene list instead of the map where the browser has no
+// WebGL2, or where reduced motion is preferred on a pane narrower than 640px
+// (atlasRendersSceneList); the script requests neither, and if the page shows
+// the list anyway it stops at once with exit code 2.
 //
 // Options:
 //   --runs N            cold runs; the budget is checked on the medians (default 3)
@@ -288,7 +287,7 @@ async function oneRun(browser, opts) {
   const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
-    throw new Error('the page rendered the Atlas scene list, not the map: this build gates the map below 640px wide (see the header)')
+    throw new Error('the page rendered the Atlas scene list, not the map: the browser reported no WebGL2, or this build gates the map by width (see the header)')
   }
   if (firstMapMs === null) {
     await context.close()

@@ -70,8 +70,7 @@ export const CITY_RAIL_WIDTH_PX = 360
 
 // Below this pane width the rail would leave a uselessly narrow map, so the
 // Atlas swaps the rail and side panels for bottom sheets over a full-width map
-// (usesAtlasSheetLayout). Panes under AtlasGlobe's GLOBE_BREAKPOINT_PX render
-// MobileSceneList and never reach the map at all.
+// (usesAtlasSheetLayout), down to phone widths.
 export const CITY_VIEW_MIN_VIEWPORT_PX = 900
 
 // One page of venues is enough for a city rail; the endpoint caps limit at 100.

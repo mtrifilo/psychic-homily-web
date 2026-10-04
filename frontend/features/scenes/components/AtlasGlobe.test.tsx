@@ -8,7 +8,7 @@ import type { PlaceableScene } from './globeTypes'
 
 // AtlasGlobe statically imports only `globeTypes` (no react-globe.gl) and
 // dynamic-imports GlobeCanvas (ssr:false). In jsdom we exercise the testable
-// surface: data wiring, the loading/error states, and the <640px mobile gate
+// surface: data wiring, the loading/error states, and the scene-list fallback
 // (the WebGL globe itself is validated by screenshot, not jsdom).
 
 vi.mock('next/link', () => ({
@@ -177,15 +177,28 @@ vi.mock('./atlasMapPreload', () => ({
   preloadAtlasMap: () => preloadAtlasMap(),
 }))
 
+// jsdom has no WebGL, so the real probe would answer false and every case
+// would get the scene list. The probe itself is unit-tested in
+// atlasViewport.test.ts; here a case says whether the browser has WebGL2.
+let mockSupportsWebGL2 = true
+vi.mock('../atlasViewport', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../atlasViewport')>()),
+  atlasSupportsWebGL2: () => mockSupportsWebGL2,
+}))
+
 import { AtlasGlobe } from './AtlasGlobe'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { ATLAS_SHEET_TOP_INSET_PX, CITY_VIEW_MIN_ZOOM } from '../cityView'
-import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
+import {
+  ATLAS_COMPACT_VIEWPORT_QUERY,
+  ATLAS_REDUCED_MOTION_LIST_BELOW_PX,
+  ATLAS_REDUCED_MOTION_QUERY,
+} from '../atlasViewport'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { altitudeForZoom } from './globeScale'
 
 // ResizeObserver shim to drive the container width (same pattern as
-// SceneGraph.test.tsx). Default to a narrow width → the mobile gate.
+// SceneGraph.test.tsx). Defaults to a phone-sized pane.
 let mockContainerWidth = 500
 function setMockContainerWidth(width: number) {
   mockContainerWidth = width
@@ -265,6 +278,7 @@ describe('AtlasGlobe', () => {
 
   beforeEach(() => {
     setMockContainerWidth(500)
+    mockSupportsWebGL2 = true
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).ResizeObserver = ImmediateResizeObserver
     mockUseScenes.mockReset()
@@ -279,23 +293,85 @@ describe('AtlasGlobe', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists all scenes as expandable rows on small screens (mobile gate)', () => {
-    mockUseScenes.mockReturnValue({
-      data: sampleData,
-      isLoading: false,
-      isError: false,
+  describe('map or scene list', () => {
+    let matchMedia: ReturnType<typeof installMatchMedia> | null = null
+    afterEach(() => {
+      matchMedia?.restore()
+      matchMedia = null
     })
-    renderWithProviders(<AtlasGlobe />)
 
-    // Rows are collapsed accordion buttons (PSY-1311) — expansion behavior is
-    // covered by MobileSceneList.test.tsx.
-    expect(
-      screen.getByRole('button', { name: /Chicago, IL/ }),
-    ).toHaveAttribute('aria-expanded', 'false')
-    // The unplaceable scene still appears in the mobile list.
-    expect(
-      screen.getByRole('button', { name: /Faketown, ZZ/ }),
-    ).toBeInTheDocument()
+    function renderWithScenes() {
+      mockUseScenes.mockReturnValue({
+        data: sampleData,
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+    }
+
+    /** The fallback lists every scene, unplaceable ones too, with its links. */
+    async function expectFullSceneList() {
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      const chicago = screen.getByRole('button', { name: /Chicago, IL/ })
+      expect(chicago).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByRole('button', { name: /Faketown, ZZ/ })).toBeInTheDocument()
+      await userEvent.click(chicago)
+      expect(screen.getByRole('link', { name: /Open scene/ })).toHaveAttribute(
+        'href',
+        '/scenes/chicago-il',
+      )
+    }
+
+    it.each([390, 360, 500])('renders the map, not the list, on a %ipx pane', async (width) => {
+      setMockContainerWidth(width)
+      renderWithScenes()
+      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+      // Phone panes take the sheet layout: credit top-left, back control.
+      expect(lastCanvasProps.attributionPosition).toBe('top-left')
+      expect(lastCanvasProps.onBackToGlobe).toBeTypeOf('function')
+    })
+
+    it.each([390, 1400])(
+      'lists every scene instead of the map without WebGL2, on a %ipx pane',
+      async (width) => {
+        setMockContainerWidth(width)
+        mockSupportsWebGL2 = false
+        renderWithScenes()
+        await expectFullSceneList()
+        expect(preloadAtlasMap).not.toHaveBeenCalled()
+      },
+    )
+
+    it('lists every scene instead of the map for reduced motion below the threshold', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_REDUCED_MOTION_QUERY]: true })
+      setMockContainerWidth(ATLAS_REDUCED_MOTION_LIST_BELOW_PX - 1)
+      renderWithScenes()
+      await expectFullSceneList()
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
+    })
+
+    it.each([ATLAS_REDUCED_MOTION_LIST_BELOW_PX, 1400])(
+      'keeps the map for reduced motion on a %ipx pane',
+      async (width) => {
+        matchMedia = installMatchMedia({ [ATLAS_REDUCED_MOTION_QUERY]: true })
+        setMockContainerWidth(width)
+        renderWithScenes()
+        expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
+        expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+      },
+    )
+
+    it('swaps to the list when reduced motion is turned on mid-session', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_REDUCED_MOTION_QUERY]: false })
+      setMockContainerWidth(390)
+      renderWithScenes()
+      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
+      matchMedia.set(ATLAS_REDUCED_MOTION_QUERY, true)
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+    })
   })
 
   describe('early canvas fetch', () => {
@@ -319,6 +395,7 @@ describe('AtlasGlobe', () => {
     })
 
     it('never fetches the canvas module where the scene list renders instead', () => {
+      mockSupportsWebGL2 = false
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       renderWithProviders(<AtlasGlobe />)
       expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
@@ -376,7 +453,8 @@ describe('AtlasGlobe', () => {
     expect(screen.getByText(/couldn’t load/i)).toBeInTheDocument()
   })
 
-  it('shows a loading state while scenes load', () => {
+  it('shows a loading state in the scene list while scenes load', () => {
+    mockSupportsWebGL2 = false
     mockUseScenes.mockReturnValue({
       data: undefined,
       isLoading: true,
@@ -414,7 +492,7 @@ describe('AtlasGlobe', () => {
 
     beforeEach(() => {
       clearAtlasCamera()
-      setMockContainerWidth(800) // above the 640px mobile gate
+      setMockContainerWidth(800)
       mockUseScenes.mockReturnValue({
         data: twoCities,
         isLoading: false,
@@ -1388,8 +1466,9 @@ describe('AtlasGlobe', () => {
     })
     // ── Sheet layout (panes under 900px) ────────────────────────────────
     // Too narrow for the rail beside the map, so the venue list and every
-    // panel become bottom sheets over a full-width map. Exercised at 800px:
-    // above the mobile gate, so the map renders, and below the rail's 900.
+    // panel become bottom sheets over a full-width map. Exercised at 800px,
+    // below the rail's 900; phone widths take the same layout (see "map or
+    // scene list").
     describe('sheet layout', () => {
       beforeEach(() => {
         setMockContainerWidth(800)

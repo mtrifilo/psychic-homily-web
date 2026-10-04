@@ -18,9 +18,7 @@ test.use({
 
 /**
  * A landscape phone: the shape where a keyboard and this popover can actually
- * meet. `/atlas` swaps in a searchless scene list below 640px, so a portrait
- * phone has no atlas search at all, and the wide-but-short landscape case is
- * also the one that leaves the popover least room.
+ * meet, and the wide-but-short case that leaves the popover least room.
  */
 const ATLAS_VIEWPORT = { width: 844, height: 390 }
 

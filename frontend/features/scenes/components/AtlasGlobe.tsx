@@ -69,8 +69,13 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
+import {
+  ATLAS_REDUCED_MOTION_QUERY,
+  atlasRendersSceneList,
+  atlasSupportsWebGL2,
+} from '../atlasViewport'
 
-const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
 // first paint shows the populated cluster rather than empty ocean (PSY-1211).
 const DEFAULT_POV: GlobePov = { lat: 39.5, lng: -98.35, altitude: 1.8 }
@@ -136,7 +141,9 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
  * Explore: The Globe (PSY-1213). A spin-to-discover globe where each city scene
  * is a dot; clicking one opens a preview with a link into the scene page.
  * Centered on the visitor's IP-geo region, falling back to North America.
- * Gated to a list below 640px (canvas gestures aren't usable there).
+ * The map renders at every width; the scene list stands in for it only where
+ * atlasRendersSceneList says so (no WebGL2, or reduced motion on a narrow
+ * pane).
  */
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
@@ -607,16 +614,28 @@ export function AtlasGlobe() {
     }
   }, [isError])
 
-  const isMobile = size !== null && size.width < GLOBE_BREAKPOINT_PX
+  const prefersReducedMotion = useMediaQuery(ATLAS_REDUCED_MOTION_QUERY)
+  // Asked only once the pane is measured, which happens on the client: the
+  // WebGL2 probe needs a document.
+  const showsSceneList =
+    size !== null &&
+    atlasRendersSceneList({
+      paneWidthPx: size.width,
+      supportsWebGL2: atlasSupportsWebGL2(),
+      prefersReducedMotion,
+    })
   const mapSheetLayout =
-    size !== null && !isMobile && usesAtlasSheetLayout(size.width)
+    size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
 
   // The canvas renders only after scenes and the camera focus (which waits on
   // visitor geo) resolve; preload what it needs during that wait. Nothing is
   // preloaded where the map cannot render: the scene list, the error state,
   // or a loaded scene set with nothing to place.
   const mapMayMount =
-    size !== null && !isMobile && !isError && (isLoading || placeable.length > 0)
+    size !== null &&
+    !showsSceneList &&
+    !isError &&
+    (isLoading || placeable.length > 0)
   useEffect(() => {
     if (mapMayMount) preloadAtlasMap()
   }, [mapMayMount])
@@ -626,7 +645,7 @@ export function AtlasGlobe() {
     content = (
       <CenterMessage>The atlas couldn’t load. Try again shortly.</CenterMessage>
     )
-  } else if (isMobile) {
+  } else if (showsSceneList) {
     content = (
       <MobileSceneList
         scenes={allScenes}

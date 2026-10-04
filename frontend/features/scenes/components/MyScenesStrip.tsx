@@ -73,7 +73,7 @@ export function MyScenesStrip({
     // pointer-events-none on the shell: the wrap box's gaps and trailing row
     // space must not swallow globe drags/hovers — only the chips themselves
     // are interactive. Width stays clear of the right-side preview panel
-    // (max-w-sm) down to the 640px mobile gate.
+    // (max-w-sm) wherever the panel layout applies.
     <nav
       aria-label="My scenes"
       className={`pointer-events-none flex max-w-[min(50vw,24rem)] flex-wrap items-center gap-1.5 ${
