@@ -953,6 +953,16 @@ export default function GlobeCanvas({
         ],
       },
     })
+
+    // MapLibre reports a refused WebGL2 context as an event during
+    // construction and returns a map with no painter and no input handlers.
+    // Throwing here hands that to the Atlas's error boundary, which swaps in
+    // the scene list. The half-built map is not removed: its remove() needs the
+    // painter.
+    if (!map.painter) {
+      throw new Error('Atlas map: MapLibre could not get a WebGL2 context')
+    }
+
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
     // style's own TileJSON fetch — the earliest thing that can fail — is
     // already covered. The handler restores MapLibre's default console.error

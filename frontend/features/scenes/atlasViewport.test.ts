@@ -41,7 +41,7 @@ describe('atlasRendersSceneList', () => {
   it('gives everyone with WebGL2 and no motion preference the map, phones included', () => {
     for (const paneWidthPx of [320, 360, 390, below, at, 1440]) {
       expect(
-        atlasRendersSceneList({ paneWidthPx, supportsWebGL2: true, prefersReducedMotion: false }),
+        atlasRendersSceneList({ paneWidthPx, supportsWebGL2: true, prefersReducedMotion: false, mapFailed: false }),
       ).toBe(false)
     }
   })
@@ -50,7 +50,7 @@ describe('atlasRendersSceneList', () => {
     for (const paneWidthPx of [390, below, at, 1440]) {
       for (const prefersReducedMotion of [false, true]) {
         expect(
-          atlasRendersSceneList({ paneWidthPx, supportsWebGL2: false, prefersReducedMotion }),
+          atlasRendersSceneList({ paneWidthPx, supportsWebGL2: false, prefersReducedMotion, mapFailed: false }),
         ).toBe(true)
       }
     }
@@ -63,8 +63,36 @@ describe('atlasRendersSceneList', () => {
     [1440, false],
   ])('for reduced motion on a %ipx pane, lists the scenes: %s', (paneWidthPx, list) => {
     expect(
-      atlasRendersSceneList({ paneWidthPx, supportsWebGL2: true, prefersReducedMotion: true }),
+      atlasRendersSceneList({
+        paneWidthPx,
+        supportsWebGL2: true,
+        prefersReducedMotion: true,
+        mapFailed: false,
+      }),
     ).toBe(list)
+  })
+})
+
+describe('atlasRendersSceneList after a failed map', () => {
+  it('lists the scenes at every width, whatever the probe and preference say', () => {
+    for (const paneWidthPx of [390, 1440]) {
+      expect(
+        atlasRendersSceneList({
+          paneWidthPx,
+          supportsWebGL2: true,
+          prefersReducedMotion: false,
+          mapFailed: true,
+        }),
+      ).toBe(true)
+    }
+  })
+
+  it('latches a failure for the rest of the page load', async () => {
+    vi.resetModules()
+    const { atlasMapFailedThisPage, markAtlasMapFailed } = await import('./atlasViewport')
+    expect(atlasMapFailedThisPage()).toBe(false)
+    markAtlasMapFailed()
+    expect(atlasMapFailedThisPage()).toBe(true)
   })
 })
 

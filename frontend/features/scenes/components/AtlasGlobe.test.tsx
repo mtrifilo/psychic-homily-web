@@ -160,8 +160,8 @@ let lastCanvasProps: {
   scenes?: readonly PlaceableScene[]
   onSelect?: (scene: PlaceableScene) => void
 } = {}
-// Set by a case to make the canvas throw from its mount effect, where the real
-// GlobeCanvas throws when MapLibre gets no WebGL2 context.
+// Set by a case to make the canvas throw from its mount effect, as the real
+// GlobeCanvas does when MapLibre gets no WebGL2 context.
 let mockCanvasThrowsOnStart = false
 vi.mock('./GlobeCanvas', async () => {
   const { useEffect } = await import('react')
@@ -175,7 +175,7 @@ vi.mock('./GlobeCanvas', async () => {
       lastCanvasProps = props
       useEffect(() => {
         if (mockCanvasThrowsOnStart) {
-          throw new TypeError("Cannot read properties of undefined (reading 'disableRotation')")
+          throw new Error('Atlas map: MapLibre could not get a WebGL2 context')
         }
       }, [])
       return <div data-testid="globe-canvas" />
@@ -192,9 +192,16 @@ vi.mock('./atlasMapPreload', () => ({
 // would get the scene list. The probe itself is unit-tested in
 // atlasViewport.test.ts; here a case says whether the browser has WebGL2.
 let mockSupportsWebGL2 = true
+// The page-load failure latch, reset per case so one case's failed map does
+// not send every later case to the list.
+let mockMapFailedThisPage = false
 vi.mock('../atlasViewport', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../atlasViewport')>()),
   atlasSupportsWebGL2: () => mockSupportsWebGL2,
+  atlasMapFailedThisPage: () => mockMapFailedThisPage,
+  markAtlasMapFailed: () => {
+    mockMapFailedThisPage = true
+  },
 }))
 
 import { AtlasGlobe } from './AtlasGlobe'
@@ -292,6 +299,7 @@ describe('AtlasGlobe', () => {
     setMockContainerWidth(500)
     mockSupportsWebGL2 = true
     mockCanvasThrowsOnStart = false
+    mockMapFailedThisPage = false
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).ResizeObserver = ImmediateResizeObserver
     mockUseScenes.mockReset()
@@ -395,6 +403,23 @@ describe('AtlasGlobe', () => {
         quiet.mockRestore()
       },
     )
+
+    it('goes straight to the list on a later mount once a map has failed this page load', async () => {
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockCanvasThrowsOnStart = true
+      setMockContainerWidth(390)
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      const first = renderWithProviders(<AtlasGlobe />)
+      await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
+      expect(mockMapFailedThisPage).toBe(true)
+      first.unmount()
+
+      mockCanvasThrowsOnStart = false
+      renderWithScenes()
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      quiet.mockRestore()
+    })
 
     it('shows the error state, not the list, when scenes fail without WebGL2', () => {
       mockSupportsWebGL2 = false

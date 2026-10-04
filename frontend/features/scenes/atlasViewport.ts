@@ -47,30 +47,50 @@ export function useAtlasCompactViewport(): boolean {
  * honours the preference itself (GlobeCanvas drops its pulse rings, and
  * camera moves cut rather than fly).
  *
- * A product setting, not a technical limit: it reads the owner's call that
- * the list is the phones' reduced-motion fallback while tablet and desktop
- * panes keep the map. Moving it is a change to this line alone.
+ * A product setting, not a technical limit: phones get the list, tablet and
+ * desktop panes keep the map. The reduced-motion phone case in
+ * e2e/pages/atlas.spec.ts runs at 390px and assumes the value stays above it.
  */
 export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
 
 /**
  * Whether the Atlas renders its scene list (MobileSceneList) in place of the
- * map. Exactly two conditions: the browser cannot give MapLibre the WebGL2
+ * map. Two visitor conditions: the browser cannot give MapLibre the WebGL2
  * context it requires (at any width), or the visitor prefers reduced motion
  * and the pane is narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
- * Every other visitor gets the map, phones included.
+ * Separately, a map that has already failed in this page load (see
+ * {@link markAtlasMapFailed}) is not tried again. Every other visitor gets the
+ * map, phones included.
  */
 export function atlasRendersSceneList({
   paneWidthPx,
   supportsWebGL2,
   prefersReducedMotion,
+  mapFailed,
 }: {
   paneWidthPx: number
   supportsWebGL2: boolean
   prefersReducedMotion: boolean
+  mapFailed: boolean
 }): boolean {
-  if (!supportsWebGL2) return true
+  if (mapFailed || !supportsWebGL2) return true
   return prefersReducedMotion && paneWidthPx < ATLAS_REDUCED_MOTION_LIST_BELOW_PX
+}
+
+let atlasMapFailed = false
+
+/**
+ * Records that an Atlas map threw while React was mounting or updating it, so
+ * every later Atlas mount in this page load goes straight to the scene list
+ * instead of building (and leaking) another map that would fail the same way.
+ */
+export function markAtlasMapFailed(): void {
+  atlasMapFailed = true
+}
+
+/** Whether {@link markAtlasMapFailed} has run in this page load. */
+export function atlasMapFailedThisPage(): boolean {
+  return atlasMapFailed
 }
 
 /**

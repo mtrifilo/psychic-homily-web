@@ -71,7 +71,12 @@ import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
-import { atlasRendersSceneList, atlasSupportsWebGL2 } from '../atlasViewport'
+import {
+  atlasMapFailedThisPage,
+  atlasRendersSceneList,
+  atlasSupportsWebGL2,
+  markAtlasMapFailed,
+} from '../atlasViewport'
 
 // North America centroid — the default focus before/without visitor geo, so the
 // first paint shows the populated cluster rather than empty ocean (PSY-1211).
@@ -139,7 +144,7 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
  * is a dot; clicking one opens a preview with a link into the scene page.
  * Centered on the visitor's IP-geo region, falling back to North America.
  * The map renders at every width; the scene list stands in for it where
- * atlasRendersSceneList says so, or once a map has failed to start.
+ * atlasRendersSceneList says so.
  */
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
@@ -148,7 +153,7 @@ export function AtlasGlobe() {
   // atlasCityEntry.ts for why the camera stays out of the URL.
   const entryCityParam = useSearchParams().get(ATLAS_CITY_PARAM)
 
-  // Followed scenes (PSY-1340): tint their dots + star the mobile rows. The
+  // Followed scenes (PSY-1340): tint their dots + star the scene-list rows. The
   // hook is auth-gated, so logged-out visitors cost no request. Memoized to a
   // Set so the GlobeCanvas color accessor's identity only changes when the
   // follow list actually does.
@@ -611,18 +616,23 @@ export function AtlasGlobe() {
   }, [isError])
 
   const prefersReducedMotion = useReducedMotion()
-  // A map that throws while starting (MapLibre denied its WebGL2 context after
-  // the probe said yes, or the canvas module failed) counts as no WebGL2 for
-  // the rest of this mount: the scene list replaces it, not the app's error
-  // page.
-  const [mapFailed, setMapFailed] = useState(false)
-  const handleMapFailed = useCallback(() => setMapFailed(true), [])
+  // Any error GlobeCanvas throws while React renders or runs its effects
+  // (MapLibre refused its WebGL2 context, the canvas module failed to load, or
+  // a later effect threw) swaps the map for the scene list for the rest of the
+  // page load, instead of the app's error page. Errors MapLibre throws inside
+  // its own animation frames are not React errors and do not reach it.
+  const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
+  const handleMapFailed = useCallback(() => {
+    markAtlasMapFailed()
+    setMapFailed(true)
+  }, [])
   const showsSceneList =
     size !== null &&
     atlasRendersSceneList({
       paneWidthPx: size.width,
-      supportsWebGL2: !mapFailed && atlasSupportsWebGL2(),
+      supportsWebGL2: atlasSupportsWebGL2(),
       prefersReducedMotion,
+      mapFailed,
     })
   const mapSheetLayout =
     size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)

@@ -2,7 +2,8 @@
 
 /**
  * GraphSectionErrorBoundary (PSY-1359) — the shared error boundary for the
- * below-the-fold, lazily-mounted graph sections (HomeSceneGraph, InlineGraph).
+ * below-the-fold, lazily-mounted graph sections (HomeSceneGraph, InlineGraph),
+ * also wrapped around the Atlas's MapLibre canvas (AtlasGlobe).
  *
  * Why it exists: in the App Router, `next/dynamic(ssr:false)` does NOT re-invoke
  * `loading` with an `error` — a failed chunk fetch (e.g. a deploy rotated the
@@ -18,10 +19,12 @@
  *   - `fallback`: what to render on error. Omit it to SELF-HIDE (render nothing —
  *     the homepage's posture: the section just disappears). Provide a node to show
  *     a visible state (/explore's posture).
- *   - `onError`: optional notification so a SELF-HIDING consumer can retract copy
- *     that sits OUTSIDE this boundary and only makes sense with the canvas present
- *     (a "click a name"-style interaction instruction above it). Purely additive:
- *     what this boundary itself renders is unchanged either way.
+ *   - `onError`: optional notification, called once from componentDidCatch after
+ *     the Sentry report, so a SELF-HIDING consumer can react outside this
+ *     boundary: retract copy that only makes sense with the canvas present (a
+ *     "click a name"-style instruction above it), or, as the Atlas does, replace
+ *     the whole surface with its fallback. What this boundary itself renders is
+ *     unchanged either way.
  *
  * NOTE on recovery: the boundary deliberately does NOT offer an in-place "reset".
  * next/dynamic wraps the import in a module-scoped React.lazy that permanently

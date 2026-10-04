@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -23,6 +24,8 @@ const stub = vi.hoisted(() => {
   const state = {
     maps: [] as InstanceType<typeof StubMap>[],
     markers: [] as StubMarker[],
+    // MapLibre 6 builds a map with no painter when WebGL2 is refused.
+    painterless: false,
   }
 
   class StubMap {
@@ -30,6 +33,7 @@ const stub = vi.hoisted(() => {
     controls: { control: StubControl; position: string }[] = []
     container: HTMLElement
     canvas = document.createElement('canvas')
+    painter: object | undefined = state.painterless ? undefined : {}
     touchZoomRotate = { disableRotation: vi.fn() }
     keyboard = { disableRotation: vi.fn() }
     remove = vi.fn()
@@ -312,5 +316,37 @@ describe('GlobeCanvas pulse rings', () => {
     expect(cancel).toHaveBeenCalledWith(7)
     expect(ringFeatureCounts()).toContain(0)
     expect(ringFeatureCounts()).not.toContain(1)
+  })
+})
+
+describe('GlobeCanvas without a WebGL2 context', () => {
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    stub.state.painterless = true
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    stub.state.painterless = false
+    vi.restoreAllMocks()
+  })
+
+  it('throws to its error boundary when MapLibre comes up without a painter', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onError = vi.fn()
+    render(
+      <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
+        <GlobeCanvas
+          width={390}
+          height={723}
+          scenes={[CHICAGO]}
+          pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
+          onSelect={vi.fn()}
+        />
+      </GraphSectionErrorBoundary>,
+    )
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect((onError.mock.calls[0][0] as Error).message).toMatch(/WebGL2 context/)
+    quiet.mockRestore()
   })
 })

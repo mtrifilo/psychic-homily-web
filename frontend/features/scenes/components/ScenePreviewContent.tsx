@@ -46,12 +46,12 @@ function sceneShowRowTitle(show: SceneShowSummary): string {
 
 /**
  * The scene-preview payoff body — playable embed, "Next 7 days" shows, top local
- * artists, and the link into the full scene page. Shared between the desktop
- * globe's ScenePreviewPanel and the mobile list's expanded rows (PSY-1311), so
- * the two surfaces can't fork. Fetches on mount: mount it only when the
+ * artists, and the link into the full scene page. Shared between the map's
+ * ScenePreviewPanel and the Atlas scene list's expanded rows (MobileSceneList),
+ * so the two surfaces can't fork. Fetches on mount: mount it only when the
  * preview is actually open/expanded. Its own show, artist and scene links are
- * touch-sized (at least 24px tall) in every host, since the mobile list is a
- * phone surface too.
+ * touch-sized (at least 24px tall) in every host, since both hosts reach
+ * phones.
  */
 export function ScenePreviewContent({
   scene,

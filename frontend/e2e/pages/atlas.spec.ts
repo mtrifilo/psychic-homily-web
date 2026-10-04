@@ -231,6 +231,10 @@ test.describe('Atlas on a phone that prefers reduced motion', () => {
   test('lists the scenes, with their links, instead of the map', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/atlas')
+    // The browser has WebGL2, so the list is reduced motion's doing.
+    expect(
+      await page.evaluate(() => !!document.createElement('canvas').getContext('webgl2'))
+    ).toBe(true)
     const list = page.getByTestId('atlas-scene-list')
     await expect(list).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)

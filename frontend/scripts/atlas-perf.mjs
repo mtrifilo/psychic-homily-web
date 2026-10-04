@@ -287,7 +287,7 @@ async function oneRun(browser, opts) {
   const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
-    throw new Error('the page rendered the Atlas scene list, not the map: a condition atlasRendersSceneList names held, or the build predates the phone map (see the header)')
+    throw new Error('the page rendered the Atlas scene list, not the map: a condition atlasRendersSceneList names held, including a map that failed to start (see the header)')
   }
   if (firstMapMs === null) {
     await context.close()
