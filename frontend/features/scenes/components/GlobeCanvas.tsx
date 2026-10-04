@@ -289,9 +289,9 @@ export default function GlobeCanvas({
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
-  // The same map once its first full render is in (MapLibre's 'load': style
-  // and every visible source loaded). The light globe's overlays wait for it,
-  // so their downloads never hold up that first frame.
+  // The same map once its first full render is in: style and every visible
+  // source loaded. The light globe's overlays wait for it, so their downloads
+  // never hold up that first frame.
   const [mapLoaded, setMapLoaded] = useState<maplibregl.Map | null>(null)
 
   const selectedSlug = selected?.slug ?? null
@@ -1007,8 +1007,16 @@ export default function GlobeCanvas({
     })
     map.on('load', () => {
       w.__atlasMapLoaded = true
-      setMapLoaded(map)
     })
+    // The first full render, read on 'render' rather than 'load': 'load' also
+    // needs a frame with no style change pending, which the pulse-ring
+    // animation (a paint change every frame) can withhold indefinitely.
+    const handleFirstFullRender = () => {
+      if (!map.isStyleLoaded() || !map.areTilesLoaded()) return
+      map.off('render', handleFirstFullRender)
+      setMapLoaded(map)
+    }
+    map.on('render', handleFirstFullRender)
 
     // CSS halo sized to the globe's screen radius (it grows past the viewport
     // and out of sight as the earth fills the frame).

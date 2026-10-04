@@ -116,6 +116,12 @@ vi.mock('maplibre-gl', () => {
     getSource(id: string) {
       return id in this.options.style.sources ? { setData: vi.fn() } : undefined
     }
+    isStyleLoaded() {
+      return true
+    }
+    areTilesLoaded() {
+      return true
+    }
     getZoom() {
       return zoom
     }
@@ -233,7 +239,7 @@ describe('GlobeCanvas place labels', () => {
     expect(maps).toHaveLength(1)
     await act(async () => {
       maps[0].fire('style.load')
-      maps[0].fire('load')
+      maps[0].fire('render')
     })
     return maps[0]
   }
@@ -320,8 +326,8 @@ describe('GlobeCanvas place labels', () => {
   })
 })
 
-describe('GlobeCanvas place labels before the first full render', () => {
-  it('asks for the place data only once the map has loaded', async () => {
+describe('GlobeCanvas place labels and the first full render', () => {
+  it('asks for the place data only after the first full render', async () => {
     maps = []
     clearAtlasCamera()
     const load = vi.spyOn(globeSurface, 'loadGlobePlaces').mockResolvedValue({ data: PLACES })
@@ -332,7 +338,7 @@ describe('GlobeCanvas place labels before the first full render', () => {
       )
       await act(async () => maps[0].fire('style.load'))
       expect(load).not.toHaveBeenCalled()
-      await act(async () => maps[0].fire('load'))
+      await act(async () => maps[0].fire('render'))
       expect(load).toHaveBeenCalledTimes(1)
     } finally {
       restore()

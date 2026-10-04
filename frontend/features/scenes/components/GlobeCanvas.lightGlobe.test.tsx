@@ -67,6 +67,9 @@ vi.mock('maplibre-gl', () => {
       const key = typeof layerOrHandler === 'string' ? `${event}:${layerOrHandler}` : event
       this.handlers.set(key, [...(this.handlers.get(key) ?? []), handler])
     }
+    off(event: string, handler: (e?: unknown) => void) {
+      this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== handler))
+    }
     once(event: string, handler: (e?: unknown) => void) {
       this.on(event, handler)
     }
@@ -85,6 +88,12 @@ vi.mock('maplibre-gl', () => {
     }
     sourceSetData(id: string) {
       return (this.getSource(id) as { setData: ReturnType<typeof vi.fn> }).setData
+    }
+    isStyleLoaded() {
+      return true
+    }
+    areTilesLoaded() {
+      return true
     }
     getZoom() {
       return 1.6
@@ -171,17 +180,16 @@ describe('GlobeCanvas globe surface', () => {
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
   })
 
-  it('builds a compact-viewport map with both boundary layers shown, and loads their files once the map has loaded', async () => {
+  it('builds a compact-viewport map with both boundary layers shown, and loads their files after the first full render', async () => {
     installViewport(true)
     renderCanvas()
     const map = theMap()
     expect(constructedVisibility(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('visible')
     expect(constructedVisibility(map, GLOBE_COUNTRY_LINES_LAYER_ID)).toBe('visible')
     act(() => map.fire('style.load'))
-    // The first full render ('load') is not in yet: nothing on top of it is
-    // fetched.
+    // The first full render is not in yet: nothing on top of it is fetched.
     expect(fetch).not.toHaveBeenCalled()
-    act(() => map.fire('load'))
+    act(() => map.fire('render'))
     expect(fetch).toHaveBeenCalledWith(GLOBE_STATE_LINES_DATA_URL, expect.anything())
     expect(fetch).toHaveBeenCalledWith(GLOBE_COUNTRY_LINES_DATA_URL, expect.anything())
     // The stubbed fetch fails, so each source is handed its URL instead.
@@ -198,7 +206,7 @@ describe('GlobeCanvas globe surface', () => {
     renderCanvas()
     const map = theMap()
     act(() => map.fire('style.load'))
-    act(() => map.fire('load'))
+    act(() => map.fire('render'))
     expect(constructedVisibility(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('none')
     expect(constructedVisibility(map, GLOBE_COUNTRY_LINES_LAYER_ID)).toBe('none')
     expect(map.sourceSetData(GLOBE_STATE_LINES_SOURCE_ID)).not.toHaveBeenCalled()
