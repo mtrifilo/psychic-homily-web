@@ -169,4 +169,21 @@ describe('parseGlobePlaces', () => {
       { name: 'Second', lng: 1, lat: 2, rank: 1 },
     ])
   })
+
+  it('skips null features, missing or non-numeric coordinates, and a collection without features', () => {
+    const places = parseGlobePlaces({
+      type: 'FeatureCollection',
+      features: [
+        null,
+        { type: 'Feature', properties: { name: 'No geometry', rank: 0 }, geometry: null },
+        feature({ name: 'Null coordinates', rank: 1 }, null as unknown as number[]),
+        feature({ name: 'String coordinates', rank: 2 }, ['12', '40'] as unknown as number[]),
+        feature({ name: 'Kept', rank: 3 }, [12, 40]),
+      ] as unknown as GeoJSON.Feature[],
+    })
+    expect(places).toEqual([{ name: 'Kept', lng: 12, lat: 40, rank: 3 }])
+    expect(
+      parseGlobePlaces({ type: 'FeatureCollection' } as unknown as GeoJSON.FeatureCollection),
+    ).toEqual([])
+  })
 })

@@ -1,10 +1,10 @@
-import { prefetchGlobeSurface } from '../basemap/globeSurface'
+import { prefetchGlobeLand } from '../basemap/globeSurface'
 import { isAtlasCompactViewport } from '../atlasViewport'
 
 /**
  * Starts what the Atlas map needs before AtlasGlobe renders it: the
  * GlobeCanvas module (MapLibre and its CSS) and, on a compact viewport (the
- * light globe), the globe surface data. The import resolves the same module as
+ * light globe), the land data. The import resolves the same module as
  * AtlasGlobe's next/dynamic import, so calling this early only moves the
  * downloads earlier. Idempotent.
  *
@@ -12,6 +12,6 @@ import { isAtlasCompactViewport } from '../atlasViewport'
  * the module again and owns the error state and its retry.
  */
 export function preloadAtlasMap(): void {
-  const mapModule = import('./GlobeCanvas').catch(() => {})
-  if (isAtlasCompactViewport()) prefetchGlobeSurface(mapModule)
+  import('./GlobeCanvas').catch(() => {})
+  if (isAtlasCompactViewport()) prefetchGlobeLand()
 }

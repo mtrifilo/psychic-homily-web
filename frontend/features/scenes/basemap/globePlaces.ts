@@ -68,17 +68,22 @@ export function placeLabelsShowAt(zoom: number, maxZoom: number): boolean {
 
 /**
  * The places in a loaded collection, in rank order. Features without a
- * string name, a numeric rank and a Point inside lng/lat bounds are skipped:
- * the file is ours, but a bad entry must cost one label, not the layer.
+ * string name, a numeric rank and a Point of finite coordinates inside
+ * lng/lat bounds are skipped: the file is ours, but a bad entry must cost one
+ * label, not the layer.
  */
 export function parseGlobePlaces(data: GeoJSON.FeatureCollection): GlobePlace[] {
   const places: GlobePlace[] = []
-  for (const feature of data.features) {
-    const name: unknown = feature.properties?.name
-    const rank: unknown = feature.properties?.rank
+  const features: unknown = data.features
+  if (!Array.isArray(features)) return places
+  for (const feature of features as (GeoJSON.Feature | null)[]) {
+    const name: unknown = feature?.properties?.name
+    const rank: unknown = feature?.properties?.rank
     if (typeof name !== 'string' || name === '' || typeof rank !== 'number') continue
-    if (feature.geometry?.type !== 'Point') continue
-    const [lng, lat] = feature.geometry.coordinates
+    const geometry = feature?.geometry
+    if (geometry?.type !== 'Point' || !Array.isArray(geometry.coordinates)) continue
+    const [lng, lat]: unknown[] = geometry.coordinates
+    if (typeof lng !== 'number' || typeof lat !== 'number') continue
     if (!(Math.abs(lng) <= 180 && Math.abs(lat) <= 90)) continue
     places.push({ name, lng, lat, rank })
   }

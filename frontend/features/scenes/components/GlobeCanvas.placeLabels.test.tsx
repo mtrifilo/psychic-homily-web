@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, waitFor } from '@testing-library/react'
 import GlobeCanvas from './GlobeCanvas'
 import type { PlaceableScene } from './globeTypes'
+import { clearAtlasCamera } from './atlasCamera'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import * as globeSurface from '../basemap/globeSurface'
@@ -196,6 +197,8 @@ describe('GlobeCanvas place labels', () => {
     maps = []
     zoom = 2.4
     sessionStorage.clear()
+    // Each unmount saves the camera for the next show; every case opens fresh.
+    clearAtlasCamera()
     // Measured label size: 6px per character, 12px tall. A positioned marker
     // element carries its own rect (StubMarker.addTo), which shadows this.
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
@@ -248,11 +251,12 @@ describe('GlobeCanvas place labels', () => {
     expect(document.querySelector('[data-testid="atlas-scene-label"]')?.textContent).toBe('Phoenix')
   })
 
-  it('draws no place label on the full look', async () => {
+  it('draws no place label on the full look and never asks for the place data', async () => {
+    const load = vi.spyOn(globeSurface, 'loadGlobePlaces')
     await showMap(false)
     await act(async () => {})
     expect(placeLabelTexts()).toEqual([])
-    expect(fetch).not.toHaveBeenCalledWith(GLOBE_PLACES_DATA_URL)
+    expect(load).not.toHaveBeenCalled()
   })
 
   it('clears the labels as soon as the zoom leaves the label range and lays them out again on the next settle', async () => {
@@ -279,6 +283,26 @@ describe('GlobeCanvas place labels', () => {
     expect(placeLabelTexts()).toEqual([])
     act(() => map.fire('moveend'))
     expect(placeLabelTexts()).toEqual([])
+  })
+
+  it('lays the place labels out again when a zoom threshold brings in new scene labels at the settle', async () => {
+    // 50 shows: a dot from the start, a label only once the camera is close
+    // enough. The label lands on Clear City's; the dot does not.
+    const mid = { ...SCENES[0], city: 'Mid', slug: 'mid-xx', upcoming_show_count: 50, longitude: -90, latitude: 47.83 }
+    const map = await showMap(true, [SCENES[0], mid])
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+    expect(document.querySelectorAll('[data-testid="atlas-scene-label"]')).toHaveLength(1)
+    // A reduced-motion jump: the zoom and the settle fire in one go, before
+    // React has rebuilt the scene labels.
+    zoom = 3.3
+    act(() => {
+      map.fire('zoom')
+      map.fire('moveend')
+    })
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="atlas-scene-label"]')).toHaveLength(2),
+    )
+    expect(placeLabelTexts()).not.toContain('Clear City')
   })
 
   it('lets a scene label on the far side of the globe hold no spot', async () => {

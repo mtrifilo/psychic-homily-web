@@ -22,7 +22,6 @@ import {
   type Box,
   type GlobePlace,
   dotBox,
-  facingPoint,
   isFacing,
   parseGlobePlaces,
 } from '../basemap/globePlaces'
@@ -289,8 +288,9 @@ export default function GlobeCanvas({
 
   const selectedSlug = selected?.slug ?? null
 
-  // Compact viewports get the light globe: flat ocean and vector land in
-  // place of the night-earth raster (globeSurface.ts). The map is built with
+  // Compact viewports get the light globe: flat ocean, vector land and
+  // boundary lines in place of the night-earth raster (globeSurface.ts), with
+  // place labels (the effect after the scene labels). The map is built with
   // the look matchMedia reports at construction; a breakpoint crossing never
   // rebuilds it, this effect switches the live map instead.
   const lightGlobe = useAtlasCompactViewport()
@@ -719,10 +719,9 @@ export default function GlobeCanvas({
 
   // Place labels on the light globe (globePlaceLabels.ts), clear of every
   // scene label and dot on the near side of the globe, so a scene always wins
-  // its spot. The obstacles are read at each layout (every camera settle), so
-  // scene labels rebuilt by a zoom threshold mid-gesture are the ones the
-  // settle's layout sees; a scenes change re-runs this effect after the scene
-  // label effect above has rebuilt its markers.
+  // its spot. Declared after the scene label effect and keyed on the same
+  // label set, so whenever that effect rebuilds its markers this one lays the
+  // place labels out again against them.
   useEffect(() => {
     if (!mapReady || !lightGlobe || cityViewActive || !places || places.length === 0) {
       return
@@ -730,8 +729,6 @@ export default function GlobeCanvas({
     const map = mapReady
     const obstacles = (): Box[] => {
       const container = map.getContainer()
-      const width = container.clientWidth
-      const height = container.clientHeight
       const origin = container.getBoundingClientRect()
       const boxes: Box[] = []
       for (const { el, lng, lat } of sceneLabelsRef.current) {
@@ -747,12 +744,13 @@ export default function GlobeCanvas({
           bottom: r.bottom - origin.top,
         })
       }
+      // A dot centred just outside the pane can still draw into it, so dots
+      // are kept by side, not by pane.
       for (const s of scenes) {
-        const point = facingPoint(map, s.longitude, s.latitude, width, height)
-        if (point) {
-          const radius = sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE
-          boxes.push(dotBox(point.x, point.y, radius))
-        }
+        if (!isFacing(map, s.longitude, s.latitude)) continue
+        const point = map.project([s.longitude, s.latitude])
+        const radius = sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE
+        boxes.push(dotBox(point.x, point.y, radius))
       }
       return boxes
     }
@@ -760,7 +758,7 @@ export default function GlobeCanvas({
       maxZoom: BLACK_MARBLE_FADE_START,
       obstacles,
     })
-  }, [mapReady, lightGlobe, cityViewActive, places, scenes])
+  }, [mapReady, lightGlobe, cityViewActive, places, labelScenes, scenes])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so
@@ -947,8 +945,9 @@ export default function GlobeCanvas({
     // style's own TileJSON fetch — the earliest thing that can fail — is
     // already covered. The handler restores MapLibre's default console.error
     // (attaching any listener suppresses it) and reports a failure of a
-    // ground source (the OpenFreeMap vector tiles, the GIBS raster, or the
-    // light globe's land file) to Sentry once per session per source;
+    // ground source (the OpenFreeMap vector tiles, the GIBS raster, or one of
+    // the light globe's same-origin files) to Sentry once per session per
+    // source;
     // basemapTelemetry.ts owns the filtering and the throttle. Removed with
     // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)

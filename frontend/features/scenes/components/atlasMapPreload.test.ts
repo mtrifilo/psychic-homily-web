@@ -3,9 +3,9 @@ import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 
 const { canvasModule } = vi.hoisted(() => ({ canvasModule: { requested: 0 } }))
-const prefetchGlobeSurface = vi.fn()
+const prefetchGlobeLand = vi.fn()
 vi.mock('../basemap/globeSurface', () => ({
-  prefetchGlobeSurface: (mapModule: Promise<unknown>) => prefetchGlobeSurface(mapModule),
+  prefetchGlobeLand: () => prefetchGlobeLand(),
 }))
 // The real module pulls in MapLibre. The factory runs when the module is
 // first requested, which is what the preload exists to do.
@@ -20,19 +20,17 @@ describe('preloadAtlasMap', () => {
   let restore: () => void = () => {}
   afterEach(() => restore())
 
-  it('requests the canvas module and prefetches the globe surface data on a compact viewport', async () => {
+  it('requests the canvas module and prefetches the land data on a compact viewport', async () => {
     restore = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
     preloadAtlasMap()
-    expect(prefetchGlobeSurface).toHaveBeenCalledTimes(1)
+    expect(prefetchGlobeLand).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(canvasModule.requested).toBe(1))
-    // The overlays wait on the map's code: the module load is handed over.
-    await expect(prefetchGlobeSurface.mock.calls[0][0]).resolves.toBeDefined()
   })
 
-  it('leaves the globe surface data alone on a wide viewport, where the raster draws', () => {
+  it('leaves the land data alone on a wide viewport, where the raster draws', () => {
     restore = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false }).restore
     preloadAtlasMap()
-    expect(prefetchGlobeSurface).not.toHaveBeenCalled()
+    expect(prefetchGlobeLand).not.toHaveBeenCalled()
   })
 })
 
