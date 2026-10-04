@@ -91,7 +91,8 @@ const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel
 // Tailwind's `lg` at the default root size; below it the Atlas draws the
 // light globe, which requests no raster.
 const COMPACT_MAX_WIDTH = 1023
-const SCENE_LIST_TEXT = 'The globe is best on a larger screen'
+// MobileSceneList's root carries this test id.
+const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
@@ -190,13 +191,12 @@ function summarize(requests) {
 // timestamp is the page's own clock (ms since navigation start), and reports
 // once through an exposed binding (or reports the scene list, when the build
 // renders that instead of a map). The poll itself is a small cost inside the
-// measured window: until the map exists it adds a text check every 500 ms,
-// and the cheap map checks short-circuit queryRenderedFeatures until style
-// and tiles load.
+// measured window: until the map exists it is one querySelector, and the
+// cheap map checks short-circuit queryRenderedFeatures until style and tiles
+// load.
 const READINESS_PROBE = `(() => {
   if (window !== window.top) return
-  const sceneListShown = () =>
-    !!document.body && document.body.textContent.includes(${JSON.stringify(SCENE_LIST_TEXT)})
+  const sceneListShown = () => !!document.querySelector(${JSON.stringify(SCENE_LIST_SELECTOR)})
   window.__atlasPerfReady = () => {
     const m = window.__atlasMap
     if (!m) return false
@@ -206,11 +206,9 @@ const READINESS_PROBE = `(() => {
       return false
     }
   }
-  let polls = 0
   const poll = () => {
-    polls++
     if (window.__atlasPerfReady()) window.__atlasPerfFirstMap(performance.now())
-    else if (!window.__atlasMap && polls % 10 === 0 && sceneListShown()) window.__atlasPerfFirstMap('scene-list')
+    else if (!window.__atlasMap && sceneListShown()) window.__atlasPerfFirstMap('scene-list')
     else setTimeout(poll, 50)
   }
   poll()
@@ -280,7 +278,13 @@ async function oneRun(browser, opts) {
     }
   })
 
-  await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
+  const response = await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
+  const landedHost = new URL(page.url()).host
+  if (landedHost !== opts.url.host || (response && response.status() >= 400)) {
+    const status = response ? response.status() : 'no response'
+    await context.close()
+    throw new Error(`the page did not load the target (HTTP ${status}, landed on ${landedHost}); a protected deployment needs VERCEL_PROTECTION_BYPASS and a PREVIEW_HOST match`)
+  }
   const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
@@ -346,7 +350,7 @@ function printReport(opts, runs, verdict) {
   console.log(`\nAtlas perf: ${opts.url.href}`)
   console.log(`profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
   console.log(`WebGL renderer: ${runs[0].renderer}`)
-  console.log(`runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB`).join(', ')}\n`)
+  console.log(`runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 
   const categories = CATEGORY_ORDER.filter((c) => runs.some((r) => r.entry.byCategory[c] || r.city.byCategory[c]))
   console.log('| Category | Entry KiB (median) | Entry requests | City view KiB (median) |')
@@ -361,17 +365,20 @@ function printReport(opts, runs, verdict) {
   console.log(`| **Total** | **${kib(verdict.entryBytes)}** | | **${kib(verdict.cityBytes)}** |\n`)
 
   const mark = (ok) => (ok ? 'PASS' : 'FAIL')
-  console.log('| Budget | Median | Limit | Result |')
+  console.log('| Budget | Value (median unless noted) | Limit | Result |')
   console.log('|---|---:|---:|---|')
   console.log(`| First rendered map | ${(verdict.firstMapMs / 1000).toFixed(2)} s | ${BUDGET.firstMapMs / 1000} s | ${mark(verdict.firstMapOk)} |`)
   console.log(`| Entry bytes | ${mib(verdict.entryBytes)} MiB | ${mib(BUDGET.entryBytes)} MiB | ${mark(verdict.entryOk)} |`)
   if (verdict.compact) {
-    console.log(`| Raster requests (compact viewport) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
+    console.log(`| Raster requests (compact viewport, worst run) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
   }
   console.log(`\nCity view ready after jump: ${(verdict.cityMs / 1000).toFixed(2)} s (median, not budgeted)`)
 }
 
 const opts = parseArgs(process.argv.slice(2))
+if (process.env.VERCEL_PROTECTION_BYPASS && !(opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname))) {
+  console.error(`note: VERCEL_PROTECTION_BYPASS is set but not sent: ${opts.url.host} is not an https PREVIEW_HOST`)
+}
 const runs = []
 for (let i = 0; i < opts.runs; i++) {
   // A fresh browser per run, not only a fresh context: a dedicated worker's

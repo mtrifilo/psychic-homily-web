@@ -38,7 +38,10 @@ export function MobileSceneList({
   )
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-background p-4">
+    <div
+      data-testid="atlas-scene-list"
+      className="h-full w-full overflow-y-auto bg-background p-4"
+    >
       <h1 className="text-lg font-semibold">Scenes</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         The globe is best on a larger screen. Browse the scenes below.

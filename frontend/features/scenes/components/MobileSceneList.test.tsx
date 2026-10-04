@@ -114,6 +114,13 @@ describe('MobileSceneList', () => {
     ])
   })
 
+  it('marks its root with the test id the Atlas perf script detects', () => {
+    // scripts/atlas-perf.mjs stops a run at once when this list renders
+    // instead of the map; renaming the id silently turns that into a timeout.
+    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+  })
+
   it('stars followed scenes and leaves the rest unmarked (PSY-1340)', () => {
     renderWithProviders(
       <MobileSceneList

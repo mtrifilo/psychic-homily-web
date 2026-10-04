@@ -556,9 +556,9 @@ export default function GlobeCanvas({
     const zoom = restored?.zoom ?? zoomForAltitude(pov.altitude)
 
     // PH street basemap (PSY-1543): OpenFreeMap vector tiles restyled to the
-    // app's dark tokens, with its background ramped in across the Black
-    // Marble fade range (see phBasemapFragment for why the background must
-    // ramp rather than sit opaque).
+    // app's dark tokens, with its background ramped in across the same range
+    // the globe surface (raster, or ocean and land) fades out; see
+    // phBasemapFragment for the handoff.
     const basemap = phBasemapFragment(
       BLACK_MARBLE_FADE_START,
       BLACK_MARBLE_FADE_END,
@@ -612,9 +612,9 @@ export default function GlobeCanvas({
             0,
           ],
         },
-        // The basemap's background layer is opacity-ramped (0 until the
-        // street fade), so space stays transparent at globe zooms and the
-        // CSS starfield and halo behind the canvas show through.
+        // Background and fill layers draw on the sphere only on the globe
+        // projection, so space stays transparent and the CSS starfield and
+        // halo behind the canvas show through.
         sources: {
           ...basemap.sources,
           ...globeSurfaceSources(),

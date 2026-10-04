@@ -125,15 +125,18 @@ import {
 import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
 
 /**
- * The tile sources this module reports, each mapped to the host it is
- * CONFIGURED against — the `basemap_host` fallback for an error that arrives
- * without a URL of its own (a style/worker error, or an AJAXError whose `url`
- * MapLibre did not attach).
+ * The sources this module reports, each mapped to its `basemap_host` fallback
+ * for an error that arrives without a URL of its own (a style/worker error, or
+ * an AJAXError whose `url` MapLibre did not attach): the host a tile source is
+ * configured against, or the label 'same-origin' for the land file the app
+ * serves itself. Unlike a tile 404, a land-file 404 or 5xx does fire an error
+ * event (GeoJSONSource reports any failed data load); a stalled land request
+ * fires nothing, like a stalled tile.
  *
  * A map, not two ifs: the host fallback has to be picked per source, and a
  * single lookup makes it impossible to widen the filter without also deciding
- * what host the new source degrades to. A third tile host is one entry here
- * and no other change in this module.
+ * what host the new source degrades to. Another source is one entry here and
+ * no other change in this module.
  *
  * A Map rather than a plain object, deliberately: this is keyed by a string
  * that arrives from MapLibre, and an object lookup would answer truthily for
@@ -279,10 +282,10 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
       error_type: 'basemap_source_failed',
       // Low-cardinality and searchable: "which source, on which host, failing
       // how" is the whole triage question for a third-party tile outage.
-      // `basemap_source` is what separates the two halves of the basemap —
-      // 'openmaptiles' (streets are gone) from 'nightEarth' (the globe is
-      // unlit) — which are different user-visible failures on different
-      // providers and should never group into one issue.
+      // `basemap_source` separates the failures a user sees differently:
+      // 'openmaptiles' (streets are gone), 'nightEarth' (the globe is unlit)
+      // and 'globeLand' (a compact viewport's globe has no continents), each
+      // on its own provider, never grouped into one issue.
       // `basemap_status` is 0 for a network-level failure (DNS, blocked, or a
       // client connection that dropped without `navigator.onLine` catching
       // it) and an HTTP status otherwise, so it also separates the AJAX cases
