@@ -21,7 +21,7 @@ var venueLikePlaceTypes = map[string]map[string]bool{
 		"pub": true, "restaurant": true, "social_centre": true, "theatre": true,
 	},
 	"craft":   {"brewery": true},
-	"leisure": {"stadium": true},
+	"leisure": {"stadium": true, "music_venue": true},
 }
 
 // numberFirstCountries write the house number before the street name ("123

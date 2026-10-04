@@ -45,6 +45,7 @@ func TestAcceptPlaceCandidate(t *testing.T) {
 	}{
 		{name: "venue-like place in the city", ok: true, street: "2424 North Lincoln Avenue", cc: "US"},
 		{name: "a building counts", mutate: func(c *geo.PlaceCandidate) { c.Category, c.Type = "building", "yes" }, ok: true, street: "2424 North Lincoln Avenue"},
+		{name: "leisure=music_venue counts", mutate: func(c *geo.PlaceCandidate) { c.Category, c.Type = "leisure", "music_venue" }, ok: true, street: "2424 North Lincoln Avenue"},
 		{name: "a road is refused", mutate: func(c *geo.PlaceCandidate) { c.Category, c.Type = "highway", "residential" }},
 		{name: "a shop is refused", mutate: func(c *geo.PlaceCandidate) { c.Category, c.Type = "shop", "music" }},
 		{name: "an unnamed feature is refused", mutate: func(c *geo.PlaceCandidate) { c.Name = "" }},
