@@ -38,17 +38,20 @@ interface AtlasSearchProps {
 }
 
 /**
- * Whether a software keyboard (or a pinch zoom) has shrunk the visual
- * viewport below the layout viewport. Rounded because the visual viewport
- * reports fractional heights at some device scales.
+ * Whether a software keyboard has shrunk the visual viewport below the
+ * layout viewport. The height is taken at the visual viewport's scale, so a
+ * page zoom on its own (a pinch, or the zoom iOS applies on focusing a small
+ * field) reads as no keyboard. Rounded because the visual viewport reports
+ * fractional heights at some device scales.
  */
 export function visualViewportShrunk(
-  visualViewportHeight: number | undefined,
+  visualViewport: { height: number; scale: number } | null | undefined,
   layoutViewportHeight: number,
 ): boolean {
   return (
-    visualViewportHeight !== undefined &&
-    Math.round(visualViewportHeight) < layoutViewportHeight
+    !!visualViewport &&
+    Math.round(visualViewport.height * visualViewport.scale) <
+      layoutViewportHeight
   )
 }
 
@@ -83,7 +86,7 @@ function measureListOffset(
     ? listSideOffsetPx(
         getListMinTopPx?.(),
         trigger.offsetTop + trigger.offsetHeight,
-        visualViewportShrunk(window.visualViewport?.height, window.innerHeight),
+        visualViewportShrunk(window.visualViewport, window.innerHeight),
       )
     : undefined
 }
@@ -146,6 +149,8 @@ export function AtlasSearch({
     })
     const viewport = window.visualViewport
     viewport?.addEventListener('resize', remeasure)
+    // Anything that changed between the open's measure and this subscription.
+    remeasure()
     return () => {
       observer.disconnect()
       viewport?.removeEventListener('resize', remeasure)

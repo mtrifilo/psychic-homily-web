@@ -216,9 +216,9 @@ test.describe('Atlas search popover under a software keyboard', () => {
 
     const trigger = page.getByRole('combobox', { name: 'Search scenes' })
     await expect(trigger).toBeVisible({ timeout: 30_000 })
-    // The globe-zoom state: the map is running and its credit is empty, so
-    // the list opens directly under its trigger.
-    await waitForAtlasMap(page)
+    // The globe-zoom state: the map has started (the credit control mounts
+    // with its style) and the credit is empty, so the list opens directly
+    // under its trigger.
     await expect(page.locator('.maplibregl-ctrl-attrib')).toHaveClass(
       /maplibregl-attrib-empty/,
       { timeout: 30_000 }

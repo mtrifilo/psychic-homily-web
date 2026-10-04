@@ -127,13 +127,22 @@ describe('AtlasSearch (PSY-1310)', () => {
 
 describe('visualViewportShrunk', () => {
   it('is true while the visual viewport is shorter than the layout viewport', () => {
-    expect(visualViewportShrunk(190, 390)).toBe(true)
+    expect(visualViewportShrunk({ height: 190, scale: 1 }, 390)).toBe(true)
   })
 
   it('is false at full height, at a fractional full height, and with no visual viewport', () => {
-    expect(visualViewportShrunk(390, 390)).toBe(false)
-    expect(visualViewportShrunk(389.6, 390)).toBe(false)
+    expect(visualViewportShrunk({ height: 390, scale: 1 }, 390)).toBe(false)
+    expect(visualViewportShrunk({ height: 389.6, scale: 1 }, 390)).toBe(false)
+    expect(visualViewportShrunk(null, 390)).toBe(false)
     expect(visualViewportShrunk(undefined, 390)).toBe(false)
+  })
+
+  it('reads a zoomed page with no keyboard as no keyboard', () => {
+    expect(visualViewportShrunk({ height: 195, scale: 2 }, 390)).toBe(false)
+  })
+
+  it('reads a keyboard on a zoomed page as a keyboard', () => {
+    expect(visualViewportShrunk({ height: 95, scale: 2 }, 390)).toBe(true)
   })
 })
 
@@ -189,18 +198,15 @@ describe('AtlasSearch getListMinTopPx', () => {
   })
 
   it('opens at the line, read afresh on every open', async () => {
-    const trigger = renderWithLine(
-      vi
-        .fn<() => number | undefined>()
-        .mockReturnValueOnce(112)
-        .mockReturnValue(undefined),
-    )
+    let line: number | undefined = 112
+    const trigger = renderWithLine(() => line)
     fireEvent.click(trigger)
     await expectListTranslateY(112)
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
     await waitFor(() =>
       expect(screen.queryByRole('option')).not.toBeInTheDocument(),
     )
+    line = undefined
     fireEvent.click(trigger)
     await expectListTranslateY(4)
   })
