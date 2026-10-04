@@ -41,6 +41,13 @@ async function expectCreditVisible(
   state: string,
   credits: string[] = OSM_CREDIT,
 ) {
+  // MapLibre lists a source's credit once that source's tiles load, which can
+  // trail the layout reaching this state (a sheet at its detent, the rail).
+  for (const credit of credits) {
+    await expect(page.locator('.maplibregl-ctrl-attrib-inner')).toContainText(credit, {
+      timeout: 30_000,
+    })
+  }
   const report = await creditReport(page)
   test.info().annotations.push({ type: state, description: JSON.stringify(report) })
   expect(report, `${state}: credit present`).not.toBeNull()
@@ -92,6 +99,8 @@ async function jumpToStreetBasemap(page: Page) {
     'OpenStreetMap',
     { timeout: 30_000 },
   )
+  // Tiles settled, so a later camera move cancels no request in flight.
+  await waitForMap(page)
 }
 
 /** A tap or click on the Phoenix scene dot, through the map's own projection. */
@@ -127,74 +136,75 @@ async function dismissBanner(page: Page) {
 // (no map exists to measure); PSY-1560 removes the gate and un-fixmes these.
 for (const viewport of PHONE_VIEWPORTS) {
   for (const colorScheme of ['dark', 'light'] as const) {
-  test.describe.fixme(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
-    test.use({
-      viewport,
-      colorScheme,
-      hasTouch: true,
-      isMobile: true,
-      deviceScaleFactor: 2,
+    test.describe.fixme(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
+      test.use({
+        viewport,
+        colorScheme,
+        hasTouch: true,
+        isMobile: true,
+        deviceScaleFactor: 2,
+      })
+      test.setTimeout(120_000)
+
+      test('first visit, city view, venue and artist sheets', async ({ page }) => {
+        await stubAtlas(page)
+        await page.goto('/atlas?city=Phoenix%2CAZ')
+        await waitForMap(page)
+        await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
+
+        const list = page.getByTestId('atlas-venue-sheet')
+        await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+        await expectCreditVisible(page, 'first visit, list at peek, banner up')
+        // With the banner up a short pane caps Half and Full to one height, so
+        // the grabber skips Full; Half is the tallest the list gets there.
+        await stepDetent(page, 'atlas-venue-sheet', 'half')
+        await expectCreditVisible(page, 'list at half, banner up')
+
+        await dismissBanner(page)
+        await expectCreditVisible(page, 'list at half')
+        await stepDetent(page, 'atlas-venue-sheet', 'full')
+        await expectCreditVisible(page, 'list at full')
+
+        await list.getByRole('button', { name: /Street Room/ }).tap()
+        const venueSheet = page.getByTestId('atlas-venue-panel')
+        await expect(venueSheet).toHaveAttribute('data-detent', 'half')
+        await expectCreditVisible(page, 'venue sheet at half')
+        await stepDetent(page, 'atlas-venue-panel', 'full')
+        await expectCreditVisible(page, 'venue sheet at full')
+
+        await venueSheet.getByRole('button', { name: /Sheet Night/ }).tap()
+        const artistSheet = page.getByTestId('atlas-artist-panel')
+        await expect(artistSheet).toHaveAttribute('data-detent', 'full')
+        await expect(artistSheet.getByRole('heading', { name: 'Sheet Band' })).toBeVisible()
+        await expectCreditVisible(page, 'artist sheet at full')
+      })
+
+      test('globe entry and scene preview', async ({ page }) => {
+        await stubAtlas(page)
+        await page.goto('/atlas')
+        await waitForMap(page)
+        await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
+        await expectNoCreditDue(page, 'globe entry, banner up')
+
+        await pressSceneDot(page, 'tap')
+        const preview = page.getByTestId('atlas-scene-preview-sheet')
+        await expect(preview).toHaveAttribute('data-detent', 'half')
+        await expectNoCreditDue(page, 'scene preview at globe zoom')
+
+        await jumpToStreetBasemap(page)
+        await expect(preview).toBeVisible()
+        await expectCreditVisible(page, 'scene preview at half, z8, banner up')
+        await dismissBanner(page)
+        await stepDetent(page, 'atlas-scene-preview-sheet', 'full')
+        await expectCreditVisible(page, 'scene preview at full, z8')
+      })
     })
-    test.setTimeout(120_000)
-
-    test('first visit, city view, venue and artist sheets', async ({ page }) => {
-      await stubAtlas(page)
-      await page.goto('/atlas?city=Phoenix%2CAZ')
-      await waitForMap(page)
-      await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
-
-      const list = page.getByTestId('atlas-venue-sheet')
-      await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
-      await expectCreditVisible(page, 'first visit, list at peek, banner up')
-      // With the banner up a short pane caps Half and Full to one height, so
-      // the grabber skips Full; Half is the tallest the list gets there.
-      await stepDetent(page, 'atlas-venue-sheet', 'half')
-      await expectCreditVisible(page, 'list at half, banner up')
-
-      await dismissBanner(page)
-      await expectCreditVisible(page, 'list at half')
-      await stepDetent(page, 'atlas-venue-sheet', 'full')
-      await expectCreditVisible(page, 'list at full')
-
-      await list.getByRole('button', { name: /Street Room/ }).tap()
-      const venueSheet = page.getByTestId('atlas-venue-panel')
-      await expect(venueSheet).toHaveAttribute('data-detent', 'half')
-      await expectCreditVisible(page, 'venue sheet at half')
-      await stepDetent(page, 'atlas-venue-panel', 'full')
-      await expectCreditVisible(page, 'venue sheet at full')
-
-      await venueSheet.getByRole('button', { name: /Sheet Night/ }).tap()
-      const artistSheet = page.getByTestId('atlas-artist-panel')
-      await expect(artistSheet).toHaveAttribute('data-detent', 'full')
-      await expect(artistSheet.getByRole('heading', { name: 'Sheet Band' })).toBeVisible()
-      await expectCreditVisible(page, 'artist sheet at full')
-    })
-
-    test('globe entry and scene preview', async ({ page }) => {
-      await stubAtlas(page)
-      await page.goto('/atlas')
-      await waitForMap(page)
-      await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
-      await expectNoCreditDue(page, 'globe entry, banner up')
-
-      await pressSceneDot(page, 'tap')
-      const preview = page.getByTestId('atlas-scene-preview-sheet')
-      await expect(preview).toHaveAttribute('data-detent', 'half')
-      await expectNoCreditDue(page, 'scene preview at globe zoom')
-
-      await jumpToStreetBasemap(page)
-      await expect(preview).toBeVisible()
-      await expectCreditVisible(page, 'scene preview at half, z8, banner up')
-      await dismissBanner(page)
-      await stepDetent(page, 'atlas-scene-preview-sheet', 'full')
-      await expectCreditVisible(page, 'scene preview at full, z8')
-    })
-  })
   }
 }
 
 test.describe('Atlas credit on a compact pane above the mobile gate', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: true })
+  test.setTimeout(120_000)
 
   test('globe entry owes no credit; city view keeps the list sheet above the banner', async ({
     page,
@@ -231,6 +241,7 @@ for (const viewport of [
 ] as const) {
   test.describe(`Atlas credit beside the rail at ${viewport.width}x${viewport.height}`, () => {
     test.use({ viewport })
+    test.setTimeout(120_000)
 
     test('city view rail, banner up', async ({ page }) => {
       await stubAtlas(page)
