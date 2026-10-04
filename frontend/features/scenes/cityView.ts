@@ -878,12 +878,6 @@ export const ATLAS_TOP_CREDIT_OFFSET_PX = 16 + 36 + 10
 export const ATLAS_SHEET_TOP_INSET_PX = ATLAS_TOP_CREDIT_OFFSET_PX + 40 + 10
 
 /**
- * A text link's tap target in the Atlas sheet presentation: at least 24px tall
- * (the WCAG 2.5.8 minimum), with the text centred in it.
- */
-export const ATLAS_SHEET_LINK_TARGET_CLASS = 'inline-flex min-h-6 items-center'
-
-/**
  * How many positioned venues fall inside `bounds`, edges inclusive. A box
  * whose west edge is east of its east edge spans the antimeridian.
  */

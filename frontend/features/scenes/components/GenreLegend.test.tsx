@@ -14,11 +14,19 @@ describe('GenreLegend', () => {
   const toggle = () => screen.getByRole('button', { name: 'Genres' })
   const key = () => document.getElementById('atlas-genre-legend')
 
-  it('is a 36px chip below lg and the fixed-width key from lg', () => {
+  it('is a chip as tall as Drift below lg and the fixed-width key from lg', () => {
     const { container } = render(<GenreLegend openChoice={false} onOpenChange={() => {}} />)
     expect(toggle()).toHaveClass('min-h-9', 'text-sm', 'lg:min-h-0', 'lg:text-xs')
     expect(container.firstElementChild).toHaveClass('lg:w-44')
     expect(container.firstElementChild).not.toHaveClass('w-44')
+  })
+
+  it('opens upward below lg, the toggle held at the bottom', () => {
+    const { container } = render(<GenreLegend openChoice onOpenChange={() => {}} />)
+    // The toggle stays first in the DOM (aria-controls order); the reversed
+    // column draws the key above it until lg, where the key drops below.
+    expect(container.firstElementChild?.firstElementChild).toBe(toggle())
+    expect(container.firstElementChild).toHaveClass('flex', 'flex-col-reverse', 'lg:block')
   })
 
   it('takes its placement from the caller', () => {

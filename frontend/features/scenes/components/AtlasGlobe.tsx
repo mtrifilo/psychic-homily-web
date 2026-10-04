@@ -13,6 +13,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
+import { cn } from '@/lib/utils'
 import type { GeoLocation } from '@/lib/geo-default'
 import { useScenes, useSceneDetail } from '../hooks'
 import { useVenues } from '@/features/venues/hooks'
@@ -655,6 +656,52 @@ export function AtlasGlobe() {
             : '0px',
         } as CSSProperties)
       : undefined
+    // The globe's bottom chrome. In the panel layout each control docks on
+    // its own: Drift bottom-centre, the genre key bottom-right, and the "not
+    // on the map" link bottom-left above the credit's strip. The sheet layout
+    // groups them bottom-left (see its render below). The genre key is hidden
+    // while a preview is open: you're reading one scene, not scanning.
+    const driftButton = (
+      <button
+        type="button"
+        onClick={handleDrift}
+        aria-label="Drift to a random scene"
+        className={cn(
+          'rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary',
+          sheetLayout
+            ? 'pointer-events-auto shrink-0'
+            : 'absolute bottom-4 left-1/2 z-10 -translate-x-1/2',
+        )}
+      >
+        Drift
+      </button>
+    )
+    const genreLegend = selected ? null : (
+      <GenreLegend
+        openChoice={legendOpenChoice}
+        onOpenChange={setLegendOpenChoice}
+        className={
+          sheetLayout ? 'pointer-events-auto' : 'absolute bottom-4 right-4 z-10'
+        }
+      />
+    )
+    const unplaceableLink =
+      unplaceableCount > 0 ? (
+        <Link
+          href="/scenes"
+          /* bottom-11 in the panel layout: the map's attribution control (a
+             license requirement) is docked bottom-left there, and this link
+             must clear its ~30px strip rather than sit on the OSM credit. */
+          className={cn(
+            'rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline',
+            sheetLayout ? 'pointer-events-auto' : 'absolute bottom-11 left-4 z-10',
+          )}
+        >
+          {unplaceableCount} more{' '}
+          {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·
+          View all →
+        </Link>
+      ) : null
     // The globe's own chrome is a globe-scale toolkit — Drift lands you in
     // another metro, the genre key explains dot tints that aren't drawn at
     // street zoom. City view replaces it with the rail.
@@ -793,29 +840,22 @@ export function AtlasGlobe() {
           )}
           {globeChromeVisible && (
             <>
-              {/* Below `lg` Drift and the genre key share one row at the
-                  bottom-left, the key bottom-aligned so it opens upward;
-                  from `lg` the row dissolves (display: contents) and each
-                  takes its own place, Drift centred and the key
-                  bottom-right. The genre key is hidden while a preview is
-                  open: you're reading one scene, not scanning. */}
-              <div className="absolute bottom-4 left-4 z-10 flex items-end gap-5 lg:contents">
-                <button
-                  type="button"
-                  onClick={handleDrift}
-                  aria-label="Drift to a random scene"
-                  className="shrink-0 rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary lg:absolute lg:bottom-4 lg:left-1/2 lg:z-10 lg:-translate-x-1/2"
-                >
-                  Drift
-                </button>
-                {!selected && (
-                  <GenreLegend
-                    openChoice={legendOpenChoice}
-                    onOpenChange={setLegendOpenChoice}
-                    className="lg:absolute lg:bottom-4 lg:right-4 lg:z-10"
-                  />
-                )}
-              </div>
+              {sheetLayout ? (
+                // The credit is top-left in this layout, so the bottom-left
+                // corner is free: one column holds the "not on the map" link
+                // above a row of Drift and the genre key, so none of them can
+                // overlap. Only the controls take taps; the gaps between them
+                // stay the map's.
+                <div className="pointer-events-none absolute bottom-4 left-4 z-10 flex flex-col items-start gap-2">
+                  {unplaceableLink}
+                  <div className="flex items-end gap-5">
+                    {driftButton}
+                    {genreLegend}
+                  </div>
+                </div>
+              ) : (
+                driftButton
+              )}
               <AtlasSearch
                 scenes={allScenes}
                 onPick={handleSearchPick}
@@ -827,19 +867,11 @@ export function AtlasGlobe() {
                 onPick={handleSearchPick}
                 belowTopCredit={sheetLayout}
               />
-              {unplaceableCount > 0 && (
-                <Link
-                  href="/scenes"
-                  /* bottom-11, not bottom-4: in the panel layout the map's
-                     attribution control (PSY-1543, a license requirement) is
-                     docked bottom-left, and this link must clear its ~30px strip
-                     rather than sit on the OSM credit. */
-                  className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
-                >
-                  {unplaceableCount} more{' '}
-                  {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·
-                  View all →
-                </Link>
+              {!sheetLayout && (
+                <>
+                  {genreLegend}
+                  {unplaceableLink}
+                </>
               )}
               {selected && (
                 <ScenePreviewPanel

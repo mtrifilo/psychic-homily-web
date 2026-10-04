@@ -8,6 +8,7 @@ import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { useSceneArtists, useSceneShows } from '../hooks'
+import { ATLAS_LINK_TARGET_CLASS } from './atlasTouchTargets'
 import type { SceneListItem, SceneShowSummary } from '../types'
 
 // Format an ISO date-only string (YYYY-MM-DD) as e.g. "Fri, Jul 4" WITHOUT a
@@ -48,7 +49,8 @@ function sceneShowRowTitle(show: SceneShowSummary): string {
  * artists, and the link into the full scene page. Shared between the desktop
  * globe's ScenePreviewPanel and the mobile list's expanded rows (PSY-1311), so
  * the two surfaces can't fork. Fetches on mount: mount it only when the
- * preview is actually open/expanded.
+ * preview is actually open/expanded. Its links are touch-sized (at least 24px
+ * tall) in every host, since the mobile list is a phone surface too.
  */
 export function ScenePreviewContent({
   scene,
@@ -190,7 +192,10 @@ export function ScenePreviewContent({
           (the desktop panel's flex-1); in a natural-height host it's inert. */}
       <Link
         href={`/scenes/${scene.slug}`}
-        className="mt-auto inline-flex min-h-6 items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        className={cn(
+          'mt-auto gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline',
+          ATLAS_LINK_TARGET_CLASS,
+        )}
       >
         Open scene →
       </Link>

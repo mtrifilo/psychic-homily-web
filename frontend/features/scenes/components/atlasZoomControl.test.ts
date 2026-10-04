@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest'
  * on it is what makes the buttons 36px there.
  */
 describe('Atlas zoom control size', () => {
-  const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')
+  const css = readFileSync(resolve(__dirname, '../../../app/globals.css'), 'utf8')
 
   it('gives the zoom buttons 36px targets in the sheet layout', () => {
     const rule = css.match(

@@ -562,33 +562,57 @@ describe('AtlasGlobe', () => {
 
     const legendToggle = () => screen.getByRole('button', { name: 'Genres' })
 
-    it('starts collapsed on a compact viewport, in one row with Drift', async () => {
+    const drift = () => screen.getByRole('button', { name: /drift to a random scene/i })
+    const notOnMapLink = () => screen.getByRole('link', { name: /not on the map/i })
+
+    it('groups the bottom chrome bottom-left in the sheet layout, the link above Drift and the key', async () => {
       matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
       setMockContainerWidth(820)
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.attributionPosition).toBe('top-left')
       expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
-      const drift = screen.getByRole('button', { name: /drift to a random scene/i })
-      // Below `lg` the row places both; from `lg` it is display: contents and
-      // each child carries its own lg: position.
-      const row = drift.parentElement!
+      // One column: the "not on the map" link (Faketown has no coords), then
+      // a row of Drift and the genre key, so none of them can overlap.
+      const row = drift().parentElement!
+      const column = row.parentElement!
       expect(row).toContainElement(legendToggle())
-      expect(row).toHaveClass('absolute', 'bottom-4', 'left-4', 'flex', 'lg:contents')
-      expect(drift).toHaveClass('lg:absolute', 'lg:left-1/2', 'lg:-translate-x-1/2')
-      expect(drift).not.toHaveClass('left-1/2')
+      expect(column.firstElementChild).toBe(notOnMapLink())
+      expect(column).toHaveClass('absolute', 'bottom-4', 'left-4', 'flex', 'flex-col')
+      // The column's gaps stay the map's; only the controls take taps.
+      expect(column).toHaveClass('pointer-events-none')
+      expect(drift()).toHaveClass('pointer-events-auto')
+      expect(notOnMapLink()).toHaveClass('pointer-events-auto')
+      expect(legendToggle().parentElement).toHaveClass('pointer-events-auto')
+      expect(drift()).not.toHaveClass('absolute')
+      expect(notOnMapLink()).not.toHaveClass('absolute')
     })
 
-    it('starts open on a wide viewport, docked bottom-right from lg', async () => {
+    it('keeps the panel layout’s own placements below lg, clear of the bottom-left credit', async () => {
+      // 900 to 1023px: a compact viewport, but a pane wide enough for the
+      // panel layout, whose credit docks bottom-left.
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(950)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.attributionPosition).toBe('bottom-left')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      expect(drift()).toHaveClass('absolute', 'bottom-4', 'left-1/2', '-translate-x-1/2')
+      expect(legendToggle().parentElement).toHaveClass('absolute', 'bottom-4', 'right-4')
+      expect(notOnMapLink()).toHaveClass('absolute', 'bottom-11', 'left-4')
+      // Each docks on the map pane itself, in no shared row.
+      expect(legendToggle().parentElement!.parentElement).toBe(drift().parentElement)
+      expect(notOnMapLink().parentElement).toBe(drift().parentElement)
+    })
+
+    it('starts open on a wide viewport, docked bottom-right', async () => {
       matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
       setMockContainerWidth(1400)
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
       expect(legendToggle()).toHaveAttribute('aria-expanded', 'true')
-      expect(legendToggle().parentElement).toHaveClass(
-        'lg:absolute',
-        'lg:bottom-4',
-        'lg:right-4',
-      )
+      expect(legendToggle().parentElement).toHaveClass('absolute', 'bottom-4', 'right-4')
+      expect(drift()).toHaveClass('absolute', 'left-1/2')
     })
 
     it('follows the viewport until toggled, then keeps the user’s choice', async () => {

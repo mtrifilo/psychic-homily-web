@@ -18,12 +18,12 @@ import type { ArtistShow } from '@/features/artists/types'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
   ARTIST_PANEL_NEXT_SHOW_ROWS,
-  ATLAS_SHEET_LINK_TARGET_CLASS,
   ATLAS_SHEET_TOP_INSET_PX,
   CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
   formatPanelShowDate,
 } from '../cityView'
+import { ATLAS_LINK_TARGET_CLASS } from './atlasTouchTargets'
 import {
   artistConnectionsLine,
   artistIdentityLine,
@@ -334,7 +334,7 @@ export function ArtistPanel({
       href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
       className={cn(
         'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        isSheet && ATLAS_SHEET_LINK_TARGET_CLASS,
+        isSheet && ATLAS_LINK_TARGET_CLASS,
       )}
     >
       Open artist page →

@@ -33,7 +33,6 @@ import { showPriceText } from '@/lib/utils/showPrice'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import {
-  ATLAS_SHEET_LINK_TARGET_CLASS,
   ATLAS_SHEET_TOP_INSET_PX,
   CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
@@ -45,6 +44,7 @@ import {
   venueFieldNoteAttribution,
   mergeVenueConfirmation,
 } from '../cityView'
+import { ATLAS_LINK_TARGET_CLASS } from './atlasTouchTargets'
 
 // This panel is now the only caller of `VENUE_SHOWS_PAGE_LIMIT`. It used to
 // share a cache entry with the venue page, which asked the same question; since
@@ -383,7 +383,7 @@ export function VenuePanel({
       href={venueHref}
       className={cn(
         'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        isSheet && ATLAS_SHEET_LINK_TARGET_CLASS,
+        isSheet && ATLAS_LINK_TARGET_CLASS,
       )}
     >
       Open venue page →
