@@ -30,8 +30,8 @@ interface ScenePreviewPanelProps {
  * of the city's scene (counts + a few active artists) with a link INTO the full
  * scene page — so the user gets immediate context without leaving the globe.
  * The body (embed + this-week + roster) is ScenePreviewContent, shared with the
- * mobile scene list (PSY-1311); this panel owns the desktop chrome (aside,
- * header, close, Esc).
+ * mobile scene list (PSY-1311); this component owns the chrome around it: a
+ * right-docked aside, or a bottom sheet opening at Half on narrow panes.
  */
 export function ScenePreviewPanel({
   scene,
@@ -49,7 +49,8 @@ export function ScenePreviewPanel({
   //
   // PSY-1313: focus the close control on open; hand focus to returnFocusTo on
   // close. Mount-only on purpose: switching scenes keeps the panel mounted and
-  // must not re-run either move.
+  // must not re-run either move. The caller keys the panel on its
+  // presentation, so a layout switch is a remount, never a mid-life swap.
   useEffect(() => {
     // Both nodes exist at mount and are stable for the panel's lifetime —
     // capture them here so the cleanup doesn't read refs post-unmount.
@@ -59,7 +60,7 @@ export function ScenePreviewPanel({
     return () => {
       // Restore only when focus is still OURS to hand back: inside the closing
       // panel, or already dropped to <body>. The panel is non-modal (no focus
-      // trap) and Esc is document-level, so the user may have tabbed elsewhere
+      // trap) and Esc is not scoped to it, so the user may have tabbed elsewhere
       // — yanking focus back from a header link they're on would be worse than
       // no restore (the same containment rule Radix FocusScope applies).
       const active = document.activeElement

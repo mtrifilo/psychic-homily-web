@@ -17,6 +17,9 @@ import { isPlaceableScene, type PlaceableScene } from './globeTypes'
 import { compareScenesByActivity } from './globeScale'
 import type { SceneListItem } from '../types'
 
+// The popover's own default gap below its trigger.
+const DEFAULT_LIST_OFFSET_PX = 4
+
 interface AtlasSearchProps {
   /** ALL scenes (placeable or not) — an unplaceable match still navigates. */
   scenes: SceneListItem[]
@@ -27,6 +30,12 @@ interface AtlasSearchProps {
    * with ScenePreviewPanel as the panel's focus-return target.
    */
   triggerRef?: React.RefObject<HTMLButtonElement | null>
+  /**
+   * The result list's top edge stays at least this far below the top of the
+   * trigger's positioned container, so it opens under anything docked there
+   * (the Atlas sheet layout's map credit).
+   */
+  listMinTopPx?: number
 }
 
 /**
@@ -42,11 +51,29 @@ interface AtlasSearchProps {
  * the page (unless typing in another field) — this is also the keyboard path
  * INTO scenes on /atlas, since canvas dots aren't focusable (PSY-1313 pairing).
  */
-export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
+export function AtlasSearch({
+  scenes,
+  onPick,
+  triggerRef,
+  listMinTopPx,
+}: AtlasSearchProps) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
+  const [listOffset, setListOffset] = useState(DEFAULT_LIST_OFFSET_PX)
   const localTriggerRef = useRef<HTMLButtonElement>(null)
   const trigRef = triggerRef ?? localTriggerRef
+  // The offset is measured when the list opens, from where the trigger sits.
+  const setOpen = useCallback(
+    (next: boolean) => {
+      const trigger = trigRef.current
+      if (next && listMinTopPx !== undefined && trigger) {
+        const triggerBottom = trigger.offsetTop + trigger.offsetHeight
+        setListOffset(Math.max(DEFAULT_LIST_OFFSET_PX, listMinTopPx - triggerBottom))
+      }
+      setOpenState(next)
+    },
+    [listMinTopPx, trigRef],
+  )
   // True while a close is caused by PICKING a scene (vs Esc/click-outside).
   // Radix restores focus to the trigger AFTER the popover's exit animation —
   // late enough to steal focus back from the preview panel's close button
@@ -96,7 +123,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [])
+  }, [setOpen])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -122,6 +149,7 @@ export function AtlasSearch({ scenes, onPick, triggerRef }: AtlasSearchProps) {
       <CommandPopoverContent
         className="w-[260px] p-0"
         align="start"
+        sideOffset={listOffset}
         onCloseAutoFocus={(e) => {
           // See pickedRef: on a pick the preview panel now owns focus — let it
           // keep it. Plain dismiss (Esc/click-outside) keeps Radix's restore.

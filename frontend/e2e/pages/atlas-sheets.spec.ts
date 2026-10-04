@@ -198,4 +198,13 @@ test.describe('Atlas sheet layout under touch', () => {
     await page.getByRole('button', { name: 'Back to globe' }).tap()
     await expect(list).toHaveCount(0, { timeout: 15_000 })
   })
+
+  test('the scene search opens below the top-left credit', async ({ page }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas')
+    await waitForMap(page)
+    await page.getByRole('combobox', { name: 'Search scenes' }).tap()
+    await expect(page.getByPlaceholder('City or state…')).toBeVisible()
+    expect(await creditUncovered(page)).toBe(true)
+  })
 })

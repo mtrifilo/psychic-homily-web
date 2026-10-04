@@ -1279,6 +1279,52 @@ describe('AtlasGlobe', () => {
         ).not.toBeInTheDocument()
       })
 
+      it('states no venue count at Peek while the list loads or after it fails', async () => {
+        mockUseVenues.mockReturnValue({
+          data: undefined,
+          isFetching: true,
+          isPlaceholderData: false,
+        })
+        const { unmount } = renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+        let sheet = screen.getByTestId('atlas-venue-sheet')
+        expect(within(sheet).getByRole('heading', { name: 'Chicago' })).toBeInTheDocument()
+        expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent('Loading venues…')
+        unmount()
+
+        mockUseVenues.mockReturnValue({
+          data: undefined,
+          isFetching: false,
+          isPlaceholderData: false,
+          isError: true,
+        })
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+        sheet = screen.getByTestId('atlas-venue-sheet')
+        expect(within(sheet).getByRole('heading', { name: 'Chicago' })).toBeInTheDocument()
+        expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent(
+          'Couldn’t load venues here.',
+        )
+      })
+
+      it('drops a stack scope a filter thins out, for good', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+        act(() => lastCanvasProps.onVenueStackSelect?.(lastCanvasProps.venueStacks![0].key))
+        expect(screen.getByTestId('venue-sheet-scope-line')).toBeInTheDocument()
+
+        // Only Empty Bottle has shows this week, so the stack falls to one pin.
+        const sheet = screen.getByTestId('atlas-venue-sheet')
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Next 7 days' }))
+        expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Next 7 days' }))
+        expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
+        expect(within(sheet).getByRole('button', { name: /Hideout/ })).toBeInTheDocument()
+      })
+
       it('keeps the side-panel layout, unchanged, at 900px and up', async () => {
         setMockContainerWidth(900)
         renderWithProviders(<AtlasGlobe />)

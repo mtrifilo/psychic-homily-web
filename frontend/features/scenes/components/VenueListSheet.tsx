@@ -86,11 +86,23 @@ export function VenueListSheet({
     const ids = new Set(scopedStack.venueIds)
     return venues.filter((v) => ids.has(v.id))
   }, [venues, scopedStack])
-  const peekLine = venueSheetPeekLine({ inViewCount, stacks })
+  // While the list is loading or failed, a count would state that the city
+  // has no venues; the title names the city alone and Peek says what is
+  // happening instead (the same sentences the list itself uses).
+  const countsKnown = !fetchFailed && !(loading && allVenues.length === 0)
+  const peekLine = fetchFailed
+    ? 'Couldn’t load venues here. Try again in a moment.'
+    : countsKnown
+      ? venueSheetPeekLine({ inViewCount, stacks })
+      : 'Loading venues…'
 
   return (
     <BottomSheet
-      title={venueSheetTitle(principalCity, stats.venueCount, spansMetro)}
+      title={
+        countsKnown
+          ? venueSheetTitle(principalCity, stats.venueCount, spansMetro)
+          : principalCity
+      }
       label={`${principalCity} venues`}
       aria-label={`Venues in ${principalCity}`}
       data-testid="atlas-venue-sheet"

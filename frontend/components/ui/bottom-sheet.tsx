@@ -119,10 +119,25 @@ export function settleBottomSheetDetent({
   return best.detent
 }
 
-/** The grabber's tap target: one detent taller, and from Full back to Peek. */
-function nextGrabberDetent(detent: BottomSheetDetent): BottomSheetDetent {
-  if (detent === 'full') return 'peek'
-  return detent === 'peek' ? 'half' : 'full'
+/**
+ * The grabber's tap target: the next detent that renders taller than this one,
+ * and from the tallest back to Peek. Detents the host caps to the same height
+ * are skipped, so a tap always moves the sheet. An unmeasured host (height 0)
+ * walks the plain order.
+ */
+export function nextGrabberDetent(
+  detent: BottomSheetDetent,
+  hostHeightPx: number,
+  topInsetPx: number,
+): BottomSheetDetent {
+  const order = BOTTOM_SHEET_DETENTS
+  const from = order.indexOf(detent)
+  if (hostHeightPx <= 0) return order[(from + 1) % order.length]
+  const current = bottomSheetHeightPx(detent, hostHeightPx, topInsetPx)
+  const taller = order
+    .slice(from + 1)
+    .find((d) => bottomSheetHeightPx(d, hostHeightPx, topInsetPx) > current)
+  return taller ?? 'peek'
 }
 
 /** The detent's rendered height, as a CSS length against the host. */
@@ -171,7 +186,10 @@ export interface BottomSheetProps {
   onClose?: () => void
   /** Accessible name of the close control. */
   closeLabel?: string
-  /** Escape. Defaults to `onClose`; with neither, Escape does nothing here. */
+  /**
+   * Escape. Defaults to `onClose`; with neither, the sheet leaves Escape to
+   * whatever else handles it.
+   */
   onDismiss?: () => void
   /** Strip at the top of the host no detent may cover; see bottomSheetHeightPx. */
   topInsetPx?: number
@@ -239,7 +257,14 @@ export function BottomSheet({
   // close behind a drag's end belongs to the drag, not to the grabber.
   const lastDragEndRef = useRef(-Infinity)
 
+  const handlePointerCancel = () => {
+    dragRef.current = null
+    clearDragHeight()
+  }
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    // One drag at a time: a second finger never takes over a live drag.
+    if (dragRef.current?.active) return
     if (e.pointerType === 'mouse' && e.button !== 0) return
     if ((e.target as Element).closest(NO_DRAG_SELECTOR)) return
     const sheet = sheetRef.current
@@ -265,6 +290,12 @@ export function BottomSheet({
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== e.pointerId) return
+    // A mouse released outside the handle sends no pointerup here; with no
+    // button held this is a hover, not a drag.
+    if (e.pointerType === 'mouse' && e.buttons === 0) {
+      handlePointerCancel()
+      return
+    }
     if (!drag.active) {
       if (Math.abs(e.clientY - drag.startY) < BOTTOM_SHEET_DRAG_SLOP_PX) return
       drag.active = true
@@ -287,7 +318,10 @@ export function BottomSheet({
     const drag = dragRef.current
     if (!drag || drag.pointerId !== e.pointerId) return
     dragRef.current = null
-    if (!drag.active) return
+    if (!drag.active) {
+      clearDragHeight()
+      return
+    }
     lastDragEndRef.current = performance.now()
     clearDragHeight()
     setDetent(
@@ -300,14 +334,11 @@ export function BottomSheet({
     )
   }
 
-  const handlePointerCancel = () => {
-    dragRef.current = null
-    clearDragHeight()
-  }
 
   const handleGrabberClick = () => {
     if (performance.now() - lastDragEndRef.current < DRAG_CLICK_GUARD_MS) return
-    setDetent(nextGrabberDetent(detent))
+    const hostHeight = sheetRef.current?.parentElement?.clientHeight ?? 0
+    setDetent(nextGrabberDetent(detent, hostHeight, topInsetPx))
   }
 
   const dismiss = onDismiss ?? onClose
@@ -320,7 +351,7 @@ export function BottomSheet({
         // Escape typed into a field belongs to that field.
         if (isEditableTarget(e.target)) e.preventDefault()
       }}
-      onDismiss={() => dismiss?.()}
+      onDismiss={dismiss}
       // Non-modal: the host behind the sheet stays usable, so neither a press
       // nor focus outside the sheet may dismiss it.
       onPointerDownOutside={(e) => e.preventDefault()}
@@ -355,17 +386,18 @@ export function BottomSheet({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
+          onLostPointerCapture={handlePointerCancel}
           // The handle owns vertical drags; the browser must not turn them
           // into a page scroll or a pinch.
           className="shrink-0 touch-none select-none"
         >
-          <div className="flex justify-center pb-1 pt-2">
+          <div className="flex justify-center py-0.5">
             <button
               type="button"
               data-bottom-sheet-grabber=""
               onClick={handleGrabberClick}
               aria-label={`${grabberAction} ${label}`}
-              className="flex h-4 w-12 cursor-grab items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+              className="flex h-6 w-12 cursor-grab items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
             >
               <span
                 aria-hidden="true"

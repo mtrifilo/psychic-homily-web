@@ -406,10 +406,11 @@
 }
 
 /* The Atlas sheet layout (panes under 900px) puts the credit top-left, under
- * the status row, at --atlas-top-credit-offset (published by AtlasGlobe from
- * ATLAS_TOP_CREDIT_OFFSET_PX in cityView.ts). Bottom sheets own the bottom
- * edge there and stop at --atlas-sheet-top-inset, below the credit. The pane
- * spans the viewport at these widths, hence the vw bound. */
+ * the status row, at --atlas-top-credit-offset, which GlobeCanvas sets on the
+ * same [data-atlas-credit] element from ATLAS_TOP_CREDIT_OFFSET_PX in
+ * cityView.ts. Bottom sheets own the bottom edge there and stop
+ * ATLAS_SHEET_TOP_INSET_PX from the top, below the credit. The pane spans the
+ * viewport at these widths, hence the vw bound. */
 [data-atlas-credit='top']
   .maplibregl-map
   .maplibregl-ctrl-top-left

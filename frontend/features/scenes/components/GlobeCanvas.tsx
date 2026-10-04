@@ -28,12 +28,14 @@ import type {
 } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
+  VENUE_PIN_STROKE,
   venuePinFeatures,
   venuePinPaint,
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import {
+  ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
   VENUE_LABEL_DECLUTTER_KM,
   labelledVenuePinIds,
@@ -122,7 +124,9 @@ interface GlobeCanvasProps {
   onBackToGlobe?: () => void
   /**
    * Points where several venues pin. Each draws one counted marker over its
-   * pins, and those pins lose their name labels. Requires onVenueStackSelect.
+   * pins (which stay on the pin layer, so a tap on one still routes to the
+   * stack), and those pins lose their name labels. Requires
+   * onVenueStackSelect.
    */
   venueStacks?: readonly VenueStackMarker[]
   /**
@@ -476,7 +480,8 @@ export default function GlobeCanvas({
         'justify-content: center',
         'border-radius: 9999px',
         `background: ${DOT_COLOR_BASE}`,
-        'border: 1.5px solid rgba(23,16,11,0.85)',
+        `border: 1.5px solid ${VENUE_PIN_STROKE}`,
+        // The pin stroke's ink, legible on the base dot colour.
         'color: #17100b',
         'font-size: 11px',
         'font-weight: 700',
@@ -1175,10 +1180,20 @@ export default function GlobeCanvas({
 
   return (
     <div
-      style={{ width, height }}
       className="relative overflow-hidden"
       data-testid="globe-cursor-wrap"
       data-atlas-credit={attributionPosition === 'top-left' ? 'top' : undefined}
+      style={
+        attributionPosition === 'top-left'
+          ? ({
+              width,
+              height,
+              // Read by the top-left credit rule in globals.css: the credit
+              // sits below the status row this component draws.
+              '--atlas-top-credit-offset': `${ATLAS_TOP_CREDIT_OFFSET_PX}px`,
+            } as React.CSSProperties)
+          : { width, height }
+      }
     >
       {/* Space backdrop: starfield + atmosphere halo behind the transparent
           map canvas (the earth sphere itself is opaque and covers them). */}
@@ -1205,8 +1220,9 @@ export default function GlobeCanvas({
         style={{ display: 'none' }}
       />
       {/* City-view status row: the optional back-to-globe control, then the
-          status chip (PSY-1539), top-left of the map pane. A top-left
-          attribution control sits below this row (offset in globals.css).
+          status chip (PSY-1539), top-left of the map pane. Its geometry (the
+          top-4 inset and the size-9 control) is what ATLAS_TOP_CREDIT_OFFSET_PX
+          adds up; a top-left attribution control sits below the row.
           The live region is the always-rendered WRAPPER, not the pill: a
           region that appears at the same moment its text does may never be
           tracked, so the announcement is lost. The pill inside is what

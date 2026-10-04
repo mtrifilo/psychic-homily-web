@@ -102,9 +102,11 @@ interface VenuePanelProps {
  * mirrored here verbatim. If a third such panel appears, promote the
  * three-region variant into the shell rather than copying this again.
  *
- * It floats over the map's RIGHT edge and stops short of the bottom
- * (CITY_VENUE_PANEL_BOTTOM_INSET_PX) so it can never cover the map's
+ * As a panel it floats over the map's RIGHT edge and stops short of the
+ * bottom (CITY_VENUE_PANEL_BOTTOM_INSET_PX) so it can never cover the map's
  * bottom-left OpenStreetMap attribution, which the ODbL requires stay visible.
+ * As a sheet (narrow panes) the credit is top-left and the sheet stops below
+ * it (ATLAS_SHEET_TOP_INSET_PX).
  */
 export function VenuePanel({
   venue,
@@ -123,8 +125,9 @@ export function VenuePanel({
   // through every REMAINING venue in the city before reaching the panel their
   // keystroke just opened.
   //
-  // Mount-only. AtlasGlobe keys the panel on the venue id, so switching
-  // venues remounts and re-runs this once per panel, never mid-life.
+  // Mount-only. AtlasGlobe keys the panel on the venue id and the
+  // presentation, so switching venues or layouts remounts and re-runs this
+  // once per panel, never mid-life.
   useEffect(() => {
     const section = sectionRef.current
     const opener = document.activeElement

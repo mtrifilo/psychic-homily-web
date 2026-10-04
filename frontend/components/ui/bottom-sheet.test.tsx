@@ -9,6 +9,7 @@ import {
   BottomSheet,
   bottomSheetHeightCss,
   bottomSheetHeightPx,
+  nextGrabberDetent,
   settleBottomSheetDetent,
   type BottomSheetDetent,
 } from './bottom-sheet'
@@ -59,6 +60,22 @@ describe('settleBottomSheetDetent', () => {
     // Past the last detent in the fling direction: the end detent.
     expect(settle(HOST - INSET, 2)).toBe('full')
     expect(settle(120, -2)).toBe('peek')
+  })
+})
+
+describe('nextGrabberDetent', () => {
+  it('steps up through detents and wraps from the tallest to Peek', () => {
+    expect(nextGrabberDetent('peek', HOST, INSET)).toBe('half')
+    expect(nextGrabberDetent('half', HOST, INSET)).toBe('full')
+    expect(nextGrabberDetent('full', HOST, INSET)).toBe('peek')
+  })
+  it('skips a detent the host caps to the same height', () => {
+    // A 400px host leaves 288px: Half and Full both render at 288.
+    expect(nextGrabberDetent('half', 400, INSET)).toBe('peek')
+    expect(nextGrabberDetent('peek', 400, INSET)).toBe('half')
+  })
+  it('walks the plain order on an unmeasured host', () => {
+    expect(nextGrabberDetent('half', 0, INSET)).toBe('full')
   })
 })
 
@@ -241,6 +258,84 @@ describe('BottomSheet', () => {
     fireEvent.pointerDown(close, { pointerId: 1, clientY: 600, button: 0, pointerType: 'touch' })
     fireEvent.pointerMove(close, { pointerId: 1, clientY: 300, pointerType: 'touch' })
     expect(sheet).not.toHaveAttribute('data-dragging')
+  })
+
+  it('ignores the click a drag released over the grabber ends in', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const grabber = screen.getByRole('button', { name: 'Expand Chicago, IL scene' })
+    fireEvent.pointerDown(grabber, { pointerId: 1, clientY: 600, button: 0, pointerType: 'touch' })
+    fireEvent.pointerMove(grabber, { pointerId: 1, clientY: 590, pointerType: 'touch' })
+    fireEvent.pointerUp(grabber, { pointerId: 1, clientY: 590, pointerType: 'touch' })
+    // Whatever the drag settled on, the click that trails it changes nothing.
+    const settled = sheet.getAttribute('data-detent')
+    fireEvent.click(grabber)
+    expect(sheet).toHaveAttribute('data-detent', settled!)
+  })
+
+  it('drops a cancelled drag and keeps the detent', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} defaultDetent="half" />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 400)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400, button: 0, pointerType: 'touch' })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 200, pointerType: 'touch' })
+    expect(sheet).toHaveAttribute('data-dragging', 'true')
+    fireEvent.pointerCancel(handle, { pointerId: 1, pointerType: 'touch' })
+    expect(sheet).not.toHaveAttribute('data-dragging')
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('')
+    expect(sheet).toHaveAttribute('data-detent', 'half')
+  })
+
+  it('leaves Escape typed into a field to the field', () => {
+    const onClose = vi.fn()
+    renderWithProviders(
+      <div style={{ position: 'relative' }}>
+        <BottomSheet title="T" label="list" onClose={onClose}>
+          <select aria-label="Genre">
+            <option>All</option>
+          </select>
+        </BottomSheet>
+      </div>,
+    )
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Genre' }), { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('gives the grabber at least a 24px-tall target', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    expect(
+      screen.getByRole('button', { name: 'Expand Chicago, IL scene' }).className,
+    ).toContain('h-6')
+  })
+
+  it('ignores a second pointer while a drag is live', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, pointerType: 'touch' })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
+    fireEvent.pointerDown(handle, { pointerId: 2, clientY: 500, button: 0, pointerType: 'touch' })
+    fireEvent.pointerUp(handle, { pointerId: 2, clientY: 500, pointerType: 'touch' })
+    // The first finger still owns the drag and its release settles it.
+    expect(sheet).toHaveAttribute('data-dragging', 'true')
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
+    expect(sheet).not.toHaveAttribute('data-dragging')
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('')
+  })
+
+  it('treats a buttonless mouse move as a hover, never a drag', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    // Pressed here, released elsewhere: no pointerup reaches the handle.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, buttons: 1, pointerType: 'mouse' })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 300, buttons: 0, pointerType: 'mouse' })
+    expect(sheet).not.toHaveAttribute('data-dragging')
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('')
   })
 
   it('honours a controlled detent', async () => {

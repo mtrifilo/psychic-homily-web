@@ -77,8 +77,8 @@ export interface CameraSettle {
 }
 
 /**
- * One counted marker for venues that pin at the same point, drawn in place of
- * their individual pins. A view model like VenuePin: positioned and worded by
+ * One counted marker for venues that pin at the same point, drawn over their
+ * individual pins. A view model like VenuePin: positioned and worded by
  * the caller.
  */
 export interface VenueStackMarker {
