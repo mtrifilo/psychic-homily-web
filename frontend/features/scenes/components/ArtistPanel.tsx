@@ -211,7 +211,10 @@ export function ArtistPanel({
       ref={backRef}
       type="button"
       onClick={onBack}
-      className="-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      // A 24px-tall target in the touch layout.
+      className={`-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring${
+        isSheet ? ' min-h-6' : ''
+      }`}
     >
       <ChevronLeft className="h-3 w-3 shrink-0" aria-hidden="true" />
       <span className="truncate">{backLabel}</span>
@@ -326,7 +329,10 @@ export function ArtistPanel({
       // landed — the panel replaced a navigation, so it must never strand
       // the user pathless while a fetch is in flight or after it failed.
       href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
-      className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      // A 24px-tall target in the touch layout.
+      className={`${
+        isSheet ? 'inline-flex min-h-6 items-center ' : ''
+      }font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
     >
       Open artist page →
     </Link>

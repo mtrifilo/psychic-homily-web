@@ -73,6 +73,14 @@ describe('AtlasSearch (PSY-1310)', () => {
     expect(options[2]).toHaveTextContent('Faketown, ZZ')
   })
 
+  it('sets the field in 16px text under a coarse pointer, 14px otherwise', () => {
+    openSearch()
+    expect(screen.getByPlaceholderText('City or state…')).toHaveClass(
+      'text-sm',
+      'pointer-coarse:text-base',
+    )
+  })
+
   it('filters as the user types', () => {
     openSearch()
     fireEvent.change(screen.getByPlaceholderText('City or state…'), {

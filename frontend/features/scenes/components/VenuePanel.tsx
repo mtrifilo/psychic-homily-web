@@ -375,16 +375,20 @@ export function VenuePanel({
       <FieldNotesTeaser venue={venue} />
     </>
   )
+  const isSheet = presentation === 'sheet'
   const venuePageLink = (
     <Link
       href={venueHref}
-      className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      // A 24px-tall target in the touch layout.
+      className={`${
+        isSheet ? 'inline-flex min-h-6 items-center ' : ''
+      }font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
     >
       Open venue page →
     </Link>
   )
 
-  if (presentation === 'sheet') {
+  if (isSheet) {
     return (
       <BottomSheet
         ref={sectionRef}

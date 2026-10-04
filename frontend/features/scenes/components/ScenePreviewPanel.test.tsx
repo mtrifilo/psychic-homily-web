@@ -506,6 +506,28 @@ describe('ScenePreviewPanel as a bottom sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('gives every link in the preview body a target at least 24px tall', () => {
+    mockUseSceneArtists.mockReturnValue({
+      data: { artists: [{ id: 1, slug: 'band-a', name: 'Band A' }], total: 1 },
+      isLoading: false,
+    })
+    mockUseSceneShows.mockReturnValue({
+      data: {
+        shows: [{ id: 42, slug: 'big-show', title: 'Big Show', event_date: '2026-07-04' }],
+      },
+      isLoading: false,
+    })
+    renderWithProviders(
+      <ScenePreviewPanel scene={scene} onClose={() => {}} presentation="sheet" />,
+    )
+    // The show link is inline in its row: 4px of padding on each side of the
+    // 14px text's inline box (about 16.5px) clears 24px without moving the line.
+    expect(screen.getByRole('link', { name: 'Big Show' })).toHaveClass('py-1')
+    // 20px line height plus 2px of padding on each side.
+    expect(screen.getByRole('link', { name: 'Band A' })).toHaveClass('py-0.5', 'text-sm')
+    expect(screen.getByRole('link', { name: /open scene/i })).toHaveClass('min-h-6')
+  })
+
   it('stays a side panel by default', () => {
     renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
     expect(

@@ -178,6 +178,8 @@ vi.mock('./atlasMapPreload', () => ({
 import { AtlasGlobe } from './AtlasGlobe'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { CITY_VIEW_MIN_ZOOM } from '../cityView'
+import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { altitudeForZoom } from './globeScale'
 
 // ResizeObserver shim to drive the container width (same pattern as
@@ -544,6 +546,81 @@ describe('AtlasGlobe', () => {
       expect(
         screen.getByRole('complementary', { name: /Chicago, IL scene/ }),
       ).toBeInTheDocument()
+    })
+  })
+
+  describe('genre legend and Drift', () => {
+    let matchMedia: ReturnType<typeof installMatchMedia>
+    beforeEach(() => {
+      mockUseScenes.mockReturnValue({
+        data: sampleData,
+        isLoading: false,
+        isError: false,
+      })
+    })
+    afterEach(() => matchMedia.restore())
+
+    const legendToggle = () => screen.getByRole('button', { name: 'Genres' })
+
+    it('starts collapsed on a compact viewport, in one row with Drift', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      const drift = screen.getByRole('button', { name: /drift to a random scene/i })
+      // Below `lg` the row places both; from `lg` it is display: contents and
+      // each child carries its own lg: position.
+      const row = drift.parentElement!
+      expect(row).toContainElement(legendToggle())
+      expect(row).toHaveClass('absolute', 'bottom-4', 'left-4', 'flex', 'lg:contents')
+      expect(drift).toHaveClass('lg:absolute', 'lg:left-1/2', 'lg:-translate-x-1/2')
+      expect(drift).not.toHaveClass('left-1/2')
+    })
+
+    it('starts open on a wide viewport, docked bottom-right from lg', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'true')
+      expect(legendToggle().parentElement).toHaveClass(
+        'lg:absolute',
+        'lg:bottom-4',
+        'lg:right-4',
+      )
+    })
+
+    it('follows the viewport until toggled, then keeps the user’s choice', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+
+      // Widening past lg before any toggle opens it.
+      matchMedia.set(ATLAS_COMPACT_VIEWPORT_QUERY, false)
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'true')
+
+      // A toggle is the user's choice and survives crossing back.
+      fireEvent.click(legendToggle())
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      matchMedia.set(ATLAS_COMPACT_VIEWPORT_QUERY, true)
+      matchMedia.set(ATLAS_COMPACT_VIEWPORT_QUERY, false)
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('keeps a collapse the user chose across a scene preview', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      fireEvent.click(legendToggle())
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
+      expect(screen.queryByRole('button', { name: 'Genres' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /close scene preview/i }))
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
     })
   })
 

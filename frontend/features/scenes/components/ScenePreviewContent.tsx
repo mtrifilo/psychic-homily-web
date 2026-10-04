@@ -124,9 +124,12 @@ export function ScenePreviewContent({
                 <span className="font-mono text-xs text-muted-foreground">
                   {formatShowDate(show.event_date)}
                 </span>{' '}
+                {/* Inline in a run of text, so the vertical padding grows
+                    the tap target to 24px without moving the line; the
+                    list's gap keeps one row's target off the next. */}
                 <Link
                   href={`/shows/${show.slug || show.id}`}
-                  className="underline-offset-4 hover:underline"
+                  className="py-1 underline-offset-4 hover:underline"
                 >
                   {sceneShowRowTitle(show)}
                 </Link>
@@ -158,7 +161,7 @@ export function ScenePreviewContent({
                 </span>
                 <Link
                   href={`/artists/${a.slug}`}
-                  className="text-sm underline-offset-4 hover:underline"
+                  className="py-0.5 text-sm underline-offset-4 hover:underline"
                 >
                   {a.name}
                 </Link>
@@ -187,7 +190,7 @@ export function ScenePreviewContent({
           (the desktop panel's flex-1); in a natural-height host it's inert. */}
       <Link
         href={`/scenes/${scene.slug}`}
-        className="mt-auto inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        className="mt-auto inline-flex min-h-6 items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
       >
         Open scene →
       </Link>

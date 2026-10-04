@@ -11,9 +11,14 @@
  * open, so local state would reset the collapse on every preview open/close cycle.
  * Swatches use the same PSY-1083 `--chart-N` tokens as the dots (via
  * clusterColorCSS), so they track the theme with no JS.
+ *
+ * Below `lg` it is a content-width chip (14px label, 36px tall) and the
+ * caller places it in flow; from `lg` it is the fixed-width key and the caller
+ * positions it with `className`.
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { clusterColorCSS } from '@/components/graph/graphPalette'
 import { GENRE_FAMILIES } from '../genreFamilies'
 import { DOT_COLOR_BASE } from './globeScale'
@@ -21,17 +26,24 @@ import { DOT_COLOR_BASE } from './globeScale'
 interface GenreLegendProps {
   open: boolean
   onToggle: () => void
+  /** Placement from the caller (the key positions nothing itself). */
+  className?: string
 }
 
-export function GenreLegend({ open, onToggle }: GenreLegendProps) {
+export function GenreLegend({ open, onToggle, className }: GenreLegendProps) {
   return (
-    <div className="absolute bottom-4 right-4 z-10 w-44 rounded-lg border border-border bg-background/90 text-xs backdrop-blur">
+    <div
+      className={cn(
+        'rounded border border-border bg-background/90 text-xs backdrop-blur lg:w-44 lg:rounded-lg',
+        className,
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
         aria-controls="atlas-genre-legend"
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 font-medium text-foreground/90 transition-colors hover:text-primary"
+        className="flex min-h-9 w-full items-center justify-between gap-2 px-2.5 text-sm text-foreground/90 transition-colors hover:text-primary lg:min-h-0 lg:px-3 lg:py-1.5 lg:text-xs lg:font-medium"
       >
         <span>Genres</span>
         {open ? (

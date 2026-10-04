@@ -68,6 +68,7 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { useAtlasCompactViewport } from '../atlasViewport'
 
 const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
@@ -174,8 +175,16 @@ export function AtlasGlobe() {
   const closePreview = useCallback(() => setSelected(null), [])
   // Owned here (not in GenreLegend) so a user's collapse survives opening/closing a
   // scene preview, which unmounts the legend (PSY-1315 adversarial review).
-  const [legendOpen, setLegendOpen] = useState(true)
-  const toggleLegend = useCallback(() => setLegendOpen((o) => !o), [])
+  // null until the user toggles it: until then the legend follows the
+  // viewport, collapsed on a compact one and open on a wide one. A toggle is
+  // the user's choice and holds across a later viewport change.
+  const compactViewport = useAtlasCompactViewport()
+  const [legendOpenChoice, setLegendOpenChoice] = useState<boolean | null>(null)
+  const legendOpen = legendOpenChoice ?? !compactViewport
+  const toggleLegend = useCallback(
+    () => setLegendOpenChoice(!legendOpen),
+    [legendOpen],
+  )
 
   // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
@@ -792,14 +801,29 @@ export function AtlasGlobe() {
           )}
           {globeChromeVisible && (
             <>
-              <button
-                type="button"
-                onClick={handleDrift}
-                aria-label="Drift to a random scene"
-                className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary"
-              >
-                Drift
-              </button>
+              {/* Below `lg` Drift and the genre key share one row at the
+                  bottom-left, the key bottom-aligned so it opens upward;
+                  from `lg` the row dissolves (display: contents) and each
+                  takes its own place, Drift centred and the key
+                  bottom-right. The genre key is hidden while a preview is
+                  open: you're reading one scene, not scanning. */}
+              <div className="absolute bottom-4 left-4 z-10 flex items-end gap-5 lg:contents">
+                <button
+                  type="button"
+                  onClick={handleDrift}
+                  aria-label="Drift to a random scene"
+                  className="shrink-0 rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary lg:absolute lg:bottom-4 lg:left-1/2 lg:z-10 lg:-translate-x-1/2"
+                >
+                  Drift
+                </button>
+                {!selected && (
+                  <GenreLegend
+                    open={legendOpen}
+                    onToggle={toggleLegend}
+                    className="lg:absolute lg:bottom-4 lg:right-4 lg:z-10"
+                  />
+                )}
+              </div>
               <AtlasSearch
                 scenes={allScenes}
                 onPick={handleSearchPick}
@@ -811,11 +835,6 @@ export function AtlasGlobe() {
                 onPick={handleSearchPick}
                 belowTopCredit={sheetLayout}
               />
-              {/* Genre color key (PSY-1315). Hidden while a preview is open — that
-                  docks the right edge, and you're reading one scene, not scanning. */}
-              {!selected && (
-                <GenreLegend open={legendOpen} onToggle={toggleLegend} />
-              )}
               {unplaceableCount > 0 && (
                 <Link
                   href="/scenes"
