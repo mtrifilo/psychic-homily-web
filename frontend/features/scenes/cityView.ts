@@ -209,12 +209,17 @@ export function resolveAtlasCityPov(
 // worth naming, and a wider radius would silently hide real venues.
 export const VENUE_LABEL_DECLUTTER_KM = 0.2
 
-/** The subset of pins that keeps a name label. Busier venue wins a collision. */
+/**
+ * The subset of pins that keeps a name label. Busier venue wins a collision.
+ * `labelledPoints` are positions already carrying a label of their own (a
+ * stack marker's); a pin within the radius of one loses its name label too.
+ */
 export function labelledVenuePinIds(
   pins: readonly VenuePin[],
   radiusKm: number = VENUE_LABEL_DECLUTTER_KM,
+  labelledPoints: readonly { lng: number; lat: number }[] = [],
 ): ReadonlySet<number> {
-  const kept: VenuePin[] = []
+  const kept: { id?: number; lng: number; lat: number }[] = [...labelledPoints]
   // Busiest first, so the venue a traveller most wants named is the one that
   // survives a pile-up at the centroid.
   const byActivity = [...pins].sort(
@@ -226,7 +231,9 @@ export function labelledVenuePinIds(
     )
     if (!collides) kept.push(pin)
   }
-  return new Set(kept.map((p) => p.id))
+  const ids = new Set<number>()
+  for (const k of kept) if (k.id !== undefined) ids.add(k.id)
+  return ids
 }
 
 // ── Metro members (PSY-1574) ──────────────────────────────────────────────

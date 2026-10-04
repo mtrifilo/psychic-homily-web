@@ -385,7 +385,12 @@ export function BottomSheet({
         </div>
         <div
           data-testid="bottom-sheet-body"
-          className={cn('min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-1', bodyClassName)}
+          // overscroll-contain: reaching the end of the body never chains the
+          // scroll to the page behind the sheet.
+          className={cn(
+            'min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-1',
+            bodyClassName,
+          )}
         >
           {children}
         </div>

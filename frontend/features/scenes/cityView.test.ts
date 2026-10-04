@@ -1089,3 +1089,23 @@ describe('venueSheetPeekLine', () => {
     ).toBe('2 in view · 5 share 2 city centre points')
   })
 })
+
+describe('labelledVenuePinIds with labelled points', () => {
+  const pin = (id: number, lat: number, lng: number): VenuePin => ({
+    id,
+    name: `v${id}`,
+    lat,
+    lng,
+    upcomingShowCount: 1,
+    nextShowLabel: '',
+  })
+  it('drops a pin label that would sit on a stack marker label', () => {
+    const near = pin(1, 33.4489, -112.073) // ~110 m from the point
+    const far = pin(2, 33.4943, -112.0326)
+    const ids = labelledVenuePinIds([near, far], undefined, [
+      { lat: 33.44838, lng: -112.07404 },
+    ])
+    expect([...ids]).toEqual([2])
+  })
+})
+

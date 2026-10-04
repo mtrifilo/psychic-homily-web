@@ -33,7 +33,11 @@ import {
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
-import { CITY_VIEW_MIN_ZOOM, labelledVenuePinIds } from '../cityView'
+import {
+  CITY_VIEW_MIN_ZOOM,
+  VENUE_LABEL_DECLUTTER_KM,
+  labelledVenuePinIds,
+} from '../cityView'
 import {
   DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
@@ -412,11 +416,16 @@ export default function GlobeCanvas({
   // Venue name labels, as DOM markers for the same reasons the scene labels
   // are: app font, no glyph-server dependency. Anchored below the pin so the
   // name never covers the mark it belongs to.
-  // A stacked pin is named by its stack marker, not by one member's label.
+  // A stacked pin is named by its stack marker, not by one member's label, and
+  // the marker's label claims its point in the declutter.
   const labelledVenueIds = useMemo(() => {
     if (venueStacks.length === 0) return labelledVenuePinIds(venues)
     const stacked = new Set(venueStacks.flatMap((s) => s.venueIds))
-    return labelledVenuePinIds(venues.filter((v) => !stacked.has(v.id)))
+    return labelledVenuePinIds(
+      venues.filter((v) => !stacked.has(v.id)),
+      VENUE_LABEL_DECLUTTER_KM,
+      venueStacks,
+    )
   }, [venues, venueStacks])
   useEffect(() => {
     if (!mapReady || venues.length === 0) return
