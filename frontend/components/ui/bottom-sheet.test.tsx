@@ -112,17 +112,24 @@ function Harness({
 /** A touch pointer event with an explicit timestamp (jsdom's is the wall clock). */
 function pointer(
   type: string,
-  init: { clientY: number; timeStamp: number; button?: number },
+  init: {
+    clientY: number
+    timeStamp: number
+    button?: number
+    buttons?: number
+    pointerType?: string
+  },
 ): Event {
   const event = new MouseEvent(type, {
     bubbles: true,
     cancelable: true,
     clientY: init.clientY,
     button: init.button ?? 0,
+    buttons: init.buttons ?? 0,
   })
   Object.defineProperties(event, {
     pointerId: { value: 1 },
-    pointerType: { value: 'touch' },
+    pointerType: { value: init.pointerType ?? 'touch' },
     timeStamp: { value: init.timeStamp },
   })
   return event
@@ -350,12 +357,13 @@ describe('BottomSheet', () => {
     stubGeometry(sheet, 120)
     const handle = screen.getByTestId('bottom-sheet-handle')
     const outside = screen.getByRole('button', { name: 'Map control' })
-    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, buttons: 1, pointerType: 'mouse' })
+    const mouse = { pointerType: 'mouse', buttons: 1 }
+    fireEvent(handle, pointer('pointerdown', { clientY: 600, timeStamp: 1000, ...mouse }))
     // Every move after the press lands outside the handle, as a mouse's does.
-    fireEvent.pointerMove(outside, { pointerId: 1, clientY: 450, buttons: 1, pointerType: 'mouse' })
-    fireEvent.pointerMove(outside, { pointerId: 1, clientY: 320, buttons: 1, pointerType: 'mouse' })
+    fireEvent(outside, pointer('pointermove', { clientY: 450, timeStamp: 1100, ...mouse }))
+    fireEvent(outside, pointer('pointermove', { clientY: 320, timeStamp: 1200, ...mouse }))
     expect(sheet).toHaveAttribute('data-dragging', 'true')
-    fireEvent.pointerUp(outside, { pointerId: 1, clientY: 320, button: 0, pointerType: 'mouse' })
+    fireEvent(outside, pointer('pointerup', { clientY: 320, timeStamp: 1400, pointerType: 'mouse' }))
     expect(sheet).not.toHaveAttribute('data-dragging')
     expect(sheet).toHaveAttribute('data-detent', 'half')
   })
@@ -443,6 +451,38 @@ describe('BottomSheet', () => {
     } finally {
       window.ResizeObserver = Original
     }
+  })
+
+  it('resets a drag cut short by unmounting, listeners included', () => {
+    const removed = vi.spyOn(window, 'removeEventListener')
+    const { unmount } = renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, pointerType: 'touch' })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
+    unmount()
+    const types = removed.mock.calls.map((c) => c[0])
+    expect(types).toEqual(
+      expect.arrayContaining(['pointermove', 'pointerup', 'pointercancel', 'selectstart']),
+    )
+    removed.mockRestore()
+  })
+
+  it('blocks text selection only while a drag is tracked', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    const select = () => {
+      const ev = new Event('selectstart', { bubbles: true, cancelable: true })
+      document.body.dispatchEvent(ev)
+      return ev.defaultPrevented
+    }
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, pointerType: 'mouse', buttons: 1 })
+    expect(select()).toBe(true)
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 600, button: 0, pointerType: 'mouse' })
+    expect(select()).toBe(false)
   })
 
   it('honours a controlled detent', async () => {

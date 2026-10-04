@@ -282,7 +282,23 @@ export function BottomSheet({
   // once, and window listeners need no pointer capture (whose transfer from a
   // touched child to the handle fires a bubbling lostpointercapture).
   const stopTrackingRef = useRef<(() => void) | null>(null)
-  useEffect(() => () => stopTrackingRef.current?.(), [])
+  // The window handlers outlive the render that registered them, so they read
+  // the latest settle inputs through this ref.
+  const latestRef = useRef({ setDetent, topInsetPx })
+  useEffect(() => {
+    latestRef.current = { setDetent, topInsetPx }
+  })
+  // Hiding (a route kept in an Activity) runs this cleanup but keeps refs and
+  // state, so a drag cut short here is reset completely, not just unhooked.
+  useEffect(() => {
+    const sheet = sheetRef.current
+    return () => {
+      stopTrackingRef.current?.()
+      dragRef.current = null
+      sheet?.style.removeProperty(DRAG_HEIGHT_VAR)
+      setDragging(false)
+    }
+  }, [])
 
   const endDrag = () => {
     stopTrackingRef.current?.()
@@ -291,8 +307,9 @@ export function BottomSheet({
   }
 
   const clampDragHeight = (drag: DragState, clientY: number) => {
-    const min = bottomSheetHeightPx('peek', drag.hostHeight, topInsetPx)
-    const max = bottomSheetHeightPx('full', drag.hostHeight, topInsetPx)
+    const inset = latestRef.current.topInsetPx
+    const min = bottomSheetHeightPx('peek', drag.hostHeight, inset)
+    const max = bottomSheetHeightPx('full', drag.hostHeight, inset)
     return Math.min(max, Math.max(min, drag.startHeight - (clientY - drag.startY)))
   }
 
@@ -326,13 +343,14 @@ export function BottomSheet({
     endDrag()
     if (!drag.active) return
     lastDragEndRef.current = e.timeStamp
-    setDetent(
+    const latest = latestRef.current
+    latest.setDetent(
       settleBottomSheetDetent({
         heightPx: clampDragHeight(drag, e.clientY),
         velocityPxPerMs:
           e.timeStamp - drag.lastTime > BOTTOM_SHEET_FLING_HOLD_MS ? 0 : drag.velocity,
         hostHeightPx: drag.hostHeight,
-        topInsetPx,
+        topInsetPx: latest.topInsetPx,
       }),
     )
   }
@@ -358,13 +376,17 @@ export function BottomSheet({
       velocity: 0,
       active: false,
     }
+    // A mouse drag that crosses into the body must not select its text.
+    const preventSelection = (ev: Event) => ev.preventDefault()
     window.addEventListener('pointermove', handleDragMove)
     window.addEventListener('pointerup', handleDragEnd)
     window.addEventListener('pointercancel', handleDragCancel)
+    window.addEventListener('selectstart', preventSelection)
     stopTrackingRef.current = () => {
       window.removeEventListener('pointermove', handleDragMove)
       window.removeEventListener('pointerup', handleDragEnd)
       window.removeEventListener('pointercancel', handleDragCancel)
+      window.removeEventListener('selectstart', preventSelection)
       stopTrackingRef.current = null
     }
   }
