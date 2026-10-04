@@ -1718,19 +1718,28 @@ describe("backfillShowTimes", () => {
 
 describe("planVenueAddress", () => {
   const here = { city: "Chicago", state: "IL" };
-  const there = { city: "chicago", state: "IL" };
+  const there = { city: "chicago", state: "IL", exactName: true };
 
   test("never writes a same-named venue in another city or state", () => {
-    const other = planVenueAddress("2424 N Lincoln Ave", here, { verified: true, address: "", city: "Nashville", state: "TN" });
+    const other = planVenueAddress("2424 N Lincoln Ave", here, { verified: true, address: "", city: "Nashville", state: "TN", exactName: true });
     expect(other.addressFill).toBeUndefined();
     expect(other.addressNote).toContain("Nashville");
-    const sameCityOtherState = planVenueAddress("1 Main St", { city: "Portland", state: "OR" }, { verified: true, address: "", city: "Portland", state: "ME" });
+    const sameCityOtherState = planVenueAddress("1 Main St", { city: "Portland", state: "OR" }, { verified: true, address: "", city: "Portland", state: "ME", exactName: true });
     expect(sameCityOtherState.addressFill).toBeUndefined();
   });
 
+  test("never writes on a fuzzy venue match or a value that is not a street line", () => {
+    expect(planVenueAddress("1 Main St", here, { verified: true, address: "", city: "Chicago", exactName: false }).addressFill).toBeUndefined();
+    for (const junk of ["TBA", "DM for address", "Downtown Phoenix", "P.O. Box 12"]) {
+      const plan = planVenueAddress(junk, here, { verified: true, address: "", ...there });
+      expect(plan.addressFill).toBeUndefined();
+      expect(plan.addressNote).toContain("not a street line");
+    }
+  });
+
   test("folds abbreviations and accents when comparing cities", () => {
-    expect(planVenueAddress("1 Main St", { city: "St. Paul", state: "MN" }, { verified: true, address: "", city: "Saint Paul", state: "MN" }).addressFill).toBe("1 Main St");
-    expect(planVenueAddress("1 Rue X", { city: "Montreal" }, { verified: true, address: "", city: "Montréal", state: "QC" }).addressFill).toBe("1 Rue X");
+    expect(planVenueAddress("1 Main St", { city: "St. Paul", state: "MN" }, { verified: true, address: "", city: "Saint Paul", state: "MN", exactName: true }).addressFill).toBe("1 Main St");
+    expect(planVenueAddress("1 Rue X", { city: "Montreal" }, { verified: true, address: "", city: "Montréal", state: "QC", exactName: true }).addressFill).toBe("1 Rue X");
   });
 
   test("fills a verified venue whose address is empty", () => {
@@ -1772,16 +1781,13 @@ describe("venueAddressFills", () => {
     };
   }
 
-  test("one fill per venue; a different address for the same venue is a conflict", () => {
-    const { fills, conflicts } = venueAddressFills([
-      planFor(2, "2424 N Lincoln Ave"),
-      planFor(2, "2424 N Lincoln Ave"),
-      planFor(2, "9 Other St"),
-      planFor(3),
-    ]);
-    expect(fills).toEqual([{ venueId: 2, venueName: "Lincoln Hall", address: "2424 N Lincoln Ave" }]);
-    expect(conflicts).toHaveLength(1);
-    expect(conflicts[0]).toContain("9 Other St");
+  test("one fill per venue; disagreeing addresses for one venue fill nothing", () => {
+    const agreed = venueAddressFills([planFor(2, "2424 N Lincoln Ave"), planFor(2, "2424 N Lincoln Ave"), planFor(3)]);
+    expect(agreed.fills).toEqual([{ venueId: 2, venueName: "Lincoln Hall", address: "2424 N Lincoln Ave" }]);
+    const disputed = venueAddressFills([planFor(2, "2424 N Lincoln Ave"), planFor(2, "9 Other St")]);
+    expect(disputed.fills).toHaveLength(0);
+    expect(disputed.conflicts).toHaveLength(1);
+    expect(disputed.conflicts[0]).toContain("9 Other St");
   });
 });
 

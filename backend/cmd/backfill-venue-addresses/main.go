@@ -1,44 +1,56 @@
-// Command backfill-venue-addresses gives venues with an empty address one, in
-// two phases, so the street-geocode columns can place them off their city
-// centroid:
+// Command backfill-venue-addresses gives venues with an empty address one, so
+// the street-geocode columns can place them off their city centroid. It works
+// in two steps, and only the second writes.
 //
-//  1. page: the venue's website, its registered ingest source page, then up to
-//     two upcoming-show ticket pages (distinct hosts). Instagram and other
-//     login-walled hosts are never fetched. A schema.org address on the page
-//     is read directly; otherwise the AI extraction path reads the page text
-//     (needs ANTHROPIC_API_KEY; without it only schema.org addresses count).
-//     A hit is geocoded with the same structured Nominatim search the
-//     street-geocode sweep uses.
+// Step 1, look up (the default; writes nothing). For each selected venue:
+//
+//  1. page: the venue's website, its registered ingest source page, then
+//     upcoming-show ticket pages (up to four vendors, at most two read; only
+//     shows an admin, a trusted-tier user, or the discovery import created).
+//     Instagram and other login-walled hosts are never fetched. A schema.org
+//     address is read directly; otherwise the AI extraction path reads the
+//     page text (ANTHROPIC_API_KEY; without it only schema.org addresses
+//     count, and the lookup keys say so). Ticket pages are read only through
+//     schema.org data naming the venue and its city. A hit is geocoded with
+//     the structured Nominatim search the street-geocode sweep uses.
 //  2. name: for a venue still without an address, a Nominatim search for
 //     "<name>, <city>, <state>" in the venue's country. A venue-like place or
-//     building whose name and city match supplies the address and the street
-//     point, stored with geocode_precision = name_search.
+//     building whose name and city match supplies the address and the point,
+//     stored with geocode_precision = name_search.
+//
+// The report (--report <path>, written as <path>.md and <path>.json) lists
+// every phase attempted. Rows that need a person's judgement are marked
+// REVIEW: a partial name match, a building rather than a venue-like place, or
+// a name match for a venue whose own pages failed to load.
+//
+// Step 2, apply (--confirm --approved <report.json>). Review the JSON report:
+// set approve_review to true on each REVIEW row you accept, and set
+// would_write to false (or delete the row) for any row you refuse. The apply
+// step makes no lookups; it writes the approved rows exactly as reviewed and
+// records the report's misses, so the next lookup run skips them. It skips a
+// row whose venue gained an address, had its address cleared, or changed its
+// name, city, website, or pages since the report.
 //
 // A non-empty address is never overwritten, and the city-centroid
-// latitude/longitude columns are never touched. Misses are recorded per phase
-// so a re-run skips them until the venue's inputs change.
-//
-// A live run writes only what a person approved. With --approved <report.json>
-// (a dry run's JSON report, after review) it considers only the listed venues
-// and writes a row only when a fresh lookup finds the same address in the
-// same phase; delete a row, or set its would_write to false, to refuse it.
-// Without --approved it writes only rows the report did not mark REVIEW.
+// latitude/longitude columns are never touched.
 //
 // Usage:
 //
-//	go run ./cmd/backfill-venue-addresses                          # dry run (default)
 //	go run ./cmd/backfill-venue-addresses --only-upcoming --limit 100 --report /tmp/addr
-//	go run ./cmd/backfill-venue-addresses --city Milwaukee
-//	go run ./cmd/backfill-venue-addresses --confirm --approved /tmp/addr.json  # apply the reviewed rows
-//	go run ./cmd/backfill-venue-addresses --env .env.stage         # target a specific env
+//	go run ./cmd/backfill-venue-addresses --city Milwaukee --report /tmp/mke
+//	go run ./cmd/backfill-venue-addresses --confirm --approved /tmp/addr.json
+//	go run ./cmd/backfill-venue-addresses --env .env.stage --report /tmp/addr
 //
-// A dry run makes the SAME page fetches, AI calls, and Nominatim requests as a
-// live run; it writes nothing. Nominatim requests are limited to one per
-// second (NOMINATIM_BASE_URL and NOMINATIM_CONTACT apply as in
-// geocode-venue-addresses), and the limiter is per process: run this off-hours
-// against the public endpoint, never alongside a live server's venue-write
-// traffic. Page fetches honour robots.txt and space requests to one host by
-// two seconds.
+// The lookup step's Nominatim requests are limited to one per second
+// (NOMINATIM_BASE_URL and NOMINATIM_CONTACT apply as in
+// geocode-venue-addresses), and the limiter is per process, so the lookup
+// should not run against the public endpoint alongside heavy venue-write
+// traffic on a live server sharing the budget. Page fetches honour robots.txt
+// and space requests to one host by two seconds.
+//
+// Exit status: 1 when the apply step had a write error, or when every lookup
+// the run attempted errored; per-venue lookup errors on third-party pages are
+// listed in the report without failing the run.
 package main
 
 import (
@@ -66,23 +78,28 @@ import (
 func main() {
 	var (
 		confirm      bool
+		approvedPath string
 		limit        int
 		onlyUpcoming bool
 		city         string
 		reportPath   string
 		envFile      string
-		approvedPath string
-		noAI         bool
 	)
-	flag.BoolVar(&confirm, "confirm", false, "Apply changes (default: dry run only)")
-	flag.IntVar(&limit, "limit", 0, "Max venues to look up this run (0 = no limit)")
-	flag.BoolVar(&onlyUpcoming, "only-upcoming", false, "Only venues with a show in the next 90 days (they go first either way)")
-	flag.StringVar(&city, "city", "", "Only venues in this city (case-insensitive)")
-	flag.StringVar(&reportPath, "report", "", "Write the report to <path>.md and <path>.json")
+	flag.BoolVar(&confirm, "confirm", false, "Apply a reviewed report (requires --approved); without it the run only looks up")
+	flag.StringVar(&approvedPath, "approved", "", "The reviewed JSON report to apply with --confirm")
+	flag.IntVar(&limit, "limit", 0, "Lookup: max venues to look up this run (0 = no limit)")
+	flag.BoolVar(&onlyUpcoming, "only-upcoming", false, "Lookup: only venues with a show in the next 90 days (they go first either way)")
+	flag.StringVar(&city, "city", "", "Lookup: only venues in this city (case-insensitive)")
+	flag.StringVar(&reportPath, "report", "", "Lookup: write the report to <path>.md and <path>.json")
 	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
-	flag.StringVar(&approvedPath, "approved", "", "A reviewed dry-run JSON report; a live run writes only the rows it lists")
-	flag.BoolVar(&noAI, "no-ai", false, "Allow a live run without ANTHROPIC_API_KEY (pages count only with a schema.org address)")
 	flag.Parse()
+
+	if confirm && approvedPath == "" {
+		log.Fatal("--confirm writes only a reviewed report: run the lookup with --report, review the JSON, then pass it with --approved")
+	}
+	if !confirm && approvedPath != "" {
+		log.Fatal("--approved is applied only with --confirm")
+	}
 
 	loadEnv(envFile)
 	cfg, err := config.Load()
@@ -93,36 +110,29 @@ func main() {
 		log.Fatalf("connect db: %v", err)
 	}
 
-	mode := "DRY RUN"
+	mode := "LOOKUP (writes nothing)"
 	if confirm {
-		mode = "LIVE"
+		mode = "APPLY " + approvedPath
 	}
-	fmt.Printf("=== Venue Address Backfill (%s) ===\n", mode)
+	fmt.Printf("=== Venue Address Backfill: %s ===\n", mode)
 	// The resolved target, credentials redacted, so a mistargeted --confirm is
 	// caught before any write.
-	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
+	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
 
+	if confirm {
+		os.Exit(apply(approvedPath))
+	}
+	os.Exit(lookup(cfg, catalog.VenueAddressBackfillOptions{Limit: limit, OnlyUpcoming: onlyUpcoming, City: city}, reportPath))
+}
+
+func lookup(cfg *config.Config, opts catalog.VenueAddressBackfillOptions, reportPath string) int {
 	var ai venueaddress.AddressExtractor
 	aiEnabled := cfg.Anthropic.APIKey != ""
-	switch {
-	case aiEnabled:
+	if aiEnabled {
 		ai = pipeline.NewExtractionService(nil, cfg, nil, nil)
-	case confirm && !noAI:
-		log.Fatal("ANTHROPIC_API_KEY is empty: a live run would record page misses the AI path never saw. Set the key, or pass --no-ai to accept that.")
-	default:
+	} else {
 		fmt.Println("ANTHROPIC_API_KEY is empty: pages count only when they publish a schema.org address.")
 	}
-
-	var approved map[catalog.VenueAddressApproval]bool
-	if approvedPath != "" {
-		approved, err = loadApprovals(approvedPath)
-		if err != nil {
-			log.Fatalf("read --approved: %v", err)
-		}
-		fmt.Printf("Approved report: %s (%d rows)\n", approvedPath, len(approved))
-	}
-	fmt.Println()
-
 	nominatim := geo.DefaultNominatim()
 	run := &catalog.VenueAddressBackfill{
 		DB:        db.GetDB(),
@@ -131,17 +141,10 @@ func main() {
 		Geocoder:  nominatim,
 		AIEnabled: aiEnabled,
 	}
-	report, runErr := run.Run(context.Background(), catalog.VenueAddressBackfillOptions{
-		DryRun:       !confirm,
-		Limit:        limit,
-		OnlyUpcoming: onlyUpcoming,
-		City:         city,
-		Approved:     approved,
-	})
+	report, runErr := run.Run(context.Background(), opts)
 	if report == nil {
-		log.Fatalf("backfill: %v", runErr)
+		log.Fatalf("lookup: %v", runErr)
 	}
-
 	printSummary(report)
 	if reportPath != "" {
 		if err := writeReport(report, reportPath); err != nil {
@@ -149,18 +152,52 @@ func main() {
 		}
 	}
 	if runErr != nil {
-		log.Fatalf("backfill stopped early: %v", runErr)
+		log.Printf("lookup stopped early: %v", runErr)
+		return 1
 	}
-	if confirm {
-		fmt.Println("LIVE: changes committed.")
-	} else {
-		fmt.Println("DRY RUN: no DB writes. Re-run with --confirm to apply.")
+	attempted := 0
+	for _, t := range report.Phases {
+		attempted += t.Attempted
 	}
-	// Exit non-zero whenever a lookup errored, dry runs included, so a wrapper
-	// cannot mistake a failed run for a clean one.
-	if len(report.Errors) > 0 {
-		os.Exit(1)
+	if attempted > 0 && len(report.Errors) == attempted {
+		log.Print("every lookup this run attempted errored")
+		return 1
 	}
+	return 0
+}
+
+func apply(path string) int {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalf("read --approved: %v", err)
+	}
+	var report catalog.VenueAddressReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		log.Fatalf("%s is not a backfill JSON report: %v", path, err)
+	}
+	run := &catalog.VenueAddressBackfill{DB: db.GetDB()}
+	result, err := run.Apply(context.Background(), &report)
+	if err != nil {
+		log.Fatalf("apply: %v", err)
+	}
+	for _, row := range result.Rows {
+		line := fmt.Sprintf("  [%s] venue %d %q %s", row.Action, row.VenueID, row.Name, row.Phase)
+		if row.Address != "" {
+			line += ": " + row.Address
+		}
+		if row.Reason != "" {
+			line += " (" + row.Reason + ")"
+		}
+		fmt.Println(line)
+	}
+	fmt.Printf("\nWritten: %d   misses recorded: %d   skipped: %d\n", result.Written, result.MissesRecorded, result.Skipped)
+	for _, e := range result.Errors {
+		fmt.Printf("  [ERROR] %s\n", e)
+	}
+	if len(result.Errors) > 0 {
+		return 1
+	}
+	return 0
 }
 
 func printSummary(r *catalog.VenueAddressReport) {
@@ -177,13 +214,13 @@ func printSummary(r *catalog.VenueAddressReport) {
 			row.Phase, row.Outcome, row.VenueID, row.Name, row.City, row.State, detail, row.Source)
 	}
 	fmt.Println("\n=== Summary ===")
-	fmt.Printf("Candidates (no address): %d   processed: %d\n", r.Candidates, r.Processed)
+	fmt.Printf("Candidates (no address): %d   processed: %d   skipped (address cleared): %d\n", r.Candidates, r.Processed, r.SkippedCleared)
 	for _, phase := range []string{"page", "name"} {
 		t := r.Phases[phase]
 		fmt.Printf("  %-5s attempted=%d hits=%d (%.0f%%) misses=%d errors=%d skipped(recorded miss)=%d no-page=%d\n",
 			phase, t.Attempted, t.Hits, 100*t.HitRate(), t.Misses, t.Errors, t.SkippedMemo, t.NoSource)
 	}
-	fmt.Printf("Would write: %d   written: %d\n", r.WouldWrite, r.Written)
+	fmt.Printf("Would write: %d (REVIEW: %d)\n", r.WouldWrite, r.Review)
 	labels := make([]string, 0, len(r.Precision))
 	for p := range r.Precision {
 		labels = append(labels, p)
@@ -193,31 +230,18 @@ func printSummary(r *catalog.VenueAddressReport) {
 		fmt.Printf("  precision %-12s %d\n", p+":", r.Precision[p])
 	}
 	if r.LimitHit {
-		fmt.Println("Limit reached: re-run to continue where this run stopped.")
+		fmt.Println("Limit reached: apply the reviewed report to record its misses; the next lookup then continues past them.")
 	}
 	for _, e := range r.Errors {
 		fmt.Printf("  [ERROR] %s\n", e)
 	}
-	fmt.Println()
-}
-
-// loadApprovals reads the would-write rows of a reviewed JSON report.
-func loadApprovals(path string) (map[catalog.VenueAddressApproval]bool, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var r catalog.VenueAddressReport
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, fmt.Errorf("%s is not a backfill JSON report: %w", path, err)
-	}
-	return catalog.ApprovalsFromReport(&r), nil
+	fmt.Println("\nNothing was written. Review the JSON report, then run with --confirm --approved <report.json>.")
 }
 
 // writeReport writes <path>.md and <path>.json; a .md or .json extension on
 // path is dropped first so either spelling names the pair. The files are
-// owner-only: they hold street addresses, some for unverified venues the site
-// does not publish.
+// owner-only, including when they replace an existing file: they hold street
+// addresses, some for unverified venues the site does not publish.
 func writeReport(r *catalog.VenueAddressReport, path string) error {
 	base := strings.TrimSuffix(strings.TrimSuffix(path, ".md"), ".json")
 	if dir := filepath.Dir(base); dir != "" {
@@ -225,27 +249,28 @@ func writeReport(r *catalog.VenueAddressReport, path string) error {
 			return err
 		}
 	}
-	md, err := os.OpenFile(base+".md", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := r.WriteMarkdown(md); err != nil {
-		_ = md.Close()
-		return err
-	}
-	if err := md.Close(); err != nil {
-		return err
-	}
-	js, err := os.OpenFile(base+".json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := r.WriteJSON(js); err != nil {
-		_ = js.Close()
-		return err
-	}
-	if err := js.Close(); err != nil {
-		return err
+	for _, out := range []struct {
+		path  string
+		write func(*os.File) error
+	}{
+		{base + ".md", func(f *os.File) error { return r.WriteMarkdown(f) }},
+		{base + ".json", func(f *os.File) error { return r.WriteJSON(f) }},
+	} {
+		f, err := os.OpenFile(out.path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			return err
+		}
+		if err := f.Chmod(0o600); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := out.write(f); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("Report written to %s.md and %s.json\n", base, base)
 	return nil

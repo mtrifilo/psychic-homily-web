@@ -159,22 +159,44 @@ function placeKey(name: unknown): string {
 }
 
 /**
+ * Whether a value reads as a street line: a house number and letters, of
+ * plausible length, not a P.O. box. "TBA" or "DM for address" is not one.
+ */
+export function usableStreet(value: string): boolean {
+  return (
+    value.length >= 4 &&
+    value.length <= 200 &&
+    /\p{N}/u.test(value) &&
+    /\p{L}/u.test(value) &&
+    !/\bp\.?\s*o\.?\s*box\b|\bpost\s+office\s+box\b/i.test(value)
+  );
+}
+
+/**
  * Decides whether a batch address may fill a matched venue's address.
  *
  * Only an EMPTY address is ever filled, so a venue's stored address is never
- * replaced by an ingest. The match is by name alone, and chains share names
- * across cities, so the matched venue must also be in the batch venue's city
- * (and state, when both state one). The search API withholds the address of
- * an unverified venue, which makes "empty" unknowable there, so an unverified
- * match is never written either; each refusal comes back as a note.
+ * replaced by an ingest. The venue match must be exact (`exactName`: a fuzzy
+ * name match can be another venue), and the matched venue must be in the
+ * batch venue's city (and state, when both state one), since chains share
+ * names across cities. The address must read as a street line. The search API
+ * withholds the address of an unverified venue, which makes "empty"
+ * unknowable there, so an unverified match is never written either. Each
+ * refusal comes back as a note.
  */
 export function planVenueAddress(
   proposed: string | undefined,
   batch: { city?: unknown; state?: unknown },
-  match: { verified?: unknown; address?: unknown; city?: unknown; state?: unknown },
+  match: { verified?: unknown; address?: unknown; city?: unknown; state?: unknown; exactName?: boolean },
 ): { addressFill?: string; addressNote?: string } {
   const address = typeof proposed === "string" ? proposed.trim() : "";
   if (!address) return {};
+  if (match.exactName !== true) {
+    return { addressNote: "address not written: the venue matched by a similar name, not the same name" };
+  }
+  if (!usableStreet(address)) {
+    return { addressNote: `address not written: "${address}" is not a street line` };
+  }
   const batchCity = placeKey(batch.city);
   const batchState = placeKey(batch.state);
   const matchState = placeKey(match.state);
@@ -322,7 +344,13 @@ export async function resolveVenues(
           ...planVenueAddress(
             venue.address,
             { city: venue.city, state: venue.state },
-            { verified: best.verified, address: best.address, city: best.city, state: best.state },
+            {
+              verified: best.verified,
+              address: best.address,
+              city: best.city,
+              state: best.state,
+              exactName: best.score === 1,
+            },
           ),
           status: "existing",
           confidence: best.score,
@@ -751,9 +779,9 @@ export interface VenueAddressFill {
 }
 
 /**
- * One fill per matched venue across the batch. The first show to state an
- * address for a venue wins; a later show stating a DIFFERENT address for the
- * same venue is reported as a conflict and never written.
+ * One fill per matched venue across the batch. When shows in one batch state
+ * DIFFERENT addresses for the same venue, the sources disagree, so that venue
+ * gets no fill at all and the conflict is reported.
  */
 export function venueAddressFills(plans: ShowPlan[]): {
   fills: VenueAddressFill[];
@@ -761,7 +789,7 @@ export function venueAddressFills(plans: ShowPlan[]): {
   notes: string[];
 } {
   const byVenue = new Map<number, VenueAddressFill>();
-  const conflicts: string[] = [];
+  const conflicted = new Map<number, string>();
   const notes = new Map<number, string>();
   for (const plan of plans) {
     for (const v of plan.venues) {
@@ -771,13 +799,15 @@ export function venueAddressFills(plans: ShowPlan[]): {
       if (!seen) {
         byVenue.set(v.id, { venueId: v.id, venueName: v.name, address: v.addressFill });
       } else if (seen.address !== v.addressFill) {
-        conflicts.push(
-          `${v.name} (ID ${v.id}): "${v.addressFill}" differs from "${seen.address}"; keeping the first`,
+        conflicted.set(
+          v.id,
+          `${v.name} (ID ${v.id}): the batch states both "${seen.address}" and "${v.addressFill}"; not writing either`,
         );
       }
     }
   }
-  return { fills: [...byVenue.values()], conflicts, notes: [...notes.values()] };
+  const fills = [...byVenue.values()].filter((f) => !conflicted.has(f.venueId));
+  return { fills, conflicts: [...conflicted.values()], notes: [...notes.values()] };
 }
 
 /**

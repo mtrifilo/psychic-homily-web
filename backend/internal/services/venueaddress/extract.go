@@ -319,7 +319,7 @@ func NamesMatch(a, b string) bool {
 	if len(ta) == 0 || len(tb) == 0 {
 		return false
 	}
-	if strings.Join(ta, " ") == strings.Join(tb, " ") {
+	if NamesEqual(a, b) {
 		return true
 	}
 	short, long := ta, tb
@@ -338,6 +338,14 @@ func NamesMatch(a, b string) bool {
 		distinctive = distinctive || !genericNameTokens[t]
 	}
 	return distinctive
+}
+
+// NamesEqual reports whether two venue names are the same once folded the way
+// NamesMatch folds them: the exact case of NamesMatch, without the
+// word-subset allowance.
+func NamesEqual(a, b string) bool {
+	ta, tb := nameTokens(a), nameTokens(b)
+	return len(ta) > 0 && strings.Join(ta, " ") == strings.Join(tb, " ")
 }
 
 // nameTokens is the venue-dedup key (utils.NormalizeVenueName: apostrophes,

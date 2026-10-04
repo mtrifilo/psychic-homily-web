@@ -35,6 +35,23 @@ func TestNamesMatch(t *testing.T) {
 	}
 }
 
+func TestNamesEqual(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"The Empty Bottle", "Empty Bottle", true},
+		{"Café Racer", "Cafe Racer", true},
+		{"7th St Entry", "7th Street Entry", true},
+		{"Turner Hall", "Turner Hall Ballroom", false},
+		{"", "", false},
+	} {
+		if got := NamesEqual(tt.a, tt.b); got != tt.want {
+			t.Errorf("NamesEqual(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
 func TestCityMatches(t *testing.T) {
 	tests := []struct {
 		printed, city string

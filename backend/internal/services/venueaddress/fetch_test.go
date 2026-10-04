@@ -187,6 +187,40 @@ func TestFetch_FollowsRedirectsThroughTheSameChecks(t *testing.T) {
 	}
 }
 
+func TestFetch_RobotsTxtRedirects(t *testing.T) {
+	newSite := func(robots func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/robots.txt", "/robots-moved.txt":
+				robots(w, r)
+			default:
+				w.Header().Set("Content-Type", "text/html")
+				_, _ = w.Write([]byte("<p>page</p>"))
+			}
+		}))
+	}
+
+	followed := newSite(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.Redirect(w, r, "/robots-moved.txt", http.StatusMovedPermanently)
+			return
+		}
+		_, _ = w.Write([]byte("User-agent: *\nDisallow: /"))
+	})
+	defer followed.Close()
+	if _, err := testFetcher().Fetch(context.Background(), followed.URL+"/page"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("a redirected robots.txt that disallows must refuse the page: err = %v", err)
+	}
+
+	looping := newSite(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/robots.txt", http.StatusFound)
+	})
+	defer looping.Close()
+	if _, err := testFetcher().Fetch(context.Background(), looping.URL+"/page"); err != nil {
+		t.Fatalf("a robots.txt redirect loop states no rules, so the page is allowed: err = %v", err)
+	}
+}
+
 func TestDefinitiveTransportError(t *testing.T) {
 	tests := []struct {
 		name string

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/venueaddress"
@@ -20,32 +22,30 @@ import (
 // Venue address backfill: give a venue with an empty address one, so the
 // street-geocode columns can place it off its city centroid.
 //
-// Phase "page" reads the venue's own pages (website, registered ingest source,
-// then an upcoming show's ticket page) for a published address and geocodes it
-// with the same structured search the street-geocode sweep uses. Phase "name"
-// runs only for a venue still without an address: it searches OpenStreetMap
-// for the venue's name in its city and takes the address and point of a
-// matched venue-like place, labelled PrecisionNameSearch.
+// It runs in two steps. Run looks addresses up and writes nothing: phase
+// "page" reads the venue's own pages (website, registered ingest source, then
+// an upcoming show's ticket page) and geocodes what it finds with the same
+// structured search the street-geocode sweep uses; phase "name" searches
+// OpenStreetMap for the venue's name in its city and takes the address and
+// point of a matched venue-like place, labelled PrecisionNameSearch. Its
+// report goes to a person. Apply (venue_address_apply.go) then writes the rows
+// of that reviewed report and records its misses, with no lookups of its own,
+// so what is written is exactly what was reviewed.
 //
 // Invariants:
 //   - a non-empty address is never overwritten: only venues whose address is
 //     empty are selected, and every write is scoped to the row still holding
 //     the empty address it was read with (streetGeocodeUpdateScope);
 //   - the city-centroid latitude/longitude columns are never written;
-//   - a dry run performs the same lookups and writes nothing, misses included;
-//   - a miss is recorded per phase under the key of what was tried, so a later
-//     run skips it until the venue's inputs change; an error is never recorded,
-//     and a page-phase error also holds the name phase back for that run, so
-//     the venue's own pages are always decided before the name search;
-//   - a venue that was filled once and whose address is empty again (cleared
-//     by an editor) is never refilled;
-//   - a live run writes only what a person approved: with Approved, only the
-//     rows a reviewed report lists; without it, only rows that carry no
-//     REVIEW caution.
+//   - a venue whose address was cleared after it had one (by an earlier
+//     backfill, or by an editor in its revision history) is never refilled;
+//   - a recorded miss is skipped while the key of what was tried still
+//     matches and the miss is younger than missMemoTTL;
+//   - a row the report marks REVIEW is written only when the reviewer set its
+//     approve_review.
 
-// VenueAddressBackfillOptions configures a run.
+// VenueAddressBackfillOptions configures a lookup run.
 type VenueAddressBackfillOptions struct {
-	DryRun bool
 	// Limit caps the venues that make network calls this run (0 = no limit).
 	// Venues skipped on recorded misses do not count against it.
 	Limit int
@@ -54,41 +54,25 @@ type VenueAddressBackfillOptions struct {
 	OnlyUpcoming bool
 	// City restricts the run to one city (case-insensitive exact match).
 	City string
-	// Now anchors "upcoming"; zero means time.Now().
+	// Now anchors "upcoming" and the miss TTL; zero means time.Now().
 	Now time.Time
 	// Timeout caps one venue's Nominatim work in each phase, limiter waits
 	// included. Zero uses defaultStreetGeocodeBackfillTimeout.
 	Timeout time.Duration
-	// Approved, when non-nil, holds the rows of a reviewed dry-run report:
-	// the run considers only those venues and writes only a row whose venue,
-	// phase, and address the report lists. A row cautioned REVIEW is written
-	// only through Approved.
-	Approved map[VenueAddressApproval]bool
-}
-
-// VenueAddressApproval identifies one approved write: the venue, the phase
-// that found the address, and the address itself, so a fresh lookup that finds
-// something else is not written on the strength of an approval for another
-// value.
-type VenueAddressApproval struct {
-	VenueID uint
-	Phase   string
-	Address string
-}
-
-// ApprovalsFromReport reads the would-write rows of a reviewed report.
-func ApprovalsFromReport(r *VenueAddressReport) map[VenueAddressApproval]bool {
-	out := map[VenueAddressApproval]bool{}
-	for _, row := range r.Rows {
-		if row.WouldWrite {
-			out[VenueAddressApproval{VenueID: row.VenueID, Phase: row.Phase, Address: row.Address}] = true
-		}
-	}
-	return out
 }
 
 // upcomingWindow is how far ahead a show makes its venue "upcoming".
 const upcomingWindow = 90 * 24 * time.Hour
+
+// missMemoTTL is how long a recorded miss is honoured. Pages are redesigned,
+// certificates renewed, and OSM edited; after this a venue is tried again even
+// though nothing about it changed.
+const missMemoTTL = 90 * 24 * time.Hour
+
+// lookupRulesVersion leads every lookup key. Changing what the phases accept
+// (the venue-like place types, name matching, street rules, the prompt) must
+// bump it, or venues refused under the old rules stay skipped as misses.
+const lookupRulesVersion = "v1"
 
 // maxTicketHosts bounds how many ticket pages, each on a distinct host, are
 // offered per venue. Ticket pages are the last page source, and the finder
@@ -102,11 +86,21 @@ type PageAddressFinder interface {
 	Find(ctx context.Context, v venueaddress.Venue, sources []venueaddress.Source) (venueaddress.Result, error)
 }
 
-// Backfill row outcomes: catalogm.VenueAddressOutcomeHit or ...Miss, or this
-// one, which is never recorded and is retried next run.
+// VenueAddressError is the row outcome of a lookup that failed. It is never
+// recorded, so the next run tries again.
 const VenueAddressError = "error"
 
-// VenueAddressRow is one phase's outcome for one venue.
+// Geocode outcomes of a page-phase hit, which Apply stores beside the
+// address: the point, a miss memo, or nothing (the sweep geocodes it later).
+const (
+	GeocodeHit  = "hit"
+	GeocodeMiss = "miss"
+	GeocodeNone = "none"
+)
+
+// VenueAddressRow is one phase's outcome for one venue. LookupKey, Address,
+// Geocode, Precision, and the coordinates are what Apply writes or records;
+// the rest is for the reviewer.
 type VenueAddressRow struct {
 	VenueID     uint       `json:"venue_id"`
 	Name        string     `json:"name"`
@@ -116,19 +110,21 @@ type VenueAddressRow struct {
 	NextShow    *time.Time `json:"next_show,omitempty"`
 	Phase       string     `json:"phase"`
 	Outcome     string     `json:"outcome"`
-	Source      string     `json:"source"` // page URL on a page hit, the tried-pages key otherwise; the Nominatim query text for the name phase
+	LookupKey   string     `json:"lookup_key"`
+	Source      string     `json:"source"` // the page URL a page hit came from, the matched OSM place for a name hit, else the lookup key
 	Method      string     `json:"method,omitempty"`
 	Address     string     `json:"address,omitempty"`
 	MatchedName string     `json:"matched_name,omitempty"`
+	Geocode     string     `json:"geocode,omitempty"`
 	Precision   string     `json:"precision,omitempty"`
 	Latitude    *float64   `json:"latitude,omitempty"`
 	Longitude   *float64   `json:"longitude,omitempty"`
 	Notes       []string   `json:"notes,omitempty"`
-	// Review: the match carries a REVIEW caution, so a live run writes it
-	// only when an approved report lists it.
-	Review     bool `json:"review,omitempty"`
-	WouldWrite bool `json:"would_write"`
-	Written    bool `json:"written"`
+	// Review: the row carries a REVIEW caution. Apply writes it only when the
+	// reviewer set ApproveReview, which every generated report leaves false.
+	Review        bool `json:"review,omitempty"`
+	ApproveReview bool `json:"approve_review"`
+	WouldWrite    bool `json:"would_write"`
 }
 
 // VenueAddressPhaseTotals counts one phase's outcomes.
@@ -141,27 +137,27 @@ type VenueAddressPhaseTotals struct {
 	NoSource    int `json:"no_source,omitempty"`
 }
 
-// VenueAddressReport is the structured outcome of a run.
+// VenueAddressReport is the structured outcome of a lookup run, and the input
+// Apply takes after review.
 type VenueAddressReport struct {
 	GeneratedAt  time.Time `json:"generated_at"`
-	DryRun       bool      `json:"dry_run"`
 	Limit        int       `json:"limit"`
 	OnlyUpcoming bool      `json:"only_upcoming"`
 	City         string    `json:"city,omitempty"`
 	AIEnabled    bool      `json:"ai_enabled"`
 	// LookupsTableMissing: the database predates venue_address_lookups, so
-	// this (dry) run could not skip recorded misses.
+	// the run could not skip recorded misses and Apply cannot run yet.
 	LookupsTableMissing bool `json:"lookups_table_missing,omitempty"`
 	Candidates          int  `json:"candidates"`
-	// SkippedCleared counts venues an earlier run filled whose address has
-	// since been cleared; they are never refilled.
-	SkippedCleared int                                 `json:"skipped_cleared_after_fill,omitempty"`
+	// SkippedCleared counts venues whose address was cleared after they had
+	// one; they are never refilled.
+	SkippedCleared int                                 `json:"skipped_cleared,omitempty"`
 	Processed      int                                 `json:"processed"`
 	LimitHit       bool                                `json:"limit_hit"`
 	Phases         map[string]*VenueAddressPhaseTotals `json:"phases"`
 	Precision      map[string]int                      `json:"precision"`
 	WouldWrite     int                                 `json:"would_write"`
-	Written        int                                 `json:"written"`
+	Review         int                                 `json:"review"`
 	Rows           []VenueAddressRow                   `json:"rows"`
 	Errors         []string                            `json:"errors,omitempty"`
 }
@@ -172,7 +168,8 @@ type VenueAddressBackfill struct {
 	Pages    PageAddressFinder   // nil skips the page phase
 	Places   geo.PlaceSearcher   // nil skips the name phase
 	Geocoder geo.AddressGeocoder // geocodes page-phase addresses; nil leaves them for the sweep
-	// AIEnabled is reported only; it says whether Pages has an AI fallback.
+	// AIEnabled says whether Pages has an AI fallback; it is part of the page
+	// lookup key.
 	AIEnabled bool
 }
 
@@ -180,10 +177,14 @@ type VenueAddressBackfill struct {
 type addressCandidate struct {
 	catalogm.Venue
 	NextShow *time.Time `gorm:"column:next_show"`
+	// ClearedByEditor: the venue's revision history shows its address going
+	// from a value to empty.
+	ClearedByEditor bool `gorm:"column:cleared_by_editor"`
 }
 
-// Run executes the backfill. ctx cancellation stops it between venues and
-// returns the partial report with ctx.Err().
+// Run looks up addresses for the selected venues and writes nothing. ctx
+// cancellation stops it between venues and returns the partial report with
+// ctx.Err().
 func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfillOptions) (*VenueAddressReport, error) {
 	if b.DB == nil {
 		return nil, errors.New("database not initialized")
@@ -198,7 +199,6 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 	}
 	report := &VenueAddressReport{
 		GeneratedAt:  now.UTC(),
-		DryRun:       opts.DryRun,
 		Limit:        opts.Limit,
 		OnlyUpcoming: opts.OnlyUpcoming,
 		City:         opts.City,
@@ -210,7 +210,7 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 		Precision: map[string]int{},
 	}
 
-	venues, err := b.loadCandidates(ctx, opts, now)
+	venues, err := b.loadCandidates(ctx, opts, now, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -222,15 +222,9 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 	for i := range venues {
 		ids[i] = venues[i].ID
 	}
-	// A database that predates the lookups table can still be dry-run (there
-	// are no recorded misses to honour yet); a live run needs the table and
-	// the widened precision constraint, so it refuses to start without them.
-	var hasLookups bool
-	if err := b.DB.WithContext(ctx).Raw("SELECT to_regclass('venue_address_lookups') IS NOT NULL").Scan(&hasLookups).Error; err != nil {
-		return nil, fmt.Errorf("check for venue_address_lookups: %w", err)
-	}
-	if !hasLookups && !opts.DryRun {
-		return nil, errors.New("venue_address_lookups does not exist: apply the database migrations before a live run")
+	hasLookups, err := b.lookupsTableExists(ctx)
+	if err != nil {
+		return nil, err
 	}
 	report.LookupsTableMissing = !hasLookups
 	memos := map[uint]map[string]catalogm.VenueAddressLookup{}
@@ -257,23 +251,18 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 		c := &venues[i]
 		v := &c.Venue
 
-		if filledBefore(memos, v.ID) {
+		if c.ClearedByEditor || filledBefore(memos, v.ID) {
 			report.SkippedCleared++
 			continue
 		}
 		sources := pageSources(v, ingestPages[v.ID], ticketPages[v.ID])
 		pageKey := pageLookupKey(sources, b.AIEnabled)
-		placeQuery := geo.PlaceQuery{
-			Name:        v.Name,
-			City:        v.City,
-			State:       v.State,
-			CountryCode: geo.ResolveCountryISO(v.State, derefString(v.Country)),
-		}
-		nameKey := placeQuery.Key()
+		placeQuery := venuePlaceQuery(v)
+		nameKey := nameLookupKey(placeQuery)
 
 		pageAvailable := b.Pages != nil && len(sources) > 0
-		pageMemo := pageAvailable && memoMiss(memos, v.ID, catalogm.VenueAddressPhasePage, pageKey)
-		nameMemo := b.Places != nil && memoMiss(memos, v.ID, catalogm.VenueAddressPhaseName, nameKey)
+		pageMemo := pageAvailable && memoMiss(memos, v.ID, catalogm.VenueAddressPhasePage, pageKey, now)
+		nameMemo := b.Places != nil && memoMiss(memos, v.ID, catalogm.VenueAddressPhaseName, nameKey, now)
 		runPage := pageAvailable && !pageMemo
 		runName := b.Places != nil && !nameMemo
 		countSkips := func() {
@@ -298,17 +287,25 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 			pageTotals.NoSource++
 		}
 
+		pageErrored := false
 		if runPage {
 			pageTotals.Attempted++
-			row, found := b.runPagePhase(ctx, c, sources, pageKey, timeout, opts, report)
+			row := b.runPagePhase(ctx, c, sources, pageKey, timeout, report)
 			b.tally(report, pageTotals, row)
-			if found || row.Outcome == VenueAddressError {
+			if row.Outcome == catalogm.VenueAddressOutcomeHit {
 				continue
 			}
+			pageErrored = row.Outcome == VenueAddressError
 		}
 		if runName {
 			nameTotals.Attempted++
-			row := b.runNamePhase(ctx, c, placeQuery, nameKey, timeout, opts, report)
+			row := b.runNamePhase(ctx, c, placeQuery, nameKey, timeout, report)
+			if pageErrored && row.Outcome == catalogm.VenueAddressOutcomeHit {
+				// The venue's own pages were not decided, so a reviewer must
+				// choose between this and waiting for them.
+				row.Notes = append(row.Notes, CautionPageUnread)
+				row.Review = true
+			}
 			b.tally(report, nameTotals, row)
 		}
 	}
@@ -333,33 +330,28 @@ func (b *VenueAddressBackfill) tally(report *VenueAddressReport, totals *VenueAd
 		}
 		report.Precision[precision]++
 	}
-	if row.Written {
-		report.Written++
+	if row.Review {
+		report.Review++
 	}
 	report.Rows = append(report.Rows, row)
 }
 
 // runPagePhase looks for the venue's address on its pages and, on a hit,
-// geocodes it. found reports whether the venue now has (or in a dry run would
-// have) an address, which ends its run.
-func (b *VenueAddressBackfill) runPagePhase(ctx context.Context, c *addressCandidate, sources []venueaddress.Source, key string, timeout time.Duration, opts VenueAddressBackfillOptions, report *VenueAddressReport) (VenueAddressRow, bool) {
+// geocodes it.
+func (b *VenueAddressBackfill) runPagePhase(ctx context.Context, c *addressCandidate, sources []venueaddress.Source, key string, timeout time.Duration, report *VenueAddressReport) VenueAddressRow {
 	v := &c.Venue
-	row := baseRow(c, catalogm.VenueAddressPhasePage)
-	row.Source = key
+	row := baseRow(c, catalogm.VenueAddressPhasePage, key)
 
 	res, err := b.Pages.Find(ctx, venueaddress.Venue{Name: v.Name, City: v.City, State: v.State}, sources)
 	row.Notes = res.Notes
 	if err != nil {
 		row.Outcome = VenueAddressError
 		report.Errors = append(report.Errors, fmt.Sprintf("venue %d %q page phase: %v", v.ID, v.Name, err))
-		return row, false
+		return row
 	}
 	if !res.Found {
 		row.Outcome = catalogm.VenueAddressOutcomeMiss
-		if !opts.DryRun {
-			b.recordMiss(report, v, catalogm.VenueAddressPhasePage, key)
-		}
-		return row, false
+		return row
 	}
 
 	row.Outcome = catalogm.VenueAddressOutcomeHit
@@ -367,47 +359,37 @@ func (b *VenueAddressBackfill) runPagePhase(ctx context.Context, c *addressCandi
 	row.Method = res.Method
 	row.Address = res.Street
 	row.WouldWrite = true
+	row.Geocode = GeocodeNone
 	if res.City == "" {
 		row.Notes = append(row.Notes, "the page printed no city beside the street")
 	}
-
-	// Geocode the address exactly as the sweep would once it is stored, and
-	// store the outcome the way the sweep does: a hit, a miss memo, or (on an
-	// error) nothing, so the sweep retries.
-	updated := *v
-	updated.Address = &res.Street
-	q := streetGeocodeQuery(&updated)
-	updates := map[string]interface{}{}
 	if b.Geocoder == nil {
 		row.Notes = append(row.Notes, "no street geocoder configured; the sweep geocodes the address")
-	} else {
-		geoRes, ok, gerr := geocodeWithTimeout(ctx, b.Geocoder, q, res.Street, timeout)
-		switch {
-		case gerr != nil:
-			row.Notes = append(row.Notes, "street geocode failed; the sweep retries it: "+gerr.Error())
-		case !ok:
-			row.Notes = append(row.Notes, "street geocode found no match; a miss memo is stored with the address")
-			updates = streetGeocodeMissColumns(q.Key())
-		default:
-			row.Precision = geoRes.Precision
-			row.Latitude, row.Longitude = &geoRes.Latitude, &geoRes.Longitude
-			updates = streetGeocodeHitColumns(geoRes, q.Key())
-		}
+		return row
 	}
-	if !opts.DryRun {
-		b.writeAddress(report, &row, opts, v, res.Street, updates, key, res.Source.URL)
+	updated := *v
+	updated.Address = &res.Street
+	geoRes, ok, gerr := geocodeWithTimeout(ctx, b.Geocoder, streetGeocodeQuery(&updated), res.Street, timeout)
+	switch {
+	case gerr != nil:
+		row.Notes = append(row.Notes, "street geocode failed; the sweep retries it: "+gerr.Error())
+	case !ok:
+		row.Geocode = GeocodeMiss
+		row.Notes = append(row.Notes, "street geocode found no match; a miss memo is stored with the address")
+	default:
+		row.Geocode = GeocodeHit
+		row.Precision = geoRes.Precision
+		row.Latitude, row.Longitude = &geoRes.Latitude, &geoRes.Longitude
 	}
-	return row, true
+	return row
 }
 
 // runNamePhase searches OpenStreetMap for the venue's name in its city and
-// takes the first candidate the acceptance rules pass. A hit stores the
-// matched place's point with the name-search precision, keyed to the new
-// address so the street-geocode sweep treats it as already attempted.
-func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandidate, q geo.PlaceQuery, key string, timeout time.Duration, opts VenueAddressBackfillOptions, report *VenueAddressReport) VenueAddressRow {
+// takes the best candidate the acceptance rules pass: an exact name match
+// before a partial one, then Nominatim's order.
+func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandidate, q geo.PlaceQuery, key string, timeout time.Duration, report *VenueAddressReport) VenueAddressRow {
 	v := &c.Venue
-	row := baseRow(c, catalogm.VenueAddressPhaseName)
-	row.Source = key
+	row := baseRow(c, catalogm.VenueAddressPhaseName, key)
 
 	searchCtx, cancel := context.WithTimeout(ctx, timeout)
 	cands, err := b.Places.SearchPlaces(searchCtx, q)
@@ -423,26 +405,28 @@ func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandi
 	var street string
 	for i := range cands {
 		s, ok, why := AcceptPlaceCandidate(cands[i], v, q.CountryCode)
-		if ok {
-			accepted, street = &cands[i], s
-			break
+		if !ok {
+			row.Notes = append(row.Notes, fmt.Sprintf("rejected %s=%s %q: %s", cands[i].Category, cands[i].Type, cands[i].Name, why))
+			continue
 		}
-		row.Notes = append(row.Notes, fmt.Sprintf("rejected %s=%s %q: %s", cands[i].Category, cands[i].Type, cands[i].Name, why))
+		exact := venueaddress.NamesEqual(cands[i].Name, v.Name)
+		if accepted == nil || (exact && !venueaddress.NamesEqual(accepted.Name, v.Name)) {
+			accepted, street = &cands[i], s
+		}
 	}
 	if len(cands) == 0 {
 		row.Notes = append(row.Notes, "no results")
 	}
 	if accepted == nil {
 		row.Outcome = catalogm.VenueAddressOutcomeMiss
-		if !opts.DryRun {
-			b.recordMiss(report, v, catalogm.VenueAddressPhaseName, key)
-		}
 		return row
 	}
 
 	row.Outcome = catalogm.VenueAddressOutcomeHit
+	row.Source = accepted.DisplayName
 	row.Address = street
 	row.MatchedName = accepted.Name
+	row.Geocode = GeocodeHit
 	row.Precision = geo.PrecisionNameSearch
 	row.Latitude, row.Longitude = &accepted.Latitude, &accepted.Longitude
 	row.Notes = append(row.Notes, fmt.Sprintf("matched %s=%s %q (%s)", accepted.Category, accepted.Type, accepted.Name, accepted.DisplayName))
@@ -450,77 +434,60 @@ func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandi
 	row.Notes = append(row.Notes, cautions...)
 	row.Review = len(cautions) > 0
 	row.WouldWrite = true
-
-	if !opts.DryRun {
-		updated := *v
-		updated.Address = &street
-		updates := streetGeocodeHitColumns(geo.AddressResult{
-			Latitude: accepted.Latitude, Longitude: accepted.Longitude, Precision: geo.PrecisionNameSearch,
-		}, streetGeocodeQuery(&updated).Key())
-		b.writeAddress(report, &row, opts, v, street, updates, key, accepted.DisplayName)
-	}
 	return row
 }
 
-// writeAddress stores street (plus any street-geocode columns in updates) and
-// records the phase hit, in one transaction, only while the row still holds
-// the empty address it was read with, and only when a person approved it
-// (see VenueAddressBackfillOptions.Approved). The outcome lands on row:
-// Written, or a note saying why not, or a report error.
-func (b *VenueAddressBackfill) writeAddress(report *VenueAddressReport, row *VenueAddressRow, opts VenueAddressBackfillOptions, v *catalogm.Venue, street string, updates map[string]interface{}, key, source string) {
-	switch {
-	case opts.Approved != nil && !opts.Approved[VenueAddressApproval{VenueID: v.ID, Phase: row.Phase, Address: street}]:
-		row.Notes = append(row.Notes, "not written: this venue, phase, and address are not in the approved report")
-		return
-	case opts.Approved == nil && row.Review:
-		row.Notes = append(row.Notes, "not written: a REVIEW match is written only through --approved")
-		return
-	}
-	updates["address"] = street
-	written := false
-	err := b.DB.Transaction(func(tx *gorm.DB) error {
-		res := streetGeocodeUpdateScope(tx, v).Updates(updates)
-		if res.Error != nil || res.RowsAffected == 0 {
-			return res.Error
-		}
-		written = true
-		return recordAddressLookup(tx, v.ID, row.Phase, key, catalogm.VenueAddressOutcomeHit, source, street)
-	})
-	switch {
-	case err != nil:
-		report.Errors = append(report.Errors, fmt.Sprintf("venue %d write: %v", v.ID, err))
-	case !written:
-		row.Notes = append(row.Notes, "not written: the venue changed since it was read")
-	default:
-		row.Written = true
-	}
-}
-
-// recordMiss records a phase miss so later runs skip it while key holds.
-func (b *VenueAddressBackfill) recordMiss(report *VenueAddressReport, v *catalogm.Venue, phase, key string) {
-	if err := recordAddressLookup(b.DB, v.ID, phase, key, catalogm.VenueAddressOutcomeMiss, "", ""); err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("venue %d record %s miss: %v", v.ID, phase, err))
-	}
-}
-
-func baseRow(c *addressCandidate, phase string) VenueAddressRow {
+func baseRow(c *addressCandidate, phase, key string) VenueAddressRow {
 	return VenueAddressRow{
-		VenueID:  c.ID,
-		Name:     c.Name,
-		City:     c.City,
-		State:    c.State,
-		Verified: c.Verified,
-		NextShow: c.NextShow,
-		Phase:    phase,
+		VenueID:   c.ID,
+		Name:      c.Name,
+		City:      c.City,
+		State:     c.State,
+		Verified:  c.Verified,
+		NextShow:  c.NextShow,
+		Phase:     phase,
+		LookupKey: key,
+		Source:    key,
 	}
+}
+
+// venuePlaceQuery is the name search for a venue.
+func venuePlaceQuery(v *catalogm.Venue) geo.PlaceQuery {
+	return geo.PlaceQuery{
+		Name:        v.Name,
+		City:        v.City,
+		State:       v.State,
+		CountryCode: geo.ResolveCountryISO(v.State, derefString(v.Country)),
+	}
+}
+
+// nameLookupKey is the name phase's lookup key: the rules version and the
+// search.
+func nameLookupKey(q geo.PlaceQuery) string {
+	return lookupRulesVersion + " | " + q.Key()
+}
+
+func (b *VenueAddressBackfill) lookupsTableExists(ctx context.Context) (bool, error) {
+	var ok bool
+	if err := b.DB.WithContext(ctx).Raw("SELECT to_regclass('venue_address_lookups') IS NOT NULL").Scan(&ok).Error; err != nil {
+		return false, fmt.Errorf("check for venue_address_lookups: %w", err)
+	}
+	return ok, nil
 }
 
 // loadCandidates selects venues with an empty address, venues with an
-// upcoming show first (soonest show first), then by id.
-func (b *VenueAddressBackfill) loadCandidates(ctx context.Context, opts VenueAddressBackfillOptions, now time.Time) ([]addressCandidate, error) {
+// upcoming show first (soonest show first), then by id. ids, when non-nil,
+// restricts the selection to those venues.
+func (b *VenueAddressBackfill) loadCandidates(ctx context.Context, opts VenueAddressBackfillOptions, now time.Time, ids []uint) ([]addressCandidate, error) {
 	q := b.DB.WithContext(ctx).
 		Table("venues").
-		Select("venues.*, nxt.next_show").
+		Select(`venues.*, nxt.next_show, EXISTS (
+			SELECT 1 FROM revisions r, jsonb_array_elements(r.field_changes) fc
+			WHERE r.entity_type = 'venue' AND r.entity_id = venues.id
+			  AND fc->>'field' = 'address'
+			  AND COALESCE(BTRIM(fc->>'old_value'), '') <> ''
+			  AND COALESCE(BTRIM(fc->>'new_value'), '') = ''
+		) AS cleared_by_editor`).
 		Joins(`LEFT JOIN LATERAL (
 			SELECT MIN(s.event_date) AS next_show
 			FROM show_venues sv JOIN shows s ON s.id = sv.show_id
@@ -534,12 +501,8 @@ func (b *VenueAddressBackfill) loadCandidates(ctx context.Context, opts VenueAdd
 	if opts.OnlyUpcoming {
 		q = q.Where("nxt.next_show IS NOT NULL")
 	}
-	if opts.Approved != nil {
-		ids := []uint{0} // keeps the IN list non-empty when nothing is approved
-		for a := range opts.Approved {
-			ids = append(ids, a.VenueID)
-		}
-		q = q.Where("venues.id IN ?", ids)
+	if ids != nil {
+		q = q.Where("venues.id IN ?", append([]uint{0}, ids...)) // 0 keeps the IN list non-empty
 	}
 	var out []addressCandidate
 	err := q.Order("nxt.next_show IS NULL, nxt.next_show, venues.id").Scan(&out).Error
@@ -564,9 +527,9 @@ func (b *VenueAddressBackfill) loadMemos(ctx context.Context, ids []uint) (map[u
 	return out, nil
 }
 
-// filledBefore reports whether an earlier live run wrote this venue an
-// address. A selected venue (address empty) with such a row had it cleared
-// since, which is an editor's decision the backfill must not undo.
+// filledBefore reports whether an earlier Apply wrote this venue an address.
+// A selected venue (address empty) with such a row had it cleared since,
+// which is an editor's decision the backfill must not undo.
 func filledBefore(memos map[uint]map[string]catalogm.VenueAddressLookup, venueID uint) bool {
 	for _, m := range memos[venueID] {
 		if m.Outcome == catalogm.VenueAddressOutcomeHit {
@@ -576,9 +539,12 @@ func filledBefore(memos map[uint]map[string]catalogm.VenueAddressLookup, venueID
 	return false
 }
 
-func memoMiss(memos map[uint]map[string]catalogm.VenueAddressLookup, venueID uint, phase, key string) bool {
+// memoMiss reports whether a miss for this venue, phase, and key was recorded
+// within missMemoTTL of now.
+func memoMiss(memos map[uint]map[string]catalogm.VenueAddressLookup, venueID uint, phase, key string, now time.Time) bool {
 	m, ok := memos[venueID][phase]
-	return ok && m.Outcome == catalogm.VenueAddressOutcomeMiss && m.LookupKey == key
+	return ok && m.Outcome == catalogm.VenueAddressOutcomeMiss && m.LookupKey == key &&
+		now.Sub(m.AttemptedAt) < missMemoTTL
 }
 
 func (b *VenueAddressBackfill) loadIngestPages(ctx context.Context, ids []uint) (map[uint]string, error) {
@@ -597,16 +563,16 @@ func (b *VenueAddressBackfill) loadIngestPages(ctx context.Context, ids []uint) 
 }
 
 // ticketPagesPerVenue bounds the ticket URLs read per venue: pageSources keeps
-// at most maxTicketPageSources distinct hosts, and the soonest shows of a
-// venue rarely span more than a few vendors.
+// at most maxTicketHosts distinct hosts, and a venue's soonest shows rarely
+// span more vendors than this many shows.
 const ticketPagesPerVenue = 10
 
 // loadTicketPages returns, per venue, the ticket URLs of its soonest approved,
 // uncancelled upcoming shows, soonest first, counting only shows an admin or a
-// trusted-tier user submitted (or the discovery import created). Any
-// signed-in user can submit an approved show with any ticket URL, so an
-// untrusted show's ticket page would let its submitter choose a venue's
-// address; the trusted tiers are the ones auth.User.HasTrustedTier names.
+// trusted-tier user (authm.TrustedTiers) submitted, or the discovery import
+// created. Any signed-in user can submit an approved show with any ticket URL,
+// so an untrusted show's ticket page would let its submitter choose a venue's
+// address.
 func (b *VenueAddressBackfill) loadTicketPages(ctx context.Context, ids []uint, now time.Time) (map[uint][]string, error) {
 	var rows []struct {
 		VenueID   uint
@@ -621,11 +587,10 @@ func (b *VenueAddressBackfill) loadTicketPages(ctx context.Context, ids []uint, 
 			LEFT JOIN users u ON u.id = s.submitted_by
 			WHERE sv.venue_id IN ? AND s.status = 'approved' AND NOT s.is_cancelled
 			  AND s.event_date >= ? AND COALESCE(BTRIM(s.ticket_url), '') <> ''
-			  AND (s.source = 'discovery' OR u.is_admin
-			       OR u.user_tier IN ('trusted_contributor', 'local_ambassador'))
+			  AND (s.source = ? OR u.is_admin OR u.user_tier IN ?)
 		) t
 		WHERE n <= ?
-		ORDER BY venue_id, event_date, id`, ids, now, ticketPagesPerVenue).
+		ORDER BY venue_id, event_date, id`, ids, now, catalogm.ShowSourceDiscovery, authm.TrustedTiers, ticketPagesPerVenue).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("load ticket pages: %w", err)
@@ -676,22 +641,26 @@ func pageSources(v *catalogm.Venue, ingestPage string, ticketPages []string) []v
 	return out
 }
 
-// pageLookupKey names what the page phase tries: the website and ingest
-// source URLs, the HOSTS of the ticket pages (an upcoming show's per-event URL
-// changes every week; its vendor does not), and whether the AI fallback was
-// on. A changed website, a new ticket vendor, or turning the AI fallback on
+// pageLookupKey names what the page phase tries: the rules version, the
+// website and ingest source URLs, the sorted HOSTS of the ticket pages (an
+// upcoming show's per-event URL changes every week and the soonest vendor
+// rotates; the set of vendors does not), and whether the AI fallback was on.
+// A changed website, a new ticket vendor, or turning the AI fallback on
 // changes the key, which makes a recorded miss stale.
 func pageLookupKey(sources []venueaddress.Source, aiEnabled bool) string {
-	parts := make([]string, 0, len(sources)+1)
+	parts := []string{lookupRulesVersion}
+	var tickets []string
 	for _, s := range sources {
 		if s.Kind == venueaddress.SourceTicket {
 			if u, err := url.Parse(s.URL); err == nil {
-				parts = append(parts, "ticket:"+strings.ToLower(u.Hostname()))
+				tickets = append(tickets, "ticket:"+strings.ToLower(u.Hostname()))
 				continue
 			}
 		}
 		parts = append(parts, s.URL)
 	}
+	sort.Strings(tickets)
+	parts = append(parts, tickets...)
 	if !aiEnabled {
 		parts = append(parts, "[schema-only]")
 	}

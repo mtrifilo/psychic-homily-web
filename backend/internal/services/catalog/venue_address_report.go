@@ -10,7 +10,8 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
-// WriteJSON writes the report as indented JSON.
+// WriteJSON writes the report as indented JSON. This file is what a reviewer
+// edits and what Apply reads.
 func (r *VenueAddressReport) WriteJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -29,24 +30,21 @@ func (t *VenueAddressPhaseTotals) HitRate() float64 {
 // per phase and per precision, then one table row per phase attempted.
 func (r *VenueAddressReport) WriteMarkdown(w io.Writer) error {
 	var b strings.Builder
-	mode := "DRY RUN"
-	if !r.DryRun {
-		mode = "LIVE"
-	}
-	fmt.Fprintf(&b, "# Venue address backfill (%s)\n\n", mode)
+	b.WriteString("# Venue address backfill (lookup report)\n\n")
 	fmt.Fprintf(&b, "Generated %s. Limit %s, only upcoming: %t, city: %s, AI fallback: %t.\n\n",
 		r.GeneratedAt.Format("2006-01-02 15:04 MST"), limitLabel(r.Limit), r.OnlyUpcoming, orDash(r.City), r.AIEnabled)
 	fmt.Fprintf(&b, "Venues with no address matching the filters: %d. Processed: %d.", r.Candidates, r.Processed)
-	if r.LimitHit {
-		b.WriteString(" The limit was reached; a re-run continues.")
-	}
 	if r.SkippedCleared > 0 {
-		fmt.Fprintf(&b, " Skipped %d venue(s) an earlier run filled whose address was cleared since.", r.SkippedCleared)
+		fmt.Fprintf(&b, " Skipped %d venue(s) whose address was cleared after they had one.", r.SkippedCleared)
+	}
+	if r.LimitHit {
+		b.WriteString(" The limit was reached: applying this report records its misses, after which a new lookup run continues past them.")
 	}
 	if r.LookupsTableMissing {
-		b.WriteString(" The database has no venue_address_lookups table yet, so no recorded misses were skipped.")
+		b.WriteString(" The database has no venue_address_lookups table yet, so no recorded misses were skipped and this report cannot be applied until the migrations run.")
 	}
-	b.WriteString("\n\n## Totals per phase\n\n")
+	b.WriteString("\n\nNothing was written. To apply: review the JSON report, set approve_review to true on each REVIEW row you accept, set would_write to false (or delete the row) for any row you refuse, then run with --confirm --approved <report.json>.\n")
+	b.WriteString("\n## Totals per phase\n\n")
 	b.WriteString("| Phase | Attempted | Hits | Hit rate | Misses | Errors | Skipped (recorded miss) | No page |\n")
 	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, phase := range []string{catalogm.VenueAddressPhasePage, catalogm.VenueAddressPhaseName} {
@@ -57,7 +55,7 @@ func (r *VenueAddressReport) WriteMarkdown(w io.Writer) error {
 		fmt.Fprintf(&b, "| %s | %d | %d | %.0f%% | %d | %d | %d | %d |\n",
 			phase, t.Attempted, t.Hits, 100*t.HitRate(), t.Misses, t.Errors, t.SkippedMemo, t.NoSource)
 	}
-	fmt.Fprintf(&b, "\nWould write: %d. Written: %d.\n\n## Totals per precision (would write)\n\n", r.WouldWrite, r.Written)
+	fmt.Fprintf(&b, "\nWould write: %d, of which REVIEW: %d.\n\n## Totals per precision (would write)\n\n", r.WouldWrite, r.Review)
 	if len(r.Precision) == 0 {
 		b.WriteString("None.\n")
 	} else {
