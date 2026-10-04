@@ -8,6 +8,7 @@ import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { useSceneArtists, useSceneShows } from '../hooks'
+import { ATLAS_LINK_TARGET_CLASS } from './atlasTouchTargets'
 import type { SceneListItem, SceneShowSummary } from '../types'
 
 // Format an ISO date-only string (YYYY-MM-DD) as e.g. "Fri, Jul 4" WITHOUT a
@@ -48,7 +49,9 @@ function sceneShowRowTitle(show: SceneShowSummary): string {
  * artists, and the link into the full scene page. Shared between the desktop
  * globe's ScenePreviewPanel and the mobile list's expanded rows (PSY-1311), so
  * the two surfaces can't fork. Fetches on mount: mount it only when the
- * preview is actually open/expanded.
+ * preview is actually open/expanded. Its own show, artist and scene links are
+ * touch-sized (at least 24px tall) in every host, since the mobile list is a
+ * phone surface too.
  */
 export function ScenePreviewContent({
   scene,
@@ -124,9 +127,12 @@ export function ScenePreviewContent({
                 <span className="font-mono text-xs text-muted-foreground">
                   {formatShowDate(show.event_date)}
                 </span>{' '}
+                {/* Inline in a run of text, so the vertical padding grows
+                    the tap target to 24px without moving the line; the
+                    list's gap keeps one row's target off the next. */}
                 <Link
                   href={`/shows/${show.slug || show.id}`}
-                  className="underline-offset-4 hover:underline"
+                  className="py-1 underline-offset-4 hover:underline"
                 >
                   {sceneShowRowTitle(show)}
                 </Link>
@@ -158,7 +164,7 @@ export function ScenePreviewContent({
                 </span>
                 <Link
                   href={`/artists/${a.slug}`}
-                  className="text-sm underline-offset-4 hover:underline"
+                  className="py-0.5 text-sm underline-offset-4 hover:underline"
                 >
                   {a.name}
                 </Link>
@@ -187,7 +193,10 @@ export function ScenePreviewContent({
           (the desktop panel's flex-1); in a natural-height host it's inert. */}
       <Link
         href={`/scenes/${scene.slug}`}
-        className="mt-auto inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        className={cn(
+          'mt-auto gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline',
+          ATLAS_LINK_TARGET_CLASS,
+        )}
       >
         Open scene →
       </Link>

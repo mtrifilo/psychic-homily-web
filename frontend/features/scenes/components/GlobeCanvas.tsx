@@ -541,8 +541,9 @@ export default function GlobeCanvas({
   }, [mapReady, attributionPosition])
 
   // Zoom controls, mounted only while city view is engaged — the mock's
-  // street view has them, the globe deliberately stays chrome-free (and
-  // GenreLegend owns bottom-right there). Plain add/remove, no guard ref.
+  // street view has them, the globe deliberately stays chrome-free (and in
+  // the panel layout GenreLegend docks bottom-right there). Plain add/remove,
+  // no guard ref.
   const cityViewActive = cityLabel !== null
   useEffect(() => {
     if (!mapReady || !cityViewActive) return

@@ -427,3 +427,11 @@
 [data-atlas-layout='sheet'] .maplibregl-map .maplibregl-ctrl-bottom-right {
   bottom: var(--atlas-sheet-offset, 0px);
 }
+
+/* Touch-sized zoom buttons in the sheet layout: 36px targets in place of
+ * MapLibre's 29px. The icon is a centred background image, so it stays its
+ * own size inside the larger button. */
+[data-atlas-layout='sheet'] .maplibregl-map .maplibregl-ctrl-group button {
+  width: 36px;
+  height: 36px;
+}

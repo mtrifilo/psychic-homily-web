@@ -4,8 +4,18 @@ import type { ReactNode } from 'react'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
 
 vi.mock('next/link', () => ({
-  default: ({ href, children }: { href: string; children: ReactNode }) => (
-    <a href={href}>{children}</a>
+  default: ({
+    href,
+    children,
+    className,
+  }: {
+    href: string
+    children: ReactNode
+    className?: string
+  }) => (
+    <a href={href} className={className}>
+      {children}
+    </a>
   ),
 }))
 
@@ -893,6 +903,20 @@ describe('VenuePanel as a bottom sheet', () => {
     const close = screen.getByRole('button', { name: `Close ${venue().name} panel` })
     expect(close).toHaveFocus()
     expect(close.className).toContain('size-6')
+  })
+
+  it('gives the venue page link a 24px-tall target', () => {
+    renderPanel({ presentation: 'sheet' })
+    expect(screen.getByRole('link', { name: /open venue page/i })).toHaveClass(
+      'inline-flex',
+      'min-h-6',
+      'items-center',
+    )
+  })
+
+  it('keeps the side panel venue page link at text height', () => {
+    renderPanel()
+    expect(screen.getByRole('link', { name: /open venue page/i })).not.toHaveClass('min-h-6')
   })
 
   it('closes on Escape and on its close control', () => {

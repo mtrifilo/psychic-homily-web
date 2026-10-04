@@ -6,32 +6,53 @@
  * The color key for the Atlas globe's dominant-genre dot tint. A fixed key (all
  * eight families, not just the ones currently on screen) since the family ->
  * color mapping is stable and the point of a legend is to teach the whole scheme.
- * Collapsible so it doesn't crowd the globe. The open state is OWNED BY AtlasGlobe
- * (controlled via props): this component is unmounted while a scene preview is
- * open, so local state would reset the collapse on every preview open/close cycle.
+ * Collapsible so it doesn't crowd the globe. The user's open/closed choice is
+ * OWNED BY AtlasGlobe (controlled via props): this component is unmounted while a
+ * scene preview is open, so local state would reset the collapse on every
+ * preview open/close cycle. Until the user chooses, it follows the viewport:
+ * collapsed on a compact one, open on a wide one.
  * Swatches use the same PSY-1083 `--chart-N` tokens as the dots (via
  * clusterColorCSS), so they track the theme with no JS.
+ *
+ * Below `lg` it is a content-width chip with a 14px label, as tall as the
+ * Atlas's Drift button, and it opens upward with the toggle held at the
+ * bottom, so the toggle never moves under a finger or under chrome above it.
+ * From `lg` it is the fixed-width key with the toggle on top. Given a bounded
+ * height (`max-h-*` from the caller), the open key scrolls within it at any
+ * width. The caller positions it with `className`.
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { clusterColorCSS } from '@/components/graph/graphPalette'
 import { GENRE_FAMILIES } from '../genreFamilies'
 import { DOT_COLOR_BASE } from './globeScale'
+import { useAtlasCompactViewport } from '../atlasViewport'
 
 interface GenreLegendProps {
-  open: boolean
-  onToggle: () => void
+  /** The user's choice, or null until they make one. */
+  openChoice: boolean | null
+  onOpenChange: (open: boolean) => void
+  /** Placement from the caller (the key positions nothing itself). */
+  className?: string
 }
 
-export function GenreLegend({ open, onToggle }: GenreLegendProps) {
+export function GenreLegend({ openChoice, onOpenChange, className }: GenreLegendProps) {
+  const compactViewport = useAtlasCompactViewport()
+  const open = openChoice ?? !compactViewport
   return (
-    <div className="absolute bottom-4 right-4 z-10 w-44 rounded-lg border border-border bg-background/90 text-xs backdrop-blur">
+    <div
+      className={cn(
+        'flex flex-col-reverse rounded border border-border bg-background/90 text-xs backdrop-blur lg:w-44 lg:flex-col lg:rounded-lg',
+        className,
+      )}
+    >
       <button
         type="button"
-        onClick={onToggle}
+        onClick={() => onOpenChange(!open)}
         aria-expanded={open}
         aria-controls="atlas-genre-legend"
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 font-medium text-foreground/90 transition-colors hover:text-primary"
+        className="flex min-h-9 w-full shrink-0 items-center justify-between gap-2 px-2.5 text-sm text-foreground/90 transition-colors hover:text-primary lg:min-h-0 lg:px-3 lg:py-1.5 lg:text-xs lg:font-medium"
       >
         <span>Genres</span>
         {open ? (
@@ -42,7 +63,11 @@ export function GenreLegend({ open, onToggle }: GenreLegendProps) {
       </button>
       {/* Rendered always (toggled via `hidden`) so the button's aria-controls
           target stays in the DOM when collapsed. */}
-      <ul id="atlas-genre-legend" hidden={!open} className="px-3 pb-2 pt-0.5">
+      <ul
+        id="atlas-genre-legend"
+        hidden={!open}
+        className="min-h-0 overflow-y-auto px-3 pb-0.5 pt-2 lg:pb-2 lg:pt-0.5"
+      >
         {GENRE_FAMILIES.map((family) => (
           <li key={family.key} className="flex items-center gap-2 py-0.5">
             <span

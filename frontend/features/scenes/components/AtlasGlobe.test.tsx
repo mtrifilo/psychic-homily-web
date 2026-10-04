@@ -177,7 +177,9 @@ vi.mock('./atlasMapPreload', () => ({
 
 import { AtlasGlobe } from './AtlasGlobe'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
-import { CITY_VIEW_MIN_ZOOM } from '../cityView'
+import { ATLAS_SHEET_TOP_INSET_PX, CITY_VIEW_MIN_ZOOM } from '../cityView'
+import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { altitudeForZoom } from './globeScale'
 
 // ResizeObserver shim to drive the container width (same pattern as
@@ -544,6 +546,165 @@ describe('AtlasGlobe', () => {
       expect(
         screen.getByRole('complementary', { name: /Chicago, IL scene/ }),
       ).toBeInTheDocument()
+    })
+  })
+
+  describe('genre legend and Drift', () => {
+    let matchMedia: ReturnType<typeof installMatchMedia>
+    beforeEach(() => {
+      mockUseScenes.mockReturnValue({
+        data: sampleData,
+        isLoading: false,
+        isError: false,
+      })
+    })
+    afterEach(() => matchMedia.restore())
+
+    const legendToggle = () => screen.getByRole('button', { name: 'Genres' })
+
+    const drift = () => screen.getByRole('button', { name: /drift to a random scene/i })
+    const notOnMapLink = () => screen.getByRole('link', { name: /not on the map/i })
+
+    it('groups the bottom chrome bottom-left in the sheet layout, the link above Drift and the key', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.attributionPosition).toBe('top-left')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      // One column; at its foot the "not on the map" link (Faketown has no
+      // coords) above a row of Drift and the genre key, so none can overlap.
+      const row = drift().parentElement!
+      const bottomGroup = row.parentElement!
+      const column = bottomGroup.parentElement!
+      expect(row).toContainElement(legendToggle())
+      expect(bottomGroup.firstElementChild).toBe(notOnMapLink())
+      expect(column).toHaveClass('absolute', 'bottom-4', 'left-4', 'flex', 'flex-col')
+      // The column's gaps stay the map's; only the controls take taps.
+      expect(column).toHaveClass('pointer-events-none')
+      expect(drift()).toHaveClass('pointer-events-auto')
+      expect(notOnMapLink()).toHaveClass('pointer-events-auto')
+      expect(legendToggle().parentElement).toHaveClass('pointer-events-auto')
+      expect(drift()).not.toHaveClass('absolute')
+      expect(notOnMapLink()).not.toHaveClass('absolute')
+    })
+
+    it('bounds the sheet layout’s column to the band below the credit strip', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const row = drift().parentElement!
+      const column = row.parentElement!.parentElement!
+      // The pane publishes the strip no sheet may cover; the column starts
+      // below it and stacks from the bottom, so an open key on a short pane
+      // shrinks into the column (and scrolls) instead of rising over the
+      // top-left credit.
+      expect(screen.getByTestId('globe-canvas').parentElement).toHaveStyle({
+        '--atlas-sheet-top-inset': `${ATLAS_SHEET_TOP_INSET_PX}px`,
+      })
+      expect(column).toHaveClass('top-[var(--atlas-sheet-top-inset)]', 'flex-col')
+      expect(row).toHaveClass('min-h-0')
+      // The bottom group sits at the column's foot and can shrink.
+      expect(row.parentElement).toHaveClass('mt-auto', 'min-h-0')
+      expect(row.parentElement!.parentElement).toBe(column)
+      expect(legendToggle().parentElement).toHaveClass('max-h-full', 'min-h-0')
+      expect(document.getElementById('atlas-genre-legend')).toHaveClass(
+        'min-h-0',
+        'overflow-y-auto',
+      )
+      expect(notOnMapLink()).toHaveClass('shrink-0')
+    })
+
+    it('heads the sheet layout’s column with My Scenes, so an open key cannot rise under it', async () => {
+      mockUseMyFollowing.mockReturnValue({
+        data: { following: [{ slug: 'chicago-il', name: 'Chicago' }], total: 1 },
+      } as never)
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const strip = screen.getByRole('navigation', { name: 'My scenes' })
+      const column = drift().parentElement!.parentElement!.parentElement!
+      expect(column.firstElementChild).toBe(strip)
+      expect(strip).toHaveClass('shrink-0')
+      expect(strip).not.toHaveClass('absolute')
+      mockUseMyFollowing.mockReturnValue({ data: undefined })
+    })
+
+    it('keeps My Scenes under the search in the panel layout', async () => {
+      mockUseMyFollowing.mockReturnValue({
+        data: { following: [{ slug: 'chicago-il', name: 'Chicago' }], total: 1 },
+      } as never)
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(screen.getByRole('navigation', { name: 'My scenes' })).toHaveClass(
+        'absolute',
+        'left-4',
+        'top-16',
+      )
+      mockUseMyFollowing.mockReturnValue({ data: undefined })
+    })
+
+    it('keeps the panel layout’s own placements below lg, clear of the bottom-left credit', async () => {
+      // 900 to 1023px: a compact viewport, but a pane wide enough for the
+      // panel layout, whose credit docks bottom-left.
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(950)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.attributionPosition).toBe('bottom-left')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      expect(drift()).toHaveClass('absolute', 'bottom-4', 'left-1/2', '-translate-x-1/2')
+      expect(legendToggle().parentElement).toHaveClass('absolute', 'bottom-4', 'right-4')
+      expect(notOnMapLink()).toHaveClass('absolute', 'bottom-11', 'left-4')
+      // Each docks on the map pane itself, in no shared row.
+      expect(legendToggle().parentElement!.parentElement).toBe(drift().parentElement)
+      expect(notOnMapLink().parentElement).toBe(drift().parentElement)
+    })
+
+    it('starts open on a wide viewport, docked bottom-right', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'true')
+      expect(legendToggle().parentElement).toHaveClass('absolute', 'bottom-4', 'right-4')
+      expect(drift()).toHaveClass('absolute', 'left-1/2')
+    })
+
+    it('follows the viewport until toggled, then keeps the user’s choice', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+
+      // Widening past lg before any toggle opens it.
+      matchMedia.set(ATLAS_COMPACT_VIEWPORT_QUERY, false)
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'true')
+
+      // A toggle is the user's choice and survives crossing back.
+      fireEvent.click(legendToggle())
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      matchMedia.set(ATLAS_COMPACT_VIEWPORT_QUERY, true)
+      matchMedia.set(ATLAS_COMPACT_VIEWPORT_QUERY, false)
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('keeps a collapse the user chose across a scene preview', async () => {
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      fireEvent.click(legendToggle())
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
+      fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
+      expect(screen.queryByRole('button', { name: 'Genres' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /close scene preview/i }))
+      expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
     })
   })
 

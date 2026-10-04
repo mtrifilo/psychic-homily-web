@@ -7,8 +7,18 @@ import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
 import { ARTIST_PANEL_NEXT_SHOW_ROWS } from '../cityView'
 
 vi.mock('next/link', () => ({
-  default: ({ href, children }: { href: string; children: ReactNode }) => (
-    <a href={href}>{children}</a>
+  default: ({
+    href,
+    children,
+    className,
+  }: {
+    href: string
+    children: ReactNode
+    className?: string
+  }) => (
+    <a href={href} className={className}>
+      {children}
+    </a>
   ),
 }))
 
@@ -529,6 +539,22 @@ describe('ArtistPanel as a bottom sheet', () => {
   it('keeps the compact stepper in the side panel', () => {
     renderPanel()
     expect(screen.getByTestId('artist-panel-step-next').className).not.toContain('size-7')
+  })
+
+  it('gives the breadcrumb and the artist page link 24px-tall targets', () => {
+    renderPanel({ presentation: 'sheet' })
+    expect(screen.getByRole('button', { name: /Hotel Vegas/ })).toHaveClass('min-h-6')
+    expect(screen.getByRole('link', { name: /open artist page/i })).toHaveClass(
+      'inline-flex',
+      'min-h-6',
+      'items-center',
+    )
+  })
+
+  it('keeps the side panel breadcrumb and artist page link at text height', () => {
+    renderPanel()
+    expect(screen.getByRole('button', { name: /Hotel Vegas/ })).not.toHaveClass('min-h-6')
+    expect(screen.getByRole('link', { name: /open artist page/i })).not.toHaveClass('min-h-6')
   })
 })
 

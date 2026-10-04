@@ -6,6 +6,7 @@ import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { cn } from '@/lib/utils'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 // Deep import, not the `@/components/shared` barrel: the barrel drags in every
@@ -43,6 +44,7 @@ import {
   venueFieldNoteAttribution,
   mergeVenueConfirmation,
 } from '../cityView'
+import { ATLAS_LINK_TARGET_CLASS } from './atlasTouchTargets'
 
 // This panel is now the only caller of `VENUE_SHOWS_PAGE_LIMIT`. It used to
 // share a cache entry with the venue page, which asked the same question; since
@@ -375,16 +377,20 @@ export function VenuePanel({
       <FieldNotesTeaser venue={venue} />
     </>
   )
+  const isSheet = presentation === 'sheet'
   const venuePageLink = (
     <Link
       href={venueHref}
-      className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSheet && ATLAS_LINK_TARGET_CLASS,
+      )}
     >
       Open venue page →
     </Link>
   )
 
-  if (presentation === 'sheet') {
+  if (isSheet) {
     return (
       <BottomSheet
         ref={sectionRef}
