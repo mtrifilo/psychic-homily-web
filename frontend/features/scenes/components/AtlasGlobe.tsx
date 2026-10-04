@@ -31,7 +31,6 @@ import {
   CITY_RAIL_WIDTH_PX,
   CITY_VENUE_FETCH_LIMIT,
   NO_CITY_VENUE_FILTERS,
-  atlasTopCreditShown,
   countPinsInBounds,
   filterCityVenues,
   formatNextShowDate,
@@ -54,6 +53,7 @@ import {
 } from '../artistDrillIn'
 import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
+import { atlasTopCreditShown } from './atlasCredit'
 import { VenueListSheet } from './VenueListSheet'
 import { VenuePanel } from './VenuePanel'
 import { ArtistPanel } from './ArtistPanel'
@@ -441,8 +441,8 @@ export function AtlasGlobe() {
   // The map pane: the search trigger's positioned container, and the box the
   // sheet layout's top-left credit is drawn in.
   const mapPaneRef = useRef<HTMLDivElement | null>(null)
-  // Sheet layout: the search list opens below the credit while one is drawn,
-  // and directly under its trigger while there is nothing there to clear.
+  // The search list opens below a drawn top-left credit (the sheet layout's
+  // placement), and directly under its trigger while there is none to clear.
   const searchListMinTopPx = useCallback(
     () =>
       mapPaneRef.current !== null && atlasTopCreditShown(mapPaneRef.current)
@@ -799,7 +799,7 @@ export function AtlasGlobe() {
                 scenes={allScenes}
                 onPick={handleSearchPick}
                 triggerRef={searchTriggerRef}
-                getListMinTopPx={sheetLayout ? searchListMinTopPx : undefined}
+                getListMinTopPx={searchListMinTopPx}
               />
               <MyScenesStrip
                 scenes={allScenes}

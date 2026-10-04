@@ -562,6 +562,7 @@ describe('AtlasGlobe', () => {
       setMockContainerWidth(800)
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
+      expect(lastCanvasProps.attributionPosition).toBe('top-left')
       drawTopCredit()
       expect(await listTranslateY()).toBe('translate(0px, 112px)')
     })
@@ -573,11 +574,13 @@ describe('AtlasGlobe', () => {
       expect(await listTranslateY()).toBe('translate(0px, 4px)')
     })
 
-    it('keeps the default gap in the panel layout', async () => {
+    it('keeps the default gap in the panel layout, whose credit is bottom-left', async () => {
       setMockContainerWidth(1400)
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
-      drawTopCredit()
+      expect(lastCanvasProps.attributionPosition).toBe('bottom-left')
+      screen.getByTestId('globe-canvas').innerHTML =
+        '<details class="maplibregl-ctrl maplibregl-ctrl-attrib">OpenStreetMap</details>'
       expect(await listTranslateY()).toBe('translate(0px, 4px)')
     })
   })
