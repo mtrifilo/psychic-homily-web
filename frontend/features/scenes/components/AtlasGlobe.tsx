@@ -68,7 +68,6 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
-import { useAtlasCompactViewport } from '../atlasViewport'
 
 const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
@@ -175,16 +174,9 @@ export function AtlasGlobe() {
   const closePreview = useCallback(() => setSelected(null), [])
   // Owned here (not in GenreLegend) so a user's collapse survives opening/closing a
   // scene preview, which unmounts the legend (PSY-1315 adversarial review).
-  // null until the user toggles it: until then the legend follows the
-  // viewport, collapsed on a compact one and open on a wide one. A toggle is
-  // the user's choice and holds across a later viewport change.
-  const compactViewport = useAtlasCompactViewport()
+  // null until the user toggles it (the legend follows the viewport until
+  // then); a choice holds across a later viewport change.
   const [legendOpenChoice, setLegendOpenChoice] = useState<boolean | null>(null)
-  const legendOpen = legendOpenChoice ?? !compactViewport
-  const toggleLegend = useCallback(
-    () => setLegendOpenChoice(!legendOpen),
-    [legendOpen],
-  )
 
   // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
@@ -818,8 +810,8 @@ export function AtlasGlobe() {
                 </button>
                 {!selected && (
                   <GenreLegend
-                    open={legendOpen}
-                    onToggle={toggleLegend}
+                    openChoice={legendOpenChoice}
+                    onOpenChange={setLegendOpenChoice}
                     className="lg:absolute lg:bottom-4 lg:right-4 lg:z-10"
                   />
                 )}

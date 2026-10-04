@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { cn } from '@/lib/utils'
 // Deep imports, not the `@/components/shared` barrel: the barrel drags in every
 // shared component (and their AuthContext/router dependencies) for one embed,
 // and it is the path the Atlas suites already mock. Same rule VenuePanel states.
@@ -17,6 +18,7 @@ import type { ArtistShow } from '@/features/artists/types'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
   ARTIST_PANEL_NEXT_SHOW_ROWS,
+  ATLAS_SHEET_LINK_TARGET_CLASS,
   ATLAS_SHEET_TOP_INSET_PX,
   CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
@@ -211,10 +213,11 @@ export function ArtistPanel({
       ref={backRef}
       type="button"
       onClick={onBack}
-      // A 24px-tall target in the touch layout.
-      className={`-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring${
-        isSheet ? ' min-h-6' : ''
-      }`}
+      // A 24px-tall target in the sheet presentation.
+      className={cn(
+        '-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSheet && 'min-h-6',
+      )}
     >
       <ChevronLeft className="h-3 w-3 shrink-0" aria-hidden="true" />
       <span className="truncate">{backLabel}</span>
@@ -329,10 +332,10 @@ export function ArtistPanel({
       // landed — the panel replaced a navigation, so it must never strand
       // the user pathless while a fetch is in flight or after it failed.
       href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
-      // A 24px-tall target in the touch layout.
-      className={`${
-        isSheet ? 'inline-flex min-h-6 items-center ' : ''
-      }font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+      className={cn(
+        'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSheet && ATLAS_SHEET_LINK_TARGET_CLASS,
+      )}
     >
       Open artist page →
     </Link>

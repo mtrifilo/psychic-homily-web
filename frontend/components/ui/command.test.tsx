@@ -72,6 +72,18 @@ describe('Command', () => {
     expect(ref.current).toBeInstanceOf(HTMLInputElement)
   })
 
+  it('sets the input in 16px text under a coarse pointer, 14px otherwise', () => {
+    render(
+      <Command>
+        <CommandInput placeholder="Search..." />
+      </Command>
+    )
+    expect(screen.getByPlaceholderText('Search...')).toHaveClass(
+      'text-sm',
+      'pointer-coarse:text-base'
+    )
+  })
+
   it('merges a custom className on the input', () => {
     render(
       <Command>

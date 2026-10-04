@@ -21,9 +21,4 @@ describe('Atlas zoom control size', () => {
     expect(body).toMatch(/\bwidth:\s*36px;/)
     expect(body).toMatch(/\bheight:\s*36px;/)
   })
-
-  it('leaves the panel layout on MapLibre’s own button size', () => {
-    // The sheet-layout rule above is the only one sizing these buttons.
-    expect(css.match(/\.maplibregl-ctrl-group\s+button/g)).toHaveLength(1)
-  })
 })

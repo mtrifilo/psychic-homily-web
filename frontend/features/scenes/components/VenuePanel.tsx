@@ -6,6 +6,7 @@ import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { cn } from '@/lib/utils'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 // Deep import, not the `@/components/shared` barrel: the barrel drags in every
@@ -32,6 +33,7 @@ import { showPriceText } from '@/lib/utils/showPrice'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import {
+  ATLAS_SHEET_LINK_TARGET_CLASS,
   ATLAS_SHEET_TOP_INSET_PX,
   CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
@@ -379,10 +381,10 @@ export function VenuePanel({
   const venuePageLink = (
     <Link
       href={venueHref}
-      // A 24px-tall target in the touch layout.
-      className={`${
-        isSheet ? 'inline-flex min-h-6 items-center ' : ''
-      }font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+      className={cn(
+        'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSheet && ATLAS_SHEET_LINK_TARGET_CLASS,
+      )}
     >
       Open venue page →
     </Link>

@@ -242,12 +242,7 @@ export function AtlasSearch({
         }}
       >
         <Command>
-          {/* 16px under a coarse pointer: iOS Safari zooms the page into a
-              focused field whose text is smaller than that. */}
-          <CommandInput
-            placeholder="City or state…"
-            className="pointer-coarse:text-base"
-          />
+          <CommandInput placeholder="City or state…" />
           <CommandList>
             <CommandEmpty>No scenes found.</CommandEmpty>
             <CommandGroup>

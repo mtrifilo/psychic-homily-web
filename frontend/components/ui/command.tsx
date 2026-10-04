@@ -94,6 +94,10 @@ const CommandPopoverContent = React.forwardRef<
 ))
 CommandPopoverContent.displayName = 'CommandPopoverContent'
 
+/**
+ * 16px text under a coarse pointer: iOS Safari zooms the page into a focused
+ * field whose text is smaller than that.
+ */
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
@@ -103,7 +107,7 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        'flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-11 w-full rounded-md bg-transparent py-3 text-sm pointer-coarse:text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
       {...props}
