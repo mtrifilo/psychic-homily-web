@@ -1513,7 +1513,7 @@ describe('AtlasGlobe', () => {
         expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
       })
 
-      it('brings the list back to Peek when a stack is tapped from Half or over a venue sheet', async () => {
+      it('brings the list back to Peek when a stack is tapped from Half, Full or over a venue sheet', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
         settleOnChicago()
@@ -1522,6 +1522,12 @@ describe('AtlasGlobe', () => {
 
         fireEvent.click(within(sheet).getByRole('button', { name: 'Expand Chicago venues' }))
         expect(sheet).toHaveAttribute('data-detent', 'half')
+        act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
+        expect(sheet).toHaveAttribute('data-detent', 'peek')
+
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Expand Chicago venues' }))
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Expand Chicago venues' }))
+        expect(sheet).toHaveAttribute('data-detent', 'full')
         act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
         expect(sheet).toHaveAttribute('data-detent', 'peek')
 
