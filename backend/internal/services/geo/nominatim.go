@@ -43,6 +43,11 @@ const (
 	// PrecisionCity: only a locality-level match — no more precise than the
 	// existing offline city-centroid columns.
 	PrecisionCity = "city"
+	// PrecisionNameSearch: the venue had no address; the point and the stored
+	// address both come from an OSM place found by searching the venue's NAME
+	// in its city (SearchPlaces), not from resolving an address the venue
+	// already carried. The point is the matched feature's own position.
+	PrecisionNameSearch = "name_search"
 )
 
 // AddressQuery is a structured street-address lookup. Street carries the house
@@ -132,11 +137,17 @@ type NominatimClient struct {
 // usage policy (stock library User-Agents are rejected), embedding the
 // contact channel from NOMINATIM_CONTACT when set.
 func nominatimUserAgent() string {
-	contact := strings.TrimSpace(os.Getenv(EnvNominatimContact))
-	if contact == "" {
-		contact = nominatimDefaultContact
+	return fmt.Sprintf("PsychicHomily/1.0 (%s)", ContactChannel())
+}
+
+// ContactChannel is the operator contact embedded in identifying User-Agents:
+// NOMINATIM_CONTACT when set, else the site default. Other polite third-party
+// fetchers reuse it so one setting names the operator everywhere.
+func ContactChannel() string {
+	if contact := strings.TrimSpace(os.Getenv(EnvNominatimContact)); contact != "" {
+		return contact
 	}
-	return fmt.Sprintf("PsychicHomily/1.0 (%s)", contact)
+	return nominatimDefaultContact
 }
 
 // NewNominatimClient returns a client for the given base URL (the public
@@ -198,26 +209,43 @@ func (c *NominatimClient) GeocodeAddress(ctx context.Context, q AddressQuery) (A
 	}
 	endpoint := c.baseURL + "/search?" + params.Encode()
 
+	var res AddressResult
+	var ok bool
+	err := c.withRetries(ctx, func() (searchOutcome, error) {
+		r, hit, outcome, err := c.doSearch(ctx, endpoint)
+		res, ok = r, hit
+		return outcome, err
+	})
+	if err != nil {
+		return AddressResult{}, false, err
+	}
+	return res, ok, nil
+}
+
+// withRetries runs attempt up to nominatimMaxAttempts times, retrying only the
+// failures attempt marks retryable (429/5xx/transport), with growing backoff on
+// top of the per-request spacing: 2s, then 4s, or the server's own Retry-After
+// on a 429, whichever is longer (re-hitting inside the penalty window extends
+// the throttle). It returns nil as soon as an attempt succeeds, ctx.Err() if
+// the context ends during a backoff, and the last attempt's error otherwise.
+func (c *NominatimClient) withRetries(ctx context.Context, attempt func() (searchOutcome, error)) error {
 	var lastErr error
 	var retryAfter time.Duration
-	for attempt := 1; attempt <= nominatimMaxAttempts; attempt++ {
-		if attempt > 1 {
-			// Extra backoff on top of the per-request spacing: 2s, then 4s —
-			// or the server's own Retry-After on a 429, whichever is longer
-			// (re-hitting inside the penalty window extends the throttle).
-			backoff := time.Duration(attempt-1) * 2 * time.Second
+	for n := 1; n <= nominatimMaxAttempts; n++ {
+		if n > 1 {
+			backoff := time.Duration(n-1) * 2 * time.Second
 			if retryAfter > backoff {
 				backoff = retryAfter
 			}
 			select {
 			case <-ctx.Done():
-				return AddressResult{}, false, ctx.Err()
+				return ctx.Err()
 			case <-time.After(backoff):
 			}
 		}
-		res, ok, outcome, err := c.doSearch(ctx, endpoint)
+		outcome, err := attempt()
 		if err == nil {
-			return res, ok, nil
+			return nil
 		}
 		lastErr = err
 		if !outcome.retryable {
@@ -225,7 +253,7 @@ func (c *NominatimClient) GeocodeAddress(ctx context.Context, q AddressQuery) (A
 		}
 		retryAfter = outcome.retryAfter
 	}
-	return AddressResult{}, false, lastErr
+	return lastErr
 }
 
 // sanitizeTransportErr strips the request URL from an error before it leaves
@@ -284,59 +312,13 @@ type nominatimResult struct {
 	PlaceRank   int    `json:"place_rank"` // Nominatim rank: <=25 settlement or coarser, 26-27 street, 28-30 house/POI
 }
 
-// doSearch performs one rate-limited request. The semaphore is held across
-// the pre-request wait AND the round trip so concurrent callers cannot exceed
-// the request budget; acquisition itself is context-aware so a caller whose
-// deadline expires while queued gives up instead of piling on. outcome
-// reports whether the failure class is worth another attempt (429/5xx/
-// transport) and any server-requested Retry-After.
+// doSearch performs one rate-limited structured-search request and parses its
+// first row into an AddressResult. outcome reports whether a failure is worth
+// another attempt (see doGet); a parse failure is not.
 func (c *NominatimClient) doSearch(ctx context.Context, endpoint string) (res AddressResult, ok bool, outcome searchOutcome, err error) {
-	select {
-	case c.sem <- struct{}{}:
-	case <-ctx.Done():
-		return AddressResult{}, false, searchOutcome{}, ctx.Err()
-	}
-	defer func() { <-c.sem }()
-
-	if wait := c.minInterval - time.Since(c.lastCall); wait > 0 {
-		select {
-		case <-ctx.Done():
-			return AddressResult{}, false, searchOutcome{}, ctx.Err()
-		case <-time.After(wait):
-		}
-	}
-	c.lastCall = time.Now()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	body, outcome, err := c.doGet(ctx, endpoint)
 	if err != nil {
-		// A parse failure is a *url.Error embedding the raw URL — sanitize.
-		return AddressResult{}, false, searchOutcome{}, fmt.Errorf("nominatim: build request: %w", sanitizeTransportErr(err))
-	}
-	req.Header.Set("User-Agent", c.userAgent)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return AddressResult{}, false, searchOutcome{}, ctx.Err()
-		}
-		return AddressResult{}, false, searchOutcome{retryable: true}, fmt.Errorf("nominatim: request: %w", sanitizeTransportErr(err))
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	switch {
-	case resp.StatusCode == http.StatusOK:
-		// fall through to parse
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
-		return AddressResult{}, false,
-			searchOutcome{retryable: true, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))},
-			fmt.Errorf("nominatim: status %d", resp.StatusCode)
-	default:
-		return AddressResult{}, false, searchOutcome{}, fmt.Errorf("nominatim: status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return AddressResult{}, false, searchOutcome{retryable: true}, fmt.Errorf("nominatim: read body: %w", err)
+		return AddressResult{}, false, outcome, err
 	}
 	var rows []nominatimResult
 	if err := json.Unmarshal(body, &rows); err != nil {
@@ -347,18 +329,83 @@ func (c *NominatimClient) doSearch(ctx context.Context, endpoint string) (res Ad
 	}
 
 	r := rows[0]
-	lat, latErr := strconv.ParseFloat(r.Lat, 64)
-	lng, lngErr := strconv.ParseFloat(r.Lon, 64)
-	if latErr != nil || lngErr != nil {
-		return AddressResult{}, false, searchOutcome{}, fmt.Errorf("nominatim: unparseable coordinates %q,%q", r.Lat, r.Lon)
+	lat, lng, err := parseCoordinates(r.Lat, r.Lon)
+	if err != nil {
+		return AddressResult{}, false, searchOutcome{}, err
 	}
-	// Defensive bound check at the trust boundary — an out-of-range value
-	// would also violate the numeric(9,6) columns.
+	return AddressResult{Latitude: lat, Longitude: lng, Precision: precisionForResult(r)}, true, searchOutcome{}, nil
+}
+
+// parseCoordinates reads Nominatim's string-typed lat/lon and bound-checks
+// them at the trust boundary: an out-of-range value would also violate the
+// numeric(9,6) columns.
+func parseCoordinates(rawLat, rawLon string) (lat, lng float64, err error) {
+	lat, latErr := strconv.ParseFloat(rawLat, 64)
+	lng, lngErr := strconv.ParseFloat(rawLon, 64)
+	if latErr != nil || lngErr != nil {
+		return 0, 0, fmt.Errorf("nominatim: unparseable coordinates %q,%q", rawLat, rawLon)
+	}
 	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
-		return AddressResult{}, false, searchOutcome{}, fmt.Errorf("nominatim: coordinates out of range %f,%f", lat, lng)
+		return 0, 0, fmt.Errorf("nominatim: coordinates out of range %f,%f", lat, lng)
+	}
+	return lat, lng, nil
+}
+
+// doGet performs one rate-limited request and returns the 200 body. The
+// semaphore is held across the pre-request wait AND the round trip so
+// concurrent callers cannot exceed the request budget; acquisition itself is
+// context-aware so a caller whose deadline expires while queued gives up
+// instead of piling on. outcome reports whether the failure class is worth
+// another attempt (429/5xx/transport) and any server-requested Retry-After.
+func (c *NominatimClient) doGet(ctx context.Context, endpoint string) (body []byte, outcome searchOutcome, err error) {
+	select {
+	case c.sem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, searchOutcome{}, ctx.Err()
+	}
+	defer func() { <-c.sem }()
+
+	if wait := c.minInterval - time.Since(c.lastCall); wait > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, searchOutcome{}, ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	c.lastCall = time.Now()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		// A parse failure is a *url.Error embedding the raw URL, so sanitize.
+		return nil, searchOutcome{}, fmt.Errorf("nominatim: build request: %w", sanitizeTransportErr(err))
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, searchOutcome{}, ctx.Err()
+		}
+		return nil, searchOutcome{retryable: true}, fmt.Errorf("nominatim: request: %w", sanitizeTransportErr(err))
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		// fall through to read
+	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+		return nil,
+			searchOutcome{retryable: true, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))},
+			fmt.Errorf("nominatim: status %d", resp.StatusCode)
+	default:
+		return nil, searchOutcome{}, fmt.Errorf("nominatim: status %d", resp.StatusCode)
 	}
 
-	return AddressResult{Latitude: lat, Longitude: lng, Precision: precisionForResult(r)}, true, searchOutcome{}, nil
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, searchOutcome{retryable: true}, fmt.Errorf("nominatim: read body: %w", err)
+	}
+	return body, searchOutcome{}, nil
 }
 
 // nominatimCityLevelTypes are addresstype values that locate no better than a

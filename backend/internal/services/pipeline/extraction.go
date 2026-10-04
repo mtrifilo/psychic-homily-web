@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -264,6 +265,9 @@ func (s *ExtractionService) buildUserContent(req *contracts.ExtractShowRequest) 
 	}
 }
 
+// extractionModel is the model every extraction prompt in this service uses.
+const extractionModel = "claude-haiku-4-5-20251001"
+
 // anthropicRequest is the Anthropic API request structure
 type anthropicRequest struct {
 	Model     string             `json:"model"`
@@ -291,7 +295,7 @@ type anthropicResponse struct {
 // callAnthropic sends a request to the Anthropic API using the default extraction system prompt.
 func (s *ExtractionService) callAnthropic(userContent []interface{}) (string, error) {
 	reqBody := anthropicRequest{
-		Model:     "claude-haiku-4-5-20251001",
+		Model:     extractionModel,
 		MaxTokens: 1024,
 		System:    extractionSystemPrompt,
 		Messages: []anthropicMessage{
@@ -302,17 +306,17 @@ func (s *ExtractionService) callAnthropic(userContent []interface{}) (string, er
 		},
 	}
 
-	return s.sendAnthropicRequest(reqBody)
+	return s.sendAnthropicRequest(context.Background(), reqBody)
 }
 
 // sendAnthropicRequest sends a pre-built request to the Anthropic API and returns the response text.
-func (s *ExtractionService) sendAnthropicRequest(reqBody anthropicRequest) (string, error) {
+func (s *ExtractionService) sendAnthropicRequest(ctx context.Context, reqBody anthropicRequest) (string, error) {
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", s.anthropicBaseURL+"/v1/messages", bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.anthropicBaseURL+"/v1/messages", bytes.NewReader(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}

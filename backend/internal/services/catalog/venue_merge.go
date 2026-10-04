@@ -32,7 +32,8 @@ const AuditActionMergeVenues = "merge_venues"
 var errPreviewRollback = errors.New("venue merge preview rollback")
 
 // venueFKTables is every table holding a real foreign key to venues.id. Each
-// one is re-pointed explicitly by the steps below.
+// one is either re-pointed explicitly by the steps below or deliberately left
+// to its cascade, as its entry says.
 //
 // Keeping this list is not redundant with the database's own constraints: four
 // of the five cascade on delete, so a table that this merge does NOT handle
@@ -59,6 +60,12 @@ var venueFKTables = []string{
 	// read time, so the cascade would leave a user looking at "3 new shows" above
 	// an empty list. Re-pointed by repointVenueShowAlertBatchVenues.
 	"venue_show_alert_batch",
+	// venue_address_lookups is the one table deliberately NOT re-pointed: its
+	// rows record address-backfill attempts keyed to the losing venue's own
+	// name, website, and pages, which say nothing about the canonical venue,
+	// and the canonical venue keeps its own rows. The losing venue's rows go
+	// with it through ON DELETE CASCADE.
+	"venue_address_lookups",
 }
 
 // PreviewMergeVenues reports what MergeVenues(canonicalID, mergeFromID) would
