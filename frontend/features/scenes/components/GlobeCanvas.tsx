@@ -10,10 +10,15 @@ import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
 import {
-  NIGHT_EARTH_SOURCE_ID,
-  NIGHT_EARTH_TILES,
-} from '../basemap/nightEarthRaster'
+  globeSurfaceLayers,
+  globeSurfaceSources,
+  showGlobeSurface,
+} from '../basemap/globeSurface'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
+import {
+  isAtlasCompactViewport,
+  useAtlasCompactViewport,
+} from '../atlasViewport'
 import type {
   CameraSettle,
   GlobePov,
@@ -227,6 +232,15 @@ export default function GlobeCanvas({
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
 
   const selectedSlug = selected?.slug ?? null
+
+  // Compact viewports get the light globe: flat ocean and vector land in
+  // place of the night-earth raster (globeSurface.ts). The map is built with
+  // the look matchMedia reports at construction; a breakpoint crossing never
+  // rebuilds it, this effect switches the live map instead.
+  const lightGlobe = useAtlasCompactViewport()
+  useEffect(() => {
+    if (mapReady) showGlobeSurface(mapReady, lightGlobe)
+  }, [mapReady, lightGlobe])
 
   // Resolved theme palette for the dominant-genre dot tint (PSY-1315).
   const palette = useGraphPalette()
@@ -542,9 +556,9 @@ export default function GlobeCanvas({
     const zoom = restored?.zoom ?? zoomForAltitude(pov.altitude)
 
     // PH street basemap (PSY-1543): OpenFreeMap vector tiles restyled to the
-    // app's dark tokens, with its background ramped in across the Black
-    // Marble fade range (see phBasemapFragment for why the background must
-    // ramp rather than sit opaque).
+    // app's dark tokens, with its background ramped in across the same range
+    // the globe surface (raster, or ocean and land) fades out; see
+    // phBasemapFragment for the handoff.
     const basemap = phBasemapFragment(
       BLACK_MARBLE_FADE_START,
       BLACK_MARBLE_FADE_END,
@@ -598,23 +612,12 @@ export default function GlobeCanvas({
             0,
           ],
         },
-        // The basemap's background layer is opacity-ramped (0 until the
-        // street fade), so space stays transparent at globe zooms and the
-        // CSS starfield and halo behind the canvas show through.
+        // Background and fill layers draw on the sphere only on the globe
+        // projection, so space stays transparent and the CSS starfield and
+        // halo behind the canvas show through.
         sources: {
           ...basemap.sources,
-          [NIGHT_EARTH_SOURCE_ID]: {
-            type: 'raster',
-            tiles: [NIGHT_EARTH_TILES],
-            tileSize: 256,
-            maxzoom: 8,
-            // Rendered by the AttributionControl below (PSY-1543), alongside
-            // the OpenFreeMap/OSM credit the openmaptiles source carries.
-            // NASA imagery is public domain and GIBS attribution is
-            // requested rather than required, but showing it costs nothing
-            // once the control exists for the OSM requirement.
-            attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
-          },
+          ...globeSurfaceSources(),
           // promoteId: features are keyed by slug so the hover feature-state
           // (set in handleMove below) sticks across setData refreshes.
           scenes: { type: 'geojson', data: EMPTY_FC, promoteId: 'slug' },
@@ -625,23 +628,19 @@ export default function GlobeCanvas({
           venues: { type: 'geojson', data: EMPTY_FC, promoteId: 'id' },
         },
         layers: [
-          // Street basemap under the raster: at globe zooms the opaque Black
-          // Marble covers it (and its layers are minzoom-gated anyway); as
-          // the raster fades out across the handoff range the streets are
-          // already drawn beneath — no black frame between the two worlds.
+          // Street basemap under the globe surface, which covers it at globe
+          // zooms and fades out across the handoff (see globeSurface.ts), so
+          // the streets are already drawn when it dissolves.
           ...basemap.layers,
-          {
-            id: 'earth',
-            type: 'raster',
-            source: NIGHT_EARTH_SOURCE_ID,
-            // Both halves of the crossfade come from phBasemapFragment, so
-            // this ramp is the background ramp's mirror BY CONSTRUCTION —
-            // retuning the handoff means editing the two constants above and
-            // nothing else. The maxzoom stops GIBS fetching/compositing once
-            // the raster is provably invisible.
-            maxzoom: basemap.rasterMaxZoom,
-            paint: { 'raster-opacity': basemap.rasterFadeOut },
-          },
+          // Built with the current look's visibility, read from matchMedia
+          // rather than the hook (whose first value can be its server
+          // snapshot), so the first frame never requests a raster tile on a
+          // compact viewport.
+          ...globeSurfaceLayers({
+            lightGlobe: isAtlasCompactViewport(),
+            fadeOut: basemap.rasterFadeOut,
+            maxZoom: basemap.rasterMaxZoom,
+          }),
           {
             // Under the dots so a ring never covers its own scene's dot —
             // the RING_ALTITUDE invariant of the shipped globe, by layer order.
@@ -721,11 +720,11 @@ export default function GlobeCanvas({
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
     // style's own TileJSON fetch — the earliest thing that can fail — is
     // already covered. The handler restores MapLibre's default console.error
-    // (attaching any listener suppresses it) and reports a failure of either
-    // tile source — the OpenFreeMap vector tiles or the GIBS raster — to
-    // Sentry once per session per source; basemapTelemetry.ts owns the
-    // filtering and the throttle. Removed with the map in cleanup, like every
-    // listener here.
+    // (attaching any listener suppresses it) and reports a failure of a
+    // ground source (the OpenFreeMap vector tiles, the GIBS raster, or the
+    // light globe's land file) to Sentry once per session per source;
+    // basemapTelemetry.ts owns the filtering and the throttle. Removed with
+    // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
@@ -737,7 +736,8 @@ export default function GlobeCanvas({
     // requirement (ODbL) now that street tiles ship, so the old chrome-free
     // look gains an always-visible control (non-compact — OSM's guidance
     // frowns on hidden-behind-an-icon attribution on desktop). Credit
-    // strings come from the sources above (OpenFreeMap/OSM + NASA GIBS);
+    // strings come from the sources above (OpenFreeMap/OSM, plus NASA GIBS
+    // while the raster layer is visible);
     // the dark restyle of MapLibre's default white pill lives in
     // globals.css (.maplibregl-ctrl-attrib).
     //
