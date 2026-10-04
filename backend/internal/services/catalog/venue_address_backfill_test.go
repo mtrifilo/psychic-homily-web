@@ -374,13 +374,15 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyWritesTh
 func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyRefusals() {
 	approved := suite.seedAddresslessVenue("Approved Venue", "Chicago", "IL", "https://a.example", 0)
 	refused := suite.seedAddresslessVenue("Refused Venue", "Chicago", "IL", "https://r.example", 0)
-	renamed := suite.seedAddresslessVenue("Renamed Venue", "Chicago", "IL", "https://n.example", 0)
+	rewebbed := suite.seedAddresslessVenue("Rewebbed Venue", "Chicago", "IL", "https://n.example", 0)
+	renamed := suite.seedAddresslessVenue("Renamed Venue", "Chicago", "IL", "https://rn.example", 0)
 	filled := suite.seedAddresslessVenue("Filled Venue", "Chicago", "IL", "https://f.example", 0)
 	review := suite.seedAddresslessVenue("Lincoln", "Chicago", "IL", "", 0) // partial match of "Lincoln Hall"
 	finder := &stubPageFinder{results: map[string]venueaddress.Result{
 		"Approved Venue": pageHit("1 Main St", "https://a.example"),
 		"Refused Venue":  pageHit("2 Main St", "https://r.example"),
-		"Renamed Venue":  pageHit("3 Main St", "https://n.example"),
+		"Rewebbed Venue": pageHit("3 Main St", "https://n.example"),
+		"Renamed Venue":  pageHit("5 Main St", "https://rn.example"),
 		"Filled Venue":   pageHit("4 Main St", "https://f.example"),
 	}}
 	places := &stubPlaces{results: map[string][]geo.PlaceCandidate{"Lincoln": {lincolnHallCandidate()}}}
@@ -391,7 +393,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyRefusals
 
 	reviewed := suite.roundTrip(report)
 	rowFor(reviewed, "Refused Venue", "page").WouldWrite = false
-	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", renamed.ID).Update("website", "https://new.example").Error)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", rewebbed.ID).Update("website", "https://new.example").Error)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", renamed.ID).Update("name", "Another Name").Error)
 	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", filled.ID).Update("address", "77 Editor St").Error)
 	evil := 999.0
 	rowFor(reviewed, "Approved Venue", "page").Latitude = &evil
@@ -405,12 +408,16 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyRefusals
 	}
 	suite.Contains(reasons["Approved Venue"], "coordinates")
 	suite.Contains(reasons["Refused Venue"], "would_write is false")
-	suite.Contains(reasons["Renamed Venue"], "inputs changed")
+	suite.Contains(reasons["Rewebbed Venue"], "inputs changed")
+	suite.Contains(reasons["Renamed Venue"], "name, city, or state changed")
 	suite.Contains(reasons["Filled Venue"], "has an address now")
 	suite.Contains(reasons["Lincoln"], "approve_review")
-	for _, id := range []uint{approved.ID, refused.ID, renamed.ID, review.ID} {
+	for _, id := range []uint{approved.ID, refused.ID, rewebbed.ID, renamed.ID, review.ID} {
 		suite.Nil(suite.loadVenue(id).Address)
 	}
+	suite.Equal(2, result.Refused, "the refused hit and the unapproved REVIEW row")
+	suite.Equal(catalogm.VenueAddressOutcomeMiss, suite.lookups(refused.ID)["page"].Outcome,
+		"a refused hit is recorded as a miss, so the next lookup moves past it")
 	suite.Equal("77 Editor St", *suite.loadVenue(filled.ID).Address, "a non-empty address is never overwritten")
 
 	// The reviewer accepts the REVIEW row explicitly; then it is written.
@@ -510,7 +517,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_MissMemoExpir
 func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ClearedAddressesAreNeverRefilled() {
 	byBackfill := suite.seedAddresslessVenue("Cleared By Backfill", "Chicago", "IL", "https://a.example", 0)
 	byEditor := suite.seedAddresslessVenue("Cleared By Editor", "Chicago", "IL", "https://b.example", 0)
-	suite.Require().NoError(recordAddressLookup(suite.db, byBackfill.ID, "page", "k", "hit", "https://a.example", "1 Main St"))
+	suite.Require().NoError(recordAddressLookup(suite.db, byBackfill.ID, "page", "k", "hit", "https://a.example", "1 Main St", time.Time{}))
 	user := suite.createTestUser()
 	suite.Require().NoError(suite.db.Exec(
 		`INSERT INTO revisions (entity_type, entity_id, user_id, field_changes) VALUES ('venue', ?, ?, ?::jsonb)`,
@@ -604,12 +611,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_SchemaAccepts
 	err := suite.db.Model(&catalogm.Venue{}).Where("id = ?", v.ID).Update("geocode_precision", "guess").Error
 	suite.Error(err, "the check constraint still refuses values outside the vocabulary")
 
-	suite.Require().NoError(recordAddressLookup(suite.db, v.ID, "name", "k1", "miss", "", ""))
-	suite.Require().NoError(recordAddressLookup(suite.db, v.ID, "name", "k2", "hit", "src", "1 Main St"))
+	suite.Require().NoError(recordAddressLookup(suite.db, v.ID, "name", "k1", "miss", "", "", time.Time{}))
+	suite.Require().NoError(recordAddressLookup(suite.db, v.ID, "name", "k2", "hit", "src", "1 Main St", time.Time{}))
 	l := suite.lookups(v.ID)["name"]
 	suite.Equal("k2", l.LookupKey, "a second attempt replaces the phase row")
 	suite.Equal("hit", l.Outcome)
-	suite.Error(recordAddressLookup(suite.db, v.ID, "phone", "k", "miss", "", ""), "phase is constrained")
+	suite.Require().NoError(recordAddressLookup(suite.db, v.ID, "name", "k3", "miss", "", "", time.Time{}))
+	suite.Equal("hit", suite.lookups(v.ID)["name"].Outcome, "a miss never replaces a recorded hit")
+	suite.Error(recordAddressLookup(suite.db, v.ID, "phone", "k", "miss", "", "", time.Time{}), "phase is constrained")
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_UnmigratedDatabaseLooksUpButCannotApply() {
@@ -678,4 +687,108 @@ func TestStubPlacesSatisfiesInterface(t *testing.T) {
 	var _ PageAddressFinder = (*stubPageFinder)(nil)
 	var _ PageAddressFinder = (*venueaddress.Finder)(nil)
 	var _ geo.PlaceSearcher = (*geo.NominatimClient)(nil)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyRowChecks() {
+	page := suite.seedAddresslessVenue("Corrected Page", "Chicago", "IL", "https://c.example", 0)
+	name := suite.seedAddresslessVenue("Lincoln Hall", "Chicago", "IL", "", 0)
+	bad := suite.seedAddresslessVenue("Bad Values", "Chicago", "IL", "https://b.example", 0)
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{
+		"Corrected Page": pageHit("1 Mian St", "https://c.example"),
+		"Bad Values":     pageHit("2 Main St", "https://b.example"),
+	}}
+	places := &stubPlaces{results: map[string][]geo.PlaceCandidate{"Lincoln Hall": {lincolnHallCandidate()}}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder, Places: places, Geocoder: hitStub(41.9, -87.6, geo.PrecisionRooftop), AIEnabled: true}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+
+	reviewed := suite.roundTrip(report)
+	rowFor(reviewed, "Corrected Page", "page").Address = "1 Main St"
+	rowFor(reviewed, "Lincoln Hall", "name").Address = "2425 North Lincoln Avenue"
+	rowFor(reviewed, "Bad Values", "page").Precision = geo.PrecisionNameSearch
+	result, err := (&VenueAddressBackfill{DB: suite.db}).Apply(context.Background(), reviewed)
+	suite.Require().NoError(err)
+	reasons := map[string]string{}
+	for _, r := range result.Rows {
+		reasons[r.Name] = r.Reason
+	}
+	suite.Equal(1, result.Written)
+	p := suite.loadVenue(page.ID)
+	suite.Equal("1 Main St", *p.Address, "a corrected page address is written")
+	suite.Nil(p.GeocodedAddress, "without the geocode of the uncorrected address; the sweep geocodes it")
+	suite.Nil(p.StreetLatitude)
+	suite.Contains(reasons["Lincoln Hall"], "cannot be corrected")
+	suite.Nil(suite.loadVenue(name.ID).Address)
+	suite.Contains(reasons["Bad Values"], "precision")
+	suite.Nil(suite.loadVenue(bad.ID).Address)
+
+	// A report with two rows for one venue and phase is refused whole.
+	dup := suite.roundTrip(report)
+	dup.Rows = append(dup.Rows, dup.Rows[0])
+	_, err = (&VenueAddressBackfill{DB: suite.db}).Apply(context.Background(), dup)
+	suite.ErrorContains(err, "two rows")
+
+	// So is a stale one.
+	stale := suite.roundTrip(report)
+	stale.GeneratedAt = time.Now().Add(-maxReportAge - time.Hour)
+	_, err = (&VenueAddressBackfill{DB: suite.db}).Apply(context.Background(), stale)
+	suite.ErrorContains(err, "older than")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyUnverifiedAndClearedSinceTheReport() {
+	unverified := suite.seedAddresslessVenue("Lincoln Hall", "Chicago", "IL", "", 0)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", unverified.ID).Update("verified", false).Error)
+	cleared := suite.seedAddresslessVenue("Cleared Later", "Chicago", "IL", "https://cl.example", 0)
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{"Cleared Later": pageHit("1 Main St", "https://cl.example")}}
+	places := &stubPlaces{results: map[string][]geo.PlaceCandidate{"Lincoln Hall": {lincolnHallCandidate()}}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder, Places: places, Geocoder: hitStub(41.9, -87.6, geo.PrecisionRooftop), AIEnabled: true}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+	u := rowFor(report, "Lincoln Hall", "name")
+	suite.True(u.Review)
+	suite.Contains(u.Notes, CautionUnverified)
+
+	// An editor clears the address between the lookup and the apply; the
+	// revision of an unverified venue records the old value as withheld.
+	user := suite.createTestUser()
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO revisions (entity_type, entity_id, user_id, field_changes) VALUES ('venue', ?, ?, ?::jsonb)`,
+		cleared.ID, user.ID, `[{"field":"address","old_value":"","new_value":"","old_value_withheld":true}]`).Error)
+
+	reviewed := suite.roundTrip(report)
+	rowFor(reviewed, "Lincoln Hall", "name").Review = false // a reviewer cannot unflag an unverified venue
+	result, err := (&VenueAddressBackfill{DB: suite.db}).Apply(context.Background(), reviewed)
+	suite.Require().NoError(err)
+	suite.Equal(0, result.Written)
+	suite.Nil(suite.loadVenue(unverified.ID).Address)
+	suite.Nil(suite.loadVenue(cleared.ID).Address)
+	reasons := map[string]string{}
+	for _, r := range result.Rows {
+		reasons[r.Name] = r.Reason
+	}
+	suite.Contains(reasons["Lincoln Hall"], "approve_review")
+	suite.Contains(reasons["Cleared Later"], "cleared")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApplyRebuildsTheTicketPagesTheReportSaw() {
+	v := suite.seedAddresslessVenue("Ticketed Venue", "Chicago", "IL", "https://t.example", 0)
+	admin := suite.createTestUser()
+	suite.Require().NoError(suite.db.Model(admin).Update("is_admin", true).Error)
+	// A show that was upcoming when the lookup ran and has passed since.
+	ticket := "https://vendor.example/e/1"
+	show := &catalogm.Show{Title: "t", EventDate: time.Now().Add(-24 * time.Hour), Status: catalogm.ShowStatusApproved,
+		TicketURL: &ticket, SubmittedBy: &admin.ID, CreatedAt: time.Now().Add(-72 * time.Hour)}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: v.ID}).Error)
+
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{"Ticketed Venue": pageHit("1 Main St", "https://t.example")}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder, Geocoder: hitStub(41.9, -87.6, geo.PrecisionRooftop), AIEnabled: true}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{Now: time.Now().Add(-48 * time.Hour)})
+	suite.Require().NoError(err)
+	suite.Contains(rowFor(report, "Ticketed Venue", "page").LookupKey, "ticket:vendor.example")
+
+	result, err := (&VenueAddressBackfill{DB: suite.db}).Apply(context.Background(), suite.roundTrip(report))
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Written, "a show passing after the lookup does not change the row's key")
+	suite.Equal("1 Main St", *suite.loadVenue(v.ID).Address)
 }

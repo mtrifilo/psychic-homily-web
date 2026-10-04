@@ -664,13 +664,12 @@ export async function submitShows(
   // 3. Display preview
   displayPreview(plans, resolvedTags);
 
-
-  // 4. Summary
-  const validPlans = plans.filter((p) => p.valid);
-
-  // 3b. Fill empty venue addresses the batch states. Duplicate shows count:
+  // 4. Fill empty venue addresses the batch states. Duplicate shows count:
   // a calendar refresh whose shows all exist still carries the address.
+  const validPlans = plans.filter((p) => p.valid);
   await applyVenueAddressFills(client, validPlans, confirm);
+
+  // 5. Summary
   const duplicatePlans = validPlans.filter((p) => p.duplicate?.isDuplicate);
   const creatablePlans = validPlans.filter((p) => !p.duplicate?.isDuplicate);
   const invalidCount = plans.length - validPlans.length;

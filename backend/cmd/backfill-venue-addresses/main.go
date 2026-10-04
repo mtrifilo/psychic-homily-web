@@ -18,18 +18,23 @@
 //     building whose name and city match supplies the address and the point,
 //     stored with geocode_precision = name_search.
 //
-// The report (--report <path>, written as <path>.md and <path>.json) lists
-// every phase attempted. Rows that need a person's judgement are marked
-// REVIEW: a partial name match, a building rather than a venue-like place, or
-// a name match for a venue whose own pages failed to load.
+// The report (--report <path>, required; written as <path>.md and
+// <path>.json) lists every phase attempted. Rows that need a person's
+// judgement are marked REVIEW: a partial name match, a building rather than a
+// venue-like place, a name match for a venue whose own pages failed to load,
+// and any row for an unverified venue.
 //
-// Step 2, apply (--confirm --approved <report.json>). Review the JSON report:
-// set approve_review to true on each REVIEW row you accept, and set
-// would_write to false (or delete the row) for any row you refuse. The apply
-// step makes no lookups; it writes the approved rows exactly as reviewed and
-// records the report's misses, so the next lookup run skips them. It skips a
-// row whose venue gained an address, had its address cleared, or changed its
-// name, city, website, or pages since the report.
+// Step 2, apply (--confirm --approved <report.json>). In the JSON report, set
+// approve_review to true on each REVIEW row you accept, and set would_write to
+// false on any hit you refuse. A corrected address may be typed into a page
+// row's address (it is written without the old geocode; the sweep geocodes
+// it). The apply step makes no lookups. It writes the accepted hits exactly as
+// reviewed, records each refused hit and each miss as a miss for its phase (so
+// the next lookup moves on, to the name search after a refused page hit), and
+// leaves a deleted row undecided. It skips a row whose venue gained an
+// address, had its address cleared, or changed its name, city, state,
+// website, or pages since the report. A report older than 90 days, or with
+// two rows for one venue and phase, is refused.
 //
 // A non-empty address is never overwritten, and the city-centroid
 // latitude/longitude columns are never touched.
@@ -56,6 +61,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -94,11 +100,10 @@ func main() {
 	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
 	flag.Parse()
 
-	if confirm && approvedPath == "" {
-		log.Fatal("--confirm writes only a reviewed report: run the lookup with --report, review the JSON, then pass it with --approved")
-	}
-	if !confirm && approvedPath != "" {
-		log.Fatal("--approved is applied only with --confirm")
+	set := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if err := validateFlags(confirm, approvedPath, reportPath, set); err != nil {
+		log.Fatal(err)
 	}
 
 	loadEnv(envFile)
@@ -123,6 +128,31 @@ func main() {
 		os.Exit(apply(approvedPath))
 	}
 	os.Exit(lookup(cfg, catalog.VenueAddressBackfillOptions{Limit: limit, OnlyUpcoming: onlyUpcoming, City: city}, reportPath))
+}
+
+// lookupOnlyFlags select or record a lookup run; an apply writes the rows of
+// its report and nothing else, so it takes none of them.
+var lookupOnlyFlags = []string{"limit", "only-upcoming", "city", "report"}
+
+// validateFlags checks the flag combination before anything connects: an
+// apply needs its reviewed report and takes no lookup flags, and a lookup
+// must write a report, since only a report can be applied.
+func validateFlags(confirm bool, approvedPath, reportPath string, set map[string]bool) error {
+	switch {
+	case confirm && approvedPath == "":
+		return errors.New("--confirm writes only a reviewed report: run the lookup with --report, review the JSON, then pass it with --approved")
+	case !confirm && approvedPath != "":
+		return errors.New("--approved is applied only with --confirm")
+	case confirm:
+		for _, name := range lookupOnlyFlags {
+			if set[name] {
+				return fmt.Errorf("--%s selects a lookup run; --confirm applies every row of the approved report and takes no lookup flags", name)
+			}
+		}
+	case reportPath == "":
+		return errors.New("a lookup needs --report <path>: the JSON report is what --confirm --approved applies")
+	}
+	return nil
 }
 
 func lookup(cfg *config.Config, opts catalog.VenueAddressBackfillOptions, reportPath string) int {
@@ -190,7 +220,8 @@ func apply(path string) int {
 		}
 		fmt.Println(line)
 	}
-	fmt.Printf("\nWritten: %d   misses recorded: %d   skipped: %d\n", result.Written, result.MissesRecorded, result.Skipped)
+	fmt.Printf("\nWritten: %d   misses recorded: %d   refused (recorded as misses): %d   skipped: %d\n",
+		result.Written, result.MissesRecorded, result.Refused, result.Skipped)
 	for _, e := range result.Errors {
 		fmt.Printf("  [ERROR] %s\n", e)
 	}
@@ -230,7 +261,7 @@ func printSummary(r *catalog.VenueAddressReport) {
 		fmt.Printf("  precision %-12s %d\n", p+":", r.Precision[p])
 	}
 	if r.LimitHit {
-		fmt.Println("Limit reached: apply the reviewed report to record its misses; the next lookup then continues past them.")
+		fmt.Println("Limit reached: applying the reviewed report records its misses and refusals; the next lookup then moves past them (rows deleted from the report, and lookups that errored, come back).")
 	}
 	for _, e := range r.Errors {
 		fmt.Printf("  [ERROR] %s\n", e)

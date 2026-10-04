@@ -11,10 +11,11 @@ ALTER TABLE venues
 
 -- One row per venue per backfill phase: the last attempt. lookup_key is what
 -- was tried (the candidate pages for 'page', the search for 'name'); a 'miss'
--- whose key still matches the venue's current inputs is skipped on the next
--- run, and a changed key (new website, renamed venue) is tried again. A 'hit'
--- keeps the source the address came from, and marks the venue as filled once,
--- so an address cleared later is never refilled.
+-- (which includes a hit a reviewer refused) whose key still matches the
+-- venue's current inputs is skipped for 90 days, and a changed key (new
+-- website, renamed venue) is tried again. A 'hit' keeps the source the address
+-- came from, and marks the venue as filled once, so an address cleared later
+-- is never refilled; a later miss never replaces it.
 --
 -- The down migration keeps these rows as venue_address_lookups_archive; when
 -- that table exists it is restored here instead of starting empty, so a

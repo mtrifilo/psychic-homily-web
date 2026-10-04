@@ -15,9 +15,11 @@ const (
 	VenueAddressOutcomeMiss = "miss"
 )
 
-// VenueAddressLookup is the last backfill attempt for one venue in one phase.
-// LookupKey is what was tried; a miss is skipped by later runs only while the
-// venue's current inputs still produce the same key. On a hit, Source is the
+// VenueAddressLookup is the last recorded backfill outcome for one venue in
+// one phase. LookupKey is what was tried; a miss (including a hit a reviewer
+// refused) is skipped by later lookups only while the venue's current inputs
+// still produce the same key and for 90 days from AttemptedAt, which for a
+// miss is when the lookup ran and for a hit is when it was written. On a hit, Source is the
 // page URL the address came from (page phase) or the matched OSM place's
 // display name (name phase), and Address is what was written.
 type VenueAddressLookup struct {

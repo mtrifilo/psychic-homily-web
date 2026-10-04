@@ -77,15 +77,18 @@ func AcceptPlaceCandidate(c geo.PlaceCandidate, v *catalogm.Venue, countryCode s
 	return c.Road + " " + c.HouseNumber, true, ""
 }
 
-// Report flags for name-search matches a reviewer must check: Apply writes a
-// flagged row only when the reviewer sets its approve_review. They never
-// change what the lookup accepts.
+// Report flags for rows a reviewer must check: Apply writes a flagged row only
+// when the reviewer sets its approve_review. They never change what the
+// lookup accepts.
 const (
 	CautionPartialName = "REVIEW: partial name match"
 	CautionBuilding    = "REVIEW: matched a building, not a venue-like place"
 	// CautionPageUnread: the venue's own pages failed to load this run, so
 	// whether they print a better address is unknown.
 	CautionPageUnread = "REVIEW: the venue's own pages could not be read this run"
+	// CautionUnverified: the venue is unverified, often a private home, and an
+	// earlier removal of its address may have left no trace to check.
+	CautionUnverified = "REVIEW: unverified venue; confirm this is a public venue address"
 )
 
 // placeMatchCautions returns the review flags for an accepted candidate: the

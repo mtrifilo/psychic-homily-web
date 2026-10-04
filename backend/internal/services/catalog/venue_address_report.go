@@ -38,12 +38,12 @@ func (r *VenueAddressReport) WriteMarkdown(w io.Writer) error {
 		fmt.Fprintf(&b, " Skipped %d venue(s) whose address was cleared after they had one.", r.SkippedCleared)
 	}
 	if r.LimitHit {
-		b.WriteString(" The limit was reached: applying this report records its misses, after which a new lookup run continues past them.")
+		b.WriteString(" The limit was reached: applying this report records its misses and refusals, after which a new lookup run moves past them (deleted rows and errored lookups come back).")
 	}
 	if r.LookupsTableMissing {
 		b.WriteString(" The database has no venue_address_lookups table yet, so no recorded misses were skipped and this report cannot be applied until the migrations run.")
 	}
-	b.WriteString("\n\nNothing was written. To apply: review the JSON report, set approve_review to true on each REVIEW row you accept, set would_write to false (or delete the row) for any row you refuse, then run with --confirm --approved <report.json>.\n")
+	b.WriteString("\n\nNothing was written. To apply: in the JSON report, set approve_review to true on each REVIEW row you accept and would_write to false on each hit you refuse (a refused hit is recorded as a miss); delete a row to leave it undecided; then run with --confirm --approved <report.json>.\n")
 	b.WriteString("\n## Totals per phase\n\n")
 	b.WriteString("| Phase | Attempted | Hits | Hit rate | Misses | Errors | Skipped (recorded miss) | No page |\n")
 	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- |\n")

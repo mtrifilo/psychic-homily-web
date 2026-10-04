@@ -42,7 +42,9 @@ import (
 //   - a recorded miss is skipped while the key of what was tried still
 //     matches and the miss is younger than missMemoTTL;
 //   - a row the report marks REVIEW is written only when the reviewer set its
-//     approve_review.
+//     approve_review; every row for an unverified venue is REVIEW, because an
+//     unverified venue is often a private home and an earlier removal of its
+//     address is not reliably visible in its revision history.
 
 // VenueAddressBackfillOptions configures a lookup run.
 type VenueAddressBackfillOptions struct {
@@ -102,24 +104,28 @@ const (
 // Geocode, Precision, and the coordinates are what Apply writes or records;
 // the rest is for the reviewer.
 type VenueAddressRow struct {
-	VenueID     uint       `json:"venue_id"`
-	Name        string     `json:"name"`
-	City        string     `json:"city"`
-	State       string     `json:"state"`
-	Verified    bool       `json:"verified"`
-	NextShow    *time.Time `json:"next_show,omitempty"`
-	Phase       string     `json:"phase"`
-	Outcome     string     `json:"outcome"`
-	LookupKey   string     `json:"lookup_key"`
-	Source      string     `json:"source"` // the page URL a page hit came from, the matched OSM place for a name hit, else the lookup key
-	Method      string     `json:"method,omitempty"`
-	Address     string     `json:"address,omitempty"`
-	MatchedName string     `json:"matched_name,omitempty"`
-	Geocode     string     `json:"geocode,omitempty"`
-	Precision   string     `json:"precision,omitempty"`
-	Latitude    *float64   `json:"latitude,omitempty"`
-	Longitude   *float64   `json:"longitude,omitempty"`
-	Notes       []string   `json:"notes,omitempty"`
+	VenueID   uint       `json:"venue_id"`
+	Name      string     `json:"name"`
+	City      string     `json:"city"`
+	State     string     `json:"state"`
+	Verified  bool       `json:"verified"`
+	NextShow  *time.Time `json:"next_show,omitempty"`
+	Phase     string     `json:"phase"`
+	Outcome   string     `json:"outcome"`
+	LookupKey string     `json:"lookup_key"`
+	Source    string     `json:"source"` // the page URL a page hit came from, the matched OSM place for a name hit, else the lookup key
+	Method    string     `json:"method,omitempty"`
+	Address   string     `json:"address,omitempty"`
+	// LookedUpAddress is the address the lookup produced, which the geocode
+	// fields belong to. Apply compares it with Address to tell a reviewer's
+	// correction from the original.
+	LookedUpAddress string   `json:"looked_up_address,omitempty"`
+	MatchedName     string   `json:"matched_name,omitempty"`
+	Geocode         string   `json:"geocode,omitempty"`
+	Precision       string   `json:"precision,omitempty"`
+	Latitude        *float64 `json:"latitude,omitempty"`
+	Longitude       *float64 `json:"longitude,omitempty"`
+	Notes           []string `json:"notes,omitempty"`
 	// Review: the row carries a REVIEW caution. Apply writes it only when the
 	// reviewer set ApproveReview, which every generated report leaves false.
 	Review        bool `json:"review,omitempty"`
@@ -178,7 +184,8 @@ type addressCandidate struct {
 	catalogm.Venue
 	NextShow *time.Time `gorm:"column:next_show"`
 	// ClearedByEditor: the venue's revision history shows its address going
-	// from a value to empty.
+	// from a value to empty. An unverified venue's revision records its old
+	// address as withheld rather than as a value, and that counts too.
 	ClearedByEditor bool `gorm:"column:cleared_by_editor"`
 }
 
@@ -237,7 +244,7 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 	if err != nil {
 		return nil, err
 	}
-	ticketPages, err := b.loadTicketPages(ctx, ids, now)
+	ticketPages, err := b.loadTicketPages(ctx, ids, now, time.Time{})
 	if err != nil {
 		return nil, err
 	}
@@ -330,6 +337,10 @@ func (b *VenueAddressBackfill) tally(report *VenueAddressReport, totals *VenueAd
 		}
 		report.Precision[precision]++
 	}
+	if row.WouldWrite && !row.Verified && !row.Review {
+		row.Notes = append(row.Notes, CautionUnverified)
+		row.Review = true
+	}
 	if row.Review {
 		report.Review++
 	}
@@ -358,6 +369,7 @@ func (b *VenueAddressBackfill) runPagePhase(ctx context.Context, c *addressCandi
 	row.Source = res.Source.URL
 	row.Method = res.Method
 	row.Address = res.Street
+	row.LookedUpAddress = res.Street
 	row.WouldWrite = true
 	row.Geocode = GeocodeNone
 	if res.City == "" {
@@ -425,6 +437,7 @@ func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandi
 	row.Outcome = catalogm.VenueAddressOutcomeHit
 	row.Source = accepted.DisplayName
 	row.Address = street
+	row.LookedUpAddress = street
 	row.MatchedName = accepted.Name
 	row.Geocode = GeocodeHit
 	row.Precision = geo.PrecisionNameSearch
@@ -485,7 +498,8 @@ func (b *VenueAddressBackfill) loadCandidates(ctx context.Context, opts VenueAdd
 			SELECT 1 FROM revisions r, jsonb_array_elements(r.field_changes) fc
 			WHERE r.entity_type = 'venue' AND r.entity_id = venues.id
 			  AND fc->>'field' = 'address'
-			  AND COALESCE(BTRIM(fc->>'old_value'), '') <> ''
+			  AND (COALESCE(BTRIM(fc->>'old_value'), '') <> ''
+			       OR fc->>'old_value_withheld' = 'true')
 			  AND COALESCE(BTRIM(fc->>'new_value'), '') = ''
 		) AS cleared_by_editor`).
 		Joins(`LEFT JOIN LATERAL (
@@ -568,12 +582,20 @@ func (b *VenueAddressBackfill) loadIngestPages(ctx context.Context, ids []uint) 
 const ticketPagesPerVenue = 10
 
 // loadTicketPages returns, per venue, the ticket URLs of its soonest approved,
-// uncancelled upcoming shows, soonest first, counting only shows an admin or a
-// trusted-tier user (authm.TrustedTiers) submitted, or the discovery import
-// created. Any signed-in user can submit an approved show with any ticket URL,
-// so an untrusted show's ticket page would let its submitter choose a venue's
-// address.
-func (b *VenueAddressBackfill) loadTicketPages(ctx context.Context, ids []uint, now time.Time) (map[uint][]string, error) {
+// uncancelled shows on or after asOf, soonest first, counting only shows an
+// admin or a trusted-tier user (authm.TrustedTiers) submitted, or the
+// discovery import created. Any signed-in user can submit an approved show
+// with any ticket URL, so an untrusted show's ticket page would let its
+// submitter choose a venue's address. A non-zero createdBefore leaves out
+// shows created after it, so Apply can rebuild the sources a report saw.
+func (b *VenueAddressBackfill) loadTicketPages(ctx context.Context, ids []uint, asOf, createdBefore time.Time) (map[uint][]string, error) {
+	created := "TRUE"
+	args := []interface{}{ids, asOf, catalogm.ShowSourceDiscovery, authm.TrustedTiers}
+	if !createdBefore.IsZero() {
+		created = "s.created_at <= ?"
+		args = append(args, createdBefore)
+	}
+	args = append(args, ticketPagesPerVenue)
 	var rows []struct {
 		VenueID   uint
 		TicketURL string
@@ -588,9 +610,10 @@ func (b *VenueAddressBackfill) loadTicketPages(ctx context.Context, ids []uint, 
 			WHERE sv.venue_id IN ? AND s.status = 'approved' AND NOT s.is_cancelled
 			  AND s.event_date >= ? AND COALESCE(BTRIM(s.ticket_url), '') <> ''
 			  AND (s.source = ? OR u.is_admin OR u.user_tier IN ?)
+			  AND `+created+`
 		) t
 		WHERE n <= ?
-		ORDER BY venue_id, event_date, id`, ids, now, catalogm.ShowSourceDiscovery, authm.TrustedTiers, ticketPagesPerVenue).
+		ORDER BY venue_id, event_date, id`, args...).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("load ticket pages: %w", err)
@@ -667,14 +690,20 @@ func pageLookupKey(sources []venueaddress.Source, aiEnabled bool) string {
 	return strings.Join(parts, " | ")
 }
 
-// recordAddressLookup upserts the venue's lookup row for one phase.
-func recordAddressLookup(db *gorm.DB, venueID uint, phase, key, outcome, source, address string) error {
+// recordAddressLookup upserts the venue's lookup row for one phase, dated
+// attemptedAt (zero means now). A miss never replaces a recorded hit: the hit
+// is the record that the backfill filled the venue, which keeps a later clear
+// from being refilled.
+func recordAddressLookup(db *gorm.DB, venueID uint, phase, key, outcome, source, address string, attemptedAt time.Time) error {
+	if attemptedAt.IsZero() {
+		attemptedAt = time.Now()
+	}
 	row := catalogm.VenueAddressLookup{
 		VenueID:     venueID,
 		Phase:       phase,
 		LookupKey:   key,
 		Outcome:     outcome,
-		AttemptedAt: time.Now().UTC(),
+		AttemptedAt: attemptedAt.UTC(),
 	}
 	if source != "" {
 		row.Source = &source
@@ -682,8 +711,14 @@ func recordAddressLookup(db *gorm.DB, venueID uint, phase, key, outcome, source,
 	if address != "" {
 		row.Address = &address
 	}
-	return db.Clauses(clause.OnConflict{
+	conflict := clause.OnConflict{
 		Columns:   []clause.Column{{Name: "venue_id"}, {Name: "phase"}},
 		DoUpdates: clause.AssignmentColumns([]string{"lookup_key", "outcome", "source", "address", "attempted_at"}),
-	}).Create(&row).Error
+	}
+	if outcome == catalogm.VenueAddressOutcomeMiss {
+		conflict.Where = clause.Where{Exprs: []clause.Expression{
+			clause.Expr{SQL: "venue_address_lookups.outcome <> ?", Vars: []interface{}{catalogm.VenueAddressOutcomeHit}},
+		}}
+	}
+	return db.Clauses(conflict).Create(&row).Error
 }
