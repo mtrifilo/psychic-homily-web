@@ -14,7 +14,7 @@ import {
  * get the venue list and every panel as bottom sheets over a full-width map.
  *
  * The full journey runs on an 820px tablet pane; the phone panes at the end
- * walk the detents and the sheet chain at phone sizes.
+ * step through the detents and the sheet chain at phone sizes.
  * Scenes, venues and the venue's shows are synthesized so the stacked point
  * and the bill are known regardless of what the seed geocoded. SwiftShader is
  * required: MapLibre needs a WebGL2 context headless Chromium otherwise lacks.
@@ -355,11 +355,11 @@ for (const viewport of [
       )
       expect(await creditUncovered(page)).toBe(true)
 
-      await pullToHalf(page, 'atlas-venue-sheet')
-      await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
-
-      // The grabber steps to Full, which stops below the credit.
+      // The grabber steps Peek to Half, then to Full, which stops below the
+      // credit. (Drags to Half are walked on the 820px panes above.)
       const grabber = list.locator('[data-bottom-sheet-grabber]')
+      await grabber.tap()
+      await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
       await grabber.tap()
       await expectDetentHeight(page, 'atlas-venue-sheet', 'full')
       expect(await creditUncovered(page)).toBe(true)
