@@ -1,7 +1,6 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { AtlasGlobe } from '@/features/scenes/components'
-import { AtlasMapPreloader } from './AtlasMapPreloader'
 
 export const metadata: Metadata = {
   title: 'Atlas — Psychic Homily',
@@ -18,11 +17,8 @@ export const metadata: Metadata = {
 // sit under one, or the whole route renders on request.
 export default function AtlasPage() {
   return (
-    <>
-      <AtlasMapPreloader />
-      <Suspense fallback={null}>
-        <AtlasGlobe />
-      </Suspense>
-    </>
+    <Suspense fallback={null}>
+      <AtlasGlobe />
+    </Suspense>
   )
 }

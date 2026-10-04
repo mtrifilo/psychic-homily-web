@@ -66,8 +66,9 @@ import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
-import { GLOBE_BREAKPOINT_PX, preloadAtlasMap } from './atlasMapPreload'
+import { preloadAtlasMap } from './atlasMapPreload'
 
+const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
 // first paint shows the populated cluster rather than empty ocean (PSY-1211).
 const DEFAULT_POV: GlobePov = { lat: 39.5, lng: -98.35, altitude: 1.8 }
