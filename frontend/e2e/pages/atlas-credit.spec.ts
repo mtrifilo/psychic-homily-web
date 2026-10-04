@@ -177,13 +177,11 @@ for (const viewport of PHONE_VIEWPORTS) {
 
         await pressSceneDot(page, 'tap')
         const preview = page.getByTestId('atlas-scene-preview-sheet')
-        await expect(preview).toHaveAttribute('data-detent', 'peek')
+        await expect(preview).toHaveAttribute('data-detent', 'half')
         await expectNoCreditDue(page, 'scene preview at globe zoom')
 
         await jumpToStreetBasemap(page)
         await expect(preview).toBeVisible()
-        await expectCreditVisible(page, 'scene preview at peek, z8, banner up')
-        await stepDetent(page, 'atlas-scene-preview-sheet', 'half')
         await expectCreditVisible(page, 'scene preview at half, z8, banner up')
         await dismissBanner(page)
         await stepDetent(page, 'atlas-scene-preview-sheet', 'full')

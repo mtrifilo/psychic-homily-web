@@ -1614,7 +1614,7 @@ describe('AtlasGlobe', () => {
         expect(pane.style.getPropertyValue('--atlas-sheet-offset')).toBe('0px')
       })
 
-      it('opens a tapped scene dot’s preview as a sheet at Peek', async () => {
+      it('opens a tapped scene dot’s preview as a sheet at Half', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
         const dot = lastCanvasProps.scenes![0]
@@ -1622,7 +1622,7 @@ describe('AtlasGlobe', () => {
 
         const preview = screen.getByRole('region', { name: `${dot.city}, ${dot.state} scene` })
         expect(preview).toHaveAttribute('data-slot', 'bottom-sheet')
-        expect(preview).toHaveAttribute('data-detent', 'peek')
+        expect(preview).toHaveAttribute('data-detent', 'half')
       })
 
       it('keeps the preview’s detent when another scene is picked while it is open', async () => {
@@ -1634,25 +1634,25 @@ describe('AtlasGlobe', () => {
         fireEvent.click(
           within(preview).getByRole('button', { name: `Expand ${dot.city}, ${dot.state} scene` }),
         )
-        expect(preview).toHaveAttribute('data-detent', 'half')
+        expect(preview).toHaveAttribute('data-detent', 'full')
 
         // The sheet stays mounted across a swap, so the height the viewer
-        // chose holds; only a fresh open starts at Peek.
+        // chose holds; only a fresh open starts at Half.
         const other = { ...dot, city: 'Austin', state: 'TX', slug: 'austin-tx' }
         act(() => lastCanvasProps.onSelect?.(other))
         const swapped = screen.getByRole('region', { name: 'Austin, TX scene' })
         expect(swapped).toBe(preview)
-        expect(swapped).toHaveAttribute('data-detent', 'half')
+        expect(swapped).toHaveAttribute('data-detent', 'full')
       })
 
-      it('opens Drift’s scene preview as a sheet at Peek', async () => {
+      it('opens Drift’s scene preview as a sheet at Half', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
         fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
 
         const preview = screen.getByRole('region', { name: /Chicago, IL scene/ })
         expect(preview).toHaveAttribute('data-slot', 'bottom-sheet')
-        expect(preview).toHaveAttribute('data-detent', 'peek')
+        expect(preview).toHaveAttribute('data-detent', 'half')
         expect(
           screen.queryByRole('complementary', { name: /Chicago, IL scene/ }),
         ).not.toBeInTheDocument()

@@ -296,7 +296,7 @@ for (const { mergedHalf, ...viewport } of [
       expect(await creditUncovered(page)).toBe(true)
     })
 
-    test('a scene dot opens its preview at Peek; Half is one pull up', async ({ page }) => {
+    test('a scene dot opens its preview at Half, sized by the host', async ({ page }) => {
       await stubAtlas(page)
       await page.goto('/atlas')
       await waitForMap(page)
@@ -312,16 +312,12 @@ for (const { mergedHalf, ...viewport } of [
           timeout: 2_000,
         })
       }).toPass({ timeout: 30_000 })
-      const preview = await expectDetentHeight(page, 'atlas-scene-preview-sheet', 'peek')
-      await pullToHalf(page, 'atlas-scene-preview-sheet')
       const half = await expectDetentHeight(page, 'atlas-scene-preview-sheet', 'half')
       test.info().annotations.push({
         type: 'scene preview',
         description: JSON.stringify({
-          host: preview.host,
-          peek: preview.height,
+          host: half.host,
           half: half.height,
-          mapAreaAtPeek: preview.host - preview.height,
           mapAreaAtHalf: half.host - half.height,
         }),
       })
