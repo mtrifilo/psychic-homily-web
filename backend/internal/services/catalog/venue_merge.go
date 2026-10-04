@@ -59,6 +59,12 @@ var venueFKTables = []string{
 	// read time, so the cascade would leave a user looking at "3 new shows" above
 	// an empty list. Re-pointed by repointVenueShowAlertBatchVenues.
 	"venue_show_alert_batch",
+	// venue_address_lookups is the one table deliberately NOT re-pointed: its
+	// rows record address-backfill attempts keyed to the losing venue's own
+	// name, website, and pages, which say nothing about the canonical venue,
+	// and the canonical venue keeps its own rows. The losing venue's rows go
+	// with it through ON DELETE CASCADE.
+	"venue_address_lookups",
 }
 
 // PreviewMergeVenues reports what MergeVenues(canonicalID, mergeFromID) would

@@ -141,19 +141,52 @@ interface ResolvedVenue {
 }
 
 /**
+ * A place name reduced for comparison: case, accents, punctuation, and the
+ * St./Ft./Mt. abbreviations folded, so "St. Paul" and "Saint Paul" agree.
+ */
+function placeKey(name: unknown): string {
+  if (typeof name !== "string") return "";
+  const words = name
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  const expand: Record<string, string> = { st: "saint", ft: "fort", mt: "mount" };
+  return words.map((w) => expand[w] ?? w).join(" ");
+}
+
+/**
  * Decides whether a batch address may fill a matched venue's address.
  *
  * Only an EMPTY address is ever filled, so a venue's stored address is never
- * replaced by an ingest. The search API withholds the address of an
- * unverified venue, which makes "empty" unknowable there, so an unverified
- * match is never written either; the note says so instead.
+ * replaced by an ingest. The match is by name alone, and chains share names
+ * across cities, so the matched venue must also be in the batch venue's city
+ * (and state, when both state one). The search API withholds the address of
+ * an unverified venue, which makes "empty" unknowable there, so an unverified
+ * match is never written either; each refusal comes back as a note.
  */
 export function planVenueAddress(
   proposed: string | undefined,
-  match: { verified?: unknown; address?: unknown },
+  batch: { city?: unknown; state?: unknown },
+  match: { verified?: unknown; address?: unknown; city?: unknown; state?: unknown },
 ): { addressFill?: string; addressNote?: string } {
   const address = typeof proposed === "string" ? proposed.trim() : "";
   if (!address) return {};
+  const batchCity = placeKey(batch.city);
+  const batchState = placeKey(batch.state);
+  const matchState = placeKey(match.state);
+  if (
+    !batchCity ||
+    batchCity !== placeKey(match.city) ||
+    (batchState && matchState && batchState !== matchState)
+  ) {
+    return {
+      addressNote: `address not written: the matched venue is in ${String(match.city ?? "?")}, ${String(match.state ?? "?")}, not ${String(batch.city ?? "?")}, ${String(batch.state ?? "?")}`,
+    };
+  }
   if (match.verified !== true) {
     return {
       addressNote:
@@ -286,7 +319,11 @@ export async function resolveVenues(
             typeof best.timezone === "string" ? best.timezone : undefined,
           matchedState:
             typeof best.state === "string" ? best.state : undefined,
-          ...planVenueAddress(venue.address, { verified: best.verified, address: best.address }),
+          ...planVenueAddress(
+            venue.address,
+            { city: venue.city, state: venue.state },
+            { verified: best.verified, address: best.address, city: best.city, state: best.state },
+          ),
           status: "existing",
           confidence: best.score,
         });
@@ -764,6 +801,13 @@ async function applyVenueAddressFills(
       continue;
     }
     try {
+      // The plan read the venue during resolution; re-read it so an address
+      // set since (by an editor or another run) is never overwritten.
+      const current = await client.get<{ address?: string | null }>(`/venues/${fill.venueId}`);
+      if (typeof current.address === "string" && current.address.trim() !== "") {
+        display.info(`Kept the address of ${fill.venueName} (ID ${fill.venueId}): it was set to "${current.address}" since the plan was made`);
+        continue;
+      }
       await client.put(`/venues/${fill.venueId}`, { address: fill.address });
       display.success(`Set address of ${fill.venueName} (ID ${fill.venueId}): ${fill.address}`);
     } catch (err) {

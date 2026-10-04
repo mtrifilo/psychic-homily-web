@@ -40,6 +40,9 @@ func (r *VenueAddressReport) WriteMarkdown(w io.Writer) error {
 	if r.LimitHit {
 		b.WriteString(" The limit was reached; a re-run continues.")
 	}
+	if r.SkippedCleared > 0 {
+		fmt.Fprintf(&b, " Skipped %d venue(s) an earlier run filled whose address was cleared since.", r.SkippedCleared)
+	}
 	if r.LookupsTableMissing {
 		b.WriteString(" The database has no venue_address_lookups table yet, so no recorded misses were skipped.")
 	}
@@ -70,16 +73,16 @@ func (r *VenueAddressReport) WriteMarkdown(w io.Writer) error {
 	}
 
 	b.WriteString("\n## Venues\n\n")
-	b.WriteString("| ID | Venue | City | Verified | Phase | Outcome | Source or query | Address | Precision | Would write | Notes |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| ID | Venue | City | Verified | Phase | Outcome | Source or query | Address | Precision | Would write | Review | Notes |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range r.Rows {
 		address := row.Address
 		if row.MatchedName != "" {
 			address += " (OSM: " + row.MatchedName + ")"
 		}
-		fmt.Fprintf(&b, "| %d | %s | %s, %s | %t | %s | %s | %s | %s | %s | %t | %s |\n",
+		fmt.Fprintf(&b, "| %d | %s | %s, %s | %t | %s | %s | %s | %s | %s | %t | %t | %s |\n",
 			row.VenueID, cell(row.Name), cell(row.City), cell(row.State), row.Verified, row.Phase,
-			row.Outcome, cell(row.Source), cell(address), orDash(row.Precision), row.WouldWrite,
+			row.Outcome, cell(row.Source), cell(address), orDash(row.Precision), row.WouldWrite, row.Review,
 			cell(strings.Join(row.Notes, "; ")))
 	}
 	if len(r.Errors) > 0 {

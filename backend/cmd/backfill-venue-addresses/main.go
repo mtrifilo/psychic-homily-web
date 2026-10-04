@@ -18,12 +18,18 @@
 // latitude/longitude columns are never touched. Misses are recorded per phase
 // so a re-run skips them until the venue's inputs change.
 //
+// A live run writes only what a person approved. With --approved <report.json>
+// (a dry run's JSON report, after review) it considers only the listed venues
+// and writes a row only when a fresh lookup finds the same address in the
+// same phase; delete a row, or set its would_write to false, to refuse it.
+// Without --approved it writes only rows the report did not mark REVIEW.
+//
 // Usage:
 //
 //	go run ./cmd/backfill-venue-addresses                          # dry run (default)
 //	go run ./cmd/backfill-venue-addresses --only-upcoming --limit 100 --report /tmp/addr
 //	go run ./cmd/backfill-venue-addresses --city Milwaukee
-//	go run ./cmd/backfill-venue-addresses --confirm                # apply
+//	go run ./cmd/backfill-venue-addresses --confirm --approved /tmp/addr.json  # apply the reviewed rows
 //	go run ./cmd/backfill-venue-addresses --env .env.stage         # target a specific env
 //
 // A dry run makes the SAME page fetches, AI calls, and Nominatim requests as a
@@ -37,6 +43,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -64,6 +71,8 @@ func main() {
 		city         string
 		reportPath   string
 		envFile      string
+		approvedPath string
+		noAI         bool
 	)
 	flag.BoolVar(&confirm, "confirm", false, "Apply changes (default: dry run only)")
 	flag.IntVar(&limit, "limit", 0, "Max venues to look up this run (0 = no limit)")
@@ -71,6 +80,8 @@ func main() {
 	flag.StringVar(&city, "city", "", "Only venues in this city (case-insensitive)")
 	flag.StringVar(&reportPath, "report", "", "Write the report to <path>.md and <path>.json")
 	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
+	flag.StringVar(&approvedPath, "approved", "", "A reviewed dry-run JSON report; a live run writes only the rows it lists")
+	flag.BoolVar(&noAI, "no-ai", false, "Allow a live run without ANTHROPIC_API_KEY (pages count only with a schema.org address)")
 	flag.Parse()
 
 	loadEnv(envFile)
@@ -93,10 +104,22 @@ func main() {
 
 	var ai venueaddress.AddressExtractor
 	aiEnabled := cfg.Anthropic.APIKey != ""
-	if aiEnabled {
+	switch {
+	case aiEnabled:
 		ai = pipeline.NewExtractionService(nil, cfg, nil, nil)
-	} else {
+	case confirm && !noAI:
+		log.Fatal("ANTHROPIC_API_KEY is empty: a live run would record page misses the AI path never saw. Set the key, or pass --no-ai to accept that.")
+	default:
 		fmt.Println("ANTHROPIC_API_KEY is empty: pages count only when they publish a schema.org address.")
+	}
+
+	var approved map[catalog.VenueAddressApproval]bool
+	if approvedPath != "" {
+		approved, err = loadApprovals(approvedPath)
+		if err != nil {
+			log.Fatalf("read --approved: %v", err)
+		}
+		fmt.Printf("Approved report: %s (%d rows)\n", approvedPath, len(approved))
 	}
 	fmt.Println()
 
@@ -113,6 +136,7 @@ func main() {
 		Limit:        limit,
 		OnlyUpcoming: onlyUpcoming,
 		City:         city,
+		Approved:     approved,
 	})
 	if report == nil {
 		log.Fatalf("backfill: %v", runErr)
@@ -146,6 +170,9 @@ func printSummary(r *catalog.VenueAddressReport) {
 		if row.Precision != "" {
 			detail += " precision=" + row.Precision
 		}
+		if row.Review {
+			detail += " REVIEW"
+		}
 		fmt.Printf("  [%s/%s] venue %d %q (%s, %s): %s  source=%s\n",
 			row.Phase, row.Outcome, row.VenueID, row.Name, row.City, row.State, detail, row.Source)
 	}
@@ -174,8 +201,23 @@ func printSummary(r *catalog.VenueAddressReport) {
 	fmt.Println()
 }
 
+// loadApprovals reads the would-write rows of a reviewed JSON report.
+func loadApprovals(path string) (map[catalog.VenueAddressApproval]bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var r catalog.VenueAddressReport
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, fmt.Errorf("%s is not a backfill JSON report: %w", path, err)
+	}
+	return catalog.ApprovalsFromReport(&r), nil
+}
+
 // writeReport writes <path>.md and <path>.json; a .md or .json extension on
-// path is dropped first so either spelling names the pair.
+// path is dropped first so either spelling names the pair. The files are
+// owner-only: they hold street addresses, some for unverified venues the site
+// does not publish.
 func writeReport(r *catalog.VenueAddressReport, path string) error {
 	base := strings.TrimSuffix(strings.TrimSuffix(path, ".md"), ".json")
 	if dir := filepath.Dir(base); dir != "" {
@@ -183,7 +225,7 @@ func writeReport(r *catalog.VenueAddressReport, path string) error {
 			return err
 		}
 	}
-	md, err := os.Create(base + ".md")
+	md, err := os.OpenFile(base+".md", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -194,7 +236,7 @@ func writeReport(r *catalog.VenueAddressReport, path string) error {
 	if err := md.Close(); err != nil {
 		return err
 	}
-	js, err := os.Create(base + ".json")
+	js, err := os.OpenFile(base+".json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

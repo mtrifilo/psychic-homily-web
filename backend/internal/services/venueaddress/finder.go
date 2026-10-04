@@ -86,6 +86,11 @@ func NewFinder(pages PageGetter, ai AddressExtractor) *Finder {
 // errTransient marks a source whose failure says nothing about the page.
 var errTransient = errors.New("transient failure")
 
+// MaxReadTicketPages bounds how many ticket pages Find reads per venue. A
+// ticket page that could not be read (walled, blocked, gone) does not count,
+// so a vendor behind a consent or bot wall does not use up a slot.
+const MaxReadTicketPages = 2
+
 // Find tries sources in order and returns the first accepted address. It
 // returns a non-nil error only when no address was found AND at least one
 // source failed transiently: such a run must not be recorded as a miss,
@@ -93,11 +98,19 @@ var errTransient = errors.New("transient failure")
 func (f *Finder) Find(ctx context.Context, v Venue, sources []Source) (Result, error) {
 	var res Result
 	transient := false
+	ticketsRead := 0
 	for _, src := range sources {
 		if err := ctx.Err(); err != nil {
 			return res, err
 		}
-		got, note, err := f.trySource(ctx, v, src)
+		if src.Kind == SourceTicket && ticketsRead >= MaxReadTicketPages {
+			res.Notes = append(res.Notes, fmt.Sprintf("%s (%s): not tried, %d ticket pages already read", src.URL, src.Kind, MaxReadTicketPages))
+			continue
+		}
+		got, note, read, err := f.trySource(ctx, v, src)
+		if read && src.Kind == SourceTicket {
+			ticketsRead++
+		}
 		res.Notes = append(res.Notes, fmt.Sprintf("%s (%s): %s", src.URL, src.Kind, note))
 		if err != nil {
 			transient = true
@@ -115,16 +128,25 @@ func (f *Finder) Find(ctx context.Context, v Venue, sources []Source) (Result, e
 }
 
 // trySource reads one page: schema.org addresses first, then the AI path. The
-// note describes the outcome for the report; err is non-nil only for a
-// transient failure.
-func (f *Finder) trySource(ctx context.Context, v Venue, src Source) (Result, string, error) {
+// note describes the outcome for the report; read says the page was fetched;
+// err is non-nil only for a transient failure.
+//
+// A ticket page never reaches the AI path: the vendor page must itself name
+// the venue and its city beside the address (chooseCandidate), and a model
+// answer cannot show that, since the model is told which venue to look for.
+func (f *Finder) trySource(ctx context.Context, v Venue, src Source) (res Result, note string, read bool, err error) {
 	page, err := f.pages.Fetch(ctx, src.URL)
 	if err != nil {
 		if errors.Is(err, ErrUnavailable) {
-			return Result{}, err.Error(), nil
+			return Result{}, err.Error(), false, nil
 		}
-		return Result{}, "error: " + err.Error(), errTransient
+		return Result{}, "error: " + err.Error(), false, errTransient
 	}
+	res, note, err = f.readPage(ctx, v, src, page)
+	return res, note, true, err
+}
+
+func (f *Finder) readPage(ctx context.Context, v Venue, src Source, page *Page) (Result, string, error) {
 	doc, err := html.Parse(bytes.NewReader(page.HTML))
 	if err != nil {
 		return Result{}, "unparseable HTML", nil
@@ -143,6 +165,9 @@ func (f *Finder) trySource(ctx context.Context, v Venue, src Source) (Result, st
 		return structuredWhy + "; " + last
 	}
 
+	if src.Kind == SourceTicket {
+		return Result{}, note("no schema.org address naming the venue and its city; ticket pages are not read by the AI path"), nil
+	}
 	if f.ai == nil {
 		return Result{}, note("no schema.org address; AI fallback disabled"), nil
 	}

@@ -98,12 +98,15 @@ func TestPageSources_OrderAndLoginWalls(t *testing.T) {
 	website := "https://www.instagram.com/somevenue"
 	v := &catalogm.Venue{Social: catalogm.Social{Website: &website}}
 	got := pageSources(v, "https://venue.example/calendar", []string{
-		"https://tickets.example/a", "https://tickets.example/b", "https://other.example/c", "https://third.example/d", "not a url",
+		"https://tickets.example/a", "https://tickets.example/b", "https://other.example/c", "not a url",
+		"https://third.example/d", "https://fourth.example/e", "https://fifth.example/f",
 	})
 	want := []venueaddress.Source{
 		{URL: "https://venue.example/calendar", Kind: venueaddress.SourceIngest},
 		{URL: "https://tickets.example/a", Kind: venueaddress.SourceTicket},
 		{URL: "https://other.example/c", Kind: venueaddress.SourceTicket},
+		{URL: "https://third.example/d", Kind: venueaddress.SourceTicket},
+		{URL: "https://fourth.example/e", Kind: venueaddress.SourceTicket},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("pageSources = %+v, want %+v", got, want)
@@ -113,8 +116,19 @@ func TestPageSources_OrderAndLoginWalls(t *testing.T) {
 			t.Fatalf("pageSources[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	if key := pageLookupKey(got); key != "https://venue.example/calendar | https://tickets.example/a | https://other.example/c" {
+	wantKey := "https://venue.example/calendar | ticket:tickets.example | ticket:other.example | ticket:third.example | ticket:fourth.example"
+	if key := pageLookupKey(got, true); key != wantKey {
 		t.Fatalf("pageLookupKey = %q", key)
+	}
+	// A later event on the same vendor keeps the key; schema-only runs key apart.
+	later := pageSources(v, "https://venue.example/calendar", []string{
+		"https://tickets.example/z", "https://other.example/y", "https://third.example/x", "https://fourth.example/w",
+	})
+	if key := pageLookupKey(later, true); key != wantKey {
+		t.Fatalf("a new event URL on a known vendor changed the key: %q", key)
+	}
+	if pageLookupKey(got, false) == wantKey {
+		t.Fatal("a schema-only run must not share its miss key with an AI run")
 	}
 }
 
@@ -355,7 +369,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_MissesAreReco
 	suite.Equal(1, report.Phases["page"].Misses)
 	suite.Equal(1, report.Phases["name"].Misses)
 	l := suite.lookups(v.ID)
-	suite.Equal("https://nowhere.example", l["page"].LookupKey)
+	suite.Equal("https://nowhere.example | [schema-only]", l["page"].LookupKey)
 	suite.Equal("Nowhere Club, Chicago, IL [US]", l["name"].LookupKey)
 	suite.Equal(catalogm.VenueAddressOutcomeMiss, l["name"].Outcome)
 
@@ -380,6 +394,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_MissesAreReco
 
 func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ErrorsAreNotRecorded() {
 	v := suite.seedAddresslessVenue("Flaky Venue", "Chicago", "IL", "https://flaky.example", 0)
+	pageless := suite.seedAddresslessVenue("Pageless Venue", "Chicago", "IL", "", 0)
 	run := &VenueAddressBackfill{
 		DB:     suite.db,
 		Pages:  &stubPageFinder{err: errors.New("page timed out")},
@@ -388,9 +403,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ErrorsAreNotR
 	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
 	suite.Require().NoError(err)
 	suite.Equal(1, report.Phases["page"].Errors)
-	suite.Equal(1, report.Phases["name"].Errors)
+	suite.Equal(1, report.Phases["name"].Errors, "only the pageless venue reaches the name search")
 	suite.Len(report.Errors, 2)
 	suite.Empty(suite.lookups(v.ID), "an error must stay retryable")
+	suite.Empty(suite.lookups(pageless.ID), "an error must stay retryable")
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_FiltersOrderAndLimit() {
@@ -429,7 +445,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_PageSourcesFr
 	suite.Require().NoError(suite.db.Create(&adminm.SourceConfig{EntityType: "venue", EntityID: v.ID, SourceURL: &src}).Error)
 	defer suite.db.Exec("DELETE FROM source_configs")
 	ticket := "https://tickets.example/e/1"
-	show := &catalogm.Show{Title: "t", EventDate: time.Now().Add(400 * 24 * time.Hour), Status: catalogm.ShowStatusApproved, TicketURL: &ticket}
+	show := &catalogm.Show{Title: "t", EventDate: time.Now().Add(400 * 24 * time.Hour), Status: catalogm.ShowStatusApproved, TicketURL: &ticket, Source: catalogm.ShowSourceDiscovery}
 	suite.Require().NoError(suite.db.Create(show).Error)
 	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: v.ID}).Error)
 	cancelledURL := "https://cancelled.example/e/2"
@@ -524,4 +540,132 @@ func TestStubPlacesSatisfiesInterface(t *testing.T) {
 	var _ PageAddressFinder = (*stubPageFinder)(nil)
 	var _ PageAddressFinder = (*venueaddress.Finder)(nil)
 	var _ geo.PlaceSearcher = (*geo.NominatimClient)(nil)
+}
+
+// --- round-trip rules added with the review gate ---
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_PageErrorHoldsTheNameSearchBack() {
+	v := suite.seedAddresslessVenue("Flaky Page Venue", "Chicago", "IL", "https://flaky.example", 0)
+	places := &stubPlaces{results: map[string][]geo.PlaceCandidate{"Flaky Page Venue": {lincolnHallCandidate()}}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: &stubPageFinder{err: errors.New("timeout")}, Places: places}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+	suite.Equal(0, places.calls, "the name search waits until the venue's own page is decided")
+	suite.Equal(1, report.Phases["page"].Errors)
+	suite.Nil(suite.loadVenue(v.ID).Address)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ClearedAfterFillIsNeverRefilled() {
+	v := suite.seedAddresslessVenue("Cleared Venue", "Chicago", "IL", "https://cleared.example", 0)
+	suite.Require().NoError(recordAddressLookup(suite.db, v.ID, "page", "https://cleared.example", "hit", "https://cleared.example", "1 Main St"))
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{"Cleared Venue": pageHit("1 Main St", "https://cleared.example")}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder, Places: &stubPlaces{}}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+	suite.Equal(1, report.SkippedCleared)
+	suite.Equal(0, finder.calls)
+	suite.Nil(suite.loadVenue(v.ID).Address)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ReviewMatchesNeedApproval() {
+	v := suite.seedAddresslessVenue("Lincoln", "Chicago", "IL", "", 0) // partial match of "Lincoln Hall"
+	places := &stubPlaces{results: map[string][]geo.PlaceCandidate{"Lincoln": {lincolnHallCandidate()}}}
+	run := &VenueAddressBackfill{DB: suite.db, Places: places}
+
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{})
+	suite.Require().NoError(err)
+	suite.Require().Len(report.Rows, 1)
+	suite.True(report.Rows[0].Review)
+	suite.False(report.Rows[0].Written, "a REVIEW match is not written without approval")
+	suite.Nil(suite.loadVenue(v.ID).Address)
+
+	approved := ApprovalsFromReport(report)
+	report, err = run.Run(context.Background(), VenueAddressBackfillOptions{Approved: approved})
+	suite.Require().NoError(err)
+	suite.True(report.Rows[0].Written)
+	suite.Equal("2424 North Lincoln Avenue", *suite.loadVenue(v.ID).Address)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_ApprovedReportBindsTheLiveRun() {
+	a := suite.seedAddresslessVenue("Approved Venue", "Chicago", "IL", "https://a.example", 0)
+	b := suite.seedAddresslessVenue("Unlisted Venue", "Chicago", "IL", "https://b.example", 0)
+	changed := suite.seedAddresslessVenue("Changed Venue", "Chicago", "IL", "https://c.example", 0)
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{
+		"Approved Venue": pageHit("1 Main St", "https://a.example"),
+		"Unlisted Venue": pageHit("2 Main St", "https://b.example"),
+		"Changed Venue":  pageHit("3 New St", "https://c.example"),
+	}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder, Geocoder: hitStub(41.9, -87.6, geo.PrecisionRooftop)}
+	approved := map[VenueAddressApproval]bool{
+		{VenueID: a.ID, Phase: "page", Address: "1 Main St"}:      true,
+		{VenueID: changed.ID, Phase: "page", Address: "3 Old St"}: true, // the page now says something else
+	}
+	report, err := run.Run(context.Background(), VenueAddressBackfillOptions{Approved: approved})
+	suite.Require().NoError(err)
+	suite.Equal(2, report.Candidates, "only approved venues are considered")
+	suite.Equal(1, report.Written)
+	suite.Equal("1 Main St", *suite.loadVenue(a.ID).Address)
+	suite.Nil(suite.loadVenue(b.ID).Address)
+	suite.Nil(suite.loadVenue(changed.ID).Address, "an address other than the approved one is not written")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_TicketPagesOnlyFromTrustedSubmitters() {
+	v := suite.seedAddresslessVenue("Ticketed Venue", "Chicago", "IL", "", 0)
+	untrusted := suite.createTestUser()
+	trusted := suite.createTestUser()
+	suite.Require().NoError(suite.db.Model(trusted).Update("user_tier", "trusted_contributor").Error)
+	for _, s := range []struct {
+		user uint
+		url  string
+	}{{untrusted.ID, "https://evil.example/e/1"}, {trusted.ID, "https://good.example/e/2"}} {
+		u, url := s.user, s.url
+		show := &catalogm.Show{Title: "t", EventDate: time.Now().Add(48 * time.Hour), Status: catalogm.ShowStatusApproved, TicketURL: &url, SubmittedBy: &u}
+		suite.Require().NoError(suite.db.Create(show).Error)
+		suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: v.ID}).Error)
+	}
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{}}
+	run := &VenueAddressBackfill{DB: suite.db, Pages: finder}
+	_, err := run.Run(context.Background(), VenueAddressBackfillOptions{DryRun: true})
+	suite.Require().NoError(err)
+	suite.Equal([]venueaddress.Source{{URL: "https://good.example/e/2", Kind: venueaddress.SourceTicket}}, finder.sources["Ticketed Venue"])
+}
+
+// missStub and errStub cover the page phase's other geocode outcomes.
+func (suite *VenueServiceIntegrationTestSuite) TestAddressBackfill_PageGeocodeMissErrorAndNoGeocoder() {
+	missV := suite.seedAddresslessVenue("Geo Miss", "Chicago", "IL", "https://m.example", 0)
+	errV := suite.seedAddresslessVenue("Geo Error", "Chicago", "IL", "https://e.example", 0)
+	noneV := suite.seedAddresslessVenue("Geo None", "Chicago", "IL", "https://n.example", 0)
+	finder := &stubPageFinder{results: map[string]venueaddress.Result{
+		"Geo Miss":  pageHit("1 Miss St", "https://m.example"),
+		"Geo Error": pageHit("2 Error St", "https://e.example"),
+		"Geo None":  pageHit("3 None St", "https://n.example"),
+	}}
+	miss := &stubAddressGeocoder{}
+	_, err := (&VenueAddressBackfill{DB: suite.db, Pages: finder, Geocoder: miss}).Run(context.Background(),
+		VenueAddressBackfillOptions{Approved: map[VenueAddressApproval]bool{{VenueID: missV.ID, Phase: "page", Address: "1 Miss St"}: true}})
+	suite.Require().NoError(err)
+	failing := &stubAddressGeocoder{err: errors.New("nominatim: status 503")}
+	_, err = (&VenueAddressBackfill{DB: suite.db, Pages: finder, Geocoder: failing}).Run(context.Background(),
+		VenueAddressBackfillOptions{Approved: map[VenueAddressApproval]bool{{VenueID: errV.ID, Phase: "page", Address: "2 Error St"}: true}})
+	suite.Require().NoError(err)
+	_, err = (&VenueAddressBackfill{DB: suite.db, Pages: finder}).Run(context.Background(),
+		VenueAddressBackfillOptions{Approved: map[VenueAddressApproval]bool{{VenueID: noneV.ID, Phase: "page", Address: "3 None St"}: true}})
+	suite.Require().NoError(err)
+
+	m := suite.loadVenue(missV.ID)
+	suite.Equal("1 Miss St", *m.Address)
+	suite.Require().NotNil(m.GeocodedAddress)
+	suite.Equal("1 Miss St, Chicago, IL", *m.GeocodedAddress, "a clean miss stores the miss memo for the new address")
+	suite.Nil(m.StreetLatitude)
+	e := suite.loadVenue(errV.ID)
+	suite.Equal("2 Error St", *e.Address)
+	suite.Nil(e.GeocodedAddress, "a geocode error stores no memo, so the sweep retries")
+	n := suite.loadVenue(noneV.ID)
+	suite.Equal("3 None St", *n.Address)
+	suite.Nil(n.GeocodedAddress)
+
+	sweepGeocoder := hitStub(41.9, -87.6, geo.PrecisionRooftop)
+	_, err = BackfillVenueStreetGeocodes(context.Background(), suite.db, sweepGeocoder, StreetGeocodeOptions{})
+	suite.Require().NoError(err)
+	suite.Equal(2, sweepGeocoder.calls, "the sweep geocodes the error and no-geocoder venues and skips the recorded miss")
 }

@@ -17,8 +17,9 @@ const (
 
 // VenueAddressLookup is the last backfill attempt for one venue in one phase.
 // LookupKey is what was tried; a miss is skipped by later runs only while the
-// venue's current inputs still produce the same key. Source is the page URL or
-// the search text, and Address is what a hit wrote.
+// venue's current inputs still produce the same key. On a hit, Source is the
+// page URL the address came from (page phase) or the matched OSM place's
+// display name (name phase), and Address is what was written.
 type VenueAddressLookup struct {
 	VenueID     uint      `gorm:"column:venue_id;primaryKey;autoIncrement:false"`
 	Phase       string    `gorm:"column:phase;primaryKey"`

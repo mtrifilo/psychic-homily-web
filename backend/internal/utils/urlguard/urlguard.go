@@ -17,8 +17,8 @@
 //	                     existed, and what covers a redirect chain this layer
 //	                     never sees.
 //
-// What NEITHER layer covers, stated plainly so nobody has to rediscover it:
-// DNS rebinding. An attacker who controls a zone can answer with a public
+// What NEITHER of those two image_url layers covers, stated plainly so nobody
+// has to rediscover it: DNS rebinding. An attacker who controls a zone can answer with a public
 // address while this guard resolves, then flip to 169.254.169.254 before the
 // card renders. The edge cannot catch it either — for a hostname it checks the
 // NAME, not the address it will connect to, because it has no resolver. What
@@ -28,7 +28,10 @@
 // resolve-then-PIN (hand the fetcher the vetted IP, not the name), which is a
 // change to the fetch layer, not to this one.
 //
-// Nothing here fetches. It parses, classifies, and resolves.
+// Nothing here fetches. It parses, classifies, and resolves. For server-side
+// fetchers it also provides DialControl, a net.Dialer hook that applies the
+// same classification to the address each connection actually dials, which is
+// what holds against rebinding on those fetch paths.
 package urlguard
 
 import (

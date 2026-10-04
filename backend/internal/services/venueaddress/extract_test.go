@@ -2,6 +2,7 @@ package venueaddress
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -226,5 +227,45 @@ func TestAppearsIn(t *testing.T) {
 	}
 	if appearsIn("807 S Allport St", text) {
 		t.Error("a street must match on word boundaries")
+	}
+	cyrillic := "Москва, ул. Ленина 5"
+	if appearsIn("ул. Пушкина 5", cyrillic) {
+		t.Error("a non-Latin street must not match on its digits alone")
+	}
+	if !appearsIn("ул. Ленина 5", cyrillic) {
+		t.Error("a printed non-Latin street must match")
+	}
+}
+
+func TestFinder_TicketPagesSkipTheAIPathAndWalledOnesUseNoSlot(t *testing.T) {
+	v := Venue{Name: "Lincoln Hall", City: "Chicago", State: "IL"}
+	plain := []byte("<p>Lincoln Hall, 2424 N Lincoln Ave, Chicago</p>")
+	named := []byte(`<script type="application/ld+json">{"@type":"Event","location":{"name":"Lincoln Hall","address":{"streetAddress":"2424 N Lincoln Ave","addressLocality":"Chicago"}}}</script>`)
+	ai := &answerAI{street: "2424 N Lincoln Ave"}
+
+	res, err := NewFinder(fixturePages{"https://t.example/1": plain}, ai).
+		Find(context.Background(), v, []Source{{URL: "https://t.example/1", Kind: SourceTicket}})
+	if err != nil || res.Found || ai.calls != 0 {
+		t.Fatalf("a ticket page without schema.org data must not reach the AI: found=%v calls=%d err=%v", res.Found, ai.calls, err)
+	}
+
+	pages := fixturePages{"https://a.example/1": plain, "https://b.example/1": plain, "https://d.example/1": named}
+	res, err = NewFinder(pages, nil).Find(context.Background(), v, []Source{
+		{URL: "https://walled.example/1", Kind: SourceTicket}, // unavailable: uses no slot
+		{URL: "https://a.example/1", Kind: SourceTicket},
+		{URL: "https://d.example/1", Kind: SourceTicket},
+		{URL: "https://b.example/1", Kind: SourceTicket},
+	})
+	if err != nil || !res.Found || res.Source.URL != "https://d.example/1" {
+		t.Fatalf("res = %+v err = %v", res, err)
+	}
+
+	res, _ = NewFinder(pages, nil).Find(context.Background(), v, []Source{
+		{URL: "https://a.example/1", Kind: SourceTicket},
+		{URL: "https://b.example/1", Kind: SourceTicket},
+		{URL: "https://d.example/1", Kind: SourceTicket},
+	})
+	if res.Found || !strings.Contains(strings.Join(res.Notes, " "), "not tried") {
+		t.Fatalf("a third ticket page after two read ones must not be tried: %+v", res)
 	}
 }

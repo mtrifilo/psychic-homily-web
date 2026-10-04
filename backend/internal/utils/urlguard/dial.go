@@ -1,10 +1,16 @@
 package urlguard
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"syscall"
 )
+
+// ErrNonPublicAddress is wrapped by every DialControl refusal of a resolved
+// address, so a caller can tell "this host is not public" (permanent) from a
+// network failure.
+var ErrNonPublicAddress = errors.New("non-public address")
 
 // DialControl is a net.Dialer.Control hook for any server-side fetch of a URL
 // that did not come from a trusted allowlist. It runs after DNS resolution and
@@ -25,7 +31,7 @@ func DialControl(_, address string, _ syscall.RawConn) error {
 		return fmt.Errorf("ssrf guard: non-IP dial host %q", host)
 	}
 	if !IsPublicIP(ip) {
-		return fmt.Errorf("ssrf guard: refusing to dial non-public address %s", ip)
+		return fmt.Errorf("ssrf guard: refusing to dial %w %s", ErrNonPublicAddress, ip)
 	}
 	return nil
 }

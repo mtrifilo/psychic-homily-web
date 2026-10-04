@@ -2,13 +2,18 @@ package venueaddress
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"psychic-homily-backend/internal/utils/urlguard"
 )
 
 // testFetcher talks to httptest servers on loopback, which the production
@@ -140,6 +145,75 @@ func TestFetch_ProductionDialerRefusesLoopback(t *testing.T) {
 	_, err := NewFetcher().Fetch(context.Background(), srv.URL+"/")
 	if err == nil || !strings.Contains(err.Error(), "ssrf guard") {
 		t.Fatalf("err = %v, want an ssrf guard refusal", err)
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("a non-public host is permanent, so the refusal must be definitive: %v", err)
+	}
+}
+
+func TestFetch_FollowsRedirectsThroughTheSameChecks(t *testing.T) {
+	var hops int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			_, _ = w.Write([]byte("User-agent: *\nDisallow: /private"))
+		case "/start":
+			atomic.AddInt32(&hops, 1)
+			http.Redirect(w, r, "/final", http.StatusFound)
+		case "/final":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("<p>ok</p>"))
+		case "/to-private":
+			http.Redirect(w, r, "/private/page", http.StatusMovedPermanently)
+		case "/private/page":
+			t.Error("a robots-disallowed redirect target must never be fetched")
+		case "/to-instagram":
+			http.Redirect(w, r, "https://www.instagram.com/somevenue", http.StatusFound)
+		case "/loop":
+			http.Redirect(w, r, "/loop", http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+	f := testFetcher()
+
+	page, err := f.Fetch(context.Background(), srv.URL+"/start")
+	if err != nil || !strings.HasSuffix(page.URL, "/final") || hops != 1 {
+		t.Fatalf("page=%+v err=%v hops=%d", page, err, hops)
+	}
+	for _, path := range []string{"/to-private", "/to-instagram", "/loop"} {
+		if _, err := f.Fetch(context.Background(), srv.URL+path); !errors.Is(err, ErrUnavailable) {
+			t.Errorf("%s: err = %v, want ErrUnavailable", path, err)
+		}
+	}
+}
+
+func TestDefinitiveTransportError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"unresolvable name", &net.DNSError{Err: "no such host", Name: "gone.example", IsNotFound: true}, true},
+		{"resolver timeout", &net.DNSError{Err: "timeout", Name: "slow.example", IsTimeout: true}, false},
+		{"dial guard", fmt.Errorf("dial: %w", urlguard.ErrNonPublicAddress), true},
+		{"bad certificate", x509.HostnameError{Host: "wrong.example", Certificate: &x509.Certificate{}}, true},
+		{"refused", errors.New("connect: connection refused"), false},
+	}
+	for _, tt := range tests {
+		if got := definitiveTransportError(tt.err); got != tt.want {
+			t.Errorf("%s: definitive = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestLoginWalled(t *testing.T) {
+	for host, want := range map[string]bool{
+		"www.instagram.com": true, "m.facebook.com": true, "x.com": true,
+		"tickets.example": false, "notinstagram.com": false,
+	} {
+		if got := LoginWalled(host); got != want {
+			t.Errorf("LoginWalled(%q) = %v, want %v", host, got, want)
+		}
 	}
 }
 

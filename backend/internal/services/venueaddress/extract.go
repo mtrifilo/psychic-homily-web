@@ -359,10 +359,21 @@ func CityMatches(printed, venueCity string) bool {
 }
 
 // appearsIn reports whether street is printed in text, comparing folded forms
-// so case, punctuation, and spacing differences do not matter.
+// so case, punctuation, and spacing differences do not matter. The fold keeps
+// only Latin letters and digits, so a street written in another script would
+// fold to its digits alone; such a street is compared on its raw form instead
+// (case-folded, whitespace collapsed), never on digits.
 func appearsIn(street, text string) bool {
 	s := geo.FoldPlaceName(street)
-	return s != "" && strings.Contains(" "+geo.FoldPlaceName(text)+" ", " "+s+" ")
+	if s == "" {
+		return false
+	}
+	if !strings.ContainsFunc(s, unicode.IsLetter) {
+		raw := strings.ToLower(collapseSpace(street))
+		return strings.ContainsFunc(raw, unicode.IsLetter) &&
+			strings.Contains(strings.ToLower(collapseSpace(text)), raw)
+	}
+	return strings.Contains(" "+geo.FoldPlaceName(text)+" ", " "+s+" ")
 }
 
 func walk(n *html.Node, fn func(*html.Node)) {

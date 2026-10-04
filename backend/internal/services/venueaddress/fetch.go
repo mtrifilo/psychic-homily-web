@@ -7,6 +7,8 @@ package venueaddress
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -38,11 +40,33 @@ const (
 	robotsProductToken = "psychichomily"
 )
 
-// ErrUnavailable marks a definitive answer that the page cannot be read: a 4xx
-// status, a non-HTML body, or a robots.txt rule. Unlike a transport failure or
-// a 5xx, asking again tomorrow is expected to give the same answer, so the
-// caller may record the attempt as a miss.
+// ErrUnavailable marks a definitive answer that the page cannot be read:
+// asking again tomorrow is expected to give the same answer, so the caller may
+// record the attempt as a miss. Definitive: a 4xx status (429 aside), a
+// non-HTML body, a robots.txt rule, a login-walled host, a malformed or
+// over-long redirect chain, a host name that does not resolve, a host that
+// resolves to a non-public address, and a TLS certificate that fails
+// verification. Anything else (a timeout, a refused connection, a 5xx, a 429)
+// is transient.
 var ErrUnavailable = errors.New("page unavailable")
+
+// loginWalledHosts serve their pages only behind a login or a consent wall, so
+// they are never fetched, whether named directly or reached by a redirect.
+var loginWalledHosts = []string{
+	"instagram.com", "facebook.com", "fb.com", "fb.me", "twitter.com", "x.com",
+	"tiktok.com", "threads.net",
+}
+
+// LoginWalled reports whether host (or a parent domain of it) is login-walled.
+func LoginWalled(host string) bool {
+	host = strings.ToLower(strings.TrimPrefix(strings.ToLower(host), "www."))
+	for _, h := range loginWalledHosts {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return true
+		}
+	}
+	return false
+}
 
 // Page is a fetched HTML document.
 type Page struct {
@@ -75,24 +99,17 @@ func NewFetcher() *Fetcher {
 		// connection; the dial guard ran when that connection was opened.
 		IdleConnTimeout: 10 * time.Second,
 	}
-	return newFetcher(&http.Client{
-		Timeout:   fetchTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= fetchMaxRedirects {
-				return fmt.Errorf("stopped after %d redirects", fetchMaxRedirects)
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("refusing redirect to scheme %q", req.URL.Scheme)
-			}
-			return nil
-		},
-	}, hostMinInterval)
+	return newFetcher(&http.Client{Timeout: fetchTimeout, Transport: transport}, hostMinInterval)
 }
 
+// newFetcher wraps client so that it never follows a redirect itself: Fetch
+// follows each hop by hand so every hop passes the same checks as the first
+// URL.
 func newFetcher(client *http.Client, interval time.Duration) *Fetcher {
+	c := *client
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Fetcher{
-		client:    client,
+		client:    &c,
 		userAgent: fmt.Sprintf("PsychicHomily/1.0 (venue-address-backfill; %s)", geo.ContactChannel()),
 		robots:    map[string]*robotsRules{},
 		lastCall:  map[string]time.Time{},
@@ -100,28 +117,68 @@ func newFetcher(client *http.Client, interval time.Duration) *Fetcher {
 	}
 }
 
-// Fetch returns the page at rawURL. A returned error wrapping ErrUnavailable
-// is definitive; any other error is transient.
+// Fetch returns the page at rawURL, following up to fetchMaxRedirects
+// redirects. Every hop, the first included, must be http(s), must not be a
+// login-walled host, must be allowed by its host's robots.txt, and waits out
+// its host's spacing interval. A returned error wrapping ErrUnavailable is
+// definitive; any other error is transient.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Page, error) {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return nil, fmt.Errorf("%w: not an http(s) URL", ErrUnavailable)
-	}
+	target := strings.TrimSpace(rawURL)
+	for hop := 0; ; hop++ {
+		u, err := url.Parse(target)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return nil, fmt.Errorf("%w: not an http(s) URL", ErrUnavailable)
+		}
+		if LoginWalled(u.Hostname()) {
+			return nil, fmt.Errorf("%w: %s is login-walled", ErrUnavailable, u.Hostname())
+		}
+		allowed, err := f.robotsAllow(ctx, u)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, fmt.Errorf("%w: robots.txt disallows this path", ErrUnavailable)
+		}
 
-	allowed, err := f.robotsAllow(ctx, u)
-	if err != nil {
-		return nil, err
+		resp, err := f.get(ctx, u)
+		if err != nil {
+			return nil, err
+		}
+		if next, isRedirect := redirectTarget(resp, u); isRedirect {
+			_ = resp.Body.Close()
+			if next == "" {
+				return nil, fmt.Errorf("%w: redirect without a usable Location", ErrUnavailable)
+			}
+			if hop >= fetchMaxRedirects {
+				return nil, fmt.Errorf("%w: more than %d redirects", ErrUnavailable, fetchMaxRedirects)
+			}
+			target = next
+			continue
+		}
+		return readPage(resp, u)
 	}
-	if !allowed {
-		return nil, fmt.Errorf("%w: robots.txt disallows this path", ErrUnavailable)
-	}
+}
 
-	resp, err := f.get(ctx, u.String())
-	if err != nil {
-		return nil, err
+// redirectTarget reports whether resp is a redirect and, if so, the absolute
+// URL its Location names ("" when Location is missing or unparseable).
+func redirectTarget(resp *http.Response, from *url.URL) (string, bool) {
+	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	default:
+		return "", false
 	}
+	loc := strings.TrimSpace(resp.Header.Get("Location"))
+	next, err := from.Parse(loc)
+	if loc == "" || err != nil {
+		return "", true
+	}
+	return next.String(), true
+}
+
+// readPage turns a final response into a Page, classifying a failed status.
+func readPage(resp *http.Response, u *url.URL) (*Page, error) {
 	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
-
 	switch {
 	case resp.StatusCode == http.StatusOK:
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
@@ -137,29 +194,48 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Page, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
-	return &Page{URL: resp.Request.URL.String(), HTML: body}, nil
+	return &Page{URL: u.String(), HTML: body}, nil
 }
 
-// get issues one GET after waiting out the host's spacing interval.
-func (f *Fetcher) get(ctx context.Context, rawURL string) (*http.Response, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
-	}
+// get issues one GET (no redirect following) after waiting out the host's
+// spacing interval.
+func (f *Fetcher) get(ctx context.Context, u *url.URL) (*http.Response, error) {
 	if err := f.waitHost(ctx, strings.ToLower(u.Hostname())); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	req.Header.Set("User-Agent", f.userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	resp, err := f.client.Do(req)
 	if err != nil {
+		if definitiveTransportError(err) {
+			return nil, fmt.Errorf("%w: %w", ErrUnavailable, stripURL(err))
+		}
 		return nil, fmt.Errorf("request failed: %w", stripURL(err))
 	}
 	return resp, nil
+}
+
+// definitiveTransportError reports whether a transport failure will repeat on
+// every attempt: the name does not resolve, the dial guard refused the
+// address, or the certificate does not verify.
+func definitiveTransportError(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return true
+	}
+	if errors.Is(err, urlguard.ErrNonPublicAddress) {
+		return true
+	}
+	var verifyErr *tls.CertificateVerificationError
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	return errors.As(err, &verifyErr) || errors.As(err, &unknownAuthority) ||
+		errors.As(err, &hostname) || errors.As(err, &invalid)
 }
 
 // waitHost blocks until hostMinInterval has passed since the last request to
@@ -212,23 +288,40 @@ func (f *Fetcher) robotsAllow(ctx context.Context, u *url.URL) (bool, error) {
 	return rules.allows(path), nil
 }
 
+// loadRobots fetches and parses robots.txt, following up to fetchMaxRedirects
+// redirects (a site commonly redirects it to https or to www).
 func (f *Fetcher) loadRobots(ctx context.Context, robotsURL string) (*robotsRules, error) {
-	resp, err := f.get(ctx, robotsURL)
+	u, err := url.Parse(robotsURL)
 	if err != nil {
 		return nil, fmt.Errorf("robots.txt: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
-	switch {
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	for hop := 0; ; hop++ {
+		resp, err := f.get(ctx, u)
 		if err != nil {
-			return nil, fmt.Errorf("robots.txt: read body: %w", err)
+			return nil, fmt.Errorf("robots.txt: %w", err)
 		}
-		return parseRobots(string(body), robotsProductToken), nil
-	case resp.StatusCode >= 400 && resp.StatusCode < 500:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("robots.txt: status %d", resp.StatusCode)
+		if next, isRedirect := redirectTarget(resp, u); isRedirect {
+			_ = resp.Body.Close()
+			nu, perr := url.Parse(next)
+			if next == "" || perr != nil || hop >= fetchMaxRedirects || (nu.Scheme != "http" && nu.Scheme != "https") {
+				return nil, nil // an unusable robots.txt redirect says nothing; allow
+			}
+			u = nu
+			continue
+		}
+		defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
+		switch {
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			body, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+			if err != nil {
+				return nil, fmt.Errorf("robots.txt: read body: %w", err)
+			}
+			return parseRobots(string(body), robotsProductToken), nil
+		case resp.StatusCode >= 400 && resp.StatusCode < 500:
+			return nil, nil
+		default:
+			return nil, fmt.Errorf("robots.txt: status %d", resp.StatusCode)
+		}
 	}
 }
 
