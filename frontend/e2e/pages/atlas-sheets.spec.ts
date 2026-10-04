@@ -257,6 +257,20 @@ test.describe('Atlas sheet layout under touch', () => {
     await stubAtlas(page)
     await page.goto('/atlas')
     await waitForMap(page)
+    // Below city view but past the street basemap's first zoom, so the
+    // OpenStreetMap credit is showing while the globe's search is too.
+    await page.evaluate(() => {
+      const m = (
+        window as unknown as {
+          __atlasMap: { jumpTo: (o: { center: [number, number]; zoom: number }) => void }
+        }
+      ).__atlasMap
+      m.jumpTo({ center: [-112.074, 33.4484], zoom: 8 })
+    })
+    await expect(page.locator('.maplibregl-ctrl-attrib-inner')).toContainText(
+      'OpenStreetMap',
+      { timeout: 30_000 },
+    )
     await page.getByRole('combobox', { name: 'Search scenes' }).tap()
     await expect(page.getByPlaceholder('City or state…')).toBeVisible()
     expect(await creditUncovered(page)).toBe(true)
