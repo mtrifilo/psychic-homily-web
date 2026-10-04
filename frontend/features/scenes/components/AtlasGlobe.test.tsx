@@ -446,6 +446,37 @@ describe('AtlasGlobe', () => {
       expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
     })
 
+    it('shows the map skeleton, not the list, on a phone while scenes load', () => {
+      setMockContainerWidth(390)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+      expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+      expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
+    })
+
+    it('says there is nothing to place, not the list, on a phone with no placeable scene', () => {
+      setMockContainerWidth(390)
+      mockUseScenes.mockReturnValue({
+        data: { scenes: [sampleData.scenes[1]], count: 1 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.getByText(/No scenes to place on the map yet/)).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+    })
+
+    it('swaps back to the map when reduced motion is turned off mid-session', async () => {
+      matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
+      setMockContainerWidth(390)
+      renderWithScenes()
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+      matchMedia.set(REDUCED_MOTION_QUERY, false)
+      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+    })
+
     it('swaps to the list when reduced motion is turned on mid-session', async () => {
       matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
       setMockContainerWidth(390)

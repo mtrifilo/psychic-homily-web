@@ -42,10 +42,10 @@ export function useAtlasCompactViewport(): boolean {
 }
 
 /**
- * Below this Atlas pane width (the whole frame, rail included), a visitor who prefers reduced motion gets the
- * scene list instead of the map. At and above it they get the map, which
- * honours the preference itself (GlobeCanvas drops its pulse rings, and
- * camera moves cut rather than fly).
+ * Below this Atlas pane width (the whole frame, rail included), a visitor who
+ * prefers reduced motion gets the scene list instead of the map. At and above
+ * it they get the map, which honours the preference itself (GlobeCanvas drops
+ * its pulse rings, and camera moves cut rather than fly).
  *
  * A product setting, not a technical limit: phones get the list, tablet and
  * desktop panes keep the map. The reduced-motion phone case in

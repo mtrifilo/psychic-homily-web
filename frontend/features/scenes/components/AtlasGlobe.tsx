@@ -457,10 +457,9 @@ export function AtlasGlobe() {
   // placement), and directly under its trigger while there is none to clear:
   // at globe zoom the compact globe draws no attributed source, so MapLibre
   // empties the credit, and a map that has not mounted its controls draws
-  // none. The line
-  // gives way to a raised keyboard inside AtlasSearch. MyScenesStrip keeps a
-  // fixed place below the credit's slot instead: it is static chrome with no
-  // height bound to the room on screen.
+  // none. The line gives way to a raised keyboard inside AtlasSearch.
+  // MyScenesStrip keeps a fixed place below the credit's slot instead: it is
+  // static chrome with no height bound to the room on screen.
   const searchListMinTopPx = useCallback(
     () =>
       mapPaneRef.current !== null && atlasTopCreditShown(mapPaneRef.current)

@@ -7,8 +7,9 @@
  * surface (one Atlas globe per app), so shared module state is safe.
  * Deliberately a DATA cache, not an init guard: the map is still created
  * fresh on every show, and the one pattern PSY-1284 proved fatal was a guard
- * ref that survives hide and skips re-init. Without this, nav-away/back would reset the camera to the initial
- * POV, because the map instance is new each show.
+ * ref that survives hide and skips re-init. Without this, nav-away/back would
+ * reset the camera to the initial POV, because the map instance is new each
+ * show.
  *
  * Its own module so the entry points that must OVERRIDE a saved camera (a
  * URL that names where to open) can clear it without importing the canvas

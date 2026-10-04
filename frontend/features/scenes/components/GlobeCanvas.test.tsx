@@ -318,6 +318,21 @@ describe('GlobeCanvas pulse rings', () => {
     expect(ringFeatureCounts()).toContain(0)
     expect(ringFeatureCounts()).not.toContain(1)
   })
+
+  it('starts the rings again when reduced motion is turned off', () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
+    const setData = vi.fn()
+    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData })
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7)
+    renderCanvas({ scenes: [{ ...CHICAGO, shows_this_week: 2 }] })
+    expect(raf).not.toHaveBeenCalled()
+
+    matchMedia.set(REDUCED_MOTION_QUERY, false)
+    expect(raf).toHaveBeenCalled()
+    expect(
+      setData.mock.calls.map(([fc]) => (fc as { features: unknown[] }).features.length),
+    ).toContain(1)
+  })
 })
 
 describe('GlobeCanvas without a WebGL2 context', () => {
