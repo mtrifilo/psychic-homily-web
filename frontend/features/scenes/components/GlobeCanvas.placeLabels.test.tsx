@@ -4,7 +4,14 @@ import GlobeCanvas from './GlobeCanvas'
 import type { PlaceableScene } from './globeTypes'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
+import * as globeSurface from '../basemap/globeSurface'
 import { GLOBE_PLACES_DATA_URL } from '../basemap/globeSurface'
+import { reportGlobePlacesFailure } from '../basemap/basemapTelemetry'
+
+vi.mock('../basemap/basemapTelemetry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../basemap/basemapTelemetry')>()),
+  reportGlobePlacesFailure: vi.fn(),
+}))
 
 /**
  * GlobeCanvas's place labels with MapLibre stubbed to a flat projection and
@@ -27,8 +34,12 @@ interface StubMapShape {
 }
 
 const PANE = { width: 390, height: 731 }
+// A flat projection of the near side. Eastern longitudes stand for the far
+// side of the globe: each projects onto the near-side point 180 degrees west,
+// and unprojecting that point lands there, as a globe's far side does.
+const nearLng = (lng: number) => (lng > 0 ? lng - 180 : lng)
 const project = ([lng, lat]: [number, number]) => ({
-  x: 195 + (lng + 98) * 6,
+  x: 195 + (nearLng(lng) + 98) * 6,
   y: 365 - (lat - 39) * 6,
 })
 
@@ -211,13 +222,13 @@ describe('GlobeCanvas place labels', () => {
     document.body.innerHTML = ''
   })
 
-  async function showMap(compact: boolean) {
+  async function showMap(compact: boolean, scenes: PlaceableScene[] = SCENES) {
     restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: compact }).restore
     render(
       <GlobeCanvas
         width={PANE.width}
         height={PANE.height}
-        scenes={SCENES}
+        scenes={scenes}
         pov={POV}
         onSelect={() => {}}
       />,
@@ -254,5 +265,36 @@ describe('GlobeCanvas place labels', () => {
     act(() => map.fire('zoom'))
     act(() => map.fire('moveend'))
     expect(placeLabelTexts()).toEqual(['Clear City'])
+  })
+
+  it('shows labels up to, not including, the start of the street crossfade', async () => {
+    const map = await showMap(true)
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+    zoom = 5.49
+    act(() => map.fire('zoom'))
+    act(() => map.fire('moveend'))
+    expect(placeLabelTexts()).toEqual(['Clear City'])
+    zoom = 5.5
+    act(() => map.fire('zoom'))
+    expect(placeLabelTexts()).toEqual([])
+    act(() => map.fire('moveend'))
+    expect(placeLabelTexts()).toEqual([])
+  })
+
+  it('lets a scene label on the far side of the globe hold no spot', async () => {
+    // Its label projects onto Clear City's, but from behind the globe.
+    const farSide = { ...SCENES[0], city: 'Far Side', slug: 'far-side-xx', longitude: 90, latitude: 46.5 }
+    await showMap(true, [SCENES[0], farSide])
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+  })
+
+  it('reports a place file that could not be loaded and draws no place label', async () => {
+    const load = vi
+      .spyOn(globeSurface, 'loadGlobePlaces')
+      .mockResolvedValueOnce({ data: null, status: 503 })
+    await showMap(true)
+    await waitFor(() => expect(reportGlobePlacesFailure).toHaveBeenCalledWith(503))
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(placeLabelTexts()).toEqual([])
   })
 })

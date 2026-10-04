@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { zoomForAltitude } from '../components/globeScale'
 import {
   PLACE_LABEL_BUDGET_AT_ENTRY,
-  PLACE_LABEL_BUDGET_AT_Z5,
+  PLACE_LABEL_BUDGET_AT_FULL,
+  PLACE_LABEL_BUDGET_FULL_ZOOM,
   PLACE_LABEL_ENTRY_ZOOM,
   PLACE_LABEL_MIN_ZOOM,
   dotBox,
@@ -15,7 +17,6 @@ import {
   type GlobeProjector,
 } from './globePlaces'
 
-const PHONE_PANE = { width: 390, height: 731 }
 const pane: Box = { left: 0, top: 0, right: 390, bottom: 731 }
 const box = (left: number, top: number, width = 40, height = 12): Box => ({
   left,
@@ -40,24 +41,23 @@ describe('place label zoom range', () => {
 })
 
 describe('placeLabelBudget', () => {
-  it('allows about 12 labels at the default phone entry', () => {
+  it('allows about 12 labels at the default entry zoom', () => {
     expect(PLACE_LABEL_BUDGET_AT_ENTRY).toBe(12)
-    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, PHONE_PANE.width, PHONE_PANE.height)).toBe(12)
+    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM)).toBe(12)
+  })
+
+  it('calibrates at the zoom the default camera opens at', () => {
+    // The Atlas's default camera altitude, in globeScale's altitude units.
+    expect(PLACE_LABEL_ENTRY_ZOOM).toBeCloseTo(zoomForAltitude(1.8), 2)
   })
 
   it('grows with zoom up to zoom 5 and holds there', () => {
-    const at = (zoom: number) => placeLabelBudget(zoom, PHONE_PANE.width, PHONE_PANE.height)
-    expect(at(1.5)).toBe(PLACE_LABEL_BUDGET_AT_ENTRY)
-    expect(at(3.5)).toBeGreaterThan(at(PLACE_LABEL_ENTRY_ZOOM))
-    expect(at(4.5)).toBeGreaterThan(at(3.5))
-    expect(at(5)).toBe(PLACE_LABEL_BUDGET_AT_Z5)
-    expect(at(5.4)).toBe(PLACE_LABEL_BUDGET_AT_Z5)
-  })
-
-  it('scales with the pane area, never below the phone budget and up to 2.5x', () => {
-    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, 320, 500)).toBe(12)
-    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, 780, 731)).toBe(24)
-    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, 1000, 1400)).toBe(30)
+    expect(placeLabelBudget(1.5)).toBe(PLACE_LABEL_BUDGET_AT_ENTRY)
+    expect(placeLabelBudget(3.5)).toBeGreaterThan(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM))
+    expect(placeLabelBudget(4.5)).toBeGreaterThan(placeLabelBudget(3.5))
+    expect(PLACE_LABEL_BUDGET_FULL_ZOOM).toBe(5)
+    expect(placeLabelBudget(5)).toBe(PLACE_LABEL_BUDGET_AT_FULL)
+    expect(placeLabelBudget(5.4)).toBe(PLACE_LABEL_BUDGET_AT_FULL)
   })
 })
 

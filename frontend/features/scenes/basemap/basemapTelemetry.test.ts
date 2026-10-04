@@ -467,3 +467,49 @@ describe('handleBasemapError, cross-source and scrubbing', () => {
     expect(options.extra.errorMessage).toContain('503')
   })
 })
+
+describe('reportGlobePlacesFailure', () => {
+  async function placesSession() {
+    vi.resetModules()
+    const telemetry = await import('./basemapTelemetry')
+    const sentry = await import('@sentry/nextjs')
+    return { telemetry, captureMessage: vi.mocked(sentry.captureMessage) }
+  }
+
+  it('reports the place-label file under its own source tag, once per session', async () => {
+    const { telemetry, captureMessage } = await placesSession()
+    telemetry.reportGlobePlacesFailure(404)
+    telemetry.reportGlobePlacesFailure(0)
+    expect(captureMessage).toHaveBeenCalledTimes(1)
+    expect(captureMessage.mock.calls[0][1]).toMatchObject({
+      level: 'error',
+      tags: {
+        service: 'atlas-basemap',
+        basemap_source: telemetry.GLOBE_PLACES_REPORT_SOURCE,
+        basemap_host: 'same-origin',
+        basemap_status: 404,
+      },
+    })
+  })
+
+  it("reports an unusable body as status 'none', in a slot apart from the map sources", async () => {
+    const { telemetry, captureMessage } = await placesSession()
+    telemetry.handleBasemapError(sourceErrorEvent(GLOBE_LAND_SOURCE_ID, ajaxError(503, 'https://www.psychichomily.com/atlas/globe-land-110m.geojson')))
+    telemetry.reportGlobePlacesFailure(undefined)
+    expect(captureMessage).toHaveBeenCalledTimes(2)
+    expect(captureMessage.mock.calls[1][1]).toMatchObject({
+      tags: { basemap_source: 'globePlaces', basemap_status: 'none' },
+    })
+  })
+
+  it('stays quiet while the browser knows it is offline', async () => {
+    const { telemetry, captureMessage } = await placesSession()
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    try {
+      telemetry.reportGlobePlacesFailure(0)
+      expect(captureMessage).not.toHaveBeenCalled()
+    } finally {
+      onLine.mockRestore()
+    }
+  })
+})

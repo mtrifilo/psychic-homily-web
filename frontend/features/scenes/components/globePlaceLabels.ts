@@ -30,6 +30,11 @@ function placeLabelElement(name: string): HTMLDivElement {
   return el
 }
 
+// Each place's rendered label size, measured the first time it is needed.
+// The face and size are fixed, so it holds for the page load; keyed by the
+// place object, so a fresh place list measures afresh.
+const labelSizes = new WeakMap<GlobePlace, { width: number; height: number }>()
+
 export interface PlaceLabelOptions {
   /** Labels show below this zoom (and from PLACE_LABEL_MIN_ZOOM up). */
   maxZoom: number
@@ -44,9 +49,11 @@ export interface PlaceLabelOptions {
  * Draws the light globe's place labels on a live map as DOM markers and keeps
  * them current: laid out on each camera settle, cleared as soon as the zoom
  * leaves the label range. A label's box is its place's screen point plus the
- * label's rendered size, measured once per place (the face and size are
- * fixed), so a layout builds markers only for the labels it keeps
- * (globePlaces.ts picks them). Returns the teardown.
+ * label's rendered size (measured once per place), so a layout builds
+ * markers only for the labels it keeps (globePlaces.ts picks them). The
+ * collision rules hold with the camera at rest: during a gesture the kept
+ * labels ride their places until the settle lays them out again. Returns the
+ * teardown.
  */
 export function mountPlaceLabels(
   map: maplibregl.Map,
@@ -54,7 +61,6 @@ export function mountPlaceLabels(
   { maxZoom, obstacles }: PlaceLabelOptions,
 ): () => void {
   const container = map.getContainer()
-  const sizes = new Map<GlobePlace, { width: number; height: number }>()
   let markers: maplibregl.Marker[] = []
 
   const clear = () => {
@@ -75,7 +81,7 @@ export function mountPlaceLabels(
     })
     for (const { place, el } of probes) {
       const r = el.getBoundingClientRect()
-      sizes.set(place, { width: r.width, height: r.height })
+      labelSizes.set(place, { width: r.width, height: r.height })
     }
     for (const { el } of probes) el.remove()
   }
@@ -88,7 +94,7 @@ export function mountPlaceLabels(
     }
     const width = container.clientWidth
     const height = container.clientHeight
-    const budget = placeLabelBudget(zoom, width, height)
+    const budget = placeLabelBudget(zoom)
     const blockers = obstacles()
 
     const facing: { place: GlobePlace; x: number; y: number }[] = []
@@ -96,10 +102,10 @@ export function mountPlaceLabels(
       const point = facingPoint(map, place.lng, place.lat, width, height)
       if (point) facing.push({ place, ...point })
     }
-    measure(facing.filter(({ place }) => !sizes.has(place)).map(({ place }) => place))
+    measure(facing.filter(({ place }) => !labelSizes.has(place)).map(({ place }) => place))
 
     const candidates = facing.map(({ place, x, y }) => {
-      const size = sizes.get(place) ?? { width: 0, height: 0 }
+      const size = labelSizes.get(place) ?? { width: 0, height: 0 }
       return {
         place,
         box: {

@@ -12,6 +12,6 @@ import { isAtlasCompactViewport } from '../atlasViewport'
  * the module again and owns the error state and its retry.
  */
 export function preloadAtlasMap(): void {
-  import('./GlobeCanvas').catch(() => {})
-  if (isAtlasCompactViewport()) prefetchGlobeSurface()
+  const mapModule = import('./GlobeCanvas').catch(() => {})
+  if (isAtlasCompactViewport()) prefetchGlobeSurface(mapModule)
 }

@@ -200,7 +200,7 @@ describe('showGlobeSurface', () => {
     expect(visibilityOf(GLOBE_OCEAN_LAYER_ID)).toBe('visible')
   })
 
-  it('loads each boundary file into its own source once, after the land', () => {
+  it('loads each boundary file into its own source once', () => {
     const { map, setData, stateSetData, countrySetData, visibilityOf } = fakeMap()
     showGlobeSurface(map, true)
     showGlobeSurface(map, false)
@@ -209,9 +209,7 @@ describe('showGlobeSurface', () => {
     expect(stateSetData).toHaveBeenCalledWith(GLOBE_STATE_LINES_DATA_URL)
     expect(countrySetData).toHaveBeenCalledTimes(1)
     expect(countrySetData).toHaveBeenCalledWith(GLOBE_COUNTRY_LINES_DATA_URL)
-    expect(setData.mock.invocationCallOrder[0]).toBeLessThan(
-      stateSetData.mock.invocationCallOrder[0],
-    )
+    expect(setData).toHaveBeenCalledTimes(1)
     expect(visibilityOf(GLOBE_STATE_LINES_LAYER_ID)).toBe('visible')
     expect(visibilityOf(GLOBE_COUNTRY_LINES_LAYER_ID)).toBe('visible')
   })
@@ -387,7 +385,14 @@ describe('prefetchGlobeSurface', () => {
     vi.useFakeTimers()
     try {
       let resolveFetch: (value: unknown) => void = () => {}
-      const fetchMock = stubFetch(() => new Promise((resolve) => (resolveFetch = resolve)))
+      // Only the land request is held: the line and place files start once
+      // the land wait has run out, and each would replace the resolver.
+      const fetchMock = vi.fn<(url: string) => Promise<unknown>>((url) =>
+        url === GLOBE_LAND_DATA_URL
+          ? new Promise((resolve) => (resolveFetch = resolve))
+          : new Promise(() => {}),
+      )
+      vi.stubGlobal('fetch', fetchMock)
       const mod = await freshModule()
       mod.prefetchGlobeSurface()
       const first = fakeMap()
@@ -459,19 +464,27 @@ describe('prefetch order and place data', () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it('fetches the line and place files only after the land file settles', async () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const fetchedUrls = (fetchMock: { mock: { calls: unknown[][] } }) =>
+    fetchMock.mock.calls.map((c) => c[0] as string)
+
+  it('starts the line and place files only once the land file and the map code have both loaded', async () => {
     let resolveLand: (value: unknown) => void = () => {}
+    let resolveModule: () => void = () => {}
     const fetchMock = vi.fn((url: string) =>
       url === GLOBE_LAND_DATA_URL ? new Promise((resolve) => (resolveLand = resolve)) : ok(),
     )
     vi.stubGlobal('fetch', fetchMock)
     const mod = await freshModule()
-    mod.prefetchGlobeSurface()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([GLOBE_LAND_DATA_URL])
+    mod.prefetchGlobeSurface(new Promise<void>((resolve) => (resolveModule = resolve)))
+    await settle()
+    expect(fetchedUrls(fetchMock)).toEqual([GLOBE_LAND_DATA_URL])
     resolveLand({ ok: false })
+    await settle()
+    expect(fetchedUrls(fetchMock)).toEqual([GLOBE_LAND_DATA_URL])
+    resolveModule()
     await vi.waitFor(() =>
-      expect(fetchMock.mock.calls.map((c) => c[0]).sort()).toEqual(
+      expect(fetchedUrls(fetchMock).sort()).toEqual(
         [
           GLOBE_LAND_DATA_URL,
           GLOBE_STATE_LINES_DATA_URL,
@@ -480,6 +493,45 @@ describe('prefetch order and place data', () => {
         ].sort(),
       ),
     )
+  })
+
+  it('starts the line and place files after 10 s when the land file stalls', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn((url: string) =>
+        url === GLOBE_LAND_DATA_URL ? new Promise(() => {}) : ok(),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const mod = await freshModule()
+      mod.prefetchGlobeSurface()
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(fetchedUrls(fetchMock)).toEqual([GLOBE_LAND_DATA_URL])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fetchedUrls(fetchMock)).toContain(GLOBE_STATE_LINES_DATA_URL)
+      expect(fetchedUrls(fetchMock)).toContain(GLOBE_PLACES_DATA_URL)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips a line prefetch whose map already gave up and fetched the file itself', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveModule: () => void = () => {}
+      const fetchMock = vi.fn(() => ok())
+      vi.stubGlobal('fetch', fetchMock)
+      const mod = await freshModule()
+      mod.prefetchGlobeSurface(new Promise<void>((resolve) => (resolveModule = resolve)))
+      const { map, stateSetData } = fakeMap()
+      mod.showGlobeSurface(map, true)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(stateSetData).toHaveBeenCalledWith(GLOBE_STATE_LINES_DATA_URL)
+      resolveModule()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetchedUrls(fetchMock)).not.toContain(GLOBE_STATE_LINES_DATA_URL)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('hands each line source its own prefetched collection', async () => {
@@ -528,24 +580,65 @@ describe('prefetch order and place data', () => {
     vi.stubGlobal('fetch', fetchMock)
     const mod = await freshModule()
     mod.prefetchGlobeSurface()
-    await expect(mod.loadGlobePlaces()).resolves.toBe(FC)
-    await expect(mod.loadGlobePlaces()).resolves.toBe(FC)
+    await expect(mod.loadGlobePlaces()).resolves.toEqual({ data: FC })
+    await expect(mod.loadGlobePlaces()).resolves.toEqual({ data: FC })
     expect(fetchMock.mock.calls.filter((c) => c[0] === GLOBE_PLACES_DATA_URL)).toHaveLength(1)
   })
 
-  it('fetches the place data itself without a prefetch, and again after a failure', async () => {
-    const fetchMock = vi
-      .fn<(url: string) => Promise<unknown>>()
-      .mockImplementationOnce(() => Promise.reject(new Error('offline')))
-      .mockImplementation(() => ok())
+  it('retries a failed place prefetch with one direct fetch', async () => {
+    const fetchMock = vi.fn((url: string) =>
+      url === GLOBE_PLACES_DATA_URL && fetchMock.mock.calls.filter((c) => c[0] === url).length === 1
+        ? Promise.resolve({ ok: false, status: 503 })
+        : ok(),
+    )
     vi.stubGlobal('fetch', fetchMock)
     const mod = await freshModule()
-    await expect(mod.loadGlobePlaces()).resolves.toBeNull()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await expect(mod.loadGlobePlaces()).resolves.toBe(FC)
-    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
-      GLOBE_PLACES_DATA_URL,
-      GLOBE_PLACES_DATA_URL,
-    ])
+    mod.prefetchGlobeSurface()
+    await expect(mod.loadGlobePlaces()).resolves.toEqual({ data: FC })
+    expect(fetchedUrls(fetchMock).filter((u) => u === GLOBE_PLACES_DATA_URL)).toHaveLength(2)
+  })
+
+  it('stops waiting on a stalled place prefetch after 10 s and fetches directly', async () => {
+    vi.useFakeTimers()
+    try {
+      let placeCalls = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) =>
+          url === GLOBE_PLACES_DATA_URL && placeCalls++ === 0 ? new Promise(() => {}) : ok(),
+        ),
+      )
+      const mod = await freshModule()
+      mod.prefetchGlobeSurface()
+      const loading = mod.loadGlobePlaces()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(loading).resolves.toEqual({ data: FC })
+      expect(placeCalls).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    ['a network failure', () => Promise.reject(new Error('offline')), 0],
+    ['an HTTP error', () => Promise.resolve({ ok: false, status: 404 }), 404],
+    [
+      'a body that is not a FeatureCollection',
+      () => Promise.resolve({ ok: true, json: () => Promise.resolve({ type: 'Feature' }) }),
+      undefined,
+    ],
+    [
+      'a body that is not JSON',
+      () => Promise.resolve({ ok: true, json: () => Promise.reject(new SyntaxError('bad')) }),
+      undefined,
+    ],
+  ])('reports %s with its status, and fetches again on the next load', async (_label, fail, status) => {
+    const fetchMock = vi.fn<(url: string) => Promise<unknown>>().mockImplementationOnce(fail).mockImplementation(() => ok())
+    vi.stubGlobal('fetch', fetchMock)
+    const mod = await freshModule()
+    await expect(mod.loadGlobePlaces()).resolves.toEqual({ data: null, status })
+    await settle()
+    await expect(mod.loadGlobePlaces()).resolves.toEqual({ data: FC })
+    expect(fetchedUrls(fetchMock)).toEqual([GLOBE_PLACES_DATA_URL, GLOBE_PLACES_DATA_URL])
   })
 })

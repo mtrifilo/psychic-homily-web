@@ -34,33 +34,31 @@ export const PLACE_LABEL_MIN_ZOOM = 2
 
 /**
  * The density rule: PLACE_LABEL_BUDGET_AT_ENTRY labels at
- * PLACE_LABEL_ENTRY_ZOOM (the phone globe's default entry) on a phone-sized
- * map pane, growing linearly to
- * PLACE_LABEL_BUDGET_AT_Z5 at zoom 5 (and no further), and in proportion to
- * the pane's area up to PLACE_LABEL_MAX_AREA_SCALE times the reference pane.
- * The reference pane is the phone board's map area (390x731).
+ * PLACE_LABEL_ENTRY_ZOOM, growing linearly to PLACE_LABEL_BUDGET_AT_FULL at
+ * PLACE_LABEL_BUDGET_FULL_ZOOM and holding there. PLACE_LABEL_ENTRY_ZOOM is
+ * the zoom the globe opens at for a visitor with no located city (globeScale's
+ * zoomForAltitude of the default camera's altitude 1.8), the view the rule is
+ * calibrated against. The budget is the same at every pane size.
  */
 export const PLACE_LABEL_BUDGET_AT_ENTRY = 12
-export const PLACE_LABEL_BUDGET_AT_Z5 = 20
+export const PLACE_LABEL_BUDGET_AT_FULL = 20
 export const PLACE_LABEL_ENTRY_ZOOM = 2.36
-const PLACE_LABEL_REFERENCE_PANE_AREA = 390 * 731
-const PLACE_LABEL_MAX_AREA_SCALE = 2.5
+export const PLACE_LABEL_BUDGET_FULL_ZOOM = 5
 
 /** Clear space kept around every label, in CSS px. */
 const PLACE_LABEL_GAP_PX = 2
 
-export function placeLabelBudget(zoom: number, paneWidth: number, paneHeight: number): number {
+export function placeLabelBudget(zoom: number): number {
   const t = Math.min(
     1,
-    Math.max(0, (zoom - PLACE_LABEL_ENTRY_ZOOM) / (5 - PLACE_LABEL_ENTRY_ZOOM)),
+    Math.max(
+      0,
+      (zoom - PLACE_LABEL_ENTRY_ZOOM) / (PLACE_LABEL_BUDGET_FULL_ZOOM - PLACE_LABEL_ENTRY_ZOOM),
+    ),
   )
-  const atZoom =
-    PLACE_LABEL_BUDGET_AT_ENTRY + t * (PLACE_LABEL_BUDGET_AT_Z5 - PLACE_LABEL_BUDGET_AT_ENTRY)
-  const areaScale = Math.min(
-    PLACE_LABEL_MAX_AREA_SCALE,
-    Math.max(1, (paneWidth * paneHeight) / PLACE_LABEL_REFERENCE_PANE_AREA),
+  return Math.round(
+    PLACE_LABEL_BUDGET_AT_ENTRY + t * (PLACE_LABEL_BUDGET_AT_FULL - PLACE_LABEL_BUDGET_AT_ENTRY),
   )
-  return Math.round(atZoom * areaScale)
 }
 
 /** Whether place labels show at this zoom, below the given ceiling. */

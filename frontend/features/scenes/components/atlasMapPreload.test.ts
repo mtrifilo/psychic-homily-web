@@ -5,7 +5,7 @@ import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 const { canvasModule } = vi.hoisted(() => ({ canvasModule: { requested: 0 } }))
 const prefetchGlobeSurface = vi.fn()
 vi.mock('../basemap/globeSurface', () => ({
-  prefetchGlobeSurface: () => prefetchGlobeSurface(),
+  prefetchGlobeSurface: (mapModule: Promise<unknown>) => prefetchGlobeSurface(mapModule),
 }))
 // The real module pulls in MapLibre. The factory runs when the module is
 // first requested, which is what the preload exists to do.
@@ -25,6 +25,8 @@ describe('preloadAtlasMap', () => {
     preloadAtlasMap()
     expect(prefetchGlobeSurface).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(canvasModule.requested).toBe(1))
+    // The overlays wait on the map's code: the module load is handed over.
+    await expect(prefetchGlobeSurface.mock.calls[0][0]).resolves.toBeDefined()
   })
 
   it('leaves the globe surface data alone on a wide viewport, where the raster draws', () => {

@@ -8,7 +8,10 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
 import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
-import { handleBasemapError } from '../basemap/basemapTelemetry'
+import {
+  handleBasemapError,
+  reportGlobePlacesFailure,
+} from '../basemap/basemapTelemetry'
 import {
   globeSurfaceLayers,
   globeSurfaceSources,
@@ -302,8 +305,10 @@ export default function GlobeCanvas({
   useEffect(() => {
     if (!wantPlaces) return
     let cancelled = false
-    void loadGlobePlaces().then((data) => {
-      if (!cancelled && data) setPlaces(parseGlobePlaces(data))
+    void loadGlobePlaces().then((result) => {
+      if (cancelled) return
+      if (result.data) setPlaces(parseGlobePlaces(result.data))
+      else reportGlobePlacesFailure(result.status)
     })
     return () => {
       cancelled = true
@@ -714,8 +719,10 @@ export default function GlobeCanvas({
 
   // Place labels on the light globe (globePlaceLabels.ts), clear of every
   // scene label and dot on the near side of the globe, so a scene always wins
-  // its spot. Declared after the scene label effect so a re-run reads that
-  // effect's fresh markers.
+  // its spot. The obstacles are read at each layout (every camera settle), so
+  // scene labels rebuilt by a zoom threshold mid-gesture are the ones the
+  // settle's layout sees; a scenes change re-runs this effect after the scene
+  // label effect above has rebuilt its markers.
   useEffect(() => {
     if (!mapReady || !lightGlobe || cityViewActive || !places || places.length === 0) {
       return
@@ -728,7 +735,9 @@ export default function GlobeCanvas({
       const origin = container.getBoundingClientRect()
       const boxes: Box[] = []
       for (const { el, lng, lat } of sceneLabelsRef.current) {
-        // A label behind the globe is hidden and holds no spot on screen.
+        // A label behind the globe is hidden and holds no spot on screen. Its
+        // element keeps a box at the far-side projection, so the box alone
+        // cannot tell; the same far-side test the place labels use decides.
         if (!isFacing(map, lng, lat)) continue
         const r = el.getBoundingClientRect()
         boxes.push({
@@ -751,7 +760,7 @@ export default function GlobeCanvas({
       maxZoom: BLACK_MARBLE_FADE_START,
       obstacles,
     })
-  }, [mapReady, lightGlobe, cityViewActive, places, labelScenes, scenes])
+  }, [mapReady, lightGlobe, cityViewActive, places, scenes])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so

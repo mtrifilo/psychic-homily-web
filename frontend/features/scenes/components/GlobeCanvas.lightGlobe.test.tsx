@@ -170,7 +170,7 @@ describe('GlobeCanvas globe surface', () => {
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
   })
 
-  it('builds a compact-viewport map with both boundary layers shown, and loads their files after the land', () => {
+  it('builds a compact-viewport map with both boundary layers shown, and loads their files on style load', () => {
     installViewport(true)
     renderCanvas()
     const map = theMap()
@@ -181,9 +181,6 @@ describe('GlobeCanvas globe surface', () => {
     const country = map.sourceSetData(GLOBE_COUNTRY_LINES_SOURCE_ID)
     expect(state).toHaveBeenCalledExactlyOnceWith(GLOBE_STATE_LINES_DATA_URL)
     expect(country).toHaveBeenCalledExactlyOnceWith(GLOBE_COUNTRY_LINES_DATA_URL)
-    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID).mock.invocationCallOrder[0]).toBeLessThan(
-      state.mock.invocationCallOrder[0],
-    )
   })
 
   it('builds a wide-viewport map with the boundary layers hidden and never loads them', () => {

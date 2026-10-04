@@ -79,7 +79,9 @@
  * OpenFreeMap vector source, the NASA GIBS raster, and the light globe's
  * same-origin GeoJSON files: the land (`globeLand`, whose failure leaves a
  * compact viewport's globe without continents) and the boundary lines
- * (`globeStateLines`, `globeCountryLines`). Everything else is
+ * (`globeStateLines`, `globeCountryLines`). The place-label file is not a map
+ * source and fires no error event; its failure reports through
+ * reportGlobePlacesFailure as `globePlaces`. Everything else is
  * ignored: the other GeoJSON sources (`scenes`, `scene-rings`, `venues`) are
  * fed from local data and fetch nothing, and a map-level error carries no
  * `sourceId` at all. Each source is tagged with its own `basemap_source` and
@@ -261,6 +263,54 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
   if (sourceId === undefined) return
   const configuredHost = REPORTED_SOURCE_HOSTS.get(sourceId)
   if (configuredHost === undefined) return
+  const error = event.error as (AjaxErrorFields & { message?: unknown }) | null
+  const url = readString(error?.url)
+  captureSourceFailure({
+    sourceId,
+    host: hostOf(url, configuredHost),
+    status: typeof error?.status === 'number' ? error.status : undefined,
+    message: readString(error?.message),
+  })
+}
+
+/**
+ * The `basemap_source` a failed load of the light globe's place-label file
+ * reports under. Not a map source (the labels are DOM markers), so no MapLibre
+ * error event carries it: GlobeCanvas reports it through
+ * {@link reportGlobePlacesFailure}.
+ */
+export const GLOBE_PLACES_REPORT_SOURCE = 'globePlaces'
+
+/**
+ * Reports that the place-label file could not be loaded: `status` is the
+ * HTTP status of a failed response, 0 for a network failure, and undefined
+ * for a response whose body was not a FeatureCollection. Same event, tags,
+ * offline guard and once-per-session throttle as a map source failure.
+ */
+export function reportGlobePlacesFailure(status: number | undefined): void {
+  try {
+    captureSourceFailure({
+      sourceId: GLOBE_PLACES_REPORT_SOURCE,
+      host: GLOBE_DATA_HOST,
+      status,
+      message: undefined,
+    })
+  } catch {
+    // As in handleBasemapError: reporting must never throw into its caller.
+  }
+}
+
+function captureSourceFailure({
+  sourceId,
+  host,
+  status,
+  message,
+}: {
+  sourceId: string
+  host: string
+  status: number | undefined
+  message: string | undefined
+}): void {
   if (reportedSources.has(sourceId)) return
 
   // A browser that KNOWS it is offline tells us nothing about the provider.
@@ -271,11 +321,6 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
   // genuine outage later in the same session still gets through.
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return
 
-  const error = event.error as (AjaxErrorFields & { message?: unknown }) | null
-  const status = typeof error?.status === 'number' ? error.status : undefined
-  const url = readString(error?.url)
-  const message = readString(error?.message)
-
   Sentry.captureMessage('Atlas basemap tile source failed', {
     level: 'error',
     tags: {
@@ -284,17 +329,18 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
       // Low-cardinality and searchable: "which source, on which host, failing
       // how" is the whole triage question for a third-party tile outage.
       // `basemap_source` separates the failures a user sees differently:
-      // 'openmaptiles' (streets are gone), 'nightEarth' (the globe is unlit)
-      // 'globeLand' (a compact viewport's globe has no continents) and
-      // 'globeStateLines' / 'globeCountryLines' (it has no boundaries), each
-      // in its own slot, never grouped into one issue.
+      // 'openmaptiles' (streets are gone), 'nightEarth' (the globe is unlit),
+      // 'globeLand' (a compact viewport's globe has no continents),
+      // 'globeStateLines' / 'globeCountryLines' (it has no boundaries) and
+      // 'globePlaces' (it has no place labels), each in its own slot, never
+      // grouped into one issue.
       // `basemap_status` is 0 for a network-level failure (DNS, blocked, or a
       // client connection that dropped without `navigator.onLine` catching
       // it) and an HTTP status otherwise, so it also separates the AJAX cases
       // from a style or worker error, which report 'none'. Triage a spike of
       // status 0 as "could be either end" rather than a confirmed outage.
       basemap_source: sourceId,
-      basemap_host: hostOf(url, configuredHost),
+      basemap_host: host,
       basemap_status: status ?? 'none',
     },
     extra: {
