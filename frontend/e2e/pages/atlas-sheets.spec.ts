@@ -203,6 +203,21 @@ test.describe('Atlas sheet layout under touch', () => {
     await touchDrag(page, x, atHalf.y + atHalf.height / 2, atHalf.y + 330)
     await expect(list).toHaveAttribute('data-detent', 'peek')
 
+    // A mouse drag works too, although every move after the press leaves the
+    // handle (a mouse has no implicit capture).
+    await expect
+      .poll(() => list.evaluate((el) => Math.round(el.getBoundingClientRect().height)))
+      .toBe(120)
+    const forMouse = (await grabber.boundingBox())!
+    await page.mouse.move(x, forMouse.y + forMouse.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 12; i++) {
+      await page.mouse.move(x, forMouse.y + forMouse.height / 2 - (330 * i) / 12)
+    }
+    await page.waitForTimeout(150)
+    await page.mouse.up()
+    await expect(list).toHaveAttribute('data-detent', 'half')
+
     // A tap on the counted marker opens the list at Half, scoped to the point.
     await page.getByTestId('atlas-venue-stack').tap()
     await expect(list).toHaveAttribute('data-detent', 'half')

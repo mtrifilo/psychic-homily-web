@@ -277,14 +277,73 @@ export function BottomSheet({
   // DRAG_CLICK_GUARD_MS of a drag's end belongs to the drag, not the grabber.
   const lastDragEndRef = useRef(-Infinity)
 
-  const handlePointerCancel = () => {
+  // A drag is tracked on the window from press to release, not on the handle:
+  // a mouse has no implicit capture, so its moves leave the 28px handle at
+  // once, and window listeners need no pointer capture (whose transfer from a
+  // touched child to the handle fires a bubbling lostpointercapture).
+  const stopTrackingRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => stopTrackingRef.current?.(), [])
+
+  const endDrag = () => {
+    stopTrackingRef.current?.()
     dragRef.current = null
     clearDragHeight()
   }
 
+  const clampDragHeight = (drag: DragState, clientY: number) => {
+    const min = bottomSheetHeightPx('peek', drag.hostHeight, topInsetPx)
+    const max = bottomSheetHeightPx('full', drag.hostHeight, topInsetPx)
+    return Math.min(max, Math.max(min, drag.startHeight - (clientY - drag.startY)))
+  }
+
+  const handleDragMove = (e: PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    // A mouse whose button came up outside the window sends no pointerup;
+    // with no button held this is a hover, not a drag.
+    if (e.pointerType === 'mouse' && e.buttons === 0) {
+      endDrag()
+      return
+    }
+    if (!drag.active) {
+      if (Math.abs(e.clientY - drag.startY) < BOTTOM_SHEET_DRAG_SLOP_PX) return
+      drag.active = true
+      setDragging(true)
+    }
+    const elapsed = e.timeStamp - drag.lastTime
+    if (elapsed > 0) drag.velocity = (drag.lastY - e.clientY) / elapsed
+    drag.lastY = e.clientY
+    drag.lastTime = e.timeStamp
+    sheetRef.current?.style.setProperty(
+      DRAG_HEIGHT_VAR,
+      `${clampDragHeight(drag, e.clientY)}px`,
+    )
+  }
+
+  const handleDragEnd = (e: PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    endDrag()
+    if (!drag.active) return
+    lastDragEndRef.current = e.timeStamp
+    setDetent(
+      settleBottomSheetDetent({
+        heightPx: clampDragHeight(drag, e.clientY),
+        velocityPxPerMs:
+          e.timeStamp - drag.lastTime > BOTTOM_SHEET_FLING_HOLD_MS ? 0 : drag.velocity,
+        hostHeightPx: drag.hostHeight,
+        topInsetPx,
+      }),
+    )
+  }
+
+  const handleDragCancel = (e: PointerEvent) => {
+    if (dragRef.current?.pointerId === e.pointerId) endDrag()
+  }
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // One drag at a time: a second finger never takes over a live drag.
-    if (dragRef.current?.active) return
+    // One drag at a time: a second finger never takes over a drag in progress.
+    if (dragRef.current) return
     if (e.pointerType === 'mouse' && e.button !== 0) return
     if ((e.target as Element).closest(NO_DRAG_SELECTOR)) return
     const sheet = sheetRef.current
@@ -299,60 +358,15 @@ export function BottomSheet({
       velocity: 0,
       active: false,
     }
-  }
-
-  const clampDragHeight = (drag: DragState, clientY: number) => {
-    const min = bottomSheetHeightPx('peek', drag.hostHeight, topInsetPx)
-    const max = bottomSheetHeightPx('full', drag.hostHeight, topInsetPx)
-    return Math.min(max, Math.max(min, drag.startHeight - (clientY - drag.startY)))
-  }
-
-  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
-    // A mouse released outside the handle sends no pointerup here; with no
-    // button held this is a hover, not a drag.
-    if (e.pointerType === 'mouse' && e.buttons === 0) {
-      handlePointerCancel()
-      return
+    window.addEventListener('pointermove', handleDragMove)
+    window.addEventListener('pointerup', handleDragEnd)
+    window.addEventListener('pointercancel', handleDragCancel)
+    stopTrackingRef.current = () => {
+      window.removeEventListener('pointermove', handleDragMove)
+      window.removeEventListener('pointerup', handleDragEnd)
+      window.removeEventListener('pointercancel', handleDragCancel)
+      stopTrackingRef.current = null
     }
-    if (!drag.active) {
-      if (Math.abs(e.clientY - drag.startY) < BOTTOM_SHEET_DRAG_SLOP_PX) return
-      drag.active = true
-      setDragging(true)
-      // Captured only once the press is a drag: capturing on press would
-      // retarget the click a tap on the grabber relies on.
-      e.currentTarget.setPointerCapture?.(e.pointerId)
-    }
-    const elapsed = e.timeStamp - drag.lastTime
-    if (elapsed > 0) drag.velocity = (drag.lastY - e.clientY) / elapsed
-    drag.lastY = e.clientY
-    drag.lastTime = e.timeStamp
-    sheetRef.current?.style.setProperty(
-      DRAG_HEIGHT_VAR,
-      `${clampDragHeight(drag, e.clientY)}px`,
-    )
-  }
-
-  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
-    dragRef.current = null
-    if (!drag.active) {
-      clearDragHeight()
-      return
-    }
-    lastDragEndRef.current = e.timeStamp
-    clearDragHeight()
-    setDetent(
-      settleBottomSheetDetent({
-        heightPx: clampDragHeight(drag, e.clientY),
-        velocityPxPerMs:
-          e.timeStamp - drag.lastTime > BOTTOM_SHEET_FLING_HOLD_MS ? 0 : drag.velocity,
-        hostHeightPx: drag.hostHeight,
-        topInsetPx,
-      }),
-    )
   }
 
   const grabberTarget = nextGrabberDetent(detent, hostHeight, topInsetPx)
@@ -416,20 +430,6 @@ export function BottomSheet({
         <div
           data-testid="bottom-sheet-handle"
           onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          onLostPointerCapture={(e) => {
-            // Only the handle losing the drag's pointer ends the drag. A child
-            // (the grabber, the title) loses its implicit touch capture the
-            // moment the handle takes it, and that event bubbles here.
-            if (
-              e.target === e.currentTarget &&
-              dragRef.current?.pointerId === e.pointerId
-            ) {
-              handlePointerCancel()
-            }
-          }}
           // The handle owns vertical drags; the browser must not turn them
           // into a page scroll or a pinch.
           className="shrink-0 touch-none select-none"

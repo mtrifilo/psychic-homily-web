@@ -342,9 +342,22 @@ describe('BottomSheet', () => {
     fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
     expect(sheet).toHaveAttribute('data-dragging', 'true')
     expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('320px')
-    // The handle itself losing the pointer does end it.
-    fireEvent.lostPointerCapture(handle, { pointerId: 1, pointerType: 'touch' })
+  })
+
+  it('follows a mouse drag that leaves the handle', () => {
+    renderWithProviders(<Harness onClose={vi.fn()} />)
+    const sheet = screen.getByTestId('sheet')
+    stubGeometry(sheet, 120)
+    const handle = screen.getByTestId('bottom-sheet-handle')
+    const outside = screen.getByRole('button', { name: 'Map control' })
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, buttons: 1, pointerType: 'mouse' })
+    // Every move after the press lands outside the handle, as a mouse's does.
+    fireEvent.pointerMove(outside, { pointerId: 1, clientY: 450, buttons: 1, pointerType: 'mouse' })
+    fireEvent.pointerMove(outside, { pointerId: 1, clientY: 320, buttons: 1, pointerType: 'mouse' })
+    expect(sheet).toHaveAttribute('data-dragging', 'true')
+    fireEvent.pointerUp(outside, { pointerId: 1, clientY: 320, button: 0, pointerType: 'mouse' })
     expect(sheet).not.toHaveAttribute('data-dragging')
+    expect(sheet).toHaveAttribute('data-detent', 'half')
   })
 
   it('settles a fast drag held still before release by position, not fling', () => {
@@ -397,7 +410,7 @@ describe('BottomSheet', () => {
     const sheet = screen.getByTestId('sheet')
     stubGeometry(sheet, 120)
     const handle = screen.getByTestId('bottom-sheet-handle')
-    // Pressed here, released elsewhere: no pointerup reaches the handle.
+    // Pressed here, released outside the window: no pointerup arrives.
     fireEvent.pointerDown(handle, { pointerId: 1, clientY: 600, button: 0, buttons: 1, pointerType: 'mouse' })
     fireEvent.pointerMove(handle, { pointerId: 1, clientY: 300, buttons: 0, pointerType: 'mouse' })
     expect(sheet).not.toHaveAttribute('data-dragging')
