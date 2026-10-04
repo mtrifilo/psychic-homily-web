@@ -170,6 +170,11 @@ vi.mock('./GlobeCanvas', () => ({
   },
 }))
 
+const preloadGlobeCanvas = vi.fn()
+vi.mock('./globeCanvasPreload', () => ({
+  preloadGlobeCanvas: () => preloadGlobeCanvas(),
+}))
+
 import { AtlasGlobe } from './AtlasGlobe'
 import { clearAtlasCamera, readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { CITY_VIEW_MIN_ZOOM } from '../cityView'
@@ -287,6 +292,30 @@ describe('AtlasGlobe', () => {
     expect(
       screen.getByRole('button', { name: /Faketown, ZZ/ }),
     ).toBeInTheDocument()
+  })
+
+  describe('early canvas fetch', () => {
+    it('starts loading the canvas module while scenes are still loading, on a map-wide container', () => {
+      setMockContainerWidth(1200)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      expect(preloadGlobeCanvas).toHaveBeenCalledTimes(1)
+    })
+
+    it('never fetches the canvas module where the scene list renders instead', () => {
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
+      expect(preloadGlobeCanvas).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch it when the scenes query has failed', () => {
+      setMockContainerWidth(1200)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+      renderWithProviders(<AtlasGlobe />)
+      expect(preloadGlobeCanvas).not.toHaveBeenCalled()
+    })
   })
 
   it('shows an error state when the scenes query fails', () => {

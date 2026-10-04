@@ -219,6 +219,14 @@ function buildStarfieldDataUri(): string {
 }
 const STARFIELD_BG = buildStarfieldDataUri()
 
+// Start MapLibre's worker pool when this module loads rather than when the
+// first Map is constructed: AtlasGlobe fetches this module while it still
+// waits on scene data and the camera focus, so the workers fetch and boot the
+// vendored worker modules during that wait. Runs after the setWorkerUrl
+// import above. Prewarmed workers outlive a removed map, which a hide/show
+// cycle reuses.
+if (typeof window !== 'undefined') maplibregl.prewarm()
+
 /**
  * The MapLibre globe canvas (PSY-1538), isolated in its own client module so
  * AtlasGlobe can dynamic-import it with `ssr:false`: maplibre-gl is ~900 kB

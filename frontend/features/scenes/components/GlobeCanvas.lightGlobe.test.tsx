@@ -30,6 +30,9 @@ interface StubStyle {
 }
 
 let maps: StubMap[] = []
+// Plain counters, not vi.fn: the global afterEach clears mock call history,
+// and the prewarm happens once, at module load, before any test runs.
+const { poolEvents } = vi.hoisted(() => ({ poolEvents: [] as string[] }))
 
 vi.mock('maplibre-gl', () => {
   class StubControl {
@@ -52,6 +55,7 @@ vi.mock('maplibre-gl', () => {
     container = document.createElement('div')
 
     constructor(public options: { style: StubStyle }) {
+      poolEvents.push('map')
       maps.push(this as unknown as StubMap)
     }
     on(event: string, layerOrHandler: unknown, maybeHandler?: unknown) {
@@ -96,6 +100,7 @@ vi.mock('maplibre-gl', () => {
     NavigationControl: StubControl,
     Marker: StubControl,
     setWorkerUrl: vi.fn(),
+    prewarm: () => poolEvents.push('prewarm'),
   }
 })
 
@@ -119,6 +124,13 @@ function constructedVisibility(map: StubMap, layer: string) {
 function lastVisibilitySet(map: StubMap, layer: string) {
   return map.setLayoutProperty.mock.calls.filter((c) => c[0] === layer).at(-1)?.[2]
 }
+
+describe('GlobeCanvas module', () => {
+  it('starts the worker pool once, when the module loads, before any map exists', () => {
+    expect(poolEvents.filter((e) => e === 'prewarm')).toHaveLength(1)
+    expect(poolEvents[0]).toBe('prewarm')
+  })
+})
 
 describe('GlobeCanvas globe surface', () => {
   let restoreMatchMedia: () => void = () => {}

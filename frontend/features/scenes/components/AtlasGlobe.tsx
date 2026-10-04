@@ -66,6 +66,7 @@ import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
+import { preloadGlobeCanvas } from './globeCanvasPreload'
 
 const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
@@ -121,6 +122,8 @@ function GlobeLoadError({ onRetry }: { onRetry?: () => void }) {
 // maplibre-gl is heavy (~900 kB chunk) and window-bound — dynamic-import the
 // canvas with ssr:false so the chunk loads only here, on mount (PSY-1211
 // pattern, isolation re-verified for MapLibre in the PSY-1537 spike).
+// The import stays inline here for next/dynamic; preloadGlobeCanvas
+// starts the same module earlier (see the effect in AtlasGlobe).
 const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
   ssr: false,
   loading: ({ error, retry }) =>
@@ -586,6 +589,17 @@ export function AtlasGlobe() {
   const isMobile = size !== null && size.width < GLOBE_BREAKPOINT_PX
   const mapSheetLayout =
     size !== null && !isMobile && usesAtlasSheetLayout(size.width)
+
+  // The canvas renders only once scenes and the camera focus resolve (the
+  // focus waits on visitor geo, up to GEO_TIMEOUT_MS). Start its module (and
+  // with it MapLibre and the worker pool, see GlobeCanvas) as soon as the
+  // container is measured wide enough for the map, so that download runs
+  // during the wait instead of after it. Viewports that get the scene list
+  // never fetch it.
+  const mapWillMount = size !== null && !isMobile && !isError
+  useEffect(() => {
+    if (mapWillMount) preloadGlobeCanvas()
+  }, [mapWillMount])
 
   let content: ReactNode
   if (isError) {
