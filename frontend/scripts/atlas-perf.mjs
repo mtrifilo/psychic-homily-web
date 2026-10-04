@@ -38,7 +38,7 @@
 //     90% efficiency, 165 ms latency (60 ms RTT x 2.75), via CDP
 //     Network.emulateNetworkConditions
 //     (https://github.com/puppeteer/puppeteer/blob/main/packages/puppeteer-core/src/cdp/PredefinedNetworkConditions.ts).
-//   - Cold: fresh browser context per run, HTTP cache disabled.
+//   - Cold: fresh browser per run, HTTP cache disabled.
 //
 // Measures:
 //   - First rendered map: ms from navigation start until
@@ -49,7 +49,9 @@
 //   - Entry bytes: every request that finished between navigation and
 //     first rendered map + SETTLE_MS, on the wire (encoded body + headers,
 //     from Playwright's request.sizes()), each URL counted once per resource
-//     type (cache-disabled runs refetch preloaded fonts). Requests to
+//     type. Playwright under-reports dedicated-worker module scripts (the
+//     vendored maplibre-gl-worker.mjs, about 6 KiB on the wire, reports under
+//     1 KiB). Requests to
 //     Vercel's preview toolbar are listed but excluded from the total: they
 //     do not exist in production.
 //   - City view: after the entry window, jump the camera to --city at z12.5
@@ -216,24 +218,27 @@ async function oneRun(browser, opts) {
   await cdp.send('Network.emulateNetworkConditions', FAST_4G)
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_THROTTLE_RATE })
 
-  const finished = []
-  const seen = new Set()
+  // One entry per resource type + URL, keeping the largest report. Keyed by
+  // type because the streamed HTML document and an RSC fetch can share a URL.
+  // Largest because duplicates report tiny bodies: a preloaded font refetched
+  // with the cache off, and each of MapLibre's workers importing the same
+  // module scripts, where only one import reports the full transfer.
+  const byKey = new Map()
   context.on('requestfinished', async (request) => {
     const url = request.url()
-    // Keyed by type too: the streamed HTML document and an RSC fetch can share
-    // a URL, while a preloaded font refetched with the cache off shares both.
-    const key = `${request.resourceType()} ${url}`
-    if (url.startsWith('data:') || seen.has(key)) return
-    seen.add(key)
+    if (url.startsWith('data:')) return
     try {
       const sizes = await request.sizes()
       const entry = { url, type: request.resourceType(), bytes: sizes.responseBodySize + sizes.responseHeadersSize, at: Date.now() }
       entry.category = category(entry)
-      finished.push(entry)
+      const key = `${entry.type} ${url}`
+      const previous = byKey.get(key)
+      if (!previous || entry.bytes > previous.bytes) byKey.set(key, entry)
     } catch {
       // A request torn down with its page has no sizes to report.
     }
   })
+  const finished = () => [...byKey.values()]
 
   await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
   const firstMapMs = await waitFor(page, () => window.__atlasPerfFirstMapMs ?? null, READY_TIMEOUT_MS)
@@ -246,7 +251,7 @@ async function oneRun(browser, opts) {
   }
   await page.waitForTimeout(SETTLE_MS)
   const entryCut = Date.now()
-  const entry = finished.filter((r) => r.at <= entryCut)
+  const entry = finished().filter((r) => r.at <= entryCut)
   const renderer = await page.evaluate(() => {
     const gl = document.createElement('canvas').getContext('webgl2')
     const ext = gl?.getExtension('WEBGL_debug_renderer_info')
@@ -279,7 +284,7 @@ async function oneRun(browser, opts) {
     throw new Error(`the city view never passed the readiness gate within ${READY_TIMEOUT_MS} ms`)
   }
   await page.waitForTimeout(SETTLE_MS)
-  const city = finished.filter((r) => r.at > entryCut)
+  const city = finished().filter((r) => r.at > entryCut)
   await context.close()
   return {
     firstMapMs: Math.round(firstMapMs),
@@ -326,19 +331,27 @@ function printReport(opts, runs, verdict) {
 }
 
 const opts = parseArgs(process.argv.slice(2))
-const browser = await chromium.launch({
-  headless: !opts.headed,
-  args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
-})
 const runs = []
-try {
-  for (let i = 0; i < opts.runs; i++) runs.push(await oneRun(browser, opts))
-} catch (error) {
-  console.error(`harness error: ${error.message}`)
+for (let i = 0; i < opts.runs; i++) {
+  // A fresh browser per run, not only a fresh context: a dedicated worker's
+  // module fetch is not covered by the page's cache-disabled flag, and a
+  // browser-level cache shared across contexts would undercount later runs.
+  const browser = await chromium.launch({
+    headless: !opts.headed,
+    args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
+  })
+  let failure = null
+  try {
+    runs.push(await oneRun(browser, opts))
+  } catch (error) {
+    failure = error
+  }
   await browser.close()
-  process.exit(2)
+  if (failure) {
+    console.error(`harness error: ${failure.message}`)
+    process.exit(2)
+  }
 }
-await browser.close()
 
 const verdict = {
   firstMapMs: median(runs.map((r) => r.firstMapMs)),
