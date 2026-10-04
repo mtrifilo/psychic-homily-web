@@ -401,6 +401,7 @@ func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandi
 	row.Precision = geo.PrecisionNameSearch
 	row.Latitude, row.Longitude = &accepted.Latitude, &accepted.Longitude
 	row.Notes = append(row.Notes, fmt.Sprintf("matched %s=%s %q (%s)", accepted.Category, accepted.Type, accepted.Name, accepted.DisplayName))
+	row.Notes = append(row.Notes, placeMatchCautions(*accepted, v)...)
 	row.WouldWrite = true
 
 	if !dryRun {

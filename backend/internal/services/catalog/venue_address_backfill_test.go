@@ -81,6 +81,19 @@ func TestAcceptPlaceCandidate(t *testing.T) {
 	}
 }
 
+func TestPlaceMatchCautions(t *testing.T) {
+	v := &catalogm.Venue{Name: "The Lincoln Hall"}
+	if got := placeMatchCautions(lincolnHallCandidate(), v); len(got) != 0 {
+		t.Fatalf("an exact venue-like match carries no caution, got %v", got)
+	}
+	c := lincolnHallCandidate()
+	c.Name, c.Category, c.Type = "Lincoln Hall Annex", "building", "university"
+	got := placeMatchCautions(c, v)
+	if len(got) != 2 || got[0] != CautionPartialName || got[1] != CautionBuilding {
+		t.Fatalf("cautions = %v", got)
+	}
+}
+
 func TestPageSources_OrderAndLoginWalls(t *testing.T) {
 	website := "https://www.instagram.com/somevenue"
 	v := &catalogm.Venue{Social: catalogm.Social{Website: &website}}

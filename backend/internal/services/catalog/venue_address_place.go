@@ -7,6 +7,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/venueaddress"
+	"psychic-homily-backend/internal/utils"
 )
 
 // venueLikePlaceTypes are the OSM category/type pairs a name-search hit may
@@ -75,6 +76,27 @@ func AcceptPlaceCandidate(c geo.PlaceCandidate, v *catalogm.Venue, countryCode s
 		return c.HouseNumber + " " + c.Road, true, ""
 	}
 	return c.Road + " " + c.HouseNumber, true, ""
+}
+
+// Report flags for accepted name-search matches that a reviewer should check
+// before a live run. They never change what is accepted.
+const (
+	CautionPartialName = "REVIEW: partial name match"
+	CautionBuilding    = "REVIEW: matched a building, not a venue-like place"
+)
+
+// placeMatchCautions returns the review flags for an accepted candidate: the
+// names agree only by one containing the other's words, or the feature is a
+// building rather than a venue-like place.
+func placeMatchCautions(c geo.PlaceCandidate, v *catalogm.Venue) []string {
+	var out []string
+	if utils.NormalizeVenueName(c.Name) != utils.NormalizeVenueName(v.Name) {
+		out = append(out, CautionPartialName)
+	}
+	if !venueLikePlaceTypes[c.Category][c.Type] {
+		out = append(out, CautionBuilding)
+	}
+	return out
 }
 
 // placeInCity reports whether any locality component, or any comma-separated
