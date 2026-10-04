@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
@@ -8,7 +8,11 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 
-import { AtlasSearch } from './AtlasSearch'
+import {
+  AtlasSearch,
+  listSideOffsetPx,
+  visualViewportShrunk,
+} from './AtlasSearch'
 
 const scenes: SceneListItem[] = [
   {
@@ -118,5 +122,152 @@ describe('AtlasSearch (PSY-1310)', () => {
     // "/" on the document opens the combobox list.
     fireEvent.keyDown(document, { key: '/' })
     expect(screen.getAllByRole('option').length).toBeGreaterThan(0)
+  })
+})
+
+describe('visualViewportShrunk', () => {
+  it('is true while the visual viewport is shorter than the layout viewport', () => {
+    expect(visualViewportShrunk({ height: 190, scale: 1 }, 390)).toBe(true)
+  })
+
+  it('is false at full height, at a fractional full height, and with no visual viewport', () => {
+    expect(visualViewportShrunk({ height: 390, scale: 1 }, 390)).toBe(false)
+    expect(visualViewportShrunk({ height: 389.6, scale: 1 }, 390)).toBe(false)
+    expect(visualViewportShrunk(null, 390)).toBe(false)
+    expect(visualViewportShrunk(undefined, 390)).toBe(false)
+  })
+
+  it('reads a zoomed page with no keyboard as no keyboard', () => {
+    expect(visualViewportShrunk({ height: 195, scale: 2 }, 390)).toBe(false)
+  })
+
+  it('reads a keyboard on a zoomed page as a keyboard', () => {
+    expect(visualViewportShrunk({ height: 95, scale: 2 }, 390)).toBe(true)
+  })
+})
+
+describe('listSideOffsetPx', () => {
+  it('drops the list to the line below the trigger', () => {
+    // Trigger at top 16 and 34 tall, line at 112: 62px below its bottom edge.
+    expect(listSideOffsetPx(112, 50, false)).toBe(62)
+  })
+
+  it('adds nothing when the trigger already reaches past the line', () => {
+    expect(listSideOffsetPx(112, 112, false)).toBe(0)
+    expect(listSideOffsetPx(112, 130, false)).toBe(0)
+  })
+
+  it('keeps the default gap when there is no line to clear', () => {
+    expect(listSideOffsetPx(undefined, 50, false)).toBeUndefined()
+  })
+
+  it('gives the line up while the keyboard is up', () => {
+    expect(listSideOffsetPx(112, 50, true)).toBeUndefined()
+  })
+})
+
+describe('AtlasSearch getListMinTopPx', () => {
+  /**
+   * The list's vertical translate once Radix has placed it. jsdom lays the
+   * trigger out at 0, so this is the popover's side offset: 4 is its default
+   * gap. `data-radix-popper-content-wrapper` and the `translate(Xpx, Ypx)`
+   * form are Radix Popper details.
+   */
+  async function expectListTranslateY(px: number) {
+    await waitFor(() => {
+      const wrapper = document.querySelector<HTMLElement>(
+        '[data-radix-popper-content-wrapper]',
+      )
+      expect(wrapper?.style.transform).toBe(`translate(0px, ${px}px)`)
+    })
+  }
+
+  function renderWithLine(getListMinTopPx: () => number | undefined) {
+    renderWithProviders(
+      <AtlasSearch
+        scenes={scenes}
+        onPick={vi.fn()}
+        getListMinTopPx={getListMinTopPx}
+      />,
+    )
+    return screen.getByRole('combobox', { name: /search scenes/i })
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('opens at the line, read afresh on every open', async () => {
+    let line: number | undefined = 112
+    const trigger = renderWithLine(() => line)
+    fireEvent.click(trigger)
+    await expectListTranslateY(112)
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    await waitFor(() =>
+      expect(screen.queryByRole('option')).not.toBeInTheDocument(),
+    )
+    line = undefined
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+  })
+
+  it('clears a line that appears beside the trigger after the list opened', async () => {
+    let lineDrawn = false
+    const trigger = renderWithLine(() => (lineDrawn ? 112 : undefined))
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+    lineDrawn = true
+    act(() => {
+      const credit = document.createElement('div')
+      credit.className = 'credit'
+      trigger.parentElement!.appendChild(credit)
+    })
+    await expectListTranslateY(112)
+  })
+
+  it('follows a docked element drawn and emptied by class while the list is open', async () => {
+    let credit: HTMLElement | null = null
+    const trigger = renderWithLine(() =>
+      credit && !credit.classList.contains('empty') ? 112 : undefined,
+    )
+    act(() => {
+      credit = document.createElement('div')
+      credit.className = 'empty'
+      trigger.parentElement!.appendChild(credit)
+    })
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+    act(() => credit!.classList.remove('empty'))
+    await expectListTranslateY(112)
+    act(() => credit!.classList.add('empty'))
+    await expectListTranslateY(4)
+  })
+
+  it('gives the line up while the keyboard is up, and takes it back when it falls', async () => {
+    // Floating UI positions against the visual viewport too, so the stand-in
+    // carries every field it reads.
+    const viewport = Object.assign(new EventTarget(), {
+      width: window.innerWidth,
+      height: window.innerHeight - 200,
+      offsetLeft: 0,
+      offsetTop: 0,
+      pageLeft: 0,
+      pageTop: 0,
+      scale: 1,
+    })
+    vi.stubGlobal('visualViewport', viewport)
+    const trigger = renderWithLine(() => 112)
+    fireEvent.click(trigger)
+    await expectListTranslateY(4)
+    act(() => {
+      viewport.height = window.innerHeight
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    await expectListTranslateY(112)
+    act(() => {
+      viewport.height = window.innerHeight - 200
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    await expectListTranslateY(4)
   })
 })

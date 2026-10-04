@@ -53,6 +53,7 @@ import {
 } from '../artistDrillIn'
 import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
+import { atlasTopCreditShown } from './atlasCredit'
 import { VenueListSheet } from './VenueListSheet'
 import { VenuePanel } from './VenuePanel'
 import { ArtistPanel } from './ArtistPanel'
@@ -437,6 +438,23 @@ export function AtlasGlobe() {
   // target — it's the page's keyboard entry point into scenes, so closing the
   // panel lands a keyboard user back where the journey starts.
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // The map pane: the search trigger's positioned container, and the box the
+  // sheet layout's top-left credit is drawn in.
+  const mapPaneRef = useRef<HTMLDivElement | null>(null)
+  // The search list opens below a drawn top-left credit (the sheet layout's
+  // placement), and directly under its trigger while there is none to clear:
+  // at globe zoom the compact globe draws no attributed source, so MapLibre
+  // empties the credit, and a map that failed to start draws none. The line
+  // gives way to a raised keyboard inside AtlasSearch. MyScenesStrip keeps a
+  // fixed place below the credit's slot instead: it is static chrome with no
+  // height bound to the room on screen.
+  const searchListMinTopPx = useCallback(
+    () =>
+      mapPaneRef.current !== null && atlasTopCreditShown(mapPaneRef.current)
+        ? ATLAS_SHEET_TOP_INSET_PX
+        : undefined,
+    [],
+  )
 
   // Drift (PSY-1308): fly to a weighted-random scene and open its preview —
   // the radio.garden "balloon ride". The panel opens immediately so the
@@ -670,6 +688,7 @@ export function AtlasGlobe() {
           />
         )}
         <div
+          ref={mapPaneRef}
           className="relative min-w-0 flex-1"
           data-atlas-layout={sheetLayout ? 'sheet' : undefined}
           style={paneStyle}
@@ -785,7 +804,7 @@ export function AtlasGlobe() {
                 scenes={allScenes}
                 onPick={handleSearchPick}
                 triggerRef={searchTriggerRef}
-                listMinTopPx={sheetLayout ? ATLAS_SHEET_TOP_INSET_PX : undefined}
+                getListMinTopPx={searchListMinTopPx}
               />
               <MyScenesStrip
                 scenes={allScenes}
