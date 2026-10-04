@@ -482,13 +482,13 @@ describe('ScenePreviewPanel as a bottom sheet', () => {
     mockUseSceneShows.mockReturnValue({ data: { shows: [] }, isLoading: false })
   })
 
-  it('opens at Half with the same content, focus on close', () => {
+  it('opens at Peek with the same content, focus on close', () => {
     renderWithProviders(
       <ScenePreviewPanel scene={scene} onClose={() => {}} presentation="sheet" />,
     )
     const sheet = screen.getByRole('region', { name: 'Chicago, IL scene' })
     expect(sheet).toHaveAttribute('data-slot', 'bottom-sheet')
-    expect(sheet).toHaveAttribute('data-detent', 'half')
+    expect(sheet).toHaveAttribute('data-detent', 'peek')
     expect(sheet).not.toHaveAttribute('aria-modal')
     expect(within(sheet).getByRole('heading', { name: 'Chicago, IL' })).toBeInTheDocument()
     expect(within(sheet).getByText(/283 upcoming · 9 venues/)).toBeInTheDocument()

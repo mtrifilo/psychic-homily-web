@@ -20,7 +20,7 @@ interface ScenePreviewPanelProps {
   returnFocusTo?: React.RefObject<HTMLElement | null>
   /**
    * `panel` docks to the map's right edge; `sheet` is a bottom sheet opening
-   * at Half, for panes too narrow for a side panel.
+   * at Peek, for panes too narrow for a side panel.
    */
   presentation?: 'panel' | 'sheet'
 }
@@ -31,7 +31,7 @@ interface ScenePreviewPanelProps {
  * scene page — so the user gets immediate context without leaving the globe.
  * The body (embed + this-week + roster) is ScenePreviewContent, shared with the
  * mobile scene list (PSY-1311); this component owns the chrome around it: a
- * right-docked aside, or a bottom sheet opening at Half on narrow panes.
+ * right-docked aside, or a bottom sheet opening at Peek on narrow panes.
  */
 export function ScenePreviewPanel({
   scene,
@@ -110,7 +110,7 @@ export function ScenePreviewPanel({
         label={`${title} scene`}
         aria-label={`${title} scene`}
         data-testid="atlas-scene-preview-sheet"
-        defaultDetent="half"
+        defaultDetent="peek"
         onClose={onClose}
         closeLabel="Close scene preview"
         topInsetPx={ATLAS_SHEET_TOP_INSET_PX}

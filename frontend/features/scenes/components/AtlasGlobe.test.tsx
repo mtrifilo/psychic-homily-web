@@ -157,6 +157,8 @@ let lastCanvasProps: {
   onBackToGlobe?: () => void
   venueStacks?: readonly { key: string; venueIds: readonly number[]; label: string }[]
   onVenueStackSelect?: (key: string) => void
+  scenes?: readonly PlaceableScene[]
+  onSelect?: (scene: PlaceableScene) => void
 } = {}
 vi.mock('./GlobeCanvas', () => ({
   default: (
@@ -1463,7 +1465,7 @@ describe('AtlasGlobe', () => {
         )
       })
 
-      it('opens the list at Half scoped to a tapped stack, and widens it back', async () => {
+      it('opens the list at Peek scoped to a tapped stack, Half one pull up, and widens it back', async () => {
         mockUseVenues.mockReturnValue({
           data: {
             venues: [
@@ -1489,6 +1491,13 @@ describe('AtlasGlobe', () => {
         act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
 
         const sheet = screen.getByTestId('atlas-venue-sheet')
+        expect(sheet).toHaveAttribute('data-detent', 'peek')
+        // Peek names the scope in place of the city-wide count line.
+        expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent(
+          '2 venues at the city centre point',
+        )
+
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Expand Chicago venues' }))
         expect(sheet).toHaveAttribute('data-detent', 'half')
         expect(screen.getByTestId('venue-sheet-scope-line')).toHaveTextContent(
           '2 venues at the city centre point',
@@ -1502,6 +1511,27 @@ describe('AtlasGlobe', () => {
         expect(sheet).toContainElement(document.activeElement as HTMLElement)
         expect(within(sheet).getByRole('button', { name: /Thalia Hall/ })).toBeInTheDocument()
         expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
+      })
+
+      it('brings the list back to Peek when a stack is tapped from Half or over a venue sheet', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        settleOnChicago()
+        const sheet = screen.getByTestId('atlas-venue-sheet')
+        const stack = lastCanvasProps.venueStacks![0]
+
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Expand Chicago venues' }))
+        expect(sheet).toHaveAttribute('data-detent', 'half')
+        act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
+        expect(sheet).toHaveAttribute('data-detent', 'peek')
+
+        act(() => lastCanvasProps.onVenueSelect?.(2))
+        expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+        expect(sheet).toHaveClass('hidden')
+        act(() => lastCanvasProps.onVenueStackSelect?.(stack.key))
+        expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+        expect(sheet).not.toHaveClass('hidden')
+        expect(sheet).toHaveAttribute('data-detent', 'peek')
       })
 
       it('opens a single pin as a venue sheet at Half, hiding the list', async () => {
@@ -1574,14 +1604,25 @@ describe('AtlasGlobe', () => {
         expect(pane.style.getPropertyValue('--atlas-sheet-offset')).toBe('0px')
       })
 
-      it('opens Drift’s scene preview as a sheet at Half', async () => {
+      it('opens a tapped scene dot’s preview as a sheet at Peek', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        const dot = lastCanvasProps.scenes![0]
+        act(() => lastCanvasProps.onSelect?.(dot))
+
+        const preview = screen.getByRole('region', { name: `${dot.city}, ${dot.state} scene` })
+        expect(preview).toHaveAttribute('data-slot', 'bottom-sheet')
+        expect(preview).toHaveAttribute('data-detent', 'peek')
+      })
+
+      it('opens Drift’s scene preview as a sheet at Peek', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
         fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
 
         const preview = screen.getByRole('region', { name: /Chicago, IL scene/ })
         expect(preview).toHaveAttribute('data-slot', 'bottom-sheet')
-        expect(preview).toHaveAttribute('data-detent', 'half')
+        expect(preview).toHaveAttribute('data-detent', 'peek')
         expect(
           screen.queryByRole('complementary', { name: /Chicago, IL scene/ }),
         ).not.toBeInTheDocument()

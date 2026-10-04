@@ -341,10 +341,11 @@ export function AtlasGlobe() {
     : null
 
   // A stacked pin cannot open one venue honestly, so a tap on it opens the
-  // list at Half scoped to the venues that share the point.
+  // list at Peek scoped to the venues that share the point; the rows are one
+  // pull up.
   const handleVenueStackSelect = useCallback((stackKey: string) => {
     setStackScopeKey(stackKey)
-    setListDetent('half')
+    setListDetent('peek')
     setSelectedVenueId(null)
     setDrillIn(null)
   }, [])

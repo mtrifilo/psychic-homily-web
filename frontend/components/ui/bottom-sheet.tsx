@@ -37,7 +37,11 @@ const BOTTOM_SHEET_DETENTS: readonly BottomSheetDetent[] = [
   'full',
 ]
 
-/** Each detent's height in CSS px, before the host cap (the DS variants). */
+/**
+ * Each detent's DS height in CSS px, before the host cap (the DS variants).
+ * Half's value is a ceiling: Half renders at a share of the host's height (see
+ * bottomSheetHeightPx).
+ */
 export const BOTTOM_SHEET_DETENT_HEIGHT_PX: Readonly<
   Record<BottomSheetDetent, number>
 > = {
@@ -45,6 +49,9 @@ export const BOTTOM_SHEET_DETENT_HEIGHT_PX: Readonly<
   half: 400,
   full: 660,
 }
+
+/** Half's height as a percentage of the host's height, below its DS ceiling. */
+export const BOTTOM_SHEET_HALF_HOST_PERCENT = 45
 
 /** Pointer travel under which a press on the drag handle is a tap. */
 export const BOTTOM_SHEET_DRAG_SLOP_PX = 6
@@ -64,9 +71,13 @@ const BOTTOM_SHEET_FLING_PX_PER_MS = 0.5
 /**
  * The height a detent renders at inside a host of `hostHeightPx`.
  *
- * Rule: the detent's DS height, capped at `hostHeightPx - topInsetPx`. The
- * inset is the strip at the top of the host that no detent may cover, which is
- * how a host keeps its own top chrome visible on a short viewport.
+ * Rule: Peek and Full render at their DS height; Half renders at
+ * BOTTOM_SHEET_HALF_HOST_PERCENT of the host's height, at most its DS height
+ * and never shorter than Peek's DS height. Every detent is then capped at
+ * `hostHeightPx - topInsetPx`. The inset is the strip at the top of the host
+ * that no detent may cover, which is how a host keeps its own top chrome
+ * visible on a short viewport. The Peek floor and the shared cap keep the
+ * detents in order, shortest to tallest, on any host.
  */
 export function bottomSheetHeightPx(
   detent: BottomSheetDetent,
@@ -74,7 +85,13 @@ export function bottomSheetHeightPx(
   topInsetPx: number,
 ): number {
   const cap = Math.max(0, hostHeightPx - topInsetPx)
-  return Math.min(BOTTOM_SHEET_DETENT_HEIGHT_PX[detent], cap)
+  const dsPx = BOTTOM_SHEET_DETENT_HEIGHT_PX[detent]
+  if (detent !== 'half') return Math.min(dsPx, cap)
+  const fractionPx = Math.max(
+    (hostHeightPx * BOTTOM_SHEET_HALF_HOST_PERCENT) / 100,
+    BOTTOM_SHEET_DETENT_HEIGHT_PX.peek,
+  )
+  return Math.min(dsPx, fractionPx, cap)
 }
 
 /**
@@ -86,7 +103,11 @@ export function bottomSheetHeightCss(
   detent: BottomSheetDetent,
   topInsetPx: number,
 ): string {
-  return `min(${BOTTOM_SHEET_DETENT_HEIGHT_PX[detent]}px, calc(100% - ${topInsetPx}px))`
+  const cap = `calc(100% - ${topInsetPx}px)`
+  const dsPx = `${BOTTOM_SHEET_DETENT_HEIGHT_PX[detent]}px`
+  if (detent !== 'half') return `min(${dsPx}, ${cap})`
+  const fraction = `max(${BOTTOM_SHEET_HALF_HOST_PERCENT}%, ${BOTTOM_SHEET_DETENT_HEIGHT_PX.peek}px)`
+  return `min(${dsPx}, ${fraction}, ${cap})`
 }
 
 /**
