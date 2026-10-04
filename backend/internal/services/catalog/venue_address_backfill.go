@@ -67,12 +67,9 @@ type PageAddressFinder interface {
 	Find(ctx context.Context, v venueaddress.Venue, sources []venueaddress.Source) (venueaddress.Result, error)
 }
 
-// Backfill outcomes, one per phase row.
-const (
-	VenueAddressHit   = "hit"   // an address was accepted
-	VenueAddressMiss  = "miss"  // nothing acceptable; recorded on a live run
-	VenueAddressError = "error" // the lookup failed; not recorded, retried next run
-)
+// Backfill row outcomes: catalogm.VenueAddressOutcomeHit or ...Miss, or this
+// one, which is never recorded and is retried next run.
+const VenueAddressError = "error"
 
 // VenueAddressRow is one phase's outcome for one venue.
 type VenueAddressRow struct {
@@ -234,13 +231,16 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 		nameMemo := b.Places != nil && memoMiss(memos, v.ID, catalogm.VenueAddressPhaseName, nameKey)
 		runPage := pageAvailable && !pageMemo
 		runName := b.Places != nil && !nameMemo
-		if !runPage && !runName {
+		countSkips := func() {
 			if pageMemo {
 				pageTotals.SkippedMemo++
 			}
 			if nameMemo {
 				nameTotals.SkippedMemo++
 			}
+		}
+		if !runPage && !runName {
+			countSkips()
 			continue
 		}
 		if opts.Limit > 0 && report.Processed >= opts.Limit {
@@ -248,13 +248,11 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 			break
 		}
 		report.Processed++
-
+		countSkips()
 		if b.Pages != nil && len(sources) == 0 {
 			pageTotals.NoSource++
 		}
-		if pageMemo {
-			pageTotals.SkippedMemo++
-		}
+
 		if runPage {
 			pageTotals.Attempted++
 			row, found := b.runPagePhase(ctx, c, sources, pageKey, timeout, opts.DryRun, report)
@@ -263,11 +261,7 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 				continue
 			}
 		}
-
-		switch {
-		case nameMemo:
-			nameTotals.SkippedMemo++
-		case runName:
+		if runName {
 			nameTotals.Attempted++
 			row := b.runNamePhase(ctx, c, placeQuery, nameKey, timeout, opts.DryRun, report)
 			b.tally(report, nameTotals, row)
@@ -279,9 +273,9 @@ func (b *VenueAddressBackfill) Run(ctx context.Context, opts VenueAddressBackfil
 // tally appends row to the report and updates the counters it touches.
 func (b *VenueAddressBackfill) tally(report *VenueAddressReport, totals *VenueAddressPhaseTotals, row VenueAddressRow) {
 	switch row.Outcome {
-	case VenueAddressHit:
+	case catalogm.VenueAddressOutcomeHit:
 		totals.Hits++
-	case VenueAddressMiss:
+	case catalogm.VenueAddressOutcomeMiss:
 		totals.Misses++
 	case VenueAddressError:
 		totals.Errors++
@@ -316,103 +310,55 @@ func (b *VenueAddressBackfill) runPagePhase(ctx context.Context, c *addressCandi
 		return row, false
 	}
 	if !res.Found {
-		row.Outcome = VenueAddressMiss
+		row.Outcome = catalogm.VenueAddressOutcomeMiss
 		if !dryRun {
-			if err := recordAddressLookup(b.DB, v.ID, catalogm.VenueAddressPhasePage, key, catalogm.VenueAddressOutcomeMiss, "", ""); err != nil {
-				report.Errors = append(report.Errors, fmt.Sprintf("venue %d record page miss: %v", v.ID, err))
-			}
+			b.recordMiss(report, v, catalogm.VenueAddressPhasePage, key)
 		}
 		return row, false
 	}
 
-	row.Outcome = VenueAddressHit
+	row.Outcome = catalogm.VenueAddressOutcomeHit
 	row.Source = res.Source.URL
 	row.Method = res.Method
 	row.Address = res.Street
+	row.WouldWrite = true
 	if res.City == "" {
 		row.Notes = append(row.Notes, "the page printed no city beside the street")
 	}
-	row.WouldWrite = true
 
-	// Geocode the address exactly as the sweep would once it is stored.
+	// Geocode the address exactly as the sweep would once it is stored, and
+	// store the outcome the way the sweep does: a hit, a miss memo, or (on an
+	// error) nothing, so the sweep retries.
 	updated := *v
 	updated.Address = &res.Street
 	q := streetGeocodeQuery(&updated)
-	geoKey := q.Key()
-	write := pageWrite{address: res.Street}
-	if b.Geocoder != nil {
+	updates := map[string]interface{}{}
+	if b.Geocoder == nil {
+		row.Notes = append(row.Notes, "no street geocoder configured; the sweep geocodes the address")
+	} else {
 		geoRes, ok, gerr := geocodeWithTimeout(ctx, b.Geocoder, q, res.Street, timeout)
 		switch {
 		case gerr != nil:
 			row.Notes = append(row.Notes, "street geocode failed; the sweep retries it: "+gerr.Error())
 		case !ok:
 			row.Notes = append(row.Notes, "street geocode found no match; a miss memo is stored with the address")
-			write.missKey = &geoKey
+			updates = streetGeocodeMissColumns(q.Key())
 		default:
 			row.Precision = geoRes.Precision
 			row.Latitude, row.Longitude = &geoRes.Latitude, &geoRes.Longitude
-			write.geocode = &geoRes
-			write.geocodeKey = geoKey
+			updates = streetGeocodeHitColumns(geoRes, q.Key())
 		}
-	} else {
-		row.Notes = append(row.Notes, "no street geocoder configured; the sweep geocodes the address")
 	}
-
 	if !dryRun {
-		written, err := b.writePageAddress(v, write, res.Source.URL, key)
-		switch {
-		case err != nil:
-			report.Errors = append(report.Errors, fmt.Sprintf("venue %d write: %v", v.ID, err))
-		case !written:
-			row.Notes = append(row.Notes, "not written: the venue changed since it was read")
-		default:
-			row.Written = true
-		}
+		b.writeAddress(report, &row, v, res.Street, updates, catalogm.VenueAddressPhasePage, key, res.Source.URL)
 	}
 	return row, true
 }
 
-// pageWrite is what a page-phase hit stores beside the address.
-type pageWrite struct {
-	address    string
-	geocode    *geo.AddressResult // a street geocode hit, or nil
-	geocodeKey string             // the address key geocode was produced from
-	missKey    *string            // a clean geocode miss: store the miss memo
-}
-
-// writePageAddress stores the address (and its geocode outcome) and records
-// the hit, in one transaction, only while the row still holds the empty
-// address it was read with. written is false when that guard matched nothing.
-func (b *VenueAddressBackfill) writePageAddress(v *catalogm.Venue, w pageWrite, sourceURL, key string) (written bool, err error) {
-	updates := map[string]interface{}{"address": w.address}
-	switch {
-	case w.geocode != nil:
-		updates["street_latitude"] = w.geocode.Latitude
-		updates["street_longitude"] = w.geocode.Longitude
-		updates["geocode_precision"] = w.geocode.Precision
-		updates["geocoded_address"] = w.geocodeKey
-	case w.missKey != nil:
-		updates["street_latitude"] = (*float64)(nil)
-		updates["street_longitude"] = (*float64)(nil)
-		updates["geocode_precision"] = (*string)(nil)
-		updates["geocoded_address"] = *w.missKey
-	}
-	err = b.DB.Transaction(func(tx *gorm.DB) error {
-		res := streetGeocodeUpdateScope(tx, v).Updates(updates)
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return nil
-		}
-		written = true
-		return recordAddressLookup(tx, v.ID, catalogm.VenueAddressPhasePage, key, catalogm.VenueAddressOutcomeHit, sourceURL, w.address)
-	})
-	return written, err
-}
-
 // runNamePhase searches OpenStreetMap for the venue's name in its city and
-// takes the first candidate the acceptance rules pass.
+// takes the first candidate the acceptance rules pass. A hit stores the
+// matched place's point with the name-search precision, keyed to the new
+// address so the street-geocode sweep treats it as already attempted.
 func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandidate, q geo.PlaceQuery, key string, timeout time.Duration, dryRun bool, report *VenueAddressReport) VenueAddressRow {
 	v := &c.Venue
 	row := baseRow(c, catalogm.VenueAddressPhaseName)
@@ -442,16 +388,14 @@ func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandi
 		row.Notes = append(row.Notes, "no results")
 	}
 	if accepted == nil {
-		row.Outcome = VenueAddressMiss
+		row.Outcome = catalogm.VenueAddressOutcomeMiss
 		if !dryRun {
-			if err := recordAddressLookup(b.DB, v.ID, catalogm.VenueAddressPhaseName, key, catalogm.VenueAddressOutcomeMiss, "", ""); err != nil {
-				report.Errors = append(report.Errors, fmt.Sprintf("venue %d record name miss: %v", v.ID, err))
-			}
+			b.recordMiss(report, v, catalogm.VenueAddressPhaseName, key)
 		}
 		return row
 	}
 
-	row.Outcome = VenueAddressHit
+	row.Outcome = catalogm.VenueAddressOutcomeHit
 	row.Address = street
 	row.MatchedName = accepted.Name
 	row.Precision = geo.PrecisionNameSearch
@@ -460,44 +404,46 @@ func (b *VenueAddressBackfill) runNamePhase(ctx context.Context, c *addressCandi
 	row.WouldWrite = true
 
 	if !dryRun {
-		written, err := b.writeNameAddress(v, street, accepted, key)
-		switch {
-		case err != nil:
-			report.Errors = append(report.Errors, fmt.Sprintf("venue %d write: %v", v.ID, err))
-		case !written:
-			row.Notes = append(row.Notes, "not written: the venue changed since it was read")
-		default:
-			row.Written = true
-		}
+		updated := *v
+		updated.Address = &street
+		updates := streetGeocodeHitColumns(geo.AddressResult{
+			Latitude: accepted.Latitude, Longitude: accepted.Longitude, Precision: geo.PrecisionNameSearch,
+		}, streetGeocodeQuery(&updated).Key())
+		b.writeAddress(report, &row, v, street, updates, catalogm.VenueAddressPhaseName, key, accepted.DisplayName)
 	}
 	return row
 }
 
-// writeNameAddress stores the matched place's address and point with the
-// name-search precision, keyed to the new address so the street-geocode sweep
-// treats it as already attempted, and records the hit.
-func (b *VenueAddressBackfill) writeNameAddress(v *catalogm.Venue, street string, p *geo.PlaceCandidate, key string) (written bool, err error) {
-	updated := *v
-	updated.Address = &street
-	geoKey := streetGeocodeQuery(&updated).Key()
-	err = b.DB.Transaction(func(tx *gorm.DB) error {
-		res := streetGeocodeUpdateScope(tx, v).Updates(map[string]interface{}{
-			"address":           street,
-			"street_latitude":   p.Latitude,
-			"street_longitude":  p.Longitude,
-			"geocode_precision": geo.PrecisionNameSearch,
-			"geocoded_address":  geoKey,
-		})
-		if res.Error != nil {
+// writeAddress stores street (plus any street-geocode columns in updates) and
+// records the phase hit, in one transaction, only while the row still holds
+// the empty address it was read with. The outcome lands on row: Written, or a
+// note that the venue changed, or a report error.
+func (b *VenueAddressBackfill) writeAddress(report *VenueAddressReport, row *VenueAddressRow, v *catalogm.Venue, street string, updates map[string]interface{}, phase, key, source string) {
+	updates["address"] = street
+	written := false
+	err := b.DB.Transaction(func(tx *gorm.DB) error {
+		res := streetGeocodeUpdateScope(tx, v).Updates(updates)
+		if res.Error != nil || res.RowsAffected == 0 {
 			return res.Error
 		}
-		if res.RowsAffected == 0 {
-			return nil
-		}
 		written = true
-		return recordAddressLookup(tx, v.ID, catalogm.VenueAddressPhaseName, key, catalogm.VenueAddressOutcomeHit, p.DisplayName, street)
+		return recordAddressLookup(tx, v.ID, phase, key, catalogm.VenueAddressOutcomeHit, source, street)
 	})
-	return written, err
+	switch {
+	case err != nil:
+		report.Errors = append(report.Errors, fmt.Sprintf("venue %d write: %v", v.ID, err))
+	case !written:
+		row.Notes = append(row.Notes, "not written: the venue changed since it was read")
+	default:
+		row.Written = true
+	}
+}
+
+// recordMiss records a phase miss so later runs skip it while key holds.
+func (b *VenueAddressBackfill) recordMiss(report *VenueAddressReport, v *catalogm.Venue, phase, key string) {
+	if err := recordAddressLookup(b.DB, v.ID, phase, key, catalogm.VenueAddressOutcomeMiss, "", ""); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("venue %d record %s miss: %v", v.ID, phase, err))
+	}
 }
 
 func baseRow(c *addressCandidate, phase string) VenueAddressRow {
@@ -574,27 +520,35 @@ func (b *VenueAddressBackfill) loadIngestPages(ctx context.Context, ids []uint) 
 	return out, nil
 }
 
-// loadTicketPages returns, per venue, the ticket URLs of its approved,
+// ticketPagesPerVenue bounds the ticket URLs read per venue: pageSources keeps
+// at most maxTicketPageSources distinct hosts, and the soonest shows of a
+// venue rarely span more than a few vendors.
+const ticketPagesPerVenue = 10
+
+// loadTicketPages returns, per venue, the ticket URLs of its soonest approved,
 // uncancelled upcoming shows, soonest first.
 func (b *VenueAddressBackfill) loadTicketPages(ctx context.Context, ids []uint, now time.Time) (map[uint][]string, error) {
 	var rows []struct {
 		VenueID   uint
 		TicketURL string
 	}
-	err := b.DB.WithContext(ctx).
-		Table("shows s").
-		Select("sv.venue_id, s.ticket_url").
-		Joins("JOIN show_venues sv ON sv.show_id = s.id").
-		Where("sv.venue_id IN ? AND s.status = 'approved' AND NOT s.is_cancelled AND s.event_date >= ?", ids, now).
-		Where("COALESCE(BTRIM(s.ticket_url), '') <> ''").
-		Order("s.event_date, s.id").
+	err := b.DB.WithContext(ctx).Raw(`
+		SELECT venue_id, ticket_url FROM (
+			SELECT sv.venue_id, BTRIM(s.ticket_url) AS ticket_url, s.event_date, s.id,
+			       ROW_NUMBER() OVER (PARTITION BY sv.venue_id ORDER BY s.event_date, s.id) AS n
+			FROM shows s JOIN show_venues sv ON sv.show_id = s.id
+			WHERE sv.venue_id IN ? AND s.status = 'approved' AND NOT s.is_cancelled
+			  AND s.event_date >= ? AND COALESCE(BTRIM(s.ticket_url), '') <> ''
+		) t
+		WHERE n <= ?
+		ORDER BY venue_id, event_date, id`, ids, now, ticketPagesPerVenue).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("load ticket pages: %w", err)
 	}
 	out := map[uint][]string{}
 	for _, r := range rows {
-		out[r.VenueID] = append(out[r.VenueID], strings.TrimSpace(r.TicketURL))
+		out[r.VenueID] = append(out[r.VenueID], r.TicketURL)
 	}
 	return out, nil
 }
@@ -623,36 +577,33 @@ func loginWalled(host string) bool {
 func pageSources(v *catalogm.Venue, ingestPage string, ticketPages []string) []venueaddress.Source {
 	var out []venueaddress.Source
 	seen := map[string]bool{}
-	add := func(raw string, kind venueaddress.SourceKind) bool {
+	// add returns the lowercased host of the URL it added, or "" when it
+	// left the URL out.
+	add := func(raw string, kind venueaddress.SourceKind) string {
 		raw = strings.TrimSpace(raw)
 		u, err := url.Parse(raw)
 		if raw == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			return false
+			return ""
 		}
 		if loginWalled(u.Hostname()) || seen[raw] {
-			return false
+			return ""
 		}
 		seen[raw] = true
 		out = append(out, venueaddress.Source{URL: raw, Kind: kind})
-		return true
+		return strings.ToLower(u.Hostname())
 	}
 	add(derefString(v.Social.Website), venueaddress.SourceWebsite)
 	add(ingestPage, venueaddress.SourceIngest)
-	hosts := map[string]bool{}
+	ticketHosts := map[string]bool{}
 	for _, t := range ticketPages {
-		if len(hosts) >= maxTicketPageSources {
+		if len(ticketHosts) >= maxTicketPageSources {
 			break
 		}
-		u, err := url.Parse(t)
-		if err != nil {
+		if u, err := url.Parse(strings.TrimSpace(t)); err != nil || ticketHosts[strings.ToLower(u.Hostname())] {
 			continue
 		}
-		host := strings.ToLower(u.Hostname())
-		if hosts[host] {
-			continue
-		}
-		if add(t, venueaddress.SourceTicket) {
-			hosts[host] = true
+		if host := add(t, venueaddress.SourceTicket); host != "" {
+			ticketHosts[host] = true
 		}
 	}
 	return out

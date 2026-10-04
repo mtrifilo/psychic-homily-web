@@ -19,6 +19,8 @@ func TestNamesMatch(t *testing.T) {
 		{"Hi-Dive", "Hi Dive", true},
 		{"Club Congress", "Club Congress", true},
 		{"Café Racer", "Cafe Racer", true},
+		{"7th St Entry", "7th Street Entry", true},
+		{"The Vic Theatre", "Vic Theater", true},
 		{"Hall", "Lincoln Hall", false},
 		{"The Bar", "Valley Bar", false},
 		{"Lincoln Hall", "Schubas Tavern", false},

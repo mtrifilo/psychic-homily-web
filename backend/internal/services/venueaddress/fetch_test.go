@@ -138,8 +138,8 @@ func TestFetch_ProductionDialerRefusesLoopback(t *testing.T) {
 	}))
 	defer srv.Close()
 	_, err := NewFetcher().Fetch(context.Background(), srv.URL+"/")
-	if err == nil || !strings.Contains(err.Error(), "dial guard") {
-		t.Fatalf("err = %v, want a dial guard refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "ssrf guard") {
+		t.Fatalf("err = %v, want an ssrf guard refusal", err)
 	}
 }
 

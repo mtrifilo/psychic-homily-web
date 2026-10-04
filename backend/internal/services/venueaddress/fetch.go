@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/net/html/charset"
@@ -67,12 +66,14 @@ type Fetcher struct {
 
 // NewFetcher builds the production fetcher.
 func NewFetcher() *Fetcher {
-	dialer := &net.Dialer{Timeout: fetchTimeout, Control: publicOnlyDialControl}
+	dialer := &net.Dialer{Timeout: fetchTimeout, Control: urlguard.DialControl}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		TLSHandshakeTimeout:   fetchTimeout,
 		ResponseHeaderTimeout: fetchTimeout,
-		DisableKeepAlives:     true,
+		// Keep-alive lets robots.txt and the page after it share one
+		// connection; the dial guard ran when that connection was opened.
+		IdleConnTimeout: 10 * time.Second,
 	}
 	return newFetcher(&http.Client{
 		Timeout:   fetchTimeout,
@@ -259,23 +260,4 @@ func stripURL(err error) error {
 		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
 	}
 	return err
-}
-
-// publicOnlyDialControl refuses any connection whose resolved target is not a
-// routable public address. It runs after DNS resolution for every dial,
-// including redirect hops, so a hostname that resolves to a private range,
-// loopback, or a cloud metadata address is refused before a byte is sent.
-func publicOnlyDialControl(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("dial guard: malformed address %q: %w", address, err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("dial guard: non-IP dial host %q", host)
-	}
-	if !urlguard.IsPublicIP(ip) {
-		return fmt.Errorf("dial guard: refusing non-public address %s", ip)
-	}
-	return nil
 }

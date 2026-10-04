@@ -10,6 +10,7 @@ import (
 	"golang.org/x/net/html/atom"
 
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/utils"
 )
 
 // Extraction methods, reported per hit.
@@ -339,13 +340,11 @@ func NamesMatch(a, b string) bool {
 	return distinctive
 }
 
+// nameTokens is the venue-dedup key (utils.NormalizeVenueName: apostrophes,
+// "&", a leading "the", street and venue-type abbreviations) with diacritics
+// folded on top, split into words.
 func nameTokens(s string) []string {
-	s = strings.NewReplacer("'", "", "’", "", "&", " and ").Replace(s)
-	fields := strings.Fields(geo.FoldPlaceName(s))
-	if len(fields) > 1 && fields[0] == "the" {
-		fields = fields[1:]
-	}
-	return fields
+	return strings.Fields(geo.FoldPlaceName(utils.NormalizeVenueName(s)))
 }
 
 // CityMatches reports whether a city printed on a page names the venue's city:

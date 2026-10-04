@@ -45,11 +45,8 @@ func (q PlaceQuery) Key() string {
 // PlaceCandidate is one search row with the address components the caller
 // needs to decide whether the row is the venue it searched for.
 type PlaceCandidate struct {
-	OSMType     string
 	Category    string // OSM key: amenity, building, highway, ...
 	Type        string // OSM value: bar, theatre, yes, ...
-	AddressType string
-	PlaceRank   int
 	Name        string
 	DisplayName string
 	Latitude    float64
@@ -60,9 +57,7 @@ type PlaceCandidate struct {
 	// town, village, borough, suburb, ...), so a venue stored under a borough
 	// name ("Brooklyn") still matches a row whose city is "New York".
 	Localities  []string
-	State       string
 	StateCode   string // ISO 3166-2 subdivision code, e.g. "US-IL"; empty when absent
-	Postcode    string
 	CountryCode string // lowercase ISO 3166-1 alpha-2, as Nominatim returns it
 }
 
@@ -135,20 +130,15 @@ func (c *NominatimClient) SearchPlaces(ctx context.Context, q PlaceQuery) ([]Pla
 			continue
 		}
 		cand := PlaceCandidate{
-			OSMType:     r.OSMType,
 			Category:    r.Category,
 			Type:        r.Type,
-			AddressType: r.AddressType,
-			PlaceRank:   r.PlaceRank,
 			Name:        r.Name,
 			DisplayName: r.DisplayName,
 			Latitude:    lat,
 			Longitude:   lng,
 			HouseNumber: strings.TrimSpace(r.Address["house_number"]),
 			Road:        strings.TrimSpace(r.Address["road"]),
-			State:       r.Address["state"],
 			StateCode:   r.Address["ISO3166-2-lvl4"],
-			Postcode:    r.Address["postcode"],
 			CountryCode: strings.ToLower(r.Address["country_code"]),
 		}
 		for _, k := range placeLocalityKeys {

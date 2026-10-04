@@ -1,7 +1,7 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
-import { searchArtistsByName, searchVenuesByName, similarityScore, checkShowDuplicate } from "../lib/duplicates";
+import { searchArtistsByName, searchVenuesByName, similarityScore, checkShowDuplicate, compareFields } from "../lib/duplicates";
 import type { EntitySearchResult, ShowDuplicateResult } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
@@ -161,10 +161,15 @@ export function planVenueAddress(
     };
   }
   const stored = typeof match.address === "string" ? match.address.trim() : "";
-  if (stored) {
-    return stored === address ? {} : { addressNote: `address kept: the venue already has "${stored}"` };
+  const [cmp] = compareFields({ address: stored }, { address }, ["address"]);
+  switch (cmp.status) {
+    case "new_info":
+      return { addressFill: address };
+    case "already_set":
+      return { addressNote: `address kept: the venue already has "${stored}"` };
+    default:
+      return {};
   }
-  return { addressFill: address };
 }
 
 export interface ShowPlan {
@@ -594,12 +599,13 @@ export async function submitShows(
   // 3. Display preview
   displayPreview(plans, resolvedTags);
 
-  // 3b. Fill empty venue addresses the batch states. Duplicate shows count:
-  // a calendar refresh whose shows all exist still carries the address.
-  await applyVenueAddressFills(client, plans.filter((p) => p.valid), confirm);
 
   // 4. Summary
   const validPlans = plans.filter((p) => p.valid);
+
+  // 3b. Fill empty venue addresses the batch states. Duplicate shows count:
+  // a calendar refresh whose shows all exist still carries the address.
+  await applyVenueAddressFills(client, validPlans, confirm);
   const duplicatePlans = validPlans.filter((p) => p.duplicate?.isDuplicate);
   const creatablePlans = validPlans.filter((p) => !p.duplicate?.isDuplicate);
   const invalidCount = plans.length - validPlans.length;
@@ -715,11 +721,14 @@ export interface VenueAddressFill {
 export function venueAddressFills(plans: ShowPlan[]): {
   fills: VenueAddressFill[];
   conflicts: string[];
+  notes: string[];
 } {
   const byVenue = new Map<number, VenueAddressFill>();
   const conflicts: string[] = [];
+  const notes = new Map<number, string>();
   for (const plan of plans) {
     for (const v of plan.venues) {
+      if (v.id !== undefined && v.addressNote) notes.set(v.id, `${v.name} (ID ${v.id}): ${v.addressNote}`);
       if (v.id === undefined || !v.addressFill) continue;
       const seen = byVenue.get(v.id);
       if (!seen) {
@@ -731,7 +740,7 @@ export function venueAddressFills(plans: ShowPlan[]): {
       }
     }
   }
-  return { fills: [...byVenue.values()], conflicts };
+  return { fills: [...byVenue.values()], conflicts, notes: [...notes.values()] };
 }
 
 /**
@@ -743,17 +752,11 @@ async function applyVenueAddressFills(
   plans: ShowPlan[],
   confirm: boolean,
 ): Promise<void> {
-  const { fills, conflicts } = venueAddressFills(plans);
-  const notes = new Map<number, string>();
-  for (const plan of plans) {
-    for (const v of plan.venues) {
-      if (v.id !== undefined && v.addressNote) notes.set(v.id, `${v.name} (ID ${v.id}): ${v.addressNote}`);
-    }
-  }
-  if (fills.length === 0 && conflicts.length === 0 && notes.size === 0) return;
+  const { fills, conflicts, notes } = venueAddressFills(plans);
+  if (fills.length === 0 && conflicts.length === 0 && notes.length === 0) return;
 
   display.header("Venue Addresses");
-  for (const note of notes.values()) display.info(note);
+  for (const note of notes) display.info(note);
   for (const conflict of conflicts) display.warn(conflict);
   for (const fill of fills) {
     if (!confirm) {

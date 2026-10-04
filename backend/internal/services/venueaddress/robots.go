@@ -13,7 +13,8 @@ type robotsRules struct {
 
 type robotsRule struct {
 	allow   bool
-	pattern string
+	pattern string         // as written; its length ranks specificity
+	re      *regexp.Regexp // pattern compiled once at parse time
 }
 
 // parseRobots reads the groups that apply to token, falling back to the "*"
@@ -58,7 +59,7 @@ func parseRobots(body, token string) *robotsRules {
 			if value == "" {
 				continue // an empty disallow allows everything; an empty allow says nothing
 			}
-			current = append(current, robotsRule{allow: key == "allow", pattern: value})
+			current = append(current, robotsRule{allow: key == "allow", pattern: value, re: robotsPattern(value)})
 		}
 	}
 	flush()
@@ -80,7 +81,7 @@ func (r *robotsRules) allows(path string) bool {
 	best := -1
 	allowed := true
 	for _, rule := range r.rules {
-		if !robotsMatch(rule.pattern, path) {
+		if !rule.re.MatchString(path) {
 			continue
 		}
 		n := len(rule.pattern)
@@ -92,10 +93,9 @@ func (r *robotsRules) allows(path string) bool {
 	return allowed
 }
 
-// robotsMatch reports whether path matches a robots.txt pattern: a prefix
-// match where '*' matches any run of characters and a trailing '$' anchors the
-// end.
-func robotsMatch(pattern, path string) bool {
+// robotsPattern compiles a robots.txt path pattern: a prefix match where '*'
+// matches any run of characters and a trailing '$' anchors the end.
+func robotsPattern(pattern string) *regexp.Regexp {
 	anchored := strings.HasSuffix(pattern, "$")
 	pattern = strings.TrimSuffix(pattern, "$")
 	parts := strings.Split(pattern, "*")
@@ -106,6 +106,5 @@ func robotsMatch(pattern, path string) bool {
 	if anchored {
 		expr += "$"
 	}
-	re, err := regexp.Compile(expr)
-	return err == nil && re.MatchString(path)
+	return regexp.MustCompile(expr)
 }

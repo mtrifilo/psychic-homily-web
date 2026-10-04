@@ -43,6 +43,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -156,8 +157,13 @@ func printSummary(r *catalog.VenueAddressReport) {
 			phase, t.Attempted, t.Hits, 100*t.HitRate(), t.Misses, t.Errors, t.SkippedMemo, t.NoSource)
 	}
 	fmt.Printf("Would write: %d   written: %d\n", r.WouldWrite, r.Written)
-	for p, n := range r.Precision {
-		fmt.Printf("  precision %-12s %d\n", p+":", n)
+	labels := make([]string, 0, len(r.Precision))
+	for p := range r.Precision {
+		labels = append(labels, p)
+	}
+	sort.Strings(labels)
+	for _, p := range labels {
+		fmt.Printf("  precision %-12s %d\n", p+":", r.Precision[p])
 	}
 	if r.LimitHit {
 		fmt.Println("Limit reached: re-run to continue where this run stopped.")

@@ -39,13 +39,11 @@ type Venue struct {
 
 // Result is the outcome of trying a venue's sources in order.
 type Result struct {
-	Found    bool
-	Street   string // the line to store in venues.address
-	City     string // as the page printed it; may be empty
-	State    string
-	Postcode string
-	Method   string // MethodJSONLD, MethodMicrodata, or MethodAI
-	Source   Source // the page the address came from (hit only)
+	Found  bool
+	Street string // the line to store in venues.address
+	City   string // as the page printed it; may be empty
+	Method string // MethodJSONLD, MethodMicrodata, or MethodAI
+	Source Source // the page the address came from (hit only)
 	// Notes records, per source tried, what happened, in order: why a page
 	// was unreadable or which address on it was rejected and why.
 	Notes []string
@@ -132,20 +130,29 @@ func (f *Finder) trySource(ctx context.Context, v Venue, src Source) (Result, st
 		return Result{}, "unparseable HTML", nil
 	}
 
-	var rejected []string
-	if c, ok, why := chooseCandidate(structuredCandidates(doc), v, src.Kind); ok {
+	// structuredWhy explains a schema.org address the rules refused; it leads
+	// every later note so the report shows both attempts.
+	c, ok, structuredWhy := chooseCandidate(structuredCandidates(doc), v, src.Kind)
+	if ok {
 		return hit(c, src), "found " + c.Method + " address", nil
-	} else if why != "" {
-		rejected = append(rejected, why)
+	}
+	note := func(last string) string {
+		if structuredWhy == "" {
+			return last
+		}
+		return structuredWhy + "; " + last
 	}
 
 	if f.ai == nil {
-		return Result{}, joinNotes(rejected, "no schema.org address; AI fallback disabled"), nil
+		return Result{}, note("no schema.org address; AI fallback disabled"), nil
 	}
 	text := visibleText(doc)
 	if text == "" {
-		return Result{}, joinNotes(rejected, "no visible text"), nil
+		return Result{}, note("no visible text"), nil
 	}
+	// The model reads only the trimmed text, so that is what its answer must
+	// be printed in.
+	prompt := trimForPrompt(text, promptHeadChars, promptTailChars)
 	aiCtx, cancel := context.WithTimeout(ctx, aiTimeout)
 	defer cancel()
 	ext, err := f.ai.ExtractVenueAddress(aiCtx, contracts.VenueAddressExtractionRequest{
@@ -153,42 +160,32 @@ func (f *Finder) trySource(ctx context.Context, v Venue, src Source) (Result, st
 		City:      v.City,
 		State:     v.State,
 		PageURL:   page.URL,
-		PageText:  trimForPrompt(text, promptHeadChars, promptTailChars),
+		PageText:  prompt,
 	})
 	if err != nil {
-		return Result{}, joinNotes(rejected, "AI extraction failed: "+err.Error()), errTransient
+		return Result{}, note("AI extraction failed: " + err.Error()), errTransient
 	}
 	if !ext.Found {
-		return Result{}, joinNotes(rejected, "AI found no address for this venue"), nil
+		return Result{}, note("AI found no address for this venue"), nil
 	}
-	c := candidate{
-		Name:     v.Name, // the model was asked for this venue's address only
-		Street:   ext.Street,
-		City:     ext.City,
-		State:    ext.State,
-		Postcode: ext.PostalCode,
-		Method:   MethodAI,
+	if !appearsIn(ext.Street, prompt) {
+		return Result{}, note(fmt.Sprintf("AI address %q is not printed on the page", ext.Street)), nil
 	}
-	if !appearsIn(ext.Street, text) {
-		return Result{}, joinNotes(rejected, fmt.Sprintf("AI address %q is not printed on the page", ext.Street)), nil
+	aiCand := candidate{
+		Name:   v.Name, // the model was asked for this venue's address only
+		Street: ext.Street,
+		City:   ext.City,
+		Method: MethodAI,
 	}
-	if c, ok, why := chooseCandidate([]candidate{c}, v, src.Kind); ok {
-		return hit(c, src), "found AI-extracted address", nil
-	} else {
-		return Result{}, joinNotes(rejected, why), nil
+	c, ok, why := chooseCandidate([]candidate{aiCand}, v, src.Kind)
+	if !ok {
+		return Result{}, note(why), nil
 	}
+	return hit(c, src), "found AI-extracted address", nil
 }
 
 func hit(c candidate, src Source) Result {
-	return Result{
-		Found:    true,
-		Street:   c.Street,
-		City:     c.City,
-		State:    c.State,
-		Postcode: c.Postcode,
-		Method:   c.Method,
-		Source:   src,
-	}
+	return Result{Found: true, Street: c.Street, City: c.City, Method: c.Method, Source: src}
 }
 
 // chooseCandidate applies the acceptance rules to a page's addresses and
@@ -230,8 +227,8 @@ func chooseCandidate(cands []candidate, v Venue, kind SourceKind) (candidate, bo
 				named = append(named, c)
 			}
 		}
-		if len(distinctStreets(named)) == 1 {
-			distinct = named[:1]
+		if len(named) == 1 {
+			distinct = named
 		} else {
 			streets := make([]string, len(distinct))
 			for i, c := range distinct {
@@ -246,20 +243,21 @@ func chooseCandidate(cands []candidate, v Venue, kind SourceKind) (candidate, bo
 	return candidate{}, false, strings.Join(reasons, "; ")
 }
 
-// distinctStreets keeps the first candidate per folded street.
+// distinctStreets keeps one candidate per folded street, preferring one the
+// page attaches to a name.
 func distinctStreets(cands []candidate) []candidate {
-	seen := map[string]bool{}
+	index := map[string]int{}
 	var out []candidate
 	for _, c := range cands {
 		k := strings.ToLower(collapseSpace(c.Street))
-		if !seen[k] {
-			seen[k] = true
+		i, seen := index[k]
+		switch {
+		case !seen:
+			index[k] = len(out)
 			out = append(out, c)
+		case out[i].Name == "" && c.Name != "":
+			out[i] = c
 		}
 	}
 	return out
-}
-
-func joinNotes(prefix []string, last string) string {
-	return strings.Join(append(prefix, last), "; ")
 }
