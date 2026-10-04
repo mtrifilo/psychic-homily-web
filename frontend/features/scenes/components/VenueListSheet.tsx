@@ -97,11 +97,15 @@ export function VenueListSheet({
   // has no venues; the title names the city alone and Peek says what is
   // happening instead (the same sentences the list itself uses).
   const countsKnown = !fetchFailed && !(loading && allVenues.length === 0)
+  // A scoped list says what it is scoped to at every detent, so the stacked
+  // pin that set the scope visibly changes the sheet even at Peek.
   const peekLine = fetchFailed
     ? 'Couldn’t load venues here. Try again in a moment.'
-    : countsKnown
-      ? venueSheetPeekLine({ inViewCount, stacks })
-      : 'Loading venues…'
+    : !countsKnown
+      ? 'Loading venues…'
+      : scopedStack
+        ? venueStackScopeLine(scopedStack)
+        : venueSheetPeekLine({ inViewCount, stacks })
 
   return (
     <BottomSheet

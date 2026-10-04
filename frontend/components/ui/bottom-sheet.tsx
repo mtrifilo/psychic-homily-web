@@ -37,7 +37,11 @@ const BOTTOM_SHEET_DETENTS: readonly BottomSheetDetent[] = [
   'full',
 ]
 
-/** Each detent's height in CSS px, before the host cap (the DS variants). */
+/**
+ * Each detent's DS height in CSS px, before the host cap (the DS variants).
+ * Half's value is a ceiling: Half renders at a share of the host's height (see
+ * bottomSheetHeightPx).
+ */
 export const BOTTOM_SHEET_DETENT_HEIGHT_PX: Readonly<
   Record<BottomSheetDetent, number>
 > = {
@@ -45,6 +49,21 @@ export const BOTTOM_SHEET_DETENT_HEIGHT_PX: Readonly<
   half: 400,
   full: 660,
 }
+
+/**
+ * Half's height as a percentage of the host's height, below its DS ceiling.
+ * On a short host Half leaves the larger share of the host to whatever the
+ * host draws above the sheet.
+ */
+export const BOTTOM_SHEET_HALF_HOST_PERCENT = 45
+
+/**
+ * The least Half's share of the host may rise above Peek's DS height. A Half
+ * that would reveal less than this (about one list row's headline) is a dead
+ * stop between Peek and Full, so on such a host Half renders at Full's height
+ * instead.
+ */
+export const BOTTOM_SHEET_HALF_MIN_STEP_PX = 48
 
 /** Pointer travel under which a press on the drag handle is a tap. */
 export const BOTTOM_SHEET_DRAG_SLOP_PX = 6
@@ -64,9 +83,13 @@ const BOTTOM_SHEET_FLING_PX_PER_MS = 0.5
 /**
  * The height a detent renders at inside a host of `hostHeightPx`.
  *
- * Rule: the detent's DS height, capped at `hostHeightPx - topInsetPx`. The
- * inset is the strip at the top of the host that no detent may cover, which is
- * how a host keeps its own top chrome visible on a short viewport.
+ * Rule: every detent is capped at `hostHeightPx - topInsetPx`, the strip at the
+ * top of the host that no detent may cover, which is how a host keeps its own
+ * top chrome visible on a short viewport. Below that cap, Peek and Full render
+ * at their DS heights, and Half renders at BOTTOM_SHEET_HALF_HOST_PERCENT of
+ * the host, at most its DS height. When that share is less than Peek's DS
+ * height plus BOTTOM_SHEET_HALF_MIN_STEP_PX, Half renders at Full's height.
+ * Either way the detents stay in order, shortest to tallest, on any host.
  */
 export function bottomSheetHeightPx(
   detent: BottomSheetDetent,
@@ -74,26 +97,56 @@ export function bottomSheetHeightPx(
   topInsetPx: number,
 ): number {
   const cap = Math.max(0, hostHeightPx - topInsetPx)
-  return Math.min(BOTTOM_SHEET_DETENT_HEIGHT_PX[detent], cap)
+  const capped = (d: BottomSheetDetent) =>
+    Math.min(BOTTOM_SHEET_DETENT_HEIGHT_PX[d], cap)
+  if (detent !== 'half') return capped(detent)
+  const sharePx = (hostHeightPx * BOTTOM_SHEET_HALF_HOST_PERCENT) / 100
+  if (sharePx < BOTTOM_SHEET_DETENT_HEIGHT_PX.peek + BOTTOM_SHEET_HALF_MIN_STEP_PX) {
+    return capped('full')
+  }
+  return Math.min(capped('half'), sharePx)
 }
+
+/**
+ * How steeply Half's CSS switches from Full's height to the share: the step
+ * reaches Full's DS height (its clamp ceiling, so `full - step` falls to 0 or
+ * below) once the share is 660 / 10000 = 0.066px past the threshold. Kept
+ * small enough that the unclamped product stays far inside layout limits.
+ */
+const HALF_STEP_GAIN = 10000
 
 /**
  * The same rule as `bottomSheetHeightPx`, as a CSS length resolved against the
  * host's height. Lets the sheet (and anything a host positions above it)
  * render correctly before, or without, a layout measurement.
+ *
+ * Half's switch to Full's height is a step in CSS: `step` is 0px while the
+ * share is at or below the threshold, so `max` picks Full's height there. It
+ * climbs to Full's DS height over the next 0.066px of share (HALF_STEP_GAIN),
+ * the only band where the CSS renders between the two heights; past it
+ * `full - step` is at most 0 and `max` picks the share.
  */
 export function bottomSheetHeightCss(
   detent: BottomSheetDetent,
   topInsetPx: number,
 ): string {
-  return `min(${BOTTOM_SHEET_DETENT_HEIGHT_PX[detent]}px, calc(100% - ${topInsetPx}px))`
+  const cap = `calc(100% - ${topInsetPx}px)`
+  const capped = (d: BottomSheetDetent) =>
+    `min(${BOTTOM_SHEET_DETENT_HEIGHT_PX[d]}px, ${cap})`
+  if (detent !== 'half') return capped(detent)
+  const share = `${BOTTOM_SHEET_HALF_HOST_PERCENT}%`
+  const thresholdPx =
+    BOTTOM_SHEET_DETENT_HEIGHT_PX.peek + BOTTOM_SHEET_HALF_MIN_STEP_PX
+  const step = `clamp(0px, (${share} - ${thresholdPx}px) * ${HALF_STEP_GAIN}, ${BOTTOM_SHEET_DETENT_HEIGHT_PX.full}px)`
+  return `max(min(${capped('half')}, ${share}), calc(${capped('full')} - ${step}))`
 }
 
 /**
  * Which detent a drag released at `heightPx` settles on.
  *
  * Below the fling speed it is the detent whose rendered height is nearest the
- * release. At or above it, it is the first detent past the release in the
+ * release; a release equally near two detents settles on the shorter, so a
+ * Half rendered at Full's height takes a slow release as Half. At or above it, it is the first detent past the release in the
  * fling's direction (`velocityPxPerMs` is positive when the sheet was growing),
  * or the end detent in that direction when none is past it.
  */
@@ -129,9 +182,10 @@ export function settleBottomSheetDetent({
 
 /**
  * The grabber's tap target: the next detent that renders taller than this one,
- * and from the tallest back to Peek. Detents the host caps to the same height
- * are skipped, so a tap always moves the sheet. An unmeasured host (height 0)
- * walks the plain order.
+ * and from the tallest back to Peek. A detent that renders no taller than this
+ * one (capped by the host, or Half at Full's height) is skipped. On a host
+ * where every detent renders at one height the target is Peek, which leaves
+ * the sheet where it is. An unmeasured host (height 0) walks the plain order.
  */
 export function nextGrabberDetent(
   detent: BottomSheetDetent,
@@ -245,13 +299,25 @@ export function BottomSheet({
   const sheetRef = useRef<HTMLElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const grabberRef = useRef<HTMLButtonElement | null>(null)
-  // The host's height, kept current so the grabber's label names what a tap
-  // will actually do. 0 until measured.
+  // The host's padding-box height, unrounded: the box the sheet's percentage
+  // heights resolve against, so the px rule (the grabber's target and label, a
+  // drag's settle) sees the height the CSS rule renders against. 0 until
+  // measured.
   const [hostHeight, setHostHeight] = useState(0)
+  const hostHeightRef = useRef(0)
   useEffect(() => {
     const host = sheetRef.current?.parentElement
     if (!host || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => setHostHeight(host.clientHeight))
+    const observer = new ResizeObserver(([entry]) => {
+      // An unresolved padding (jsdom reports '') counts as none.
+      const style = getComputedStyle(host)
+      const px =
+        entry.contentRect.height +
+        (parseFloat(style.paddingTop) || 0) +
+        (parseFloat(style.paddingBottom) || 0)
+      hostHeightRef.current = px
+      setHostHeight(px)
+    })
     observer.observe(host)
     return () => observer.disconnect()
   }, [])
@@ -370,7 +436,11 @@ export function BottomSheet({
       pointerId: e.pointerId,
       startY: e.clientY,
       startHeight: sheet.getBoundingClientRect().height,
-      hostHeight: sheet.parentElement?.clientHeight ?? 0,
+      // Before the first measurement the rounded clientHeight stands in.
+      hostHeight:
+        hostHeightRef.current > 0
+          ? hostHeightRef.current
+          : (sheet.parentElement?.clientHeight ?? 0),
       lastY: e.clientY,
       lastTime: e.timeStamp,
       velocity: 0,

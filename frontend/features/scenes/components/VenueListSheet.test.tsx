@@ -72,3 +72,43 @@ describe('VenueListSheet touch targets', () => {
     expect(screen.getByRole('button', { name: 'Show all' })).toHaveClass('min-h-6')
   })
 })
+
+describe('VenueListSheet Peek line', () => {
+  it('states the city-wide count line at Peek when unscoped', () => {
+    renderSheet({ detent: 'peek' })
+    expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent(
+      /^2 in view · 2 share the city centre point$/,
+    )
+  })
+
+  it('names the scope at Peek in place of the count line', () => {
+    renderSheet({ detent: 'peek', scopedStack: stack })
+    expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent(
+      /^2 venues at the city centre point$/,
+    )
+  })
+
+  it('still says the list is loading or failed while scoped', () => {
+    const { unmount } = renderSheet({
+      detent: 'peek',
+      scopedStack: stack,
+      loading: true,
+      allVenues: [],
+      venues: [],
+    })
+    expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent('Loading venues…')
+    unmount()
+    renderSheet({ detent: 'peek', scopedStack: stack, fetchFailed: true })
+    expect(screen.getByTestId('venue-sheet-peek-line')).toHaveTextContent(
+      'Couldn’t load venues here. Try again in a moment.',
+    )
+  })
+
+  it('shows no Peek line from Half; the scope line sits with the rows', () => {
+    renderSheet({ detent: 'half', scopedStack: stack })
+    expect(screen.queryByTestId('venue-sheet-peek-line')).not.toBeInTheDocument()
+    expect(screen.getByTestId('venue-sheet-scope-line')).toHaveTextContent(
+      '2 venues at the city centre point',
+    )
+  })
+})
