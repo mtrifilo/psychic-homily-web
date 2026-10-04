@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { BottomSheet, type BottomSheetDetent } from '@/components/ui/bottom-sheet'
 import type { VenueWithShowCount } from '@/features/venues/types'
 import {
@@ -81,6 +81,13 @@ export function VenueListSheet({
     () => venuesSpanMetro(allVenues, principalCity),
     [allVenues, principalCity],
   )
+  // "Show all" removes itself; focus goes to the rows' container rather than
+  // dropping to the document.
+  const rowsRef = useRef<HTMLDivElement | null>(null)
+  const handleClearScope = () => {
+    onClearScope()
+    rowsRef.current?.focus()
+  }
   const rows = useMemo(() => {
     if (!scopedStack) return venues
     const ids = new Set(scopedStack.venueIds)
@@ -135,7 +142,7 @@ export function VenueListSheet({
               </p>
               <button
                 type="button"
-                onClick={onClearScope}
+                onClick={handleClearScope}
                 className="min-h-6 shrink-0 rounded-sm px-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Show all
@@ -154,7 +161,13 @@ export function VenueListSheet({
             touch
           />
         </div>
-        <div className="border-t border-border">
+        <div
+          ref={rowsRef}
+          tabIndex={-1}
+          aria-label={`Venues in ${principalCity}`}
+          role="group"
+          className="border-t border-border focus-visible:outline-none"
+        >
           <VenueRailList
             venues={rows}
             allVenues={allVenues}

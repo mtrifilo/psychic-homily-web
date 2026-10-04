@@ -188,12 +188,19 @@ test.describe('Atlas sheet layout under touch', () => {
     expect(await creditUncovered(page)).toBe(true)
 
     // A drag that starts on the grabber moves the sheet, and settles it.
-    const grabber = list.getByRole('button', { name: /^Expand/ })
-    const box = (await grabber.boundingBox())!
-    await touchDrag(page, box.x + box.width / 2, box.y + box.height / 2, box.y - 330)
+    const grabber = list.locator('[data-bottom-sheet-grabber]')
+    const atPeek = (await grabber.boundingBox())!
+    const x = atPeek.x + atPeek.width / 2
+    await touchDrag(page, x, atPeek.y + atPeek.height / 2, atPeek.y - 330)
     await expect(list).toHaveAttribute('data-detent', 'half')
     await expect(list).not.toHaveAttribute('data-dragging', 'true')
-    await touchDrag(page, box.x + box.width / 2, box.y - 330, box.y + 40)
+    // Wait out the settle animation, then drag down from where the grabber
+    // now is.
+    await expect
+      .poll(() => list.evaluate((el) => Math.round(el.getBoundingClientRect().height)))
+      .toBe(400)
+    const atHalf = (await grabber.boundingBox())!
+    await touchDrag(page, x, atHalf.y + atHalf.height / 2, atHalf.y + 330)
     await expect(list).toHaveAttribute('data-detent', 'peek')
 
     // A tap on the counted marker opens the list at Half, scoped to the point.

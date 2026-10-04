@@ -182,15 +182,22 @@ function setMockContainerWidth(width: number) {
   mockContainerWidth = width
 }
 
-// The live observer, so a test can report a new container width.
-let lastResize: (() => void) | null = null
+// Every live observer's re-report, so a test can announce a new container
+// width to all of them (AtlasGlobe's container and any sheet hosts alike).
+const liveResizeReports = new Set<() => void>()
+function reportResize() {
+  for (const report of liveResizeReports) report()
+}
 class ImmediateResizeObserver {
   private callback: ResizeObserverCallback
+  private reports: (() => void)[] = []
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback
   }
   observe(target: Element): void {
-    lastResize = () => this.report(target)
+    const report = () => this.report(target)
+    this.reports.push(report)
+    liveResizeReports.add(report)
     this.report(target)
   }
   private report(target: Element): void {
@@ -208,7 +215,10 @@ class ImmediateResizeObserver {
     )
   }
   unobserve(): void {}
-  disconnect(): void {}
+  disconnect(): void {
+    for (const report of this.reports) liveResizeReports.delete(report)
+    this.reports = []
+  }
 }
 
 const sampleData: SceneListResponse = {
@@ -1192,7 +1202,10 @@ describe('AtlasGlobe', () => {
         expect(within(sheet).getByRole('button', { name: /Empty Bottle/ })).toBeInTheDocument()
         expect(within(sheet).queryByRole('button', { name: /Thalia Hall/ })).not.toBeInTheDocument()
 
+        within(sheet).getByRole('button', { name: 'Show all' }).focus()
         fireEvent.click(within(sheet).getByRole('button', { name: 'Show all' }))
+        // The button is gone; focus stays in the sheet, on the rows.
+        expect(sheet).toContainElement(document.activeElement as HTMLElement)
         expect(within(sheet).getByRole('button', { name: /Thalia Hall/ })).toBeInTheDocument()
         expect(screen.queryByTestId('venue-sheet-scope-line')).not.toBeInTheDocument()
       })
@@ -1341,7 +1354,7 @@ describe('AtlasGlobe', () => {
 
         // The list sheet and the re-keyed venue sheet mount in one commit.
         setMockContainerWidth(800)
-        act(() => lastResize?.())
+        act(() => reportResize())
         expect(screen.getByTestId('atlas-venue-panel')).toHaveAttribute(
           'data-slot',
           'bottom-sheet',
