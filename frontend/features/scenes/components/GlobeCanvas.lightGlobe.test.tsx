@@ -4,9 +4,15 @@ import GlobeCanvas from './GlobeCanvas'
 import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
+  GLOBE_COUNTRY_LINES_DATA_URL,
+  GLOBE_COUNTRY_LINES_LAYER_ID,
+  GLOBE_COUNTRY_LINES_SOURCE_ID,
   GLOBE_LAND_DATA_URL,
   GLOBE_LAND_LAYER_ID,
   GLOBE_OCEAN_LAYER_ID,
+  GLOBE_STATE_LINES_DATA_URL,
+  GLOBE_STATE_LINES_LAYER_ID,
+  GLOBE_STATE_LINES_SOURCE_ID,
   NIGHT_EARTH_LAYER_ID,
 } from '../basemap/globeSurface'
 
@@ -22,6 +28,7 @@ interface StubMap {
   fire: (event: string) => void
   setLayoutProperty: ReturnType<typeof vi.fn>
   landSetData: ReturnType<typeof vi.fn>
+  sourceSetData: (id: string) => ReturnType<typeof vi.fn>
 }
 
 interface StubStyle {
@@ -70,9 +77,16 @@ vi.mock('maplibre-gl', () => {
     getLayer(id: string) {
       return this.options.style.layers.find((l) => l.id === id)
     }
+    sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>()
     getSource(id: string) {
       if (id === 'globeLand') return { setData: this.landSetData }
-      return id in this.options.style.sources ? { setData: vi.fn() } : undefined
+      if (!(id in this.options.style.sources)) return undefined
+      // One object per id, as MapLibre returns the same source every call.
+      if (!this.sources.has(id)) this.sources.set(id, { setData: vi.fn() })
+      return this.sources.get(id)
+    }
+    sourceSetData(id: string) {
+      return (this.getSource(id) as { setData: ReturnType<typeof vi.fn> }).setData
     }
     getZoom() {
       return 1.6
@@ -130,8 +144,13 @@ describe('GlobeCanvas globe surface', () => {
   beforeEach(() => {
     maps = []
     sessionStorage.clear()
+    // The place-label file; its content is GlobeCanvas.placeLabels' concern.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })))
   })
-  afterEach(() => restoreMatchMedia())
+  afterEach(() => {
+    restoreMatchMedia()
+    vi.unstubAllGlobals()
+  })
 
   it('builds a compact-viewport map without the night-earth raster', () => {
     installViewport(true)
@@ -151,6 +170,34 @@ describe('GlobeCanvas globe surface', () => {
     expect(map.landSetData).toHaveBeenCalledTimes(1)
     expect(map.landSetData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
+  })
+
+  it('builds a compact-viewport map with both boundary layers shown, and loads their files after the land', () => {
+    installViewport(true)
+    renderCanvas()
+    const map = theMap()
+    expect(constructedVisibility(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('visible')
+    expect(constructedVisibility(map, GLOBE_COUNTRY_LINES_LAYER_ID)).toBe('visible')
+    act(() => map.fire('style.load'))
+    const state = map.sourceSetData(GLOBE_STATE_LINES_SOURCE_ID)
+    const country = map.sourceSetData(GLOBE_COUNTRY_LINES_SOURCE_ID)
+    expect(state).toHaveBeenCalledExactlyOnceWith(GLOBE_STATE_LINES_DATA_URL)
+    expect(country).toHaveBeenCalledExactlyOnceWith(GLOBE_COUNTRY_LINES_DATA_URL)
+    expect(map.landSetData.mock.invocationCallOrder[0]).toBeLessThan(
+      state.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('builds a wide-viewport map with the boundary layers hidden and never loads them', () => {
+    installViewport(false)
+    renderCanvas()
+    const map = theMap()
+    act(() => map.fire('style.load'))
+    expect(constructedVisibility(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('none')
+    expect(constructedVisibility(map, GLOBE_COUNTRY_LINES_LAYER_ID)).toBe('none')
+    expect(map.sourceSetData(GLOBE_STATE_LINES_SOURCE_ID)).not.toHaveBeenCalled()
+    expect(map.sourceSetData(GLOBE_COUNTRY_LINES_SOURCE_ID)).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('builds a wide-viewport map with the raster and no land request', () => {

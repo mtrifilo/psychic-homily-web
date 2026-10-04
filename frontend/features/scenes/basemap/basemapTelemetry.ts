@@ -76,9 +76,10 @@
  * SCOPE: THE SOURCES THAT FETCH THE GLOBE'S GROUND
  *
  * Only errors carrying one of these sources' `sourceId` report: the
- * OpenFreeMap vector source, the NASA GIBS raster, and the light globe's land
- * file (`globeLand`, one same-origin GeoJSON request whose failure leaves a
- * compact viewport's globe without continents). Everything else is
+ * OpenFreeMap vector source, the NASA GIBS raster, and the light globe's
+ * same-origin GeoJSON files: the land (`globeLand`, whose failure leaves a
+ * compact viewport's globe without continents) and the boundary lines
+ * (`globeStateLines`, `globeCountryLines`). Everything else is
  * ignored: the other GeoJSON sources (`scenes`, `scene-rings`, `venues`) are
  * fed from local data and fetch nothing, and a map-level error carries no
  * `sourceId` at all. Each source is tagged with its own `basemap_source` and
@@ -117,7 +118,12 @@
 
 import * as Sentry from '@sentry/nextjs'
 import type { ErrorEvent } from 'maplibre-gl'
-import { GLOBE_LAND_HOST, GLOBE_LAND_SOURCE_ID } from './globeSurface'
+import {
+  GLOBE_COUNTRY_LINES_SOURCE_ID,
+  GLOBE_DATA_HOST,
+  GLOBE_LAND_SOURCE_ID,
+  GLOBE_STATE_LINES_SOURCE_ID,
+} from './globeSurface'
 import {
   NIGHT_EARTH_SOURCE_ID,
   NIGHT_EARTH_TILE_HOST,
@@ -128,10 +134,10 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
  * The sources this module reports, each mapped to its `basemap_host` fallback
  * for an error that arrives without a URL of its own (a style/worker error, or
  * an AJAXError whose `url` MapLibre did not attach): the host a tile source is
- * configured against, or the label 'same-origin' for the land file the app
- * serves itself. Unlike a tile 404, a land-file 404 or 5xx does fire an error
- * event (GeoJSONSource reports any failed data load); a stalled land request
- * fires nothing, like a stalled tile.
+ * configured against, or the label 'same-origin' for the light globe's files
+ * the app serves itself. Unlike a tile 404, a 404 or 5xx on one of those files
+ * does fire an error event (GeoJSONSource reports any failed data load); a
+ * stalled request fires nothing, like a stalled tile.
  *
  * A map, not two ifs: the host fallback has to be picked per source, and a
  * single lookup makes it impossible to widen the filter without also deciding
@@ -146,7 +152,9 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
 const REPORTED_SOURCE_HOSTS = new Map<string, string>([
   [PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST],
   [NIGHT_EARTH_SOURCE_ID, NIGHT_EARTH_TILE_HOST],
-  [GLOBE_LAND_SOURCE_ID, GLOBE_LAND_HOST],
+  [GLOBE_LAND_SOURCE_ID, GLOBE_DATA_HOST],
+  [GLOBE_STATE_LINES_SOURCE_ID, GLOBE_DATA_HOST],
+  [GLOBE_COUNTRY_LINES_SOURCE_ID, GLOBE_DATA_HOST],
 ])
 
 /**
@@ -284,8 +292,9 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
       // how" is the whole triage question for a third-party tile outage.
       // `basemap_source` separates the failures a user sees differently:
       // 'openmaptiles' (streets are gone), 'nightEarth' (the globe is unlit)
-      // and 'globeLand' (a compact viewport's globe has no continents), each
-      // on its own provider, never grouped into one issue.
+      // 'globeLand' (a compact viewport's globe has no continents) and
+      // 'globeStateLines' / 'globeCountryLines' (it has no boundaries), each
+      // in its own slot, never grouped into one issue.
       // `basemap_status` is 0 for a network-level failure (DNS, blocked, or a
       // client connection that dropped without `navigator.onLine` catching
       // it) and an HTTP status otherwise, so it also separates the AJAX cases

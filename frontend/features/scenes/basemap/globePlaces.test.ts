@@ -1,0 +1,166 @@
+import { describe, it, expect } from 'vitest'
+import {
+  PLACE_LABEL_BUDGET_AT_ENTRY,
+  PLACE_LABEL_BUDGET_AT_Z5,
+  PLACE_LABEL_ENTRY_ZOOM,
+  PLACE_LABEL_MIN_ZOOM,
+  dotBox,
+  facingPoint,
+  parseGlobePlaces,
+  pickPlaceLabels,
+  placeLabelBudget,
+  placeLabelsShowAt,
+  type Box,
+  type GlobeProjector,
+} from './globePlaces'
+
+const PHONE_PANE = { width: 390, height: 731 }
+const pane: Box = { left: 0, top: 0, right: 390, bottom: 731 }
+const box = (left: number, top: number, width = 40, height = 12): Box => ({
+  left,
+  top,
+  right: left + width,
+  bottom: top + height,
+})
+const label = (id: string, b: Box) => ({ id, box: b })
+
+describe('place label zoom range', () => {
+  const CEILING = 5.5
+
+  it('shows labels from zoom 2 up to, not including, the ceiling', () => {
+    expect(PLACE_LABEL_MIN_ZOOM).toBe(2)
+    expect(placeLabelsShowAt(1.99, CEILING)).toBe(false)
+    expect(placeLabelsShowAt(2, CEILING)).toBe(true)
+    expect(placeLabelsShowAt(PLACE_LABEL_ENTRY_ZOOM, CEILING)).toBe(true)
+    expect(placeLabelsShowAt(5.49, CEILING)).toBe(true)
+    expect(placeLabelsShowAt(5.5, CEILING)).toBe(false)
+    expect(placeLabelsShowAt(12, CEILING)).toBe(false)
+  })
+})
+
+describe('placeLabelBudget', () => {
+  it('allows about 12 labels at the default phone entry', () => {
+    expect(PLACE_LABEL_BUDGET_AT_ENTRY).toBe(12)
+    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, PHONE_PANE.width, PHONE_PANE.height)).toBe(12)
+  })
+
+  it('grows with zoom up to zoom 5 and holds there', () => {
+    const at = (zoom: number) => placeLabelBudget(zoom, PHONE_PANE.width, PHONE_PANE.height)
+    expect(at(1.5)).toBe(PLACE_LABEL_BUDGET_AT_ENTRY)
+    expect(at(3.5)).toBeGreaterThan(at(PLACE_LABEL_ENTRY_ZOOM))
+    expect(at(4.5)).toBeGreaterThan(at(3.5))
+    expect(at(5)).toBe(PLACE_LABEL_BUDGET_AT_Z5)
+    expect(at(5.4)).toBe(PLACE_LABEL_BUDGET_AT_Z5)
+  })
+
+  it('scales with the pane area, never below the phone budget and up to 2.5x', () => {
+    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, 320, 500)).toBe(12)
+    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, 780, 731)).toBe(24)
+    expect(placeLabelBudget(PLACE_LABEL_ENTRY_ZOOM, 1000, 1400)).toBe(30)
+  })
+})
+
+describe('pickPlaceLabels', () => {
+  it('keeps candidates in rank order until the budget is spent', () => {
+    const candidates = [0, 1, 2, 3, 4].map((i) => label(`p${i}`, box(10, 10 + i * 40)))
+    expect(pickPlaceLabels(candidates, [], pane, 3).map((c) => c.id)).toEqual(['p0', 'p1', 'p2'])
+  })
+
+  it('drops a label that overlaps a scene label, so the scene keeps its spot', () => {
+    const sceneLabel = box(100, 100, 60, 16)
+    const candidates = [label('under-scene', box(120, 104)), label('clear', box(100, 200))]
+    expect(pickPlaceLabels(candidates, [sceneLabel], pane, 12).map((c) => c.id)).toEqual(['clear'])
+  })
+
+  it('drops a label that sits on a scene dot', () => {
+    const dot = dotBox(150, 300, 6)
+    const candidates = [label('on-dot', box(130, 295)), label('clear', box(10, 10))]
+    expect(pickPlaceLabels(candidates, [dot], pane, 12).map((c) => c.id)).toEqual(['clear'])
+  })
+
+  it('keeps the gap clear: a label 1px from a blocker is dropped, one 3px away is kept', () => {
+    const blocker = box(100, 100)
+    const near = label('near', box(141, 100))
+    const far = label('far', box(143, 200))
+    const farSide = label('far-side', box(143, 100))
+    expect(pickPlaceLabels([near], [blocker], pane, 12)).toEqual([])
+    expect(pickPlaceLabels([farSide, far], [blocker], pane, 12).map((c) => c.id)).toEqual([
+      'far-side',
+      'far',
+    ])
+  })
+
+  it('lets the higher-ranked of two colliding place labels win', () => {
+    const candidates = [label('first', box(50, 50)), label('second', box(60, 52))]
+    expect(pickPlaceLabels(candidates, [], pane, 12).map((c) => c.id)).toEqual(['first'])
+  })
+
+  it('a dropped label does not spend budget', () => {
+    const candidates = [
+      label('blocked', box(0, 0)),
+      label('a', box(0, 100)),
+      label('b', box(0, 200)),
+    ]
+    expect(pickPlaceLabels(candidates, [box(0, 0)], pane, 2).map((c) => c.id)).toEqual(['a', 'b'])
+  })
+
+  it('drops a label cut off by the pane edge', () => {
+    const candidates = [label('edge', box(370, 100)), label('in', box(300, 100))]
+    expect(pickPlaceLabels(candidates, [], pane, 12).map((c) => c.id)).toEqual(['in'])
+  })
+})
+
+describe('facingPoint', () => {
+  // A stand-in projection: the near hemisphere (lng in [-90, 90]) maps
+  // linearly onto the pane and round-trips; a far-side location projects
+  // into the pane too but unprojects onto its near-side mirror.
+  const projector: GlobeProjector = {
+    project: ([lng, lat]) => {
+      const nearLng = Math.abs(lng) <= 90 ? lng : Math.sign(lng) * 180 - lng
+      return { x: 195 + nearLng * 2, y: 365 - lat * 3 }
+    },
+    unproject: ([x, y]) => ({ lng: (x - 195) / 2, lat: (365 - y) / 3 }),
+  }
+
+  it('returns the screen point of a near-side location inside the pane', () => {
+    expect(facingPoint(projector, 10, 20, 390, 731)).toEqual({ x: 215, y: 305 })
+  })
+
+  it('rejects a far-side location even though it projects inside the pane', () => {
+    expect(facingPoint(projector, 170, 20, 390, 731)).toBeNull()
+  })
+
+  it('rejects a location that projects outside the pane', () => {
+    expect(facingPoint(projector, 89, 20, 300, 731)).toBeNull()
+  })
+})
+
+describe('parseGlobePlaces', () => {
+  const feature = (properties: Record<string, unknown>, coordinates: number[] = [1, 2]) => ({
+    type: 'Feature' as const,
+    properties,
+    geometry: { type: 'Point' as const, coordinates },
+  })
+
+  it('returns valid places in rank order and skips malformed entries', () => {
+    const places = parseGlobePlaces({
+      type: 'FeatureCollection',
+      features: [
+        feature({ name: 'Second', rank: 1 }),
+        feature({ name: 'First', rank: 0 }, [-87.6, 41.9]),
+        feature({ name: '', rank: 2 }),
+        feature({ name: 'No rank' }),
+        feature({ name: 'Out of bounds', rank: 3 }, [200, 0]),
+        {
+          type: 'Feature',
+          properties: { name: 'Line', rank: 4 },
+          geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+        },
+      ],
+    })
+    expect(places).toEqual([
+      { name: 'First', lng: -87.6, lat: 41.9, rank: 0 },
+      { name: 'Second', lng: 1, lat: 2, rank: 1 },
+    ])
+  })
+})

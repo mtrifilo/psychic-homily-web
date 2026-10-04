@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ErrorEvent } from 'maplibre-gl'
 import { NIGHT_EARTH_SOURCE_ID } from './nightEarthRaster'
-import { GLOBE_LAND_SOURCE_ID } from './globeSurface'
+import {
+  GLOBE_COUNTRY_LINES_SOURCE_ID,
+  GLOBE_LAND_SOURCE_ID,
+  GLOBE_STATE_LINES_SOURCE_ID,
+} from './globeSurface'
 import { PH_BASEMAP_SOURCE_ID } from './phBasemap'
 
 /**
@@ -105,6 +109,20 @@ const TILE_SOURCES = [
     host: 'www.psychichomily.com',
     fallbackHost: 'same-origin',
     tileUrl: 'https://www.psychichomily.com/atlas/globe-land-110m.geojson',
+  },
+  {
+    label: 'the light-globe state lines file',
+    sourceId: GLOBE_STATE_LINES_SOURCE_ID,
+    host: 'www.psychichomily.com',
+    fallbackHost: 'same-origin',
+    tileUrl: 'https://www.psychichomily.com/atlas/globe-state-lines-50m.geojson',
+  },
+  {
+    label: 'the light-globe country lines file',
+    sourceId: GLOBE_COUNTRY_LINES_SOURCE_ID,
+    host: 'www.psychichomily.com',
+    fallbackHost: 'same-origin',
+    tileUrl: 'https://www.psychichomily.com/atlas/globe-country-lines-110m.geojson',
   },
 ] as const
 

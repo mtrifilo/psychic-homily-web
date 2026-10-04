@@ -6,9 +6,13 @@ import type { StyleSpecification } from 'maplibre-gl'
 import phDarkBasemap from './ph-dark-basemap.json'
 import { NIGHT_EARTH_SOURCE_ID } from './nightEarthRaster'
 import {
+  GLOBE_COUNTRY_LINES_LAYER_ID,
+  GLOBE_COUNTRY_LINES_SOURCE_ID,
   GLOBE_LAND_LAYER_ID,
   GLOBE_LAND_SOURCE_ID,
   GLOBE_OCEAN_LAYER_ID,
+  GLOBE_STATE_LINES_LAYER_ID,
+  GLOBE_STATE_LINES_SOURCE_ID,
   NIGHT_EARTH_LAYER_ID,
 } from './globeSurface'
 import {
@@ -56,12 +60,16 @@ const GLOBE_CANVAS_LAYER_IDS = [
   NIGHT_EARTH_LAYER_ID,
   GLOBE_OCEAN_LAYER_ID,
   GLOBE_LAND_LAYER_ID,
+  GLOBE_STATE_LINES_LAYER_ID,
+  GLOBE_COUNTRY_LINES_LAYER_ID,
   'scene-rings',
   'scene-dots',
 ]
 const GLOBE_CANVAS_SOURCE_IDS = [
   NIGHT_EARTH_SOURCE_ID,
   GLOBE_LAND_SOURCE_ID,
+  GLOBE_STATE_LINES_SOURCE_ID,
+  GLOBE_COUNTRY_LINES_SOURCE_ID,
   'scenes',
   'scene-rings',
 ]
