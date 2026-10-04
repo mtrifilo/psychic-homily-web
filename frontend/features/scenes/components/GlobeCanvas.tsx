@@ -10,10 +10,13 @@ import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
 import {
-  NIGHT_EARTH_SOURCE_ID,
-  NIGHT_EARTH_TILES,
-} from '../basemap/nightEarthRaster'
+  globeSurfaceLayers,
+  globeSurfaceSources,
+  markGlobeLandRequested,
+  showGlobeSurface,
+} from '../basemap/globeSurface'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
+import { useAtlasCompactViewport } from '../atlasViewport'
 import type {
   CameraSettle,
   GlobePov,
@@ -227,6 +230,20 @@ export default function GlobeCanvas({
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
 
   const selectedSlug = selected?.slug ?? null
+
+  // Compact viewports get the light globe: flat ocean and vector land in
+  // place of the night-earth raster (globeSurface.ts). The map is built with
+  // the look current at construction (read through the ref, so a crossing
+  // never re-runs the map effect); the effect below switches a live map when
+  // the viewport crosses the breakpoint.
+  const lightGlobe = useAtlasCompactViewport()
+  const lightGlobeRef = useRef(lightGlobe)
+  useEffect(() => {
+    lightGlobeRef.current = lightGlobe
+  }, [lightGlobe])
+  useEffect(() => {
+    if (mapReady) showGlobeSurface(mapReady, lightGlobe)
+  }, [mapReady, lightGlobe])
 
   // Resolved theme palette for the dominant-genre dot tint (PSY-1315).
   const palette = useGraphPalette()
@@ -549,6 +566,7 @@ export default function GlobeCanvas({
       BLACK_MARBLE_FADE_START,
       BLACK_MARBLE_FADE_END,
     )
+    const lightGlobeAtConstruction = lightGlobeRef.current
 
     const map = new maplibregl.Map({
       container,
@@ -603,18 +621,9 @@ export default function GlobeCanvas({
         // CSS starfield and halo behind the canvas show through.
         sources: {
           ...basemap.sources,
-          [NIGHT_EARTH_SOURCE_ID]: {
-            type: 'raster',
-            tiles: [NIGHT_EARTH_TILES],
-            tileSize: 256,
-            maxzoom: 8,
-            // Rendered by the AttributionControl below (PSY-1543), alongside
-            // the OpenFreeMap/OSM credit the openmaptiles source carries.
-            // NASA imagery is public domain and GIBS attribution is
-            // requested rather than required, but showing it costs nothing
-            // once the control exists for the OSM requirement.
-            attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
-          },
+          // Night-earth raster and light-globe land; only one look's layers
+          // are visible at a time (globeSurface.ts).
+          ...globeSurfaceSources(lightGlobeAtConstruction),
           // promoteId: features are keyed by slug so the hover feature-state
           // (set in handleMove below) sticks across setData refreshes.
           scenes: { type: 'geojson', data: EMPTY_FC, promoteId: 'slug' },
@@ -625,23 +634,19 @@ export default function GlobeCanvas({
           venues: { type: 'geojson', data: EMPTY_FC, promoteId: 'id' },
         },
         layers: [
-          // Street basemap under the raster: at globe zooms the opaque Black
-          // Marble covers it (and its layers are minzoom-gated anyway); as
-          // the raster fades out across the handoff range the streets are
-          // already drawn beneath — no black frame between the two worlds.
+          // Street basemap under the globe surface: at globe zooms the opaque
+          // surface (raster, or ocean and land) covers it (and its layers are
+          // minzoom-gated anyway); as the surface fades out across the
+          // handoff range the streets are already drawn beneath, so there is
+          // no black frame between the two worlds. The fade and the cutoff
+          // come from phBasemapFragment, the background ramp's mirror by
+          // construction.
           ...basemap.layers,
-          {
-            id: 'earth',
-            type: 'raster',
-            source: NIGHT_EARTH_SOURCE_ID,
-            // Both halves of the crossfade come from phBasemapFragment, so
-            // this ramp is the background ramp's mirror BY CONSTRUCTION —
-            // retuning the handoff means editing the two constants above and
-            // nothing else. The maxzoom stops GIBS fetching/compositing once
-            // the raster is provably invisible.
-            maxzoom: basemap.rasterMaxZoom,
-            paint: { 'raster-opacity': basemap.rasterFadeOut },
-          },
+          ...globeSurfaceLayers({
+            lightGlobe: lightGlobeAtConstruction,
+            fadeOut: basemap.rasterFadeOut,
+            maxZoom: basemap.rasterMaxZoom,
+          }),
           {
             // Under the dots so a ring never covers its own scene's dot —
             // the RING_ALTITUDE invariant of the shipped globe, by layer order.
@@ -727,6 +732,7 @@ export default function GlobeCanvas({
     // filtering and the throttle. Removed with the map in cleanup, like every
     // listener here.
     map.on('error', handleBasemapError)
+    if (lightGlobeAtConstruction) markGlobeLandRequested(map)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -737,7 +743,8 @@ export default function GlobeCanvas({
     // requirement (ODbL) now that street tiles ship, so the old chrome-free
     // look gains an always-visible control (non-compact — OSM's guidance
     // frowns on hidden-behind-an-icon attribution on desktop). Credit
-    // strings come from the sources above (OpenFreeMap/OSM + NASA GIBS);
+    // strings come from the sources above (OpenFreeMap/OSM, plus NASA GIBS
+    // while the raster layer is visible);
     // the dark restyle of MapLibre's default white pill lives in
     // globals.css (.maplibregl-ctrl-attrib).
     //

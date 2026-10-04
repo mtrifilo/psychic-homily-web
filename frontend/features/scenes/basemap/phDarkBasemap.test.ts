@@ -6,6 +6,12 @@ import type { StyleSpecification } from 'maplibre-gl'
 import phDarkBasemap from './ph-dark-basemap.json'
 import { NIGHT_EARTH_SOURCE_ID } from './nightEarthRaster'
 import {
+  GLOBE_LAND_LAYER_ID,
+  GLOBE_LAND_SOURCE_ID,
+  GLOBE_OCEAN_LAYER_ID,
+  NIGHT_EARTH_LAYER_ID,
+} from './globeSurface'
+import {
   PH_BASEMAP_MIN_ZOOM,
   PH_BASEMAP_SOURCE_ID,
   PH_BASEMAP_STYLE_HOST,
@@ -46,9 +52,16 @@ const AVAILABLE_FONTS = new Set([
 
 // Layer ids GlobeCanvas appends after the basemap fragment — a collision
 // would make the merged style invalid and abort the load.
-const GLOBE_CANVAS_LAYER_IDS = ['earth', 'scene-rings', 'scene-dots']
+const GLOBE_CANVAS_LAYER_IDS = [
+  NIGHT_EARTH_LAYER_ID,
+  GLOBE_OCEAN_LAYER_ID,
+  GLOBE_LAND_LAYER_ID,
+  'scene-rings',
+  'scene-dots',
+]
 const GLOBE_CANVAS_SOURCE_IDS = [
   NIGHT_EARTH_SOURCE_ID,
+  GLOBE_LAND_SOURCE_ID,
   'scenes',
   'scene-rings',
 ]
