@@ -14,12 +14,12 @@
  * Swatches use the same PSY-1083 `--chart-N` tokens as the dots (via
  * clusterColorCSS), so they track the theme with no JS.
  *
- * Below `lg` it is a content-width chip with a 14px label, as tall as Drift
- * (38px), and it opens upward with the toggle held at the bottom, so the
- * toggle never moves under a finger or under chrome above it; given a
- * bounded height (`max-h-*` from the caller), the open key scrolls within it.
- * From `lg` it is the fixed-width key with the toggle on top. The caller
- * positions it with `className`.
+ * Below `lg` it is a content-width chip with a 14px label, as tall as the
+ * Atlas's Drift button, and it opens upward with the toggle held at the
+ * bottom, so the toggle never moves under a finger or under chrome above it.
+ * From `lg` it is the fixed-width key with the toggle on top. Given a bounded
+ * height (`max-h-*` from the caller), the open key scrolls within it at any
+ * width. The caller positions it with `className`.
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -43,7 +43,7 @@ export function GenreLegend({ openChoice, onOpenChange, className }: GenreLegend
   return (
     <div
       className={cn(
-        'flex flex-col-reverse rounded border border-border bg-background/90 text-xs backdrop-blur lg:block lg:w-44 lg:rounded-lg',
+        'flex flex-col-reverse rounded border border-border bg-background/90 text-xs backdrop-blur lg:w-44 lg:flex-col lg:rounded-lg',
         className,
       )}
     >
@@ -66,7 +66,7 @@ export function GenreLegend({ openChoice, onOpenChange, className }: GenreLegend
       <ul
         id="atlas-genre-legend"
         hidden={!open}
-        className="min-h-0 overflow-y-auto px-3 pb-0.5 pt-2 lg:overflow-visible lg:pb-2 lg:pt-0.5"
+        className="min-h-0 overflow-y-auto px-3 pb-0.5 pt-2 lg:pb-2 lg:pt-0.5"
       >
         {GENRE_FAMILIES.map((family) => (
           <li key={family.key} className="flex items-center gap-2 py-0.5">

@@ -506,7 +506,7 @@ describe('ScenePreviewPanel as a bottom sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('gives every link in the preview body a target at least 24px tall', () => {
+  it('gives the preview’s own show, artist and scene links a target at least 24px tall', () => {
     mockUseSceneArtists.mockReturnValue({
       data: { artists: [{ id: 1, slug: 'band-a', name: 'Band A' }], total: 1 },
       isLoading: false,

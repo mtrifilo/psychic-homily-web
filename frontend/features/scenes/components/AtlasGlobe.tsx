@@ -656,11 +656,20 @@ export function AtlasGlobe() {
             : '0px',
         } as CSSProperties)
       : undefined
-    // The globe's bottom chrome. In the panel layout each control docks on
-    // its own: Drift bottom-centre, the genre key bottom-right, and the "not
-    // on the map" link bottom-left above the credit's strip. The sheet layout
-    // groups them bottom-left (see its render below). The genre key is hidden
-    // while a preview is open: you're reading one scene, not scanning.
+    // The globe's chrome beyond the search. In the panel layout each control
+    // docks on its own: My Scenes under the search, Drift bottom-centre, the
+    // genre key bottom-right, and the "not on the map" link bottom-left above
+    // the credit's strip. The sheet layout stacks them down the left edge (see
+    // its render below). The genre key is hidden while a preview is open:
+    // you're reading one scene, not scanning.
+    const myScenesStrip = (
+      <MyScenesStrip
+        scenes={allScenes}
+        onPick={handleSearchPick}
+        inFlow={sheetLayout}
+      />
+    )
+    // 38px tall; GenreLegend's collapsed chip matches it (see its doc).
     const driftButton = (
       <button
         type="button"
@@ -845,18 +854,22 @@ export function AtlasGlobe() {
           {globeChromeVisible && (
             <>
               {sheetLayout ? (
-                // The credit is top-left in this layout, so the bottom-left
-                // corner is free: one column holds the "not on the map" link
-                // above a row of Drift and the genre key, so none of them can
-                // overlap. The column spans only the band below the strip no
-                // sheet may cover, so an open key on a short pane scrolls
-                // inside it rather than growing over the credit. Only the
-                // controls take taps; the rest of the column stays the map's.
-                <div className="pointer-events-none absolute bottom-4 left-4 top-[var(--atlas-sheet-top-inset)] z-10 flex flex-col items-start justify-end gap-2">
-                  {unplaceableLink}
-                  <div className="flex min-h-0 items-end gap-5">
-                    {driftButton}
-                    {genreLegend}
+                // The credit is top-left in this layout. One column spans the
+                // band below the strip no sheet may cover, down the left edge:
+                // My Scenes at its top, and at its bottom the "not on the map"
+                // link above a row of Drift and the genre key. Nothing in it
+                // can overlap, and an open key on a short pane shrinks and
+                // scrolls inside the room left rather than growing over the
+                // credit or the strip. Only the controls take taps; the rest
+                // of the column stays the map's.
+                <div className="pointer-events-none absolute bottom-4 left-4 top-[var(--atlas-sheet-top-inset)] z-10 flex flex-col items-start gap-2">
+                  {myScenesStrip}
+                  <div className="mt-auto flex min-h-0 flex-col items-start gap-2">
+                    {unplaceableLink}
+                    <div className="flex min-h-0 items-end gap-5">
+                      {driftButton}
+                      {genreLegend}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -868,13 +881,9 @@ export function AtlasGlobe() {
                 triggerRef={searchTriggerRef}
                 getListMinTopPx={searchListMinTopPx}
               />
-              <MyScenesStrip
-                scenes={allScenes}
-                onPick={handleSearchPick}
-                belowTopCredit={sheetLayout}
-              />
               {!sheetLayout && (
                 <>
+                  {myScenesStrip}
                   {genreLegend}
                   {unplaceableLink}
                 </>

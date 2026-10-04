@@ -572,12 +572,13 @@ describe('AtlasGlobe', () => {
       await screen.findByTestId('globe-canvas')
       expect(lastCanvasProps.attributionPosition).toBe('top-left')
       expect(legendToggle()).toHaveAttribute('aria-expanded', 'false')
-      // One column: the "not on the map" link (Faketown has no coords), then
-      // a row of Drift and the genre key, so none of them can overlap.
+      // One column; at its foot the "not on the map" link (Faketown has no
+      // coords) above a row of Drift and the genre key, so none can overlap.
       const row = drift().parentElement!
-      const column = row.parentElement!
+      const bottomGroup = row.parentElement!
+      const column = bottomGroup.parentElement!
       expect(row).toContainElement(legendToggle())
-      expect(column.firstElementChild).toBe(notOnMapLink())
+      expect(bottomGroup.firstElementChild).toBe(notOnMapLink())
       expect(column).toHaveClass('absolute', 'bottom-4', 'left-4', 'flex', 'flex-col')
       // The column's gaps stay the map's; only the controls take taps.
       expect(column).toHaveClass('pointer-events-none')
@@ -594,7 +595,7 @@ describe('AtlasGlobe', () => {
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
       const row = drift().parentElement!
-      const column = row.parentElement!
+      const column = row.parentElement!.parentElement!
       // The pane publishes the strip no sheet may cover; the column starts
       // below it and stacks from the bottom, so an open key on a short pane
       // shrinks into the column (and scrolls) instead of rising over the
@@ -602,14 +603,49 @@ describe('AtlasGlobe', () => {
       expect(screen.getByTestId('globe-canvas').parentElement).toHaveStyle({
         '--atlas-sheet-top-inset': `${ATLAS_SHEET_TOP_INSET_PX}px`,
       })
-      expect(column).toHaveClass('top-[var(--atlas-sheet-top-inset)]', 'justify-end')
+      expect(column).toHaveClass('top-[var(--atlas-sheet-top-inset)]', 'flex-col')
       expect(row).toHaveClass('min-h-0')
+      // The bottom group sits at the column's foot and can shrink.
+      expect(row.parentElement).toHaveClass('mt-auto', 'min-h-0')
+      expect(row.parentElement!.parentElement).toBe(column)
       expect(legendToggle().parentElement).toHaveClass('max-h-full', 'min-h-0')
       expect(document.getElementById('atlas-genre-legend')).toHaveClass(
         'min-h-0',
         'overflow-y-auto',
       )
       expect(notOnMapLink()).toHaveClass('shrink-0')
+    })
+
+    it('heads the sheet layout’s column with My Scenes, so an open key cannot rise under it', async () => {
+      mockUseMyFollowing.mockReturnValue({
+        data: { following: [{ slug: 'chicago-il', name: 'Chicago' }], total: 1 },
+      } as never)
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
+      setMockContainerWidth(820)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const strip = screen.getByRole('navigation', { name: 'My scenes' })
+      const column = drift().parentElement!.parentElement!.parentElement!
+      expect(column.firstElementChild).toBe(strip)
+      expect(strip).toHaveClass('shrink-0')
+      expect(strip).not.toHaveClass('absolute')
+      mockUseMyFollowing.mockReturnValue({ data: undefined })
+    })
+
+    it('keeps My Scenes under the search in the panel layout', async () => {
+      mockUseMyFollowing.mockReturnValue({
+        data: { following: [{ slug: 'chicago-il', name: 'Chicago' }], total: 1 },
+      } as never)
+      matchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+      setMockContainerWidth(1400)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      expect(screen.getByRole('navigation', { name: 'My scenes' })).toHaveClass(
+        'absolute',
+        'left-4',
+        'top-16',
+      )
+      mockUseMyFollowing.mockReturnValue({ data: undefined })
     })
 
     it('keeps the panel layout’s own placements below lg, clear of the bottom-left credit', async () => {

@@ -26,7 +26,7 @@ describe('GenreLegend', () => {
     // The toggle stays first in the DOM (aria-controls order); the reversed
     // column draws the key above it until lg, where the key drops below.
     expect(container.firstElementChild?.firstElementChild).toBe(toggle())
-    expect(container.firstElementChild).toHaveClass('flex', 'flex-col-reverse', 'lg:block')
+    expect(container.firstElementChild).toHaveClass('flex', 'flex-col-reverse', 'lg:flex-col')
   })
 
   it('takes its placement from the caller', () => {
@@ -56,6 +56,17 @@ describe('GenreLegend', () => {
     render(<GenreLegend openChoice onOpenChange={() => {}} />)
     expect(toggle()).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Mixed / no data')).toBeVisible()
+  })
+
+  it('scrolls the open key inside a height the caller bounds, at every width', () => {
+    const { container } = render(
+      <GenreLegend openChoice onOpenChange={() => {}} className="max-h-full min-h-0" />,
+    )
+    expect(container.firstElementChild).toHaveClass('max-h-full', 'min-h-0')
+    expect(toggle()).toHaveClass('shrink-0')
+    const list = document.getElementById('atlas-genre-legend')
+    expect(list).toHaveClass('min-h-0', 'overflow-y-auto')
+    expect(list?.className).not.toMatch(/lg:overflow-visible/)
   })
 
   it('reports the opposite of what it shows when toggled', () => {

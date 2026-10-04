@@ -49,8 +49,9 @@ function sceneShowRowTitle(show: SceneShowSummary): string {
  * artists, and the link into the full scene page. Shared between the desktop
  * globe's ScenePreviewPanel and the mobile list's expanded rows (PSY-1311), so
  * the two surfaces can't fork. Fetches on mount: mount it only when the
- * preview is actually open/expanded. Its links are touch-sized (at least 24px
- * tall) in every host, since the mobile list is a phone surface too.
+ * preview is actually open/expanded. Its own show, artist and scene links are
+ * touch-sized (at least 24px tall) in every host, since the mobile list is a
+ * phone surface too.
  */
 export function ScenePreviewContent({
   scene,
