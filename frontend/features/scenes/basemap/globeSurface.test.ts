@@ -279,10 +279,17 @@ describe('globe land data file', () => {
 describe('prefetchGlobeLand', () => {
   const LAND: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
-  // Answers the land file; any other request stays in flight.
+  // Answers the land file; any other request stays in flight. Either way a
+  // request rejects as soon as its abort signal fires, as a real fetch does.
   function stubFetch(response: () => Promise<unknown>) {
-    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>((url) =>
-      url === GLOBE_LAND_DATA_URL ? response() : new Promise(() => {}),
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>(
+      (url, init) =>
+        new Promise((resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          )
+          ;(url === GLOBE_LAND_DATA_URL ? response() : new Promise(() => {})).then(resolve, reject)
+        }),
     )
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
@@ -637,5 +644,14 @@ describe('boundary lines and place data', () => {
     const { map, setData } = fakeMap()
     mod.showGlobeSurface(map, true)
     await vi.waitFor(() => expect(setData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL))
+  })
+
+  it('never aborts the land prefetch, so a slow one still serves later maps', async () => {
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>(() => ok())
+    vi.stubGlobal('fetch', fetchMock)
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    await settle()
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeUndefined()
   })
 })

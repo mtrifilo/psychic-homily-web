@@ -196,16 +196,23 @@ export type CollectionResult =
   | { data: GeoJSON.FeatureCollection }
   | { data: null; status: number | undefined }
 
-// How long one main-thread fetch of a light-look file may take, body
+// How long one main-thread fetch of a boundary or place file may take, body
 // included, before it is aborted and counts as a network failure, so a
 // stalled request is retried, reported or replaced like a failed one.
 const FETCH_DEADLINE_MS = 10_000
 
-/** The one fetch and check every light-look file goes through. */
-function fetchCollection(url: string): Promise<CollectionResult> {
+/**
+ * The one fetch and check every light-look file goes through. With
+ * `deadline: false` the request is never aborted (the land prefetch, which
+ * keeps serving later maps whenever it lands).
+ */
+function fetchCollection(
+  url: string,
+  { deadline = true }: { deadline?: boolean } = {},
+): Promise<CollectionResult> {
   const controller = new AbortController()
-  const deadline = setTimeout(() => controller.abort(), FETCH_DEADLINE_MS)
-  return fetch(url, { signal: controller.signal })
+  const timer = deadline ? setTimeout(() => controller.abort(), FETCH_DEADLINE_MS) : undefined
+  return fetch(url, deadline ? { signal: controller.signal } : undefined)
     .then(
       (response): Promise<CollectionResult> | CollectionResult =>
         response.ok
@@ -225,7 +232,7 @@ function fetchCollection(url: string): Promise<CollectionResult> {
           : { data: null, status: response.status },
       (): CollectionResult => ({ data: null, status: 0 }),
     )
-    .finally(() => clearTimeout(deadline))
+    .finally(() => clearTimeout(timer))
 }
 
 // The three kinds of light-look file load differently because they matter at
@@ -267,7 +274,7 @@ const WAIT_EXPIRED = Symbol('wait expired')
  */
 export function prefetchGlobeLand(): void {
   if (landPrefetch) return
-  landPrefetch = fetchCollection(GLOBE_LAND_DATA_URL)
+  landPrefetch = fetchCollection(GLOBE_LAND_DATA_URL, { deadline: false })
     .then((result) => result.data)
     .finally(() => {
       landPrefetchSettled = true
