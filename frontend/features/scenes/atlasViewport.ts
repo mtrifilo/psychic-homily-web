@@ -42,12 +42,6 @@ export function useAtlasCompactViewport(): boolean {
 }
 
 /**
- * The visitor preference that, on a narrow pane, swaps the map for the scene
- * list (see {@link atlasRendersSceneList}).
- */
-export const ATLAS_REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
-
-/**
  * Below this map-pane width, a visitor who prefers reduced motion gets the
  * scene list instead of the map. At and above it they get the map, which
  * already honours the preference (no pulse rings; camera moves cut rather
@@ -82,13 +76,21 @@ export function atlasRendersSceneList({
 
 /**
  * Whether a canvas from `createCanvas` yields a WebGL2 context, the only
- * context type MapLibre asks for. The probe's context is released at once
- * (browsers cap the live contexts a page may hold), and a throwing canvas
- * counts as no support.
+ * context type MapLibre asks for. The probe asks for the smallest drawing
+ * buffer that still answers the question, releases its context at once
+ * (browsers cap the live contexts a page may hold), and counts a throwing
+ * canvas as no support.
  */
 export function probeWebGL2(createCanvas: () => HTMLCanvasElement): boolean {
   try {
-    const gl = createCanvas().getContext('webgl2')
+    const canvas = createCanvas()
+    canvas.width = 1
+    canvas.height = 1
+    const gl = canvas.getContext('webgl2', {
+      antialias: false,
+      depth: false,
+      stencil: false,
+    })
     if (!gl) return false
     gl.getExtension('WEBGL_lose_context')?.loseContext()
     return true

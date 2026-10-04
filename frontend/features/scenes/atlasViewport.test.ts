@@ -56,19 +56,15 @@ describe('atlasRendersSceneList', () => {
     }
   })
 
-  it('lists the scenes for reduced motion only below the threshold', () => {
+  it.each([
+    [390, true],
+    [below, true],
+    [at, false],
+    [1440, false],
+  ])('for reduced motion on a %ipx pane, lists the scenes: %s', (paneWidthPx, list) => {
     expect(
-      atlasRendersSceneList({ paneWidthPx: 390, supportsWebGL2: true, prefersReducedMotion: true }),
-    ).toBe(true)
-    expect(
-      atlasRendersSceneList({ paneWidthPx: below, supportsWebGL2: true, prefersReducedMotion: true }),
-    ).toBe(true)
-    expect(
-      atlasRendersSceneList({ paneWidthPx: at, supportsWebGL2: true, prefersReducedMotion: true }),
-    ).toBe(false)
-    expect(
-      atlasRendersSceneList({ paneWidthPx: 1440, supportsWebGL2: true, prefersReducedMotion: true }),
-    ).toBe(false)
+      atlasRendersSceneList({ paneWidthPx, supportsWebGL2: true, prefersReducedMotion: true }),
+    ).toBe(list)
   })
 })
 
@@ -82,7 +78,7 @@ describe('probeWebGL2', () => {
     const getExtension = vi.fn(() => ({ loseContext }))
     const getContext = vi.fn(() => ({ getExtension }))
     expect(probeWebGL2(canvasReturning(getContext))).toBe(true)
-    expect(getContext).toHaveBeenCalledWith('webgl2')
+    expect(getContext).toHaveBeenCalledWith('webgl2', expect.objectContaining({ antialias: false }))
     expect(getExtension).toHaveBeenCalledWith('WEBGL_lose_context')
     expect(loseContext).toHaveBeenCalledTimes(1)
   })

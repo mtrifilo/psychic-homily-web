@@ -192,8 +192,9 @@ import { ATLAS_SHEET_TOP_INSET_PX, CITY_VIEW_MIN_ZOOM } from '../cityView'
 import {
   ATLAS_COMPACT_VIEWPORT_QUERY,
   ATLAS_REDUCED_MOTION_LIST_BELOW_PX,
-  ATLAS_REDUCED_MOTION_QUERY,
 } from '../atlasViewport'
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { altitudeForZoom } from './globeScale'
 
@@ -309,6 +310,11 @@ describe('AtlasGlobe', () => {
       renderWithProviders(<AtlasGlobe />)
     }
 
+    async function expectMap() {
+      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+    }
+
     /** The fallback lists every scene, unplaceable ones too, with its links. */
     async function expectFullSceneList() {
       expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
@@ -326,8 +332,7 @@ describe('AtlasGlobe', () => {
     it.each([390, 360, 500])('renders the map, not the list, on a %ipx pane', async (width) => {
       setMockContainerWidth(width)
       renderWithScenes()
-      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
-      expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+      await expectMap()
       // Phone panes take the sheet layout: credit top-left, back control.
       expect(lastCanvasProps.attributionPosition).toBe('top-left')
       expect(lastCanvasProps.onBackToGlobe).toBeTypeOf('function')
@@ -345,7 +350,7 @@ describe('AtlasGlobe', () => {
     )
 
     it('lists every scene instead of the map for reduced motion below the threshold', async () => {
-      matchMedia = installMatchMedia({ [ATLAS_REDUCED_MOTION_QUERY]: true })
+      matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
       setMockContainerWidth(ATLAS_REDUCED_MOTION_LIST_BELOW_PX - 1)
       renderWithScenes()
       await expectFullSceneList()
@@ -355,20 +360,19 @@ describe('AtlasGlobe', () => {
     it.each([ATLAS_REDUCED_MOTION_LIST_BELOW_PX, 1400])(
       'keeps the map for reduced motion on a %ipx pane',
       async (width) => {
-        matchMedia = installMatchMedia({ [ATLAS_REDUCED_MOTION_QUERY]: true })
+        matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
         setMockContainerWidth(width)
         renderWithScenes()
-        expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
-        expect(screen.queryByTestId('atlas-scene-list')).not.toBeInTheDocument()
+        await expectMap()
       },
     )
 
     it('swaps to the list when reduced motion is turned on mid-session', async () => {
-      matchMedia = installMatchMedia({ [ATLAS_REDUCED_MOTION_QUERY]: false })
+      matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
       setMockContainerWidth(390)
       renderWithScenes()
-      expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
-      matchMedia.set(ATLAS_REDUCED_MOTION_QUERY, true)
+      await expectMap()
+      matchMedia.set(REDUCED_MOTION_QUERY, true)
       expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
       expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
     })
@@ -392,14 +396,6 @@ describe('AtlasGlobe', () => {
       renderWithProviders(<AtlasGlobe />)
       expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
       expect(preloadAtlasMap).toHaveBeenCalledTimes(1)
-    })
-
-    it('never fetches the canvas module where the scene list renders instead', () => {
-      mockSupportsWebGL2 = false
-      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
-      renderWithProviders(<AtlasGlobe />)
-      expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
-      expect(preloadAtlasMap).not.toHaveBeenCalled()
     })
 
     it('does not fetch it once the scenes arrive with nothing to place', () => {

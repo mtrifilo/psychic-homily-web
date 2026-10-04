@@ -7,10 +7,10 @@
 //
 // Target a production build (a Vercel preview, or `next build && next start`).
 // `next dev` serves unminified, uncompressed bundles and is not a valid target.
-// AtlasGlobe renders a scene list instead of the map where the browser has no
-// WebGL2, or where reduced motion is preferred on a pane narrower than 640px
-// (atlasRendersSceneList); the script requests neither, and if the page shows
-// the list anyway it stops at once with exit code 2.
+// AtlasGlobe renders a scene list instead of the map in the conditions
+// atlasRendersSceneList (features/scenes/atlasViewport.ts) names; the script
+// sets up none of them, and if the page shows the list anyway it stops at once
+// with exit code 2.
 //
 // Options:
 //   --runs N            cold runs; the budget is checked on the medians (default 3)

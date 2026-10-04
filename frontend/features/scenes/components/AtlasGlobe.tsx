@@ -69,12 +69,8 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
-import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
-import {
-  ATLAS_REDUCED_MOTION_QUERY,
-  atlasRendersSceneList,
-  atlasSupportsWebGL2,
-} from '../atlasViewport'
+import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+import { atlasRendersSceneList, atlasSupportsWebGL2 } from '../atlasViewport'
 
 // North America centroid — the default focus before/without visitor geo, so the
 // first paint shows the populated cluster rather than empty ocean (PSY-1211).
@@ -614,9 +610,7 @@ export function AtlasGlobe() {
     }
   }, [isError])
 
-  const prefersReducedMotion = useMediaQuery(ATLAS_REDUCED_MOTION_QUERY)
-  // Asked only once the pane is measured, which happens on the client: the
-  // WebGL2 probe needs a document.
+  const prefersReducedMotion = useReducedMotion()
   const showsSceneList =
     size !== null &&
     atlasRendersSceneList({
