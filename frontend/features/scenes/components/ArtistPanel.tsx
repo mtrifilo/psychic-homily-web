@@ -257,17 +257,13 @@ export function ArtistPanel({
       </p>
     </>
   )
-  const identityLine = (
-    <>
-      {identity && (
-        <p
-          data-testid="artist-panel-identity"
-          className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
-        >
-          {identity}
-        </p>
-      )}
-    </>
+  const identityLine = identity && (
+    <p
+      data-testid="artist-panel-identity"
+      className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+    >
+      {identity}
+    </p>
   )
   const details = (
     <>
@@ -349,7 +345,7 @@ export function ArtistPanel({
         // Escape pops ONE level, as in the panel.
         onDismiss={onBack}
         topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
-        bodyClassName="px-0 pb-0 pt-0"
+        flushBody
       >
         <div className="px-4 pb-3">
           <div className="flex">{backButton}</div>

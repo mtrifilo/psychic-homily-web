@@ -406,15 +406,15 @@
 }
 
 /* The Atlas sheet layout (panes under 900px) puts the credit top-left, under
- * the status row: a 16px inset, the 36px row, a 10px gap. Bottom sheets own
- * the bottom edge there, and ATLAS_SHEET_TOP_INSET_PX in cityView.ts keeps
- * every sheet detent below this strip, so the two numbers move together.
- * The pane spans the viewport at these widths, hence the vw bound. */
+ * the status row, at --atlas-top-credit-offset (published by AtlasGlobe from
+ * ATLAS_TOP_CREDIT_OFFSET_PX in cityView.ts). Bottom sheets own the bottom
+ * edge there and stop at --atlas-sheet-top-inset, below the credit. The pane
+ * spans the viewport at these widths, hence the vw bound. */
 [data-atlas-credit='top']
   .maplibregl-map
   .maplibregl-ctrl-top-left
   .maplibregl-ctrl.maplibregl-ctrl-attrib {
-  margin: 62px 0 0 16px;
+  margin: var(--atlas-top-credit-offset) 0 0 16px;
   max-width: calc(100vw - 2rem);
 }
 

@@ -100,10 +100,6 @@ export function VenueRail({
     () => venuesSpanMetro(allVenues, principalCity),
     [allVenues, principalCity],
   )
-  // The fetch cap bit, so `allVenues` is one busiest-first page rather than the
-  // whole metro: the "showing the N busiest of M" line says so.
-  const listTruncated = isVenueListTruncated(totalVenueCount, allVenues.length)
-
   return (
     <aside
       aria-label={`Venues in ${cityLabel}`}
@@ -144,14 +140,11 @@ export function VenueRail({
           )}
         </p>
 
-        {/* The list is one page deep. A city with more venues than the cap
-            would otherwise read as if it had exactly the cap — say so instead.
-            The API sorts busiest-first, so "busiest" is accurate. */}
-        {listTruncated && (
-          <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
-            showing the {allVenues.length} busiest of {totalVenueCount}
-          </p>
-        )}
+        <VenueRailTruncationNote
+          listedCount={allVenues.length}
+          totalVenueCount={totalVenueCount}
+          className="mt-1"
+        />
 
         <VenueRailFilters
           allVenues={allVenues}
@@ -206,6 +199,29 @@ function isVenueListTruncated(
   listedCount: number,
 ): boolean {
   return totalVenueCount !== undefined && totalVenueCount > listedCount
+}
+
+/**
+ * "showing the N busiest of M" when the fetch cap cut the city to one page,
+ * else nothing. A city with more venues than the cap would otherwise read as
+ * if it had exactly the cap; the API sorts busiest-first, so "busiest" is
+ * accurate. Shared by the rail and the phone venue-list sheet.
+ */
+export function VenueRailTruncationNote({
+  listedCount,
+  totalVenueCount,
+  className,
+}: {
+  listedCount: number
+  totalVenueCount?: number
+  className?: string
+}) {
+  if (!isVenueListTruncated(totalVenueCount, listedCount)) return null
+  return (
+    <p className={`font-mono text-[11px] leading-4 text-muted-foreground ${className ?? ''}`}>
+      showing the {listedCount} busiest of {totalVenueCount}
+    </p>
+  )
 }
 
 /**

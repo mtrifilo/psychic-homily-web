@@ -28,6 +28,7 @@ import {
 } from './globeTypes'
 import {
   ATLAS_SHEET_TOP_INSET_PX,
+  ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_RAIL_WIDTH_PX,
   CITY_VENUE_FETCH_LIMIT,
   NO_CITY_VENUE_FILTERS,
@@ -317,13 +318,7 @@ export function AtlasGlobe() {
   )
   const venueStackMarkers = useMemo<VenueStackMarker[]>(
     () =>
-      venueStacks.map((stack) => ({
-        key: stack.key,
-        lng: stack.lng,
-        lat: stack.lat,
-        venueIds: stack.venueIds,
-        label: venueStackLabel(stack),
-      })),
+      venueStacks.map((stack) => ({ ...stack, label: venueStackLabel(stack) })),
     [venueStacks],
   )
   const scopedStack =
@@ -610,8 +605,12 @@ export function AtlasGlobe() {
     const canvasWidth = railOpen ? size.width - CITY_RAIL_WIDTH_PX : size.width
     const panelPresentation = sheetLayout ? 'sheet' : 'panel'
     const listSheetShown = sheetLayout && cityScene !== null && !selectedVenue
+    // The sheet layout's geometry, published to CSS from the TS constants so
+    // globals.css and the chrome positioned against it read one source.
     const paneStyle = sheetLayout
       ? ({
+          '--atlas-top-credit-offset': `${ATLAS_TOP_CREDIT_OFFSET_PX}px`,
+          '--atlas-sheet-top-inset': `${ATLAS_SHEET_TOP_INSET_PX}px`,
           '--atlas-sheet-offset': listSheetShown
             ? bottomSheetHeightCss(listDetent, ATLAS_SHEET_TOP_INSET_PX)
             : '0px',

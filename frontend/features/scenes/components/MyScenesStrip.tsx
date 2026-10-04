@@ -35,7 +35,8 @@ export function MyScenesStrip({
   onPick: (scene: PlaceableScene) => void
   /**
    * Sit below a top-left map credit (the Atlas sheet layout) instead of
-   * directly under the search control, where the credit is.
+   * directly under the search control, where the credit is. Reads the pane's
+   * `--atlas-sheet-top-inset`.
    */
   belowTopCredit?: boolean
 }) {
@@ -76,7 +77,7 @@ export function MyScenesStrip({
     <nav
       aria-label="My scenes"
       className={`pointer-events-none absolute left-4 z-10 flex max-w-[min(50vw,24rem)] flex-wrap items-center gap-1.5 ${
-        belowTopCredit ? 'top-28' : 'top-16'
+        belowTopCredit ? 'top-[var(--atlas-sheet-top-inset)]' : 'top-16'
       }`}
     >
       <Star aria-hidden className="h-3.5 w-3.5 text-primary" />

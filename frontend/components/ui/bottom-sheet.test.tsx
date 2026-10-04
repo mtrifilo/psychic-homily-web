@@ -198,10 +198,12 @@ describe('BottomSheet', () => {
     fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
     // Mid-drag the sheet tracks the finger: 120 + 200 of travel.
     expect(sheet).toHaveAttribute('data-dragging', 'true')
-    expect(sheet.style.getPropertyValue('--bottom-sheet-height')).toBe('320px')
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('320px')
     fireEvent.pointerUp(handle, { pointerId: 1, clientY: 400, pointerType: 'touch' })
 
     expect(sheet).not.toHaveAttribute('data-dragging')
+    // The live height is cleared, so the settled detent's height applies.
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe('')
     expect(sheet).toHaveAttribute('data-detent', 'half')
   })
 
@@ -212,7 +214,7 @@ describe('BottomSheet', () => {
     const handle = screen.getByTestId('bottom-sheet-handle')
     fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700, button: 0, pointerType: 'touch' })
     fireEvent.pointerMove(handle, { pointerId: 1, clientY: 0, pointerType: 'touch' })
-    expect(sheet.style.getPropertyValue('--bottom-sheet-height')).toBe(`${HOST - INSET}px`)
+    expect(sheet.style.getPropertyValue('--bottom-sheet-drag-height')).toBe(`${HOST - INSET}px`)
   })
 
   it('treats travel under the slop as a tap, not a drag', () => {

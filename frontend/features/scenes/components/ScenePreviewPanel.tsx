@@ -98,11 +98,7 @@ export function ScenePreviewPanel({
   }, [onClose, isSheet])
 
   const title = `${scene.city}, ${scene.state}`
-  const stats = (
-    <>
-      {scene.upcoming_show_count} upcoming · {scene.venue_count} venues
-    </>
-  )
+  const stats = `${scene.upcoming_show_count} upcoming · ${scene.venue_count} venues`
 
   if (isSheet) {
     return (
@@ -117,10 +113,11 @@ export function ScenePreviewPanel({
         onClose={onClose}
         closeLabel="Close scene preview"
         topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
-        bodyClassName="flex flex-col gap-4"
       >
-        <p className="font-mono text-sm text-muted-foreground">{stats}</p>
-        <ScenePreviewContent scene={scene} className="flex-1" />
+        <div className="flex min-h-full flex-col gap-4">
+          <p className="font-mono text-sm text-muted-foreground">{stats}</p>
+          <ScenePreviewContent scene={scene} className="flex-1" />
+        </div>
       </BottomSheet>
     )
   }

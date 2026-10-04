@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils'
 export type BottomSheetDetent = 'peek' | 'half' | 'full'
 
 /** Shortest to tallest; settling and the grabber both walk this order. */
-export const BOTTOM_SHEET_DETENTS: readonly BottomSheetDetent[] = [
+const BOTTOM_SHEET_DETENTS: readonly BottomSheetDetent[] = [
   'peek',
   'half',
   'full',
@@ -51,7 +51,7 @@ export const BOTTOM_SHEET_DRAG_SLOP_PX = 6
  * Release speed (CSS px per ms) at or above which a drag counts as a fling
  * and moves to the next detent in its direction instead of the nearest one.
  */
-export const BOTTOM_SHEET_FLING_PX_PER_MS = 0.5
+const BOTTOM_SHEET_FLING_PX_PER_MS = 0.5
 
 /**
  * The height a detent renders at inside a host of `hostHeightPx`.
@@ -125,6 +125,11 @@ function nextGrabberDetent(detent: BottomSheetDetent): BottomSheetDetent {
   return detent === 'peek' ? 'half' : 'full'
 }
 
+/** The detent's rendered height, as a CSS length against the host. */
+export const DETENT_HEIGHT_VAR = '--bottom-sheet-height'
+/** The live height during a drag, in px; unset otherwise. */
+export const DRAG_HEIGHT_VAR = '--bottom-sheet-drag-height'
+
 // How long after a drag ends a click on the grabber is still the drag's.
 const DRAG_CLICK_GUARD_MS = 300
 
@@ -155,10 +160,7 @@ interface DragState {
 export interface BottomSheetProps {
   /** Heading text in the sheet's header. */
   title: ReactNode
-  /**
-   * Plain-text name for the grabber's accessible label ("Expand <name>"), and
-   * the sheet's accessible name when `aria-label` is not given.
-   */
+  /** Plain-text name for the grabber's accessible label ("Expand <name>"). */
   label: string
   /** Controlled detent. Pair with `onDetentChange`. */
   detent?: BottomSheetDetent
@@ -174,9 +176,10 @@ export interface BottomSheetProps {
   /** Strip at the top of the host no detent may cover; see bottomSheetHeightPx. */
   topInsetPx?: number
   children?: ReactNode
-  /** Extra classes on the Body slot (it scrolls; default padding px-4 pb-4 pt-1). */
-  bodyClassName?: string
+  /** Drops the Body slot's DS padding, for content with full-bleed rows. */
+  flushBody?: boolean
   className?: string
+  /** The sheet's accessible name; defaults to the title. */
   'aria-label'?: string
   'data-testid'?: string
   ref?: Ref<HTMLElement>
@@ -194,7 +197,7 @@ export function BottomSheet({
   onDismiss,
   topInsetPx = 0,
   children,
-  bodyClassName,
+  flushBody = false,
   className,
   'aria-label': ariaLabel,
   'data-testid': testId,
@@ -223,9 +226,15 @@ export function BottomSheet({
     [ref],
   )
 
-  // Live height while a drag is in progress; null whenever the detent owns it.
-  const [dragHeight, setDragHeight] = useState<number | null>(null)
+  // While a drag is in progress the live height is written straight to
+  // DRAG_HEIGHT_VAR on the sheet (one style write per pointer move, no
+  // render); the detent's height is the fallback whenever it is unset.
+  const [dragging, setDragging] = useState(false)
   const dragRef = useRef<DragState | null>(null)
+  const clearDragHeight = () => {
+    sheetRef.current?.style.removeProperty(DRAG_HEIGHT_VAR)
+    setDragging(false)
+  }
   // A drag released over the grabber can end in a click on it; a click that
   // close behind a drag's end belongs to the drag, not to the grabber.
   const lastDragEndRef = useRef(-Infinity)
@@ -259,6 +268,7 @@ export function BottomSheet({
     if (!drag.active) {
       if (Math.abs(e.clientY - drag.startY) < BOTTOM_SHEET_DRAG_SLOP_PX) return
       drag.active = true
+      setDragging(true)
       // Captured only once the press is a drag: capturing on press would
       // retarget the click a tap on the grabber relies on.
       e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -267,7 +277,10 @@ export function BottomSheet({
     if (elapsed > 0) drag.velocity = (drag.lastY - e.clientY) / elapsed
     drag.lastY = e.clientY
     drag.lastTime = e.timeStamp
-    setDragHeight(clampDragHeight(drag, e.clientY))
+    sheetRef.current?.style.setProperty(
+      DRAG_HEIGHT_VAR,
+      `${clampDragHeight(drag, e.clientY)}px`,
+    )
   }
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -276,7 +289,7 @@ export function BottomSheet({
     dragRef.current = null
     if (!drag.active) return
     lastDragEndRef.current = performance.now()
-    setDragHeight(null)
+    clearDragHeight()
     setDetent(
       settleBottomSheetDetent({
         heightPx: clampDragHeight(drag, e.clientY),
@@ -289,7 +302,7 @@ export function BottomSheet({
 
   const handlePointerCancel = () => {
     dragRef.current = null
-    setDragHeight(null)
+    clearDragHeight()
   }
 
   const handleGrabberClick = () => {
@@ -320,21 +333,18 @@ export function BottomSheet({
         data-testid={testId}
         data-slot="bottom-sheet"
         data-detent={detent}
-        data-dragging={dragHeight !== null ? 'true' : undefined}
+        data-dragging={dragging ? 'true' : undefined}
         style={
           {
-            // A custom property rather than `height` directly so the live
-            // value is readable back as authored, and so a host can mirror it.
-            '--bottom-sheet-height':
-              dragHeight !== null
-                ? `${dragHeight}px`
-                : bottomSheetHeightCss(detent, topInsetPx),
-            height: 'var(--bottom-sheet-height)',
+            // Custom properties rather than `height` directly so each value
+            // reads back as authored.
+            [DETENT_HEIGHT_VAR]: bottomSheetHeightCss(detent, topInsetPx),
+            height: `var(${DRAG_HEIGHT_VAR}, var(${DETENT_HEIGHT_VAR}))`,
           } as CSSProperties
         }
         className={cn(
           'absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-lg border-t border-border bg-popover text-popover-foreground shadow-lg',
-          dragHeight === null &&
+          !dragging &&
             'transition-[height] duration-200 ease-out motion-reduce:transition-none',
           className,
         )}
@@ -388,8 +398,8 @@ export function BottomSheet({
           // overscroll-contain: reaching the end of the body never chains the
           // scroll to the page behind the sheet.
           className={cn(
-            'min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-1',
-            bodyClassName,
+            'min-h-0 flex-1 overflow-y-auto overscroll-contain',
+            !flushBody && 'px-4 pb-4 pt-1',
           )}
         >
           {children}

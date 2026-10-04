@@ -27,6 +27,7 @@ import { altitudeForZoom } from './components/globeScale'
 import { parseAtlasCityParam } from './atlasCityEntry'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 import { venuePinPosition } from './venuePinPosition'
+import { plural } from './sceneCalendar'
 
 // ── Engagement thresholds ─────────────────────────────────────────────────
 // City view is the STREET half of the Atlas: it engages once the camera is
@@ -861,15 +862,20 @@ export function usesAtlasSheetLayout(paneWidthPx: number): boolean {
 }
 
 /**
- * The strip at the top of the Atlas pane no sheet detent may cover, in CSS px.
- *
- * In the sheet layout the top-left of the map stacks, from the top: a 16px
- * inset, the 36px status row (back control + status chip, or the scene
- * search), a 10px gap, then the map credit, which can wrap to two 20px lines.
- * 16 + 36 + 10 + 40 = 102, plus a 10px gap above the sheet. The OpenStreetMap
- * credit is a license requirement, so the tallest detent stops below it.
+ * Where the map credit starts in the sheet layout, in CSS px from the pane
+ * top: a 16px inset, the 36px status row (back control + status chip, or the
+ * scene search), then a 10px gap. AtlasGlobe publishes it to CSS as
+ * `--atlas-top-credit-offset`.
  */
-export const ATLAS_SHEET_TOP_INSET_PX = 112
+export const ATLAS_TOP_CREDIT_OFFSET_PX = 16 + 36 + 10
+
+/**
+ * The strip at the top of the Atlas pane no sheet detent may cover, in CSS px:
+ * down to the credit, the credit itself (up to two 20px lines), and a 10px
+ * gap. The OpenStreetMap credit is a license requirement, so the tallest
+ * detent stops below it. AtlasGlobe publishes it as `--atlas-sheet-top-inset`.
+ */
+export const ATLAS_SHEET_TOP_INSET_PX = ATLAS_TOP_CREDIT_OFFSET_PX + 40 + 10
 
 /**
  * How many positioned venues fall inside `bounds`, edges inclusive. A box
@@ -907,7 +913,7 @@ export interface VenuePinStack {
 }
 
 /** Identity of a pin position; equal keys pin at the same point. */
-export function venuePinPointKey(lng: number, lat: number): string {
+function venuePinPointKey(lng: number, lat: number): string {
   return `${lng.toFixed(6)},${lat.toFixed(6)}`
 }
 
@@ -961,8 +967,7 @@ export function venueSheetTitle(
   venueCount: number,
   spansMetro: boolean,
 ): string {
-  const noun = venueCount === 1 ? 'venue' : 'venues'
-  return `${principalCity} · ${venueCount} ${spansMetro ? 'metro ' : ''}${noun}`
+  return `${principalCity} · ${plural(venueCount, spansMetro ? 'metro venue' : 'venue')}`
 }
 
 /**

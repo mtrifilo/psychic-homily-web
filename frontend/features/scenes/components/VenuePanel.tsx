@@ -228,17 +228,13 @@ export function VenuePanel({
     gatedConfirm(event)
   }
 
-  const identityLine = (
-    <>
-      {identity && (
-        <p
-          data-testid="venue-panel-identity"
-          className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
-        >
-          {identity}
-        </p>
-      )}
-    </>
+  const identityLine = identity && (
+    <p
+      data-testid="venue-panel-identity"
+      className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+    >
+      {identity}
+    </p>
   )
   const actions = (
     <>
@@ -398,7 +394,7 @@ export function VenuePanel({
         onClose={onClose}
         closeLabel={`Close ${venue.name} panel`}
         topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
-        bodyClassName="px-0 pb-0 pt-0"
+        flushBody
       >
         <div className="px-4 pb-3">
           {identityLine}

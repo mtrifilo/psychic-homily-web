@@ -13,7 +13,12 @@ import {
   type CityVenueFilters,
   type VenuePinStack,
 } from '../cityView'
-import { VenueRailFilters, VenueRailList, VenueRailProvenance } from './VenueRail'
+import {
+  VenueRailFilters,
+  VenueRailList,
+  VenueRailProvenance,
+  VenueRailTruncationNote,
+} from './VenueRail'
 
 interface VenueListSheetProps {
   /** The metro's principal city on its own, e.g. "Chicago". */
@@ -81,8 +86,6 @@ export function VenueListSheet({
     const ids = new Set(scopedStack.venueIds)
     return venues.filter((v) => ids.has(v.id))
   }, [venues, scopedStack])
-  const listTruncated =
-    totalVenueCount !== undefined && totalVenueCount > allVenues.length
   const peekLine = venueSheetPeekLine({ inViewCount, stacks })
 
   return (
@@ -95,69 +98,67 @@ export function VenueListSheet({
       onDetentChange={onDetentChange}
       onDismiss={() => onDetentChange('peek')}
       topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
-      bodyClassName="px-0 pb-0 pt-0"
+      flushBody
       className={hidden ? 'hidden' : undefined}
     >
-      {detent === 'peek' ? (
-        peekLine && (
-          <p
-            data-testid="venue-sheet-peek-line"
-            className="px-4 pt-1 font-mono text-[11px] leading-4 text-muted-foreground"
-          >
-            {peekLine}
-          </p>
-        )
-      ) : (
-        <>
-          <div className="space-y-2 px-4 pb-3">
-            {scopedStack ? (
-              <div className="flex items-center justify-between gap-3">
-                <p
-                  data-testid="venue-sheet-scope-line"
-                  className="font-mono text-[11px] leading-4 text-muted-foreground"
-                >
-                  {venueStackScopeLine(scopedStack)}
-                </p>
-                <button
-                  type="button"
-                  onClick={onClearScope}
-                  className="min-h-6 shrink-0 rounded-sm px-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  Show all
-                </button>
-              </div>
-            ) : (
-              listTruncated && (
-                <p className="font-mono text-[11px] leading-4 text-muted-foreground">
-                  showing the {allVenues.length} busiest of {totalVenueCount}
-                </p>
-              )
-            )}
-            <VenueRailFilters
-              allVenues={allVenues}
-              filters={filters}
-              onFiltersChange={onFiltersChange}
-              touch
-            />
-          </div>
-          <div className="border-t border-border">
-            <VenueRailList
-              venues={rows}
-              allVenues={allVenues}
-              principalCity={principalCity}
-              totalVenueCount={totalVenueCount}
-              loading={loading}
-              fetchFailed={fetchFailed}
-              filters={filters}
-              selectedVenueId={selectedVenueId}
-              onVenueSelect={onVenueSelect}
-            />
-          </div>
-          <div className="border-t border-border px-4 py-3">
-            <VenueRailProvenance allVenues={allVenues} />
-          </div>
-        </>
+      {detent === 'peek' && peekLine && (
+        <p
+          data-testid="venue-sheet-peek-line"
+          className="px-4 pt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+        >
+          {peekLine}
+        </p>
       )}
+      {/* Mounted at every detent and only hidden at Peek, so expanding keeps
+          the rows and their scroll position instead of rebuilding them. */}
+      <div className={detent === 'peek' ? 'hidden' : undefined}>
+        <div className="space-y-2 px-4 pb-3">
+          {scopedStack ? (
+            <div className="flex items-center justify-between gap-3">
+              <p
+                data-testid="venue-sheet-scope-line"
+                className="font-mono text-[11px] leading-4 text-muted-foreground"
+              >
+                {venueStackScopeLine(scopedStack)}
+              </p>
+              <button
+                type="button"
+                onClick={onClearScope}
+                className="min-h-6 shrink-0 rounded-sm px-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Show all
+              </button>
+            </div>
+          ) : (
+            <VenueRailTruncationNote
+              listedCount={allVenues.length}
+              totalVenueCount={totalVenueCount}
+            />
+          )}
+          <VenueRailFilters
+            allVenues={allVenues}
+            filters={filters}
+            onFiltersChange={onFiltersChange}
+            touch
+          />
+        </div>
+        <div className="border-t border-border">
+          <VenueRailList
+            venues={rows}
+            allVenues={allVenues}
+            principalCity={principalCity}
+            totalVenueCount={totalVenueCount}
+            loading={loading}
+            fetchFailed={fetchFailed}
+            filters={filters}
+            selectedVenueId={selectedVenueId}
+            onVenueSelect={onVenueSelect}
+          />
+        </div>
+        <div className="border-t border-border px-4 py-3">
+          <VenueRailProvenance allVenues={allVenues} />
+        </div>
+      </div>
     </BottomSheet>
   )
 }
