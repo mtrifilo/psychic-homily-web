@@ -146,14 +146,15 @@ export interface GlobeSurfaceMap {
 const landRequested = new WeakSet<object>()
 
 // The land file fetched on the main thread ahead of the map, once per page
-// load. Resolves to the parsed collection, or null after a failed, unusable
-// or stalled response (the map then fetches the file itself).
+// load. Resolves to the parsed collection, or null after a failed or unusable
+// response (the map then fetches the file itself).
 let landPrefetch: Promise<GeoJSON.FeatureCollection | null> | null = null
 
-// How long a map waits on the prefetch before fetching the file itself. A
-// stalled request would otherwise leave every map's land blank, since maps
-// wait on the prefetch rather than starting a second download.
-const LAND_PREFETCH_TIMEOUT_MS = 10_000
+// How long a map waits on an unfinished prefetch before fetching the file
+// itself. The clock starts when the map starts waiting, and the prefetch is
+// not cancelled, so a slow transfer is never thrown away; only a stalled one
+// costs a second download.
+const LAND_PREFETCH_WAIT_MS = 10_000
 
 /**
  * Starts fetching the land file before any map exists, so a map that shows
@@ -164,9 +165,7 @@ const LAND_PREFETCH_TIMEOUT_MS = 10_000
  */
 export function prefetchGlobeLand(): void {
   if (landPrefetch) return
-  landPrefetch = fetch(GLOBE_LAND_DATA_URL, {
-    signal: AbortSignal.timeout?.(LAND_PREFETCH_TIMEOUT_MS),
-  })
+  landPrefetch = fetch(GLOBE_LAND_DATA_URL)
     .then((response) => (response.ok ? response.json() : null))
     .then((data: unknown) =>
       (data as GeoJSON.FeatureCollection | null)?.type === 'FeatureCollection'
@@ -181,8 +180,9 @@ type LandSource = { setData(data: string | GeoJSON.FeatureCollection): unknown }
 /**
  * Switches a live map to one look. Idempotent; loads the land data at most
  * once per map, on the first switch to the light look: the prefetch's result
- * when a prefetch was started (waiting for it if it is still in flight, so the
- * file is never downloaded twice), else the file's URL, fetched by the map.
+ * when a prefetch was started (waiting up to LAND_PREFETCH_WAIT_MS for it if
+ * it is still in flight rather than starting a second download), else the
+ * file's URL, fetched by the map.
  */
 export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): void {
   if (lightGlobe && !landRequested.has(map)) {
@@ -190,7 +190,10 @@ export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): voi
     if (source) {
       landRequested.add(map)
       if (landPrefetch) {
-        void landPrefetch.then((data) => {
+        const waited = new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), LAND_PREFETCH_WAIT_MS),
+        )
+        void Promise.race([landPrefetch, waited]).then((data) => {
           // A map removed while the prefetch was in flight no longer owns this
           // source (a removed map has no style, so getSource answers
           // undefined); data sent to it would reach the worker for a map that

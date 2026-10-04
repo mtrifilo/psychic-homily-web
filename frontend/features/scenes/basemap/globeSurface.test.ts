@@ -277,11 +277,22 @@ describe('prefetchGlobeLand', () => {
     expect(setData).not.toHaveBeenCalled()
   })
 
-  it('gives the prefetch a timeout, so a stalled request falls back to the URL', async () => {
-    const fetchMock = stubFetch(() => new Promise(() => {}))
-    const mod = await freshModule()
-    mod.prefetchGlobeLand()
-    const init = fetchMock.mock.calls[0][1] as RequestInit | undefined
-    expect(init?.signal).toBeInstanceOf(AbortSignal)
+  it('waits 10 s on an unfinished prefetch, then fetches the URL without cancelling it', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = stubFetch(() => new Promise(() => {}))
+      const mod = await freshModule()
+      mod.prefetchGlobeLand()
+      const { map, setData } = fakeMap()
+      mod.showGlobeSurface(map, true)
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(setData).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(setData).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+      // The prefetch request carries no abort signal.
+      expect(fetchMock.mock.calls[0][1]).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
