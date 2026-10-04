@@ -7,6 +7,11 @@
 //
 // Target a production build (a Vercel preview, or `next build && next start`).
 // `next dev` serves unminified, uncompressed bundles and is not a valid target.
+// AtlasGlobe renders a scene list instead of the map in a container narrower
+// than 640px, so the default phone profile needs a build whose map renders at
+// 390px (a preview of a branch with that gate removed); against any other
+// build the script stops at once with exit code 2. `--viewport 800x1000`
+// measures the compact globe on a stock build.
 //
 // Options:
 //   --runs N            cold runs; the budget is checked on the medians (default 3)
@@ -18,22 +23,26 @@
 //   --json FILE         write the full report, including every request, to FILE
 //   --no-budget         report only; always exit 0 once a map renders
 //
-// Env: VERCEL_PROTECTION_BYPASS, if set, is sent only to *.vercel.app hosts to
-// get past preview SSO (as a one-time bypass cookie request, never on page
-// requests to other hosts).
+// Env: VERCEL_PROTECTION_BYPASS, if set, is sent to get past preview SSO, and
+// only when the target is an https URL on one of this project's Vercel preview
+// hosts (PREVIEW_HOST). It rides one bypass-cookie request, never page
+// requests, and is redacted from anything the script prints.
 //
 // Exit codes: 0 budget met (or --no-budget), 1 budget missed, 2 harness error
-// (bad arguments, or the page never rendered a map; below 640px wide the
-// Atlas renders a scene list instead of the map).
+// (bad arguments, a scene list instead of a map, or a map that never passed
+// the readiness gate).
 //
 // Profile (the owner budget's stated conditions):
 //   - Device: Playwright's `iPhone 13` descriptor (mobile UA, touch, DPR 3) at
 //     390x844, the phone boards' frame. The descriptor's own viewport is
 //     390x664 (Safari's visible area with toolbars); pass --viewport to use it.
 //   - CPU: CDP Emulation.setCPUThrottlingRate 4, Lighthouse's default mobile
-//     multiplier (https://github.com/GoogleChrome/lighthouse/blob/main/docs/throttling.md).
-//     JavaScript only: GPU work is NOT throttled, so render-bound timings are
-//     a lower bound for a real phone.
+//     multiplier (https://github.com/GoogleChrome/lighthouse/blob/main/docs/throttling.md),
+//     on the page's MAIN THREAD ONLY. Chromium refuses the call on dedicated
+//     worker targets ("Operation is only supported for pages, not workers"),
+//     so MapLibre's worker work (tile decode, GeoJSON parsing) runs at full
+//     speed, and so does the GPU. First rendered map is therefore a lower
+//     bound for a real phone.
 //   - Network: Puppeteer's `Fast 4G` preset, 9 Mbps down and 1.5 Mbps up at
 //     90% efficiency, 165 ms latency (60 ms RTT x 2.75), via CDP
 //     Network.emulateNetworkConditions
@@ -46,6 +55,8 @@
 //     returns at least one feature, polled in the page every 50 ms on the
 //     `window.__atlasMap` seam. MapLibre's `idle` event never fires on /atlas
 //     (the pulse rings repaint every frame), so it is not used.
+//   - Compact viewports (narrower than 1024px) must request no night-earth
+//     raster tile: one raster request fails the run.
 //   - Entry bytes: every request that finished between navigation and
 //     first rendered map + SETTLE_MS, on the wire (encoded body + headers,
 //     from Playwright's request.sizes()), each URL counted once per resource
@@ -75,6 +86,11 @@ const SETTLE_MS = 3000
 const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
+const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/
+// Tailwind's `lg` at the default root size; below it the Atlas draws the
+// light globe, which requests no raster.
+const COMPACT_MAX_WIDTH = 1023
+const SCENE_LIST_TEXT = 'The globe is best on a larger screen'
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
@@ -169,10 +185,13 @@ function summarize(requests) {
 }
 
 // The readiness gate, defined once in the page and used for both the entry
-// and the city view. The entry poll runs in the page so the timestamp is the
-// page's own clock (ms since navigation start), and reports once through an
-// exposed binding, so the harness adds no polling to the throttled page.
+// and the city view. The entry poll runs in the top frame every 50 ms, so the
+// timestamp is the page's own clock (ms since navigation start), and reports
+// once through an exposed binding. The poll itself is a small cost inside the
+// measured window: the cheap checks short-circuit queryRenderedFeatures until
+// style and tiles are loaded.
 const READINESS_PROBE = `(() => {
+  if (window !== window.top) return
   window.__atlasPerfReady = () => {
     const m = window.__atlasMap
     if (!m) return false
@@ -194,12 +213,20 @@ const timeout = (ms) => new Promise((resolve) => setTimeout(() => resolve(null),
 async function oneRun(browser, opts) {
   const context = await browser.newContext(contextOptions(opts))
   const bypass = process.env.VERCEL_PROTECTION_BYPASS
-  if (bypass && opts.url.hostname.endsWith('.vercel.app')) {
-    const response = await context.request.get(opts.url.href, {
-      headers: { 'x-vercel-protection-bypass': bypass, 'x-vercel-set-bypass-cookie': 'samesitenone' },
-      maxRedirects: 0,
-    })
-    if (response.status() >= 400) throw new Error(`bypass request returned HTTP ${response.status()}`)
+  if (bypass && opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname)) {
+    let status
+    try {
+      const response = await context.request.get(opts.url.href, {
+        headers: { 'x-vercel-protection-bypass': bypass, 'x-vercel-set-bypass-cookie': 'samesitenone' },
+        maxRedirects: 0,
+      })
+      status = response.status()
+    } catch (error) {
+      // Playwright's error message carries the request's call log, headers
+      // included, so it must not be rethrown or printed.
+      throw new Error(`bypass request failed (${error?.code ?? error?.name ?? 'network error'})`)
+    }
+    if (status >= 400) throw new Error(`bypass request returned HTTP ${status}`)
   }
   let reportFirstMap
   const firstMapReported = new Promise((resolve) => {
@@ -237,13 +264,18 @@ async function oneRun(browser, opts) {
   const finished = () => [...byKey.values()]
 
   await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
-  const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
-  if (firstMapMs === null) {
-    const hasCanvas = await page.evaluate(() => !!document.querySelector('.maplibregl-canvas')).catch(() => false)
+  const sceneList = page
+    .getByText(SCENE_LIST_TEXT)
+    .waitFor({ timeout: READY_TIMEOUT_MS })
+    .then(() => 'scene-list', () => null)
+  const firstMapMs = await Promise.race([firstMapReported, sceneList, timeout(READY_TIMEOUT_MS)])
+  if (firstMapMs === 'scene-list') {
     await context.close()
-    throw new Error(hasCanvas
-      ? `the map never passed the readiness gate within ${READY_TIMEOUT_MS} ms`
-      : 'no map canvas rendered (below 640px wide the Atlas renders a scene list instead)')
+    throw new Error('the page rendered the Atlas scene list, not the map: this build gates the map below 640px wide (see the header)')
+  }
+  if (firstMapMs === null) {
+    await context.close()
+    throw new Error(`the map never passed the readiness gate within ${READY_TIMEOUT_MS} ms`)
   }
   await page.waitForTimeout(SETTLE_MS)
   const entryCut = Date.now()
@@ -298,8 +330,8 @@ const mib = (bytes) => (bytes / 1024 / 1024).toFixed(2)
 function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
   console.log(`\nAtlas perf: ${opts.url.href}`)
-  console.log(`profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x, Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
-  console.log(`WebGL renderer: ${runs[0].renderer} (GPU not throttled)`)
+  console.log(`profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  console.log(`WebGL renderer: ${runs[0].renderer}`)
   console.log(`runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB`).join(', ')}\n`)
 
   const categories = CATEGORY_ORDER.filter((c) => runs.some((r) => r.entry.byCategory[c] || r.city.byCategory[c]))
@@ -319,6 +351,9 @@ function printReport(opts, runs, verdict) {
   console.log('|---|---:|---:|---|')
   console.log(`| First rendered map | ${(verdict.firstMapMs / 1000).toFixed(2)} s | ${BUDGET.firstMapMs / 1000} s | ${mark(verdict.firstMapOk)} |`)
   console.log(`| Entry bytes | ${mib(verdict.entryBytes)} MiB | ${mib(BUDGET.entryBytes)} MiB | ${mark(verdict.entryOk)} |`)
+  if (verdict.compact) {
+    console.log(`| Raster requests (compact viewport) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
+  }
   console.log(`\nCity view ready after jump: ${(verdict.cityMs / 1000).toFixed(2)} s (median, not budgeted)`)
 }
 
@@ -340,7 +375,9 @@ for (let i = 0; i < opts.runs; i++) {
   }
   await browser.close()
   if (failure) {
-    console.error(`harness error: ${failure.message}`)
+    const bypass = process.env.VERCEL_PROTECTION_BYPASS
+    const message = bypass ? failure.message.replaceAll(bypass, '[redacted]') : failure.message
+    console.error(`harness error: ${message}`)
     process.exit(2)
   }
 }
@@ -353,8 +390,11 @@ const verdict = {
 }
 verdict.firstMapOk = verdict.firstMapMs <= BUDGET.firstMapMs
 verdict.entryOk = verdict.entryBytes <= BUDGET.entryBytes
+verdict.compact = contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH
+verdict.rasterRequests = Math.max(...runs.map((r) => r.entry.byCategory.raster?.requests ?? 0))
+verdict.rasterOk = !verdict.compact || verdict.rasterRequests === 0
 printReport(opts, runs, verdict)
 if (opts.json) {
   writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, budget: BUDGET, verdict, runs }, null, 2))
 }
-process.exit(!opts.budget || (verdict.firstMapOk && verdict.entryOk) ? 0 : 1)
+process.exit(!opts.budget || (verdict.firstMapOk && verdict.entryOk && verdict.rasterOk) ? 0 : 1)

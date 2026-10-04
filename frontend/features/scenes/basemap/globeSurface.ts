@@ -37,6 +37,12 @@ export const GLOBE_LAND_SOURCE_ID = 'globeLand'
 export const GLOBE_LAND_DATA_URL = '/atlas/globe-land-110m.geojson'
 
 /**
+ * The `basemap_host` basemapTelemetry reports for a land-source failure that
+ * carries no absolute URL: the file is served by the app itself.
+ */
+export const GLOBE_LAND_HOST = 'same-origin'
+
+/**
  * The light look's palette, from the phone board (Figma Product Designs,
  * Atlas page, board 01 "Globe entry (lighter globe)"): sphere `#0A0C18`, land
  * `#111528`. Fixed rather than themed: the map stays dark in light mode, as
@@ -115,9 +121,6 @@ export function globeSurfaceLayers({
       paint: {
         'fill-color': GLOBE_LAND_COLOR,
         'fill-opacity': fadeOut,
-        // Adjacent land polygons share edges; antialiasing would draw a
-        // faint seam along each one.
-        'fill-antialias': false,
       },
     },
     {

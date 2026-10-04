@@ -3,6 +3,7 @@ import { renderHook } from '@testing-library/react'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
   ATLAS_COMPACT_VIEWPORT_QUERY,
+  isAtlasCompactViewport,
   useAtlasCompactViewport,
 } from './atlasViewport'
 
@@ -19,5 +20,13 @@ describe('useAtlasCompactViewport', () => {
     const { result } = renderHook(() => useAtlasCompactViewport())
     expect(mm.queries).toContain(ATLAS_COMPACT_VIEWPORT_QUERY)
     expect(result.current).toBe(true)
+  })
+
+  it('answers the one-shot read from the same query', () => {
+    const mm = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false })
+    restore = mm.restore
+    expect(isAtlasCompactViewport()).toBe(false)
+    mm.set(ATLAS_COMPACT_VIEWPORT_QUERY, true)
+    expect(isAtlasCompactViewport()).toBe(true)
   })
 })

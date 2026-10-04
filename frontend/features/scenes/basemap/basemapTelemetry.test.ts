@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ErrorEvent } from 'maplibre-gl'
 import { NIGHT_EARTH_SOURCE_ID } from './nightEarthRaster'
+import { GLOBE_LAND_SOURCE_ID } from './globeSurface'
 import { PH_BASEMAP_SOURCE_ID } from './phBasemap'
 
 /**
@@ -95,6 +96,16 @@ const TILE_SOURCES = [
     host: 'gibs.earthdata.nasa.gov',
     tileUrl: GIBS_TILE_URL,
   },
+  {
+    // Served by the app itself, so the configured fallback is not a hostname:
+    // an event with a URL names the app's host, one without names
+    // 'same-origin'.
+    label: 'the light-globe land file',
+    sourceId: GLOBE_LAND_SOURCE_ID,
+    host: 'www.psychichomily.com',
+    fallbackHost: 'same-origin',
+    tileUrl: 'https://www.psychichomily.com/atlas/globe-land-110m.geojson',
+  },
 ] as const
 
 beforeEach(() => {
@@ -103,7 +114,8 @@ beforeEach(() => {
 
 describe.each(TILE_SOURCES)(
   'handleBasemapError for $label',
-  ({ sourceId, host, tileUrl }) => {
+  (source) => {
+    const { sourceId, host, tileUrl } = source
     it('reports once and stays quiet after that', async () => {
       const { handleBasemapError, captureMessage } = await freshSession()
 
@@ -206,7 +218,9 @@ describe.each(TILE_SOURCES)(
       // host — not the other source's — and an explicit "none" rather than
       // throwing or silently dropping the signal.
       expect(options.tags.basemap_status).toBe('none')
-      expect(options.tags.basemap_host).toBe(host)
+      expect(options.tags.basemap_host).toBe(
+        'fallbackHost' in source ? source.fallbackHost : host
+      )
       expect(options.extra.tilePath).toBeUndefined()
     })
 

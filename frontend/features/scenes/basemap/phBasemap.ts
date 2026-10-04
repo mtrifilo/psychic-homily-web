@@ -96,12 +96,12 @@ function zoomRamp(
  * layer fades IN across [fadeStart, fadeEnd] and the returned
  * `rasterFadeOut` fades the Black Marble raster OUT across the same range.
  *
- * Why the background must ramp: MapLibre's background layer paints the whole
- * VIEWPORT (screen-space), not just the sphere — at globe zooms an opaque
- * background would cover the CSS starfield behind the transparent canvas.
- * The sphere fills the viewport well before fadeStart (screen radius ≈
- * 512·2^z/2π px), so ramping the background in with the street style never
- * flashes a visible rectangle over space.
+ * Why the background ramps: it is the street style's ground, and the ramp is
+ * the mirror of the globe surface's fade-out, so the ground is the globe
+ * surface at globe zooms and the street background at street zooms, with the
+ * two summing to opaque across the handoff. On the globe projection MapLibre
+ * draws a background layer on the sphere only, not the whole viewport, so
+ * space around the globe stays transparent for the CSS starfield either way.
  *
  * Every other basemap layer is minzoom-gated in the JSON (≥5 — half a zoom
  * BEFORE fadeStart, deliberately, so the vector tiles for the first visible

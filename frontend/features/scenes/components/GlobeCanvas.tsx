@@ -15,7 +15,10 @@ import {
   showGlobeSurface,
 } from '../basemap/globeSurface'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
-import { useAtlasCompactViewport } from '../atlasViewport'
+import {
+  isAtlasCompactViewport,
+  useAtlasCompactViewport,
+} from '../atlasViewport'
 import type {
   CameraSettle,
   GlobePov,
@@ -231,14 +234,10 @@ export default function GlobeCanvas({
   const selectedSlug = selected?.slug ?? null
 
   // Compact viewports get the light globe: flat ocean and vector land in
-  // place of the night-earth raster (globeSurface.ts). The map effect reads
-  // the look through the ref, so a crossing never rebuilds the map; the
-  // effect below switches the live map instead.
+  // place of the night-earth raster (globeSurface.ts). The map is built with
+  // the look matchMedia reports at construction; a breakpoint crossing never
+  // rebuilds it, this effect switches the live map instead.
   const lightGlobe = useAtlasCompactViewport()
-  const lightGlobeRef = useRef(lightGlobe)
-  useEffect(() => {
-    lightGlobeRef.current = lightGlobe
-  }, [lightGlobe])
   useEffect(() => {
     if (mapReady) showGlobeSurface(mapReady, lightGlobe)
   }, [mapReady, lightGlobe])
@@ -633,10 +632,12 @@ export default function GlobeCanvas({
           // zooms and fades out across the handoff (see globeSurface.ts), so
           // the streets are already drawn when it dissolves.
           ...basemap.layers,
-          // Built with the current look's visibility so the first frame
-          // never requests a raster tile on a compact viewport.
+          // Built with the current look's visibility, read from matchMedia
+          // rather than the hook (whose first value can be its server
+          // snapshot), so the first frame never requests a raster tile on a
+          // compact viewport.
           ...globeSurfaceLayers({
-            lightGlobe: lightGlobeRef.current,
+            lightGlobe: isAtlasCompactViewport(),
             fadeOut: basemap.rasterFadeOut,
             maxZoom: basemap.rasterMaxZoom,
           }),
@@ -719,11 +720,11 @@ export default function GlobeCanvas({
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
     // style's own TileJSON fetch — the earliest thing that can fail — is
     // already covered. The handler restores MapLibre's default console.error
-    // (attaching any listener suppresses it) and reports a failure of either
-    // tile source — the OpenFreeMap vector tiles or the GIBS raster — to
-    // Sentry once per session per source; basemapTelemetry.ts owns the
-    // filtering and the throttle. Removed with the map in cleanup, like every
-    // listener here.
+    // (attaching any listener suppresses it) and reports a failure of a
+    // ground source (the OpenFreeMap vector tiles, the GIBS raster, or the
+    // light globe's land file) to Sentry once per session per source;
+    // basemapTelemetry.ts owns the filtering and the throttle. Removed with
+    // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on

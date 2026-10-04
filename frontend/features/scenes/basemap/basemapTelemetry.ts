@@ -73,12 +73,14 @@
  * that zoom either, but it does mean a GIBS event count is a floor on affected
  * sessions, not a measure of them.
  *
- * SCOPE: THE TWO TILE-HOSTING SOURCES
+ * SCOPE: THE SOURCES THAT FETCH THE GLOBE'S GROUND
  *
- * Only errors carrying one of the two basemap tile sources' `sourceId` report:
- * the OpenFreeMap vector source and the NASA GIBS raster. Everything else is
- * ignored — the GeoJSON sources (`scenes`, `scene-rings`, `venues`) are fed
- * from local data and have no host to be down, and a map-level error carries no
+ * Only errors carrying one of these sources' `sourceId` report: the
+ * OpenFreeMap vector source, the NASA GIBS raster, and the light globe's land
+ * file (`globeLand`, one same-origin GeoJSON request whose failure leaves a
+ * compact viewport's globe without continents). Everything else is
+ * ignored — the other GeoJSON sources (`scenes`, `scene-rings`, `venues`) are
+ * fed from local data and fetch nothing, and a map-level error carries no
  * `sourceId` at all. Each source is tagged with its own `basemap_source` and
  * throttled in its own slot, so a total GIBS outage and a total OpenFreeMap
  * outage are two distinct issues in Sentry rather than one ambiguous one.
@@ -115,6 +117,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import type { ErrorEvent } from 'maplibre-gl'
+import { GLOBE_LAND_HOST, GLOBE_LAND_SOURCE_ID } from './globeSurface'
 import {
   NIGHT_EARTH_SOURCE_ID,
   NIGHT_EARTH_TILE_HOST,
@@ -140,6 +143,7 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
 const REPORTED_SOURCE_HOSTS = new Map<string, string>([
   [PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST],
   [NIGHT_EARTH_SOURCE_ID, NIGHT_EARTH_TILE_HOST],
+  [GLOBE_LAND_SOURCE_ID, GLOBE_LAND_HOST],
 ])
 
 /**

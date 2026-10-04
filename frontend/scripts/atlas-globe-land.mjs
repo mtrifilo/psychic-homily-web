@@ -3,14 +3,16 @@
 // Atlas globe draws in place of the night-earth raster.
 //
 // Input: Natural Earth 1:110m land (public domain, no credit required:
-// https://www.naturalearthdata.com/about/terms-of-use/), from
-// https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson
+// https://www.naturalearthdata.com/about/terms-of-use/), pinned to the
+// natural-earth-vector commit the committed file was built from:
+// https://raw.githubusercontent.com/nvkelso/natural-earth-vector/693f11422f4e08d2da4566b854dda53eb7c39fb3/geojson/ne_110m_land.geojson
+// sha256 9e0729ee253ca7d7a5c4ae9395fb1902264c5377c52e224d13dd85010e2835d9
 //
 // Output: one Feature with one MultiPolygon (properties dropped, coordinates
 // rounded to COORD_DECIMALS, consecutive duplicate vertices removed, rings
-// that collapse below four positions dropped). 0.01 degree is about 1 km,
-// well under a pixel at the zooms the layer draws at (it is cut off at the
-// globe-to-street handoff).
+// that collapse below four positions dropped). 0.01 degree is about 1 km:
+// under a pixel below z5.5, where the land layer is fully opaque, and under
+// two pixels at z7, where it has faded out.
 //
 // Usage:
 //   node scripts/atlas-globe-land.mjs ne_110m_land.geojson > public/atlas/globe-land-110m.geojson
