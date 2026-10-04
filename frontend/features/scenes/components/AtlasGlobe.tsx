@@ -591,12 +591,14 @@ export function AtlasGlobe() {
     size !== null && !isMobile && usesAtlasSheetLayout(size.width)
 
   // The canvas renders only after scenes and the camera focus (which waits on
-  // visitor geo) resolve; preload what it needs during that wait. Viewports
-  // that get the scene list preload nothing.
-  const mapWillMount = size !== null && !isMobile && !isError
+  // visitor geo) resolve; preload what it needs during that wait. Nothing is
+  // preloaded where the map cannot render: the scene list, the error state,
+  // or a loaded scene set with nothing to place.
+  const mapMayMount =
+    size !== null && !isMobile && !isError && (isLoading || placeable.length > 0)
   useEffect(() => {
-    if (mapWillMount) preloadAtlasMap()
-  }, [mapWillMount])
+    if (mapMayMount) preloadAtlasMap()
+  }, [mapMayMount])
 
   let content: ReactNode
   if (isError) {

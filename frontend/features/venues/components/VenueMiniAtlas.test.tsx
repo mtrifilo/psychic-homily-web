@@ -85,7 +85,6 @@ vi.mock('maplibre-gl', () => {
     AttributionControl: StubAttributionControl,
     NavigationControl: StubNavigationControl,
     setWorkerUrl: vi.fn(),
-    prewarm: vi.fn(),
   }
 })
 

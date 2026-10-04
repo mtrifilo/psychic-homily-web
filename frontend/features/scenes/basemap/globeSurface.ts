@@ -69,8 +69,8 @@ export function globeSurfaceVisibility(
 /**
  * The surface sources. The land source starts EMPTY: a GeoJSON source
  * fetches its data as soon as it is added, visible or not, so
- * {@link showGlobeSurface} points it at the file the first time a map shows
- * the light look.
+ * {@link showGlobeSurface} loads the land data the first time a map shows the
+ * light look.
  */
 export function globeSurfaceSources(): Record<string, SourceSpecification> {
   return {
@@ -146,9 +146,14 @@ export interface GlobeSurfaceMap {
 const landRequested = new WeakSet<object>()
 
 // The land file fetched on the main thread ahead of the map, once per page
-// load. Resolves to the parsed collection, or null after a failed or unusable
-// response (the map then fetches the file itself).
+// load. Resolves to the parsed collection, or null after a failed, unusable
+// or stalled response (the map then fetches the file itself).
 let landPrefetch: Promise<GeoJSON.FeatureCollection | null> | null = null
+
+// How long a map waits on the prefetch before fetching the file itself. A
+// stalled request would otherwise leave every map's land blank, since maps
+// wait on the prefetch rather than starting a second download.
+const LAND_PREFETCH_TIMEOUT_MS = 10_000
 
 /**
  * Starts fetching the land file before any map exists, so a map that shows
@@ -159,7 +164,9 @@ let landPrefetch: Promise<GeoJSON.FeatureCollection | null> | null = null
  */
 export function prefetchGlobeLand(): void {
   if (landPrefetch) return
-  landPrefetch = fetch(GLOBE_LAND_DATA_URL)
+  landPrefetch = fetch(GLOBE_LAND_DATA_URL, {
+    signal: AbortSignal.timeout?.(LAND_PREFETCH_TIMEOUT_MS),
+  })
     .then((response) => (response.ok ? response.json() : null))
     .then((data: unknown) =>
       (data as GeoJSON.FeatureCollection | null)?.type === 'FeatureCollection'
@@ -184,11 +191,12 @@ export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): voi
       landRequested.add(map)
       if (landPrefetch) {
         void landPrefetch.then((data) => {
-          // The map can be removed while the prefetch is in flight, and a
-          // removed map's source has nothing left to draw into.
-          try {
-            source.setData(data ?? GLOBE_LAND_DATA_URL)
-          } catch {}
+          // A map removed while the prefetch was in flight no longer owns this
+          // source (a removed map has no style, so getSource answers
+          // undefined); data sent to it would reach the worker for a map that
+          // no longer exists.
+          if (map.getSource(GLOBE_LAND_SOURCE_ID) !== source) return
+          source.setData(data ?? GLOBE_LAND_DATA_URL)
         })
       } else {
         source.setData(GLOBE_LAND_DATA_URL)

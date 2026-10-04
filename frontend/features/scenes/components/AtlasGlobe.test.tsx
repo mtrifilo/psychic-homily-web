@@ -310,6 +310,17 @@ describe('AtlasGlobe', () => {
       expect(preloadAtlasMap).not.toHaveBeenCalled()
     })
 
+    it('does not fetch it once the scenes arrive with nothing to place', () => {
+      setMockContainerWidth(1200)
+      mockUseScenes.mockReturnValue({
+        data: { scenes: [], count: 0 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      expect(preloadAtlasMap).not.toHaveBeenCalled()
+    })
+
     it('does not fetch it when the scenes query has failed', () => {
       setMockContainerWidth(1200)
       mockUseScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })

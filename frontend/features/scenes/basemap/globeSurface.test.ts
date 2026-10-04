@@ -44,6 +44,8 @@ function surfaceStyle(lightGlobe: boolean): StyleSpecification {
 
 function fakeMap(opts: { withLandSource?: boolean } = {}) {
   const setData = vi.fn()
+  // One object, as MapLibre returns the same source instance on every call.
+  const landSource = { setData }
   const layerIds = new Set([
     GLOBE_OCEAN_LAYER_ID,
     GLOBE_LAND_LAYER_ID,
@@ -54,7 +56,7 @@ function fakeMap(opts: { withLandSource?: boolean } = {}) {
     setLayoutProperty: vi.fn(),
     getSource: vi.fn((id: string) =>
       id === GLOBE_LAND_SOURCE_ID && opts.withLandSource !== false
-        ? { setData }
+        ? landSource
         : undefined,
     ),
   } satisfies GlobeSurfaceMap
@@ -206,7 +208,7 @@ describe('prefetchGlobeLand', () => {
   }
 
   function stubFetch(response: () => Promise<unknown>) {
-    const fetchMock = vi.fn(response)
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>(() => response())
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
   }
@@ -227,7 +229,7 @@ describe('prefetchGlobeLand', () => {
     mod.showGlobeSurface(map, true)
     await vi.waitFor(() => expect(setData).toHaveBeenCalledWith(LAND))
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenCalledWith(mod.GLOBE_LAND_DATA_URL)
+    expect(fetchMock.mock.calls[0][0]).toBe(mod.GLOBE_LAND_DATA_URL)
   })
 
   it.each([
@@ -260,16 +262,26 @@ describe('prefetchGlobeLand', () => {
     expect(setData).toHaveBeenCalledTimes(1)
   })
 
-  it('does not throw when the map is gone by the time the prefetch lands', async () => {
-    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve(LAND) }))
+  it('drops the prefetch for a map removed while it was in flight', async () => {
+    let resolveFetch: (value: unknown) => void = () => {}
+    stubFetch(() => new Promise((resolve) => (resolveFetch = resolve)))
     const mod = await freshModule()
     mod.prefetchGlobeLand()
     const { map, setData } = fakeMap()
-    setData.mockImplementation(() => {
-      throw new TypeError('map removed')
-    })
     mod.showGlobeSurface(map, true)
+    // A removed MapLibre map has no style, so getSource answers undefined.
+    map.getSource.mockReturnValue(undefined)
+    resolveFetch({ ok: true, json: () => Promise.resolve(LAND) })
     await settle()
-    expect(setData).toHaveBeenCalled()
+    await settle()
+    expect(setData).not.toHaveBeenCalled()
+  })
+
+  it('gives the prefetch a timeout, so a stalled request falls back to the URL', async () => {
+    const fetchMock = stubFetch(() => new Promise(() => {}))
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    const init = fetchMock.mock.calls[0][1] as RequestInit | undefined
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
   })
 })

@@ -14,13 +14,6 @@ import * as maplibregl from 'maplibre-gl'
 // Every module that constructs a Map imports this one for its side effect, so
 // the pool is aimed at the vendored copy no matter which map surface loads
 // first.
-//
-// The pool is then started at once rather than at the first Map: the module
-// that imports this one is usually loaded ahead of rendering its map (the
-// Atlas preloads GlobeCanvas while it waits on its camera focus), so the
-// workers download and boot the vendored modules during that wait. Prewarmed
-// workers outlive a removed map, and the next map reuses them.
 if (typeof window !== 'undefined') {
   maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs')
-  maplibregl.prewarm()
 }

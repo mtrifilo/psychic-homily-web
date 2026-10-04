@@ -5,8 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // is `undefined` and fails confusingly (PSY-1537 spike). Namespace import only.
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-// Aims the worker pool at the vendored copy and starts it, before any Map is
-// constructed.
+// Aims the worker pool at the vendored copy before any Map is constructed.
 import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
