@@ -1,6 +1,14 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
-import { creditUncovered, jumpToPhoenix, stubAtlas, waitForMap } from '../helpers/atlas'
+import {
+  PHOENIX,
+  creditUncovered,
+  dismissBanner,
+  jumpToPhoenix,
+  stubAtlas,
+  waitForMap,
+  type AtlasMapSeam,
+} from '../helpers/atlas'
 
 /**
  * The Atlas sheet layout under touch: panes narrower than the rail's 900px
@@ -43,6 +51,75 @@ async function touchDrag(page: Page, x: number, fromY: number, toY: number) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
 }
 
+type Detent = 'peek' | 'half' | 'full'
+
+// The detent rule (bottomSheetHeightPx in components/ui/bottom-sheet.tsx) with
+// the Atlas's top inset (ATLAS_SHEET_TOP_INSET_PX in features/scenes/cityView.ts):
+// Peek 120 and Full 660, Half 45% of the host but at most 400 and at least
+// 120, each capped at the host's height minus the inset.
+const ATLAS_SHEET_TOP_INSET_PX = 112
+function detentPx(detent: Detent, hostPx: number) {
+  const cap = Math.max(0, hostPx - ATLAS_SHEET_TOP_INSET_PX)
+  if (detent === 'peek') return Math.min(120, cap)
+  if (detent === 'full') return Math.min(660, cap)
+  return Math.min(400, Math.max(hostPx * 0.45, 120), cap)
+}
+
+/** The sheet's host (its parent, the map pane) height in CSS px. */
+function hostHeight(page: Page, testId: string) {
+  return page.getByTestId(testId).evaluate((el) => el.parentElement!.clientHeight)
+}
+
+/**
+ * Waits until the sheet has settled at `detent` and its height matches the
+ * rule for its host, to the layout's subpixel rounding. Returns the measured
+ * host and sheet heights.
+ */
+async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
+  const sheet = page.getByTestId(testId)
+  await expect(sheet).toHaveAttribute('data-detent', detent)
+  await expect(sheet).not.toHaveAttribute('data-dragging', 'true')
+  const host = await hostHeight(page, testId)
+  const expected = detentPx(detent, host)
+  await expect
+    .poll(() => sheet.evaluate((el) => el.getBoundingClientRect().height))
+    .toBeCloseTo(expected, 0)
+  const height = await sheet.evaluate((el) => el.getBoundingClientRect().height)
+  return { host, height }
+}
+
+/**
+ * A tap on the Phoenix scene dot, through the map's own projection, once the
+ * dot has stopped moving on screen (the map resizes when the banner leaves).
+ */
+async function tapSceneDot(page: Page) {
+  const dotPoint = () =>
+    page.evaluate(({ lng, lat }) => {
+      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+      const p = m.project([lng, lat])
+      const r = m.getCanvas().getBoundingClientRect()
+      return { x: Math.round(r.left + p.x), y: Math.round(r.top + p.y) }
+    }, PHOENIX)
+  let point = await dotPoint()
+  await expect
+    .poll(async () => {
+      const previous = point
+      await page.waitForTimeout(250)
+      point = await dotPoint()
+      return point.x === previous.x && point.y === previous.y
+    })
+    .toBe(true)
+  await page.touchscreen.tap(point.x, point.y)
+}
+
+/** A touch drag up from the sheet's grabber by `distance` px. */
+async function pullUp(page: Page, testId: string, distance: number) {
+  const grabber = page.getByTestId(testId).locator('[data-bottom-sheet-grabber]')
+  const box = (await grabber.boundingBox())!
+  const y = box.y + box.height / 2
+  await touchDrag(page, box.x + box.width / 2, y, y - distance)
+}
+
 test.describe('Atlas sheet layout under touch', () => {
   // Each test boots a SwiftShader map and walks several animated steps; the
   // first test's back-to-globe flight renders the whole globe again.
@@ -67,13 +144,9 @@ test.describe('Atlas sheet layout under touch', () => {
     const atPeek = (await grabber.boundingBox())!
     const x = atPeek.x + atPeek.width / 2
     await touchDrag(page, x, atPeek.y + atPeek.height / 2, atPeek.y - 330)
-    await expect(list).toHaveAttribute('data-detent', 'half')
-    await expect(list).not.toHaveAttribute('data-dragging', 'true')
     // Wait out the settle animation, then drag down from where the grabber
     // now is.
-    await expect
-      .poll(() => list.evaluate((el) => Math.round(el.getBoundingClientRect().height)))
-      .toBe(400)
+    await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
     const atHalf = (await grabber.boundingBox())!
     await touchDrag(page, x, atHalf.y + atHalf.height / 2, atHalf.y + 330)
     await expect(list).toHaveAttribute('data-detent', 'peek')
@@ -93,8 +166,14 @@ test.describe('Atlas sheet layout under touch', () => {
     await page.mouse.up()
     await expect(list).toHaveAttribute('data-detent', 'half')
 
-    // A tap on the counted marker opens the list at Half, scoped to the point.
+    // A tap on the counted marker opens the list at Peek, scoped to the
+    // point, and Peek names the scope; the rows are one step up, at Half.
     await page.getByTestId('atlas-venue-stack').tap()
+    await expect(list).toHaveAttribute('data-detent', 'peek')
+    await expect(page.getByTestId('venue-sheet-peek-line')).toHaveText(
+      '2 venues at the city centre point',
+    )
+    await grabber.tap()
     await expect(list).toHaveAttribute('data-detent', 'half')
     await expect(page.getByTestId('venue-sheet-scope-line')).toHaveText(
       '2 venues at the city centre point',
@@ -144,3 +223,86 @@ test.describe('Atlas sheet layout under touch', () => {
     expect(await creditUncovered(page)).toBe(true)
   })
 })
+
+// Viewport heights of a short and a tall phone, at a width where the map
+// renders in the sheet layout. The rule is checked against each host as
+// measured, and the host and map area are recorded as annotations.
+for (const viewport of [
+  { width: 820, height: 664 },
+  { width: 820, height: 844 },
+]) {
+  test.describe(`Atlas sheet detents at ${viewport.width}x${viewport.height}`, () => {
+    test.use({ viewport })
+    test.setTimeout(120_000)
+
+    test('a stacked pin opens the list at Peek; Half is one pull up and sized by the host', async ({
+      page,
+    }) => {
+      await stubAtlas(page)
+      await page.goto('/atlas?city=Phoenix%2CAZ')
+      await waitForMap(page)
+      // The banner shortens the host while it is up.
+      await dismissBanner(page)
+
+      const list = page.getByTestId('atlas-venue-sheet')
+      await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+      await page.getByTestId('atlas-venue-stack').tap()
+      const peek = await expectDetentHeight(page, 'atlas-venue-sheet', 'peek')
+      await expect(page.getByTestId('venue-sheet-peek-line')).toHaveText(
+        '2 venues at the city centre point',
+      )
+
+      await pullUp(page, 'atlas-venue-sheet', 150)
+      const half = await expectDetentHeight(page, 'atlas-venue-sheet', 'half')
+      expect(half.height, 'Half is 45% of the host here').toBeCloseTo(half.host * 0.45, 0)
+      await expect(page.getByTestId('venue-sheet-scope-line')).toBeVisible()
+      expect(await creditUncovered(page)).toBe(true)
+      test.info().annotations.push({
+        type: 'venue list',
+        description: JSON.stringify({
+          host: half.host,
+          peek: peek.height,
+          half: half.height,
+          mapAreaAtPeek: half.host - peek.height,
+          mapAreaAtHalf: half.host - half.height,
+        }),
+      })
+
+      // A venue sheet opens at Half by the same rule.
+      await list.getByRole('button', { name: /Centroid Room One/ }).tap()
+      await expectDetentHeight(page, 'atlas-venue-panel', 'half')
+      expect(await creditUncovered(page)).toBe(true)
+    })
+
+    test('a scene dot opens its preview at Peek; Half is one pull up', async ({ page }) => {
+      await stubAtlas(page)
+      await page.goto('/atlas')
+      await waitForMap(page)
+      await dismissBanner(page)
+
+      // A tap can land on a frame where the dot layer has not yet redrawn
+      // after the resize; a missed tap on the globe does nothing, so it is
+      // repeated until the preview opens. Tapping an open scene's dot again
+      // keeps the preview as it is.
+      await expect(async () => {
+        await tapSceneDot(page)
+        await expect(page.getByTestId('atlas-scene-preview-sheet')).toBeVisible({
+          timeout: 2_000,
+        })
+      }).toPass({ timeout: 30_000 })
+      const preview = await expectDetentHeight(page, 'atlas-scene-preview-sheet', 'peek')
+      await pullUp(page, 'atlas-scene-preview-sheet', 150)
+      const half = await expectDetentHeight(page, 'atlas-scene-preview-sheet', 'half')
+      test.info().annotations.push({
+        type: 'scene preview',
+        description: JSON.stringify({
+          host: preview.host,
+          peek: preview.height,
+          half: half.height,
+          mapAreaAtPeek: preview.host - preview.height,
+          mapAreaAtHalf: half.host - half.height,
+        }),
+      })
+    })
+  })
+}

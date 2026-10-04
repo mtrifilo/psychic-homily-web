@@ -155,8 +155,6 @@ for (const viewport of PHONE_VIEWPORTS) {
         const list = page.getByTestId('atlas-venue-sheet')
         await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
         await expectCreditVisible(page, 'first visit, list at peek, banner up')
-        // With the banner up a short pane caps Half and Full to one height, so
-        // the grabber skips Full; Half is the tallest the list gets there.
         await stepDetent(page, 'atlas-venue-sheet', 'half')
         await expectCreditVisible(page, 'list at half, banner up')
 
@@ -188,11 +186,13 @@ for (const viewport of PHONE_VIEWPORTS) {
 
         await pressSceneDot(page, 'tap')
         const preview = page.getByTestId('atlas-scene-preview-sheet')
-        await expect(preview).toHaveAttribute('data-detent', 'half')
+        await expect(preview).toHaveAttribute('data-detent', 'peek')
         await expectNoCreditDue(page, 'scene preview at globe zoom')
 
         await jumpToStreetBasemap(page)
         await expect(preview).toBeVisible()
+        await expectCreditVisible(page, 'scene preview at peek, z8, banner up')
+        await stepDetent(page, 'atlas-scene-preview-sheet', 'half')
         await expectCreditVisible(page, 'scene preview at half, z8, banner up')
         await dismissBanner(page)
         await stepDetent(page, 'atlas-scene-preview-sheet', 'full')

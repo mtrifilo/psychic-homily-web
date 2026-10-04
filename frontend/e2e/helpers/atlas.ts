@@ -129,6 +129,12 @@ export async function waitForMap(page: Page) {
     .toBe(true)
 }
 
+/** Rejects the cookie banner by a tap (the context needs `hasTouch`) and waits for it to leave. */
+export async function dismissBanner(page: Page) {
+  await page.getByRole('button', { name: 'Reject All' }).tap()
+  await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
+}
+
 /** Moves the camera over Phoenix at `zoom`, synchronously. */
 export async function jumpToPhoenix(page: Page, zoom: number) {
   await page.evaluate(
