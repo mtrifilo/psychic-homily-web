@@ -340,6 +340,24 @@ describe('AtlasGlobe', () => {
     })
   })
 
+  // The frame ends above the cookie banner at both breakpoints: the banner
+  // publishes --cookie-banner-height while it is up (absent otherwise, hence
+  // the 0px fallback), and the frame's bottom edge is where the map credit and
+  // every other bottom-anchored overlay sit.
+  it('ends the frame above the cookie banner at both breakpoints', () => {
+    mockUseScenes.mockReturnValue({
+      data: sampleData,
+      isLoading: false,
+      isError: false,
+    })
+    renderWithProviders(<AtlasGlobe />)
+    const frame = screen.getByTestId('atlas-pane-frame')
+    expect(frame).toHaveClass(
+      'h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))]',
+      'xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))]',
+    )
+  })
+
   it('shows an error state when the scenes query fails', () => {
     mockUseScenes.mockReturnValue({
       data: undefined,
@@ -948,7 +966,7 @@ describe('AtlasGlobe', () => {
       // so the panel can never grow into the bottom-left OSM credit the ODbL
       // requires stay visible.
       expect(screen.getByTestId('atlas-artist-panel')).toHaveStyle({
-        maxHeight: 'calc(100% - 0.75rem - 36px - var(--cookie-banner-height, 0px))',
+        maxHeight: 'calc(100% - 0.75rem - 36px)',
       })
     })
 

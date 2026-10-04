@@ -14,9 +14,9 @@ import { CookiePreferencesDialog } from './CookiePreferencesDialog'
  * rather than being permanently covered until the visitor consents. */
 
 /** The bar's rendered height, published on <html> while the bar is mounted
- * and absent otherwise. Viewport-anchored surfaces whose bottom edge the bar
- * covers read it to stay clear of the bar (the Atlas map credit does, in
- * globals.css), always with a 0px fallback. */
+ * and absent otherwise. Viewport-sized surfaces whose bottom edge the bar
+ * would cover subtract it to end above the bar (AtlasGlobe's frame does),
+ * always with a 0px fallback. */
 const COOKIE_BANNER_HEIGHT_VAR = '--cookie-banner-height'
 
 function ConsentBar() {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import { CookieConsentBanner } from './CookieConsentBanner'
 
 // --- Mocks ---
@@ -161,32 +162,21 @@ describe('CookieConsentBanner', () => {
     })
 
     // The bar's height is published on <html> as --cookie-banner-height (the
-    // name globals.css reads to lift the Atlas map credit above the bar), and
-    // follows the bar as it re-wraps.
+    // name AtlasGlobe's frame subtracts to end above the bar), and follows the
+    // bar as it re-wraps.
     it('publishes its height on <html> while mounted and tracks resizes', () => {
       let height = 53
       const heightSpy = vi
         .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
         .mockImplementation(() => height)
-      let onResize: (() => void) | undefined
-      // The setup file's ResizeObserver is writable but not configurable, so
-      // it is swapped by assignment rather than vi.stubGlobal.
-      const realResizeObserver = window.ResizeObserver
-      window.ResizeObserver = class {
-        constructor(cb: () => void) {
-          onResize = cb
-        }
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      } as unknown as typeof ResizeObserver
+      const ro = installImmediateResizeObserver()
       const root = document.documentElement
       try {
         const { unmount } = render(<CookieConsentBanner />)
         expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('53px')
 
         height = 101
-        onResize?.()
+        ro.fireResize(390)
         expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('101px')
         expect(document.body.style.paddingBottom).toBe('101px')
 
@@ -194,7 +184,7 @@ describe('CookieConsentBanner', () => {
         expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('')
       } finally {
         heightSpy.mockRestore()
-        window.ResizeObserver = realResizeObserver
+        ro.restore()
       }
     })
 

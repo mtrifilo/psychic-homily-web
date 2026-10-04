@@ -199,8 +199,7 @@ describe('GlobeCanvas sheet-layout seams', () => {
   it('docks the attribution bottom-left by default', () => {
     const { map } = renderCanvas()
     expect(attributionCorners(map)).toEqual(['bottom-left'])
-    // globals.css lifts a bottom credit above the cookie banner through this.
-    expect(screen.getByTestId('globe-cursor-wrap')).toHaveAttribute('data-atlas-credit', 'bottom')
+    expect(screen.getByTestId('globe-cursor-wrap')).not.toHaveAttribute('data-atlas-credit')
   })
 
   it('moves the attribution top-left on request, keeping exactly one', () => {
@@ -210,7 +209,6 @@ describe('GlobeCanvas sheet-layout seams', () => {
 
     rerender(<GlobeCanvas {...props} attributionPosition="bottom-left" />)
     expect(attributionCorners(map)).toEqual(['bottom-left'])
-    expect(screen.getByTestId('globe-cursor-wrap')).toHaveAttribute('data-atlas-credit', 'bottom')
   })
 
   it('shows the back-to-globe control in city view only when asked', () => {

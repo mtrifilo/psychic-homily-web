@@ -819,12 +819,11 @@ export function AtlasGlobe() {
               {unplaceableCount > 0 && (
                 <Link
                   href="/scenes"
-                  /* 2.75rem, not 1rem: in the panel layout the map's
-                     attribution control (a license requirement) is docked
-                     bottom-left, and this link must clear its ~30px strip
-                     rather than sit on the OSM credit. The banner term follows
-                     the credit's own lift above the cookie banner. */
-                  className="absolute bottom-[calc(2.75rem+var(--cookie-banner-height,0px))] left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  /* bottom-11, not bottom-4: in the panel layout the map's
+                     attribution control (PSY-1543, a license requirement) is
+                     docked bottom-left, and this link must clear its ~30px strip
+                     rather than sit on the OSM credit. */
+                  className="absolute bottom-11 left-4 z-10 rounded border border-border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
                 >
                   {unplaceableCount} more{' '}
                   {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·
@@ -866,9 +865,14 @@ export function AtlasGlobe() {
   // the Drift CTA (bottom-4) and the MapLibre attribution control (a license
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
+  // The cookie consent banner sits directly above that band (the viewport
+  // bottom at `xl`) while it is up and publishes its height as
+  // --cookie-banner-height, so the box ends above the banner and every
+  // bottom-anchored overlay, the credit included, stays uncovered.
   return (
     <div
-      className={`relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom))] ${
+      data-testid="atlas-pane-frame"
+      className={`relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] ${
         // The sheets anchor to this box's bottom edge, so in the sheet layout
         // it must be exactly the visible area: a minimum taller than a short
         // (landscape phone) viewport would push every sheet below the fold.

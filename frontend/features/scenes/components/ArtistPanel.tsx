@@ -18,7 +18,7 @@ import { formatShowTime } from '@/lib/utils/formatters'
 import {
   ARTIST_PANEL_NEXT_SHOW_ROWS,
   ATLAS_SHEET_TOP_INSET_PX,
-  CITY_VENUE_PANEL_MAX_HEIGHT,
+  CITY_VENUE_PANEL_BOTTOM_INSET_PX,
   CITY_VENUE_PANEL_WIDTH_PX,
   formatPanelShowDate,
 } from '../cityView'
@@ -378,9 +378,10 @@ export function ArtistPanel({
         style={{
           width: CITY_VENUE_PANEL_WIDTH_PX,
           // Same bounded height as VenuePanel, for the same licensing reason:
-          // top inset + this max stays clear of the bottom-left corner where
+          // top inset + this max can never reach within
+          // CITY_VENUE_PANEL_BOTTOM_INSET_PX of the map's bottom edge, where
           // the OpenStreetMap attribution control lives.
-          maxHeight: CITY_VENUE_PANEL_MAX_HEIGHT,
+          maxHeight: `calc(100% - 0.75rem - ${CITY_VENUE_PANEL_BOTTOM_INSET_PX}px)`,
         }}
         className="absolute right-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-md border border-border bg-background/95 shadow-lg backdrop-blur"
       >

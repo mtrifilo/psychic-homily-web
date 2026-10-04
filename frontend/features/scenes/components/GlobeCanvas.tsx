@@ -524,8 +524,7 @@ export default function GlobeCanvas({
   // the control is always mounted and never compact (OSM's guidance frowns on
   // credit hidden behind an icon). Credit strings come from the sources
   // (OpenFreeMap/OSM, plus NASA GIBS while the raster layer is visible); the
-  // dark restyle, the top-left placement offsets and the bottom-left lift
-  // above the cookie banner live in globals.css, keyed on data-atlas-credit.
+  // dark restyle and the top-left placement offsets live in globals.css.
   //
   // `bottom-left` by default: GenreLegend owns bottom-right at z-10 (the
   // control's own stacking context tops out at z-index 2, so the legend would
@@ -1186,7 +1185,7 @@ export default function GlobeCanvas({
     <div
       className="relative overflow-hidden"
       data-testid="globe-cursor-wrap"
-      data-atlas-credit={attributionPosition === 'top-left' ? 'top' : 'bottom'}
+      data-atlas-credit={attributionPosition === 'top-left' ? 'top' : undefined}
       style={
         attributionPosition === 'top-left'
           ? ({
