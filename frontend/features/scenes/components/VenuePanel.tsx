@@ -391,7 +391,7 @@ export function VenuePanel({
         closeRef={closeRef}
         title={venue.name}
         label={venue.name}
-        aria-label={`${venue.name} — upcoming shows`}
+        aria-label={`${venue.name}, upcoming shows`}
         data-testid="atlas-venue-panel"
         defaultDetent="half"
         onClose={onClose}

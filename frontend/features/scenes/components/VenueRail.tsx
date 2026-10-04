@@ -434,7 +434,7 @@ export function VenueRailList({
   )
 }
 
-/** The city's provenance line (PSY-1542), shared by the rail and the sheet. */
+/** The city's data provenance line, shared by the rail and the sheet. */
 export function VenueRailProvenance({
   allVenues,
 }: {

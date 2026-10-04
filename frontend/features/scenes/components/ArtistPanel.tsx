@@ -337,7 +337,7 @@ export function ArtistPanel({
       <BottomSheet
         title={artistName}
         label={artistName}
-        aria-label={`${artistName} — artist details`}
+        aria-label={`${artistName}, artist details`}
         data-testid="atlas-artist-panel"
         defaultDetent="full"
         onClose={onClose}
