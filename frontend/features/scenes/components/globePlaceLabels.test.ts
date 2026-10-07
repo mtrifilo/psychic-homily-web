@@ -451,6 +451,44 @@ describe('place labels and the controls over the map', () => {
     expect(labelTexts()).toEqual([])
   })
 
+  it('lays the labels out again when the credit is drawn after the layout', async () => {
+    const atlas = buildAtlas()
+    // An empty credit: MapLibre hides it, so it has no area.
+    placeAt(atlas.credit, { left: 0, top: 0, right: 0, bottom: 0 })
+    atlas.credit.classList.add('maplibregl-attrib-empty')
+    mount(atlas, [placeOn('Un', 0, CREDIT)])
+    expect(labelTexts()).toEqual(['Un'])
+
+    // A source with an attribution comes into use: the class change is the
+    // only change, inside MapLibre's control container.
+    placeAt(atlas.credit, CREDIT)
+    atlas.credit.classList.remove('maplibregl-attrib-empty')
+    await settleChrome()
+    expect(labelTexts()).toEqual([])
+  })
+
+  it('lays the labels out again when one control resizes', async () => {
+    const atlas = buildAtlas()
+    const wider: Box = { ...GENRES, right: 260 }
+    mount(atlas, [placeOn('Un', 0, { ...wider, left: 230 })])
+    expect(labelTexts()).toEqual(['Un'])
+
+    placeAt(atlas.genres, wider)
+    reportResize(atlas.genres)
+    await settleChrome()
+    expect(labelTexts()).toEqual([])
+  })
+
+  it('counts an image icon inside a pass-through wrapper', () => {
+    const atlas = buildAtlas()
+    const icon: Box = { left: 300, top: 120, right: 316, bottom: 136 }
+    const img = placeAt(document.createElement('img'), icon)
+    img.style.pointerEvents = 'none'
+    atlas.myScenes.append(img)
+    mount(atlas, [placeOn('Un', 0, icon)])
+    expect(labelTexts()).toEqual([])
+  })
+
   it('reports boxes relative to the map container', () => {
     const atlas = buildAtlas()
     placeAt(atlas.fake.container, { left: 0, top: 56, right: PANE.width, bottom: 56 + PANE.height })
