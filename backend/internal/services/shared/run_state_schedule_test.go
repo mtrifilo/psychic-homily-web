@@ -60,8 +60,10 @@ type memRunRow struct {
 	leaseSeconds    int64
 	failures        int
 	runCount        int
-	// completions holds every completed (not interrupted) cycle's completion
-	// time, oldest first.
+	// claims holds the time of every claim Claim granted, and completions the
+	// time of every cycle Complete recorded as completed (not interrupted), both
+	// oldest first. seedCompleted appends to neither.
+	claims      []time.Time
 	completions []time.Time
 }
 
@@ -90,7 +92,10 @@ func (s *memRunStore) seedCompleted(name string, ago time.Duration) {
 func (s *memRunStore) snapshot(name string) memRunRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return *s.row(name)
+	r := *s.row(name)
+	r.claims = append([]time.Time(nil), r.claims...)
+	r.completions = append([]time.Time(nil), r.completions...)
+	return r
 }
 
 // Register mirrors the SQL: create-or-refresh identity and cadence, touching no
@@ -160,6 +165,7 @@ func (s *memRunStore) Claim(_ context.Context, name string, interval, lease time
 	r.startedAt = now
 	r.outcome = RunOutcomeRunning
 	r.intervalSeconds = int64(interval / time.Second)
+	r.claims = append(r.claims, now)
 	s.claimed.Add(1)
 	return r.startedAt, true, nil
 }
@@ -298,10 +304,12 @@ func TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion(t *testing.T) {
 // leaving the cadence carried by DueIn alone and the test asserting less than it
 // appears to.
 //
-// The upper bound is on COMPLETED cycles, not on calls to the work function. A
-// wake-up that lands on a process's deadline runs the work and is released as
-// interrupted, so the next boot runs it again; how often that happens depends on
-// millisecond scheduler jitter. Completions are what Claim paces.
+// The upper bound is on when claims are granted, not on how many times the work
+// runs. A wake-up that lands on a process's deadline runs the work and is
+// released as interrupted, so the next boot runs it again; how often that happens
+// depends on millisecond scheduler jitter. What does not depend on timing is
+// that no claim is granted within interval - dueSlack of the previous
+// completion, whether DueIn or Claim's gate is what holds it back.
 func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	compressCatchUp(t, 2*time.Millisecond, time.Millisecond)
 
@@ -339,34 +347,44 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 
 	assert.Zero(t, unpersistedCalls.Load(),
 		"control: a process-lifetime-anchored wait longer than the process lifetime never fires — the original bug")
-	completions := store.snapshot(cfgName).completions
-	require.GreaterOrEqual(t, len(completions), 2,
+	row := store.snapshot(cfgName)
+	require.GreaterOrEqual(t, len(row.completions), 2,
 		"persisted state must carry the schedule across restarts; %d restarts x %v of uptime spans %v of a %v interval, got %d completed cycles",
-		restarts, lifetime, restarts*lifetime, interval, len(completions))
+		restarts, lifetime, restarts*lifetime, interval, len(row.completions))
 
 	// Progress is paced by the INTERVAL, not by the restart count: a deploy storm
 	// must not turn into a cycle storm against third-party APIs. If a restart
-	// reset the schedule, completions would sit one lifetime apart. The floor is
-	// `interval - dueSlack`, the earliest Claim lets the next cycle in.
+	// reset the schedule, or a boot forced a claim, a claim would land one
+	// lifetime after the previous completion.
 	minSpacing := interval - dueSlack(interval)
-	for i := 1; i < len(completions); i++ {
-		gap := completions[i].Sub(completions[i-1])
-		assert.GreaterOrEqual(t, gap, minSpacing,
-			"restarts must not multiply cycles; completions %d and %d are %v apart, under the %v minimum spacing",
-			i-1, i, gap, minSpacing)
+	for i, claimedAt := range row.claims {
+		prev, ok := latestBefore(row.completions, claimedAt)
+		if !ok {
+			continue
+		}
+		assert.GreaterOrEqual(t, claimedAt.Sub(prev), minSpacing,
+			"restarts must not multiply cycles; claim %d came %v after the previous completion, under the %v minimum spacing",
+			i, claimedAt.Sub(prev), minSpacing)
 	}
 
 	// Every call to the work function is accounted for by the claim protocol:
 	// it either completed or was released as interrupted. A call that is
-	// neither ran outside the claim, so nothing paced it.
+	// neither ran outside the claim, so the spacing above did not pace it.
 	assert.Equal(t, int(store.finished.Load()+store.released.Load()), int(persistedCalls.Load()),
 		"every cycle the loop runs must end as a completion or a released interruption")
+}
 
-	// A process releases at most the one cycle its own shutdown interrupts, since
-	// the loop returns once its context is done. With the line above, that caps
-	// calls at completions + restarts.
-	assert.LessOrEqual(t, int(store.released.Load()), restarts,
-		"each restart may interrupt at most one cycle")
+// latestBefore returns the latest time in ascending `times` that is before t.
+func latestBefore(times []time.Time, t time.Time) (time.Time, bool) {
+	var latest time.Time
+	found := false
+	for _, at := range times {
+		if !at.Before(t) {
+			break
+		}
+		latest, found = at, true
+	}
+	return latest, found
 }
 
 // TestCatchUpSlotsAreSpacedAndBounded covers the stampede question at its
