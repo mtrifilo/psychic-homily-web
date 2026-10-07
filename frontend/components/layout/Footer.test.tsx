@@ -13,11 +13,7 @@ vi.mock('@/lib/context/CookieConsentContext', () => ({
   }),
 }))
 
-vi.mock('next/link', () => ({
-  default: ({ children, href, ...props }: { children: React.ReactNode; href: string; [key: string]: unknown }) => (
-    <a href={href} {...props}>{children}</a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 describe('Footer', () => {
   beforeEach(() => {
