@@ -69,6 +69,7 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { loadGlobeCanvas } from './loadGlobeCanvas'
 import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
@@ -109,13 +110,15 @@ function GlobeSkeleton() {
 // maplibre-gl is heavy (~900 kB chunk) and window-bound — dynamic-import the
 // canvas with ssr:false so the canvas module loads only on /atlas (PSY-1211
 // pattern, isolation re-verified for MapLibre in the PSY-1537 spike).
-// The import stays inline here for next/dynamic; preloadAtlasMap starts the
-// same module earlier (see the effect in AtlasGlobe).
+// loadGlobeCanvas is also the loader preloadAtlasMap calls, so the preload's
+// downloads are the ones this render uses (see the effect in AtlasGlobe).
+// With ssr:false next/dynamic needs no inline import: nothing is preloaded
+// on the server.
 // The App Router's next/dynamic calls `loading` only while the module is
 // pending. A failed fetch throws from React.lazy to the nearest error
 // boundary, which is the GraphSectionErrorBoundary around the canvas in the
 // render below, so a failed chunk swaps in the scene list.
-const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
+const GlobeCanvas = dynamic(loadGlobeCanvas, {
   ssr: false,
   loading: () => <GlobeSkeleton />,
 })
