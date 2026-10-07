@@ -235,8 +235,8 @@ func (s *ImageEnrichOutboxTestSuite) TestPruneRemovesAgedTerminalRows() {
 func (s *ImageEnrichOutboxTestSuite) TestSlowEnrichStillFinalizes() {
 	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
 
-	// The budget must cover one finalize UPDATE on the slowest runner this suite
-	// meets, and on CI a single-row UPDATE can take longer than 50ms. The enricher
+	// The budget must cover one finalize UPDATE on a CI runner shared by every
+	// package's container; a second is ample for a single-row write. The enricher
 	// outlasting the budget is what makes the test discriminate, and any margin
 	// past the budget does that, so the margin stays small to keep the test fast.
 	p, engine := s.newPoller(50)

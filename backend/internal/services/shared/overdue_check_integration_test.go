@@ -24,14 +24,6 @@ import (
 
 const testAlertWindow = 24 * time.Hour
 
-// endToEndWait bounds the health check's boot cycle in TestStalledSweepEndToEnd,
-// which ends on real Postgres round trips. It is a ceiling, not a duration: the
-// wait returns as soon as the report arrives, so a fast database pays nothing for
-// it. It is sized for the CI runner, where `go test ./...` runs many packages at
-// once, each with its own container, and a single-row statement can take longer
-// than 50ms.
-const endToEndWait = 10 * time.Second
-
 // registerLoop announces a loop the way RunScheduledLoop does at startup, with
 // the production lease.
 func registerLoop(t *testing.T, store *GormRunStore, name string, interval time.Duration) {
@@ -742,6 +734,12 @@ func TestRegister_PreservesRunState(t *testing.T) {
 // PSY-1538 shipped a defect that was invisible locally because a fixture stood in
 // for the real thing.
 func TestStalledSweepEndToEnd(t *testing.T) {
+	// postgresWait bounds each step below that ends on real Postgres round trips.
+	// It is a ceiling, not a duration: a step that finishes early returns early,
+	// so a fast database pays nothing for it. It is generous because CI runs every
+	// package's container on one shared runner at once.
+	const postgresWait = 10 * time.Second
+
 	db, store := setupRunStore(t)
 
 	// RunScheduledLoop populates the process-wide registry; without this the name
@@ -752,17 +750,19 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	SetDefaultRunStore(store)
 	t.Cleanup(func() { SetDefaultRunStore(nil) })
 
-	// The loop runs on a context with no deadline, because Register runs on it and
-	// a deadline would bound the registration write. StopCh is closed up front, so
-	// the loop registers, works out its first delay, and returns at its first wait
-	// without running a cycle.
+	// Register runs on the loop's context, so that context's deadline is the
+	// registration write's budget. StopCh is closed up front: the loop registers,
+	// works out its first delay, and returns at its first wait without running a
+	// cycle, because a closed StopCh wins over any nonzero first delay and a row
+	// that has never completed is given a catch-up delay of at least a second.
+	loopCtx, loopCancel := context.WithTimeout(context.Background(), postgresWait)
+	defer loopCancel()
 	stopped := make(chan struct{})
 	close(stopped)
-	RunScheduledLoop(context.Background(), LoopConfig{
-		Name:       "starved_sweep",
-		Interval:   24 * time.Hour,
-		StartDelay: 24 * time.Hour,
-		StopCh:     stopped,
+	RunScheduledLoop(loopCtx, LoopConfig{
+		Name:     "starved_sweep",
+		Interval: 24 * time.Hour,
+		StopCh:   stopped,
 	}, func(context.Context) {})
 
 	// It registered itself at start even though it never ran a cycle — this is what
@@ -792,12 +792,12 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	check := newTestHealthCheck(store)
 
 	// The boot cycle, as a deploy would trigger it.
-	checkCtx, checkCancel := context.WithTimeout(context.Background(), endToEndWait)
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), postgresWait)
 	defer checkCancel()
 	check.Start(checkCtx)
 	t.Cleanup(check.Stop)
 
-	deadline := time.Now().Add(endToEndWait)
+	deadline := time.Now().Add(postgresWait)
 	for {
 		mu.Lock()
 		_, found := findLoop(received, "starved_sweep")
