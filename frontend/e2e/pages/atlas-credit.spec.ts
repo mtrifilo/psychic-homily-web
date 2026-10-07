@@ -59,6 +59,7 @@ async function expectCreditVisible(
   expect(report!.clipped, `${state}: credit text clipped`).toBe(false)
   expect(report!.covered, `${state}: points that miss the credit`).toEqual([])
   expect(report!.underSheet, `${state}: sheets reaching the credit`).toEqual([])
+  return report!
 }
 
 /**
@@ -187,6 +188,44 @@ for (const viewport of PHONE_VIEWPORTS) {
       })
     })
   }
+}
+
+// The narrowest phone width checked: the credit still fits on one line in
+// the sheet layout's top-left corner, clear of every sheet.
+for (const colorScheme of ['dark', 'light'] as const) {
+  test.describe(`Atlas credit at 320x568 ${colorScheme}`, () => {
+    test.use({
+      viewport: { width: 320, height: 568 },
+      colorScheme,
+      hasTouch: true,
+      isMobile: true,
+      deviceScaleFactor: 2,
+    })
+    test.setTimeout(120_000)
+
+    async function expectOneLineTopLeft(page: Page, state: string) {
+      const report = await expectCreditVisible(page, state)
+      expect(report.corner, `${state}: credit corner`).toBe('top-left')
+      expect(report.lines, `${state}: credit lines`).toBe(1)
+    }
+
+    test('city view, banner up then dismissed', async ({ page }) => {
+      await stubAtlas(page)
+      await page.goto('/atlas?city=Phoenix%2CAZ')
+      await waitForMap(page)
+      await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
+
+      const list = page.getByTestId('atlas-venue-sheet')
+      await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+      await expectOneLineTopLeft(page, 'list at peek, banner up')
+
+      await dismissBanner(page)
+      await expectOneLineTopLeft(page, 'list at peek')
+      await stepDetent(page, 'atlas-venue-sheet', 'half')
+      await stepDetent(page, 'atlas-venue-sheet', 'full')
+      await expectOneLineTopLeft(page, 'list at full')
+    })
+  })
 }
 
 test.describe('Atlas credit on a compact tablet pane', () => {

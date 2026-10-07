@@ -164,8 +164,9 @@ export async function jumpToPhoenix(page: Page, zoom: number) {
  * `covered` lists every sample point (three across, at three heights) whose
  * topmost element is not the credit; `clipped` is true when the text overflows
  * its box or the box leaves the viewport; `underSheet` names any sheet whose
- * top edge sits above the credit's bottom edge. Null when no credit control
- * is mounted.
+ * top edge sits above the credit's bottom edge; `lines` counts the text's
+ * rendered lines; `corner` is the MapLibre control corner that holds it.
+ * Null when no credit control is mounted.
  */
 export function creditReport(page: Page) {
   return page.evaluate(() => {
@@ -200,6 +201,27 @@ export function creditReport(page: Page) {
       r.top < 0 ||
       r.right > window.innerWidth ||
       r.bottom > window.innerHeight
+    // Line boxes grouped by their top edge: inline runs on one line share a
+    // top to within a pixel or two, and a wrapped line starts a line-height
+    // lower.
+    const range = document.createRange()
+    range.selectNodeContents(inner)
+    const tops = Array.from(range.getClientRects())
+      .filter((b) => b.width > 0 && b.height > 0)
+      .map((b) => b.top)
+      .sort((a, b) => a - b)
+    let lines = 0
+    let lineTop = -Infinity
+    for (const top of tops) {
+      if (top - lineTop > 4) {
+        lines += 1
+        lineTop = top
+      }
+    }
+    const corner =
+      ['top-left', 'top-right', 'bottom-left', 'bottom-right'].find((c) =>
+        el.closest(`.maplibregl-ctrl-${c}`),
+      ) ?? null
     const sheets = Array.from(
       document.querySelectorAll<HTMLElement>('[data-slot="bottom-sheet"]'),
     )
@@ -219,6 +241,8 @@ export function creditReport(page: Page) {
       },
       covered,
       clipped,
+      lines,
+      corner,
       sheets,
       underSheet: sheets.filter((s) => s.top < r.bottom).map((s) => s.id),
     }
