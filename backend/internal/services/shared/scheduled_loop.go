@@ -210,6 +210,12 @@ type LoopConfig struct {
 // The loop is driven by a timer rather than a time.Ticker on purpose: every delay
 // is recomputed from the outcome of the previous cycle (ran / refused / due at),
 // so no wait is ever anchored to process start.
+//
+// A done context ends the loop; it never starts a cycle. Neither the boot cycle
+// nor a cycle whose wait elapsed as the context ended may begin, and a claim that
+// fails once the context is done stops the cycle instead of running the work
+// unclaimed. Shutdown can cut a running cycle short, but it cannot start one
+// outside the claim.
 func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -237,6 +243,9 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 	// collide with a run already in flight on a draining instance.
 	var next time.Duration
 	if cfg.RunAtBoot {
+		if ctx.Err() != nil {
+			return
+		}
 		ran := runner.runCycle(ctx, true)
 		next = runner.delayAfter(ctx, ran)
 	} else {
@@ -255,6 +264,9 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 // sleepOrStop waits `d`, returning false if the loop should exit instead. A timer
 // rather than time.Sleep so a deploy landing inside a long wait shuts the process
 // down immediately.
+//
+// It returns true only while ctx is live. A select over a fired timer and a done
+// context picks either at random, so the timer case re-checks the context.
 func sleepOrStop(ctx context.Context, stopCh <-chan struct{}, d time.Duration) bool {
 	if d < 0 {
 		d = 0
@@ -267,7 +279,7 @@ func sleepOrStop(ctx context.Context, stopCh <-chan struct{}, d time.Duration) b
 	case <-stopCh:
 		return false
 	case <-timer.C:
-		return true
+		return ctx.Err() == nil
 	}
 }
 
@@ -478,6 +490,12 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	}
 
 	token, claimed, err := r.store.Claim(ctx, r.name, r.interval, r.lease, force)
+	if err != nil && ctx.Err() != nil {
+		// The claim failed because the loop is stopping, not because the store
+		// is unreachable. Failing open here would run the work without a claim,
+		// on a context that is already done.
+		return false
+	}
 	if err != nil {
 		// Fail open. If the database is unreachable the cycle itself will fail
 		// fast anyway — every one of these loops is database-backed — so running
