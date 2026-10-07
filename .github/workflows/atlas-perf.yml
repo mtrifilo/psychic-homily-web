@@ -57,6 +57,7 @@ on:
       - '!frontend/components/layout/**/*.test.ts'
       - '!frontend/components/layout/**/*.test.tsx'
       - frontend/lib/atlasMapReady.ts
+      - frontend/lib/atlasMapReadyLink.tsx
       - frontend/app/globals.css
       # Build and bundling configuration.
       - frontend/next.config.*

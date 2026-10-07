@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -15,24 +14,9 @@ vi.mock('next/navigation', () => ({
 }))
 
 // next/link stands in as a plain anchor so the sheet rows' prefetch posture is
-// assertable (PSY-1820). forwardRef because SheetClose wraps these rows in a
-// Radix Slot, which passes a ref down. `prefetch` is re-emitted as a data-
-// attribute rather than spread: React warns on a `false` non-boolean attribute.
-vi.mock('next/link', () => {
-  const MockLink = React.forwardRef<
-    HTMLAnchorElement,
-    React.AnchorHTMLAttributes<HTMLAnchorElement> & {
-      href: string
-      prefetch?: boolean
-    }
-  >(({ href, children, prefetch, ...props }, ref) => (
-    <a href={href} ref={ref} data-prefetch={String(prefetch)} {...props}>
-      {children}
-    </a>
-  ))
-  MockLink.displayName = 'MockLink'
-  return { default: MockLink }
-})
+// assertable. SheetClose wraps these rows in a Radix Slot, which passes a ref
+// down; the shared stub spreads it onto the anchor.
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockLogout = vi.fn()
 type MockUser = { email: string; username?: string; is_admin: boolean }
@@ -209,7 +193,7 @@ describe('BottomTabBar', () => {
       act(() => markAtlasMapReady())
       rerender(<FreshTabBar />)
       for (const name of tabNames) {
-        expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'undefined')
+        expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'default')
       }
       await user.click(screen.getByRole('button', { name: 'Browse' }))
       const sheet = await screen.findByRole('dialog')

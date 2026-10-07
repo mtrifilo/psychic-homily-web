@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { PrimaryNav } from './PrimaryNav'
@@ -13,18 +12,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 // A plain anchor that surfaces the prefetch prop the link was rendered with.
-vi.mock('next/link', () => {
-  const MockLink = React.forwardRef<
-    HTMLAnchorElement,
-    React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; prefetch?: boolean }
-  >(({ href, children, prefetch, ...props }, ref) => (
-    <a href={href} ref={ref} data-prefetch={String(prefetch)} {...props}>
-      {children}
-    </a>
-  ))
-  MockLink.displayName = 'MockLink'
-  return { default: MockLink }
-})
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 describe('PrimaryNav on /atlas', () => {
   // PrimaryNav's links are primary destinations: on /atlas they re-arm their
@@ -38,6 +26,6 @@ describe('PrimaryNav on /atlas', () => {
     act(() => markAtlasMapReady())
     rerender(<PrimaryNav />)
 
-    for (const anchor of anchors()) expect(anchor).toHaveAttribute('data-prefetch', 'undefined')
+    for (const anchor of anchors()) expect(anchor).toHaveAttribute('data-prefetch', 'default')
   })
 })

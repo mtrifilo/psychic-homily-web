@@ -1,13 +1,14 @@
 'use client'
 
 import type { ComponentProps } from 'react'
-import { ChromeLink } from '@/components/layout/nav/ChromeLink'
+import { AtlasMapReadyLink } from '@/lib/atlasMapReadyLink'
 
 /**
  * `next/link` for every link the Atlas draws in its own pane: the map's
  * overlays, the scene preview, the venue and artist panels. On `/atlas` it
- * prefetches only once the Atlas-ready signal releases (ChromeLink's
- * `'after-map'` rule); elsewhere it is a plain Link.
+ * prefetches only once the Atlas-ready signal releases (AtlasMapReadyLink's
+ * `'after-map'` rule, lib/atlasMapReadyLink.tsx); elsewhere it is a plain
+ * Link.
  *
  * The links that can mount while the signal still holds are the ones drawn
  * with the map, before any input: the "not on the map" link and the My Scenes
@@ -19,7 +20,7 @@ import { ChromeLink } from '@/components/layout/nav/ChromeLink'
  * the pane from importing `next/link` directly.
  */
 export function AtlasPaneLink(
-  props: Omit<ComponentProps<typeof ChromeLink>, 'atlasPrefetch'>,
+  props: Omit<ComponentProps<typeof AtlasMapReadyLink>, 'atlasPrefetch'>,
 ) {
-  return <ChromeLink {...props} atlasPrefetch="after-map" />
+  return <AtlasMapReadyLink {...props} atlasPrefetch="after-map" />
 }

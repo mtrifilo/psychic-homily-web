@@ -123,6 +123,71 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
   loading: () => <GlobeSkeleton />,
 })
 
+/**
+ * What the Atlas pane renders, decided once per render. The pane's content,
+ * whether the map is preloaded, and whether the Atlas-ready signal is released
+ * because no map will draw are all read from this one value, so the three
+ * agree. A new kind is a type error until both atlasRenderBranchEffects and
+ * the content's skeleton fallback (the last `else` in AtlasGlobe) handle it.
+ * - `'error'`: the scenes query failed. The error message.
+ * - `'unmeasured'`: the pane has no size yet, so whether a map can render is
+ *   not known. The skeleton.
+ * - `'scene-list'`: atlasRendersSceneList says so. The scene list.
+ * - `'nothing-to-place'`: scenes loaded and none can be placed. A message
+ *   with a link to the scenes page.
+ * - `'map'`, with the pane's size: the map mounts once there are scenes to
+ *   place and the camera focus resolves, behind the skeleton until then;
+ *   GlobeCanvas releases the signal at its first full frame.
+ */
+type AtlasRenderBranch =
+  | { kind: 'error' | 'unmeasured' | 'scene-list' | 'nothing-to-place' }
+  | { kind: 'map'; size: AtlasPaneSize }
+
+/**
+ * Whether a branch preloads the map, and whether it releases the Atlas-ready
+ * signal because no map can follow.
+ */
+function atlasRenderBranchEffects(kind: AtlasRenderBranch['kind']): {
+  preloadsMap: boolean
+  releasesSignal: boolean
+} {
+  switch (kind) {
+    case 'map':
+      return { preloadsMap: true, releasesSignal: false }
+    case 'unmeasured':
+      return { preloadsMap: false, releasesSignal: false }
+    case 'error':
+    case 'scene-list':
+    case 'nothing-to-place':
+      return { preloadsMap: false, releasesSignal: true }
+  }
+}
+
+interface AtlasPaneSize {
+  width: number
+  height: number
+}
+
+function atlasRenderBranch({
+  scenesFailed,
+  size,
+  showsSceneList,
+  scenesLoading,
+  placeableCount,
+}: {
+  scenesFailed: boolean
+  size: AtlasPaneSize | null
+  showsSceneList: boolean
+  scenesLoading: boolean
+  placeableCount: number
+}): AtlasRenderBranch {
+  if (scenesFailed) return { kind: 'error' }
+  if (size === null) return { kind: 'unmeasured' }
+  if (showsSceneList) return { kind: 'scene-list' }
+  if (!scenesLoading && placeableCount === 0) return { kind: 'nothing-to-place' }
+  return { kind: 'map', size }
+}
+
 /** The Sentry tag that names how an unrecoverable map failed. */
 function atlasMapFailureTags(error: unknown): Record<string, string> | undefined {
   return error instanceof AtlasMapUnrecoverableError
@@ -165,7 +230,7 @@ export function AtlasGlobe() {
   )
   const unplaceableCount = allScenes.length - placeable.length
 
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const [size, setSize] = useState<AtlasPaneSize | null>(null)
   // null until the initial focus is resolved (visitor geo, or the default after
   // a short timeout). Resolved ONCE before the globe mounts, so the camera never
   // snaps post-mount over a user's in-progress rotation.
@@ -631,32 +696,31 @@ export function AtlasGlobe() {
   const mapSheetLayout =
     size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
 
+  const renderBranch = atlasRenderBranch({
+    scenesFailed: isError,
+    size,
+    showsSceneList,
+    scenesLoading: isLoading,
+    placeableCount: placeable.length,
+  })
+
   // The canvas renders only after scenes and the camera focus (which waits on
-  // visitor geo) resolve; preload what it needs during that wait. Nothing is
-  // preloaded where the map cannot render: the scene list, the error state,
-  // or a loaded scene set with nothing to place.
-  const mapMayMount =
-    size !== null &&
-    !showsSceneList &&
-    !isError &&
-    (isLoading || placeable.length > 0)
+  // visitor geo) resolve; preload what it needs during that wait. Whatever
+  // waits on the Atlas-ready signal is released once no map can follow.
+  const { preloadsMap, releasesSignal } = atlasRenderBranchEffects(renderBranch.kind)
   useEffect(() => {
-    if (mapMayMount) preloadAtlasMap()
-  }, [mapMayMount])
-  // No map can follow: the error state, the scene list, or a loaded scene set
-  // with nothing to place. Whatever waits on the Atlas-ready signal is released
-  // then. The unmeasured first commit is excluded, since a map may still follow.
-  const mapWillNotDraw = isError || (size !== null && !mapMayMount)
+    if (preloadsMap) preloadAtlasMap()
+  }, [preloadsMap])
   useEffect(() => {
-    if (mapWillNotDraw) markAtlasMapReady()
-  }, [mapWillNotDraw])
+    if (releasesSignal) markAtlasMapReady()
+  }, [releasesSignal])
 
   let content: ReactNode
-  if (isError) {
+  if (renderBranch.kind === 'error') {
     content = (
       <CenterMessage>The atlas couldn’t load. Try again shortly.</CenterMessage>
     )
-  } else if (showsSceneList) {
+  } else if (renderBranch.kind === 'scene-list') {
     content = (
       <AtlasSceneList
         scenes={allScenes}
@@ -664,16 +728,17 @@ export function AtlasGlobe() {
         followedSlugs={followedSlugs}
       />
     )
-  } else if (size !== null && placeable.length > 0 && pov !== null) {
+  } else if (renderBranch.kind === 'map' && placeable.length > 0 && pov !== null) {
+    const paneSize = renderBranch.size
     // Two layouts. Wide panes put the rail BESIDE the map (never over it: the
     // map's bottom-left attribution is a licensing requirement), narrowing the
     // canvas by exactly the rail's width, with panels docked to the right.
     // Narrower panes would leave a uselessly thin map beside a rail, so they
     // keep the map full width and use bottom sheets for the venue list and
     // every panel, with the credit moved to the top-left.
-    const sheetLayout = usesAtlasSheetLayout(size.width)
+    const sheetLayout = usesAtlasSheetLayout(paneSize.width)
     const railOpen = cityScene !== null && !sheetLayout
-    const canvasWidth = railOpen ? size.width - CITY_RAIL_WIDTH_PX : size.width
+    const canvasWidth = railOpen ? paneSize.width - CITY_RAIL_WIDTH_PX : paneSize.width
     const panelPresentation = sheetLayout ? 'sheet' : 'panel'
     const listSheetShown = sheetLayout && cityScene !== null && !selectedVenue
     // The sheet layout's geometry for chrome positioned in CSS: the strip no
@@ -792,7 +857,7 @@ export function AtlasGlobe() {
           >
             <GlobeCanvas
               width={canvasWidth}
-              height={size.height}
+              height={paneSize.height}
               scenes={placeable}
               pov={pov}
               onSelect={setSelected}
@@ -939,7 +1004,7 @@ export function AtlasGlobe() {
         </div>
       </div>
     )
-  } else if (size !== null && !isLoading && placeable.length === 0) {
+  } else if (renderBranch.kind === 'nothing-to-place') {
     content = (
       <CenterMessage>
         No scenes to place on the map yet.{' '}
@@ -952,6 +1017,10 @@ export function AtlasGlobe() {
       </CenterMessage>
     )
   } else {
+    // 'unmeasured', or 'map' still waiting on scenes or the camera focus; any
+    // other kind is a type error here.
+    const waiting: 'unmeasured' | 'map' = renderBranch.kind
+    void waiting
     content = <GlobeSkeleton />
   }
 

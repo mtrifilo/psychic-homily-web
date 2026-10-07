@@ -10,21 +10,7 @@ vi.mock('next/navigation', () => ({
 
 // The real Link's prefetch is internal; the stub surfaces the prop it was
 // rendered with, which is what decides whether Next arms its prefetch.
-vi.mock('next/link', () => ({
-  default: ({
-    prefetch,
-    href,
-    children,
-  }: {
-    prefetch?: boolean | null
-    href: string
-    children: React.ReactNode
-  }) => (
-    <a href={href} data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 // The signal is page-load state, so each test gets a fresh copy of it and of
 // the component that reads it.
@@ -90,8 +76,9 @@ describe('ChromeLink', () => {
     expect(screen.getByText('Home')).toHaveAttribute('data-prefetch', 'default')
   })
 
-  // The hold keys on the nav registry's Atlas entry, while the cap and input
-  // release are armed by app/atlas/page.tsx; both must name the same route.
+  // The hold and the nav registry's Atlas entry both read ATLAS_PATHNAME
+  // (lib/atlasMapReady.ts), while the cap and input release are armed by
+  // app/atlas/page.tsx; the constant must be the route that page serves.
   it('holds on the route app/atlas serves', () => {
     expect(atlasItem.href).toBe('/atlas')
   })

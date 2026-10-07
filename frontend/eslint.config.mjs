@@ -57,10 +57,7 @@ const eslintConfig = defineConfig([
     // that sets no-restricted-imports for these files replaces this one's
     // options rather than merging them, so extend this block instead.
     files: ["components/layout/**/*.tsx"],
-    ignores: [
-      "components/layout/nav/ChromeLink.tsx",
-      "components/layout/**/*.test.tsx",
-    ],
+    ignores: ["components/layout/**/*.test.tsx"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",

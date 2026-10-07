@@ -1,9 +1,10 @@
 import type { ComponentProps, ReactNode } from 'react'
 
 /**
- * A `next/link` stand-in for tests that check whether a link may prefetch. It
- * renders a plain anchor with the props it was given, plus `data-prefetch`:
- * the `prefetch` prop as a string, or `'default'` when the caller passed none.
+ * A `next/link` stand-in. It renders a plain anchor with the props it was
+ * given (a `ref` included), plus `data-prefetch`, so a test can check whether
+ * a link may prefetch: the `prefetch` prop as a string, or `'default'` when
+ * the caller passed none.
  *
  * Usage:
  *   vi.mock('next/link', () => import('@/test/mocks/nextLink'))

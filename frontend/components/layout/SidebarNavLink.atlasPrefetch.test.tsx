@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { Home } from 'lucide-react'
@@ -16,18 +15,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 // A plain anchor that surfaces the prefetch prop the link was rendered with.
-vi.mock('next/link', () => {
-  const MockLink = React.forwardRef<
-    HTMLAnchorElement,
-    React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; prefetch?: boolean }
-  >(({ href, children, prefetch, ...props }, ref) => (
-    <a href={href} ref={ref} data-prefetch={String(prefetch)} {...props}>
-      {children}
-    </a>
-  ))
-  MockLink.displayName = 'MockLink'
-  return { default: MockLink }
-})
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 function DesktopNav() {
   return (
@@ -53,7 +41,7 @@ describe('desktop primary navigation on /atlas, both nav modes', () => {
     act(() => markAtlasMapReady())
     rerender(<DesktopNav />)
 
-    for (const link of links()) expect(link).toHaveAttribute('data-prefetch', 'undefined')
-    expect(screen.getByText('Side shows').closest('a')).toHaveAttribute('data-prefetch', 'undefined')
+    for (const link of links()) expect(link).toHaveAttribute('data-prefetch', 'default')
+    expect(screen.getByText('Side shows').closest('a')).toHaveAttribute('data-prefetch', 'default')
   })
 })
