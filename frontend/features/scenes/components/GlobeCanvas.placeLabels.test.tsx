@@ -328,13 +328,20 @@ describe('GlobeCanvas place labels', () => {
   /**
    * The light look with a Drift button the page draws beside the canvas,
    * whose screen box is whatever `driftRect` returns at each read.
+   * `showCityLabel` renders the same page again with that city view label.
    */
   async function showMapBesideDrift(driftRect: () => DOMRect, scenes: PlaceableScene[] = SCENES) {
     const drift: { current: HTMLButtonElement | null } = { current: null }
-    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
-    render(
+    const page = (cityLabel: string | null) => (
       <div>
-        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={scenes} pov={POV} onSelect={() => {}} />
+        <GlobeCanvas
+          width={PANE.width}
+          height={PANE.height}
+          scenes={scenes}
+          pov={POV}
+          onSelect={() => {}}
+          cityLabel={cityLabel}
+        />
         <button
           type="button"
           ref={(button) => {
@@ -344,14 +351,24 @@ describe('GlobeCanvas place labels', () => {
         >
           Drift
         </button>
-      </div>,
+      </div>
     )
+    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
+    const { rerender, unmount } = render(page(null))
     await act(async () => {
       maps[0].fire('style.load')
       maps[0].fire('render')
     })
-    return { map: maps[0], drift: drift.current! }
+    return {
+      map: maps[0],
+      drift: drift.current!,
+      showCityLabel: (cityLabel: string | null) => rerender(page(cityLabel)),
+      unmount,
+    }
   }
+
+  /** Lets the chrome's 100 ms settle run out on real timers. */
+  const outlastChromeSettle = () => act(() => new Promise((resolve) => setTimeout(resolve, 150)))
 
   it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
     // First clear of every label, then moved over Clear City's (213,323 to
@@ -393,6 +410,7 @@ describe('GlobeCanvas place labels', () => {
     // Down through three label bands: the scene-label set changes three times.
     await fly([2.8, 3.0, 3.3, 3.5, 4.0, 4.5])
     expect(sceneLabelCount()).toBe(4)
+    await outlastChromeSettle()
     expect(reads).toHaveBeenCalledTimes(1)
 
     // One layout change in the chrome: one read.
@@ -402,7 +420,44 @@ describe('GlobeCanvas place labels', () => {
     // Back up through the same bands: three more changes to the set.
     await fly([3.5, 3.0, 2.4])
     expect(sceneLabelCount()).toBe(1)
+    await outlastChromeSettle()
     expect(reads).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops the chrome watch while place labels are off, and the labels that come back follow a new one', async () => {
+    const clear = { left: 300, top: 600, right: 360, bottom: 630 }
+    // Over Clear City's label (213,323 to 273,335).
+    const over = { left: 200, top: 315, right: 290, bottom: 345 }
+    let box = clear
+    const reads = vi.fn(() => rect(box))
+    const { drift, showCityLabel, unmount } = await showMapBesideDrift(reads)
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    // City view: no place labels, and no watch reads Drift as it moves.
+    showCityLabel('PHOENIX, AZ')
+    expect(placeLabelTexts()).toEqual([])
+    box = over
+    act(() => drift.setAttribute('data-moved', 'over'))
+    await outlastChromeSettle()
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    // Back on the globe: a new watch reads Drift where it now is.
+    showCityLabel(null)
+    await waitFor(() => expect(reads).toHaveBeenCalledTimes(2))
+    expect(placeLabelTexts()).toEqual([])
+
+    // The labels follow the new watch.
+    box = clear
+    act(() => drift.setAttribute('data-moved', 'clear'))
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+    expect(reads).toHaveBeenCalledTimes(3)
+
+    // Unmounted: the watch is stopped, so its pending settle never reads.
+    act(() => drift.setAttribute('data-moved', 'again'))
+    unmount()
+    await outlastChromeSettle()
+    expect(reads).toHaveBeenCalledTimes(3)
   })
 
   it('reports a place file that could not be loaded and draws no place label', async () => {

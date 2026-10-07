@@ -55,11 +55,12 @@ export interface PlaceLabelOptions {
 
 /**
  * How long the chrome must hold still after a change before its boxes are
- * read again. 100 ms is a product number, the wait before the boxes are
- * reread (and so the longest a label sits under chrome that has just moved
- * over it), not a tuning constant. A run of changes inside it (a sheet being
- * dragged, a panel filling in) costs one read and one layout rather than one
- * per frame.
+ * read again. 100 ms is a product number (how long the chrome must hold
+ * still before its boxes are reread), not a tuning constant. The wait starts
+ * over at each observed change, so a label that chrome has moved over is
+ * dropped 100 ms after the chrome comes to rest, and a run of changes (a
+ * sheet being dragged, a panel filling in) costs one read and one layout
+ * rather than one per frame.
  */
 const CHROME_SETTLE_MS = 100
 
