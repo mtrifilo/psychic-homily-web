@@ -511,6 +511,11 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   // ATLAS_CONTEXT_RESTORE_DEADLINE_MS in features/scenes/components/atlasMapHealth.ts.
   const RESTORE_DEADLINE_MS = 3_000
 
+  // Each test boots a SwiftShader map (waitForMap alone polls for up to
+  // 60 s) and then waits out the restore deadline in real time, so its floor
+  // is seconds, not milliseconds.
+  test.setTimeout(120_000)
+
   type ContextWindow = {
     __atlasMap?: AtlasMapSeam | null
     __atlasLoseContext?: WEBGL_lose_context | null
