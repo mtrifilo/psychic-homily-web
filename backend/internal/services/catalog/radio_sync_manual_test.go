@@ -295,13 +295,10 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerShowBackfill_OpensR
 // TestTriggerGlobalRematch_OpensRunAndCompletes checks that the trigger opens a
 // rematch run row and that the run reaches success in the background.
 //
-// The returned status is not required to be running. The trigger reads the row
-// back after it starts the background goroutine, and with nothing to rematch
-// that goroutine can close the run before the read, so the handle carries
-// either running or success. finishRematchRun writes success, failed or
-// cancelled, never partial, so those two are the only statuses a healthy run
-// can show here. What proves the run was opened is the poll: the returned id
-// must resolve through GetSyncRun to a finished rematch row.
+// The returned status is running or success, not running alone: the trigger
+// reads the row back after starting the background goroutine, which can close
+// an empty run before that read. The poll is what proves the run was opened:
+// the returned id must resolve through GetSyncRun to a finished rematch row.
 func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_OpensRunAndCompletes() {
 	resp, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
 	suite.Require().NoError(err)
@@ -320,7 +317,6 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_Opens
 		final = r
 		return r.Status == catalogm.RadioSyncRunStatusSuccess
 	}, 5*time.Second, 20*time.Millisecond, "global rematch run should complete")
-	suite.Equal(resp.ID, final.ID)
 	suite.Equal(catalogm.RadioSyncRunTypeRematch, final.RunType)
 	suite.Nil(final.StationID)
 	suite.NotNil(final.FinishedAt, "a finished run must carry finished_at")

@@ -31,9 +31,6 @@ import (
 type memRunStore struct {
 	mu   sync.Mutex
 	rows map[string]*memRunRow
-	// completions holds the time of every completed (not interrupted) cycle, in
-	// completion order, across all loop names.
-	completions []time.Time
 
 	registered atomic.Int32
 	retired    atomic.Int32
@@ -63,6 +60,9 @@ type memRunRow struct {
 	leaseSeconds    int64
 	failures        int
 	runCount        int
+	// completions holds every completed (not interrupted) cycle's completion
+	// time, oldest first.
+	completions []time.Time
 }
 
 func newMemRunStore() *memRunStore {
@@ -91,12 +91,6 @@ func (s *memRunStore) snapshot(name string) memRunRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return *s.row(name)
-}
-
-func (s *memRunStore) completionTimes() []time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]time.Time(nil), s.completions...)
 }
 
 // Register mirrors the SQL: create-or-refresh identity and cadence, touching no
@@ -185,7 +179,7 @@ func (s *memRunStore) Complete(_ context.Context, name string, token time.Time, 
 		return nil
 	}
 	r.completedAt = time.Now()
-	s.completions = append(s.completions, r.completedAt)
+	r.completions = append(r.completions, r.completedAt)
 	r.outcome = outcome.outcomeLabel()
 	r.rows = outcome.Rows
 	r.lastErrText = outcome.errorText()
@@ -304,16 +298,10 @@ func TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion(t *testing.T) {
 // leaving the cadence carried by DueIn alone and the test asserting less than it
 // appears to.
 //
-// The upper bound is stated on COMPLETED cycles, not on calls to the work
-// function. A wake-up that lands at a process's deadline runs the work and is
-// then released as interrupted rather than completed, so the next boot finds the
-// loop overdue and runs it again (TestInterruptedCycleReleasesClaimWithoutCompleting
-// pins that release). How many wake-ups land on a deadline depends on scheduler
-// jitter of a millisecond or two, because the lifetime divides the interval
-// exactly, so a bound on calls is a bound on timing. Completions are what Claim
-// paces: a claim is refused until interval - dueSlack after the previous
-// completion, so consecutive completions are at least that far apart however the
-// restarts fall.
+// The upper bound is on COMPLETED cycles, not on calls to the work function. A
+// wake-up that lands on a process's deadline runs the work and is released as
+// interrupted, so the next boot runs it again; how often that happens depends on
+// millisecond scheduler jitter. Completions are what Claim paces.
 func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	compressCatchUp(t, 2*time.Millisecond, time.Millisecond)
 
@@ -351,7 +339,7 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 
 	assert.Zero(t, unpersistedCalls.Load(),
 		"control: a process-lifetime-anchored wait longer than the process lifetime never fires — the original bug")
-	completions := store.completionTimes()
+	completions := store.snapshot(cfgName).completions
 	require.GreaterOrEqual(t, len(completions), 2,
 		"persisted state must carry the schedule across restarts; %d restarts x %v of uptime spans %v of a %v interval, got %d completed cycles",
 		restarts, lifetime, restarts*lifetime, interval, len(completions))
@@ -373,6 +361,12 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	// neither ran outside the claim, so nothing paced it.
 	assert.Equal(t, int(store.finished.Load()+store.released.Load()), int(persistedCalls.Load()),
 		"every cycle the loop runs must end as a completion or a released interruption")
+
+	// A process releases at most the one cycle its own shutdown interrupts, since
+	// the loop returns once its context is done. With the line above, that caps
+	// calls at completions + restarts.
+	assert.LessOrEqual(t, int(store.released.Load()), restarts,
+		"each restart may interrupt at most one cycle")
 }
 
 // TestCatchUpSlotsAreSpacedAndBounded covers the stampede question at its
