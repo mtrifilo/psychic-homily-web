@@ -1,8 +1,8 @@
 name: Atlas Perf
 
 # Runs frontend/scripts/atlas-perf.mjs against the PR's Vercel preview: three
-# cold runs, medians checked against the script's budget (GATE in
-# frontend/scripts/lib/atlas-perf-gate.mjs), with the report in the job
+# cold runs, medians checked against the script's budget (DEFAULT_BUDGET in
+# frontend/scripts/lib/atlas-perf-budget.mjs), with the report in the job
 # summary.
 #
 # NON-BLOCKING: the job sets `continue-on-error: true`, so a missed budget or
@@ -11,18 +11,33 @@ name: Atlas Perf
 # Preview discovery and the protection bypass work as in
 # lighthouse-explore.yml: the deployments API finds the vercel[bot] Preview
 # deployment for the PR head SHA, and the VERCEL_AUTOMATION_BYPASS_SECRET
-# repository secret gets past Vercel SSO. The script receives the secret as
-# VERCEL_PROTECTION_BYPASS, sends it only to this project's preview hosts on
-# one bypass-cookie request per run, and redacts it from its output.
+# repository secret gets past Vercel SSO. Discovery accepts only a status that
+# vercel[bot] posted with an https URL on this project's preview host pattern,
+# so the secret goes nowhere else: once in the reachability probe, then to the
+# script as VERCEL_PROTECTION_BYPASS, which sends it on one bypass-cookie
+# request per run and redacts it from its output.
 
 on:
   pull_request:
     branches: [main]
     paths:
+      # The route and the feature module it mounts.
+      - frontend/app/atlas/**
       - frontend/features/scenes/**
-      - frontend/scripts/atlas-perf.mjs
-      - frontend/scripts/lib/atlas-perf-gate.mjs
+      # Files /atlas fetches during the entry: the globe GeoJSON and the
+      # vendored MapLibre worker modules.
+      - frontend/public/atlas/**
+      - frontend/public/maplibre/**
+      # Dependency versions (maplibre-gl among them) move the JS bytes.
+      - frontend/package.json
+      - frontend/bun.lock
+      # The root layout and global CSS are part of every entry.
+      - frontend/app/layout.tsx
+      - frontend/app/globals.css
       - frontend/next.config.*
+      # The measurement itself.
+      - frontend/scripts/atlas-perf.mjs
+      - frontend/scripts/lib/atlas-perf-budget.mjs
       - .github/workflows/atlas-perf.yml
 
 # A newer push to the same PR supersedes a run still waiting or measuring.
@@ -41,9 +56,9 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     # Step caps: Playwright deps 10 + browsers 4 + preview wait 12 +
-    # reachability 6 + measurement 15 = 47, plus about 4 for checkout, bun and
-    # the install. 60 leaves slack so a step cap fires before the job cap.
-    timeout-minutes: 60
+    # reachability 6 + measurement 20 = 52, plus about 4 for checkout, bun and
+    # the install. 65 leaves slack so a step cap fires before the job cap.
+    timeout-minutes: 65
     # `deployments: read` for the preview discovery; `contents: read` for
     # actions/checkout. The head SHA comes from `context.payload`, so no
     # `pull-requests` scope.
@@ -57,6 +72,8 @@ jobs:
       ATLAS_PERF_VIEWPORT: 800x1000
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Setup needs no preview, so it runs while Vercel is still building.
       - uses: oven-sh/setup-bun@v2
@@ -120,12 +137,17 @@ jobs:
                   deployment_id: dep.id,
                   per_page: 20,
                 });
-                const success = statuses.find((s) => s.state === 'success');
-                if (success?.target_url) {
-                  core.info(`Found preview: ${success.target_url}`);
-                  core.setOutput('url', success.target_url);
+                const success = statuses.find((s) => s.state === 'success' && s.creator?.login === 'vercel[bot]');
+                if (!success?.target_url) continue;
+                // The same host pattern as PREVIEW_HOST in atlas-perf.mjs.
+                const url = new URL(success.target_url);
+                if (url.protocol !== 'https:' || !/^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/.test(url.hostname)) {
+                  core.setFailed(`Preview URL is not an https URL on this project's preview hosts: ${url.origin}`);
                   return;
                 }
+                core.info(`Found preview: ${url.origin}`);
+                core.setOutput('url', url.origin);
+                return;
               }
 
               await new Promise((r) => setTimeout(r, intervalMs));
@@ -134,6 +156,7 @@ jobs:
             core.setFailed('Timeout: no successful Vercel Preview deployment found for this PR head SHA');
 
       - name: Verify preview is reachable with bypass
+        id: reach
         timeout-minutes: 6
         env:
           PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
@@ -144,7 +167,7 @@ jobs:
             exit 1
           fi
           for i in $(seq 1 60); do
-            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+            STATUS=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
               -H "x-vercel-protection-bypass: $BYPASS" \
               "$PREVIEW_URL/atlas" || echo "000")
             echo "Attempt $i: HTTP $STATUS"
@@ -154,15 +177,16 @@ jobs:
             fi
             sleep 5
           done
-          echo "::error::Preview /atlas never returned 200 with the bypass header after 5 minutes."
+          echo "::error::Preview /atlas never returned 200 with the bypass header after 60 attempts."
           exit 1
 
-      # A run is bounded by the script's three 90 s waits (navigation, first
-      # map, city view) plus 6 s of settling, so three runs fit in 15 minutes.
+      # A run waits at most 90 s each for navigation, first map and city view,
+      # plus 6 s of settling, the bypass request (30 s) and the browser launch:
+      # about 5 minutes worst case, so three runs fit in 20.
       - name: Measure /atlas on the preview
         id: measure
         working-directory: ./frontend
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
@@ -176,23 +200,36 @@ jobs:
       # Only the script's stdout reaches the summary; its stderr (harness
       # errors) stays in the step log.
       - name: Write job summary
-        if: ${{ !cancelled() && steps.vercel-preview.outputs.url != '' }}
+        if: ${{ !cancelled() }}
         working-directory: ./frontend
         env:
+          PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
+          REACH_OUTCOME: ${{ steps.reach.outcome }}
+          MEASURE_OUTCOME: ${{ steps.measure.outcome }}
           EXIT_CODE: ${{ steps.measure.outputs.exit_code }}
         run: |
-          case "$EXIT_CODE" in
-            0) result="budget met (exit 0)" ;;
-            1) result="budget missed (exit 1)" ;;
-            2) result="harness error (exit 2); see the step log" ;;
-            *) result="the measurement did not finish; see the step log" ;;
-          esac
+          if [ -z "$PREVIEW_URL" ]; then
+            result="not measured: no Vercel preview found for this commit"
+          elif [ "$REACH_OUTCOME" != "success" ]; then
+            result="not measured: the preview was unreachable or the bypass secret is missing"
+          elif [ "$MEASURE_OUTCOME" = "skipped" ]; then
+            result="not measured: an earlier step failed"
+          else
+            case "$EXIT_CODE" in
+              0) result="budget met (exit 0)" ;;
+              1) result="budget missed (exit 1)" ;;
+              2) result="harness error (exit 2); see the step log" ;;
+              *) result="the measurement did not finish (step timeout); see the step log" ;;
+            esac
+          fi
           {
             echo "## Atlas perf (preview, non-blocking)"
             echo
             echo "Result: $result."
             echo
-            echo "Viewport: $ATLAS_PERF_VIEWPORT, a stand-in for the 390x844 phone profile: below 640px wide the Atlas renders its scene list instead of the map."
+            if [ "$ATLAS_PERF_VIEWPORT" != "390x844" ]; then
+              echo "Viewport: $ATLAS_PERF_VIEWPORT, a stand-in for the 390x844 phone profile (the Atlas renders its scene list instead of the map at 390px on this build). The budget was set for the phone profile, so the result here is advisory."
+            fi
             if [ -s atlas-perf.md ]; then
               cat atlas-perf.md
             fi

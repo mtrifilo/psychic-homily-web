@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { EXIT, GATE, TARGET, judge, median, resolveBudget, runGate } from './atlas-perf-gate.mjs'
+import { DEFAULT_BUDGET, EXIT, TARGET, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
 
 const MIB = 1024 * 1024
 
@@ -30,14 +30,14 @@ const stubRunner = (results: Array<Run | Error>) => {
   })
 }
 
-const gate = (results: Array<Run | Error>, overrides: Record<string, unknown> = {}) => {
+const check = (results: Array<Run | Error>, overrides: Record<string, unknown> = {}) => {
   const runOnce = stubRunner(results)
   const report = vi.fn()
   const onError = vi.fn()
-  const code = runGate({
+  const code = runBudgetCheck({
     count: results.length,
     runOnce,
-    budget: GATE,
+    budget: DEFAULT_BUDGET,
     compact: true,
     enforce: true,
     report,
@@ -47,10 +47,14 @@ const gate = (results: Array<Run | Error>, overrides: Record<string, unknown> = 
   return { code, runOnce, report, onError }
 }
 
-describe('atlas perf gate', () => {
-  it('is the owner gate: first map 3.5 s, entry 1.5 MiB; the target is 2.5 s', () => {
-    expect(GATE).toEqual({ firstMapMs: 3500, entryBytes: 1.5 * MIB })
+describe('atlas perf budget', () => {
+  it('defaults to the owner budget: first map 3.5 s, entry 1.5 MiB; the target is 2.5 s', () => {
+    expect(DEFAULT_BUDGET).toEqual({ firstMapMs: 3500, entryBytes: 1.5 * MIB })
     expect(TARGET).toEqual({ firstMapMs: 2500 })
+  })
+
+  it('keeps the exit codes the workflow summary and the script header name', () => {
+    expect(EXIT).toEqual({ PASS: 0, BUDGET_MISSED: 1, HARNESS_ERROR: 2 })
   })
 
   it('takes the median of odd and even run counts', () => {
@@ -59,17 +63,17 @@ describe('atlas perf gate', () => {
   })
 
   describe('resolveBudget', () => {
-    it('defaults to the gate', () => {
-      expect(resolveBudget({})).toEqual({ budget: GATE })
-      expect(resolveBudget()).toEqual({ budget: GATE })
+    it('defaults to DEFAULT_BUDGET', () => {
+      expect(resolveBudget({})).toEqual({ budget: DEFAULT_BUDGET })
+      expect(resolveBudget()).toEqual({ budget: DEFAULT_BUDGET })
     })
 
     it('applies --budget-ms and --budget-bytes independently', () => {
-      expect(resolveBudget({ firstMapMs: '2500' })).toEqual({ budget: { firstMapMs: 2500, entryBytes: GATE.entryBytes } })
-      expect(resolveBudget({ entryBytes: '1048576' })).toEqual({ budget: { firstMapMs: GATE.firstMapMs, entryBytes: MIB } })
+      expect(resolveBudget({ firstMapMs: '2500' })).toEqual({ budget: { firstMapMs: 2500, entryBytes: DEFAULT_BUDGET.entryBytes } })
+      expect(resolveBudget({ entryBytes: '1048576' })).toEqual({ budget: { firstMapMs: DEFAULT_BUDGET.firstMapMs, entryBytes: MIB } })
     })
 
-    it.each(['0', '-1', '3.5', 'abc', ''])('rejects %j', (raw) => {
+    it.each(['0', '-1', '3.5', 'abc', '', '1e3', '0x10', ' 5', '9007199254740993'])('rejects %j', (raw) => {
       expect(resolveBudget({ firstMapMs: raw })).toEqual({ error: '--budget-ms must be a positive integer' })
       expect(resolveBudget({ entryBytes: raw })).toEqual({ error: '--budget-bytes must be a positive integer' })
     })
@@ -77,33 +81,44 @@ describe('atlas perf gate', () => {
 
   describe('judge', () => {
     it('passes at exactly the limits (at or under)', () => {
-      const verdict = judge([run(3500, 1.5 * MIB)], { budget: GATE, compact: true })
+      const verdict = judge([run(3500, 1.5 * MIB)], { budget: DEFAULT_BUDGET, compact: true })
       expect(verdict).toMatchObject({ firstMapOk: true, entryOk: true, rasterOk: true, pass: true })
     })
 
     it('fails 1 ms or 1 byte over a limit', () => {
-      expect(judge([run(3501)], { budget: GATE, compact: true })).toMatchObject({ firstMapOk: false, pass: false })
-      expect(judge([run(3000, 1.5 * MIB + 1)], { budget: GATE, compact: true })).toMatchObject({ entryOk: false, pass: false })
+      expect(judge([run(3501)], { budget: DEFAULT_BUDGET, compact: true })).toMatchObject({ firstMapOk: false, pass: false })
+      expect(judge([run(3000, 1.5 * MIB + 1)], { budget: DEFAULT_BUDGET, compact: true })).toMatchObject({ entryOk: false, pass: false })
     })
 
-    it('checks the medians, so one slow run does not fail the gate', () => {
-      const verdict = judge([run(3953), run(3383), run(3502)], { budget: GATE, compact: true })
-      expect(verdict.firstMapMs).toBe(3502)
-      expect(verdict.pass).toBe(false)
-      expect(judge([run(4500), run(3300), run(3400)], { budget: GATE, compact: true }).pass).toBe(true)
+    it('passes on the median when one run is slow', () => {
+      const verdict = judge([run(4500), run(3300), run(3400)], { budget: DEFAULT_BUDGET, compact: true })
+      expect(verdict).toMatchObject({ firstMapMs: 3400, pass: true })
+    })
+
+    it('fails when the median itself is over', () => {
+      const verdict = judge([run(3953), run(3383), run(3502)], { budget: DEFAULT_BUDGET, compact: true })
+      expect(verdict).toMatchObject({ firstMapMs: 3502, pass: false })
     })
 
     it('fails a compact viewport on a raster request in any run, and ignores raster on desktop', () => {
       const runs = [run(3000), run(3000, 1.4 * MIB, 2), run(3000)]
-      expect(judge(runs, { budget: GATE, compact: true })).toMatchObject({ rasterRequests: 2, rasterOk: false, pass: false })
-      expect(judge(runs, { budget: GATE, compact: false })).toMatchObject({ rasterOk: true, pass: true })
+      expect(judge(runs, { budget: DEFAULT_BUDGET, compact: true })).toMatchObject({ rasterRequests: 2, rasterOk: false, pass: false })
+      expect(judge(runs, { budget: DEFAULT_BUDGET, compact: false })).toMatchObject({ rasterOk: true, pass: true })
     })
 
     it('reports the 2.5 s target delta without gating on it', () => {
-      const over = judge([run(3380)], { budget: GATE, compact: true })
+      const over = judge([run(3380)], { budget: DEFAULT_BUDGET, compact: true })
       expect(over.target).toEqual({ firstMapMs: 2500, deltaMs: 880 })
       expect(over.pass).toBe(true)
-      expect(judge([run(2400)], { budget: GATE, compact: true }).target.deltaMs).toBe(-100)
+      expect(judge([run(2400)], { budget: DEFAULT_BUDGET, compact: true }).target.deltaMs).toBe(-100)
+    })
+
+    it.each([
+      [880, 'the median is 0.88 s over it.'],
+      [-100, 'the median is 0.10 s under it.'],
+      [0, 'the median is exactly at it.'],
+    ])('prints the target line for a %d ms delta', (deltaMs, ending) => {
+      expect(targetLine({ firstMapMs: 2500, deltaMs })).toBe(`Target (reported, not gated): first rendered map at most 2.50 s; ${ending}`)
     })
 
     it('checks against an overridden budget', () => {
@@ -114,7 +129,7 @@ describe('atlas perf gate', () => {
 
   describe('runGate exit codes', () => {
     it('exits 0 when the medians meet the budget, after one call per run and one report', async () => {
-      const { code, runOnce, report, onError } = gate([run(3300), run(3400), run(3500)])
+      const { code, runOnce, report, onError } = check([run(3300), run(3400), run(3500)])
       expect(await code).toBe(EXIT.PASS)
       expect(runOnce).toHaveBeenCalledTimes(3)
       expect(report).toHaveBeenCalledTimes(1)
@@ -123,34 +138,50 @@ describe('atlas perf gate', () => {
     })
 
     it('exits 1 when the budget is missed', async () => {
-      const { code, report } = gate([run(3600), run(3700), run(3400)])
+      const { code, report } = check([run(3600), run(3700), run(3400)])
       expect(await code).toBe(EXIT.BUDGET_MISSED)
       expect(report).toHaveBeenCalledTimes(1)
     })
 
     it('exits 0 on a missed budget when not enforced (--no-budget)', async () => {
-      const { code, report } = gate([run(3600), run(3700), run(3400)], { enforce: false })
+      const { code, report } = check([run(3600), run(3700), run(3400)], { enforce: false })
       expect(await code).toBe(EXIT.PASS)
       expect(report.mock.calls[0][1].pass).toBe(false)
     })
 
     it('exits 1 under an overridden budget the default would pass', async () => {
       const { budget } = resolveBudget({ firstMapMs: '2500' })
-      const { code } = gate([run(3000)], { budget })
+      const { code } = check([run(3000)], { budget })
       expect(await code).toBe(EXIT.BUDGET_MISSED)
     })
 
     it('exits 2 on the first harness error, without further runs or a report', async () => {
-      const failure = new Error('the map never passed the readiness gate')
-      const { code, runOnce, report, onError } = gate([run(3300), failure, run(3300)])
+      const failure = new Error('the map never became ready')
+      const { code, runOnce, report, onError } = check([run(3300), failure, run(3300)])
       expect(await code).toBe(EXIT.HARNESS_ERROR)
       expect(runOnce).toHaveBeenCalledTimes(2)
       expect(onError).toHaveBeenCalledWith(failure)
       expect(report).not.toHaveBeenCalled()
     })
 
+    it('exits 2, not 1, when the report itself throws (an unwritable --json path)', async () => {
+      const failure = new Error('ENOENT')
+      const report = vi.fn(() => {
+        throw failure
+      })
+      const { code, onError } = check([run(3300)], { report })
+      expect(await code).toBe(EXIT.HARNESS_ERROR)
+      expect(onError).toHaveBeenCalledWith(failure)
+    })
+
+    it('reads a message from a thrown non-Error too', () => {
+      expect(errorMessage(new Error('boom'))).toBe('boom')
+      expect(errorMessage('boom')).toBe('boom')
+      expect(errorMessage(undefined)).toBe('undefined')
+    })
+
     it('exits 2 on a harness error even when the budget is not enforced', async () => {
-      const { code } = gate([new Error('scene list')], { enforce: false })
+      const { code } = check([new Error('scene list')], { enforce: false })
       expect(await code).toBe(EXIT.HARNESS_ERROR)
     })
   })

@@ -19,8 +19,10 @@
 //   --device NAME       iphone13 (default) | desktop
 //   --viewport WxH      override the viewport (default 390x844 for iphone13)
 //   --headed            headed Chromium (uses the machine's GPU on macOS)
-//   --json FILE         write the full report, including every request, to FILE
-//   --no-budget         report only; always exit 0 once a map renders
+//   --json FILE         write the full report ({ url, device, verdict, runs },
+//                       every request included) to FILE
+//   --no-budget         report only; exit 0 once every run finishes (2 on a
+//                       harness error)
 //   --budget-ms MS      first rendered map limit in ms (default 3500)
 //   --budget-bytes N    entry bytes limit (default 1572864, 1.5 MiB)
 //
@@ -29,7 +31,7 @@
 // hosts (PREVIEW_HOST). It rides one bypass-cookie request, never page
 // requests, and is redacted from anything the script prints.
 //
-// Budget (scripts/lib/atlas-perf-gate.mjs): first rendered map at most 3.5 s
+// Budget (DEFAULT_BUDGET in scripts/lib/atlas-perf-budget.mjs): first rendered map at most 3.5 s
 // and entry bytes at most 1.5 MiB, both medians, plus no raster request on a
 // compact viewport. The 2.5 s first-map target is printed beside the budget
 // with its delta and never changes the exit code.
@@ -77,7 +79,7 @@
 //     finished in the following SETTLE_MS. Reported, not budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
-import { EXIT, median, resolveBudget, runGate } from './lib/atlas-perf-gate.mjs'
+import { EXIT, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
 
 const FAST_4G = {
   offline: false,
@@ -347,7 +349,6 @@ async function oneRun(browser, opts) {
 
 const kib = (bytes) => (bytes / 1024).toFixed(0)
 const mib = (bytes) => (bytes / 1024 / 1024).toFixed(2)
-const seconds = (ms) => (ms / 1000).toFixed(2)
 
 function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
@@ -377,8 +378,7 @@ function printReport(opts, runs, verdict) {
   if (verdict.compact) {
     console.log(`| Raster requests (compact viewport, worst run) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
   }
-  const { deltaMs } = verdict.target
-  console.log(`\nTarget (reported, not gated): first rendered map at most ${seconds(verdict.target.firstMapMs)} s; the median is ${seconds(Math.abs(deltaMs))} s ${deltaMs > 0 ? 'over' : 'under'} it.`)
+  console.log(`\n${targetLine(verdict.target)}`)
   console.log(`\nCity view ready after jump: ${seconds(verdict.cityMs)} s (median, not budgeted)`)
 }
 
@@ -387,7 +387,7 @@ if (process.env.VERCEL_PROTECTION_BYPASS && !(opts.url.protocol === 'https:' && 
   console.error(`note: VERCEL_PROTECTION_BYPASS is set but not sent: ${opts.url.host} is not an https PREVIEW_HOST`)
 }
 const bypass = process.env.VERCEL_PROTECTION_BYPASS
-const exitCode = await runGate({
+const exitCode = await runBudgetCheck({
   count: opts.runs,
   runOnce: async () => {
     // A fresh browser per run, not only a fresh context: a dedicated worker's
@@ -413,8 +413,8 @@ const exitCode = await runGate({
     }
   },
   onError: (failure) => {
-    const message = bypass ? failure.message.replaceAll(bypass, '[redacted]') : failure.message
-    console.error(`harness error: ${message}`)
+    const message = errorMessage(failure)
+    console.error(`harness error: ${bypass ? message.replaceAll(bypass, '[redacted]') : message}`)
   },
 })
 process.exit(exitCode)
