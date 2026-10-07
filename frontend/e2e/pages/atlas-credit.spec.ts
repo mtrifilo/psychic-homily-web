@@ -127,6 +127,46 @@ async function stepDetent(page: Page, sheetTestId: string, to: string) {
     .toBe(0)
 }
 
+/**
+ * A first visit to Phoenix's city view, through every sheet that can reach the
+ * credit: the venue list at each detent (banner up, then dismissed), the
+ * venue sheet at Half and Full, and the artist sheet at Full. `check` runs at
+ * each state.
+ */
+async function walkCityViewSheets(
+  page: Page,
+  check: (page: Page, state: string) => Promise<unknown>,
+) {
+  await stubAtlas(page)
+  await page.goto('/atlas?city=Phoenix%2CAZ')
+  await waitForMap(page)
+  await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
+
+  const list = page.getByTestId('atlas-venue-sheet')
+  await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+  await check(page, 'first visit, list at peek, banner up')
+  await stepDetent(page, 'atlas-venue-sheet', 'half')
+  await check(page, 'list at half, banner up')
+
+  await dismissBanner(page)
+  await check(page, 'list at half')
+  await stepDetent(page, 'atlas-venue-sheet', 'full')
+  await check(page, 'list at full')
+
+  await list.getByRole('button', { name: /Street Room/ }).tap()
+  const venueSheet = page.getByTestId('atlas-venue-panel')
+  await expect(venueSheet).toHaveAttribute('data-detent', 'half')
+  await check(page, 'venue sheet at half')
+  await stepDetent(page, 'atlas-venue-panel', 'full')
+  await check(page, 'venue sheet at full')
+
+  await venueSheet.getByRole('button', { name: /Sheet Night/ }).tap()
+  const artistSheet = page.getByTestId('atlas-artist-panel')
+  await expect(artistSheet).toHaveAttribute('data-detent', 'full')
+  await expect(artistSheet.getByRole('heading', { name: 'Sheet Band' })).toBeVisible()
+  await check(page, 'artist sheet at full')
+}
+
 for (const viewport of PHONE_VIEWPORTS) {
   for (const colorScheme of ['dark', 'light'] as const) {
     test.describe(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
@@ -134,34 +174,7 @@ for (const viewport of PHONE_VIEWPORTS) {
       test.setTimeout(120_000)
 
       test('first visit, city view, venue and artist sheets', async ({ page }) => {
-        await stubAtlas(page)
-        await page.goto('/atlas?city=Phoenix%2CAZ')
-        await waitForMap(page)
-        await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
-
-        const list = page.getByTestId('atlas-venue-sheet')
-        await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
-        await expectCreditVisible(page, 'first visit, list at peek, banner up')
-        await stepDetent(page, 'atlas-venue-sheet', 'half')
-        await expectCreditVisible(page, 'list at half, banner up')
-
-        await dismissBanner(page)
-        await expectCreditVisible(page, 'list at half')
-        await stepDetent(page, 'atlas-venue-sheet', 'full')
-        await expectCreditVisible(page, 'list at full')
-
-        await list.getByRole('button', { name: /Street Room/ }).tap()
-        const venueSheet = page.getByTestId('atlas-venue-panel')
-        await expect(venueSheet).toHaveAttribute('data-detent', 'half')
-        await expectCreditVisible(page, 'venue sheet at half')
-        await stepDetent(page, 'atlas-venue-panel', 'full')
-        await expectCreditVisible(page, 'venue sheet at full')
-
-        await venueSheet.getByRole('button', { name: /Sheet Night/ }).tap()
-        const artistSheet = page.getByTestId('atlas-artist-panel')
-        await expect(artistSheet).toHaveAttribute('data-detent', 'full')
-        await expect(artistSheet.getByRole('heading', { name: 'Sheet Band' })).toBeVisible()
-        await expectCreditVisible(page, 'artist sheet at full')
+        await walkCityViewSheets(page, expectCreditVisible)
       })
 
       test('globe entry and scene preview', async ({ page }) => {
@@ -187,8 +200,8 @@ for (const viewport of PHONE_VIEWPORTS) {
   }
 }
 
-// The narrowest phone width checked: the credit still fits on one line in
-// the sheet layout's top-left corner, clear of every sheet.
+// The narrowest phone width checked: through the same sheets as the phone
+// cases above, the credit also stays on one line in the top-left corner.
 for (const colorScheme of ['dark', 'light'] as const) {
   test.describe(`Atlas credit at 320x568 ${colorScheme}`, () => {
     test.use({ viewport: { width: 320, height: 568 }, colorScheme, ...PHONE_CONTEXT })
@@ -200,21 +213,8 @@ for (const colorScheme of ['dark', 'light'] as const) {
       expect(report.lines, `${state}: credit lines`).toBe(1)
     }
 
-    test('city view, banner up then dismissed', async ({ page }) => {
-      await stubAtlas(page)
-      await page.goto('/atlas?city=Phoenix%2CAZ')
-      await waitForMap(page)
-      await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
-
-      const list = page.getByTestId('atlas-venue-sheet')
-      await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
-      await expectOneLineTopLeft(page, 'list at peek, banner up')
-
-      await dismissBanner(page)
-      await expectOneLineTopLeft(page, 'list at peek')
-      await stepDetent(page, 'atlas-venue-sheet', 'half')
-      await stepDetent(page, 'atlas-venue-sheet', 'full')
-      await expectOneLineTopLeft(page, 'list at full')
+    test('city view, venue and artist sheets, one line at the top left', async ({ page }) => {
+      await walkCityViewSheets(page, expectOneLineTopLeft)
     })
   })
 }

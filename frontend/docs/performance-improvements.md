@@ -46,9 +46,12 @@ place) stands in for the map:
    (Sentry tag `atlas-map`). When MapLibre is refused a WebGL2 context after
    the probe passed, GlobeCanvas throws `AtlasMapContextError` and the list
    latches for the rest of the page load (`markAtlasMapFailed`). Any other
-   error React sees from the canvas (a failed canvas chunk, a throwing effect)
-   falls back for that mount only. Errors thrown from MapLibre's own callbacks
-   (animation frames, map events) are not React errors and are not caught.
+   error React sees from the canvas falls back for that mount: a throwing
+   effect is tried again on the next mount, but a failed canvas chunk is not
+   refetched (`React.lazy` keeps the rejected import), so every later mount
+   in that page load gets the list too, until a reload. Errors thrown from
+   MapLibre's own callbacks (animation frames, map events) are not React
+   errors and are not caught.
 
 ### The light look on compact viewports
 
@@ -86,9 +89,9 @@ own `BUDGET` constant; read the medians against the gate above.
 
 Measured at the flip (PR #2189, Vercel preview of `509ea6109`, stage data,
 three sessions of three cold headed runs): first rendered map nine-run median
-3.38 s, worst session median 3.50 s (3,502 ms); entry 1.48 MiB (1,511 KiB);
-no raster request. City view (Chicago, z12.5) added 280 KiB and was ready in
-0.59 s. Desktop (1440x900) is not budgeted.
+3.38 s, worst session median 3,502 ms (2 ms over the gate); entry 1.48 MiB
+(1,511 KiB); no raster request. City view (Chicago, z12.5) added 280 KiB and
+was ready in 0.59 s. Desktop (1440x900) is not budgeted.
 
 The `/explore` Lighthouse gate (`lighthouserc.json`) does not cover `/atlas`.
 The Lighthouse budget this section used to record (PSY-1222) measured the

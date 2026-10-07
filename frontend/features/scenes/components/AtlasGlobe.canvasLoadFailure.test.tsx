@@ -18,6 +18,11 @@ vi.mock('./GlobeCanvas', () =>
   Promise.reject(new TypeError('Failed to fetch dynamically imported module')),
 )
 
+const captureException = vi.fn()
+vi.mock('@sentry/nextjs', () => ({
+  captureException: (...args: unknown[]) => captureException(...args),
+}))
+
 const mockUseScenes = vi.fn()
 vi.mock('../hooks', () => ({
   useScenes: () => mockUseScenes(),
@@ -103,17 +108,27 @@ describe('AtlasGlobe when the canvas module fails to load', () => {
     vi.unstubAllGlobals()
   })
 
-  it('swaps in the scene list for this mount, without latching the page', async () => {
+  it('swaps in the scene list and reports the failure under atlas-map', async () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-    renderWithProviders(<AtlasGlobe />)
+    const first = renderWithProviders(<AtlasGlobe />)
     await waitFor(() =>
       expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument(),
     )
     expect(screen.getByRole('button', { name: /Chicago, IL/ })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    // A chunk failure is not a refused WebGL2 context: a later mount may try
-    // the map again.
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { section: 'atlas-map' },
+    })
+    // Not the page latch, which only a refused WebGL2 context sets.
     expect(mockMapFailedThisPage).toBe(false)
+    first.unmount()
+
+    // React.lazy keeps the rejected import, so a later mount in the same page
+    // load fails the same way without a new fetch and gets the list again.
+    renderWithProviders(<AtlasGlobe />)
+    await waitFor(() =>
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument(),
+    )
     quiet.mockRestore()
   })
 })
