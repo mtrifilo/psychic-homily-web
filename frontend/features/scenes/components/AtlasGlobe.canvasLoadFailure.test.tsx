@@ -7,13 +7,9 @@ import type { SceneListResponse } from '../types'
 // network drop) must leave the visitor on the scene list, not on the map's
 // skeleton or the app's error page.
 //
-// Vitest resolves `next/dynamic` to the Pages Router loader, which hands a
-// failed import to `loading` instead of throwing. The bundlers resolve it to
-// the App Router loader for app code, so this file mocks `next/dynamic` with
-// that loader, and the canvas module's import rejects.
-vi.mock('next/dynamic', async () => ({
-  default: (await import('next/dist/shared/lib/app-dynamic')).default,
-}))
+// `next/dynamic` is the App Router loader here (vitest.config.mts), which
+// throws a failed import to the nearest error boundary; the canvas module's
+// import rejects.
 vi.mock('./GlobeCanvas', () =>
   Promise.reject(new TypeError('Failed to fetch dynamically imported module')),
 )

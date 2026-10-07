@@ -3,12 +3,15 @@
 import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { atlasCityHref } from '@/features/scenes/atlasCityEntry'
+import { AtlasMapUnrecoverableError } from '@/features/scenes/atlasViewport'
 import type { CityState } from '@/components/filters'
 import { cityLabel } from '@/components/filters/cityParams'
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 import type { VenueWithShowCount } from '../types'
 import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
+import { MiniAtlasUnavailable } from './MiniAtlasUnavailable'
 import {
   MINI_ATLAS_HEIGHT_PX,
   MINI_ATLAS_WIDTH_PX,
@@ -38,39 +41,27 @@ export function useMiniAtlasViewport(): boolean {
   return useMediaQuery(MINI_ATLAS_MEDIA_QUERY)
 }
 
-/** Rendered by the dynamic boundary when the MapLibre chunk cannot be fetched. */
-export function MiniAtlasLoadError({ onRetry }: { onRetry?: () => void }) {
-  return (
-    <div
-      role="alert"
-      className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground"
-    >
-      <p>The map couldn&apos;t load. Every room is in the table.</p>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="text-primary underline-offset-4 hover:underline"
-        >
-          Try again
-        </button>
-      )}
-    </div>
-  )
-}
-
 // MapLibre is a ~900 kB chunk and window-bound. `ssr: false` plus this being
 // the only import path keeps it out of the /venues initial JS: it is fetched
 // when the pane mounts, which only happens at 1280 and up.
 //
-// next/dynamic re-invokes `loading` with `error`/`retry` set on a failed chunk
-// fetch (it does NOT throw to an error boundary). Without that branch a
-// rotated hashed chunk would strand the reader on a skeleton forever.
+// The App Router's next/dynamic calls `loading` only while the module is
+// pending. A failed fetch throws from React.lazy to the nearest error
+// boundary, which is the GraphSectionErrorBoundary around the map in the
+// render below.
 const VenueMiniAtlas = dynamic(() => import('./VenueMiniAtlas'), {
   ssr: false,
-  loading: ({ error, retry }) =>
-    error ? <MiniAtlasLoadError onRetry={retry} /> : <MiniAtlasSkeleton />,
+  loading: () => <MiniAtlasSkeleton />,
 })
+
+/** The Sentry tag that names how an unrecoverable map failed. */
+function miniAtlasFailureTags(
+  error: unknown,
+): Record<string, string> | undefined {
+  return error instanceof AtlasMapUnrecoverableError
+    ? { atlas_map_failure: error.failureClass }
+    : undefined
+}
 
 export interface VenueMiniAtlasPaneProps {
   /** This page's rows, in the order the table lists them. */
@@ -89,6 +80,14 @@ export interface VenueMiniAtlasPaneProps {
  *
  * Its box is the frame's exact size and is rendered before the map arrives, so
  * the lazy chunk lands inside a space that is already the right shape.
+ *
+ * A map that fails, as a chunk that cannot be fetched or as a map that cannot
+ * draw, is caught inside that box: the box says the map is unavailable, the
+ * rest of the pane and the page stay, and Sentry gets the failure. The box
+ * offers no retry. A later mount of the pane (the city or the viewport
+ * changes) starts over: a failed chunk throws again at once, because
+ * React.lazy keeps a rejected import until a reload, and a map that could not
+ * draw is built again.
  */
 export function VenueMiniAtlasPane({
   venues,
@@ -115,12 +114,18 @@ export function VenueMiniAtlasPane({
         className="relative overflow-hidden rounded-md border border-border bg-muted/20"
         style={{ height: MINI_ATLAS_HEIGHT_PX }}
       >
-        <VenueMiniAtlas
-          pins={pins}
-          hoveredVenueId={hoveredVenueId}
-          onHoverVenue={onHoverVenue}
-          onSelectVenue={onSelectVenue}
-        />
+        <GraphSectionErrorBoundary
+          sentryTag="venue-mini-atlas"
+          errorTags={miniAtlasFailureTags}
+          fallback={<MiniAtlasUnavailable />}
+        >
+          <VenueMiniAtlas
+            pins={pins}
+            hoveredVenueId={hoveredVenueId}
+            onHoverVenue={onHoverVenue}
+            onSelectVenue={onSelectVenue}
+          />
+        </GraphSectionErrorBoundary>
       </div>
       <p className="sr-only">
         {miniAtlasSummary(pins.length, venues.length, label)}

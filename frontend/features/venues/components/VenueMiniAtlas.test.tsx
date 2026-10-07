@@ -1,92 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
+import {
+  resetStubMaps,
+  stubMaps,
+  type StubMap,
+} from '@/test/miniAtlasMapStub'
+import { ErrorProbe } from '@/test/ErrorProbe'
+import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from '@/features/scenes/components/atlasMapHealth'
 import { VenueMiniAtlas } from './VenueMiniAtlas'
 import { miniAtlasPins } from '../venueMiniAtlas'
 import type { VenueWithShowCount } from '../types'
 
-/**
- * MapLibre stubbed down to the seams this component drives: the handlers it
- * binds per layer, the GeoJSON source it feeds, the feature-state it sets for
- * a hover, and the camera fit. WebGL is out of scope here: the E2E spec is
- * what proves the canvas actually paints.
- */
-interface StubMap {
-  styleLoaded: boolean
-  isStyleLoaded: () => boolean
-  on: ReturnType<typeof vi.fn>
-  handlers: Map<string, (event: unknown) => void>
-  setData: ReturnType<typeof vi.fn>
-  setFeatureState: ReturnType<typeof vi.fn>
-  removeFeatureState: ReturnType<typeof vi.fn>
-  fitBounds: ReturnType<typeof vi.fn>
-  remove: ReturnType<typeof vi.fn>
-  canvas: HTMLCanvasElement
-  options: Record<string, unknown>
-  controls: { control: unknown; position: string }[]
-}
-
-let maps: StubMap[] = []
-
-vi.mock('maplibre-gl', () => {
-  class StubAttributionControl {
-    constructor(public options: unknown) {}
-  }
-  class StubNavigationControl {
-    constructor(public options: unknown) {}
-  }
-  class StubMapImpl {
-    handlers = new Map<string, (event: unknown) => void>()
-    setData = vi.fn()
-    setFeatureState = vi.fn()
-    removeFeatureState = vi.fn()
-    fitBounds = vi.fn()
-    remove = vi.fn()
-    canvas = document.createElement('canvas')
-    controls: { control: unknown; position: string }[] = []
-    touchZoomRotate = { disableRotation: vi.fn() }
-    keyboard = { disable: vi.fn() }
-
-    on = vi.fn(
-      (
-        event: string,
-        layerOrHandler: string | ((e: unknown) => void),
-        maybeHandler?: (e: unknown) => void
-      ) => {
-        const key =
-          typeof layerOrHandler === 'string'
-            ? `${event}:${layerOrHandler}`
-            : event
-        const handler =
-          typeof layerOrHandler === 'string' ? maybeHandler : layerOrHandler
-        if (handler) this.handlers.set(key, handler)
-      }
-    )
-
-    constructor(public options: Record<string, unknown>) {
-      maps.push(this as unknown as StubMap)
-    }
-
-    styleLoaded = false
-    isStyleLoaded() {
-      return this.styleLoaded
-    }
-    getSource() {
-      return { setData: this.setData }
-    }
-    getCanvas() {
-      return this.canvas
-    }
-    addControl(control: unknown, position: string) {
-      this.controls.push({ control, position })
-    }
-  }
-  return {
-    Map: StubMapImpl,
-    AttributionControl: StubAttributionControl,
-    NavigationControl: StubNavigationControl,
-    setWorkerUrl: vi.fn(),
-  }
-})
+vi.mock('maplibre-gl', async () =>
+  (await import('@/test/miniAtlasMapStub')).maplibreStubModule(),
+)
 
 function makeVenue(
   overrides: Partial<VenueWithShowCount> = {}
@@ -120,15 +47,15 @@ const ROOMS = [
 ]
 
 function theMap(): StubMap {
-  expect(maps).toHaveLength(1)
-  return maps[0]
+  expect(stubMaps).toHaveLength(1)
+  return stubMaps[0]
 }
 
-/** The style-load event the component waits for before touching the map. */
+/** The style, then the first full render, as MapLibre fires them. */
 function loadMap(map: StubMap) {
   act(() => {
-    map.styleLoaded = true
-    map.handlers.get('load')?.(undefined)
+    map.fire('style.load')
+    map.fire('load')
   })
 }
 
@@ -159,6 +86,26 @@ function renderAtlas(
   return { ...view, onHoverVenue, onSelectVenue }
 }
 
+/** The map inside a boundary, with a page-owned hover id the test can move. */
+function renderCaught(hoveredVenueId: number | null = null) {
+  const caught: unknown[] = []
+  const tree = (hovered: number | null) => (
+    <ErrorProbe onCaught={error => caught.push(error)}>
+      <VenueMiniAtlas
+        pins={miniAtlasPins(ROOMS)}
+        hoveredVenueId={hovered}
+        onHoverVenue={vi.fn()}
+        onSelectVenue={vi.fn()}
+      />
+    </ErrorProbe>
+  )
+  const view = render(tree(hoveredVenueId))
+  return {
+    caught,
+    setHovered: (hovered: number | null) => view.rerender(tree(hovered)),
+  }
+}
+
 function lastFeatures(map: StubMap) {
   const calls = map.setData.mock.calls
   return (calls[calls.length - 1][0] as GeoJSON.FeatureCollection).features
@@ -166,7 +113,7 @@ function lastFeatures(map: StubMap) {
 
 describe('VenueMiniAtlas', () => {
   beforeEach(() => {
-    maps = []
+    resetStubMaps()
   })
 
   it('draws one pin per mappable row, sized by its upcoming count', () => {
@@ -221,12 +168,12 @@ describe('VenueMiniAtlas', () => {
     loadMap(map)
 
     act(() => {
-      map.handlers.get('mousemove:room-pins')?.({ features: [{ id: 2 }] })
+      map.fire('mousemove:room-pins', { features: [{ id: 2 }] })
     })
     expect(onHoverVenue).toHaveBeenCalledWith(2)
 
     act(() => {
-      map.handlers.get('mouseleave:room-pins')?.(undefined)
+      map.fire('mouseleave:room-pins')
     })
     expect(onHoverVenue).toHaveBeenLastCalledWith(null)
   })
@@ -275,7 +222,7 @@ describe('VenueMiniAtlas', () => {
     loadMap(map)
 
     act(() => {
-      map.handlers.get('click:room-pins')?.({ features: [{ id: 2 }] })
+      map.fire('click:room-pins', { features: [{ id: 2 }] })
     })
     expect(onSelectVenue).toHaveBeenCalledWith(2)
   })
@@ -351,30 +298,16 @@ describe('VenueMiniAtlas', () => {
     expect(map.fitBounds).toHaveBeenCalledTimes(1)
   })
 
-  it('says the map is unavailable when the style fails, instead of pulsing forever', () => {
-    const { getByTestId, queryByTestId } = renderAtlas()
-    const map = theMap()
-
-    // `load` never fires when the style cannot be fetched, so the error event
-    // is the only signal the pane will ever get.
-    act(() => {
-      map.handlers.get('error')?.({ error: new Error('tiles are down') })
-    })
-
-    expect(getByTestId('venue-mini-atlas-unavailable')).toBeInTheDocument()
-    expect(queryByTestId('venue-mini-atlas-skeleton')).not.toBeInTheDocument()
-  })
-
   it('keeps a map that already works when a later tile fails', () => {
     const { queryByTestId } = renderAtlas()
     const map = theMap()
     loadMap(map)
 
     act(() => {
-      map.handlers.get('error')?.({ error: new Error('one tile 500ed') })
+      map.fire('error', { error: new Error('one tile 500ed') })
     })
 
-    expect(queryByTestId('venue-mini-atlas-unavailable')).not.toBeInTheDocument()
+    expect(queryByTestId('venue-mini-atlas-canvas')).toBeInTheDocument()
   })
 
   it('keeps a plain wheel scrolling the page rather than zooming the map', () => {
@@ -404,5 +337,104 @@ describe('VenueMiniAtlas', () => {
 
     unmount()
     expect(map.remove).toHaveBeenCalled()
+  })
+
+  describe('a lost WebGL context', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('keeps the map when the browser restores the context', () => {
+      vi.useFakeTimers()
+      const { caught } = renderCaught()
+      const map = theMap()
+      loadMap(map)
+
+      act(() => {
+        map.fire('webglcontextlost')
+      })
+      act(() => {
+        map.fire('webglcontextrestored')
+        map.fire('style.load')
+      })
+      act(() => {
+        vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 2)
+      })
+
+      expect(caught).toEqual([])
+      expect(map.remove).not.toHaveBeenCalled()
+    })
+
+    it('writes no feature state while the style is gone, and lights the room once it is back', () => {
+      const { caught, setHovered } = renderCaught()
+      const map = theMap()
+      loadMap(map)
+      setHovered(2)
+      expect(map.setFeatureState).toHaveBeenLastCalledWith(
+        { source: 'rooms', id: 2 },
+        { hover: true }
+      )
+
+      act(() => {
+        map.fire('webglcontextlost')
+      })
+      map.setFeatureState.mockClear()
+      map.removeFeatureState.mockClear()
+      map.setData.mockClear()
+
+      // A row hover while the context is lost: MapLibre has no style to
+      // write to, and a write would throw.
+      setHovered(1)
+      expect(map.setFeatureState).not.toHaveBeenCalled()
+      expect(map.removeFeatureState).not.toHaveBeenCalled()
+
+      act(() => {
+        map.fire('webglcontextrestored')
+        map.fire('style.load')
+      })
+
+      // The restored style has no feature state, so nothing is cleared, and
+      // the room the page hovers now is lit on it.
+      expect(map.removeFeatureState).not.toHaveBeenCalled()
+      expect(map.setFeatureState).toHaveBeenCalledTimes(1)
+      expect(map.setFeatureState).toHaveBeenCalledWith(
+        { source: 'rooms', id: 1 },
+        { hover: true }
+      )
+      expect(map.setData).toHaveBeenCalledTimes(1)
+      expect(caught).toEqual([])
+    })
+
+    it('does not refit the camera the reader may have moved when the context comes back', () => {
+      renderCaught()
+      const map = theMap()
+      loadMap(map)
+      expect(map.fitBounds).toHaveBeenCalledTimes(1)
+
+      act(() => {
+        map.fire('webglcontextlost')
+      })
+      act(() => {
+        map.fire('webglcontextrestored')
+        map.fire('style.load')
+      })
+
+      expect(map.fitBounds).toHaveBeenCalledTimes(1)
+    })
+
+    it('cancels the restore deadline when the pane goes away', () => {
+      vi.useFakeTimers()
+      const { unmount } = renderAtlas()
+      const map = theMap()
+      loadMap(map)
+      act(() => {
+        map.fire('webglcontextlost')
+      })
+      expect(vi.getTimerCount()).toBe(1)
+
+      unmount()
+
+      expect(vi.getTimerCount()).toBe(0)
+    })
   })
 })
