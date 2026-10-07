@@ -25,7 +25,7 @@
  * graph-shaped lands in the homepage's initial JS.
  *
  * The section self-hides (renders nothing) when the scenes list errors,
- * is empty, or the section itself throws (GraphSectionErrorBoundary with no
+ * is empty, or the section itself throws (CanvasSectionErrorBoundary with no
  * fallback — the App Router's next/dynamic throws failed chunk loads to the
  * nearest error boundary; without a local one, a graph chunk-fetch failure
  * would replace the ENTIRE homepage with app/error.tsx). The homepage must
@@ -68,7 +68,7 @@ import { GraphSkeleton as BaseGraphSkeleton } from '@/components/graph/GraphSkel
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { graphRootHref } from '@/features/graph/graphRootLink'
 import { createLazyForceGraphView } from '@/components/graph/lazyForceGraphView'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 // Deep imports, deliberately NOT the '@/features/scenes' barrel: the barrel
 // re-exports the scenes component tree (AtlasGlobe / SceneList / …)
 // whose module bodies run top-level dynamic() calls the bundler can't drop,
@@ -266,7 +266,7 @@ function HomeGraphLegend({
 
 // Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk so
 // nothing graph-shaped lands in the homepage's initial JS (PSY-868). A failed
-// chunk fetch throws to GraphSectionErrorBoundary below (the App Router never
+// chunk fetch throws to CanvasSectionErrorBoundary below (the App Router never
 // re-invokes `loading` with an error); `loading` is only the happy-path skeleton.
 const ForceGraphView = createLazyForceGraphView(<SceneGraphSkeleton />)
 
@@ -283,9 +283,9 @@ export function HomeSceneGraph() {
         // Self-hide on any render/chunk error (no fallback) — a graph problem
         // must never dent the homepage; the throw is reported to Sentry, not
         // bubbled to app/error.tsx.
-        <GraphSectionErrorBoundary sentryTag="home-scene-graph">
+        <CanvasSectionErrorBoundary sentryTag="home-scene-graph">
           <HomeSceneGraphSection />
-        </GraphSectionErrorBoundary>
+        </CanvasSectionErrorBoundary>
       ) : (
         <SceneGraphSkeleton />
       )}

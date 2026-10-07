@@ -20,10 +20,43 @@ import {
 export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
 
 /**
- * The events this module reads. They are MapLibre's own, so each one arrives
- * after MapLibre has acted on it: `webglcontextlost` after the style has been
- * saved (or not) and destroyed, `webglcontextrestored` after the restore asked
- * for a context (it also follows a refused one, right after the error event).
+ * Whether MapLibre built this map without a WebGL2 context. maplibre-gl 6.0.0
+ * reports a refused context as an `error` event during construction and
+ * returns a map with no painter and no input handlers (`painter` is typed
+ * non-optional, but it is unset on that path). Such a map never loads, and its
+ * `remove()` needs the painter, so the half-built map is left alone rather
+ * than removed.
+ */
+export function atlasMapContextRefused(map: MapLibreMap): boolean {
+  return !(map as { painter?: unknown }).painter
+}
+
+/** A Sentry tag value per failure class; a fixed vocabulary, never error text. */
+function atlasMapFailureTags(error: unknown): Record<string, string> | undefined {
+  return error instanceof AtlasMapUnrecoverableError
+    ? { atlas_map_failure: error.failureClass }
+    : undefined
+}
+
+/**
+ * The Sentry reporting for the error boundary around a map: failures are filed
+ * under `section`, and an {@link AtlasMapUnrecoverableError} also carries an
+ * `atlas_map_failure` tag naming its failure class. Spread onto the boundary.
+ */
+export function atlasMapBoundaryReporting(section: string): {
+  sentryTag: string
+  errorTags: (error: unknown) => Record<string, string> | undefined
+} {
+  return { sentryTag: section, errorTags: atlasMapFailureTags }
+}
+
+/**
+ * The map surface this module reads. The events are MapLibre's own, so each
+ * one arrives after MapLibre has acted on it: `webglcontextlost` after the
+ * style has been saved (or not) and destroyed, `webglcontextrestored` after
+ * the restore asked for a context. That event also follows a refused restore,
+ * right after the error event: the refusal leaves the destroyed painter in
+ * place, so MapLibre's no-painter guard before the event passes.
  */
 type HealthMap = Pick<MapLibreMap, 'on'>
 
@@ -37,8 +70,9 @@ export interface AtlasMapHealth {
    */
   styleLive(): boolean
   /**
-   * Cancels the deadline and stops reporting. The listeners stay on the map,
-   * inert, so call it only as the map is removed.
+   * Cancels the deadline and stops reporting, to both callbacks (a reported
+   * failure has already stopped both). The listeners stay on the map, inert,
+   * so call it only as the map is removed.
    */
   stop(): void
 }
@@ -47,6 +81,16 @@ export interface AtlasMapHealth {
  * Watches a constructed map for the failures MapLibre does not recover from
  * on its own, and calls `onUnrecoverable` once, with the failure classified,
  * for the first of them.
+ *
+ * Attach it in the same task that constructs the map, before the map can fire
+ * `style.load`: the watch learns that the style is live only from that event.
+ * MapLibre 6.0.0 fires it a frame after construction at the earliest (an
+ * inline style loads behind `browser.frameAsync`, a style URL behind its
+ * fetch), so a watch attached right after `new Map()` sees every style.
+ *
+ * `onStyleLiveChange`, when given, is called with each change of
+ * {@link AtlasMapHealth.styleLive}, after this watch has classified the event
+ * behind it. It is the one answer to whether the style can be written.
  *
  * MapLibre 6.0.0's behaviour this relies on:
  * - A lost context after the style loaded comes back with the style when the
@@ -75,16 +119,26 @@ export interface AtlasMapHealth {
 export function watchAtlasMapHealth(
   map: HealthMap,
   onUnrecoverable: (error: AtlasMapUnrecoverableError) => void,
+  onStyleLiveChange?: (live: boolean) => void,
 ): AtlasMapHealth {
   let styleLive = false
   let styleEverLoaded = false
   let contextLost = false
   let settled = false
+  // Cleared by stop() and by a failure, so a settled watch reports nothing.
+  let reportStyleLive = onStyleLiveChange
   let deadline: ReturnType<typeof setTimeout> | null = null
+
+  function setStyleLive(live: boolean) {
+    if (live === styleLive) return
+    styleLive = live
+    reportStyleLive?.(live)
+  }
 
   function fail(failureClass: AtlasMapFailureClass) {
     if (settled) return
     settled = true
+    reportStyleLive = undefined
     endLoss()
     onUnrecoverable(new AtlasMapUnrecoverableError(failureClass))
   }
@@ -126,9 +180,9 @@ export function watchAtlasMapHealth(
   // even when webglcontextrestored never arrives (a listener that throws
   // inside MapLibre's restore stops it before that event fires).
   map.on('style.load', () => {
-    styleLive = true
     styleEverLoaded = true
     endLoss()
+    setStyleLive(true)
   })
 
   map.on('webglcontextlost', () => {
@@ -138,8 +192,8 @@ export function watchAtlasMapHealth(
     }
     // MapLibre destroyed the style; a restore re-creates it and fires
     // style.load again.
-    styleLive = false
     startLoss()
+    setStyleLive(false)
   })
 
   map.on('webglcontextrestored', () => {
@@ -163,6 +217,7 @@ export function watchAtlasMapHealth(
     styleLive: () => styleLive,
     stop() {
       settled = true
+      reportStyleLive = undefined
       endLoss()
     },
   }

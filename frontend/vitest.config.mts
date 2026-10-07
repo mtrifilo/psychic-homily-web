@@ -14,6 +14,13 @@ export default defineConfig({
         find: /^next\/dynamic$/,
         replacement: 'next/dist/shared/lib/app-dynamic',
       },
+      // Likewise the app's `next/link` is the App Router Link, and the package
+      // entry is the Pages Router Link. The two decide prefetch differently.
+      // test/appRouterLink.ts makes its module graph loadable.
+      {
+        find: /^next\/link$/,
+        replacement: 'next/dist/client/app-dir/link',
+      },
     ],
   },
   test: {
@@ -24,7 +31,7 @@ export default defineConfig({
       // to intercept requests at the network level.
       NEXT_PUBLIC_API_URL: 'http://localhost:8080',
     },
-    setupFiles: ['./test/setup.ts'],
+    setupFiles: ['./test/appRouterLink.ts', './test/setup.ts'],
     include: ['**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/.next/**'],
     coverage: {

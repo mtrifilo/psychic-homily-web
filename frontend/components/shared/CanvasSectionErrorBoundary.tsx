@@ -1,24 +1,23 @@
 'use client'
 
 /**
- * GraphSectionErrorBoundary (PSY-1359) — the shared error boundary for the
- * below-the-fold, lazily-mounted graph sections (HomeSceneGraph, InlineGraph),
- * also wrapped around the Atlas's MapLibre canvas (AtlasGlobe).
+ * CanvasSectionErrorBoundary: the shared error boundary for a lazily mounted
+ * canvas section, a graph or a map.
  *
  * Why it exists: in the App Router, `next/dynamic(ssr:false)` does NOT re-invoke
- * `loading` with an `error` — a failed chunk fetch (e.g. a deploy rotated the
+ * `loading` with an `error`: a failed chunk fetch (e.g. a deploy rotated the
  * hashed chunk while the page was open) THROWS from React.lazy to the nearest
  * error boundary. Without a LOCAL one, that throw bubbles to app/error.tsx and
- * replaces the whole page. Each graph section is optional, so a graph failure
- * must be contained to the section, reported, and either self-hidden or shown
- * as a recoverable card — never allowed to take the page down.
+ * replaces the whole page. Each section is optional, so its failure must be
+ * contained to the section, reported, and either self-hidden or shown as a
+ * recoverable card, never allowed to take the page down.
  *
  * Parameterized by:
  *   - `sentryTag`: the `section` tag the failure is reported under, so the
  *     surfaces are distinguishable in Sentry.
  *   - `errorTags`: optional extra Sentry tags read from the caught error, for a
- *     consumer whose errors carry their own classification (the Atlas tags
- *     how its map failed). Tags are indexed and not scrubbed, so values come
+ *     consumer whose errors carry their own classification (a map tags how
+ *     it failed). Tags are indexed and not scrubbed, so values come
  *     from a fixed vocabulary, never from error text or URLs. The `section`
  *     tag always wins a name clash, and a throwing `errorTags` costs only its
  *     own tags.
@@ -48,7 +47,7 @@
 import { Component, type ReactNode } from 'react'
 import * as Sentry from '@sentry/nextjs'
 
-interface GraphSectionErrorBoundaryProps {
+interface CanvasSectionErrorBoundaryProps {
   children: ReactNode
   /** Sentry `section` tag the failure is attributed to. */
   sentryTag: string
@@ -60,17 +59,17 @@ interface GraphSectionErrorBoundaryProps {
   errorTags?: (error: unknown) => Record<string, string> | undefined
 }
 
-interface GraphSectionErrorBoundaryState {
+interface CanvasSectionErrorBoundaryState {
   failed: boolean
 }
 
-export class GraphSectionErrorBoundary extends Component<
-  GraphSectionErrorBoundaryProps,
-  GraphSectionErrorBoundaryState
+export class CanvasSectionErrorBoundary extends Component<
+  CanvasSectionErrorBoundaryProps,
+  CanvasSectionErrorBoundaryState
 > {
-  state: GraphSectionErrorBoundaryState = { failed: false }
+  state: CanvasSectionErrorBoundaryState = { failed: false }
 
-  static getDerivedStateFromError(): GraphSectionErrorBoundaryState {
+  static getDerivedStateFromError(): CanvasSectionErrorBoundaryState {
     return { failed: true }
   }
 

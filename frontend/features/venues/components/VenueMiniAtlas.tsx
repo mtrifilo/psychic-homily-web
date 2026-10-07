@@ -9,7 +9,10 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import '@/features/scenes/components/maplibreWorker'
 import { handleBasemapError } from '@/features/scenes/basemap/basemapTelemetry'
 import { AtlasMapUnrecoverableError } from '@/features/scenes/atlasViewport'
-import { watchAtlasMapHealth } from '@/features/scenes/components/atlasMapHealth'
+import {
+  atlasMapContextRefused,
+  watchAtlasMapHealth,
+} from '@/features/scenes/components/atlasMapHealth'
 import {
   PH_BASEMAP_MIN_ZOOM,
   phBasemapFragment,
@@ -170,10 +173,8 @@ export function VenueMiniAtlas({
       attributionControl: false,
     })
 
-    // maplibre-gl 6.0.0 reports a refused WebGL2 context as an event during
-    // construction and returns a map with no painter, which never loads. Its
-    // remove() needs the painter, so the half-built map is left alone.
-    if (!(instance as { painter?: unknown }).painter) {
+    // The half-built map is left alone (see atlasMapContextRefused).
+    if (atlasMapContextRefused(instance)) {
       throw new AtlasMapUnrecoverableError('context-refused')
     }
 
@@ -181,8 +182,12 @@ export function VenueMiniAtlas({
     // that can fail, is already covered.
     instance.on('error', handleBasemapError)
     // Which failures end the map, and which a map that already draws rides
-    // out, is the watcher's rule.
-    const health = watchAtlasMapHealth(instance, setUnrecoverable)
+    // out, is the watcher's rule, and so is whether the style can be written.
+    const health = watchAtlasMapHealth(instance, setUnrecoverable, (live) => {
+      // A lost style took the feature state with it.
+      if (!live) appliedHoverRef.current = null
+      setStyleLive(live)
+    })
 
     // Bottom-LEFT and never covered: the OpenStreetMap credit is an ODbL
     // licensing requirement, not chrome.
@@ -239,16 +244,6 @@ export function VenueMiniAtlas({
     instance.on('click', LAYER_ID, handleClick)
     instance.on('load', () => {
       setMap(instance)
-    })
-    // Bound after the watcher's own listeners, so the watcher has already
-    // classified each event when React reads its answer.
-    instance.on('style.load', () => {
-      setStyleLive(health.styleLive())
-    })
-    instance.on('webglcontextlost', () => {
-      // The feature state went with the style.
-      appliedHoverRef.current = null
-      setStyleLive(health.styleLive())
     })
 
     return () => {

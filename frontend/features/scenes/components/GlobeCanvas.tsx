@@ -51,7 +51,7 @@ import {
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
-import { watchAtlasMapHealth } from './atlasMapHealth'
+import { atlasMapContextRefused, watchAtlasMapHealth } from './atlasMapHealth'
 import {
   ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
@@ -997,13 +997,10 @@ export default function GlobeCanvas({
       },
     })
 
-    // maplibre-gl 6.0.0 reports a refused WebGL2 context as an event during
-    // construction and returns a map with no painter and no input handlers
-    // (the field is typed non-optional, but it is unset on that path).
     // Throwing reaches the error boundary AtlasGlobe wraps around this canvas,
-    // and AtlasGlobe swaps in the scene list. The half-built map is not
-    // removed: its remove() needs the painter.
-    if (!(map as { painter?: unknown }).painter) {
+    // and AtlasGlobe swaps in the scene list. The half-built map is left alone
+    // (see atlasMapContextRefused).
+    if (atlasMapContextRefused(map)) {
       throw new AtlasMapUnrecoverableError('context-refused')
     }
 
@@ -1018,8 +1015,21 @@ export default function GlobeCanvas({
     // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)
 
-    // Context loss and style failures that leave the map unable to draw.
-    const health = watchAtlasMapHealth(map, setUnrecoverable)
+    // Context loss and style failures that leave the map unable to draw, and
+    // whether the style can be written. A lost context destroys the style.
+    // While it is gone some style writes throw (feature state, layout), and
+    // until the style MapLibre re-creates on restore has loaded every checked
+    // write throws; reads such as getSource answer undefined. Clearing
+    // mapReady pauses every effect that writes to the style; the restored
+    // style sets it again, and they write the current data to it. The null is
+    // load-bearing: mapReady holds the same map object before and after, so
+    // only the committed null in between (the loss and the restored style.load
+    // are separate events, a frame or more apart) makes those effects run
+    // again.
+    const health = watchAtlasMapHealth(map, setUnrecoverable, (live) => {
+      if (live) setMapReady(map)
+      else setMapReady((prev) => (prev === map ? null : prev))
+    })
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1053,26 +1063,12 @@ export default function GlobeCanvas({
     w.__atlasMap = map
     w.__atlasMapLoaded = false
 
-    // Dots/labels/rings mount on 'style.load' (style parsed, sources
-    // registered), NOT 'load': 'load' additionally waits for every in-view
-    // GIBS raster tile, and a hanging third-party tile response would hold
-    // the page's actual content — locally-available scene data — hostage to
-    // the basemap. The harness flag stays on 'load' (full first render).
-    map.on('style.load', () => {
-      setMapReady(map)
-    })
-    // A lost context destroys the style. While it is gone some style writes
-    // throw (feature state, layout), and until the style MapLibre re-creates
-    // on restore has loaded every checked write throws; reads such as
-    // getSource answer undefined. Clearing mapReady pauses every effect that
-    // writes to the style; the restored style's style.load sets it again, and
-    // they write the current data to it. The null is load-bearing: mapReady
-    // holds the same map object before and after, so only the committed null
-    // in between (the loss and the restored style.load are separate events,
-    // a frame or more apart) makes those effects run again.
-    map.on('webglcontextlost', () => {
-      setMapReady((prev) => (prev === map ? null : prev))
-    })
+    // Dots/labels/rings mount once the style is live (mapReady, set from
+    // the health watch on 'style.load': style parsed, sources registered),
+    // NOT on 'load': 'load' additionally waits for every in-view GIBS raster
+    // tile, and a hanging third-party tile response would hold the page's
+    // actual content (locally available scene data) hostage to the basemap.
+    // The harness flag stays on 'load' (full first render).
     map.on('load', () => {
       w.__atlasMapLoaded = true
     })
@@ -1337,9 +1333,10 @@ export default function GlobeCanvas({
     redrawStatusChipRef.current = updateStatusChip
 
     // One-shot on style load. Registered HERE, below the two functions it
-    // calls, rather than folded into the style.load handler above: that one is
-    // declared before them, and reading a `const` from an earlier closure is a
-    // temporal-dead-zone trap waiting for the day the event fires synchronously.
+    // calls, rather than folded into the health watch's style callback above:
+    // that one is declared before them, and reading a `const` from an earlier
+    // closure is a temporal-dead-zone trap waiting for the day the event fires
+    // synchronously.
     // A saved camera (atlasCamera.ts) can reopen the map already at
     // street zoom, and without this shot no settle event would ever fire to
     // re-engage city view.

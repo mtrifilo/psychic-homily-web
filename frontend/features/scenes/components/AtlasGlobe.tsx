@@ -70,8 +70,9 @@ import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
 import { loadGlobeCanvas } from './loadGlobeCanvas'
+import { atlasMapBoundaryReporting } from './atlasMapHealth'
 import { markAtlasMapReady } from '@/lib/atlasMapReady'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
   AtlasMapUnrecoverableError,
@@ -116,7 +117,7 @@ function GlobeSkeleton() {
 // on the server.
 // The App Router's next/dynamic calls `loading` only while the module is
 // pending. A failed fetch throws from React.lazy to the nearest error
-// boundary, which is the GraphSectionErrorBoundary around the canvas in the
+// boundary, which is the CanvasSectionErrorBoundary around the canvas in the
 // render below, so a failed chunk swaps in the scene list.
 const GlobeCanvas = dynamic(loadGlobeCanvas, {
   ssr: false,
@@ -186,13 +187,6 @@ function atlasRenderBranch({
   if (showsSceneList) return { kind: 'scene-list' }
   if (!scenesLoading && placeableCount === 0) return { kind: 'nothing-to-place' }
   return { kind: 'map', size }
-}
-
-/** The Sentry tag that names how an unrecoverable map failed. */
-function atlasMapFailureTags(error: unknown): Record<string, string> | undefined {
-  return error instanceof AtlasMapUnrecoverableError
-    ? { atlas_map_failure: error.failureClass }
-    : undefined
 }
 
 /**
@@ -850,9 +844,8 @@ export function AtlasGlobe() {
           data-atlas-layout={sheetLayout ? 'sheet' : undefined}
           style={paneStyle}
         >
-          <GraphSectionErrorBoundary
-            sentryTag="atlas-map"
-            errorTags={atlasMapFailureTags}
+          <CanvasSectionErrorBoundary
+            {...atlasMapBoundaryReporting('atlas-map')}
             onError={handleMapFailed}
           >
             <GlobeCanvas
@@ -876,7 +869,7 @@ export function AtlasGlobe() {
               venueStacks={sheetLayout ? venueStackMarkers : undefined}
               onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
             />
-          </GraphSectionErrorBoundary>
+          </CanvasSectionErrorBoundary>
           {sheetLayout && cityScene && (
             <VenueListSheet
               principalCity={cityScene.city}

@@ -7,7 +7,7 @@ import type { ArtistBillComposition } from '../types'
 
 // PSY-1371: BillComposition's inline graph loads the SAME module-scope
 // react-force-graph-2d chunk as the ego dialog. Verify a failed chunk fetch here
-// is contained by GraphSectionErrorBoundary (reported, recoverable card) instead
+// is contained by CanvasSectionErrorBoundary (reported, recoverable card) instead
 // of crashing the whole artist page.
 
 const captureException = vi.fn()
