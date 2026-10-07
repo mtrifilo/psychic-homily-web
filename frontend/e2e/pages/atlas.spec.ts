@@ -322,6 +322,13 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     // The pointer rests on the scene dot through the loss, then leaves it.
     const dot = await phoenixDotPoint(page)
     await page.mouse.move(dot.x, dot.y)
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as ContextWindow).__atlasMap!.getCanvas().style.cursor
+        )
+      )
+      .toBe('pointer')
     await loseContext(page)
     await page.mouse.move(dot.x + 120, dot.y + 120)
     await page.evaluate(
