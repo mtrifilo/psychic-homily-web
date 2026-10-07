@@ -121,7 +121,9 @@ anything is written.
   clears the scene marks, the controls and every place label kept before it,
   until the budget is spent. The controls' boxes are read from the DOM when
   the labels mount and again after a resize or a change in the chrome, never
-  per frame; a change that moves a control lays the labels out again.
+  per frame; a change that moves a control lays the labels out again. While
+  a modal elsewhere on the page has turned pointer events off, the boxes
+  last read are kept, and they are read again once it turns them back on.
   The chrome is found by walking the map pane: a wrapper around controls
   must be `pointer-events: none` or have no area of its own, as the Atlas
   chrome's wrappers are, or its whole box counts as one control and blocks

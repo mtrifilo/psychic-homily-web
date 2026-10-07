@@ -236,6 +236,7 @@ describe('place labels and the controls over the map', () => {
     window.ResizeObserver = setupResizeObserver
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+    document.body.style.pointerEvents = ''
   })
 
   function mount(atlas: Atlas, places: GlobePlace[], obstacles: () => Box[] = () => []) {
@@ -415,6 +416,37 @@ describe('place labels and the controls over the map', () => {
 
     document.body.style.pointerEvents = ''
     atlas.search.removeAttribute('data-state')
+    await settleChrome()
+    expect(labelTexts()).toEqual([])
+  })
+
+  it('reads a change made during a modal once the modal gives pointer events back', async () => {
+    const atlas = buildAtlas()
+    const lower: Box = { left: 16, top: 600, right: 79.375, bottom: 638 }
+    mount(atlas, [placeOn('Above Drift', 0, lower)])
+    expect(labelTexts()).toEqual(['Above Drift'])
+
+    document.body.style.pointerEvents = 'none'
+    placeAt(atlas.drift, lower)
+    reportResize(atlas.pane)
+    await settleChrome()
+    expect(labelTexts()).toEqual(['Above Drift'])
+
+    // Only the body's style changes as the modal closes.
+    document.body.style.pointerEvents = ''
+    await settleChrome()
+    expect(labelTexts()).toEqual([])
+  })
+
+  it('reads the chrome again when labels that mounted during a modal see it close', async () => {
+    document.body.style.pointerEvents = 'none'
+    const atlas = buildAtlas()
+    // The search pill inherits the body's pointer events, so the first read
+    // misses it.
+    mount(atlas, [placeOn('Under the search pill', 0, SEARCH)])
+    expect(labelTexts()).toEqual(['Under the search pill'])
+
+    document.body.style.pointerEvents = ''
     await settleChrome()
     expect(labelTexts()).toEqual([])
   })

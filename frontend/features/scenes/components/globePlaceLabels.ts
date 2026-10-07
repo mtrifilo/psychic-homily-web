@@ -127,8 +127,9 @@ export interface MapChromeWatch {
  * per frame or per camera move. `onChange` runs after a read whose boxes
  * differ from the previous read's. While the pane itself takes no pointer
  * events (a modal elsewhere on the page sets `pointer-events: none` on the
- * body, which every control inherits), a read would find no controls, so the
- * boxes last read are kept.
+ * body), a read would miss every control that inherits its pointer events, so
+ * a settled change keeps the boxes last read; the body's style is watched
+ * too, so the read runs once the modal gives pointer events back.
  */
 export function watchMapChrome(
   map: maplibregl.Map,
@@ -185,6 +186,10 @@ export function watchMapChrome(
   }
 
   if (pane) resizes.observe(pane)
+  mutations.observe(container.ownerDocument.body, {
+    attributes: true,
+    attributeFilter: ['style'],
+  })
   read()
   return {
     boxes: () => boxes,
