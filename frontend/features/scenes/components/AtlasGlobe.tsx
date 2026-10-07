@@ -127,20 +127,41 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  * What the Atlas pane renders, decided once per render. The pane's content,
  * whether the map is preloaded, and whether the Atlas-ready signal is released
  * because no map will draw are all read from this one value, so the three
- * agree by construction:
- * - `'error'`: the scenes query failed. No preload; releases.
+ * agree. A new kind is a type error until both atlasRenderBranchEffects and
+ * the content's skeleton fallback (the last `else` in AtlasGlobe) handle it.
+ * - `'error'`: the scenes query failed. The error message.
  * - `'unmeasured'`: the pane has no size yet, so whether a map can render is
- *   not known. No preload, no release; the skeleton shows.
- * - `'scene-list'`: atlasRendersSceneList says so. No preload; releases.
- * - `'nothing-to-place'`: scenes loaded and none can be placed. No preload;
- *   releases.
+ *   not known. The skeleton.
+ * - `'scene-list'`: atlasRendersSceneList says so. The scene list.
+ * - `'nothing-to-place'`: scenes loaded and none can be placed. A message
+ *   with a link to the scenes page.
  * - `'map'`, with the pane's size: the map mounts once there are scenes to
- *   place and the camera focus resolves, behind the skeleton until then.
- *   Preloads; GlobeCanvas releases at its first full frame.
+ *   place and the camera focus resolves, behind the skeleton until then;
+ *   GlobeCanvas releases the signal at its first full frame.
  */
 type AtlasRenderBranch =
   | { kind: 'error' | 'unmeasured' | 'scene-list' | 'nothing-to-place' }
   | { kind: 'map'; size: AtlasPaneSize }
+
+/**
+ * Whether a branch preloads the map, and whether it releases the Atlas-ready
+ * signal because no map can follow.
+ */
+function atlasRenderBranchEffects(kind: AtlasRenderBranch['kind']): {
+  preloadsMap: boolean
+  releasesSignal: boolean
+} {
+  switch (kind) {
+    case 'map':
+      return { preloadsMap: true, releasesSignal: false }
+    case 'unmeasured':
+      return { preloadsMap: false, releasesSignal: false }
+    case 'error':
+    case 'scene-list':
+    case 'nothing-to-place':
+      return { preloadsMap: false, releasesSignal: true }
+  }
+}
 
 interface AtlasPaneSize {
   width: number
@@ -684,20 +705,15 @@ export function AtlasGlobe() {
   })
 
   // The canvas renders only after scenes and the camera focus (which waits on
-  // visitor geo) resolve; preload what it needs during that wait.
-  const mapMayMount = renderBranch.kind === 'map'
+  // visitor geo) resolve; preload what it needs during that wait. Whatever
+  // waits on the Atlas-ready signal is released once no map can follow.
+  const { preloadsMap, releasesSignal } = atlasRenderBranchEffects(renderBranch.kind)
   useEffect(() => {
-    if (mapMayMount) preloadAtlasMap()
-  }, [mapMayMount])
-  // Whatever waits on the Atlas-ready signal is released once no map can
-  // follow.
-  const mapWillNotDraw =
-    renderBranch.kind === 'error' ||
-    renderBranch.kind === 'scene-list' ||
-    renderBranch.kind === 'nothing-to-place'
+    if (preloadsMap) preloadAtlasMap()
+  }, [preloadsMap])
   useEffect(() => {
-    if (mapWillNotDraw) markAtlasMapReady()
-  }, [mapWillNotDraw])
+    if (releasesSignal) markAtlasMapReady()
+  }, [releasesSignal])
 
   let content: ReactNode
   if (renderBranch.kind === 'error') {
@@ -1001,7 +1017,10 @@ export function AtlasGlobe() {
       </CenterMessage>
     )
   } else {
-    // 'unmeasured', or 'map' still waiting on scenes or the camera focus.
+    // 'unmeasured', or 'map' still waiting on scenes or the camera focus; any
+    // other kind is a type error here.
+    const waiting: 'unmeasured' | 'map' = renderBranch.kind
+    void waiting
     content = <GlobeSkeleton />
   }
 

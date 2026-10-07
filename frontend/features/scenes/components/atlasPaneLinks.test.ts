@@ -10,8 +10,9 @@ import ts from 'typescript'
  *   eslint.config.mjs block that says so;
  * - loadGlobeCanvas.ts is the only dynamic import of GlobeCanvas, so
  *   next/dynamic and the preload share one chunk group;
- * - nothing under features/scenes imports from components/layout: the link
- *   hold the pane shares with the chrome lives in lib/atlasMapReadyLink.tsx.
+ * - nothing under features/scenes imports from components/layout, and the
+ *   link hold the pane shares with the chrome (lib/atlasMapReadyLink.tsx, with
+ *   the signal it reads) imports from neither components nor features.
  */
 
 const FRONTEND = path.resolve(__dirname, '..', '..', '..')
@@ -118,16 +119,23 @@ function sourceFilesMentioning(roots: string[], needle: string): Array<{ file: s
   })
 }
 
-const LAYOUT = path.join(FRONTEND, 'components', 'layout')
-
-/** Whether `specifier`, imported from `file`, names a module under components/layout. */
-function isLayoutModule(file: string, specifier: string): boolean {
+/** Whether `specifier`, imported from `file`, names a module under `dir`. */
+function importsFrom(file: string, specifier: string, dir: string): boolean {
   const target = specifier.startsWith('@/')
     ? path.join(FRONTEND, specifier.slice(2))
     : specifier.startsWith('.')
       ? path.resolve(path.dirname(file), specifier)
       : null
-  return target !== null && (target === LAYOUT || target.startsWith(LAYOUT + path.sep))
+  const base = path.join(FRONTEND, dir)
+  return target !== null && (target === base || target.startsWith(base + path.sep))
+}
+
+/** `file: specifier` for each import in `text` (type-only included) that names a module under one of `dirs`. */
+function importsUnder(file: string, text: string, dirs: string[]): string[] {
+  return ts
+    .preProcessFile(text, true, true)
+    .importedFiles.filter(({ fileName }) => dirs.some((dir) => importsFrom(file, fileName, dir)))
+    .map(({ fileName }) => `${path.relative(FRONTEND, file)}: ${fileName}`)
 }
 
 describe('the Atlas pane links through AtlasPaneLink', () => {
@@ -185,11 +193,16 @@ describe('features/scenes and components/layout', () => {
   it('imports nothing from components/layout', { timeout: 30_000 }, () => {
     // Type-only imports count too: the rule is the dependency direction.
     const offenders = sourceFilesMentioning(['features/scenes'], 'components/layout').flatMap(({ file, text }) =>
-      ts
-        .preProcessFile(text, true, true)
-        .importedFiles.filter(({ fileName }) => isLayoutModule(file, fileName))
-        .map(({ fileName }) => `${path.relative(FRONTEND, file)}: ${fileName}`),
+      importsUnder(file, text, ['components/layout']),
     )
+    expect(offenders).toEqual([])
+  })
+
+  it('keeps the shared link hold free of components and features', () => {
+    const offenders = ['lib/atlasMapReadyLink.tsx', 'lib/atlasMapReady.ts'].flatMap((rel) => {
+      const file = path.join(FRONTEND, rel)
+      return importsUnder(file, fs.readFileSync(file, 'utf8'), ['components', 'features'])
+    })
     expect(offenders).toEqual([])
   })
 })

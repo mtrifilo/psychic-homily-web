@@ -46,9 +46,9 @@ function useHoldsPrefetch(atlasPrefetch: AtlasPrefetch): boolean {
  * prefetch (pinned against the real Link in
  * components/layout/nav/ChromeLink.realLink.test.tsx).
  *
- * This module imports only React, Next and the signal, so the chrome
- * (ChromeLink) and the Atlas pane (AtlasPaneLink) can both wrap it without
- * either depending on the other.
+ * This module and the signal import nothing from components or features
+ * (atlasPaneLinks.test.ts checks), so the chrome (ChromeLink) and the Atlas
+ * pane (AtlasPaneLink) can both wrap it without either depending on the other.
  */
 export function AtlasMapReadyLink({
   prefetch,

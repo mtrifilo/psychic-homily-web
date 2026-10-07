@@ -5,7 +5,7 @@ import type { ArtistStep } from '../artistDrillIn'
 import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
 import { ARTIST_PANEL_NEXT_SHOW_ROWS } from '../cityView'
 
-// The Atlas route, where ChromeLink holds a link's prefetch until the map is up.
+// The Atlas route, where AtlasPaneLink holds a link's prefetch until the map is up.
 vi.mock('next/navigation', () => ({ usePathname: () => '/atlas' }))
 
 vi.mock('next/link', () => import('@/test/mocks/nextLink'))
