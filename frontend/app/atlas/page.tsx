@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
-import { AtlasGlobe } from '@/features/scenes/components'
+import { AtlasGlobe } from '@/features/scenes/components/AtlasGlobe'
 import { AtlasMapReadyFallbacks } from './AtlasMapReadyFallbacks'
 
 export const metadata: Metadata = {

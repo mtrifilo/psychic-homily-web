@@ -20,12 +20,9 @@ import { FollowButton } from '@/components/shared/FollowButton'
 import { UserAttribution } from '@/components/shared/UserAttribution'
 import { useVenueFieldNotes } from '@/features/comments/hooks'
 import { pickFieldNoteForTeaser } from '@/features/comments/teaser'
-import { dedupVenueShows } from '@/features/shows'
-import {
-  formatVenueConfirmError,
-  useVenueConfirm,
-  useVenueShows,
-} from '@/features/venues/hooks'
+import { dedupVenueShows } from '@/features/shows/utils'
+import { formatVenueConfirmError, useVenueConfirm } from '@/features/venues/hooks/useVenueConfirm'
+import { useVenueShows } from '@/features/venues/hooks/useVenues'
 import { VENUE_SHOWS_PAGE_LIMIT } from '@/features/venues/api'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
 import { formatShowTime } from '@/lib/utils/formatters'

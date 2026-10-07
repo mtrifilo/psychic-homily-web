@@ -26,8 +26,8 @@ import {
 } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { GRAPH_HASH } from '@/lib/hooks/common/useUrlHash'
-import { TagOfficialIndicator } from '@/features/tags'
-import { InlineErrorBanner } from '@/components/shared'
+import { TagOfficialIndicator } from '@/features/tags/components/TagOfficialIndicator'
+import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 
 interface RouteItem {
   label: string

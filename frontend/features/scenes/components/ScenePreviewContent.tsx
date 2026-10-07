@@ -7,7 +7,7 @@ import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
-import { useSceneArtists, useSceneShows } from '../hooks'
+import { useSceneArtists, useSceneShows } from '@/features/scenes/hooks/useScenes'
 import { ATLAS_LINK_TARGET_CLASS } from './atlasTouchTargets'
 import type { SceneListItem, SceneShowSummary } from '../types'
 

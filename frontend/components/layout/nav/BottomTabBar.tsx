@@ -18,7 +18,7 @@ import {
   UnreadCountBadge,
   withUnreadLabel,
 } from '@/components/shared/UnreadCountBadge'
-import { useUnreadNotificationCount } from '@/features/notifications'
+import { useUnreadNotificationCount } from '@/features/notifications/hooks'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   NOTIFICATIONS_HREF, PROFILE_CLAIM_HREF, accountNavItems, isNavActive,

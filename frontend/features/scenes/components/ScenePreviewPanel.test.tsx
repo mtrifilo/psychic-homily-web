@@ -38,7 +38,7 @@ vi.mock('./SceneNotifyModeToggle', () => ({
 
 // Default: a quiet stretch — tests for the "Next 7 days" section override this.
 const mockUseSceneShows = vi.fn()
-vi.mock('../hooks', () => ({
+vi.mock('../hooks/useScenes', () => ({
   useSceneArtists: (opts: unknown) => mockUseSceneArtists(opts),
   useSceneShows: (slug: string) => mockUseSceneShows(slug),
 }))

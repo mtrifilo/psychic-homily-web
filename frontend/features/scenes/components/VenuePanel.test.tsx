@@ -43,8 +43,10 @@ const mockUseVenueConfirm = vi.fn<() => Record<string, unknown>>(() => ({
   data: undefined,
   error: null,
 }))
-vi.mock('@/features/venues/hooks', () => ({
+vi.mock('@/features/venues/hooks/useVenues', () => ({
   useVenueShows: (args: unknown) => mockUseVenueShows(args),
+}))
+vi.mock('@/features/venues/hooks/useVenueConfirm', () => ({
   useVenueConfirm: () => mockUseVenueConfirm(),
   formatVenueConfirmError: (error: unknown) =>
     error ? (error as { rendered?: string }).rendered ?? 'Confirm failed' : null,

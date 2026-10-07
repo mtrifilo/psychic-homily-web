@@ -53,7 +53,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 // QueryClient so these tests state the COUNT they exercise; the hook's own
 // auth-gating and cache-sharing are covered in features/notifications/hooks.
 const mockUnreadCount = vi.fn(() => 0)
-vi.mock('@/features/notifications', () => ({
+vi.mock('@/features/notifications/hooks', () => ({
   useUnreadNotificationCount: () => mockUnreadCount(),
 }))
 
