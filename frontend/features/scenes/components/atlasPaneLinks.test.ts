@@ -4,12 +4,14 @@ import path from 'node:path'
 import ts from 'typescript'
 
 /**
- * Source guards for two Atlas rules that no runtime test can see:
+ * Source guards for three Atlas rules that no runtime test can see:
  * - every component the Atlas pane renders from this folder links through
  *   AtlasPaneLink, never `next/link` directly, and is listed in the
  *   eslint.config.mjs block that says so;
  * - loadGlobeCanvas.ts is the only dynamic import of GlobeCanvas, so
- *   next/dynamic and the preload share one chunk group.
+ *   next/dynamic and the preload share one chunk group;
+ * - nothing under features/scenes imports from components/layout: the link
+ *   hold the pane shares with the chrome lives in lib/atlasMapReadyLink.tsx.
  */
 
 const FRONTEND = path.resolve(__dirname, '..', '..', '..')
@@ -99,18 +101,30 @@ const SKIPPED_SEGMENT = /(^|[\\/])(node_modules|\.next)([\\/]|$)/
 const NON_SOURCE = /\.(test|spec|stories)\.tsx?$/
 
 /**
- * Source files under the scanned roots whose text mentions GlobeCanvas: one
- * recursive directory listing per root, a read of each candidate, and no
- * parse, so only files that can import GlobeCanvas reach the AST.
+ * Source files under `roots` whose text contains `needle`: one recursive
+ * directory listing per root, a read of each candidate, and no parse, so only
+ * files that can import what `needle` names reach the AST.
  */
-function filesMentioningGlobeCanvas(): string[] {
-  return SCANNED_ROOTS.flatMap((root) => {
+function sourceFilesMentioning(roots: string[], needle: string): string[] {
+  return roots.flatMap((root) => {
     const base = path.join(FRONTEND, root)
     return (fs.readdirSync(base, { recursive: true }) as string[])
       .filter((rel) => /\.tsx?$/.test(rel) && !NON_SOURCE.test(rel) && !SKIPPED_SEGMENT.test(rel))
       .map((rel) => path.join(base, rel))
-      .filter((file) => fs.readFileSync(file, 'utf8').includes('GlobeCanvas'))
+      .filter((file) => fs.readFileSync(file, 'utf8').includes(needle))
   })
+}
+
+const LAYOUT = path.join(FRONTEND, 'components', 'layout')
+
+/** Whether `specifier`, imported from `file`, names a module under components/layout. */
+function isLayoutModule(file: string, specifier: string): boolean {
+  const target = specifier.startsWith('@/')
+    ? path.join(FRONTEND, specifier.slice(2))
+    : specifier.startsWith('.')
+      ? path.resolve(path.dirname(file), specifier)
+      : null
+  return target !== null && (target === LAYOUT || target.startsWith(LAYOUT + path.sep))
 }
 
 describe('the Atlas pane links through AtlasPaneLink', () => {
@@ -141,7 +155,7 @@ describe('GlobeCanvas has one dynamic import', () => {
   // A scan of the frontend's source tree, which takes longer than a unit test
   // on a shared CI runner; the timeout is for that, not for anything async.
   it('is loadGlobeCanvas.ts, outside tests', { timeout: 30_000 }, () => {
-    const importers = filesMentioningGlobeCanvas()
+    const importers = sourceFilesMentioning(SCANNED_ROOTS, 'GlobeCanvas')
       .filter((file) =>
         runtimeImports(parse(file)).some((specifier) => /(^|\/)GlobeCanvas$/.test(specifier)) &&
         /\bimport\(\s*['"][^'"]*GlobeCanvas['"]\s*\)/.test(fs.readFileSync(file, 'utf8')),
@@ -155,5 +169,21 @@ describe('GlobeCanvas has one dynamic import', () => {
     const preload = fs.readFileSync(path.join(COMPONENTS, 'atlasMapPreload.ts'), 'utf8')
     expect(atlasGlobe).toMatch(/dynamic\(loadGlobeCanvas,/)
     expect(preload).toMatch(/loadGlobeCanvas\(\)/)
+  })
+})
+
+describe('features/scenes and components/layout', () => {
+  // A scan of the feature's source tree, cheap for the same reason as the
+  // GlobeCanvas scan; the timeout is for a shared CI runner, not for anything
+  // async.
+  it('imports nothing from components/layout', { timeout: 30_000 }, () => {
+    // Type-only imports count too: the rule is the dependency direction.
+    const offenders = sourceFilesMentioning(['features/scenes'], 'components/layout').flatMap((file) =>
+      ts
+        .preProcessFile(fs.readFileSync(file, 'utf8'), true, true)
+        .importedFiles.filter(({ fileName }) => isLayoutModule(file, fileName))
+        .map(({ fileName }) => `${path.relative(FRONTEND, file)}: ${fileName}`),
+    )
+    expect(offenders).toEqual([])
   })
 })

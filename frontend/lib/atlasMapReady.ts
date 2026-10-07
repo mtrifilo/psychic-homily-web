@@ -6,7 +6,7 @@
  * (armAtlasMapReadyFallbacks), on the visitor's first input or at the cap
  * below, whichever comes first. On `/atlas` the chrome's primary links (the
  * bottom tab bar, PrimaryNav) and the Atlas pane's links (AtlasPaneLink)
- * wait for it before they prefetch (components/layout/nav/ChromeLink.tsx).
+ * wait for it before they prefetch (lib/atlasMapReadyLink.tsx).
  *
  * Once released it stays released for the page load, so a later visit to
  * `/atlas` in the same tab holds nothing.
