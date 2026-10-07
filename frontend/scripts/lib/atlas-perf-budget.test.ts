@@ -127,7 +127,7 @@ describe('atlas perf budget', () => {
     })
   })
 
-  describe('runGate exit codes', () => {
+  describe('runBudgetCheck exit codes', () => {
     it('exits 0 when the medians meet the budget, after one call per run and one report', async () => {
       const { code, runOnce, report, onError } = check([run(3300), run(3400), run(3500)])
       expect(await code).toBe(EXIT.PASS)

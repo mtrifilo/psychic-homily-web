@@ -34,6 +34,7 @@ on:
       # The root layout and global CSS are part of every entry.
       - frontend/app/layout.tsx
       - frontend/app/globals.css
+      # Build and bundling configuration.
       - frontend/next.config.*
       # The measurement itself.
       - frontend/scripts/atlas-perf.mjs
@@ -65,11 +66,6 @@ jobs:
     permissions:
       contents: read
       deployments: read
-    env:
-      # Stands in for the script's 390x844 phone profile, which cannot measure
-      # a build that renders the scene list at that width (see the script
-      # header).
-      ATLAS_PERF_VIEWPORT: 800x1000
     steps:
       - uses: actions/checkout@v4
         with:
@@ -192,7 +188,7 @@ jobs:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set +e
-          node scripts/atlas-perf.mjs "$PREVIEW_URL" --runs 3 --viewport "$ATLAS_PERF_VIEWPORT" --json atlas-perf.json | tee atlas-perf.md
+          node scripts/atlas-perf.mjs "$PREVIEW_URL" --runs 3 --json atlas-perf.json | tee atlas-perf.md
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
@@ -203,17 +199,17 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: ./frontend
         env:
+          DISCOVERY_OUTCOME: ${{ steps.vercel-preview.outcome }}
           PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
           REACH_OUTCOME: ${{ steps.reach.outcome }}
-          MEASURE_OUTCOME: ${{ steps.measure.outcome }}
           EXIT_CODE: ${{ steps.measure.outputs.exit_code }}
         run: |
-          if [ -z "$PREVIEW_URL" ]; then
-            result="not measured: no Vercel preview found for this commit"
+          if [ "$DISCOVERY_OUTCOME" = "skipped" ]; then
+            result="not measured: setup failed before the preview lookup"
+          elif [ -z "$PREVIEW_URL" ]; then
+            result="not measured: no Vercel preview on this project's preview hosts was found for this commit"
           elif [ "$REACH_OUTCOME" != "success" ]; then
             result="not measured: the preview was unreachable or the bypass secret is missing"
-          elif [ "$MEASURE_OUTCOME" = "skipped" ]; then
-            result="not measured: an earlier step failed"
           else
             case "$EXIT_CODE" in
               0) result="budget met (exit 0)" ;;
@@ -227,9 +223,6 @@ jobs:
             echo
             echo "Result: $result."
             echo
-            if [ "$ATLAS_PERF_VIEWPORT" != "390x844" ]; then
-              echo "Viewport: $ATLAS_PERF_VIEWPORT, a stand-in for the 390x844 phone profile (the Atlas renders its scene list instead of the map at 390px on this build). The budget was set for the phone profile, so the result here is advisory."
-            fi
             if [ -s atlas-perf.md ]; then
               cat atlas-perf.md
             fi

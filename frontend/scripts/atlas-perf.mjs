@@ -31,10 +31,10 @@
 // hosts (PREVIEW_HOST). It rides one bypass-cookie request, never page
 // requests, and is redacted from anything the script prints.
 //
-// Budget (DEFAULT_BUDGET in scripts/lib/atlas-perf-budget.mjs): first rendered map at most 3.5 s
-// and entry bytes at most 1.5 MiB, both medians, plus no raster request on a
-// compact viewport. The 2.5 s first-map target is printed beside the budget
-// with its delta and never changes the exit code.
+// Budget (DEFAULT_BUDGET in scripts/lib/atlas-perf-budget.mjs): first
+// rendered map at most 3.5 s and entry bytes at most 1.5 MiB, both medians,
+// plus no raster request on a compact viewport. The 2.5 s first-map target is
+// printed beside the budget with its delta and never changes the exit code.
 //
 // Exit codes: 0 budget met (or --no-budget), 1 budget missed, 2 harness error
 // (bad arguments, a scene list instead of a map, or a map that never passed
@@ -400,7 +400,8 @@ const exitCode = await runBudgetCheck({
     try {
       return await oneRun(browser, opts)
     } finally {
-      await browser.close()
+      // A failing close must not replace the run's own result or error.
+      await browser.close().catch(() => {})
     }
   },
   budget: opts.budget,
