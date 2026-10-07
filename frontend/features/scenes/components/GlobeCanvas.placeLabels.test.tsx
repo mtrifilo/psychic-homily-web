@@ -322,38 +322,145 @@ describe('GlobeCanvas place labels', () => {
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
   })
 
-  it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
-    // A control the page draws beside the canvas, first clear of every label,
-    // then moved over Clear City's (213,323 to 273,335).
-    let drift: HTMLButtonElement | null = null
-    const placeDrift = (box: { left: number; top: number; right: number; bottom: number }) => {
-      drift!.getBoundingClientRect = () =>
-        ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
-    }
-    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
-    render(
+  const rect = (box: { left: number; top: number; right: number; bottom: number }) =>
+    ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
+
+  /**
+   * The light look with a Drift button the page draws beside the canvas,
+   * whose screen box is whatever `driftRect` returns at each read.
+   * `showCityLabel` renders the same page again with that city view label.
+   */
+  async function showMapBesideDrift(driftRect: () => DOMRect, scenes: PlaceableScene[] = SCENES) {
+    const drift: { current: HTMLButtonElement | null } = { current: null }
+    const page = (cityLabel: string | null) => (
       <div>
-        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />
+        <GlobeCanvas
+          width={PANE.width}
+          height={PANE.height}
+          scenes={scenes}
+          pov={POV}
+          onSelect={() => {}}
+          cityLabel={cityLabel}
+        />
         <button
           type="button"
           ref={(button) => {
-            drift = button
-            if (button) placeDrift({ left: 300, top: 600, right: 360, bottom: 630 })
+            drift.current = button
+            if (button) button.getBoundingClientRect = driftRect
           }}
         >
           Drift
         </button>
-      </div>,
+      </div>
     )
+    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
+    const { rerender, unmount } = render(page(null))
     await act(async () => {
       maps[0].fire('style.load')
       maps[0].fire('render')
     })
+    return {
+      map: maps[0],
+      drift: drift.current!,
+      showCityLabel: (cityLabel: string | null) => rerender(page(cityLabel)),
+      unmount,
+    }
+  }
+
+  /** Lets the chrome's 100 ms settle run out on real timers. */
+  const outlastChromeSettle = () => act(() => new Promise((resolve) => setTimeout(resolve, 150)))
+
+  it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
+    // First clear of every label, then moved over Clear City's (213,323 to
+    // 273,335).
+    let box = { left: 300, top: 600, right: 360, bottom: 630 }
+    const { drift } = await showMapBesideDrift(() => rect(box))
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
 
-    placeDrift({ left: 200, top: 315, right: 290, bottom: 345 })
-    act(() => drift!.setAttribute('data-moved', 'true'))
+    box = { left: 200, top: 315, right: 290, bottom: 345 }
+    act(() => drift.setAttribute('data-moved', 'true'))
     await waitFor(() => expect(placeLabelTexts()).toEqual([]))
+  })
+
+  it('reads the chrome once per layout change while a camera flight changes the scene labels', async () => {
+    // Each scene's label comes in at its own zoom band on the way down
+    // (labelMinCountForAltitude in globeScale.ts): 50 shows at z2.8, 20 at
+    // z3.3, 5 at z4.0. Phoenix's 200 is labelled throughout.
+    const scenes = [
+      SCENES[0],
+      { ...SCENES[0], city: 'Fifty', slug: 'fifty-xx', upcoming_show_count: 50, longitude: -80, latitude: 30 },
+      { ...SCENES[0], city: 'Twenty', slug: 'twenty-xx', upcoming_show_count: 20, longitude: -120, latitude: 50 },
+      { ...SCENES[0], city: 'Five', slug: 'five-xx', upcoming_show_count: 5, longitude: -75, latitude: 50 },
+    ] as PlaceableScene[]
+    const reads = vi.fn(() => rect({ left: 16, top: 669, right: 79.375, bottom: 707 }))
+    const { map, drift } = await showMapBesideDrift(reads, scenes)
+    await waitFor(() => expect(placeLabelTexts()).toContain('Clear City'))
+    const sceneLabelCount = () => document.querySelectorAll('[data-testid="atlas-scene-label"]').length
+    expect(sceneLabelCount()).toBe(1)
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    const fly = async (zooms: number[]) => {
+      for (const next of zooms) {
+        zoom = next
+        act(() => map.fire('zoom'))
+        act(() => map.fire('moveend'))
+        await act(async () => {})
+      }
+    }
+    // Down through three label bands: the scene-label set changes three times.
+    await fly([2.8, 3.0, 3.3, 3.5, 4.0, 4.5])
+    expect(sceneLabelCount()).toBe(4)
+    await outlastChromeSettle()
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    // One layout change in the chrome: one read.
+    act(() => drift.setAttribute('data-moved', 'true'))
+    await waitFor(() => expect(reads).toHaveBeenCalledTimes(2))
+
+    // Back up through the same bands: three more changes to the set.
+    await fly([3.5, 3.0, 2.4])
+    expect(sceneLabelCount()).toBe(1)
+    await outlastChromeSettle()
+    expect(reads).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops the chrome watch while place labels are off, and the labels that come back follow a new one', async () => {
+    const clear = { left: 300, top: 600, right: 360, bottom: 630 }
+    // Over Clear City's label (213,323 to 273,335).
+    const over = { left: 200, top: 315, right: 290, bottom: 345 }
+    let box = clear
+    const reads = vi.fn(() => rect(box))
+    const { drift, showCityLabel, unmount } = await showMapBesideDrift(reads)
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    // City view: no place labels, and no watch reads Drift as it moves.
+    showCityLabel('PHOENIX, AZ')
+    expect(placeLabelTexts()).toEqual([])
+    box = over
+    act(() => drift.setAttribute('data-moved', 'over'))
+    await outlastChromeSettle()
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    // Back on the globe: a new watch reads Drift where it now is.
+    showCityLabel(null)
+    await waitFor(() => expect(reads).toHaveBeenCalledTimes(2))
+    expect(placeLabelTexts()).toEqual([])
+
+    // The labels follow the new watch.
+    box = clear
+    act(() => drift.setAttribute('data-moved', 'clear'))
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+    expect(reads).toHaveBeenCalledTimes(3)
+
+    // Unmounted mid-settle: the change has been seen and its read is
+    // pending, and stopping the watch cancels it.
+    await act(async () => {
+      drift.setAttribute('data-moved', 'again')
+    })
+    unmount()
+    await outlastChromeSettle()
+    expect(reads).toHaveBeenCalledTimes(3)
   })
 
   it('reports a place file that could not be loaded and draws no place label', async () => {

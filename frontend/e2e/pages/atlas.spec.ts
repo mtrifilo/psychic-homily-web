@@ -1,6 +1,12 @@
-import { test } from '../fixtures/error-detection'
+import { test } from '../fixtures'
 import { expect, type Page } from '@playwright/test'
-import { type AtlasMapSeam, phoenixDotPoint, stubAtlas, waitForMap } from '../helpers/atlas'
+import {
+  type AtlasMapSeam,
+  dismissBanner,
+  phoenixDotPoint,
+  stubAtlas,
+  waitForMap,
+} from '../helpers/atlas'
 
 /**
  * `/atlas?city=City,ST` (PSY-2079): the Atlas's one URL entry point.
@@ -221,6 +227,254 @@ test.describe('Atlas light globe outlines and place labels', () => {
     await expect(placeLabels).toHaveCount(0)
   })
 })
+
+/**
+ * The light globe's place labels against the controls drawn over the map, on
+ * a 390x844 phone signed in, so the My Scenes strip shows beside the search
+ * pill, Drift, the Genres chip and the credit. These are the real controls
+ * with their real classes: the label pass finds them by walking the pane, so
+ * only a browser shows whether each wrapper lets it through to the control.
+ * The compact globe draws its credit only from the street basemap's first
+ * zoom (5), and place labels show below 5.5, so the credit is checked at 5.2.
+ */
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`Atlas place labels clear of the chrome at 390x844 ${colorScheme}`, () => {
+    test.use({
+      viewport: { width: 390, height: 844 },
+      colorScheme,
+      hasTouch: true,
+      isMobile: true,
+      deviceScaleFactor: 2,
+    })
+    // The test boots a SwiftShader map signed in, waits out the banner's
+    // resize, and moves the camera four times, waiting on the street
+    // source's credit (its TileJSON) and on the labels' relayout.
+    test.setTimeout(120_000)
+
+    // The place set's Houston (public/atlas/globe-places-110m.geojson).
+    const HOUSTON: [number, number] = [-95.34, 29.82]
+    const DRIFT = 'button[aria-label="Drift to a random scene"]'
+    const CREDIT = '.maplibregl-ctrl-attrib'
+    const CONTROLS_AT_GLOBE_ZOOM = ['search pill', 'Drift', 'Genres chip', 'My Scenes']
+
+    type SeamWindow = { __atlasMap: AtlasMapSeam }
+
+    /**
+     * Waits until the map's canvas fills the Atlas frame: the frame grows when
+     * the banner leaves, and the measured pane, the map's container and then
+     * the canvas follow it.
+     */
+    async function waitForMapSize(page: Page) {
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const map = (window as unknown as SeamWindow).__atlasMap
+            const canvas = map.getCanvas().getBoundingClientRect()
+            const frame = document.querySelector('[data-testid="atlas-pane-frame"]')!.getBoundingClientRect()
+            return Math.abs(canvas.width - frame.width) < 1 && Math.abs(canvas.height - frame.height) < 1
+          }),
+        )
+        .toBe(true)
+    }
+
+    type ChromeReport = {
+      labels: string[]
+      /** Each control's name and whether it has an area on screen. */
+      controls: { name: string; drawn: boolean }[]
+      /** `label under control` for every label box that meets a control's. */
+      hits: string[]
+    }
+
+    /**
+     * Every place label and the box of each control: the search pill, Drift,
+     * the Genres chip, the My Scenes strip's star and chips, and the credit.
+     */
+    function chromeReport(page: Page): Promise<ChromeReport> {
+      return page.evaluate(({ drift, credit }) => {
+        const controls: { name: string; el: Element }[] = []
+        const add = (name: string, el: Element | null | undefined) => {
+          if (el) controls.push({ name, el })
+        }
+        add('search pill', document.querySelector('button[aria-label="Search scenes"]'))
+        add('Drift', document.querySelector(drift))
+        add('Genres chip', document.querySelector('[aria-controls="atlas-genre-legend"]')?.parentElement)
+        for (const el of document.querySelectorAll('nav[aria-label="My scenes"] > *')) {
+          add('My Scenes', el)
+        }
+        add('credit', document.querySelector(credit))
+
+        const labels = [...document.querySelectorAll('[data-testid="atlas-place-label"]')]
+        const hits: string[] = []
+        for (const label of labels) {
+          const a = label.getBoundingClientRect()
+          for (const { name, el } of controls) {
+            const b = el.getBoundingClientRect()
+            if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+              hits.push(`${label.textContent} under ${name}`)
+            }
+          }
+        }
+        return {
+          labels: labels.map((label) => label.textContent ?? ''),
+          controls: controls.map(({ name, el }) => {
+            const r = el.getBoundingClientRect()
+            return { name, drawn: r.width > 0 && r.height > 0 }
+          }),
+          hits,
+        }
+      }, { drift: DRIFT, credit: CREDIT })
+    }
+
+    /**
+     * Waits until no place label meets a control (a control that has just
+     * moved holds its old spot until the chrome has settled), then checks
+     * that every control in `drawn` is on screen and, unless `labelsDrawn` is
+     * false, that place labels are drawn. Returns the report that passed.
+     */
+    async function expectLabelsClearOfChrome(
+      page: Page,
+      state: string,
+      { drawn: required = CONTROLS_AT_GLOBE_ZOOM, labelsDrawn = true } = {},
+    ): Promise<ChromeReport> {
+      let report: ChromeReport | undefined
+      await expect
+        .poll(
+          async () => {
+            report = await chromeReport(page)
+            return report.hits
+          },
+          { message: `${state}: place labels under a control`, timeout: 10_000 },
+        )
+        .toEqual([])
+      test.info().annotations.push({ type: state, description: JSON.stringify(report) })
+      if (labelsDrawn) {
+        expect(report!.labels.length, `${state}: place labels drawn`).toBeGreaterThan(0)
+      }
+      const drawn = report!.controls.filter((c) => c.drawn).map((c) => c.name)
+      for (const name of required) {
+        expect(drawn, `${state}: ${name} on screen`).toContain(name)
+      }
+      return report!
+    }
+
+    /** Moves the camera to `center` at `zoom`, synchronously. */
+    function jumpTo(page: Page, center: [number, number], zoom: number) {
+      return page.evaluate(
+        ({ center, zoom }) => (window as unknown as SeamWindow).__atlasMap.jumpTo({ center, zoom }),
+        { center, zoom },
+      )
+    }
+
+    /**
+     * Keeps `zoom` and steps the camera until `place` projects onto the
+     * centre of the control `selector` matches, then checks that it does.
+     */
+    async function moveUnder(page: Page, place: [number, number], selector: string, zoom: number) {
+      const { point, box } = await page.evaluate(
+        ({ place, selector, zoom }) => {
+          const map = (window as unknown as SeamWindow).__atlasMap
+          const pane = map.getContainer().getBoundingClientRect()
+          const control = document.querySelector(selector)!.getBoundingClientRect()
+          const x = control.left + control.width / 2 - pane.left
+          const y = control.top + control.height / 2 - pane.top
+          // On the globe a screen offset is not a fixed shift in lng/lat, so
+          // the camera steps until the place projects onto the target. Each
+          // step re-centres on the point that sits where the camera must move
+          // the place from.
+          let p = map.project(place)
+          for (let step = 0; step < 10 && Math.hypot(x - p.x, y - p.y) > 1; step++) {
+            const next = map.unproject([pane.width / 2 - (x - p.x), pane.height / 2 - (y - p.y)])
+            map.jumpTo({ center: [next.lng, next.lat], zoom })
+            p = map.project(place)
+          }
+          return {
+            point: { x: p.x, y: p.y },
+            box: {
+              left: control.left - pane.left,
+              top: control.top - pane.top,
+              right: control.right - pane.left,
+              bottom: control.bottom - pane.top,
+            },
+          }
+        },
+        { place, selector, zoom },
+      )
+      expect(
+        point.x > box.left && point.x < box.right && point.y > box.top && point.y < box.bottom,
+        `the place's point ${JSON.stringify(point)} is under ${selector} ${JSON.stringify(box)}`,
+      ).toBe(true)
+    }
+
+    function placeLabelTexts(page: Page) {
+      return page
+        .getByTestId('atlas-place-label')
+        .evaluateAll((labels) => labels.map((label) => label.textContent))
+    }
+
+    test('no place label sits under a control at the entry camera, and one panned under Drift or the credit is dropped', async ({
+      authenticatedPage: page,
+    }) => {
+      await stubAtlas(page)
+      // A followed scene, so the My Scenes strip shows.
+      await page.route(
+        (url) => url.pathname.endsWith('/me/following'),
+        (route) =>
+          route.fulfill({
+            json: {
+              following: [
+                {
+                  entity_type: 'scene',
+                  entity_id: 1,
+                  name: 'Phoenix',
+                  slug: 'phoenix-az',
+                  followed_at: '2026-09-01T00:00:00Z',
+                },
+              ],
+              total: 1,
+              limit: 100,
+              offset: 0,
+            },
+          }),
+      )
+      await page.goto('/atlas')
+      await waitForMap(page)
+      await expect(page.getByTestId('atlas-place-label').first()).toBeAttached({ timeout: 30_000 })
+      await expect(page.getByRole('navigation', { name: 'My scenes' })).toBeVisible()
+
+      await expectLabelsClearOfChrome(page, 'entry camera, banner up')
+      await dismissBanner(page)
+      await waitForMapSize(page)
+      await expectLabelsClearOfChrome(page, 'entry camera')
+
+      // Houston on the map's centre at z4, clear of every control: drawn.
+      await jumpTo(page, HOUSTON, 4)
+      await expect.poll(() => placeLabelTexts(page)).toContain('Houston')
+
+      // The same zoom with Houston's point on Drift's centre: dropped.
+      await moveUnder(page, HOUSTON, DRIFT, 4)
+      const underDrift = await expectLabelsClearOfChrome(page, 'Houston under Drift at z4')
+      expect(underDrift.labels).not.toContain('Houston')
+
+      // Houston on the map's centre at z5.2, where the credit is drawn too.
+      await jumpTo(page, HOUSTON, 5.2)
+      await expect(page.locator('.maplibregl-ctrl-attrib-inner')).toContainText('OpenStreetMap', {
+        timeout: 30_000,
+      })
+      await expect.poll(() => placeLabelTexts(page)).toContain('Houston')
+      const withCredit = [...CONTROLS_AT_GLOBE_ZOOM, 'credit']
+      await expectLabelsClearOfChrome(page, 'Houston at z5.2, credit drawn', { drawn: withCredit })
+
+      // The same zoom with Houston's point on the credit's centre: dropped.
+      // Houston may be the only label in that view.
+      await moveUnder(page, HOUSTON, CREDIT, 5.2)
+      const underCredit = await expectLabelsClearOfChrome(page, 'Houston under the credit at z5.2', {
+        drawn: withCredit,
+        labelsDrawn: false,
+      })
+      expect(underCredit.labels).not.toContain('Houston')
+    })
+  })
+}
 
 test.describe('Atlas on a phone that prefers reduced motion', () => {
   test.use({
