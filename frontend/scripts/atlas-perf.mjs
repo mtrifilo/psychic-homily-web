@@ -7,11 +7,10 @@
 //
 // Target a production build (a Vercel preview, or `next build && next start`).
 // `next dev` serves unminified, uncompressed bundles and is not a valid target.
-// AtlasGlobe renders a scene list instead of the map in a container narrower
-// than 640px, so the default phone profile needs a build whose map renders at
-// 390px (a preview of a branch with that gate removed); against any other
-// build the script stops at once with exit code 2. `--viewport 800x1000`
-// measures the compact globe on a stock build.
+// AtlasGlobe renders a scene list instead of the map in the conditions
+// atlasRendersSceneList (features/scenes/atlasViewport.ts) names; the script
+// sets up none of them, and if the page shows the list anyway it stops at once
+// with exit code 2.
 //
 // Options:
 //   --runs N            cold runs; the budget is checked on the medians (default 3)
@@ -148,9 +147,9 @@ function parseArgs(argv) {
 
 function contextOptions(opts) {
   if (opts.device === 'desktop') {
-    return { ...devices['Desktop Chrome'], viewport: opts.viewport ?? { width: 1440, height: 900 } }
+    return { ...devices['Desktop Chrome'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 1440, height: 900 } }
   }
-  return { ...devices['iPhone 13'], viewport: opts.viewport ?? { width: 390, height: 844 } }
+  return { ...devices['iPhone 13'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 390, height: 844 } }
 }
 
 function category(request) {
@@ -288,7 +287,7 @@ async function oneRun(browser, opts) {
   const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
-    throw new Error('the page rendered the Atlas scene list, not the map: this build gates the map below 640px wide (see the header)')
+    throw new Error('the page rendered the Atlas scene list, not the map: a condition atlasRendersSceneList names held, including a map that failed to start (see the header)')
   }
   if (firstMapMs === null) {
     await context.close()

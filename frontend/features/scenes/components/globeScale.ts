@@ -298,7 +298,7 @@ export function labelDeclutterRadiusKm(minCount: number): number {
 /**
  * The FE-owned "liveliest first" ordering rule. The scenes API deliberately has
  * no ordering contract, so the frontend owns this — and owns it ONCE: search
- * (AtlasSearch), label prominence (visibleLabelScenes), and the mobile list all
+ * (AtlasSearch), label prominence (visibleLabelScenes), and the scene list all
  * sort with this comparator, so an evolution of the rule (e.g. a
  * shows_this_week tie-break) can't leave the surfaces disagreeing. Non-finite
  * counts sort last (a total order even on malformed data — the same defense the

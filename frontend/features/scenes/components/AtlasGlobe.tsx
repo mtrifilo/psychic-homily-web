@@ -69,8 +69,16 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { MobileSceneList } from './MobileSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+import {
+  AtlasMapContextError,
+  atlasMapFailedThisPage,
+  atlasRendersSceneList,
+  atlasSupportsWebGL2,
+  markAtlasMapFailed,
+} from '../atlasViewport'
 
-const GLOBE_BREAKPOINT_PX = 640
 // North America centroid — the default focus before/without visitor geo, so the
 // first paint shows the populated cluster rather than empty ocean (PSY-1211).
 const DEFAULT_POV: GlobePov = { lat: 39.5, lng: -98.35, altitude: 1.8 }
@@ -136,7 +144,8 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
  * Explore: The Globe (PSY-1213). A spin-to-discover globe where each city scene
  * is a dot; clicking one opens a preview with a link into the scene page.
  * Centered on the visitor's IP-geo region, falling back to North America.
- * Gated to a list below 640px (canvas gestures aren't usable there).
+ * The map renders at every width; the scene list stands in for it where
+ * atlasRendersSceneList says so.
  */
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
@@ -145,7 +154,7 @@ export function AtlasGlobe() {
   // atlasCityEntry.ts for why the camera stays out of the URL.
   const entryCityParam = useSearchParams().get(ATLAS_CITY_PARAM)
 
-  // Followed scenes (PSY-1340): tint their dots + star the mobile rows. The
+  // Followed scenes (PSY-1340): tint their dots + star the scene-list rows. The
   // hook is auth-gated, so logged-out visitors cost no request. Memoized to a
   // Set so the GlobeCanvas color accessor's identity only changes when the
   // follow list actually does.
@@ -447,10 +456,10 @@ export function AtlasGlobe() {
   // The search list opens below a drawn top-left credit (the sheet layout's
   // placement), and directly under its trigger while there is none to clear:
   // at globe zoom the compact globe draws no attributed source, so MapLibre
-  // empties the credit, and a map that failed to start draws none. The line
-  // gives way to a raised keyboard inside AtlasSearch. MyScenesStrip keeps a
-  // fixed place below the credit's slot instead: it is static chrome with no
-  // height bound to the room on screen.
+  // empties the credit, and a map that has not mounted its controls draws
+  // none. The line gives way to a raised keyboard inside AtlasSearch.
+  // MyScenesStrip keeps a fixed place below the credit's slot instead: it is
+  // static chrome with no height bound to the room on screen.
   const searchListMinTopPx = useCallback(
     () =>
       mapPaneRef.current !== null && atlasTopCreditShown(mapPaneRef.current)
@@ -607,16 +616,39 @@ export function AtlasGlobe() {
     }
   }, [isError])
 
-  const isMobile = size !== null && size.width < GLOBE_BREAKPOINT_PX
+  const prefersReducedMotion = useReducedMotion()
+  // Any error GlobeCanvas throws while React renders or runs its effects
+  // (MapLibre refused its WebGL2 context, the canvas module failed to load, or
+  // a later effect threw) swaps the map for the scene list for the rest of
+  // this mount, instead of the app's error page. A refused context also holds
+  // for the rest of the page load, since a retry would fail the same way.
+  // Errors thrown from MapLibre's own callbacks (animation frames, map events)
+  // are not React errors and do not reach it.
+  const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
+  const handleMapFailed = useCallback((error: unknown) => {
+    if (error instanceof AtlasMapContextError) markAtlasMapFailed()
+    setMapFailed(true)
+  }, [])
+  const showsSceneList =
+    size !== null &&
+    atlasRendersSceneList({
+      paneWidthPx: size.width,
+      supportsWebGL2: atlasSupportsWebGL2(),
+      prefersReducedMotion,
+      mapFailed,
+    })
   const mapSheetLayout =
-    size !== null && !isMobile && usesAtlasSheetLayout(size.width)
+    size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
 
   // The canvas renders only after scenes and the camera focus (which waits on
   // visitor geo) resolve; preload what it needs during that wait. Nothing is
   // preloaded where the map cannot render: the scene list, the error state,
   // or a loaded scene set with nothing to place.
   const mapMayMount =
-    size !== null && !isMobile && !isError && (isLoading || placeable.length > 0)
+    size !== null &&
+    !showsSceneList &&
+    !isError &&
+    (isLoading || placeable.length > 0)
   useEffect(() => {
     if (mapMayMount) preloadAtlasMap()
   }, [mapMayMount])
@@ -626,7 +658,7 @@ export function AtlasGlobe() {
     content = (
       <CenterMessage>The atlas couldn’t load. Try again shortly.</CenterMessage>
     )
-  } else if (isMobile) {
+  } else if (showsSceneList) {
     content = (
       <MobileSceneList
         scenes={allScenes}
@@ -755,27 +787,29 @@ export function AtlasGlobe() {
           data-atlas-layout={sheetLayout ? 'sheet' : undefined}
           style={paneStyle}
         >
-          <GlobeCanvas
-            width={canvasWidth}
-            height={size.height}
-            scenes={placeable}
-            pov={pov}
-            onSelect={setSelected}
-            selected={selected}
-            flyToRef={flyToRef}
-            followedSlugs={followedSlugs}
-            venues={venuePins}
-            selectedVenueId={selectedVenueId}
-            onVenueSelect={handleVenueSelect}
-            cityLabel={
-              cityScene ? `${cityScene.city}, ${cityScene.state}` : null
-            }
-            onCameraSettle={handleCameraSettle}
-            attributionPosition={sheetLayout ? 'top-left' : 'bottom-left'}
-            onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
-            venueStacks={sheetLayout ? venueStackMarkers : undefined}
-            onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
-          />
+          <GraphSectionErrorBoundary sentryTag="atlas-map" onError={handleMapFailed}>
+            <GlobeCanvas
+              width={canvasWidth}
+              height={size.height}
+              scenes={placeable}
+              pov={pov}
+              onSelect={setSelected}
+              selected={selected}
+              flyToRef={flyToRef}
+              followedSlugs={followedSlugs}
+              venues={venuePins}
+              selectedVenueId={selectedVenueId}
+              onVenueSelect={handleVenueSelect}
+              cityLabel={
+                cityScene ? `${cityScene.city}, ${cityScene.state}` : null
+              }
+              onCameraSettle={handleCameraSettle}
+              attributionPosition={sheetLayout ? 'top-left' : 'bottom-left'}
+              onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
+              venueStacks={sheetLayout ? venueStackMarkers : undefined}
+              onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
+            />
+          </GraphSectionErrorBoundary>
           {sheetLayout && cityScene && (
             <VenueListSheet
               principalCity={cityScene.city}

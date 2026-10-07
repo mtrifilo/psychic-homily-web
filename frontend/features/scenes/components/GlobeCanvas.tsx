@@ -8,6 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
 import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
+import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import {
   handleBasemapError,
   reportGlobePlacesFailure,
@@ -48,6 +49,7 @@ import {
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
+import { AtlasMapContextError } from '../atlasViewport'
 import {
   ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
@@ -628,16 +630,14 @@ export default function GlobeCanvas({
   }, [mapReady, cityViewActive])
 
   // PSY-1309 pulse rings. prefers-reduced-motion suppresses the animation
-  // entirely (no ring features, no rAF loop) rather than freezing a ring frame.
-  const pulseScenes = useMemo(() => {
-    if (
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    ) {
-      return []
-    }
-    return scenes.filter((s) => s.shows_this_week > 0)
-  }, [scenes])
+  // entirely (no ring features, no rAF loop) rather than freezing a ring frame,
+  // and follows the preference live: turning it on stops the rings.
+  const prefersReducedMotion = useReducedMotion()
+  const pulseScenes = useMemo(
+    () =>
+      prefersReducedMotion ? [] : scenes.filter((s) => s.shows_this_week > 0),
+    [scenes, prefersReducedMotion],
+  )
 
   useEffect(() => {
     if (!mapReady || pulseScenes.length === 0) return
@@ -954,6 +954,17 @@ export default function GlobeCanvas({
         ],
       },
     })
+
+    // maplibre-gl 6.0.0 reports a refused WebGL2 context as an event during
+    // construction and returns a map with no painter and no input handlers
+    // (the field is typed non-optional, but it is unset on that path).
+    // Throwing reaches the error boundary AtlasGlobe wraps around this canvas,
+    // and AtlasGlobe swaps in the scene list. The half-built map is not
+    // removed: its remove() needs the painter.
+    if (!(map as { painter?: unknown }).painter) {
+      throw new AtlasMapContextError()
+    }
+
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
     // style's own TileJSON fetch — the earliest thing that can fail — is
     // already covered. The handler restores MapLibre's default console.error

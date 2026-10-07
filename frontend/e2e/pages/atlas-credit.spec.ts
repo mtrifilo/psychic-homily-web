@@ -123,11 +123,9 @@ async function stepDetent(page: Page, sheetTestId: string, to: string) {
     .toBe(0)
 }
 
-// Fixme while AtlasGlobe's 640px gate renders MobileSceneList at these widths
-// (no map exists to measure); PSY-1560 removes the gate and un-fixmes these.
 for (const viewport of PHONE_VIEWPORTS) {
   for (const colorScheme of ['dark', 'light'] as const) {
-    test.describe.fixme(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
+    test.describe(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
       test.use({
         viewport,
         colorScheme,
@@ -191,7 +189,7 @@ for (const viewport of PHONE_VIEWPORTS) {
   }
 }
 
-test.describe('Atlas credit on a compact pane above the mobile gate', () => {
+test.describe('Atlas credit on a compact tablet pane', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: true })
   test.setTimeout(120_000)
 

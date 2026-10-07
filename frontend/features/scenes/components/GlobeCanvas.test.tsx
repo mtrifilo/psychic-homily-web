@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
+import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { AtlasMapContextError } from '../atlasViewport'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -22,6 +25,8 @@ const stub = vi.hoisted(() => {
   const state = {
     maps: [] as InstanceType<typeof StubMap>[],
     markers: [] as StubMarker[],
+    // MapLibre 6 builds a map with no painter when WebGL2 is refused.
+    painterless: false,
   }
 
   class StubMap {
@@ -29,6 +34,7 @@ const stub = vi.hoisted(() => {
     controls: { control: StubControl; position: string }[] = []
     container: HTMLElement
     canvas = document.createElement('canvas')
+    painter: object | undefined = state.painterless ? undefined : {}
     touchZoomRotate = { disableRotation: vi.fn() }
     keyboard = { disableRotation: vi.fn() }
     remove = vi.fn()
@@ -277,5 +283,86 @@ describe('GlobeCanvas sheet-layout seams', () => {
       zoom: 13,
       bounds: { west: -87.7, south: 41.8, east: -87.5, north: 41.95 },
     })
+  })
+})
+
+describe('GlobeCanvas pulse rings', () => {
+  const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+  let matchMedia: ReturnType<typeof installMatchMedia>
+
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    matchMedia.restore()
+    vi.restoreAllMocks()
+  })
+
+  it('stops the rings when reduced motion is turned on mid-session', () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
+    const setData = vi.fn()
+    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData })
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7)
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    renderCanvas({ scenes: [{ ...CHICAGO, shows_this_week: 2 }] })
+
+    const ringFeatureCounts = () =>
+      setData.mock.calls.map(([fc]) => (fc as { features: unknown[] }).features.length)
+    expect(ringFeatureCounts()).toContain(1)
+    setData.mockClear()
+
+    matchMedia.set(REDUCED_MOTION_QUERY, true)
+    expect(cancel).toHaveBeenCalledWith(7)
+    expect(ringFeatureCounts()).toContain(0)
+    expect(ringFeatureCounts()).not.toContain(1)
+  })
+
+  it('starts the rings again when reduced motion is turned off', () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
+    const setData = vi.fn()
+    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData })
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7)
+    renderCanvas({ scenes: [{ ...CHICAGO, shows_this_week: 2 }] })
+    expect(raf).not.toHaveBeenCalled()
+
+    matchMedia.set(REDUCED_MOTION_QUERY, false)
+    expect(raf).toHaveBeenCalled()
+    expect(
+      setData.mock.calls.map(([fc]) => (fc as { features: unknown[] }).features.length),
+    ).toContain(1)
+  })
+})
+
+describe('GlobeCanvas without a WebGL2 context', () => {
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    stub.state.painterless = true
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    stub.state.painterless = false
+    vi.restoreAllMocks()
+  })
+
+  it('throws to its error boundary when MapLibre comes up without a painter', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onError = vi.fn()
+    render(
+      <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
+        <GlobeCanvas
+          width={390}
+          height={723}
+          scenes={[CHICAGO]}
+          pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
+          onSelect={vi.fn()}
+        />
+      </GraphSectionErrorBoundary>,
+    )
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapContextError)
+    quiet.mockRestore()
   })
 })

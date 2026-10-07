@@ -52,6 +52,7 @@ vi.mock('maplibre-gl', () => {
     removeControl = vi.fn()
     remove = vi.fn()
     flyTo = vi.fn()
+    painter: object | undefined = {}
     touchZoomRotate = { disableRotation: vi.fn() }
     keyboard = { disableRotation: vi.fn() }
     canvas = document.createElement('canvas')

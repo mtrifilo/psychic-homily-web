@@ -31,7 +31,7 @@ export {
 export { SceneList } from './components'
 
 // Cross-surface rules (PSY-1344): the ONE liveliest-first ordering (globe
-// labels / search / mobile list / homepage graph default) and the ONE
+// labels / search / scene list / homepage graph default) and the ONE
 // "how many artists" phrase (visual header + canvas aria-label).
 export { compareScenesByActivity } from './components/globeScale'
 export { sceneArtistCountPhrase } from './components/sceneGraphCopy'

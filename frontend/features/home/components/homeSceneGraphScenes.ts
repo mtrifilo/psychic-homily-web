@@ -31,7 +31,7 @@ import { matchByGeo } from '@/lib/geo-client'
  * residual case of an active scene with a sparse roster.) An inactive or absent
  * match falls back to the liveliest scene via the shared
  * `compareScenesByActivity` ordering — the same rule the atlas globe's labels,
- * search results, and mobile list use, so surfaces never disagree about which
+ * search results, and scene list use, so surfaces never disagree about which
  * scene is "first".
  *
  * `geo` is a SUGGESTION only: the component keeps it overridable — a

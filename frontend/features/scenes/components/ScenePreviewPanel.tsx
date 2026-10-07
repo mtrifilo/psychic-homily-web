@@ -29,9 +29,10 @@ interface ScenePreviewPanelProps {
  * The radio.garden-style payoff: clicking a globe dot opens this in-place summary
  * of the city's scene (counts + a few active artists) with a link INTO the full
  * scene page — so the user gets immediate context without leaving the globe.
- * The body (embed + this-week + roster) is ScenePreviewContent, shared with the
- * mobile scene list (PSY-1311); this component owns the chrome around it: a
- * right-docked aside, or a bottom sheet opening at Half on narrow panes.
+ * The body (embed + this-week + roster) is ScenePreviewContent, shared with
+ * the Atlas scene list (MobileSceneList); this component owns the chrome
+ * around it: a right-docked aside, or a bottom sheet opening at Half on narrow
+ * panes.
  */
 export function ScenePreviewPanel({
   scene,

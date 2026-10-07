@@ -28,7 +28,7 @@ describe('atlasTopCreditShown', () => {
     ).toBe(false)
   })
 
-  it('is false with no credit control, as when the map failed to start', () => {
+  it('is false with no credit control, as before the map mounts its controls', () => {
     expect(atlasTopCreditShown(pane('<div data-atlas-credit="top"></div>'))).toBe(
       false,
     )

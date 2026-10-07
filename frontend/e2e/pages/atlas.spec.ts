@@ -111,8 +111,7 @@ test.describe('Atlas city entry', () => {
 
 /**
  * The light globe's boundary lines and place labels on a compact viewport
- * (narrower than `lg`). 800 wide rather than a phone width: below 640px this
- * build renders the scene list, not the map.
+ * (narrower than `lg`), on an 800px tablet pane.
  */
 test.describe('Atlas light globe outlines and place labels', () => {
   test.use({ viewport: { width: 800, height: 1000 } })
@@ -219,5 +218,31 @@ test.describe('Atlas light globe outlines and place labels', () => {
       .poll(() => renderedLines(page), { timeout: 30_000 })
       .toEqual({ 'globe-state-lines': 0, 'globe-country-lines': 0 })
     await expect(placeLabels).toHaveCount(0)
+  })
+})
+
+test.describe('Atlas on a phone that prefers reduced motion', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+
+  test('lists the scenes, with their links, instead of the map', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto('/atlas')
+    // The browser has WebGL2, so the list is reduced motion's doing.
+    expect(
+      await page.evaluate(() => !!document.createElement('canvas').getContext('webgl2'))
+    ).toBe(true)
+    const list = page.getByTestId('atlas-scene-list')
+    await expect(list).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
+    const firstRow = list.getByRole('button', { expanded: false }).first()
+    await firstRow.tap()
+    await expect(list.getByRole('link', { name: /Open scene/ })).toHaveAttribute(
+      'href',
+      /^\/scenes\/[a-z0-9-]+$/
+    )
   })
 })
