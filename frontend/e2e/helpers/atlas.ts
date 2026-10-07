@@ -10,6 +10,12 @@ import { expect, type Page } from '@playwright/test'
 
 export const PHOENIX = { lat: 33.4484, lng: -112.074 }
 
+/**
+ * A phone's browser context: touch input, a mobile viewport and a device pixel
+ * ratio of 2. Spread into `test.use` beside a phone-width viewport.
+ */
+export const PHONE_CONTEXT = { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } as const
+
 /** The slice of the `__atlasMap` window seam these specs call. */
 export type AtlasMapSeam = {
   isStyleLoaded: () => boolean

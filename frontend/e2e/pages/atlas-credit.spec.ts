@@ -5,6 +5,7 @@ import {
   dismissBanner,
   jumpToPhoenix,
   phoenixDotPoint,
+  PHONE_CONTEXT,
   stubAtlas,
   waitForMap,
   type AtlasMapSeam,
@@ -33,9 +34,6 @@ const PHONE_VIEWPORTS = [
   { width: 390, height: 664 },
   { width: 360, height: 780 },
 ] as const
-
-/** The phone context every phone-width case runs in. */
-const PHONE_CONTEXT = { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } as const
 
 const OSM_CREDIT = ['OpenFreeMap', 'OpenStreetMap contributors']
 const NASA_CREDIT = ['NASA GIBS']

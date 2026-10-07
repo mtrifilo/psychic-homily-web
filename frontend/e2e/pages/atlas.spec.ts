@@ -4,6 +4,7 @@ import {
   type AtlasMapSeam,
   dismissBanner,
   phoenixDotPoint,
+  PHONE_CONTEXT,
   stubAtlas,
   waitForMap,
 } from '../helpers/atlas'
@@ -239,13 +240,7 @@ test.describe('Atlas light globe outlines and place labels', () => {
  */
 for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(`Atlas place labels clear of the chrome at 390x844 ${colorScheme}`, () => {
-    test.use({
-      viewport: { width: 390, height: 844 },
-      colorScheme,
-      hasTouch: true,
-      isMobile: true,
-      deviceScaleFactor: 2,
-    })
+    test.use({ viewport: { width: 390, height: 844 }, colorScheme, ...PHONE_CONTEXT })
     // The test boots a SwiftShader map signed in, waits out the banner's
     // resize, and moves the camera four times, waiting on the street
     // source's credit (its TileJSON) and on the labels' relayout.
