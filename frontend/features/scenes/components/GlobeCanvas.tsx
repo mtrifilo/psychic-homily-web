@@ -28,7 +28,7 @@ import {
   isFacing,
   parseGlobePlaces,
 } from '../basemap/globePlaces'
-import { mountPlaceLabels } from './globePlaceLabels'
+import { type MapChromeWatch, mountPlaceLabels, watchMapChrome } from './globePlaceLabels'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
 import {
   isAtlasCompactViewport,
@@ -746,6 +746,30 @@ export default function GlobeCanvas({
     }
   }, [mapReady, labelScenes, cityViewActive])
 
+  // Place labels draw on the light globe at globe altitude, once their data
+  // is in.
+  const placeLabelsShown =
+    mapReady !== null && lightGlobe && !cityViewActive && places !== null && places.length > 0
+
+  // The controls drawn over the map, watched for the place labels
+  // (watchMapChrome). Keyed on the map and on whether place labels show,
+  // never on a label set, so a camera flight that changes the scene labels
+  // keeps this watch and the boxes it has read. Declared before the
+  // place-label effect, which reads chromeRef: this effect's deps are among
+  // that effect's, so whenever the watch is replaced the labels mount again
+  // against the new one.
+  const chromeRef = useRef<MapChromeWatch | null>(null)
+  useEffect(() => {
+    const globeRoot = globeRootRef.current
+    if (!mapReady || !placeLabelsShown || !globeRoot) return
+    const watch = watchMapChrome(mapReady, globeRoot)
+    chromeRef.current = watch
+    return () => {
+      chromeRef.current = null
+      watch.stop()
+    }
+  }, [mapReady, placeLabelsShown])
+
   // Place labels on the light globe (globePlaceLabels.ts), clear of every
   // scene label and dot on the near side of the globe, so a scene always wins
   // its spot, and of the controls drawn over the map. Declared after the scene
@@ -753,11 +777,8 @@ export default function GlobeCanvas({
   // rebuilds its markers this one lays the place labels out again against
   // them.
   useEffect(() => {
-    if (!mapReady || !lightGlobe || cityViewActive || !places || places.length === 0) {
-      return
-    }
-    const globeRoot = globeRootRef.current
-    if (!globeRoot) return
+    const chrome = chromeRef.current
+    if (!mapReady || !placeLabelsShown || !places || !chrome) return
     const map = mapReady
     const obstacles = (): Box[] => {
       const container = map.getContainer()
@@ -791,9 +812,9 @@ export default function GlobeCanvas({
     return mountPlaceLabels(map, places, {
       maxZoom: BLACK_MARBLE_FADE_START,
       obstacles,
-      globeRoot,
+      chrome,
     })
-  }, [mapReady, lightGlobe, cityViewActive, places, labelScenes, scenes])
+  }, [mapReady, placeLabelsShown, places, labelScenes, scenes])
 
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   // Declared LAST on purpose: React destroys effects in declaration order, so

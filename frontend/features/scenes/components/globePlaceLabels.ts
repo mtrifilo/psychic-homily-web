@@ -45,17 +45,22 @@ export interface PlaceLabelOptions {
    */
   obstacles: () => Box[]
   /**
-   * GlobeCanvas's outermost element, not `map.getContainer()`: its parent is
-   * the map pane, and every other child of that pane is chrome drawn over the
-   * map. The chrome's controls, and the map's own controls, are obstacles too
-   * (see {@link watchMapChrome}).
+   * The controls drawn over the map ({@link watchMapChrome}), obstacles too:
+   * their boxes as last read are taken at each layout, and a read that
+   * changes them lays the labels out again. The watch outlives a labels
+   * pass, so mounting the labels again reads no chrome.
    */
-  globeRoot: HTMLElement
+  chrome: MapChrome
 }
 
-// How long the chrome must hold still after a change before its boxes are
-// read again, so a run of changes (a sheet being dragged, a panel filling
-// in) costs one read and one layout rather than one per frame.
+/**
+ * How long the chrome must hold still after a change before its boxes are
+ * read again. 100 ms is a product number, the wait before the boxes are
+ * reread (and so the longest a label sits under chrome that has just moved
+ * over it), not a tuning constant. A run of changes inside it (a sheet being
+ * dragged, a panel filling in) costs one read and one layout rather than one
+ * per frame.
+ */
 const CHROME_SETTLE_MS = 100
 
 const CHROME_SUBTREE_CHANGES: MutationObserverInit = {
@@ -109,9 +114,18 @@ function sameBoxes(a: readonly Box[], b: readonly Box[]): boolean {
   )
 }
 
-export interface MapChromeWatch {
+/** What a labels pass reads from a {@link MapChromeWatch}. */
+export interface MapChrome {
   /** The controls' boxes as last read, relative to the map container. */
   boxes(): readonly Box[]
+  /**
+   * Runs `listener` after each read whose boxes differ from the previous
+   * read's, until the returned function is called.
+   */
+  subscribe(listener: () => void): () => void
+}
+
+export interface MapChromeWatch extends MapChrome {
   stop(): void
 }
 
@@ -119,26 +133,25 @@ export interface MapChromeWatch {
  * Keeps the boxes of the controls drawn over a map: the page's chrome
  * (`globeRoot`'s siblings, such as the search pill, Drift, the genre key and
  * the My Scenes strip) and the map's own controls (the credit), relative to
- * the map container.
+ * the map container. `globeRoot` is GlobeCanvas's outermost element, not
+ * `map.getContainer()`: its parent is the map pane, and every other child of
+ * that pane is chrome drawn over the map.
  *
  * The boxes are read from the DOM at the start and again once the chrome has
  * held still for CHROME_SETTLE_MS after a resize of the pane or of a control,
  * or a change inside the chrome (a control shown, hidden or restyled), never
- * per frame or per camera move. `onChange` runs after a read whose boxes
+ * per frame or per camera move. Subscribers run after a read whose boxes
  * differ from the previous read's. While the pane itself takes no pointer
  * events (a modal elsewhere on the page sets `pointer-events: none` on the
  * body), a read would miss every control that inherits its pointer events, so
  * a settled change keeps the boxes last read; the body's style is watched
  * too, so the read runs once the modal gives pointer events back.
  */
-export function watchMapChrome(
-  map: maplibregl.Map,
-  globeRoot: HTMLElement,
-  onChange: () => void,
-): MapChromeWatch {
+export function watchMapChrome(map: maplibregl.Map, globeRoot: HTMLElement): MapChromeWatch {
   const container = map.getContainer()
   const canvasContainer = map.getCanvasContainer()
   const pane = globeRoot.parentElement
+  const listeners = new Set<() => void>()
   let boxes: Box[] = []
   let sized = new Set<Element>()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -148,7 +161,7 @@ export function watchMapChrome(
     timer = setTimeout(() => {
       timer = undefined
       if (pane && getComputedStyle(pane).pointerEvents === 'none') return
-      if (read()) onChange()
+      if (read()) for (const listener of listeners) listener()
     }, CHROME_SETTLE_MS)
   }
   const resizes = new ResizeObserver(changed)
@@ -193,8 +206,15 @@ export function watchMapChrome(
   read()
   return {
     boxes: () => boxes,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
     stop: () => {
       clearTimeout(timer)
+      listeners.clear()
       resizes.disconnect()
       mutations.disconnect()
     },
@@ -215,7 +235,7 @@ export function watchMapChrome(
 export function mountPlaceLabels(
   map: maplibregl.Map,
   places: readonly GlobePlace[],
-  { maxZoom, obstacles, globeRoot }: PlaceLabelOptions,
+  { maxZoom, obstacles, chrome }: PlaceLabelOptions,
 ): () => void {
   const container = map.getContainer()
   let markers: maplibregl.Marker[] = []
@@ -298,12 +318,12 @@ export function mountPlaceLabels(
     if (markers.length > 0 && !placeLabelsShowAt(map.getZoom(), maxZoom)) clear()
   }
 
-  const chrome = watchMapChrome(map, globeRoot, layout)
+  const unsubscribe = chrome.subscribe(layout)
   layout()
   map.on('moveend', layout)
   map.on('zoom', handleZoom)
   return () => {
-    chrome.stop()
+    unsubscribe()
     map.off('moveend', layout)
     map.off('zoom', handleZoom)
     clear()

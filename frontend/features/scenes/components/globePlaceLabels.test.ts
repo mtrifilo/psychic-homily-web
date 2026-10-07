@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type * as maplibregl from 'maplibre-gl'
 import type { Box, GlobePlace } from '../basemap/globePlaces'
-import { mountPlaceLabels, watchMapChrome } from './globePlaceLabels'
+import { type MapChromeWatch, mountPlaceLabels, watchMapChrome } from './globePlaceLabels'
 
 /**
  * The place-label controller against the controls drawn over the map, on a
@@ -231,7 +231,11 @@ describe('place labels and the controls over the map', () => {
       return { left: 0, top: 0, right: width, bottom: height, width, height } as DOMRect
     })
   })
+  // Every watch a case starts, stopped after it.
+  let watches: MapChromeWatch[] = []
   afterEach(() => {
+    for (const watch of watches) watch.stop()
+    watches = []
     vi.useRealTimers()
     window.ResizeObserver = setupResizeObserver
     vi.restoreAllMocks()
@@ -239,12 +243,26 @@ describe('place labels and the controls over the map', () => {
     document.body.style.pointerEvents = ''
   })
 
+  function watch(atlas: Atlas): MapChromeWatch {
+    const chrome = watchMapChrome(atlas.fake.map, atlas.globeRoot)
+    watches.push(chrome)
+    return chrome
+  }
+
+  function mountOn(
+    atlas: Atlas,
+    chrome: MapChromeWatch,
+    places: GlobePlace[],
+    obstacles: () => Box[] = () => [],
+  ) {
+    return mountPlaceLabels(atlas.fake.map, places, { maxZoom: 5.5, obstacles, chrome })
+  }
+
+  /** A labels pass on a watch of its own; returns the watch. */
   function mount(atlas: Atlas, places: GlobePlace[], obstacles: () => Box[] = () => []) {
-    return mountPlaceLabels(atlas.fake.map, places, {
-      maxZoom: 5.5,
-      obstacles,
-      globeRoot: atlas.globeRoot,
-    })
+    const chrome = watch(atlas)
+    mountOn(atlas, chrome, places, obstacles)
+    return chrome
   }
 
   it('drops Monterrey under Drift at z4 and keeps Houston (the 390x844 z4 view)', () => {
@@ -388,17 +406,49 @@ describe('place labels and the controls over the map', () => {
     expect(document.querySelector('[data-testid="atlas-place-label"]')).toBe(before)
   })
 
-  it('stops watching the chrome at teardown', async () => {
+  it('stops watching the chrome when the watch stops', async () => {
     const atlas = buildAtlas()
-    const teardown = mount(atlas, [placeOn('Strip', 0, MY_SCENES_CHIP)])
+    const chrome = mount(atlas, [placeOn('Strip', 0, MY_SCENES_CHIP)])
     expect(labelTexts()).toEqual([])
-    teardown()
+    chrome.stop()
     // Would bring the label back on a live watch.
     atlas.myScenesChip.remove()
     reportResize(atlas.pane)
     await Promise.resolve()
     expect(vi.getTimerCount()).toBe(0)
     vi.advanceTimersByTime(100)
+    expect(labelTexts()).toEqual([])
+  })
+
+  it('stops following the chrome at the labels teardown, while the watch reads on', async () => {
+    const atlas = buildAtlas()
+    const chrome = watch(atlas)
+    const teardown = mountOn(atlas, chrome, [placeOn('Strip', 0, MY_SCENES_CHIP)])
+    expect(labelTexts()).toEqual([])
+    teardown()
+    // Would bring the label back on a pass still subscribed.
+    atlas.myScenesChip.remove()
+    await settleChrome()
+    expect(chrome.boxes()).not.toContainEqual(MY_SCENES_CHIP)
+    expect(labelTexts()).toEqual([])
+  })
+
+  it('reads no chrome when labels mount again on the same watch, and the new pass follows it', async () => {
+    const atlas = buildAtlas()
+    const read = vi.spyOn(atlas.drift, 'getBoundingClientRect')
+    atlas.myScenesChip.remove()
+    const chrome = watch(atlas)
+    expect(read).toHaveBeenCalledTimes(1)
+    const places = [placeOn('Strip', 0, MY_SCENES_CHIP)]
+    mountOn(atlas, chrome, places)()
+    mountOn(atlas, chrome, places)()
+    mountOn(atlas, chrome, places)
+    expect(labelTexts()).toEqual(['Strip'])
+    expect(read).toHaveBeenCalledTimes(1)
+
+    atlas.myScenes.append(atlas.myScenesChip)
+    await settleChrome()
+    expect(read).toHaveBeenCalledTimes(2)
     expect(labelTexts()).toEqual([])
   })
 
@@ -493,8 +543,6 @@ describe('place labels and the controls over the map', () => {
     const atlas = buildAtlas()
     placeAt(atlas.fake.container, { left: 0, top: 56, right: PANE.width, bottom: 56 + PANE.height })
     placeAt(atlas.drift, { left: 16, top: 725, right: 79.375, bottom: 763 })
-    const watch = watchMapChrome(atlas.fake.map, atlas.globeRoot, () => {})
-    expect(watch.boxes()).toContainEqual(DRIFT)
-    watch.stop()
+    expect(watch(atlas).boxes()).toContainEqual(DRIFT)
   })
 })

@@ -1,6 +1,12 @@
-import { test } from '../fixtures/error-detection'
+import { test } from '../fixtures'
 import { expect, type Page } from '@playwright/test'
-import { type AtlasMapSeam, phoenixDotPoint, stubAtlas, waitForMap } from '../helpers/atlas'
+import {
+  type AtlasMapSeam,
+  dismissBanner,
+  phoenixDotPoint,
+  stubAtlas,
+  waitForMap,
+} from '../helpers/atlas'
 
 /**
  * `/atlas?city=City,ST` (PSY-2079): the Atlas's one URL entry point.
@@ -221,6 +227,219 @@ test.describe('Atlas light globe outlines and place labels', () => {
     await expect(placeLabels).toHaveCount(0)
   })
 })
+
+/**
+ * The light globe's place labels against the controls drawn over the map, on
+ * a 390x844 phone signed in, so the My Scenes strip shows beside the search
+ * pill, Drift, the Genres chip and the credit. These are the real controls
+ * with their real classes: the label pass finds them by walking the pane, so
+ * only a browser shows whether each wrapper lets it through to the control.
+ */
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`Atlas place labels clear of the chrome at 390x844 ${colorScheme}`, () => {
+    test.use({
+      viewport: { width: 390, height: 844 },
+      colorScheme,
+      hasTouch: true,
+      isMobile: true,
+      deviceScaleFactor: 2,
+    })
+    // The test boots a SwiftShader map signed in, waits out the banner's
+    // resize, and moves the camera twice, each step waiting on the labels'
+    // relayout.
+    test.setTimeout(60_000)
+
+    // The place set's Houston (public/atlas/globe-places-110m.geojson).
+    const HOUSTON: [number, number] = [-95.34, 29.82]
+    const DRIFT = 'button[aria-label="Drift to a random scene"]'
+
+    type PaneWindow = {
+      __atlasMap: AtlasMapSeam & {
+        getContainer: () => HTMLElement
+        unproject: (point: [number, number]) => { lng: number; lat: number }
+      }
+    }
+
+    /**
+     * Waits until the map's canvas fills the Atlas frame: the frame grows when
+     * the banner leaves, and the measured pane, the map's container and then
+     * the canvas follow it.
+     */
+    async function waitForMapSize(page: Page) {
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const map = (window as unknown as PaneWindow).__atlasMap
+            const canvas = map.getCanvas().getBoundingClientRect()
+            const frame = document.querySelector('[data-testid="atlas-pane-frame"]')!.getBoundingClientRect()
+            return Math.abs(canvas.width - frame.width) < 1 && Math.abs(canvas.height - frame.height) < 1
+          }),
+        )
+        .toBe(true)
+    }
+
+    type ChromeReport = {
+      labels: string[]
+      /** Each control's name and whether it has an area on screen. */
+      controls: { name: string; drawn: boolean }[]
+      /** `label under control` for every label box that meets a control's. */
+      hits: string[]
+    }
+
+    /**
+     * Every place label and the box of each control: the search pill, Drift,
+     * the Genres chip, the My Scenes strip's star and chips, and the credit.
+     */
+    function chromeReport(page: Page): Promise<ChromeReport> {
+      return page.evaluate((drift) => {
+        const controls: { name: string; el: Element }[] = []
+        const add = (name: string, el: Element | null | undefined) => {
+          if (el) controls.push({ name, el })
+        }
+        add('search pill', document.querySelector('button[aria-label="Search scenes"]'))
+        add('Drift', document.querySelector(drift))
+        add('Genres chip', document.querySelector('[aria-controls="atlas-genre-legend"]')?.parentElement)
+        for (const el of document.querySelectorAll('nav[aria-label="My scenes"] > *')) {
+          add('My Scenes', el)
+        }
+        add('credit', document.querySelector('.maplibregl-ctrl-attrib'))
+
+        const labels = [...document.querySelectorAll('[data-testid="atlas-place-label"]')]
+        const hits: string[] = []
+        for (const label of labels) {
+          const a = label.getBoundingClientRect()
+          for (const { name, el } of controls) {
+            const b = el.getBoundingClientRect()
+            if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+              hits.push(`${label.textContent} under ${name}`)
+            }
+          }
+        }
+        return {
+          labels: labels.map((label) => label.textContent ?? ''),
+          controls: controls.map(({ name, el }) => {
+            const r = el.getBoundingClientRect()
+            return { name, drawn: r.width > 0 && r.height > 0 }
+          }),
+          hits,
+        }
+      }, DRIFT)
+    }
+
+    /**
+     * Waits until no place label meets a control (a control that has just
+     * moved holds its old spot until the chrome has settled), with labels
+     * drawn and every named control but the credit on screen. The compact
+     * globe owes no credit at globe zoom, so the credit is checked only when
+     * it is drawn.
+     */
+    async function expectLabelsClearOfChrome(page: Page, state: string) {
+      let report: ChromeReport | undefined
+      await expect
+        .poll(
+          async () => {
+            report = await chromeReport(page)
+            return report.hits
+          },
+          { message: `${state}: place labels under a control`, timeout: 10_000 },
+        )
+        .toEqual([])
+      test.info().annotations.push({ type: state, description: JSON.stringify(report) })
+      expect(report!.labels.length, `${state}: place labels drawn`).toBeGreaterThan(0)
+      const drawn = report!.controls.filter((c) => c.drawn).map((c) => c.name)
+      for (const name of ['search pill', 'Drift', 'Genres chip', 'My Scenes']) {
+        expect(drawn, `${state}: ${name} on screen`).toContain(name)
+      }
+    }
+
+    function placeLabelTexts(page: Page) {
+      return page
+        .getByTestId('atlas-place-label')
+        .evaluateAll((labels) => labels.map((label) => label.textContent))
+    }
+
+    test('no place label sits under a control at the entry camera, and one panned under Drift is dropped', async ({
+      authenticatedPage: page,
+    }) => {
+      await stubAtlas(page)
+      // A followed scene, so the My Scenes strip shows.
+      await page.route(
+        (url) => url.pathname.endsWith('/me/following'),
+        (route) =>
+          route.fulfill({
+            json: {
+              following: [
+                {
+                  entity_type: 'scene',
+                  entity_id: 1,
+                  name: 'Phoenix',
+                  slug: 'phoenix-az',
+                  followed_at: '2026-09-01T00:00:00Z',
+                },
+              ],
+              total: 1,
+              limit: 100,
+              offset: 0,
+            },
+          }),
+      )
+      await page.goto('/atlas')
+      await waitForMap(page)
+      await expect(page.getByTestId('atlas-place-label').first()).toBeAttached({ timeout: 30_000 })
+      await expect(page.getByRole('navigation', { name: 'My scenes' })).toBeVisible()
+
+      await expectLabelsClearOfChrome(page, 'entry camera, banner up')
+      await dismissBanner(page)
+      await waitForMapSize(page)
+      await expectLabelsClearOfChrome(page, 'entry camera')
+
+      // Houston on the map's centre at z4, clear of every control: drawn.
+      await page.evaluate((center) => {
+        const map = (window as unknown as PaneWindow).__atlasMap
+        map.jumpTo({ center, zoom: 4 })
+      }, HOUSTON)
+      await expect.poll(() => placeLabelTexts(page)).toContain('Houston')
+
+      // The same zoom with Houston's point on Drift's centre: dropped.
+      const underDrift = await page.evaluate(
+        ({ center, drift }) => {
+          const map = (window as unknown as PaneWindow).__atlasMap
+          const pane = map.getContainer().getBoundingClientRect()
+          const button = document.querySelector(drift)!.getBoundingClientRect()
+          const x = button.left + button.width / 2 - pane.left
+          const y = button.top + button.height / 2 - pane.top
+          // On the globe a screen offset is not a fixed shift in lng/lat, so
+          // the camera steps until Houston projects onto the target. Each
+          // step re-centres on the point that sits where the camera must move
+          // Houston from.
+          let p = map.project(center)
+          for (let step = 0; step < 10 && Math.hypot(x - p.x, y - p.y) > 1; step++) {
+            const next = map.unproject([pane.width / 2 - (x - p.x), pane.height / 2 - (y - p.y)])
+            map.jumpTo({ center: [next.lng, next.lat], zoom: 4 })
+            p = map.project(center)
+          }
+          return {
+            houston: { x: p.x, y: p.y },
+            drift: {
+              left: button.left - pane.left,
+              top: button.top - pane.top,
+              right: button.right - pane.left,
+              bottom: button.bottom - pane.top,
+            },
+          }
+        },
+        { center: HOUSTON, drift: DRIFT },
+      )
+      const { houston, drift } = underDrift
+      expect(
+        houston.x > drift.left && houston.x < drift.right && houston.y > drift.top && houston.y < drift.bottom,
+        `Houston's point ${JSON.stringify(houston)} is under Drift ${JSON.stringify(drift)}`,
+      ).toBe(true)
+      await expectLabelsClearOfChrome(page, 'Houston under Drift at z4')
+      expect(await placeLabelTexts(page)).not.toContain('Houston')
+    })
+  })
+}
 
 test.describe('Atlas on a phone that prefers reduced motion', () => {
   test.use({

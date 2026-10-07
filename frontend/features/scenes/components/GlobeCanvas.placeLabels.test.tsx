@@ -356,6 +356,74 @@ describe('GlobeCanvas place labels', () => {
     await waitFor(() => expect(placeLabelTexts()).toEqual([]))
   })
 
+  it('reads the chrome once per layout change while a camera flight changes the scene labels', async () => {
+    // Each scene's label comes in at its own zoom band on the way down
+    // (labelMinCountForAltitude in globeScale.ts): 50 shows at z2.8, 20 at
+    // z3.3, 5 at z4.0. Phoenix's 200 is labelled throughout.
+    const scenes = [
+      SCENES[0],
+      { ...SCENES[0], city: 'Fifty', slug: 'fifty-xx', upcoming_show_count: 50, longitude: -80, latitude: 30 },
+      { ...SCENES[0], city: 'Twenty', slug: 'twenty-xx', upcoming_show_count: 20, longitude: -120, latitude: 50 },
+      { ...SCENES[0], city: 'Five', slug: 'five-xx', upcoming_show_count: 5, longitude: -75, latitude: 50 },
+    ] as PlaceableScene[]
+    let drift: HTMLButtonElement | null = null
+    const driftBox = { left: 16, top: 669, right: 79.375, bottom: 707 }
+    const reads = vi.fn(
+      () =>
+        ({
+          ...driftBox,
+          width: driftBox.right - driftBox.left,
+          height: driftBox.bottom - driftBox.top,
+        }) as DOMRect,
+    )
+    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
+    render(
+      <div>
+        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={scenes} pov={POV} onSelect={() => {}} />
+        <button
+          type="button"
+          ref={(button) => {
+            drift = button
+            if (button) button.getBoundingClientRect = reads
+          }}
+        >
+          Drift
+        </button>
+      </div>,
+    )
+    const map = maps[0]
+    await act(async () => {
+      map.fire('style.load')
+      map.fire('render')
+    })
+    await waitFor(() => expect(placeLabelTexts()).toContain('Clear City'))
+    const sceneLabelCount = () => document.querySelectorAll('[data-testid="atlas-scene-label"]').length
+    expect(sceneLabelCount()).toBe(1)
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    const fly = async (zooms: number[]) => {
+      for (const next of zooms) {
+        zoom = next
+        act(() => map.fire('zoom'))
+        act(() => map.fire('moveend'))
+        await act(async () => {})
+      }
+    }
+    // Down through three label bands: the scene-label set changes three times.
+    await fly([2.8, 3.0, 3.3, 3.5, 4.0, 4.5])
+    expect(sceneLabelCount()).toBe(4)
+    expect(reads).toHaveBeenCalledTimes(1)
+
+    // One layout change in the chrome: one read.
+    act(() => drift!.setAttribute('data-moved', 'true'))
+    await waitFor(() => expect(reads).toHaveBeenCalledTimes(2))
+
+    // Back up through the same bands: three more changes to the set.
+    await fly([3.5, 3.0, 2.4])
+    expect(sceneLabelCount()).toBe(1)
+    expect(reads).toHaveBeenCalledTimes(2)
+  })
+
   it('reports a place file that could not be loaded and draws no place label', async () => {
     const load = vi
       .mocked(globeSurface.loadGlobePlaces)
