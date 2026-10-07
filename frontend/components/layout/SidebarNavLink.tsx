@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { ExternalLink } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -28,7 +28,7 @@ export function SidebarNavLink({
 }: SidebarNavLinkProps) {
   const showBadge = badge != null && badge.count > 0
   const link = (
-    <Link
+    <ChromeLink
       href={href}
       target={external ? '_blank' : undefined}
       rel={external ? 'noopener noreferrer' : undefined}
@@ -53,7 +53,7 @@ export function SidebarNavLink({
       {collapsed && showBadge && (
         <span className={cn('absolute right-1.5 top-1.5 h-2 w-2 rounded-full', badge!.className)} aria-hidden />
       )}
-    </Link>
+    </ChromeLink>
   )
 
   if (collapsed) {

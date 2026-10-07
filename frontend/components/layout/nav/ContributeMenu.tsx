@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import {
@@ -68,7 +68,7 @@ function renderItem(item: NavLinkData) {
       // keeps the item's own color instead of the accent-foreground default.
       className="px-0 py-0 text-[15px] focus:bg-transparent focus:underline"
     >
-      <Link
+      <ChromeLink
         href={item.href}
         target={item.external ? '_blank' : undefined}
         rel={item.external ? 'noopener noreferrer' : undefined}
@@ -76,7 +76,7 @@ function renderItem(item: NavLinkData) {
       >
         {label}
         {trailingGlyph}
-      </Link>
+      </ChromeLink>
     </DropdownMenuItem>
   )
 }

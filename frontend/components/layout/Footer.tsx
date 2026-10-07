@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 
 /**
@@ -96,13 +96,13 @@ export default function Footer() {
                 {column.heading.toUpperCase()}
               </p>
               {column.links.map(link => (
-                <Link
+                <ChromeLink
                   key={link.href}
                   href={link.href}
                   className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {link.label}
-                </Link>
+                </ChromeLink>
               ))}
             </nav>
           ))}
@@ -112,24 +112,24 @@ export default function Footer() {
             <p className="font-mono text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
               ABOUT
             </p>
-            <Link
+            <ChromeLink
               href="/privacy"
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Privacy Policy
-            </Link>
-            <Link
+            </ChromeLink>
+            <ChromeLink
               href="/terms"
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Terms of Service
-            </Link>
-            <Link
+            </ChromeLink>
+            <ChromeLink
               href="mailto:hello@psychichomily.com"
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Contact
-            </Link>
+            </ChromeLink>
             <button
               type="button"
               onClick={openPreferences}
