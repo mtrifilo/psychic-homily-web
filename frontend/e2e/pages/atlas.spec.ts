@@ -348,6 +348,9 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     await page.waitForTimeout(RESTORE_DEADLINE_MS + 1_000)
     await expect(page.getByTestId('atlas-scene-list')).toHaveCount(0)
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
+    // The canvas's own effects ran again on the restored style: the credit
+    // control they remove at the loss is back.
+    await expect(page.locator('.maplibregl-ctrl-attrib')).toHaveCount(1)
 
     // And it still draws: the scene came back with the style, and a camera
     // move renders a frame.

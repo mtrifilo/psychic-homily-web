@@ -13,7 +13,9 @@ import {
  * the visitor the map for the rest of the page load. A restore still missing
  * after this long is treated as never coming: the pane would otherwise stay
  * blank with no way forward. A hidden page shows the visitor nothing, so a
- * restore that lands before the page is shown again has cost nothing.
+ * restore that lands before the page is shown again has cost nothing. The
+ * value is a choice, not a measurement of browser restore times; the
+ * `atlas_map_failure` tag is how to tell whether it fits.
  */
 export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
 
@@ -54,7 +56,7 @@ export interface AtlasMapHealth {
  * - A lost context while no style is loaded cannot come back: MapLibre saves
  *   only a loaded style, so a restore would leave a map with no style. That
  *   covers a loss before the first style loaded and a second loss while a
- *   restored style is still loading.
+ *   restored style is still loading (classed apart for triage).
  * - `GPUInitializationError` on a constructed map can only come from a
  *   restore that got no context (construction reports it before any listener
  *   exists).
@@ -63,8 +65,8 @@ export interface AtlasMapHealth {
  *   first `style.load`, or between a restore and its `style.load`) means that
  *   style never loads.
  *
- * This module's own rule: once the style has loaded, an `error` event is
- * never a reason to give up the map.
+ * This module's own rule: while a style is live, the only `error` event that
+ * gives up the map is a `GPUInitializationError`.
  *
  * Not visible here: exceptions thrown inside MapLibre's render frame (they
  * propagate out of its animation-frame callback, not as an `error` event) and
@@ -131,7 +133,7 @@ export function watchAtlasMapHealth(
 
   map.on('webglcontextlost', () => {
     if (!styleLive) {
-      fail(styleEverLoaded ? 'context-lost' : 'context-lost-before-style')
+      fail(styleEverLoaded ? 'context-lost-during-restore' : 'context-lost-before-style')
       return
     }
     // MapLibre destroyed the style; a restore re-creates it and fires

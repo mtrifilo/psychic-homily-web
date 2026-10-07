@@ -164,12 +164,12 @@ describe('watchAtlasMapHealth', () => {
     expect(failureClasses()).toEqual(['context-lost-before-style'])
   })
 
-  it('fails as context-lost at once when a restored style is lost again before it loads', () => {
+  it('fails as context-lost-during-restore at once when a restored style is lost again before it loads', () => {
     map.fire('style.load')
     map.fire('webglcontextlost')
     map.fire('webglcontextrestored')
     map.fire('webglcontextlost')
-    expect(failureClasses()).toEqual(['context-lost'])
+    expect(failureClasses()).toEqual(['context-lost-during-restore'])
   })
 
   describe('an error event', () => {

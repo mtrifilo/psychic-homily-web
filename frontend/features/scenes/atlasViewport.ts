@@ -83,8 +83,9 @@ export function atlasRendersSceneList({
  * `atlas_map_failure` Sentry tag:
  * - `context-refused`: MapLibre got no WebGL2 context at construction.
  * - `context-lost`: the context was lost and not restored within
- *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of continuously visible time, or was
- *   lost again while a restored style was still loading.
+ *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of continuously visible time.
+ * - `context-lost-during-restore`: the context was lost again while a
+ *   restored style was still loading, which MapLibre cannot restore either.
  * - `context-lost-before-style`: the context was lost before the first style
  *   loaded, which MapLibre cannot restore (it saves only a loaded style).
  * - `context-restore-refused`: the browser restored the context but MapLibre
@@ -94,6 +95,7 @@ export function atlasRendersSceneList({
 export type AtlasMapFailureClass =
   | 'context-refused'
   | 'context-lost'
+  | 'context-lost-during-restore'
   | 'context-lost-before-style'
   | 'context-restore-refused'
   | 'style-load-failed'
@@ -101,6 +103,7 @@ export type AtlasMapFailureClass =
 const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
   'context-refused': 'MapLibre could not get a WebGL2 context',
   'context-lost': 'the WebGL context was lost and not restored',
+  'context-lost-during-restore': 'the WebGL context was lost again during a restore',
   'context-lost-before-style': 'the WebGL context was lost before the style loaded',
   'context-restore-refused': 'MapLibre could not get a WebGL2 context back after a restore',
   'style-load-failed': 'the map style failed to load',
@@ -128,8 +131,10 @@ let atlasMapFailed = false
 /**
  * Records that the Atlas map failed with an {@link AtlasMapUnrecoverableError},
  * so every later Atlas mount in this page load goes straight to the scene list
- * instead of building another map into the same failure: the same GPU for the
- * context classes, the same inline style for `style-load-failed`.
+ * instead of building another map. For a refused context and an invalid
+ * inline style a new map would fail the same way; for the loss classes it is
+ * a policy: one map that died is enough to stop building more in this page
+ * load.
  */
 export function markAtlasMapFailed(): void {
   atlasMapFailed = true

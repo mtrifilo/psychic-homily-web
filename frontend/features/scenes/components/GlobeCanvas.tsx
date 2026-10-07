@@ -1046,7 +1046,10 @@ export default function GlobeCanvas({
     // on restore has loaded every checked write throws; reads such as
     // getSource answer undefined. Clearing mapReady pauses every effect that
     // writes to the style; the restored style's style.load sets it again, and
-    // they write the current data to it.
+    // they write the current data to it. The null is load-bearing: mapReady
+    // holds the same map object before and after, so only the committed null
+    // in between (the loss and the restored style.load are separate events,
+    // a frame or more apart) makes those effects run again.
     map.on('webglcontextlost', () => {
       setMapReady((prev) => (prev === map ? null : prev))
     })
