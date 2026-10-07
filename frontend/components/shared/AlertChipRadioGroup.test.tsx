@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { AlertChipRadioGroup } from './AlertChipRadioGroup'
-import { COARSE_POINTER_HIT_AREA_CLASS } from './touchTarget'
+import { expectOnlyCoarseHitArea } from '@/test/touchTargetAssertions'
 
 // The chip radiogroup shared by the artist/venue scope reveal and the scene
 // notify-mode toggle (PSY-1905). Its whole justification is the ARIA contract,
@@ -50,13 +50,9 @@ describe('AlertChipRadioGroup', () => {
   // the same on every pointer, so the pill does not grow on a phone.
   it('grows every chip\'s tap target on coarse pointers without resizing the chip', () => {
     renderGroup()
-    const hitArea = COARSE_POINTER_HIT_AREA_CLASS.split(' ')
     for (const chip of screen.getAllByRole('radio')) {
-      expect(chip).toHaveClass(...hitArea, 'px-2', 'py-0.5', 'border')
-      const coarseOnly = [...chip.classList].filter(token =>
-        token.startsWith('pointer-coarse:')
-      )
-      expect(coarseOnly.sort()).toEqual([...hitArea].sort())
+      expect(chip).toHaveClass('px-2', 'py-0.5', 'border')
+      expectOnlyCoarseHitArea(chip)
     }
   })
 

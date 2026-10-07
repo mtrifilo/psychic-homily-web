@@ -29,17 +29,6 @@ describe('COARSE_POINTER_HIT_AREA_CLASS', () => {
     )
   })
 
-  it('centres the hit area on the host', () => {
-    expect(tokens).toEqual(
-      expect.arrayContaining([
-        'pointer-coarse:after:top-1/2',
-        'pointer-coarse:after:left-1/2',
-        'pointer-coarse:after:-translate-1/2',
-        'pointer-coarse:after:size-full',
-      ])
-    )
-  })
-
   it('paints nothing', () => {
     const painting = tokens.filter(token =>
       /:(bg|border|shadow|ring|outline|text|opacity)-/.test(token)

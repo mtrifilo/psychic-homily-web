@@ -9,9 +9,11 @@
  * surrounding layout are identical on every pointer type. Every utility is
  * gated on `pointer-coarse`, so fine pointers get none of it.
  *
- * The host must not already use its `::after`, and its neighbours must sit far
- * enough away that the grown box does not cover them: the box reaches
- * `(24 - padding-box size) / 2` px past each undersized edge.
+ * The host must not already use its `::after` or be positioned (`absolute`,
+ * `fixed`, `sticky`), because `relative` replaces that positioning on coarse
+ * pointers. Its neighbours must sit far enough away that the grown box does
+ * not cover them: the box reaches `(24 - padding-box size) / 2` px past each
+ * undersized edge.
  */
 export const COARSE_POINTER_HIT_AREA_CLASS =
   'pointer-coarse:relative pointer-coarse:after:absolute pointer-coarse:after:top-1/2 pointer-coarse:after:left-1/2 pointer-coarse:after:size-full pointer-coarse:after:min-h-6 pointer-coarse:after:min-w-6 pointer-coarse:after:-translate-1/2'

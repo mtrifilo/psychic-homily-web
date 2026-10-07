@@ -8,7 +8,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 // keeps the `mockRejectedValueOnce` error-path tests deterministic.
 import { createTestQueryClient, render } from '../../test/utils'
 import { BANDCAMP_SLIM_EMBED_HEIGHT_PX, MusicEmbed } from './MusicEmbed'
-import { COARSE_POINTER_HIT_AREA_CLASS } from './touchTarget'
+import { expectOnlyCoarseHitArea } from '@/test/touchTargetAssertions'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 
 // The page theme, as next-themes reports it. `undefined` is what next-themes
@@ -251,12 +251,7 @@ describe('MusicEmbed', () => {
     const link = await screen.findByRole('link', {
       name: 'Listen to Test Artist on Bandcamp',
     })
-    const hitArea = COARSE_POINTER_HIT_AREA_CLASS.split(' ')
-    expect(link).toHaveClass(...hitArea)
-    const coarseOnly = [...link.classList].filter(token =>
-      token.startsWith('pointer-coarse:')
-    )
-    expect(coarseOnly.sort()).toEqual([...hitArea].sort())
+    expectOnlyCoarseHitArea(link)
   })
 
   // PSY-1102 adversarial review: a transient 5xx from the scraper route must
