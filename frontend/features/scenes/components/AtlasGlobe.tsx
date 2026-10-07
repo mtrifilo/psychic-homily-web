@@ -105,39 +105,18 @@ function GlobeSkeleton() {
   return <div className="h-full w-full animate-pulse bg-muted/10" aria-hidden="true" />
 }
 
-// next/dynamic re-invokes `loading` with `error`/`retry` set on a failed chunk
-// fetch (it does NOT throw to an error boundary) — without this branch a rotated
-// hashed chunk would strand the user on the aria-hidden skeleton forever. Same
-// pattern + rationale as InlineGraph's GraphLoadError.
-function GlobeLoadError({ onRetry }: { onRetry?: () => void }) {
-  return (
-    <div
-      role="alert"
-      className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground"
-    >
-      <p>The globe couldn’t load.</p>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="text-primary underline-offset-4 hover:underline"
-        >
-          Try again
-        </button>
-      )}
-    </div>
-  )
-}
-
 // maplibre-gl is heavy (~900 kB chunk) and window-bound — dynamic-import the
 // canvas with ssr:false so the canvas module loads only on /atlas (PSY-1211
 // pattern, isolation re-verified for MapLibre in the PSY-1537 spike).
 // The import stays inline here for next/dynamic; preloadAtlasMap starts the
 // same module earlier (see the effect in AtlasGlobe).
+// The App Router's next/dynamic calls `loading` only while the module is
+// pending. A failed fetch throws from React.lazy to the nearest error
+// boundary, which is the GraphSectionErrorBoundary around the canvas in the
+// render below, so a failed chunk swaps in the scene list.
 const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
   ssr: false,
-  loading: ({ error, retry }) =>
-    error ? <GlobeLoadError onRetry={retry} /> : <GlobeSkeleton />,
+  loading: () => <GlobeSkeleton />,
 })
 
 /**
