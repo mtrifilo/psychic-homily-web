@@ -323,17 +323,24 @@ describe('GlobeCanvas place labels', () => {
   })
 
   it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
-    // A control the page draws over Clear City's label (213,323 to 273,335).
-    const overClearCity = (button: HTMLButtonElement | null) => {
-      if (!button) return
-      button.getBoundingClientRect = () =>
-        ({ left: 200, top: 315, right: 290, bottom: 345, width: 90, height: 30 }) as DOMRect
+    // A control the page draws beside the canvas, first clear of every label,
+    // then moved over Clear City's (213,323 to 273,335).
+    let drift: HTMLButtonElement | null = null
+    const placeDrift = (box: { left: number; top: number; right: number; bottom: number }) => {
+      drift!.getBoundingClientRect = () =>
+        ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
     }
     restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
     render(
       <div>
         <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />
-        <button type="button" ref={overClearCity}>
+        <button
+          type="button"
+          ref={(button) => {
+            drift = button
+            if (button) placeDrift({ left: 300, top: 600, right: 360, bottom: 630 })
+          }}
+        >
           Drift
         </button>
       </div>,
@@ -342,11 +349,11 @@ describe('GlobeCanvas place labels', () => {
       maps[0].fire('style.load')
       maps[0].fire('render')
     })
-    await waitFor(() =>
-      expect(document.querySelector('[data-testid="atlas-scene-label"]')).not.toBeNull(),
-    )
-    expect(globeSurface.loadGlobePlaces).toHaveBeenCalled()
-    expect(placeLabelTexts()).toEqual([])
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+
+    placeDrift({ left: 200, top: 315, right: 290, bottom: 345 })
+    act(() => drift!.setAttribute('data-moved', 'true'))
+    await waitFor(() => expect(placeLabelTexts()).toEqual([]))
   })
 
   it('reports a place file that could not be loaded and draws no place label', async () => {

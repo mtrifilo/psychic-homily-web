@@ -80,12 +80,13 @@ changes its schema or endpoints:
 ## Light globe overlays (compact viewports)
 
 Below the `lg` breakpoint (`ATLAS_COMPACT_VIEWPORT_QUERY` in
-`../atlasViewport.ts`) the globe shows the light look instead of the NASA
-GIBS raster: a flat ocean and the Natural Earth land file
+`frontend/features/scenes/atlasViewport.ts`) the globe shows the light look
+instead of the NASA GIBS raster: a flat ocean and the Natural Earth land file
 (`globe-land-110m.geojson`, prefetched before the map exists), with three
-overlay files drawn on top. `globeSurface.ts` owns the layers and the
-loading; `globePlaces.ts` holds the place-label rules and
-`../components/globePlaceLabels.ts` draws the labels.
+overlay files drawn on top. `globeSurface.ts` (in this directory) owns the
+layers and the loading; `globePlaces.ts` (in this directory) holds the
+place-label rules and `frontend/features/scenes/components/globePlaceLabels.ts`
+draws the labels.
 
 | File (`frontend/public/atlas/`) | Contents | Drawn as |
 |---|---|---|
@@ -93,14 +94,15 @@ loading; `globePlaces.ts` holds the place-label rules and
 | `globe-state-lines-50m.geojson` | 1:50m state and province lines (United States, Canada, Australia, Brazil) | `globe-state-lines` line layer, under the country lines |
 | `globe-places-110m.geojson` | 1:110m populated places (243), in label rank order | DOM markers in the app's mono face (no glyph download) |
 
-All three come from `scripts/atlas-globe-overlays.mjs`, built from the same
-pinned Natural Earth commit as the land file; `scripts/lib/natural-earth.mjs`
-checks each input's sha256 before anything is written.
+All three come from `frontend/scripts/atlas-globe-overlays.mjs`, built from
+the same pinned Natural Earth commit as the land file;
+`frontend/scripts/lib/natural-earth.mjs` checks each input's sha256 before
+anything is written.
 
 - **Light look only.** On the full look (`lg` and up) both line layers are
-  hidden and their sources stay empty (the boundary files are requested only
-  for the light look), no place label is mounted and the place file is never
-  requested.
+  hidden and no place label is mounted. The boundary and place files are
+  requested only when a map shows the light look, so a map that only ever
+  shows the full look never requests them.
 - **Load trigger.** The boundary and place files are fetched only after the
   map's first full render: the first `render` event with the style and every
   visible source loaded. MapLibre's `load` is not used because it never fires
@@ -112,14 +114,18 @@ checks each input's sha256 before anything is written.
   there. The budget is the same at every pane size.
 - **Collision order.** Scene labels and scene dots on the near side of the
   globe are placed first and never move. The controls drawn over the map come
-  next: the search pill, Drift, the Genres chip, the My Scenes chips, the
-  credit when it is drawn, and any other element over the map that takes
-  pointer events. Place labels go last, in rank order: each is kept only if
-  it sits wholly inside the pane and clears the scene marks, the controls and
-  every place label kept before it, until the budget is spent. The controls'
-  boxes are read from the DOM when the labels mount and again after a resize
-  or a change in the chrome, never per frame; a change that moves a control
-  lays the labels out again.
+  next: the search pill, Drift, the Genres chip, the My Scenes strip (its
+  chips and its star), the credit when it is drawn, and any other element
+  over the map that takes pointer events or is an icon. Place labels go last,
+  in rank order: each is kept only if it sits wholly inside the pane and
+  clears the scene marks, the controls and every place label kept before it,
+  until the budget is spent. The controls' boxes are read from the DOM when
+  the labels mount and again after a resize or a change in the chrome, never
+  per frame; a change that moves a control lays the labels out again.
+  The chrome is found by walking the map pane: a wrapper around controls
+  must be `pointer-events: none` or have no area of its own, as the Atlas
+  chrome's wrappers are, or its whole box counts as one control and blocks
+  every label under it.
 - **Failure paths.** A boundary file that fails, stalls past its deadline or
   is not a FeatureCollection is handed to the map as a URL, so MapLibre
   fetches it and a second failure reaches `basemapTelemetry.ts` as a source

@@ -101,13 +101,14 @@ function placeOn(name: string, rank: number, box: Box): GlobePlace {
 const SEARCH: Box = { left: 16, top: 16, right: 182.609375, bottom: 50 }
 const DRIFT: Box = { left: 16, top: 669, right: 79.375, bottom: 707 }
 const GENRES: Box = { left: 99.375, top: 669, right: 189.546875, bottom: 707 }
+const MY_SCENES_STAR: Box = { left: 16, top: 113, right: 30, bottom: 127 }
 const MY_SCENES_CHIP: Box = { left: 36, top: 108, right: 112, bottom: 132 }
 const CREDIT: Box = { left: 16, top: 58, right: 230, bottom: 76 }
 const CLEAR: Box = { left: 250, top: 400, right: 300, bottom: 414 }
 
 interface Atlas {
   pane: HTMLDivElement
-  canvasRoot: HTMLDivElement
+  globeRoot: HTMLDivElement
   search: HTMLButtonElement
   drift: HTMLButtonElement
   genres: HTMLDivElement
@@ -125,8 +126,8 @@ interface Atlas {
  */
 function buildAtlas(): Atlas {
   const pane = el('div')
-  const canvasRoot = el('div')
-  placeAt(canvasRoot, { left: 0, top: 0, right: PANE.width, bottom: PANE.height })
+  const globeRoot = el('div')
+  placeAt(globeRoot, { left: 0, top: 0, right: PANE.width, bottom: PANE.height })
   const container = el('div')
   Object.defineProperty(container, 'clientWidth', { value: PANE.width })
   Object.defineProperty(container, 'clientHeight', { value: PANE.height })
@@ -141,26 +142,30 @@ function buildAtlas(): Atlas {
   corner.append(credit)
   controls.append(corner)
   container.append(canvasContainer, controls)
-  canvasRoot.append(container)
+  globeRoot.append(container)
 
   const search = placeAt(el('button', { text: 'Search scenes' }), SEARCH)
   const column = el('div', { pointerEvents: 'none' })
   placeAt(column, { left: 16, top: 100, right: 374, bottom: 707 })
   const myScenes = el('nav', { pointerEvents: 'none' })
   placeAt(myScenes, { left: 16, top: 104, right: 210, bottom: 136 })
+  // The strip's star: an icon that takes no pointer events, like its shell.
+  const star = placeAt(document.createElementNS('http://www.w3.org/2000/svg', 'svg'), MY_SCENES_STAR)
+  star.style.pointerEvents = 'none'
+  star.append(document.createElementNS('http://www.w3.org/2000/svg', 'path'))
   const myScenesChip = placeAt(el('button', { pointerEvents: 'auto', text: 'Phoenix' }), MY_SCENES_CHIP)
-  myScenes.append(myScenesChip)
+  myScenes.append(star, myScenesChip)
   const bottomRow = el('div', { pointerEvents: 'none' })
   const drift = placeAt(el('button', { pointerEvents: 'auto', text: 'Drift' }), DRIFT)
   const genres = placeAt(el('div', { pointerEvents: 'auto', text: 'Genres' }), GENRES)
   bottomRow.append(drift, genres)
   column.append(myScenes, bottomRow)
-  pane.append(canvasRoot, search, column)
+  pane.append(globeRoot, search, column)
   document.body.append(pane)
 
   return {
     pane,
-    canvasRoot,
+    globeRoot,
     search,
     drift,
     genres,
@@ -237,7 +242,7 @@ describe('place labels and the controls over the map', () => {
     return mountPlaceLabels(atlas.fake.map, places, {
       maxZoom: 5.5,
       obstacles,
-      canvasRoot: atlas.canvasRoot,
+      globeRoot: atlas.globeRoot,
     })
   }
 
@@ -266,11 +271,22 @@ describe('place labels and the controls over the map', () => {
     ['Drift', DRIFT],
     ['the Genres chip', GENRES],
     ['a My Scenes chip', MY_SCENES_CHIP],
+    ['the My Scenes star', MY_SCENES_STAR],
     ['the credit', CREDIT],
   ])('drops a label under %s and keeps one clear of the chrome', (_name, box) => {
+    // Two characters (about 12px wide): it covers only the element it is
+    // centred on, never a neighbouring one.
     const atlas = buildAtlas()
-    mount(atlas, [placeOn('Under', 0, box), placeOn('Clear', 1, CLEAR)])
+    mount(atlas, [placeOn('Un', 0, box), placeOn('Clear', 1, CLEAR)])
     expect(labelTexts()).toEqual(['Clear'])
+  })
+
+  it('lets that short label show once the chrome is gone', () => {
+    const atlas = buildAtlas()
+    atlas.pane.replaceChildren(atlas.globeRoot)
+    atlas.credit.remove()
+    mount(atlas, [SEARCH, DRIFT, GENRES, MY_SCENES_CHIP, MY_SCENES_STAR, CREDIT].map((box, rank) => placeOn('Un', rank, box)))
+    expect(labelTexts()).toHaveLength(6)
   })
 
   it('lets a label sit inside a pass-through wrapper, clear of its controls', () => {
@@ -290,11 +306,11 @@ describe('place labels and the controls over the map', () => {
     expect(labelTexts()).toEqual(['Where the credit would be'])
   })
 
-  it("never counts the map's canvas or the map root's own layers as chrome", () => {
+  it("never counts the map's canvas or the globe root's own layers as chrome", () => {
     const atlas = buildAtlas()
     // A full-pane backdrop that takes pointer events, inside the map's root.
     const backdrop = placeAt(el('div'), { left: 0, top: 0, right: PANE.width, bottom: PANE.height })
-    atlas.canvasRoot.prepend(backdrop)
+    atlas.globeRoot.prepend(backdrop)
     mount(atlas, [placeOn('Clear', 0, CLEAR)])
     expect(labelTexts()).toEqual(['Clear'])
   })
@@ -313,19 +329,19 @@ describe('place labels and the controls over the map', () => {
   it('lays the labels out again once chrome shown after the layout has settled', async () => {
     const atlas = buildAtlas()
     atlas.myScenesChip.remove()
-    mount(atlas, [placeOn('Under the strip', 0, MY_SCENES_CHIP)])
-    expect(labelTexts()).toEqual(['Under the strip'])
+    mount(atlas, [placeOn('Strip', 0, MY_SCENES_CHIP)])
+    expect(labelTexts()).toEqual(['Strip'])
 
     atlas.myScenes.append(atlas.myScenesChip)
     await Promise.resolve()
     vi.advanceTimersByTime(99)
-    expect(labelTexts()).toEqual(['Under the strip'])
+    expect(labelTexts()).toEqual(['Strip'])
     vi.advanceTimersByTime(1)
     expect(labelTexts()).toEqual([])
 
     atlas.myScenesChip.remove()
     await settleChrome()
-    expect(labelTexts()).toEqual(['Under the strip'])
+    expect(labelTexts()).toEqual(['Strip'])
   })
 
   it('reads the boxes again after a resize, so a label follows a control that moved', async () => {
@@ -373,7 +389,7 @@ describe('place labels and the controls over the map', () => {
 
   it('stops watching the chrome at teardown', async () => {
     const atlas = buildAtlas()
-    const teardown = mount(atlas, [placeOn('Under the strip', 0, MY_SCENES_CHIP)])
+    const teardown = mount(atlas, [placeOn('Strip', 0, MY_SCENES_CHIP)])
     expect(labelTexts()).toEqual([])
     teardown()
     // Would bring the label back on a live watch.
@@ -385,11 +401,29 @@ describe('place labels and the controls over the map', () => {
     expect(labelTexts()).toEqual([])
   })
 
+  it('keeps the boxes last read while a modal elsewhere turns off pointer events on the page', async () => {
+    const atlas = buildAtlas()
+    mount(atlas, [placeOn('Under the search pill', 0, SEARCH)])
+    expect(labelTexts()).toEqual([])
+
+    // A modal dialog sets pointer-events: none on the body, which the search
+    // pill inherits, and restyles a layer inside the chrome.
+    document.body.style.pointerEvents = 'none'
+    atlas.search.setAttribute('data-state', 'inert')
+    await settleChrome()
+    expect(labelTexts()).toEqual([])
+
+    document.body.style.pointerEvents = ''
+    atlas.search.removeAttribute('data-state')
+    await settleChrome()
+    expect(labelTexts()).toEqual([])
+  })
+
   it('reports boxes relative to the map container', () => {
     const atlas = buildAtlas()
     placeAt(atlas.fake.container, { left: 0, top: 56, right: PANE.width, bottom: 56 + PANE.height })
     placeAt(atlas.drift, { left: 16, top: 725, right: 79.375, bottom: 763 })
-    const watch = watchMapChrome(atlas.fake.map, atlas.canvasRoot, () => {})
+    const watch = watchMapChrome(atlas.fake.map, atlas.globeRoot, () => {})
     expect(watch.boxes()).toContainEqual(DRIFT)
     watch.stop()
   })

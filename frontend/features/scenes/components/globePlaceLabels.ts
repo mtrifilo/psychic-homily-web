@@ -45,11 +45,12 @@ export interface PlaceLabelOptions {
    */
   obstacles: () => Box[]
   /**
-   * The map's root element in the page. The page draws its chrome over the
-   * map as this element's siblings; their controls, and the map's own
-   * controls, are obstacles too (see {@link watchMapChrome}).
+   * GlobeCanvas's outermost element, not `map.getContainer()`: its parent is
+   * the map pane, and every other child of that pane is chrome drawn over the
+   * map. The chrome's controls, and the map's own controls, are obstacles too
+   * (see {@link watchMapChrome}).
    */
-  canvasRoot: HTMLElement
+  globeRoot: HTMLElement
 }
 
 // How long the chrome must hold still after a change before its boxes are
@@ -71,20 +72,25 @@ interface Control {
 
 /**
  * Collects, under `parent` and outside `skip`, the first elements on each
- * path down that take pointer events and have an area. Chrome over the map
- * keeps every wrapper around its controls either at `pointer-events: none`,
- * so the map takes drags through the gaps, or with no area of its own (a
- * box holding only positioned children, such as MapLibre's control
- * container); the walk passes through both kinds of wrapper and stops at the
- * controls themselves. A control with no area (unmounted, `hidden`, an empty
- * credit) is passed through the same way and holds no spot.
+ * path down that are drawn over the map: those that take pointer events, and
+ * graphics (an icon such as the My Scenes star), each with an area. Chrome
+ * over the map keeps every wrapper around its controls either at
+ * `pointer-events: none`, so the map takes drags through the gaps, or with no
+ * area of its own (a box holding only positioned children, such as MapLibre's
+ * control container); the walk passes through both kinds of wrapper. An
+ * element with no area (unmounted, `hidden`, an empty credit) is passed
+ * through the same way and holds no spot. A wrapper that takes pointer events
+ * and has an area counts as one control, its whole box.
  */
 function collectControls(parent: Element, skip: Element, out: Control[]): void {
   for (const child of parent.children) {
     if (child === skip) continue
     const rect = child.getBoundingClientRect()
+    const isGraphic = child instanceof SVGSVGElement || child instanceof HTMLImageElement
     const passThrough =
-      rect.width <= 0 || rect.height <= 0 || getComputedStyle(child).pointerEvents === 'none'
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      (!isGraphic && getComputedStyle(child).pointerEvents === 'none')
     if (passThrough) collectControls(child, skip, out)
     else out.push({ el: child, rect })
   }
@@ -111,24 +117,27 @@ export interface MapChromeWatch {
 
 /**
  * Keeps the boxes of the controls drawn over a map: the page's chrome
- * (`canvasRoot`'s siblings, such as the search pill, Drift, the genre key and
- * the My Scenes chips) and the map's own controls (the credit), relative to
+ * (`globeRoot`'s siblings, such as the search pill, Drift, the genre key and
+ * the My Scenes strip) and the map's own controls (the credit), relative to
  * the map container.
  *
  * The boxes are read from the DOM at the start and again once the chrome has
  * held still for CHROME_SETTLE_MS after a resize of the pane or of a control,
  * or a change inside the chrome (a control shown, hidden or restyled), never
  * per frame or per camera move. `onChange` runs after a read whose boxes
- * differ from the previous read's.
+ * differ from the previous read's. While the pane itself takes no pointer
+ * events (a modal elsewhere on the page sets `pointer-events: none` on the
+ * body, which every control inherits), a read would find no controls, so the
+ * boxes last read are kept.
  */
 export function watchMapChrome(
   map: maplibregl.Map,
-  canvasRoot: HTMLElement,
+  globeRoot: HTMLElement,
   onChange: () => void,
 ): MapChromeWatch {
   const container = map.getContainer()
   const canvasContainer = map.getCanvasContainer()
-  const pane = canvasRoot.parentElement
+  const pane = globeRoot.parentElement
   let boxes: Box[] = []
   let sized = new Set<Element>()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -137,6 +146,7 @@ export function watchMapChrome(
     clearTimeout(timer)
     timer = setTimeout(() => {
       timer = undefined
+      if (pane && getComputedStyle(pane).pointerEvents === 'none') return
       if (read()) onChange()
     }, CHROME_SETTLE_MS)
   }
@@ -144,7 +154,7 @@ export function watchMapChrome(
   const mutations = new MutationObserver(changed)
 
   // Observes the chrome as it stands: the pane's own attributes and children
-  // (chrome mounting and unmounting), every chrome subtree beside the canvas
+  // (chrome mounting and unmounting), every chrome subtree beside the globe
   // root and beside the map's canvas (observing a node again only renews its
   // options), and each control's size. Reads the boxes and reports whether
   // they changed.
@@ -153,9 +163,9 @@ export function watchMapChrome(
     if (pane) {
       mutations.observe(pane, { attributes: true, childList: true })
       for (const child of pane.children) {
-        if (child !== canvasRoot) mutations.observe(child, CHROME_SUBTREE_CHANGES)
+        if (child !== globeRoot) mutations.observe(child, CHROME_SUBTREE_CHANGES)
       }
-      collectControls(pane, canvasRoot, controls)
+      collectControls(pane, globeRoot, controls)
     }
     for (const child of container.children) {
       if (child !== canvasContainer) mutations.observe(child, CHROME_SUBTREE_CHANGES)
@@ -200,7 +210,7 @@ export function watchMapChrome(
 export function mountPlaceLabels(
   map: maplibregl.Map,
   places: readonly GlobePlace[],
-  { maxZoom, obstacles, canvasRoot }: PlaceLabelOptions,
+  { maxZoom, obstacles, globeRoot }: PlaceLabelOptions,
 ): () => void {
   const container = map.getContainer()
   let markers: maplibregl.Marker[] = []
@@ -283,7 +293,7 @@ export function mountPlaceLabels(
     if (markers.length > 0 && !placeLabelsShowAt(map.getZoom(), maxZoom)) clear()
   }
 
-  const chrome = watchMapChrome(map, canvasRoot, layout)
+  const chrome = watchMapChrome(map, globeRoot, layout)
   layout()
   map.on('moveend', layout)
   map.on('zoom', handleZoom)
