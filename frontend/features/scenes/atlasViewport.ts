@@ -54,13 +54,14 @@ export function useAtlasCompactViewport(): boolean {
 export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
 
 /**
- * Whether the Atlas renders its scene list (MobileSceneList) in place of the
+ * Whether the Atlas renders its scene list (AtlasSceneList) in place of the
  * map. Two visitor conditions: the browser cannot give MapLibre the WebGL2
  * context it requires (at any width), or the visitor prefers reduced motion
  * and the pane is narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
- * Separately, a map that has already failed in this page load (see
- * {@link markAtlasMapFailed}) is not tried again. Every other visitor gets the
- * map, phones included.
+ * Separately, `mapFailed` says a map has already failed: in this mount, or,
+ * for a refused WebGL2 context, anywhere in this page load (see
+ * {@link markAtlasMapFailed}). Every other visitor gets the map, phones
+ * included.
  */
 export function atlasRendersSceneList({
   paneWidthPx,

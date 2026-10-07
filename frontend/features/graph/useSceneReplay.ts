@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 
 import {
   buildReplayTimeline,

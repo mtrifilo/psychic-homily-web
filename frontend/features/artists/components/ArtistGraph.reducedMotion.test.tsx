@@ -28,7 +28,7 @@ vi.mock('next/dynamic', async () => {
   }
 })
 
-vi.mock('@/features/artists/hooks/useReducedMotion', () => ({
+vi.mock('@/lib/hooks/common/useReducedMotion', () => ({
   useReducedMotion: () => h.reducedMotion.value,
 }))
 

@@ -15,7 +15,7 @@ import type { SceneListItem } from '../types'
  * payoff the map's scene preview shows: playable embed, next-7-days shows,
  * top local artists, scene link.
  */
-export function MobileSceneList({
+export function AtlasSceneList({
   scenes,
   loading,
   followedSlugs = null,

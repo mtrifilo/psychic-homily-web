@@ -20,62 +20,82 @@ Quick wins that don't require major refactors. Based on Vercel's React Best Prac
 
 ---
 
-## `/atlas` globe — perf budget (PSY-1222)
+## `/atlas` map: who gets it, and the phone perf gate
 
-The `/atlas` globe (PSY-1213) renders `react-globe.gl` + `three.js`, lazy-loaded
-via `dynamic(() => import('./GlobeCanvas'), { ssr: false })` in
-`features/scenes/components/AtlasGlobe.tsx` behind a lightweight shell — so the
-heavy chunk streams in **after** the surrounding UI is interactive, and the
-globe itself never server-renders.
+The Atlas map is MapLibre GL (`maplibre-gl` 6.0.0), lazy-loaded via
+`dynamic(() => import('./GlobeCanvas'), { ssr: false })` in
+`features/scenes/components/AtlasGlobe.tsx`, so the canvas module loads only
+on `/atlas` and the map never server-renders. `preloadAtlasMap`
+(`atlasMapPreload.ts`) starts the same import while the scenes and the
+visitor's geo resolve.
 
-This is a documented **target budget, NOT a CI gate** (per the 2026-06-29 scope
-decision on PSY-1222): a regression is a signal to investigate, not a merge
-blocker. The existing `/explore` Lighthouse gate (`lighthouserc.json`) is itself
-`warn`-only for the same reason — CI-runner CPU contention swings TTI by more
-than the whole budget, so an `error` assertion would block merges on noise.
+### Who gets the map
 
-### Measured (local prod build, 3-run median)
+Every width gets the map, phones included. `atlasRendersSceneList`
+(`features/scenes/atlasViewport.ts`) is the whole fallback rule. Where it
+holds, `AtlasSceneList` (every scene, liveliest first, each row expanding in
+place) stands in for the map:
 
-`cd frontend && bun run build && bun run start`, then Lighthouse. The **mobile**
-row uses the same settings as the `/explore` gate (`lighthouserc.json`: Moto G4,
-slow-4G — 150ms RTT / 1638 Kbps / 4× CPU, performance-only). The **desktop** row
-uses the Lighthouse `desktop` preset — the globe is desktop-primary; on mobile
-`/atlas` shows the scene list (PSY-1311), not the globe.
+1. **No WebGL2, at any width.** `atlasSupportsWebGL2` probes a 1x1 canvas once
+   per page load; MapLibre asks only for `webgl2`.
+2. **Reduced motion on a narrow pane.** The visitor prefers reduced motion and
+   the Atlas pane is narrower than `ATLAS_REDUCED_MOTION_LIST_BELOW_PX`
+   (640px). Wider panes keep the map, which honours the preference itself: no
+   pulse rings, and camera moves cut instead of fly.
+3. **A failed map.** GlobeCanvas sits inside a `GraphSectionErrorBoundary`
+   (Sentry tag `atlas-map`). When MapLibre is refused a WebGL2 context after
+   the probe passed, GlobeCanvas throws `AtlasMapContextError` and the list
+   latches for the rest of the page load (`markAtlasMapFailed`). Any other
+   error React sees from the canvas falls back for that mount: a throwing
+   effect is tried again on the next mount, but a failed canvas chunk is not
+   refetched (`React.lazy` keeps the rejected import), so every later mount
+   in that page load gets the list too, until a reload. Errors thrown from
+   MapLibre's own callbacks (animation frames, map events) are not React
+   errors and are not caught.
 
-| form factor | LCP | TTI | TBT | Speed Index | CLS | LCP element |
-| --- | --- | --- | --- | --- | --- | --- |
-| Mobile (slow-4G, 4× CPU) | 0.73s | 0.84s | 110ms | 5.8s | 0.000 | scene-list message (`<p>`) |
-| Desktop (`desktop` preset) | 1.19s | 1.19s | 0ms | 0.75s | 0.001 | search bar (`AtlasSearch`) |
+### The light look on compact viewports
 
-On **both** form factors the LCP element is **surrounding UI** — the search bar
-on desktop, the "browse the scenes below" message on mobile — **not the globe
-canvas**: the lazy chunk (largest observed script ~203 kB gz; the PSY-1211 spike
-measured ~469 kB gz for the three.js bundle) loads but never becomes the largest
-paint or blocks interactivity. The three.js cost surfaces only in **Speed
-Index** under mobile throttle (~5.8s: the heavier `/atlas` payload / WebGL canvas
-painting progressively behind the interactive UI), which is expected for a
-WebGL-primary page and does not affect TTI/LCP.
+Below Tailwind's `lg` (64rem, `ATLAS_COMPACT_VIEWPORT_QUERY`), the globe draws
+the light look (`features/scenes/basemap/globeSurface.ts`) instead of the NASA
+GIBS night-earth raster: a flat ocean, Natural Earth 1:110m land, 1:110m
+country and 1:50m state or province boundary lines, and Natural Earth
+populated-place labels drawn as DOM markers (`globePlaces.ts`). Each is one
+small same-origin GeoJSON file under `public/atlas/`. The hidden raster layer
+leaves its source unused, so MapLibre fetches no GIBS tile and lists no NASA
+credit. Viewports at `lg` and wider keep the raster.
 
-### Target budget (informational — enforced by review, NOT by CI)
+### Phone perf gate
 
-Anchored to the `/explore` budget; `/atlas` meets it with margin:
+The owner's gate for the phone entry, revised on 2026-10-04 from the original
+2.5 s:
 
-- **LCP < 2.0s** — measured 0.73s (mobile) / 1.19s (desktop)
-- **TTI < 2.5s** — measured 0.84s (mobile) / 1.19s (desktop)
-- **CLS < 0.1** — measured 0.000 mobile / 0.001 desktop (a fixed-height
-  container, `h-[calc(100dvh-4rem)] min-h-[480px]`, pre-sizes the content area on
-  both form factors; on desktop the `GlobeSkeleton` also reserves the canvas box)
-- **Speed Index** — no hard target (WebGL-primary); ~5.8s mobile / 0.75s desktop
-  today. Investigate if: the lazy chunk grows materially, the globe canvas
-  becomes the LCP element (the shell stopped painting first), or TTI/LCP regress
-  well past the values above.
+| measure | gate | target |
+| --- | --- | --- |
+| first rendered map | at most 3.5 s | 2.5 s (the app-shell diet, PSY-2171) |
+| entry bytes | at most 1.5 MiB | |
 
-Re-measure: build + serve as above, then
-`node_modules/.bin/lhci collect --url=http://localhost:3000/atlas` (reads
-`lighthouserc.json`) for the mobile numbers, or
-`node_modules/.bin/lighthouse http://localhost:3000/atlas --preset=desktop` for
-desktop. Measure against a local prod build (not a Vercel preview) to avoid the
-`x-vercel-protection-bypass` CORS false-failure that inflates preview TTI.
+Profile: Playwright's `iPhone 13` at 390x844 (DPR 3), 4x CPU throttling on the
+main thread only, Fast 4G, cold cache, medians of cold runs. GPU and worker
+threads are not throttled, so first rendered map is a lower bound for a real
+phone.
+
+`scripts/atlas-perf.mjs` measures it: `bun run perf:atlas <url> --runs 3`
+against a production build (a Vercel preview, or `next build && next start`;
+never `next dev`). Its header documents the profile, the readiness gate and
+what counts as entry bytes. It sets up none of the scene-list conditions and
+stops with exit code 2 if the page shows the list, and it fails a compact run
+on any raster request. The pass or fail line it prints follows the script's
+own `BUDGET` constant; read the medians against the gate above.
+
+Measured at the flip (PR #2189, Vercel preview of `509ea6109`, stage data,
+three sessions of three cold headed runs): first rendered map nine-run median
+3.38 s, worst session median 3,502 ms (2 ms over the gate); entry 1.48 MiB
+(1,511 KiB); no raster request. City view (Chicago, z12.5) added 280 KiB and
+was ready in 0.59 s. Desktop (1440x900) is not budgeted.
+
+No Lighthouse budget covers `/atlas`: the Lighthouse CI job
+(`.github/workflows/lighthouse-explore.yml`, settings in `lighthouserc.json`)
+collects `/explore` only.
 
 ---
 

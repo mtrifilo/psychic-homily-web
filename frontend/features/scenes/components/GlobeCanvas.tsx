@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
 import './maplibreWorker'
 import { useGraphPalette } from '@/components/graph/graphPalette'
-import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
   handleBasemapError,
   reportGlobePlacesFailure,

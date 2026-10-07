@@ -99,7 +99,7 @@ const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel
 // Tailwind's `lg` at the default root size; below it the Atlas draws the
 // light globe, which requests no raster.
 const COMPACT_MAX_WIDTH = 1023
-// MobileSceneList's root carries this test id.
+// AtlasSceneList's root carries this test id.
 const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
 function usage(message) {

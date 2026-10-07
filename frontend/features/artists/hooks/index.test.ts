@@ -30,8 +30,4 @@ describe('artists hooks barrel', () => {
     expect(typeof hooks.useArtistRelationshipVote).toBe('function')
     expect(typeof hooks.useCreateArtistRelationship).toBe('function')
   })
-
-  it('re-exports the reduced-motion hook', () => {
-    expect(typeof hooks.useReducedMotion).toBe('function')
-  })
 })
