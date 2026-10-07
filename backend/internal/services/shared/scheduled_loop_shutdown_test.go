@@ -2,6 +2,7 @@ package shared
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -78,6 +79,38 @@ func TestExpiredContextStartsNoCycle_MemStore(t *testing.T) {
 
 		assert.Zero(t, calls.Load(), "RunAtBoot must not start a cycle on an expired context")
 		assert.Zero(t, store.claimed.Load(), "no claim may be taken on an expired context")
+	})
+
+	t.Run("boot cycle without a store", func(t *testing.T) {
+		// Below the persistence threshold the loop has no store, so nothing but
+		// the loop's own check stands between an expired context and the work.
+		var calls atomic.Int32
+		runFor(LoopConfig{
+			Name:      "expired-boot-storeless",
+			Interval:  time.Minute,
+			RunAtBoot: true,
+		}, 0, func(context.Context) { calls.Add(1) })
+
+		assert.Zero(t, calls.Load(), "a storeless RunAtBoot loop must not start a cycle on an expired context")
+	})
+
+	t.Run("context error from the store on a live context still fails open", func(t *testing.T) {
+		// The exclusion keys on the loop's own context, not on the error's type:
+		// a store that times out internally while the loop is live is an outage,
+		// and an outage runs the work.
+		store := newMemRunStore()
+		store.failClaim = context.DeadlineExceeded
+
+		var calls atomic.Int32
+		runFor(LoopConfig{
+			Name:      "live-context-claim-timeout",
+			Interval:  time.Hour,
+			RunAtBoot: true,
+			Store:     store,
+		}, 100*time.Millisecond, func(context.Context) { calls.Add(1) })
+
+		assert.Equal(t, int32(1), calls.Load(),
+			"a claim failing with a context error while the loop is live must still fail open")
 	})
 }
 
@@ -175,7 +208,15 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 		// logStoreError prefixes every store failure it reports this way.
 		assert.NotContains(t, logs.String(), "background run state:",
 			"a loop that stops during its claim must not report a store failure on the way out")
-		assert.Contains(t, logs.String(), "loop stopping during claim",
-			"a claim abandoned on shutdown must still be traceable in the logs")
+		var stopLine string
+		for _, line := range strings.Split(logs.String(), "\n") {
+			if strings.Contains(line, "loop stopping during claim") {
+				stopLine = line
+			}
+		}
+		require.NotEmpty(t, stopLine, "a claim abandoned on shutdown must still be traceable in the logs")
+		assert.Contains(t, stopLine, `"level":"INFO"`, "shutdown is not a store fault, so the line is Info")
+		assert.Contains(t, stopLine, `"service":"expired-mid-claim-pg"`)
+		assert.Contains(t, stopLine, "context canceled", "the line must carry the claim's error")
 	})
 }
