@@ -93,9 +93,9 @@ three sessions of three cold headed runs): first rendered map nine-run median
 (1,511 KiB); no raster request. City view (Chicago, z12.5) added 280 KiB and
 was ready in 0.59 s. Desktop (1440x900) is not budgeted.
 
-The `/explore` Lighthouse gate (`lighthouserc.json`) does not cover `/atlas`.
-The Lighthouse budget this section used to record (PSY-1222) measured the
-earlier react-globe.gl build, which MapLibre replaced, so it was dropped.
+No Lighthouse budget covers `/atlas`: the Lighthouse CI job
+(`.github/workflows/lighthouse-explore.yml`, settings in `lighthouserc.json`)
+collects `/explore` only.
 
 ---
 
