@@ -139,6 +139,11 @@ vi.mock('maplibre-gl', () => {
     getContainer() {
       return this.container
     }
+    // The stub's canvas is not in its container; its markers sit in the
+    // container itself (StubMarker.addTo).
+    getCanvasContainer() {
+      return this.canvas
+    }
     project(lngLat: [number, number]) {
       return project(lngLat)
     }
@@ -315,6 +320,40 @@ describe('GlobeCanvas place labels', () => {
     const farSide = { ...SCENES[0], city: 'Far Side', slug: 'far-side-xx', longitude: 90, latitude: 46.5 }
     await showMap(true, [SCENES[0], farSide])
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+  })
+
+  it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
+    // A control the page draws beside the canvas, first clear of every label,
+    // then moved over Clear City's (213,323 to 273,335).
+    let drift: HTMLButtonElement | null = null
+    const placeDrift = (box: { left: number; top: number; right: number; bottom: number }) => {
+      drift!.getBoundingClientRect = () =>
+        ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
+    }
+    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
+    render(
+      <div>
+        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />
+        <button
+          type="button"
+          ref={(button) => {
+            drift = button
+            if (button) placeDrift({ left: 300, top: 600, right: 360, bottom: 630 })
+          }}
+        >
+          Drift
+        </button>
+      </div>,
+    )
+    await act(async () => {
+      maps[0].fire('style.load')
+      maps[0].fire('render')
+    })
+    await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+
+    placeDrift({ left: 200, top: 315, right: 290, bottom: 345 })
+    act(() => drift!.setAttribute('data-moved', 'true'))
+    await waitFor(() => expect(placeLabelTexts()).toEqual([]))
   })
 
   it('reports a place file that could not be loaded and draws no place label', async () => {

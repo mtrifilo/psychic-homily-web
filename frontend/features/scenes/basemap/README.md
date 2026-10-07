@@ -77,6 +77,74 @@ changes its schema or endpoints:
    curl -s https://tiles.openfreemap.org/planet | head -c 200
    ```
 
+## Light globe overlays (compact viewports)
+
+Below the `lg` breakpoint (`ATLAS_COMPACT_VIEWPORT_QUERY` in
+`frontend/features/scenes/atlasViewport.ts`) the globe shows the light look
+instead of the NASA GIBS raster: a flat ocean and the Natural Earth land file
+(`globe-land-110m.geojson`, prefetched before the map exists), with three
+overlay files drawn on top. `globeSurface.ts` (in this directory) owns the
+layers and the loading; `globePlaces.ts` (in this directory) holds the
+place-label rules and `frontend/features/scenes/components/globePlaceLabels.ts`
+draws the labels.
+
+| File (`frontend/public/atlas/`) | Contents | Drawn as |
+|---|---|---|
+| `globe-country-lines-110m.geojson` | 1:110m country boundary lines | `globe-country-lines` line layer |
+| `globe-state-lines-50m.geojson` | 1:50m state and province lines (United States, Canada, Australia, Brazil) | `globe-state-lines` line layer, under the country lines |
+| `globe-places-110m.geojson` | 1:110m populated places (243), in label rank order | DOM markers in the app's mono face (no glyph download) |
+
+All three come from `frontend/scripts/atlas-globe-overlays.mjs`, built from
+the same pinned Natural Earth commit as the land file;
+`frontend/scripts/lib/natural-earth.mjs` checks each input's sha256 before
+anything is written.
+
+- **Light look only.** On the full look (`lg` and up) both line layers are
+  hidden and no place label is mounted. The boundary and place files are
+  requested only when a map shows the light look, so a map that only ever
+  shows the full look never requests them.
+- **Load trigger.** The boundary and place files are fetched only after the
+  map's first full render: the first `render` event with the style and every
+  visible source loaded. MapLibre's `load` is not used because it never fires
+  on `/atlas` (the pulse rings change paint every frame). Each of these
+  fetches has a 10 s deadline, body included.
+- **Label budget.** Labels show from zoom 2 up to, not including, zoom 5.5,
+  where the street crossfade starts. At most 12 show at the entry zoom
+  (2.36, the default camera's), rising linearly to 20 at zoom 5 and holding
+  there. The budget is the same at every pane size.
+- **Collision order.** Scene labels and scene dots on the near side of the
+  globe are placed first and never move. The controls drawn over the map come
+  next: the search pill, Drift, the Genres chip, the My Scenes strip (its
+  chips and its star), the credit when it is drawn, and any other element
+  over the map that takes pointer events or is an icon. Place labels go last,
+  in rank order: each is kept only if it sits wholly inside the pane and
+  clears the scene marks, the controls and every place label kept before it,
+  until the budget is spent. The controls' boxes are read from the DOM when
+  the labels mount and again after a resize or a change in the chrome, never
+  per frame; a change that moves a control lays the labels out again. While
+  a modal elsewhere on the page has turned pointer events off, the boxes
+  last read are kept, and they are read again once it turns them back on.
+  The chrome is found by walking the map pane: a wrapper around controls
+  must be `pointer-events: none` or have no area of its own, as the Atlas
+  chrome's wrappers are, or its whole box counts as one control and blocks
+  every label under it.
+- **Failure paths.** A boundary file that fails, stalls past its deadline or
+  is not a FeatureCollection is handed to the map as a URL, so MapLibre
+  fetches it and a second failure reaches `basemapTelemetry.ts` as a source
+  error. The place file is retried once; if that also fails, the map draws
+  no place labels and `reportGlobePlacesFailure` reports it. Both paths use
+  the same Sentry event (`Atlas basemap tile source failed`, at most once per
+  source per page session, nothing while the browser reports itself
+  offline) with two tags that tell them apart:
+  - `basemap_source`: `globeStateLines` or `globeCountryLines` for a
+    boundary file, `globePlaces` for the place file.
+  - `basemap_status`: the HTTP status of a failed response; `0` for a
+    network failure (for `globePlaces`, also a request past its deadline);
+    `none` for a place file whose body was not a usable FeatureCollection,
+    or a boundary error that carried no status.
+
+  `basemap_host` is `same-origin` for all three.
+
 ## Attribution requirements
 
 - **OpenStreetMap (required, ODbL)**: the `openmaptiles` source carries
