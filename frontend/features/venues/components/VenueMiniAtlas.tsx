@@ -121,9 +121,10 @@ export interface VenueMiniAtlasProps {
  * labels, so the pane's keyboard surface is those two buttons and nothing
  * else.
  *
- * A map that cannot draw (a refused WebGL2 context, a style that never loads,
- * a lost context that is not restored; see atlasMapHealth.ts) is thrown from
- * render, so it reaches the error boundary the pane wraps around this map.
+ * A map that cannot draw reaches the error boundary the pane wraps around this
+ * map: a refused WebGL2 context is thrown from the mount effect, and the
+ * failures the health watcher reports (a style that never loads, a lost
+ * context that is not restored; see atlasMapHealth.ts) are thrown from render.
  */
 export function VenueMiniAtlas({
   pins,

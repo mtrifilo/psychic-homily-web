@@ -83,8 +83,11 @@ export interface VenueMiniAtlasPaneProps {
  *
  * A map that fails, as a chunk that cannot be fetched or as a map that cannot
  * draw, is caught inside that box: the box says the map is unavailable, the
- * rest of the pane and the page stay, and Sentry gets the failure. There is no
- * retry, because React.lazy keeps a rejected import until a reload.
+ * rest of the pane and the page stay, and Sentry gets the failure. The box
+ * offers no retry. A later mount of the pane (the city or the viewport
+ * changes) starts over: a failed chunk throws again at once, because
+ * React.lazy keeps a rejected import until a reload, and a map that could not
+ * draw is built again.
  */
 export function VenueMiniAtlasPane({
   venues,

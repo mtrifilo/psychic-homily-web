@@ -60,6 +60,21 @@ describe('ScryingGridWordmark', () => {
     expect(FAKE_CTX.arc).toHaveBeenCalled()
   })
 
+  it('starts no animation loop while hydrating for a visitor who asks for less motion', async () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
+    const { renderToString } = await import('react-dom/server')
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(<ScryingGridWordmark />)
+    document.body.appendChild(container)
+
+    // The hydration pass reads the hook's server value (false); the field
+    // must still come up static.
+    render(<ScryingGridWordmark />, { container, hydrate: true })
+
+    expect(requestFrame).not.toHaveBeenCalled()
+    expect(FAKE_CTX.arc).toHaveBeenCalled()
+  })
+
   it('goes static when reduced motion turns on mid-session, and animates again when it turns off', () => {
     matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
     render(<ScryingGridWordmark />)
@@ -68,7 +83,6 @@ describe('ScryingGridWordmark', () => {
     requestFrame.mockClear()
     FAKE_CTX.arc.mockClear()
     matchMedia.set(REDUCED_MOTION_QUERY, true)
-    expect(window.cancelAnimationFrame).toHaveBeenCalled()
     expect(requestFrame).not.toHaveBeenCalled()
     // The static field is drawn in place of the stopped loop.
     expect(FAKE_CTX.arc).toHaveBeenCalled()

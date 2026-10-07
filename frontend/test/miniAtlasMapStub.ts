@@ -28,7 +28,10 @@ export interface StubMap {
 /** Every map constructed since the last {@link resetStubMaps}, in order. */
 export const stubMaps: StubMap[] = []
 
-/** When false, the next constructed map has no painter (a refused context). */
+/**
+ * While false, every map constructed has no painter (a refused context), until
+ * {@link resetStubMaps}. Such a map's `remove()` throws, as maplibre-gl's does.
+ */
 export const stubMapOptions = { grantContext: true }
 
 export function resetStubMaps(): void {
@@ -49,7 +52,11 @@ export function maplibreStubModule() {
     setFeatureState = vi.fn()
     removeFeatureState = vi.fn()
     fitBounds = vi.fn()
-    remove = vi.fn()
+    remove = vi.fn(() => {
+      if (!this.painter) {
+        throw new TypeError("Cannot read properties of undefined (reading 'destroy')")
+      }
+    })
     canvas = document.createElement('canvas')
     controls: { control: unknown; position: string }[] = []
     touchZoomRotate = { disableRotation: vi.fn() }

@@ -34,6 +34,21 @@ describe('HeroLightning', () => {
     expect(boltsScheduled()).toBe(false)
   })
 
+  it('builds no bolt layer while hydrating for a visitor who asks for less motion', async () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
+    const { renderToString } = await import('react-dom/server')
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(<HeroLightning />)
+    document.body.appendChild(container)
+
+    // The hydration pass reads the hook's server value (false); the layer
+    // must still never reach its canvas.
+    render(<HeroLightning />, { container, hydrate: true })
+
+    expect(HTMLCanvasElement.prototype.getContext).not.toHaveBeenCalled()
+    expect(boltsScheduled()).toBe(false)
+  })
+
   it('stops when reduced motion turns on mid-session, and resumes when it turns off', () => {
     matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
     render(<HeroLightning />)

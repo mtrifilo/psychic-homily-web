@@ -88,6 +88,8 @@ describe('VenueMiniAtlasPane when its map cannot draw', () => {
 
     await screen.findByTestId('venue-mini-atlas-unavailable')
     expectContainedFailure(reachedRoute, 'context-refused')
+    // MapLibre's remove() needs the painter this map never got.
+    expect(stubMaps[0].remove).not.toHaveBeenCalled()
   })
 
   it('keeps a map that draws when one source fails', async () => {
