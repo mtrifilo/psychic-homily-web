@@ -453,8 +453,11 @@ describe('GlobeCanvas place labels', () => {
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
     expect(reads).toHaveBeenCalledTimes(3)
 
-    // Unmounted: the watch is stopped, so its pending settle never reads.
-    act(() => drift.setAttribute('data-moved', 'again'))
+    // Unmounted mid-settle: the change has been seen and its read is
+    // pending, and stopping the watch cancels it.
+    await act(async () => {
+      drift.setAttribute('data-moved', 'again')
+    })
     unmount()
     await outlastChromeSettle()
     expect(reads).toHaveBeenCalledTimes(3)

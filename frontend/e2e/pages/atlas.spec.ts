@@ -247,8 +247,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
       deviceScaleFactor: 2,
     })
     // The test boots a SwiftShader map signed in, waits out the banner's
-    // resize, and moves the camera four times, waiting on street tiles for
-    // the credit and on the labels' relayout at each step.
+    // resize, and moves the camera four times, waiting on the street
+    // source's credit (its TileJSON) and on the labels' relayout.
     test.setTimeout(120_000)
 
     // The place set's Houston (public/atlas/globe-places-110m.geojson).
