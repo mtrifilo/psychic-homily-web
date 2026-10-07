@@ -94,11 +94,22 @@ function lintedPaneFiles(): string[] {
   return match[1].split(',').map((name) => `${name.trim()}.tsx`)
 }
 
-function sourceFiles(dir: string): string[] {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : sourceFiles(full)
-    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [full] : []
+const SCANNED_ROOTS = ['app', 'components', 'features', 'lib']
+const SKIPPED_SEGMENT = /(^|[\\/])(node_modules|\.next)([\\/]|$)/
+const NON_SOURCE = /\.(test|spec|stories)\.tsx?$/
+
+/**
+ * Source files under the scanned roots whose text mentions GlobeCanvas: one
+ * recursive directory listing per root, a read of each candidate, and no
+ * parse, so only files that can import GlobeCanvas reach the AST.
+ */
+function filesMentioningGlobeCanvas(): string[] {
+  return SCANNED_ROOTS.flatMap((root) => {
+    const base = path.join(FRONTEND, root)
+    return (fs.readdirSync(base, { recursive: true }) as string[])
+      .filter((rel) => /\.tsx?$/.test(rel) && !NON_SOURCE.test(rel) && !SKIPPED_SEGMENT.test(rel))
+      .map((rel) => path.join(base, rel))
+      .filter((file) => fs.readFileSync(file, 'utf8').includes('GlobeCanvas'))
   })
 }
 
@@ -127,9 +138,10 @@ describe('the Atlas pane links through AtlasPaneLink', () => {
 })
 
 describe('GlobeCanvas has one dynamic import', () => {
-  it('is loadGlobeCanvas.ts, outside tests', () => {
-    const importers = ['app', 'components', 'features', 'lib']
-      .flatMap((dir) => sourceFiles(path.join(FRONTEND, dir)))
+  // A scan of the frontend's source tree, which takes longer than a unit test
+  // on a shared CI runner; the timeout is for that, not for anything async.
+  it('is loadGlobeCanvas.ts, outside tests', { timeout: 30_000 }, () => {
+    const importers = filesMentioningGlobeCanvas()
       .filter((file) =>
         runtimeImports(parse(file)).some((specifier) => /(^|\/)GlobeCanvas$/.test(specifier)) &&
         /\bimport\(\s*['"][^'"]*GlobeCanvas['"]\s*\)/.test(fs.readFileSync(file, 'utf8')),
