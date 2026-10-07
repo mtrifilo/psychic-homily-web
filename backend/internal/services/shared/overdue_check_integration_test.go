@@ -734,6 +734,12 @@ func TestRegister_PreservesRunState(t *testing.T) {
 // PSY-1538 shipped a defect that was invisible locally because a fixture stood in
 // for the real thing.
 func TestStalledSweepEndToEnd(t *testing.T) {
+	// postgresWait bounds each step below that ends on real Postgres round trips.
+	// It is a ceiling, not a duration: a step that finishes early returns early,
+	// so a fast database pays nothing for it. It is generous because CI runs every
+	// package's container on one shared runner at once.
+	const postgresWait = 10 * time.Second
+
 	db, store := setupRunStore(t)
 
 	// RunScheduledLoop populates the process-wide registry; without this the name
@@ -744,13 +750,22 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	SetDefaultRunStore(store)
 	t.Cleanup(func() { SetDefaultRunStore(nil) })
 
-	loopCtx, loopCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	// Register runs on the loop's context, so that context's deadline is the
+	// registration write's budget. StopCh is closed up front: the loop registers,
+	// works out its first delay, and returns at its first wait without running a
+	// cycle, because a closed StopCh wins over any nonzero first delay and a row
+	// that has never completed is given a catch-up delay of at least a second.
+	loopCtx, loopCancel := context.WithTimeout(context.Background(), postgresWait)
 	defer loopCancel()
+	stopped := make(chan struct{})
+	close(stopped)
 	RunScheduledLoop(loopCtx, LoopConfig{
-		Name:       "starved_sweep",
-		Interval:   24 * time.Hour,
-		StartDelay: 24 * time.Hour, // never reaches a cycle in this window
-	}, func(context.Context) {})
+		Name:     "starved_sweep",
+		Interval: 24 * time.Hour,
+		StopCh:   stopped,
+	}, func(context.Context) {
+		t.Error("starved_sweep ran a cycle; this test needs a loop that has never run one")
+	})
 
 	// It registered itself at start even though it never ran a cycle — this is what
 	// PSY-1611 alone could not see.
@@ -779,12 +794,12 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	check := newTestHealthCheck(store)
 
 	// The boot cycle, as a deploy would trigger it.
-	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), postgresWait)
 	defer checkCancel()
 	check.Start(checkCtx)
 	t.Cleanup(check.Stop)
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(postgresWait)
 	for {
 		mu.Lock()
 		_, found := findLoop(received, "starved_sweep")
