@@ -337,12 +337,29 @@ func streetGeocodeUpdateScope(db *gorm.DB, v *catalogm.Venue) *gorm.DB {
 // it was produced from, skipping silently if the row's address changed since
 // v was loaded (see streetGeocodeUpdateScope).
 func writeStreetGeocode(db *gorm.DB, v *catalogm.Venue, res geo.AddressResult, key string) error {
-	return streetGeocodeUpdateScope(db, v).Updates(map[string]interface{}{
+	return streetGeocodeUpdateScope(db, v).Updates(streetGeocodeHitColumns(res, key)).Error
+}
+
+// streetGeocodeHitColumns is the column set a street-geocode hit stores: the
+// point, its precision, and the address key it was produced from.
+func streetGeocodeHitColumns(res geo.AddressResult, key string) map[string]interface{} {
+	return map[string]interface{}{
 		"street_latitude":   res.Latitude,
 		"street_longitude":  res.Longitude,
 		"geocode_precision": res.Precision,
 		"geocoded_address":  key,
-	}).Error
+	}
+}
+
+// streetGeocodeMissColumns is the column set a clean miss stores: the miss
+// memo (the attempted key with NULL coordinates).
+func streetGeocodeMissColumns(key string) map[string]interface{} {
+	return map[string]interface{}{
+		"street_latitude":   (*float64)(nil),
+		"street_longitude":  (*float64)(nil),
+		"geocode_precision": (*string)(nil),
+		"geocoded_address":  key,
+	}
 }
 
 // clearStreetGeocode sets all four street-geocode columns to SQL NULL,
@@ -361,12 +378,7 @@ func clearStreetGeocode(db *gorm.DB, v *catalogm.Venue) error {
 // writers (streetGeocodeAttempted) skip re-querying it. Skips silently if
 // the row's address changed since v was loaded.
 func recordStreetGeocodeMiss(db *gorm.DB, v *catalogm.Venue, key string) error {
-	return streetGeocodeUpdateScope(db, v).Updates(map[string]interface{}{
-		"street_latitude":   (*float64)(nil),
-		"street_longitude":  (*float64)(nil),
-		"geocode_precision": (*string)(nil),
-		"geocoded_address":  key,
-	}).Error
+	return streetGeocodeUpdateScope(db, v).Updates(streetGeocodeMissColumns(key)).Error
 }
 
 func change(v *catalogm.Venue, action, key string) StreetGeocodeChange {

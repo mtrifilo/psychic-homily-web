@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"psychic-homily-backend/internal/utils/urlguard"
@@ -58,7 +57,7 @@ func NewSSRFSafeLivenessChecker() *SSRFSafeLivenessChecker {
 		Timeout: livenessTimeout,
 		// Control runs after DNS resolution, before connect, for every dialed
 		// address. Returning an error here aborts the connection.
-		Control: ssrfDialControl,
+		Control: urlguard.DialControl,
 	}
 	// DialContext is the guarded dialer. http.Transport builds TLS connections
 	// on top of this same DialContext (it has no separate DialTLSContext set),
@@ -169,24 +168,4 @@ func (c *SSRFSafeLivenessChecker) probe(ctx context.Context, method, rawURL stri
 // candidate regardless, so erring toward "answered" is the safer default.)
 func statusIsLive(status int) bool {
 	return status < 500
-}
-
-// ssrfDialControl is the net.Dialer.Control hook. address is "host:port" where
-// host is already a resolved IP literal (the resolver runs before Control). It
-// refuses any connection whose target IP is not a routable public address.
-func ssrfDialControl(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("ssrf guard: malformed dial address %q: %w", address, err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		// Control always receives a resolved IP literal; a non-IP here is
-		// anomalous — fail closed.
-		return fmt.Errorf("ssrf guard: non-IP dial host %q", host)
-	}
-	if !urlguard.IsPublicIP(ip) {
-		return fmt.Errorf("ssrf guard: refusing to dial non-public address %s", ip)
-	}
-	return nil
 }
