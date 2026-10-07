@@ -24,12 +24,16 @@ export type AtlasPrefetch = 'after-map' | 'never'
  * up every link holds, because prefetches share the phone's connection and
  * main thread with the map's own downloads.
  */
+const noSubscription = () => () => {}
+
 function useChromeHoldsPrefetch(atlasPrefetch: AtlasPrefetch): boolean {
   // Read at render, not in an effect: Next registers a Link's prefetch when it
   // first mounts, so the hold has to be in place on the first commit.
   const pathname = usePathname()
+  // A 'never' link holds on the Atlas whatever the map does, so it does not
+  // re-render when the signal releases.
   const released = useSyncExternalStore(
-    subscribeAtlasMapReady,
+    atlasPrefetch === 'after-map' ? subscribeAtlasMapReady : noSubscription,
     isAtlasMapReady,
     () => false
   )

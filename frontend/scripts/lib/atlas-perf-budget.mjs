@@ -16,7 +16,7 @@ export const TARGET = {
 }
 
 // How long after first map the harness keeps counting bytes for the
-// reported-only after-map row (and before the city-view jump).
+// reported-only after-map row, before the city-view jump.
 export const AFTER_MAP_WINDOW_MS = 3000
 
 // The workflow's job summary and the script header name these numbers.

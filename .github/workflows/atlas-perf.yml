@@ -11,9 +11,13 @@ name: Atlas Perf
 # Only a broken measurement fails the job: a harness error (exit 2), no
 # preview found, or a preview that never answers.
 #
-# What is gated: entry bytes (and raster requests on a compact viewport).
-# Entry bytes are deterministic across machines; they are the only number a
-# blocking version of this job gates on. First rendered map is printed against
+# What is gated: entry bytes to first map (and raster requests on a compact
+# viewport). Entry bytes are the requests that finished by the moment the page
+# reported its first rendered map; the bytes of the following 3 s are reported
+# and never gated. The cut follows first map, so requests that finish near it
+# can land on either side on a slower renderer; the bytes are far less
+# machine-dependent than the time, and they are the only number a blocking
+# version of this job gates on. First rendered map is printed against
 # the owner's 3.5 s budget but not evaluated here: GitHub's runners have no
 # GPU, Chromium renders through SwiftShader, and first map comes out at about
 # 1.75x a local GPU run.

@@ -48,7 +48,7 @@ import {
   fromFilterSelectValue,
 } from '@/lib/filterSelectValue'
 import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
-import { useArtistSearch } from '@/features/artists'
+import { useArtistSearch } from '@/features/artists/hooks/useArtistSearch'
 import { useVenueSearch } from '@/features/venues/hooks/useVenueSearch'
 import {
   useCreateFestival,

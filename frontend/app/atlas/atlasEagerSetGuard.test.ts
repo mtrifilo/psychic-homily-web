@@ -96,6 +96,8 @@ const FORBIDDEN_ON_ATLAS: ReadonlyArray<readonly [label: string, matches: Matche
 const FORBIDDEN_ON_EVERY_ROUTE: ReadonlyArray<readonly [label: string, matches: Matcher]> = [
   ['Atlas components (AtlasGlobe and the panels)', id => id.startsWith('features/scenes/components/')],
   ['shows components', id => id.startsWith('features/shows/components/')],
+  // The palette deep-imports TagOfficialIndicator; the barrels would bring TagDetail.
+  ['the tags barrels', id => id === 'features/tags/index.ts' || id === 'features/tags/components/index.ts'],
 ]
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs', '/index.ts', '/index.tsx', '/index.js']
@@ -284,8 +286,10 @@ function offenders(graph: Graph, matches: Matcher): string[] {
 const HOW_TO_FIX =
   'cut the chain at its first barrel (index.ts) by importing from the defining file, or lazy-load the module (see the header of app/atlas/atlasEagerSetGuard.test.ts)'
 
+const atlasGraph = clientGraph(ATLAS_ENTRIES)
+
 describe('the /atlas eager client graph', () => {
-  const graph = clientGraph(ATLAS_ENTRIES)
+  const graph = atlasGraph
 
   for (const [label, matches] of FORBIDDEN_ON_ATLAS) {
     it(`does not contain ${label}`, () => {
@@ -306,11 +310,11 @@ describe('the client graph every route loads', () => {
 
 describe('the walk itself', () => {
   it('resolves every first-party import it meets', () => {
-    expect(clientGraph(ATLAS_ENTRIES).unresolved, 'an unresolved import would drop an edge silently').toEqual([])
+    expect(atlasGraph.unresolved, 'an unresolved import would drop an edge silently').toEqual([])
   })
 
   it('reaches the chrome and the Atlas, so the absences above are not vacuous', () => {
-    const graph = clientGraph(ATLAS_ENTRIES)
+    const graph = atlasGraph
     for (const id of [
       'components/layout/nav/BottomTabBar.tsx',
       'components/layout/TopBar.tsx',

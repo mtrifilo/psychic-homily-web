@@ -82,8 +82,7 @@
 //     do not exist in production.
 //   - City view: after the after-map window, jump the camera to --city at
 //     z12.5 and measure time until the map is ready again, plus the bytes
-//     that finished in the following AFTER_MAP_WINDOW_MS. Reported, not
-//     budgeted.
+//     that finished in the following CITY_SETTLE_MS. Reported, not budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
 import { AFTER_MAP_WINDOW_MS, EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
@@ -95,6 +94,8 @@ const FAST_4G = {
   latency: 60 * 2.75,
 }
 const CPU_THROTTLE_RATE = 4
+// How long the city view settles before its bytes are counted.
+const CITY_SETTLE_MS = 3000
 const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
@@ -278,13 +279,18 @@ async function oneRun(browser, opts) {
   // with the cache off, and each of MapLibre's workers importing the same
   // module scripts, where only one import reports the full transfer.
   const byKey = new Map()
+  // Size lookups still in flight; each window waits for them before it is cut.
+  const pending = new Set()
+  const settled = () => Promise.allSettled([...pending])
   context.on('requestfinished', async (request) => {
     const url = request.url()
     if (url.startsWith('data:')) return
     // Stamped before the sizes lookup, which resolves later than the finish.
     const at = Date.now()
+    const lookup = request.sizes()
+    pending.add(lookup)
     try {
-      const sizes = await request.sizes()
+      const sizes = await lookup
       const entry = { url, type: request.resourceType(), bytes: sizes.responseBodySize + sizes.responseHeadersSize, at }
       entry.category = category(entry)
       const key = `${entry.type} ${url}`
@@ -323,6 +329,7 @@ async function oneRun(browser, opts) {
   }
   await page.waitForTimeout(AFTER_MAP_WINDOW_MS)
   const entryCut = Date.now()
+  await settled()
   const entry = finished().filter((r) => r.at <= firstMapAt)
   const afterMap = finished().filter((r) => r.at > firstMapAt && r.at <= entryCut)
   // The map canvas's own context: getContext returns the existing one, so
@@ -352,7 +359,8 @@ async function oneRun(browser, opts) {
     await context.close()
     throw new Error(`the city view never passed the readiness gate within ${READY_TIMEOUT_MS} ms`)
   }
-  await page.waitForTimeout(AFTER_MAP_WINDOW_MS)
+  await page.waitForTimeout(CITY_SETTLE_MS)
+  await settled()
   const city = finished().filter((r) => r.at > entryCut)
   await context.close()
   return {
@@ -376,9 +384,9 @@ function printReport(opts, runs, verdict) {
   console.log(`- WebGL renderer: ${runs[0].renderer}`)
   console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB to first map + ${kib(r.afterMap.totalBytes)} KiB after / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 
-  const window = `${AFTER_MAP_WINDOW_MS / 1000} s after map`
+  const afterMapLabel = `${AFTER_MAP_WINDOW_MS / 1000} s after map`
   const categories = CATEGORY_ORDER.filter((c) => runs.some((r) => r.entry.byCategory[c] || r.afterMap.byCategory[c] || r.city.byCategory[c]))
-  console.log(`| Category | Entry KiB, to first map (median) | Entry requests | ${window} KiB (median) | City view KiB (median) |`)
+  console.log(`| Category | Entry KiB, to first map (median) | Entry requests | ${afterMapLabel} KiB (median) | City view KiB (median) |`)
   console.log('|---|---:|---:|---:|---:|')
   for (const c of categories) {
     const entryBytes = median(runs.map((r) => r.entry.byCategory[c]?.bytes ?? 0))

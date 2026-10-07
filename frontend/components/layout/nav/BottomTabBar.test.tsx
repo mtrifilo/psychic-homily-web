@@ -194,16 +194,21 @@ describe('BottomTabBar', () => {
     // On /atlas the tab bar's links are the primary destinations that re-arm
     // their prefetch once the map is up; the sheet rows never prefetch.
     it('re-arms the tab links on /atlas once the map is up, and only them', async () => {
+      // A fresh module graph, so releasing this copy of the page-load signal
+      // leaves the rest of the file's BottomTabBar untouched.
+      vi.resetModules()
       const { markAtlasMapReady } = await import('@/lib/atlasMapReady')
+      const { BottomTabBar: FreshTabBar } = await import('./BottomTabBar')
       mockPathname = '/atlas'
+      const tabNames = ['Home', 'Shows', 'Radio', 'Account']
       const user = userEvent.setup()
-      const { rerender } = render(<BottomTabBar />)
-      for (const name of ['Home', 'Shows', 'Radio', 'Account']) {
+      const { rerender } = render(<FreshTabBar />)
+      for (const name of tabNames) {
         expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'false')
       }
       act(() => markAtlasMapReady())
-      rerender(<BottomTabBar />)
-      for (const name of ['Home', 'Shows', 'Radio', 'Account']) {
+      rerender(<FreshTabBar />)
+      for (const name of tabNames) {
         expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'undefined')
       }
       await user.click(screen.getByRole('button', { name: 'Browse' }))

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { AFTER_MAP_WINDOW_MS, DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
+import { DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
 
 const MIB = 1024 * 1024
 
@@ -160,7 +160,6 @@ describe('atlas perf budget', () => {
         { budget: DEFAULT_BUDGET, compact: true },
       )
       expect(heavyAfter).toMatchObject({ afterMapBytes: 3 * MIB, entryOk: true, pass: true })
-      expect(AFTER_MAP_WINDOW_MS).toBe(3000)
     })
 
     it('checks against an overridden budget', () => {

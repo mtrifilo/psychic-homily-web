@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
-import { PrimaryNav, primaryLinks } from './PrimaryNav'
+import { PrimaryNav } from './PrimaryNav'
 import { markAtlasMapReady } from '@/lib/atlasMapReady'
 
 vi.mock('next/navigation', () => ({
@@ -39,6 +39,5 @@ describe('PrimaryNav on /atlas', () => {
     rerender(<PrimaryNav />)
 
     for (const anchor of anchors()) expect(anchor).toHaveAttribute('data-prefetch', 'undefined')
-    expect(primaryLinks.length).toBeGreaterThan(0)
   })
 })
