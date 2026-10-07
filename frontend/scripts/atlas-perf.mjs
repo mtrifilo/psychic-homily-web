@@ -25,6 +25,9 @@
 //                       harness error)
 //   --budget-ms MS      first rendered map limit in ms (default 3500)
 //   --budget-bytes N    entry bytes limit (default 1572864, 1.5 MiB)
+//   --first-map-informational NOTE
+//                       report first map against its limit without gating
+//                       on it; NOTE replaces its Result cell
 //
 // Env: VERCEL_PROTECTION_BYPASS, if set, is sent to get past preview SSO, and
 // only when the target is an https URL on one of this project's Vercel preview
@@ -79,7 +82,7 @@
 //     finished in the following SETTLE_MS. Reported, not budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
-import { EXIT, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
+import { EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
 
 const FAST_4G = {
   offline: false,
@@ -101,7 +104,7 @@ const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
-  console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--json FILE] [--no-budget] [--budget-ms MS] [--budget-bytes N]')
+  console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--json FILE] [--no-budget] [--budget-ms MS] [--budget-bytes N] [--first-map-informational NOTE]')
   process.exit(EXIT.HARNESS_ERROR)
 }
 
@@ -115,6 +118,7 @@ function parseArgs(argv) {
     headed: false,
     json: null,
     enforce: true,
+    firstMapNote: null,
   }
   const positional = []
   const overrides = {}
@@ -137,6 +141,7 @@ function parseArgs(argv) {
     else if (arg === '--no-budget') opts.enforce = false
     else if (arg === '--budget-ms') overrides.firstMapMs = next()
     else if (arg === '--budget-bytes') overrides.entryBytes = next()
+    else if (arg === '--first-map-informational') opts.firstMapNote = next()
     else if (arg.startsWith('--')) usage(`unknown option ${arg}`)
     else positional.push(arg)
   }
@@ -151,6 +156,7 @@ function parseArgs(argv) {
   if (opts.city.length !== 2 || opts.city.some((n) => !Number.isFinite(n))) usage('--city must be LNG,LAT')
   if (!['iphone13', 'desktop'].includes(opts.device)) usage('--device must be iphone13 or desktop')
   if (opts.viewport && !(opts.viewport.width > 0 && opts.viewport.height > 0)) usage('--viewport must be WxH')
+  if (opts.firstMapNote !== null && !opts.firstMapNote.trim()) usage('--first-map-informational needs a non-empty note')
   const { budget, error } = resolveBudget(overrides)
   if (error) usage(error)
   return { ...opts, url, budget }
@@ -348,7 +354,6 @@ async function oneRun(browser, opts) {
 }
 
 const kib = (bytes) => (bytes / 1024).toFixed(0)
-const mib = (bytes) => (bytes / 1024 / 1024).toFixed(2)
 
 function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
@@ -370,14 +375,7 @@ function printReport(opts, runs, verdict) {
   }
   console.log(`| **Total** | **${kib(verdict.entryBytes)}** | | **${kib(verdict.cityBytes)}** |\n`)
 
-  const mark = (ok) => (ok ? 'PASS' : 'FAIL')
-  console.log('| Budget | Value (median unless noted) | Limit | Result |')
-  console.log('|---|---:|---:|---|')
-  console.log(`| First rendered map | ${seconds(verdict.firstMapMs)} s | ${seconds(verdict.budget.firstMapMs)} s | ${mark(verdict.firstMapOk)} |`)
-  console.log(`| Entry bytes | ${mib(verdict.entryBytes)} MiB | ${mib(verdict.budget.entryBytes)} MiB | ${mark(verdict.entryOk)} |`)
-  if (verdict.compact) {
-    console.log(`| Raster requests (compact viewport, worst run) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
-  }
+  console.log(budgetTable(verdict).join('\n'))
   console.log(`\n${targetLine(verdict.target)}`)
   console.log(`\nCity view ready after jump: ${seconds(verdict.cityMs)} s (median, not budgeted)`)
 }
@@ -406,6 +404,7 @@ const exitCode = await runBudgetCheck({
   },
   budget: opts.budget,
   compact: contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH,
+  firstMapNote: opts.firstMapNote,
   enforce: opts.enforce,
   report: (runs, verdict) => {
     printReport(opts, runs, verdict)

@@ -50,8 +50,10 @@ export function resolveBudget({ firstMapMs, entryBytes } = {}) {
 /**
  * Medians of the runs checked against `budget`. A compact viewport also
  * fails on any raster request in any run (`rasterRequests` is the worst run).
+ * With a `firstMapNote`, first map is reported against its limit but left out
+ * of `pass`, and the note stands in for its result.
  */
-export function judge(runs, { budget, compact }) {
+export function judge(runs, { budget, compact, firstMapNote = null }) {
   const firstMapMs = median(runs.map((r) => r.firstMapMs))
   const entryBytes = median(runs.map((r) => r.entry.totalBytes))
   const rasterRequests = Math.max(...runs.map((r) => r.rasterRequests))
@@ -70,11 +72,28 @@ export function judge(runs, { budget, compact }) {
     firstMapOk,
     entryOk,
     rasterOk,
-    pass: firstMapOk && entryOk && rasterOk,
+    firstMapNote,
+    pass: (firstMapNote !== null || firstMapOk) && entryOk && rasterOk,
   }
 }
 
 export const seconds = (ms) => (ms / 1000).toFixed(2)
+export const mib = (bytes) => (bytes / 1024 / 1024).toFixed(2)
+
+/** The report's budget table, as markdown lines. */
+export function budgetTable(verdict) {
+  const mark = (ok) => (ok ? 'PASS' : 'FAIL')
+  const lines = [
+    '| Budget | Value (median unless noted) | Limit | Result |',
+    '|---|---:|---:|---|',
+    `| First rendered map | ${seconds(verdict.firstMapMs)} s | ${seconds(verdict.budget.firstMapMs)} s | ${verdict.firstMapNote ?? mark(verdict.firstMapOk)} |`,
+    `| Entry bytes | ${mib(verdict.entryBytes)} MiB | ${mib(verdict.budget.entryBytes)} MiB | ${mark(verdict.entryOk)} |`,
+  ]
+  if (verdict.compact) {
+    lines.push(`| Raster requests (compact viewport, worst run) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
+  }
+  return lines
+}
 
 /** The report's target line for a verdict's `target`. */
 export function targetLine({ firstMapMs, deltaMs }) {
@@ -88,11 +107,11 @@ export function targetLine({ firstMapMs, deltaMs }) {
  * after `onError`; otherwise `report` receives the runs and the verdict, and
  * the code is BUDGET_MISSED only when `enforce` is set and the verdict fails.
  */
-export async function runBudgetCheck({ count, runOnce, budget, compact, enforce, report, onError }) {
+export async function runBudgetCheck({ count, runOnce, budget, compact, firstMapNote, enforce, report, onError }) {
   const runs = []
   try {
     for (let i = 0; i < count; i++) runs.push(await runOnce())
-    const verdict = judge(runs, { budget, compact })
+    const verdict = judge(runs, { budget, compact, firstMapNote })
     report(runs, verdict)
     return enforce && !verdict.pass ? EXIT.BUDGET_MISSED : EXIT.PASS
   } catch (error) {

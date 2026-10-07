@@ -5,8 +5,22 @@ name: Atlas Perf
 # frontend/scripts/lib/atlas-perf-budget.mjs), with the report in the job
 # summary.
 #
-# NON-BLOCKING: the job sets `continue-on-error: true`, so a missed budget or
-# a harness error marks the job but never fails the workflow run.
+# INFORMATIONAL: a missed budget never fails the job. The measurement step
+# exits 0 whatever the verdict, writes the verdict and both tables to the job
+# summary, and emits a `::warning::` annotation when the budget is missed.
+# Only a broken measurement fails the job: a harness error (exit 2), no
+# preview found, or a preview that never answers.
+#
+# What is gated: entry bytes (and raster requests on a compact viewport).
+# Entry bytes are deterministic across machines; they are the only number a
+# blocking version of this job gates on. First rendered map is printed against
+# the owner's 3.5 s budget but not evaluated here: GitHub's runners have no
+# GPU, Chromium renders through SwiftShader, and first map comes out at about
+# 1.75x a local GPU run.
+#
+# Promotion: the blocking follow-up gates on entry bytes only, after this job
+# has run on five PRs without a false alarm. The job stays PR-only, because a
+# push to main deploys production, which this job must not measure.
 #
 # Preview discovery and the protection bypass work as in
 # lighthouse-explore.yml: the deployments API finds the vercel[bot] Preview
@@ -55,7 +69,6 @@ jobs:
   atlas-perf:
     name: Atlas perf (preview)
     runs-on: ubuntu-latest
-    continue-on-error: true
     # Step caps: Playwright deps 10 + browsers 4 + preview wait 12 +
     # reachability 6 + measurement 20 = 52, plus about 4 for checkout, bun and
     # the install. 65 leaves slack so a step cap fires before the job cap.
@@ -188,9 +201,15 @@ jobs:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set +e
-          node scripts/atlas-perf.mjs "$PREVIEW_URL" --runs 3 --json atlas-perf.json | tee atlas-perf.md
+          node scripts/atlas-perf.mjs "$PREVIEW_URL" --runs 3 --json atlas-perf.json \
+            --first-map-informational "SwiftShader, informational, about 1.75x local GPU" | tee atlas-perf.md
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "1" ]; then
+            detail=$(jq -r '.verdict | "entry bytes \(.entryBytes / 1048576 * 100 | round / 100) MiB of \(.budget.entryBytes / 1048576 * 100 | round / 100) MiB, \(.rasterRequests) raster requests"' atlas-perf.json)
+            echo "::warning title=Atlas perf budget missed::${detail}; see the job summary"
+            exit 0
+          fi
           exit "$code"
 
       # Only the script's stdout reaches the summary; its stderr (harness
@@ -212,14 +231,14 @@ jobs:
             result="not measured: the preview was unreachable or the bypass secret is missing"
           else
             case "$EXIT_CODE" in
-              0) result="budget met (exit 0)" ;;
-              1) result="budget missed (exit 1)" ;;
+              0) result="budget met: entry bytes and raster requests (first map is informational)" ;;
+              1) result="budget missed: entry bytes or raster requests (first map is informational); see the warning annotation" ;;
               2) result="harness error (exit 2); see the step log" ;;
               *) result="the measurement did not finish (step timeout); see the step log" ;;
             esac
           fi
           {
-            echo "## Atlas perf (preview, non-blocking)"
+            echo "## Atlas perf (preview, informational)"
             echo
             echo "Result: $result."
             echo

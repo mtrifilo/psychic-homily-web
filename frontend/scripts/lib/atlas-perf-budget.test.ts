@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_BUDGET, EXIT, TARGET, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
+import { DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
 
 const MIB = 1024 * 1024
 
@@ -121,6 +121,35 @@ describe('atlas perf budget', () => {
       expect(targetLine({ firstMapMs: 2500, deltaMs })).toBe(`Target (reported, not gated): first rendered map at most 2.50 s; ${ending}`)
     })
 
+    it('leaves first map out of pass when it is informational, still judging it', () => {
+      const note = 'SwiftShader, informational'
+      const slow = judge([run(6075)], { budget: DEFAULT_BUDGET, compact: true, firstMapNote: note })
+      expect(slow).toMatchObject({ firstMapOk: false, firstMapNote: note, pass: true })
+      const heavy = judge([run(6075, 1.5 * MIB + 1)], { budget: DEFAULT_BUDGET, compact: true, firstMapNote: note })
+      expect(heavy.pass).toBe(false)
+      const raster = judge([run(6075, 1.4 * MIB, 1)], { budget: DEFAULT_BUDGET, compact: true, firstMapNote: note })
+      expect(raster.pass).toBe(false)
+    })
+
+    it('prints the owner limit on every row, with the note in place of the first-map result', () => {
+      const gated = budgetTable(judge([run(3400, 1.4 * MIB)], { budget: DEFAULT_BUDGET, compact: true }))
+      expect(gated).toEqual([
+        '| Budget | Value (median unless noted) | Limit | Result |',
+        '|---|---:|---:|---|',
+        '| First rendered map | 3.40 s | 3.50 s | PASS |',
+        '| Entry bytes | 1.40 MiB | 1.50 MiB | PASS |',
+        '| Raster requests (compact viewport, worst run) | 0 | 0 | PASS |',
+      ])
+      const note = 'SwiftShader, informational, about 1.75x local GPU'
+      const ci = budgetTable(judge([run(6075, 1.5 * MIB + 1)], { budget: DEFAULT_BUDGET, compact: false, firstMapNote: note }))
+      expect(ci).toEqual([
+        '| Budget | Value (median unless noted) | Limit | Result |',
+        '|---|---:|---:|---|',
+        `| First rendered map | 6.08 s | 3.50 s | ${note} |`,
+        '| Entry bytes | 1.50 MiB | 1.50 MiB | FAIL |',
+      ])
+    })
+
     it('checks against an overridden budget', () => {
       const { budget } = resolveBudget({ firstMapMs: '2500' })
       expect(judge([run(3000)], { budget, compact: true })).toMatchObject({ budget: { firstMapMs: 2500 }, pass: false })
@@ -147,6 +176,12 @@ describe('atlas perf budget', () => {
       const { code, report } = check([run(3600), run(3700), run(3400)], { enforce: false })
       expect(await code).toBe(EXIT.PASS)
       expect(report.mock.calls[0][1].pass).toBe(false)
+    })
+
+    it('exits 0 on a slow first map that is informational, and 1 when entry bytes miss', async () => {
+      const note = 'SwiftShader, informational'
+      expect(await check([run(6057), run(6415), run(6075)], { firstMapNote: note }).code).toBe(EXIT.PASS)
+      expect(await check([run(6075, 1.6 * MIB)], { firstMapNote: note }).code).toBe(EXIT.BUDGET_MISSED)
     })
 
     it('exits 1 under an overridden budget the default would pass', async () => {
@@ -195,6 +230,7 @@ describe('atlas perf budget', () => {
       [['https://example.test', '--budget-ms', '0'], '--budget-ms must be a positive integer'],
       [['https://example.test', '--budget-bytes', '1.5'], '--budget-bytes must be a positive integer'],
       [['https://example.test', '--budget-ms'], '--budget-ms needs a value'],
+      [['https://example.test', '--first-map-informational', ' '], '--first-map-informational needs a non-empty note'],
     ])('exits 2 for %j', (args, message) => {
       const result = cli(...args)
       expect(result.status).toBe(EXIT.HARNESS_ERROR)
