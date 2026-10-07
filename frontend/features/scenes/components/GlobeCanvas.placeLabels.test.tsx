@@ -139,6 +139,11 @@ vi.mock('maplibre-gl', () => {
     getContainer() {
       return this.container
     }
+    // The stub's canvas is not in its container; its markers sit in the
+    // container itself (StubMarker.addTo).
+    getCanvasContainer() {
+      return this.canvas
+    }
     project(lngLat: [number, number]) {
       return project(lngLat)
     }
@@ -315,6 +320,33 @@ describe('GlobeCanvas place labels', () => {
     const farSide = { ...SCENES[0], city: 'Far Side', slug: 'far-side-xx', longitude: 90, latitude: 46.5 }
     await showMap(true, [SCENES[0], farSide])
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
+  })
+
+  it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
+    // A control the page draws over Clear City's label (213,323 to 273,335).
+    const overClearCity = (button: HTMLButtonElement | null) => {
+      if (!button) return
+      button.getBoundingClientRect = () =>
+        ({ left: 200, top: 315, right: 290, bottom: 345, width: 90, height: 30 }) as DOMRect
+    }
+    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
+    render(
+      <div>
+        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />
+        <button type="button" ref={overClearCity}>
+          Drift
+        </button>
+      </div>,
+    )
+    await act(async () => {
+      maps[0].fire('style.load')
+      maps[0].fire('render')
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="atlas-scene-label"]')).not.toBeNull(),
+    )
+    expect(globeSurface.loadGlobePlaces).toHaveBeenCalled()
+    expect(placeLabelTexts()).toEqual([])
   })
 
   it('reports a place file that could not be loaded and draws no place label', async () => {

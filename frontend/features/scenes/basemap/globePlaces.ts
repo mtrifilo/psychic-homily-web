@@ -9,9 +9,10 @@
 //   in);
 // - density: at most placeLabelBudget() labels on screen, in the file's rank
 //   order (capitals and the largest cities first);
-// - collisions: a place label never overlaps a scene label or a scene dot, or
-//   another place label. Scene marks are fixed obstacles, so a scene always
-//   wins its spot.
+// - collisions: a place label never overlaps a scene label or a scene dot, a
+//   control drawn over the map, or another place label. Scene marks and
+//   controls are fixed obstacles, so a scene always wins its spot and no
+//   label sits under a control.
 
 /** A labellable place; `rank` 0 is the first to label. */
 export interface GlobePlace {
@@ -162,7 +163,8 @@ function inside(box: Box, pane: Box): boolean {
 /**
  * The labels to keep, from candidates already in rank order: each is kept
  * when it lies wholly inside the pane and clears every blocker (scene labels
- * and dots) and every label kept before it, until `budget` are kept.
+ * and dots, and the controls over the map) and every label kept before it,
+ * until `budget` are kept.
  */
 export function pickPlaceLabels<T extends { box: Box }>(
   candidates: readonly T[],

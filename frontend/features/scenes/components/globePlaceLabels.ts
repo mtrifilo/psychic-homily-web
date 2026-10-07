@@ -43,6 +43,146 @@ export interface PlaceLabelOptions {
    * dots), relative to the map container, read at each layout.
    */
   obstacles: () => Box[]
+  /**
+   * The map's root element in the page. The page draws its chrome over the
+   * map as this element's siblings; their controls, and the map's own
+   * controls, are obstacles too (see {@link watchMapChrome}).
+   */
+  canvasRoot: HTMLElement
+}
+
+// How long the chrome must hold still after a change before its boxes are
+// read again, so a run of changes (a sheet being dragged, a panel filling
+// in) costs one read and one layout rather than one per frame.
+const CHROME_SETTLE_MS = 100
+
+const CHROME_SUBTREE_CHANGES: MutationObserverInit = {
+  attributes: true,
+  characterData: true,
+  childList: true,
+  subtree: true,
+}
+
+/**
+ * Collects, under `parent` and outside `skip`, the first elements on each
+ * path down that take pointer events. Chrome over the map keeps every wrapper
+ * around its controls at `pointer-events: none`, so the map takes drags
+ * through the gaps; the walk passes through those wrappers and stops at the
+ * controls themselves.
+ */
+function collectControls(parent: Element, skip: Element, out: Element[]): void {
+  for (const child of parent.children) {
+    if (child === skip) continue
+    if (getComputedStyle(child).pointerEvents === 'none') collectControls(child, skip, out)
+    else out.push(child)
+  }
+}
+
+function sameBoxes(a: readonly Box[], b: readonly Box[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (box, i) =>
+        box.left === b[i].left &&
+        box.top === b[i].top &&
+        box.right === b[i].right &&
+        box.bottom === b[i].bottom,
+    )
+  )
+}
+
+export interface MapChromeWatch {
+  /** The controls' boxes as last read, relative to the map container. */
+  boxes(): readonly Box[]
+  stop(): void
+}
+
+/**
+ * Keeps the boxes of the controls drawn over a map: the page's chrome
+ * (`canvasRoot`'s siblings, such as the search pill, Drift, the genre key and
+ * the My Scenes chips) and the map's own controls (the credit), relative to
+ * the map container. A control with no area (unmounted, `hidden`, an empty
+ * credit) holds no spot.
+ *
+ * The boxes are read from the DOM at the start and again once the chrome has
+ * held still for CHROME_SETTLE_MS after a resize of the pane or of a control,
+ * or a change inside the chrome (a control shown, hidden or restyled), never
+ * per frame or per camera move. `onChange` runs after a read whose boxes
+ * differ from the previous read's.
+ */
+export function watchMapChrome(
+  map: maplibregl.Map,
+  canvasRoot: HTMLElement,
+  onChange: () => void,
+): MapChromeWatch {
+  const container = map.getContainer()
+  const canvasContainer = map.getCanvasContainer()
+  const pane = canvasRoot.parentElement
+  let boxes: Box[] = []
+  let sized = new Set<Element>()
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const changed = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = undefined
+      if (read()) onChange()
+    }, CHROME_SETTLE_MS)
+  }
+  const resizes = new ResizeObserver(changed)
+  const mutations = new MutationObserver(changed)
+
+  // Observes the chrome as it stands: the pane's own attributes and children
+  // (chrome mounting and unmounting), every chrome subtree beside the canvas
+  // root and beside the map's canvas (observing a node again only renews its
+  // options), and each control's size. Reads the boxes and reports whether
+  // they changed.
+  const read = (): boolean => {
+    const controls: Element[] = []
+    if (pane) {
+      mutations.observe(pane, { attributes: true, childList: true })
+      for (const child of pane.children) {
+        if (child !== canvasRoot) mutations.observe(child, CHROME_SUBTREE_CHANGES)
+      }
+      collectControls(pane, canvasRoot, controls)
+    }
+    for (const child of container.children) {
+      if (child !== canvasContainer) mutations.observe(child, CHROME_SUBTREE_CHANGES)
+    }
+    collectControls(container, canvasContainer, controls)
+
+    const current = new Set(controls)
+    for (const el of sized) if (!current.has(el)) resizes.unobserve(el)
+    for (const el of current) if (!sized.has(el)) resizes.observe(el)
+    sized = current
+
+    const origin = container.getBoundingClientRect()
+    const next: Box[] = []
+    for (const el of controls) {
+      const r = el.getBoundingClientRect()
+      if (r.width <= 0 || r.height <= 0) continue
+      next.push({
+        left: r.left - origin.left,
+        top: r.top - origin.top,
+        right: r.right - origin.left,
+        bottom: r.bottom - origin.top,
+      })
+    }
+    const differs = !sameBoxes(boxes, next)
+    boxes = next
+    return differs
+  }
+
+  if (pane) resizes.observe(pane)
+  read()
+  return {
+    boxes: () => boxes,
+    stop: () => {
+      clearTimeout(timer)
+      resizes.disconnect()
+      mutations.disconnect()
+    },
+  }
 }
 
 /**
@@ -50,15 +190,16 @@ export interface PlaceLabelOptions {
  * them current: laid out on each camera settle, cleared as soon as the zoom
  * leaves the label range. A label's box is its place's screen point plus the
  * label's rendered size (measured once per place), so a layout builds
- * markers only for the labels it keeps (globePlaces.ts picks them). The
- * collision rules hold with the camera at rest: during a gesture the kept
- * labels ride their places until the settle lays them out again. Returns the
- * teardown.
+ * markers only for the labels it keeps (globePlaces.ts picks them). Scene
+ * marks and the controls over the map are the obstacles; a change in the
+ * controls lays the labels out again. The collision rules hold with the
+ * camera at rest: during a gesture the kept labels ride their places until
+ * the settle lays them out again. Returns the teardown.
  */
 export function mountPlaceLabels(
   map: maplibregl.Map,
   places: readonly GlobePlace[],
-  { maxZoom, obstacles }: PlaceLabelOptions,
+  { maxZoom, obstacles, canvasRoot }: PlaceLabelOptions,
 ): () => void {
   const container = map.getContainer()
   let markers: maplibregl.Marker[] = []
@@ -95,7 +236,7 @@ export function mountPlaceLabels(
     const width = container.clientWidth
     const height = container.clientHeight
     const budget = placeLabelBudget(zoom)
-    const blockers = obstacles()
+    const blockers = [...obstacles(), ...chrome.boxes()]
 
     const facing: { place: GlobePlace; x: number; y: number }[] = []
     for (const place of places) {
@@ -141,10 +282,12 @@ export function mountPlaceLabels(
     if (markers.length > 0 && !placeLabelsShowAt(map.getZoom(), maxZoom)) clear()
   }
 
+  const chrome = watchMapChrome(map, canvasRoot, layout)
   layout()
   map.on('moveend', layout)
   map.on('zoom', handleZoom)
   return () => {
+    chrome.stop()
     map.off('moveend', layout)
     map.off('zoom', handleZoom)
     clear()

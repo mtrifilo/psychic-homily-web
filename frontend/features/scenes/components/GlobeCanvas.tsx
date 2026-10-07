@@ -275,6 +275,8 @@ export default function GlobeCanvas({
   onVenueStackSelect,
 }: GlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  // The root element: the page draws its chrome beside it.
+  const canvasRootRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const haloRef = useRef<HTMLDivElement | null>(null)
   const statusChipRef = useRef<HTMLDivElement | null>(null)
@@ -730,13 +732,16 @@ export default function GlobeCanvas({
 
   // Place labels on the light globe (globePlaceLabels.ts), clear of every
   // scene label and dot on the near side of the globe, so a scene always wins
-  // its spot. Declared after the scene label effect and keyed on the same
-  // label set, so whenever that effect rebuilds its markers this one lays the
-  // place labels out again against them.
+  // its spot, and of the controls drawn over the map. Declared after the scene
+  // label effect and keyed on the same label set, so whenever that effect
+  // rebuilds its markers this one lays the place labels out again against
+  // them.
   useEffect(() => {
     if (!mapReady || !lightGlobe || cityViewActive || !places || places.length === 0) {
       return
     }
+    const canvasRoot = canvasRootRef.current
+    if (!canvasRoot) return
     const map = mapReady
     const obstacles = (): Box[] => {
       const container = map.getContainer()
@@ -770,6 +775,7 @@ export default function GlobeCanvas({
     return mountPlaceLabels(map, places, {
       maxZoom: BLACK_MARBLE_FADE_START,
       obstacles,
+      canvasRoot,
     })
   }, [mapReady, lightGlobe, cityViewActive, places, labelScenes, scenes])
 
@@ -1302,6 +1308,7 @@ export default function GlobeCanvas({
 
   return (
     <div
+      ref={canvasRootRef}
       className="relative overflow-hidden"
       data-testid="globe-cursor-wrap"
       data-atlas-credit={attributionPosition === 'top-left' ? 'top' : undefined}
