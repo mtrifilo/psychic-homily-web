@@ -31,6 +31,9 @@ import (
 type memRunStore struct {
 	mu   sync.Mutex
 	rows map[string]*memRunRow
+	// completions holds the time of every completed (not interrupted) cycle, in
+	// completion order, across all loop names.
+	completions []time.Time
 
 	registered atomic.Int32
 	retired    atomic.Int32
@@ -88,6 +91,12 @@ func (s *memRunStore) snapshot(name string) memRunRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return *s.row(name)
+}
+
+func (s *memRunStore) completionTimes() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Time(nil), s.completions...)
 }
 
 // Register mirrors the SQL: create-or-refresh identity and cadence, touching no
@@ -176,6 +185,7 @@ func (s *memRunStore) Complete(_ context.Context, name string, token time.Time, 
 		return nil
 	}
 	r.completedAt = time.Now()
+	s.completions = append(s.completions, r.completedAt)
 	r.outcome = outcome.outcomeLabel()
 	r.rows = outcome.Rows
 	r.lastErrText = outcome.errorText()
@@ -293,6 +303,17 @@ func TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion(t *testing.T) {
 // its floor would make `interval - slack` collapse and quietly retire the gate,
 // leaving the cadence carried by DueIn alone and the test asserting less than it
 // appears to.
+//
+// The upper bound is stated on COMPLETED cycles, not on calls to the work
+// function. A wake-up that lands at a process's deadline runs the work and is
+// then released as interrupted rather than completed, so the next boot finds the
+// loop overdue and runs it again (TestInterruptedCycleReleasesClaimWithoutCompleting
+// pins that release). How many wake-ups land on a deadline depends on scheduler
+// jitter of a millisecond or two, because the lifetime divides the interval
+// exactly, so a bound on calls is a bound on timing. Completions are what Claim
+// paces: a claim is refused until interval - dueSlack after the previous
+// completion, so consecutive completions are at least that far apart however the
+// restarts fall.
 func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	compressCatchUp(t, 2*time.Millisecond, time.Millisecond)
 
@@ -311,7 +332,6 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 
 	store := newMemRunStore()
 	var persistedCalls atomic.Int32
-	persistedStart := time.Now()
 	for i := 0; i < restarts; i++ {
 		runFor(LoopConfig{
 			Name:     cfgName,
@@ -319,7 +339,6 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 			Store:    store,
 		}, lifetime, func(_ context.Context) { persistedCalls.Add(1) })
 	}
-	persistedElapsed := time.Since(persistedStart)
 
 	var unpersistedCalls atomic.Int32
 	for i := 0; i < restarts; i++ {
@@ -332,30 +351,28 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 
 	assert.Zero(t, unpersistedCalls.Load(),
 		"control: a process-lifetime-anchored wait longer than the process lifetime never fires — the original bug")
-	assert.GreaterOrEqual(t, int(persistedCalls.Load()), 2,
-		"persisted state must carry the schedule across restarts; %d restarts x %v of uptime spans %v of a %v interval, got %d cycles",
-		restarts, lifetime, restarts*lifetime, interval, persistedCalls.Load())
+	completions := store.completionTimes()
+	require.GreaterOrEqual(t, len(completions), 2,
+		"persisted state must carry the schedule across restarts; %d restarts x %v of uptime spans %v of a %v interval, got %d completed cycles",
+		restarts, lifetime, restarts*lifetime, interval, len(completions))
 
-	// And progress is bounded by the INTERVAL, not by the restart count: a deploy
-	// storm must not turn into a cycle storm against third-party APIs. The bound
-	// is derived from elapsed wall time rather than hardcoded, so a slow or
-	// -race-instrumented runner (which stretches elapsed time, and with it the
-	// number of legitimately-due cycles) cannot make this fail spuriously.
-	//
-	// The pacing floor is `interval - dueSlack`, not the bare interval: that is
-	// the earliest a second claim can succeed, so it is the honest divisor.
-	// Allowance of +2: one for the catch-up cycle at the very first boot, which
-	// is not paced at all, and one for a boundary landing mid-interval.
+	// Progress is paced by the INTERVAL, not by the restart count: a deploy storm
+	// must not turn into a cycle storm against third-party APIs. If a restart
+	// reset the schedule, completions would sit one lifetime apart. The floor is
+	// `interval - dueSlack`, the earliest Claim lets the next cycle in.
 	minSpacing := interval - dueSlack(interval)
-	maxCycles := int(persistedElapsed/minSpacing) + 2
-	assert.LessOrEqual(t, int(persistedCalls.Load()), maxCycles,
-		"restarts must not multiply cycles; %v elapsed at a %v minimum spacing permits at most %d, got %d",
-		persistedElapsed, minSpacing, maxCycles, persistedCalls.Load())
+	for i := 1; i < len(completions); i++ {
+		gap := completions[i].Sub(completions[i-1])
+		assert.GreaterOrEqual(t, gap, minSpacing,
+			"restarts must not multiply cycles; completions %d and %d are %v apart, under the %v minimum spacing",
+			i-1, i, gap, minSpacing)
+	}
 
-	// The sharper statement of the same property: ten restarts did not buy ten
-	// cycles. This is what would break if a restart ever reset the schedule.
-	assert.Less(t, int(persistedCalls.Load()), restarts,
-		"a restart must not earn a cycle; that would be the mirror image of the bug")
+	// Every call to the work function is accounted for by the claim protocol:
+	// it either completed or was released as interrupted. A call that is
+	// neither ran outside the claim, so nothing paced it.
+	assert.Equal(t, int(store.finished.Load()+store.released.Load()), int(persistedCalls.Load()),
+		"every cycle the loop runs must end as a completion or a released interruption")
 }
 
 // TestCatchUpSlotsAreSpacedAndBounded covers the stampede question at its
