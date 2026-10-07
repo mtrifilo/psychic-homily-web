@@ -56,21 +56,9 @@ export function atlasMapBoundaryReporting(section: string): {
  * style has been saved (or not) and destroyed, `webglcontextrestored` after
  * the restore asked for a context. That event also follows a refused restore,
  * right after the error event: the refusal leaves the destroyed painter in
- * place, so MapLibre's no-painter guard before the event passes. `style` is
- * read once, for a style that loaded before the watch began.
+ * place, so MapLibre's no-painter guard before the event passes.
  */
-type HealthMap = Pick<MapLibreMap, 'on' | 'style'>
-
-/**
- * Whether the map's current style has loaded. MapLibre 6.0.0 sets the style's
- * `_loaded` at the start of `Style._load`, which ends by firing `style.load`
- * (a `_load` that throws part way leaves `_loaded` set with no `style.load`),
- * and a lost context destroys the style and nulls `map.style`.
- */
-function styleHasLoaded(map: HealthMap): boolean {
-  const style = map.style as { _loaded?: unknown } | null | undefined
-  return style?._loaded === true
-}
+type HealthMap = Pick<MapLibreMap, 'on'>
 
 export interface AtlasMapHealth {
   /**
@@ -94,12 +82,15 @@ export interface AtlasMapHealth {
  * on its own, and calls `onUnrecoverable` once, with the failure classified,
  * for the first of them.
  *
+ * Attach it in the same task that constructs the map, before the map can fire
+ * `style.load`: the watch learns that the style is live only from that event.
+ * MapLibre 6.0.0 fires it a frame after construction at the earliest (an
+ * inline style loads behind `browser.frameAsync`, a style URL behind its
+ * fetch), so a watch attached right after `new Map()` sees every style.
+ *
  * `onStyleLiveChange`, when given, is called with each change of
  * {@link AtlasMapHealth.styleLive}, after this watch has classified the event
- * behind it. When the style had already loaded before the watch began, it is
- * called with `true` during this call, before the returned handle exists, so
- * it must not read that handle. It is the one answer to whether the style can
- * be written.
+ * behind it. It is the one answer to whether the style can be written.
  *
  * MapLibre 6.0.0's behaviour this relies on:
  * - A lost context after the style loaded comes back with the style when the
@@ -130,8 +121,8 @@ export function watchAtlasMapHealth(
   onUnrecoverable: (error: AtlasMapUnrecoverableError) => void,
   onStyleLiveChange?: (live: boolean) => void,
 ): AtlasMapHealth {
-  let styleLive = styleHasLoaded(map)
-  let styleEverLoaded = styleLive
+  let styleLive = false
+  let styleEverLoaded = false
   let contextLost = false
   let settled = false
   // Cleared by stop() and by a failure, so a settled watch reports nothing.
@@ -221,8 +212,6 @@ export function watchAtlasMapHealth(
       fail('style-load-failed')
     }
   })
-
-  if (styleLive) reportStyleLive?.(true)
 
   return {
     styleLive: () => styleLive,

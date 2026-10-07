@@ -12,8 +12,6 @@ import { AtlasMapUnrecoverableError } from '../atlasViewport'
 
 /** The map's event surface, fired by hand in MapLibre's order. */
 class FakeMap {
-  /** MapLibre's current style; `_loaded` once its style.load has fired. */
-  style: { _loaded: boolean } | null = null
   private handlers = new Map<string, ((event: unknown) => void)[]>()
   on(type: string, handler: (event: unknown) => void) {
     this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler])
@@ -253,12 +251,11 @@ describe('watchAtlasMapHealth style-live callback', () => {
   let onUnrecoverable: ReturnType<typeof vi.fn<(error: AtlasMapUnrecoverableError) => void>>
   // Each call records the watcher's own answer beside the value passed, so a
   // callback that ran before the watcher classified its event would show up.
-  // `styleLive` is null for a call made before watchAtlasMapHealth returned.
-  let calls: { live: boolean; styleLive: boolean | null }[]
+  let calls: { live: boolean; styleLive: boolean | undefined }[]
 
   function watch() {
     health = watchAtlasMapHealth(map as unknown as MapLibreMap, onUnrecoverable, (live) => {
-      calls.push({ live, styleLive: health === null ? null : health.styleLive() })
+      calls.push({ live, styleLive: health?.styleLive() })
     })
   }
 
@@ -289,28 +286,6 @@ describe('watchAtlasMapHealth style-live callback', () => {
       { live: true, styleLive: true },
     ])
     expect(onUnrecoverable).not.toHaveBeenCalled()
-  })
-
-  it('reports a style that loaded before the watch began at once, and treats a loss as a live style lost', () => {
-    map.style = { _loaded: true }
-    watch()
-    expect(calls).toEqual([{ live: true, styleLive: null }])
-    expect(health?.styleLive()).toBe(true)
-
-    map.style = null
-    map.fire('webglcontextlost')
-    expect(calls.at(-1)).toEqual({ live: false, styleLive: false })
-    // A loss of a loaded style waits for the restore rather than failing at once.
-    expect(onUnrecoverable).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS)
-    expect(onUnrecoverable.mock.calls.map(([error]) => error.failureClass)).toEqual(['context-lost'])
-  })
-
-  it('does not report a style that exists but has not loaded when the watch began', () => {
-    map.style = { _loaded: false }
-    watch()
-    expect(calls).toEqual([])
-    expect(health?.styleLive()).toBe(false)
   })
 
   it('stays quiet for an event that leaves the answer unchanged', () => {
@@ -379,9 +354,9 @@ describe('atlasMapBoundaryReporting', () => {
  * loaded is not saved for the restore, a restore re-sets the saved style, and
  * a refused context is a GPUInitializationError by name. On a version change,
  * re-read `_contextLost`, `_contextRestored`, `_setupPainter` and the
- * constructor's painter check in src/ui/map.ts, and `serialize` and `_load`
- * (where `_loaded` is set beside `style.load`) in src/style/style.ts, then
- * bump this.
+ * constructor's painter check in src/ui/map.ts, and `serialize` and
+ * `loadJSON` (the style loads a frame after construction at the earliest) in
+ * src/style/style.ts, then bump this.
  */
 describe('maplibre context-loss contract', () => {
   it('is pinned to the verified maplibre-gl version', () => {

@@ -29,6 +29,9 @@ const stub = vi.hoisted(() => {
     markers: [] as StubMarker[],
     // MapLibre 6 builds a map with no painter when WebGL2 is refused.
     painterless: false,
+    // Each map fires style.load in a microtask its constructor queues: after
+    // the task that built it, and sooner than MapLibre's next frame.
+    styleLoadAfterConstruction: false,
   }
 
   class StubMap {
@@ -48,6 +51,9 @@ const stub = vi.hoisted(() => {
     constructor(public options: { container: HTMLElement }) {
       this.container = options.container
       state.maps.push(this)
+      if (state.styleLoadAfterConstruction) {
+        queueMicrotask(() => this.fire('style.load'))
+      }
     }
     private add(key: string, handler: (event: unknown) => void) {
       this.handlers.set(key, [...(this.handlers.get(key) ?? []), handler])
@@ -202,6 +208,32 @@ describe('GlobeCanvas sheet-layout seams', () => {
     stub.state.maps = []
     stub.state.markers = []
     sessionStorage.clear()
+  })
+
+  // watchAtlasMapHealth learns the style is live only from style.load, so it
+  // has to be attached in the task that builds the map.
+  it('sees a style.load that fires right after the task that built the map', async () => {
+    stub.state.styleLoadAfterConstruction = true
+    try {
+      render(
+        <GlobeCanvas
+          width={390}
+          height={723}
+          scenes={[CHICAGO]}
+          pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
+          onSelect={vi.fn()}
+          venues={PINS}
+          cityLabel="Chicago, IL"
+          venueStacks={[STACK]}
+          onVenueStackSelect={vi.fn()}
+        />,
+      )
+      await act(async () => {})
+      // The stack markers mount only once the style is live.
+      expect(screen.getByRole('button', { name: /2 venues · city centre/ })).toBeInTheDocument()
+    } finally {
+      stub.state.styleLoadAfterConstruction = false
+    }
   })
 
   it('docks the attribution bottom-left by default', () => {

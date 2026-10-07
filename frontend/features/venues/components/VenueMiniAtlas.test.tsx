@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import {
   resetStubMaps,
+  stubMapOptions,
   stubMaps,
   type StubMap,
 } from '@/test/miniAtlasMapStub'
@@ -130,6 +131,18 @@ describe('VenueMiniAtlas', () => {
     const busy = features[0].properties?.radiusPx as number
     const quiet = features[1].properties?.radiusPx as number
     expect(busy).toBeGreaterThan(quiet)
+  })
+
+  // watchAtlasMapHealth learns the style is live only from style.load, so it
+  // has to be attached in the task that builds the map.
+  it('sees a style.load that fires right after the task that built the map', async () => {
+    stubMapOptions.styleLoadAfterConstruction = true
+    renderAtlas()
+    const map = theMap()
+    await act(async () => {})
+    act(() => map.fire('load'))
+
+    expect(lastFeatures(map)).toHaveLength(2)
   })
 
   it('marks a room with nothing booked as quiet', () => {

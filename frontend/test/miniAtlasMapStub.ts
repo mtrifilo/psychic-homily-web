@@ -29,14 +29,19 @@ export interface StubMap {
 export const stubMaps: StubMap[] = []
 
 /**
- * While false, every map constructed has no painter (a refused context), until
- * {@link resetStubMaps}. Such a map's `remove()` throws, as maplibre-gl's does.
+ * While `grantContext` is false, every map constructed has no painter (a
+ * refused context), until {@link resetStubMaps}. Such a map's `remove()`
+ * throws, as maplibre-gl's does. While `styleLoadAfterConstruction` is true,
+ * every map constructed fires `style.load` in a microtask queued by its
+ * constructor: sooner than maplibre-gl, which loads a style a frame after
+ * construction at the earliest, and after the task that built the map.
  */
-export const stubMapOptions = { grantContext: true }
+export const stubMapOptions = { grantContext: true, styleLoadAfterConstruction: false }
 
 export function resetStubMaps(): void {
   stubMaps.length = 0
   stubMapOptions.grantContext = true
+  stubMapOptions.styleLoadAfterConstruction = false
 }
 
 export function maplibreStubModule() {
@@ -86,6 +91,9 @@ export function maplibreStubModule() {
 
     constructor(public options: Record<string, unknown>) {
       stubMaps.push(this as unknown as StubMap)
+      if (stubMapOptions.styleLoadAfterConstruction) {
+        queueMicrotask(() => this.fire('style.load'))
+      }
     }
 
     getSource() {
