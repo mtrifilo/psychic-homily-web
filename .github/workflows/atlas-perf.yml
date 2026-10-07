@@ -1,0 +1,201 @@
+name: Atlas Perf
+
+# Runs frontend/scripts/atlas-perf.mjs against the PR's Vercel preview: three
+# cold runs, medians checked against the script's budget (first rendered map
+# at most 3.5 s, entry at most 1.5 MiB), with the report in the job summary.
+#
+# NON-BLOCKING: the job sets `continue-on-error: true`, so a missed budget or
+# a harness error marks the job but never fails the workflow run.
+#
+# Preview discovery and the protection bypass work as in
+# lighthouse-explore.yml: the deployments API finds the vercel[bot] Preview
+# deployment for the PR head SHA, and the VERCEL_AUTOMATION_BYPASS_SECRET
+# repository secret gets past Vercel SSO. The script receives the secret as
+# VERCEL_PROTECTION_BYPASS, sends it only to this project's preview hosts on
+# one bypass-cookie request per run, and redacts it from its output.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - frontend/features/scenes/**
+      - frontend/scripts/atlas-perf.mjs
+      - frontend/scripts/lib/atlas-perf-gate.mjs
+      - frontend/next.config.*
+      - .github/workflows/atlas-perf.yml
+
+# Default for jobs without their own block; a job-scoped `permissions:` block
+# REPLACES this rather than extending it.
+permissions:
+  contents: read
+
+jobs:
+  atlas-perf:
+    name: Atlas perf (preview)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # Step caps: preview wait 12 + reachability 6 + Playwright deps 10 +
+    # browsers 4 + measurement 15 = 47, plus about 4 for checkout, bun and
+    # the install. 60 leaves slack so a step cap fires before the job cap.
+    timeout-minutes: 60
+    # `deployments: read` for the preview discovery; `contents: read` for
+    # actions/checkout. The head SHA comes from `context.payload`, so no
+    # `pull-requests` scope.
+    permissions:
+      contents: read
+      deployments: read
+    env:
+      # AtlasGlobe renders the scene list instead of the map in a container
+      # narrower than GLOBE_BREAKPOINT_PX (640), so the script's 390x844 phone
+      # profile cannot measure a build that has that gate. 800x1000 renders
+      # the compact map and stands in for the phone profile.
+      ATLAS_PERF_VIEWPORT: 800x1000
+    steps:
+      - uses: actions/checkout@v4
+
+      # The script polls for up to 10 minutes; the cap adds room for the API
+      # calls themselves.
+      - name: Find Vercel preview URL
+        id: vercel-preview
+        timeout-minutes: 12
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const start = Date.now();
+            const maxMs = 10 * 60 * 1000;
+            const intervalMs = 5000;
+
+            core.info(`Looking for Vercel Preview deployment for ${sha}`);
+
+            while (Date.now() - start < maxMs) {
+              const { data: deployments } = await github.rest.repos.listDeployments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                environment: 'Preview',
+                per_page: 20,
+              });
+
+              for (const dep of deployments) {
+                if (dep.creator?.login !== 'vercel[bot]') continue;
+                const { data: statuses } = await github.rest.repos.listDeploymentStatuses({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: dep.id,
+                  per_page: 20,
+                });
+                const success = statuses.find((s) => s.state === 'success');
+                if (success?.target_url) {
+                  core.info(`Found preview: ${success.target_url}`);
+                  core.setOutput('url', success.target_url);
+                  return;
+                }
+              }
+
+              await new Promise((r) => setTimeout(r, intervalMs));
+            }
+
+            core.setFailed('Timeout: no successful Vercel Preview deployment found for this PR head SHA');
+
+      - name: Verify preview is reachable with bypass
+        timeout-minutes: 6
+        env:
+          PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          if [ -z "$BYPASS" ]; then
+            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is not set. See lighthouse-explore.yml for setup."
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "x-vercel-protection-bypass: $BYPASS" \
+              "$PREVIEW_URL/atlas" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Preview /atlas is reachable with bypass."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Preview /atlas never returned 200 with the bypass header after 5 minutes."
+          exit 1
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      # The same key as ci.yml's Playwright cache, which main's e2e job
+      # writes; restore only.
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+
+      - name: Harden apt against mirror stalls
+        uses: ./.github/actions/harden-apt
+
+      - name: Install Playwright system deps
+        working-directory: ./frontend
+        timeout-minutes: 10
+        run: ./node_modules/.bin/playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ./frontend
+        timeout-minutes: 4
+        run: ./node_modules/.bin/playwright install chromium
+
+      # A run is bounded by the script's three 90 s waits (navigation, first
+      # map, city view) plus 6 s of settling, so three runs fit in 15 minutes.
+      - name: Measure /atlas on the preview
+        id: measure
+        working-directory: ./frontend
+        timeout-minutes: 15
+        env:
+          PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set +e
+          node scripts/atlas-perf.mjs "$PREVIEW_URL" --runs 3 --viewport "$ATLAS_PERF_VIEWPORT" --json atlas-perf.json | tee atlas-perf.md
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      # Only the script's stdout reaches the summary; its stderr (harness
+      # errors) stays in the step log.
+      - name: Write job summary
+        if: ${{ !cancelled() && steps.vercel-preview.outputs.url != '' }}
+        working-directory: ./frontend
+        env:
+          EXIT_CODE: ${{ steps.measure.outputs.exit_code }}
+        run: |
+          case "$EXIT_CODE" in
+            0) result="budget met (exit 0)" ;;
+            1) result="budget missed (exit 1)" ;;
+            2) result="harness error (exit 2); see the step log" ;;
+            *) result="the measurement did not finish; see the step log" ;;
+          esac
+          {
+            echo "## Atlas perf (preview, non-blocking)"
+            echo
+            echo "Result: $result."
+            echo
+            echo "Viewport: $ATLAS_PERF_VIEWPORT, a stand-in for the 390x844 phone profile: below 640px wide the Atlas renders its scene list instead of the map."
+            if [ -s atlas-perf.md ]; then
+              cat atlas-perf.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the JSON report
+        if: ${{ !cancelled() && hashFiles('frontend/atlas-perf.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-perf
+          path: frontend/atlas-perf.json
+          retention-days: 14
