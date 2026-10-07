@@ -10,7 +10,8 @@ import { atlasItem } from './navData'
 /**
  * When a chrome link may prefetch while the visitor is on the Atlas:
  * - `'after-map'`: once the Atlas-ready signal releases (lib/atlasMapReady.ts).
- *   The primary destinations (the bottom tab bar, PrimaryNav) use it.
+ *   The primary navigation uses it: the bottom tab bar, PrimaryNav (top-nav
+ *   mode) and the side rail's links (side-nav mode).
  * - `'never'` (the default): not on the Atlas at all; the link loads on click.
  *   On a phone each prefetch fetches that route's own JS, and the long tail of
  *   menu, footer and banner links would spend that data on routes most Atlas
