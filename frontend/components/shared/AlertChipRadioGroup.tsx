@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { COARSE_POINTER_HIT_AREA_CLASS } from './touchTarget'
 
 export interface AlertChipOption<T extends string> {
   value: T
@@ -138,8 +139,11 @@ export function AlertChipRadioGroup<T extends string>({
           onKeyDown={event => handleKeyDown(event, index)}
           onFocus={() => setFocusIndex(index)}
           onClick={() => commit(index)}
+          // The chip's border is its visible shape, so the tap target grows
+          // through the invisible hit area, never through padding.
           className={cn(
             'rounded-full border px-2 py-0.5 transition-colors',
+            COARSE_POINTER_HIT_AREA_CLASS,
             value === option.value
               ? 'border-primary text-foreground'
               : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground',

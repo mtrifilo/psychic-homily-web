@@ -17,6 +17,7 @@ import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { playableMusicSources } from '@/lib/playableMusicSources'
 import { queryKeys } from '@/lib/queryClient'
 import { cn } from '@/lib/utils'
+import { COARSE_POINTER_HIT_AREA_CLASS } from './touchTarget'
 
 /**
  * `default` is the headed player block (or, with `compact`, the unheaded one).
@@ -304,7 +305,10 @@ export function MusicEmbed({
           href={embed.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 text-primary hover:underline text-sm"
+          className={cn(
+            'flex items-center gap-2 text-primary hover:underline text-sm',
+            COARSE_POINTER_HIT_AREA_CLASS
+          )}
         >
           {embed.label}
           <ExternalLink className="h-4 w-4" />
