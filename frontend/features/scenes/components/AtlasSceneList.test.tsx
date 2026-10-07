@@ -1,23 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockUseSceneArtists = vi.fn()
 // FollowButton pulls AuthContext (unavailable here) — mock at the module
