@@ -50,7 +50,8 @@ import {
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
-import { AtlasMapContextError } from '../atlasViewport'
+import { AtlasMapUnrecoverableError } from '../atlasViewport'
+import { watchAtlasMapHealth } from './atlasMapHealth'
 import {
   ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
@@ -298,6 +299,11 @@ export default function GlobeCanvas({
   // source loaded. The light globe's overlays wait for it, so their downloads
   // never hold up that first frame.
   const [mapLoaded, setMapLoaded] = useState<maplibregl.Map | null>(null)
+  // A failure MapLibre reports from outside React (see atlasMapHealth.ts).
+  // Rethrown from render, so it reaches the same error boundary as a failure
+  // inside React.
+  const [unrecoverable, setUnrecoverable] =
+    useState<AtlasMapUnrecoverableError | null>(null)
 
   const selectedSlug = selected?.slug ?? null
 
@@ -969,7 +975,7 @@ export default function GlobeCanvas({
     // and AtlasGlobe swaps in the scene list. The half-built map is not
     // removed: its remove() needs the painter.
     if (!(map as { painter?: unknown }).painter) {
-      throw new AtlasMapContextError()
+      throw new AtlasMapUnrecoverableError('context-refused')
     }
 
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
@@ -982,6 +988,9 @@ export default function GlobeCanvas({
     // basemapTelemetry.ts owns the filtering and the throttle. Removed with
     // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)
+
+    // Context loss and style failures that leave the map unable to draw.
+    const stopHealthWatch = watchAtlasMapHealth(map, setUnrecoverable)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1300,6 +1309,7 @@ export default function GlobeCanvas({
       clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
+      stopHealthWatch()
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a
@@ -1307,6 +1317,8 @@ export default function GlobeCanvas({
     // the canvas's lifetime; everything else this effect reads is a ref or
     // setter, so the camera never re-aims on data re-renders.
   }, [pov, flyToRef])
+
+  if (unrecoverable) throw unrecoverable
 
   return (
     <div

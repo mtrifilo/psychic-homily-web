@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
-import { AtlasMapContextError } from '../atlasViewport'
+import { AtlasMapUnrecoverableError } from '../atlasViewport'
+import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from './atlasMapHealth'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -362,7 +363,110 @@ describe('GlobeCanvas without a WebGL2 context', () => {
       </GraphSectionErrorBoundary>,
     )
     expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapContextError)
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapUnrecoverableError)
+    expect(onError.mock.calls[0][0]).toMatchObject({ failureClass: 'context-refused' })
     quiet.mockRestore()
+  })
+})
+
+describe('GlobeCanvas failures MapLibre reports outside React', () => {
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    sessionStorage.clear()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  function renderInBoundary({ styleLoaded }: { styleLoaded: boolean }) {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onError = vi.fn()
+    const onCameraSettle = vi.fn()
+    render(
+      <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
+        <GlobeCanvas
+          width={390}
+          height={723}
+          scenes={[CHICAGO]}
+          pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
+          onSelect={vi.fn()}
+          onCameraSettle={onCameraSettle}
+        />
+      </GraphSectionErrorBoundary>,
+    )
+    const map = stub.state.maps[stub.state.maps.length - 1]
+    if (styleLoaded) act(() => map.fire('style.load'))
+    return { map, onError, onCameraSettle }
+  }
+
+  function expectFellBack(onError: ReturnType<typeof vi.fn>, failureClass: string) {
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapUnrecoverableError)
+    expect(onError.mock.calls[0][0]).toMatchObject({ failureClass })
+    expect(screen.queryByTestId('globe-cursor-wrap')).not.toBeInTheDocument()
+  }
+
+  it('falls back when a lost context is not restored by the deadline', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: true })
+    act(() => map.fire('webglcontextlost'))
+    act(() => vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS - 1))
+    expect(onError).not.toHaveBeenCalled()
+    expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
+
+    act(() => vi.advanceTimersByTime(1))
+    expectFellBack(onError, 'context-lost')
+    expect(map.remove).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the map when a lost context is restored', () => {
+    const { map, onError, onCameraSettle } = renderInBoundary({ styleLoaded: true })
+    act(() => map.fire('webglcontextlost'))
+    act(() => vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS / 2))
+    act(() => map.fire('webglcontextrestored'))
+    act(() => map.fire('style.load'))
+    act(() => vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 10))
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
+    expect(map.remove).not.toHaveBeenCalled()
+    onCameraSettle.mockClear()
+    act(() => map.fire('moveend'))
+    expect(onCameraSettle).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back when the context is lost before the style loads', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: false })
+    act(() => map.fire('webglcontextlost'))
+    expectFellBack(onError, 'context-lost-before-style')
+  })
+
+  it('falls back on an error event during the first render, before the style loads', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: false })
+    act(() => map.fire('error', { error: new Error('style is not valid') }))
+    expectFellBack(onError, 'style-load-failed')
+  })
+
+  it('keeps the map on an error event after the style loaded', () => {
+    const { map, onError, onCameraSettle } = renderInBoundary({ styleLoaded: true })
+    act(() => map.fire('error', { error: new Error('Cannot style non-existing layer') }))
+    act(() => map.fire('error', { error: new Error('AJAXError: 503'), sourceId: 'nightEarth' }))
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
+    expect(map.remove).not.toHaveBeenCalled()
+    onCameraSettle.mockClear()
+    act(() => map.fire('moveend'))
+    expect(onCameraSettle).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops the restore deadline when the canvas unmounts', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: true })
+    act(() => map.fire('webglcontextlost'))
+    cleanup()
+    act(() => vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 10))
+    expect(onError).not.toHaveBeenCalled()
   })
 })

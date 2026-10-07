@@ -73,7 +73,7 @@ import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
-  AtlasMapContextError,
+  AtlasMapUnrecoverableError,
   atlasMapFailedThisPage,
   atlasRendersSceneList,
   atlasSupportsWebGL2,
@@ -119,6 +119,13 @@ const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
   ssr: false,
   loading: () => <GlobeSkeleton />,
 })
+
+/** The Sentry tag that names how an unrecoverable map failed. */
+function atlasMapFailureTags(error: unknown): Record<string, string> | undefined {
+  return error instanceof AtlasMapUnrecoverableError
+    ? { atlas_map_failure: error.failureClass }
+    : undefined
+}
 
 /**
  * Explore: The Globe (PSY-1213). A spin-to-discover globe where each city scene
@@ -598,15 +605,16 @@ export function AtlasGlobe() {
 
   const prefersReducedMotion = useReducedMotion()
   // Any error GlobeCanvas throws while React renders or runs its effects
-  // (MapLibre refused its WebGL2 context, the canvas module failed to load, or
-  // a later effect threw) swaps the map for the scene list for the rest of
-  // this mount, instead of the app's error page. A refused context also holds
-  // for the rest of the page load, since a retry would fail the same way.
-  // Errors thrown from MapLibre's own callbacks (animation frames, map events)
-  // are not React errors and do not reach it.
+  // swaps the map for the scene list for the rest of this mount, instead of
+  // the app's error page: the canvas module failed to load, an effect threw,
+  // or GlobeCanvas rethrew an AtlasMapUnrecoverableError (a refused or lost
+  // WebGL context, a style that failed to load). That last kind also holds
+  // for the rest of the page load. Exceptions thrown inside MapLibre's own
+  // callbacks (its render frames, map event handlers) are not React errors
+  // and do not reach it.
   const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
   const handleMapFailed = useCallback((error: unknown) => {
-    if (error instanceof AtlasMapContextError) markAtlasMapFailed()
+    if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed()
     setMapFailed(true)
   }, [])
   const showsSceneList =
@@ -774,7 +782,11 @@ export function AtlasGlobe() {
           data-atlas-layout={sheetLayout ? 'sheet' : undefined}
           style={paneStyle}
         >
-          <GraphSectionErrorBoundary sentryTag="atlas-map" onError={handleMapFailed}>
+          <GraphSectionErrorBoundary
+            sentryTag="atlas-map"
+            errorTags={atlasMapFailureTags}
+            onError={handleMapFailed}
+          >
             <GlobeCanvas
               width={canvasWidth}
               height={size.height}

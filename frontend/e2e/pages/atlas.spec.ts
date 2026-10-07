@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
+import { type AtlasMapSeam, stubAtlas, waitForMap } from '../helpers/atlas'
 
 /**
  * `/atlas?city=City,ST` (PSY-2079): the Atlas's one URL entry point.
@@ -244,5 +245,110 @@ test.describe('Atlas on a phone that prefers reduced motion', () => {
       'href',
       /^\/scenes\/[a-z0-9-]+$/
     )
+  })
+})
+
+/**
+ * A lost WebGL context, forced through the `WEBGL_lose_context` extension on
+ * the map's own canvas. The extension never restores on its own, so a loss
+ * without `restoreContext()` is a loss the browser never restores.
+ */
+test.describe('Atlas when the map loses its WebGL context', () => {
+  // ATLAS_CONTEXT_RESTORE_DEADLINE_MS in features/scenes/components/atlasMapHealth.ts.
+  const RESTORE_DEADLINE_MS = 3_000
+
+  type ContextSeam = Omit<AtlasMapSeam, 'getStyle'> & {
+    getCenter: () => { lng: number; lat: number }
+    once: (type: 'render', listener: () => void) => void
+    getStyle: () => { sources: Record<string, { data?: { features?: unknown[] } }> }
+  }
+  type ContextWindow = {
+    __atlasMap?: ContextSeam | null
+    __atlasLoseContext?: WEBGL_lose_context | null
+  }
+
+  function collectPageErrors(page: Page) {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    return errors
+  }
+
+  /** Loses the context and resolves once the canvas has reported it. */
+  function loseContext(page: Page) {
+    return page.evaluate(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          const w = window as unknown as ContextWindow
+          const canvas = w.__atlasMap?.getCanvas()
+          const extension = canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')
+          if (!canvas || !extension) {
+            reject(new Error('no map canvas with WEBGL_lose_context'))
+            return
+          }
+          w.__atlasLoseContext = extension
+          canvas.addEventListener('webglcontextlost', () => resolve(), { once: true })
+          extension.loseContext()
+        })
+    )
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await stubAtlas(page)
+  })
+
+  test('falls back to the scene list when the context is not restored', async ({ page }) => {
+    const errors = collectPageErrors(page)
+    await page.goto('/atlas')
+    await waitForMap(page)
+
+    await loseContext(page)
+    const list = page.getByTestId('atlas-scene-list')
+    await expect(list).toBeVisible({ timeout: RESTORE_DEADLINE_MS + 10_000 })
+    await expect(list.getByText('Phoenix')).toBeVisible()
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps the map when the context is restored', async ({ page }) => {
+    const errors = collectPageErrors(page)
+    await page.goto('/atlas')
+    await waitForMap(page)
+
+    await loseContext(page)
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const w = window as unknown as ContextWindow
+          w.__atlasMap!.getCanvas().addEventListener('webglcontextrestored', () => resolve(), {
+            once: true,
+          })
+          w.__atlasLoseContext!.restoreContext()
+        })
+    )
+    // MapLibre re-creates the style it saved at the loss.
+    await waitForMap(page)
+
+    // Past the deadline, the map is still the map.
+    await page.evaluate(
+      (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      RESTORE_DEADLINE_MS + 1_000
+    )
+    await expect(page.getByTestId('atlas-scene-list')).toHaveCount(0)
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
+
+    // And it still draws: the scene came back with the style, and a camera
+    // move renders a frame.
+    const restored = await page.evaluate(
+      () =>
+        new Promise<{ scenes: number; rendered: boolean }>((resolve) => {
+          const map = (window as unknown as ContextWindow).__atlasMap!
+          const scenes = map.getStyle().sources.scenes?.data?.features?.length ?? 0
+          map.once('render', () => resolve({ scenes, rendered: true }))
+          const center = map.getCenter()
+          map.jumpTo({ center: [center.lng, center.lat], zoom: map.getZoom() + 0.5 })
+        })
+    )
+    expect(restored).toEqual({ scenes: 1, rendered: true })
+    expect(errors).toEqual([])
   })
 })

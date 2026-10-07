@@ -16,6 +16,9 @@
  * Parameterized by:
  *   - `sentryTag`: the `section` tag the failure is reported under, so the
  *     surfaces are distinguishable in Sentry.
+ *   - `errorTags`: optional extra Sentry tags read from the caught error, for a
+ *     consumer whose errors carry their own classification (the Atlas tags
+ *     how its map failed). The `section` tag always wins a name clash.
  *   - `fallback`: what to render on error. Omit it to SELF-HIDE (render nothing —
  *     the homepage's posture: the section just disappears). Provide a node to show
  *     a visible state (/explore's posture).
@@ -50,6 +53,8 @@ interface GraphSectionErrorBoundaryProps {
   fallback?: ReactNode
   /** Notified once when a failure is caught, after it is reported to Sentry. */
   onError?: (error: unknown) => void
+  /** Extra Sentry tags for the caught error, beside `section`. */
+  errorTags?: (error: unknown) => Record<string, string> | undefined
 }
 
 interface GraphSectionErrorBoundaryState {
@@ -71,7 +76,7 @@ export class GraphSectionErrorBoundary extends Component<
     // CDN flake) would otherwise kill the section for everyone with nothing
     // reported (app/global-error.tsx never sees it — this boundary caught it).
     Sentry.captureException(error, {
-      tags: { section: this.props.sentryTag },
+      tags: { ...this.props.errorTags?.(error), section: this.props.sentryTag },
     })
     this.props.onError?.(error)
   }

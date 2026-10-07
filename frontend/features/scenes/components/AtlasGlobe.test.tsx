@@ -161,11 +161,12 @@ let lastCanvasProps: {
   onSelect?: (scene: PlaceableScene) => void
 } = {}
 // Set by a case to make the canvas throw from its mount effect, as the real
-// GlobeCanvas does when MapLibre gets no WebGL2 context.
-let mockCanvasThrowsOnStart: false | 'context' | 'other' = false
+// GlobeCanvas does when MapLibre gets no WebGL2 context ('context') or a lost
+// context is not restored ('lost').
+let mockCanvasThrowsOnStart: false | 'context' | 'lost' | 'other' = false
 vi.mock('./GlobeCanvas', async () => {
   const { useEffect } = await import('react')
-  const { AtlasMapContextError } = await import('../atlasViewport')
+  const { AtlasMapUnrecoverableError } = await import('../atlasViewport')
   return {
     default: function MockGlobeCanvas(
       props: typeof lastCanvasProps & {
@@ -175,13 +176,20 @@ vi.mock('./GlobeCanvas', async () => {
       if (props.flyToRef) props.flyToRef.current = flyToSpy
       lastCanvasProps = props
       useEffect(() => {
-        if (mockCanvasThrowsOnStart === 'context') throw new AtlasMapContextError()
+        if (mockCanvasThrowsOnStart === 'context') throw new AtlasMapUnrecoverableError('context-refused')
+        if (mockCanvasThrowsOnStart === 'lost') throw new AtlasMapUnrecoverableError('context-lost')
         if (mockCanvasThrowsOnStart === 'other') throw new Error('a later effect threw')
       }, [])
       return <div data-testid="globe-canvas" />
     },
   }
 })
+
+const captureException = vi.fn()
+vi.mock('@sentry/nextjs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@sentry/nextjs')>()),
+  captureException: (...args: unknown[]) => captureException(...args),
+}))
 
 const preloadAtlasMap = vi.fn()
 vi.mock('./atlasMapPreload', () => ({
@@ -470,6 +478,33 @@ describe('AtlasGlobe', () => {
       renderWithScenes()
       expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
       expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+      quiet.mockRestore()
+    })
+
+    it('latches the list and tags Sentry when a lost context is not restored', async () => {
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      captureException.mockClear()
+      mockCanvasThrowsOnStart = 'lost'
+      setMockContainerWidth(390)
+      renderWithScenes()
+      await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
+      expect(mockMapFailedThisPage).toBe(true)
+      expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+        tags: { atlas_map_failure: 'context-lost', section: 'atlas-map' },
+      })
+      quiet.mockRestore()
+    })
+
+    it('reports a failure that is not unrecoverable with the section tag alone', async () => {
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      captureException.mockClear()
+      mockCanvasThrowsOnStart = 'other'
+      setMockContainerWidth(390)
+      renderWithScenes()
+      await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
+      expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+        tags: { section: 'atlas-map' },
+      })
       quiet.mockRestore()
     })
 
