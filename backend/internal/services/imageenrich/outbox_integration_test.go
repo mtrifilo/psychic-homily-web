@@ -224,8 +224,6 @@ func (s *ImageEnrichOutboxTestSuite) TestPruneRemovesAgedTerminalRows() {
 	s.Equal(catalogm.ImageEnrichStatusPending, s.reload(agedPending.ID).Status, "aged non-terminal row kept")
 }
 
-// TestCanceledEnrichRequeuesWithoutBurningAttempt: a shutdown/cancellation mid-job
-// requeues the row to pending and does NOT count as a provider attempt.
 // TestSlowEnrichStillFinalizes pins PSY-1569: the finalize budget covers the
 // finalize WRITES, not the enrichment. Built before enrich (as it originally was),
 // a batch of provider lookups outruns it and every finalize dies with "context
@@ -237,10 +235,14 @@ func (s *ImageEnrichOutboxTestSuite) TestPruneRemovesAgedTerminalRows() {
 func (s *ImageEnrichOutboxTestSuite) TestSlowEnrichStillFinalizes() {
 	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
 
+	// The budget must cover one finalize UPDATE on the slowest runner this suite
+	// meets, and on CI a single-row UPDATE can take longer than 50ms. The enricher
+	// outlasting the budget is what makes the test discriminate, and any margin
+	// past the budget does that, so the margin stays small to keep the test fast.
 	p, engine := s.newPoller(50)
-	p.finalizeBudget = 50 * time.Millisecond
+	p.finalizeBudget = time.Second
 	engine.EnrichPhotos = func(_ context.Context, _ []uint) error {
-		time.Sleep(2 * p.finalizeBudget) // enrichment outlasts the finalize budget
+		time.Sleep(p.finalizeBudget + 100*time.Millisecond) // enrichment outlasts the finalize budget
 		return nil
 	}
 
@@ -253,6 +255,8 @@ func (s *ImageEnrichOutboxTestSuite) TestSlowEnrichStillFinalizes() {
 	s.NotNil(j.ProcessedAt, "markDone stamps processed_at")
 }
 
+// TestCanceledEnrichRequeuesWithoutBurningAttempt: a shutdown/cancellation mid-job
+// requeues the row to pending and does NOT count as a provider attempt.
 func (s *ImageEnrichOutboxTestSuite) TestCanceledEnrichRequeuesWithoutBurningAttempt() {
 	job := s.seedJob(catalogm.ImageEnrichEntityArtist, 7)
 

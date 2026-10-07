@@ -24,6 +24,14 @@ import (
 
 const testAlertWindow = 24 * time.Hour
 
+// endToEndWait bounds each wait in TestStalledSweepEndToEnd that ends on a real
+// Postgres round trip. It is a ceiling, not a duration: every wait returns as
+// soon as its condition holds, so a fast database pays nothing for it. It is
+// sized for the CI runner, where `go test ./...` runs many packages at once,
+// each with its own container, and a single-row statement can take longer than
+// 50ms.
+const endToEndWait = 10 * time.Second
+
 // registerLoop announces a loop the way RunScheduledLoop does at startup, with
 // the production lease.
 func registerLoop(t *testing.T, store *GormRunStore, name string, interval time.Duration) {
@@ -744,24 +752,43 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	SetDefaultRunStore(store)
 	t.Cleanup(func() { SetDefaultRunStore(nil) })
 
-	loopCtx, loopCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer loopCancel()
-	RunScheduledLoop(loopCtx, LoopConfig{
-		Name:       "starved_sweep",
-		Interval:   24 * time.Hour,
-		StartDelay: 24 * time.Hour, // never reaches a cycle in this window
-	}, func(context.Context) {})
+	// The loop's context has no deadline: Register runs on it, so a deadline here
+	// would bound the registration write as well as the loop's lifetime. The loop
+	// is stopped as soon as its row is visible instead, before it runs a cycle.
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		RunScheduledLoop(loopCtx, LoopConfig{
+			Name:       "starved_sweep",
+			Interval:   24 * time.Hour,
+			StartDelay: 24 * time.Hour, // never reaches a cycle in this test
+		}, func(context.Context) {})
+	}()
+	stopLoop := func() {
+		loopCancel()
+		<-loopDone
+	}
+	defer stopLoop()
 
 	// It registered itself at start even though it never ran a cycle — this is what
 	// PSY-1611 alone could not see.
-	var registered int64
-	if err := db.Raw(`SELECT COUNT(*) FROM background_service_runs WHERE name = ?`, "starved_sweep").
-		Scan(&registered).Error; err != nil {
-		t.Fatalf("count registration: %v", err)
+	registerDeadline := time.Now().Add(endToEndWait)
+	for {
+		var registered int64
+		if err := db.Raw(`SELECT COUNT(*) FROM background_service_runs WHERE name = ?`, "starved_sweep").
+			Scan(&registered).Error; err != nil {
+			t.Fatalf("count registration: %v", err)
+		}
+		if registered == 1 {
+			break
+		}
+		if time.Now().After(registerDeadline) {
+			t.Fatal("a loop must register at start, or a never-started sweep stays invisible")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if registered != 1 {
-		t.Fatal("a loop must register at start, or a never-started sweep stays invisible")
-	}
+	stopLoop()
 
 	backdateCompletion(t, db, "starved_sweep", 72*time.Hour)
 
@@ -779,12 +806,12 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	check := newTestHealthCheck(store)
 
 	// The boot cycle, as a deploy would trigger it.
-	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), endToEndWait)
 	defer checkCancel()
 	check.Start(checkCtx)
 	t.Cleanup(check.Stop)
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(endToEndWait)
 	for {
 		mu.Lock()
 		_, found := findLoop(received, "starved_sweep")
