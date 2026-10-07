@@ -71,6 +71,15 @@ describe('atlasMapReady', () => {
     expect(m.isAtlasMapReady()).toBe(false)
   })
 
+  it('keeps a second arm working when the first disarms', async () => {
+    const m = await load()
+    const disarmFirst = m.armAtlasMapReadyFallbacks()
+    m.armAtlasMapReadyFallbacks()
+    disarmFirst()
+    window.dispatchEvent(new Event('keydown'))
+    expect(m.isAtlasMapReady()).toBe(true)
+  })
+
   it('removes its input listeners and timer once the map releases it', async () => {
     const m = await load()
     const remove = vi.spyOn(window, 'removeEventListener')

@@ -46,6 +46,33 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    // The app chrome renders on /atlas, where its links hold their prefetches
+    // until the map is up (components/layout/nav/ChromeLink.tsx). A direct
+    // next/link import there would skip that hold. AdminDrawerNav only renders
+    // under /admin.
+    files: ["components/layout/**/*.tsx"],
+    ignores: [
+      "components/layout/nav/ChromeLink.tsx",
+      "components/layout/AdminDrawerNav.tsx",
+      "components/layout/**/*.test.tsx",
+    ],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "next/link",
+              message:
+                "Use ChromeLink from @/components/layout/nav/ChromeLink: it holds the prefetch on /atlas until the map is up.",
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

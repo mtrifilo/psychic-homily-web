@@ -632,11 +632,17 @@ export function AtlasGlobe() {
   useEffect(() => {
     if (mapMayMount) preloadAtlasMap()
   }, [mapMayMount])
-  // Where no map will draw, nothing should wait for its first frame.
-  const paneMeasured = size !== null
+  // True exactly when the content below takes a branch with no map: the error
+  // state, the scene list, or a loaded scene set with nothing to place. Keep it
+  // in step with those branches: whatever waits on the Atlas-ready signal is
+  // released here when no map will draw. Loading and the unmeasured first
+  // commit are not on the list, since a map may still follow.
+  const mapWillNotDraw =
+    isError ||
+    (size !== null && (showsSceneList || (!isLoading && placeable.length === 0)))
   useEffect(() => {
-    if (paneMeasured && !mapMayMount) markAtlasMapReady()
-  }, [paneMeasured, mapMayMount])
+    if (mapWillNotDraw) markAtlasMapReady()
+  }, [mapWillNotDraw])
 
   let content: ReactNode
   if (isError) {

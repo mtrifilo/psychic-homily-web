@@ -18,20 +18,22 @@ function useChromeHoldsPrefetch(): boolean {
   // Read at render, not in an effect: Next registers a Link's prefetch when it
   // first mounts, so the hold has to be in place on the first commit.
   const pathname = usePathname()
-  const mapReady = useSyncExternalStore(
+  const released = useSyncExternalStore(
     subscribeAtlasMapReady,
     isAtlasMapReady,
     () => false
   )
-  return pathname === atlasItem.href && !mapReady
+  return pathname === atlasItem.href && !released
 }
 
 /**
- * `next/link` for the app chrome (top bar, bottom tab bar, menus, footer,
- * consent banner). While {@link useChromeHoldsPrefetch} holds, the link renders
- * with `prefetch={false}`; when it releases, the link takes the caller's
- * `prefetch` again, and Next re-arms its viewport prefetch because the Link's
- * ref callback depends on whether prefetch is enabled.
+ * `next/link` for the app chrome; the lint rule on `components/layout` keeps
+ * the chrome from importing `next/link` directly. While
+ * {@link useChromeHoldsPrefetch} holds, the link renders with
+ * `prefetch={false}`, which in the App Router also turns off its hover and
+ * touchstart prefetch. When the hold releases, the link takes the caller's
+ * `prefetch` again and Next starts observing it for viewport prefetch (pinned
+ * against the real Link in ChromeLink.test.tsx).
  */
 export function ChromeLink({ prefetch, ...props }: ComponentProps<typeof Link>) {
   const holdsPrefetch = useChromeHoldsPrefetch()
