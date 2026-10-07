@@ -512,8 +512,9 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   const RESTORE_DEADLINE_MS = 3_000
 
   // Each test boots a SwiftShader map and then waits out the restore
-  // deadline in real time. The timeout sits above waitForMap's own poll
-  // timeout, which one boot may use in full.
+  // deadline in real time. The timeout leaves room for one boot to use all
+  // of waitForMap's poll timeout (e2e/helpers/atlas.ts); the restore test's
+  // second waitForMap, on the restored style, shares what is left.
   test.setTimeout(120_000)
 
   type ContextWindow = {
